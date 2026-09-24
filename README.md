@@ -213,4 +213,5 @@ docker-compose logs -f web
 
 **⚠️ Production deployment:** Перед развёртыванием обязательно прочитайте [audit_report.pdf](download/audit_report.pdf) и заполните `.env.production` реальными секретами.
 #   c o n d i t e r a  
+ #   c o n d i t e r a  
  
