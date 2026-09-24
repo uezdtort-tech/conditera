@@ -5,6 +5,7 @@ import { useAppStore } from '@/lib/store';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { AuthModal } from '@/components/layout/auth-modal';
+import { LiveProductsHydrator } from '@/components/marketplace/live-products-hydrator';
 import { PromoPopup } from '@/components/layout/promo-popup';
 import { CartDrawer } from '@/components/marketplace/cart-drawer';
 import { ChatWidget } from '@/components/chat/chat-widget';
@@ -141,7 +142,11 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       case 'dashboard-courier': return <CourierDashboard />;
       case 'dashboard-admin': return <AdminDashboard />;
       case 'dashboard-extra': return <ExtraDashboards />;
-      default: return <HomePage />;
+      default:
+        // Нераспознанные dashboard-view нишевых ролей → их дашборд (roleMap),
+        // а не HomePage
+        if (view.startsWith('dashboard-')) return <ExtraDashboards />;
+        return <HomePage />;
     }
   };
 
@@ -150,6 +155,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       <Header />
       <main className="flex-1">{renderView()}</main>
       {!isDashboard && <Footer />}
+      <LiveProductsHydrator />
       <AuthModal />
       <PromoPopup />
       <CartDrawer />

@@ -217,3 +217,163 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return handleRouteError(error);
   }
 }
+
+/**
+ * PATCH — обновление товара поставщика.
+ * Body: { id, name?, category?, unit?, quantity?, minQuantity?, costPerUnit?, expiryDate?, storageLocation? }
+ * Ownership: inventory_items.confectioner_id === userId.
+ */
+export async function PATCH(request: NextRequest): Promise<NextResponse> {
+  try {
+    const user = await getUserFromRequest(request);
+    if (!user) throw new HttpError(401, "Не авторизован");
+    if (!user.roles.includes("SUPPLIER")) throw new HttpError(403, "Нет прав");
+
+    const { data: body, error: parseErr } = await safeJsonBody<CreateProductBody & { id?: string }>(request);
+    if (parseErr) throw new HttpError(400, parseErr);
+    if (!body || typeof body.id !== "string" || body.id.length === 0) {
+      throw new HttpError(400, "Укажите id товара");
+    }
+
+    // Существование + ownership
+    const { data: existing, error: fetchErr } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, confectioner_id")
+      .eq("id", body.id)
+      .maybeSingle() as { data: { id: string; confectioner_id: string } | null; error: SupabaseError | null };
+
+    if (fetchErr) throw new HttpError(500, "Не удалось проверить товар");
+    if (!existing) throw new HttpError(404, "Товар не найден");
+    if (existing.confectioner_id !== user.userId) throw new HttpError(403, "Нет доступа к этому товару");
+
+    const updates: Record<string, unknown> = {};
+
+    if (body.name !== undefined) {
+      if (typeof body.name !== "string" || body.name.trim().length === 0) {
+        throw new HttpError(400, "Укажите name");
+      }
+      if (body.name.length > MAX_NAME_LENGTH) {
+        throw new HttpError(422, `name слишком длинный (макс ${MAX_NAME_LENGTH})`);
+      }
+      updates.name = body.name.trim();
+    }
+
+    if (body.category !== undefined) {
+      if (typeof body.category !== "string" || body.category.trim().length === 0) {
+        throw new HttpError(400, "Укажите category");
+      }
+      updates.category = body.category.trim();
+    }
+
+    if (body.unit !== undefined) {
+      const unitResult = readEnumField({ unit: body.unit }, "unit", UNITS);
+      if (unitResult.error || !unitResult.value) {
+        throw new HttpError(422, unitResult.error || `unit должен быть одним из: ${UNITS.join(", ")}`);
+      }
+      updates.unit = unitResult.value;
+    }
+
+    if (body.quantity !== undefined) {
+      if (typeof body.quantity !== "number" || !Number.isFinite(body.quantity) || body.quantity < 0) {
+        throw new HttpError(422, "quantity должен быть неотрицательным числом");
+      }
+      updates.quantity = Math.min(body.quantity, MAX_QUANTITY);
+    }
+
+    if (body.minQuantity !== undefined) {
+      if (typeof body.minQuantity !== "number" || !Number.isFinite(body.minQuantity) || body.minQuantity < 0) {
+        throw new HttpError(422, "minQuantity должен быть неотрицательным числом");
+      }
+      updates.min_quantity = Math.min(body.minQuantity, MAX_QUANTITY);
+    }
+
+    if (body.costPerUnit !== undefined) {
+      if (typeof body.costPerUnit !== "number" || !Number.isFinite(body.costPerUnit) || body.costPerUnit < 0) {
+        throw new HttpError(422, "costPerUnit должен быть неотрицательным числом");
+      }
+      updates.cost_per_unit = Math.min(body.costPerUnit, MAX_COST);
+    }
+
+    if (body.expiryDate !== undefined) {
+      if (body.expiryDate === null || body.expiryDate === "") {
+        updates.expiry_date = null;
+      } else if (typeof body.expiryDate === "string") {
+        const parsed = new Date(body.expiryDate);
+        if (isNaN(parsed.getTime())) throw new HttpError(422, "expiryDate — некорректная дата");
+        updates.expiry_date = parsed.toISOString();
+      }
+    }
+
+    if (body.storageLocation !== undefined) {
+      if (body.storageLocation === null || body.storageLocation === "") {
+        updates.storage_location = null;
+      } else if (typeof body.storageLocation === "string") {
+        if (body.storageLocation.length > MAX_STORAGE_LENGTH) {
+          throw new HttpError(422, `storageLocation слишком длинный (макс ${MAX_STORAGE_LENGTH})`);
+        }
+        updates.storage_location = body.storageLocation;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      throw new HttpError(400, "Нет полей для обновления");
+    }
+
+    const { data: product, error: updateErr } = await supabaseAdmin
+      .from("inventory_items")
+      .update(updates)
+      .eq("id", body.id)
+      .select()
+      .single() as { data: InventoryItemRow | null; error: SupabaseError | null };
+
+    if (updateErr || !product) {
+      console.error("[supplier/products] update failed:", updateErr?.message);
+      throw new HttpError(500, "Не удалось обновить товар");
+    }
+
+    return NextResponse.json({ product });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
+/**
+ * DELETE — удаление товара поставщика.
+ * Query: ?id=<uuid>
+ * Ownership: inventory_items.confectioner_id === userId.
+ */
+export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  try {
+    const user = await getUserFromRequest(request);
+    if (!user) throw new HttpError(401, "Не авторизован");
+    if (!user.roles.includes("SUPPLIER")) throw new HttpError(403, "Нет прав");
+
+    const id = request.nextUrl.searchParams.get("id");
+    if (!id) throw new HttpError(400, "Укажите ?id=");
+
+    // Существование + ownership
+    const { data: existing, error: fetchErr } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, confectioner_id")
+      .eq("id", id)
+      .maybeSingle() as { data: { id: string; confectioner_id: string } | null; error: SupabaseError | null };
+
+    if (fetchErr) throw new HttpError(500, "Не удалось проверить товар");
+    if (!existing) throw new HttpError(404, "Товар не найден");
+    if (existing.confectioner_id !== user.userId) throw new HttpError(403, "Нет доступа к этому товару");
+
+    const { error: deleteErr } = await supabaseAdmin
+      .from("inventory_items")
+      .delete()
+      .eq("id", id) as { error: SupabaseError | null };
+
+    if (deleteErr) {
+      console.error("[supplier/products] delete failed:", deleteErr.message);
+      throw new HttpError(500, "Не удалось удалить товар");
+    }
+
+    return NextResponse.json({ ok: true, id });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}

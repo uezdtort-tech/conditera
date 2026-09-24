@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MOCK_SUPPLIERS, MOCK_SUPPLIER_PRODUCTS } from "@/lib/mock-data";
+import { MarketplaceCtaCard } from "@/components/marketplace/marketplace-cta-card";
 import { formatCurrency } from "@/lib/finance";
 import {
   Store,
@@ -195,6 +196,16 @@ export function SupplierShopPage() {
           );
         })}
       </div>
+
+      {/* CTA: зазывалка для поставщиков ингредиентов */}
+      <MarketplaceCtaCard
+        badge="Для поставщиков и производителей"
+        title="Вы поставляете ингредиенты, сырьё или упаковку?"
+        description="Продавайте кондитерам напрямую: оптовые цены, повторные заказы из личного кабинета, складской учёт и готовая аудитория из тысяч домашних и студийных кондитеров. Комиссия — от 4%."
+        primaryLabel="Присоединиться и разместить каталог"
+        secondaryLabel="Условия для поставщиков"
+        secondaryView="for-suppliers"
+      />
 
       {/* Info cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-12">

@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DECOR_CATEGORIES } from "@/lib/mock-data-decor";
+import { MarketplaceCtaCard } from "@/components/marketplace/marketplace-cta-card";
 import { formatCurrency } from "@/lib/finance";
 import type { DecorCategory } from "@/lib/types";
 import {
@@ -322,6 +323,16 @@ export function DecorShopPage() {
           <p className="text-sm text-muted-foreground">Измените параметры поиска</p>
         </Card>
       )}
+
+      {/* CTA: зазывалка для производителей декора и упаковки */}
+      <MarketplaceCtaCard
+        badge="Для магазинов декора и упаковки"
+        title="Вы производите декор или упаковку для сладостей?"
+        description="Разместите свой каталог на «Уездном кондитере» — покупатели заказывают декор вместе с тортом, а платформа автоматически подбирает ваши товары в карточках изделий. Первый месяц без комиссии."
+        primaryLabel="Присоединиться и разместить товары"
+        secondaryLabel="Условия для магазинов"
+        secondaryView="for-suppliers"
+      />
 
       {/* Info */}
       <Card className="mt-8 p-6 bg-gradient-to-br from-rose-50 to-amber-50 border-rose-200">

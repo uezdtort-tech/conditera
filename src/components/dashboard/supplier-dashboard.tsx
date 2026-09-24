@@ -24,6 +24,7 @@ import { AdminFraudMonitor } from "@/components/dashboard/admin-fraud-monitor";
 import { AdminConfectionerVerification } from "@/components/dashboard/admin-confectioner-verification";
 import { toast } from "sonner";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
+import { SupplierProductsManager } from "@/components/dashboard/supplier-products-manager";
 import {
   DashboardSidebarLayout, SidebarStat, LoadingState, ErrorState,
 } from "@/components/dashboard/_shared";
@@ -138,36 +139,7 @@ export function SupplierDashboard() {
         );
 
       case "products":
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h1 className="font-display text-2xl font-bold">Товары ({stats?.totalProducts || 0})</h1>
-              <Button onClick={() => toast.info("Добавление товара")}>
-                <Plus className="h-4 w-4 mr-1" /> Добавить
-              </Button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {products.map((p) => (
-                <Card key={p.id} className="p-3">
-                  <div className="aspect-square rounded bg-muted mb-2" />
-                  <div className="font-medium text-sm line-clamp-2 mb-1">{p.title}</div>
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">{formatCurrency(p.price)}</span>
-                    <Badge variant={p.is_active ? "default" : "secondary"} className="text-[10px]">
-                      {p.is_active ? "активен" : "скрыт"}
-                    </Badge>
-                  </div>
-                </Card>
-              ))}
-              {products.length === 0 && (
-                <Card className="p-12 text-center col-span-full">
-                  <Package className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">Товаров пока нет</p>
-                </Card>
-              )}
-            </div>
-          </div>
-        );
+        return <SupplierProductsManager />;
 
       case "finance":
         return (

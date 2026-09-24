@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { OperatorDashboard } from "@/components/dashboard/operator-dashboard";
 import { ModeratorDashboardFull } from "@/components/dashboard/moderator-dashboard";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
+import { VenueOwnerDashboard } from "@/components/dashboard/venue-owner-dashboard";
 import {
   AnimatorAgencyDashboard,
   RecreationCenterDashboard,
@@ -861,6 +862,8 @@ export function ExtraDashboards() {
     RECREATION_CENTER: () => <RecreationCenterDashboard />,
     KIDS_CLUB: () => <KidsClubDashboard />,
     INSPECTOR: () => <InspectorDashboard />,
+    // ВЛАДЕЛЕЦ ПЛОЩАДКИ — полноценный дашборд с CRUD услуг/прайсов (был осиротевшим)
+    VENUE_OWNER: () => <VenueOwnerDashboard />,
   };
 
   const DashboardComponent = roleMap[role];

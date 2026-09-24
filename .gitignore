@@ -59,3 +59,7 @@ server.log
 /db/pglite-dev/
 /db/custom.db
 /.pgsql/test-results/
+
+# Playwright artifacts
+test-results/
+playwright-report/

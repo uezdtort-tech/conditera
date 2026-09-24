@@ -134,14 +134,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const productIds = (products || []).map((p: { id: string }) => p.id);
 
     // Batch fetch confectioners
+    // ВАЖНО (split-brain identity): products.confectioner_id — auth-UUID,
+    // у confectioners он лежит в «userId» (TEXT-колонка), а не в «id».
     let confectionerMap: Record<string, { id: string; businessName: string; avatar: string; verified: boolean; city: string }> = {};
     if (confectionerIds.length > 0) {
       const { data: confData } = await supabaseAdmin
         .from("confectioners")
-        .select("id, businessName, avatar, verified, city")
+        .select("id, userId, businessName, avatar, verified, city")
         .in("userId", confectionerIds);
-      (confData || []).forEach((c: { id: string; businessName: string; avatar: string; verified: boolean; city: string }) => {
-        confectionerMap[c.id] = c;
+      (confData || []).forEach((c: { id: string; userId: string; businessName: string; avatar: string; verified: boolean; city: string }) => {
+        confectionerMap[c.userId] = c;
       });
     }
 
@@ -241,10 +243,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Найти профиль кондитера
+    // ВАЖНО: confectioners — camelCase-схема (миграция 0017): «userId», «businessName».
+    // userId = auth-UUID пользователя.
     const { data: confectioner, error: confErr } = await supabaseAdmin
       .from("confectioners")
-      .select("id, business_name")
-      .eq("user_id", user.id)
+      .select("id, userId, businessName")
+      .eq("userId", user.id)
       .maybeSingle();
 
     if (confErr || !confectioner) {
@@ -257,7 +261,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Генерировать slug если не передан
     const slug = body.slug || body.title.toLowerCase().replace(/\s+/g, "-").slice(0, 100);
 
+    // Резолв категории: body.category — slug из product_categories
+    let categoryId: string | null = null;
+    if (body.category) {
+      const { data: cat } = await supabaseAdmin
+        .from("product_categories")
+        .select("id")
+        .eq("slug", body.category)
+        .maybeSingle();
+      categoryId = cat?.id ?? null;
+    }
+
     // Создать товар
+    // Схема products (миграция 0002): price в КОПЕЙКАХ, category_id (FK),
+    // weight_grams, rating_average; images/состав живут в отдельных таблицах.
     const { data: product, error } = await supabaseAdmin
       .from("products")
       .insert({
@@ -266,19 +283,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         description: body.description || null,
         price: body.price,
         old_price: body.oldPrice || null,
-        category: body.category || null,
-        images: body.images || [],
-        confectioner_id: confectioner.id,
-        weight: body.weight || null,
+        category_id: categoryId,
+        confectioner_id: confectioner.userId,
+        weight_grams: body.weight || null,
         servings: body.servings || null,
-        prep_time: body.prepTime || null,
         tags: body.tags || [],
-        fillings: body.fillings || null,
-        coatings: body.coatings || null,
-        decorations: body.decorations || null,
-        payment_options: body.paymentOptions || null,
-        rating: 0,
-        reviews_count: 0,
+        status: "published",
+        published_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -298,10 +309,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         contentType: "product",
         contentId: product.id,
         authorId: user.id,
-        authorName: confectioner.business_name,
+        authorName: confectioner.businessName,
         title: product.title,
         content: product.description || "",
-        images: product.images || [],
+        images: body.images || [],
       });
 
       if (moderationResult.status === "rejected") {

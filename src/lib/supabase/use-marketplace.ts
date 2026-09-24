@@ -27,6 +27,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import type { Product as StoreProduct, ProductCategory } from "@/lib/types";
 
 // ==================== Types ====================
 export interface Category {
@@ -784,5 +785,84 @@ export function useConfectioners(opts: ConfectionersQuery = {}) {
     staleTime: 60 * 1000, // 1 минута — баланс свежести и нагрузки
     refetchOnWindowFocus: false,
     retry: 1, // не спамим запросами если БД недоступна
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * useLiveProducts — витрина магазина на live-данных                   *
+ * ------------------------------------------------------------------ */
+
+interface ApiProduct {
+  id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  price: number; // копейки
+  old_price: number | null;
+  weight_grams: number | null;
+  servings: number | null;
+  tags: string[] | null;
+  rating_average: number | null;
+  reviews_count: number | null;
+  is_featured: boolean | null;
+  images: string[];
+  confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
+}
+
+function guessCategory(title: string, tags: string[] | null): ProductCategory {
+  const hay = `${title} ${(tags || []).join(" ")}`.toLowerCase();
+  if (hay.includes("капкейк")) return "cupcakes";
+  if (hay.includes("макарун")) return "macarons";
+  if (hay.includes("шоколад")) return "chocolate";
+  if (hay.includes("печень")) return "cookies";
+  if (hay.includes("бенто")) return "bento";
+  if (hay.includes("эклер") || hay.includes("пирожн") || hay.includes("профитрол")) return "pastries";
+  if (hay.includes("зефир") || hay.includes("десерт") || hay.includes("мусс")) return "desserts";
+  return "cakes";
+}
+
+export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
+  return {
+    id: p.id,
+    title: p.title,
+    slug: p.slug,
+    description: p.description || "",
+    // price в БД — копейки; в store/mock — рубли
+    price: Math.round(p.price / 100),
+    oldPrice: p.old_price ? Math.round(p.old_price / 100) : undefined,
+    category: guessCategory(p.title, p.tags),
+    images: p.images || [],
+    confectionerId: p.confectioner?.id || "",
+    confectionerName: p.confectioner?.businessName || undefined,
+    confectionerAvatar: p.confectioner?.avatar || undefined,
+    rating: Number(p.rating_average ?? 0),
+    reviewsCount: p.reviews_count ?? 0,
+    servings: p.servings ?? undefined,
+    weight: p.weight_grams ? `${p.weight_grams} г` : undefined,
+    prepTime: p.is_featured ? "1 день" : "2–5 дней",
+    isHit: Boolean(p.is_featured) || (p.reviews_count ?? 0) >= 20,
+    isPopular: (p.reviews_count ?? 0) > 0,
+    tags: p.tags || [],
+  };
+}
+
+/**
+ * useLiveProducts — опубликованные товары из БД (через публичный /api/products).
+ * Пустой список = в БД нет товаров (витрина остаётся на mock-fallback).
+ */
+export function useLiveProducts(limit = 60) {
+  return useQuery<StoreProduct[]>({
+    queryKey: ["live-products", limit],
+    queryFn: async () => {
+      const res = await fetch(`/api/products?limit=${limit}&sort=popular`, {
+        next: { tags: ["products", "vitrina"], revalidate: 60 },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { products?: ApiProduct[] };
+      return (json.products ?? []).map(mapApiProductToProduct);
+    },
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 }

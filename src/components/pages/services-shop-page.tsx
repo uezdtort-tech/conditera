@@ -19,6 +19,7 @@ import {
   SERVICE_GROUPS,
   PRICE_UNIT_LABELS,
 } from "@/lib/mock-data-services";
+import { MarketplaceCtaCard } from "@/components/marketplace/marketplace-cta-card";
 import { formatCurrency } from "@/lib/finance";
 import type { ServiceCategory } from "@/lib/types";
 import {
@@ -428,6 +429,28 @@ export function ServicesShopPage() {
           </Button>
         </Card>
       )}
+
+      {/* CTA: зазывалка для организаторов услуг */}
+      <MarketplaceCtaCard
+        badge="Для организаторов праздников"
+        title="Вы оказываете праздничные услуги?"
+        description="Аниматоры, пиротехники, фотографы, мастера по шарам и печати — разместите свои услуги на платформе и получайте заказы от покупателей тортов по всей России. Оплата заказов защищена эскроу-холдом."
+        primaryLabel="Присоединиться и разместить услуги"
+        secondaryLabel="Условия для исполнителей"
+        secondaryView="for-suppliers"
+        className="from-purple-50 via-accent/30 to-rose-100 border-purple-200"
+      />
+
+      {/* CTA: зазывалка для владельцев площадок */}
+      <MarketplaceCtaCard
+        badge="Для владельцев площадок"
+        title="Сдайте площадку под праздник — сегодня"
+        description="Кафе, банкетные залы, детские клубы и открытые веранды: разместите площадку с фотографиями, прайсом и удобствами. Бронирование и предоплата — прямо на платформе."
+        primaryLabel="Присоединиться и разместить площадку"
+        secondaryLabel="Как это работает"
+        secondaryView="for-suppliers"
+        className="from-emerald-50 via-accent/30 to-teal-100 border-emerald-200"
+      />
 
       {/* Info */}
       <Card className="mt-8 p-6 bg-gradient-to-br from-purple-50 to-rose-50 border-purple-200">

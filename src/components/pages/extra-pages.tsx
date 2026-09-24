@@ -1,11 +1,23 @@
 "use client";
 
+// Реэкспорты страниц, живущих в отдельных файлах (RouteFallback обращается
+// к ним через `pages.X` — без этих экспортов прямые URL падали в Error Boundary
+// с "Element type is invalid: got undefined").
+export { DecorShopPage } from "./decor-shop-page";
+export { ServicesShopPage } from "./services-shop-page";
+export { SupplierShopPage } from "./supplier-shop-page";
+export { CorporateEventsPage } from "./corporate-events-page";
+export { GiftCertificatesPage } from "./gift-certificates-page";
+export { PromotionsPage } from "./promotions-page";
+export { TelegramBotPage } from "@/components/dashboard/customer-features-tabs";
+
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ProductCard } from "@/components/marketplace/product-card";
+import { MarketplaceCtaCard } from "@/components/marketplace/marketplace-cta-card";
 import {
   Accordion,
   AccordionContent,
@@ -135,6 +147,17 @@ export function ReadyMadePage() {
           <Button onClick={() => navigate("catalog")}>Перейти в каталог</Button>
         </Card>
       )}
+
+      {/* CTA: зазывалка для кондитеров с готовыми изделиями */}
+      <MarketplaceCtaCard
+        badge="Для кондитеров"
+        title="Есть изделия в наличии? Продавайте их уже завтра!"
+        description="Разместите готовые торты и десерты в разделе «Готовые изделия» — их получают в день заказа, без ожидания. Помечайте товары как готовые к отправке прямо в кабинете, и они появятся здесь."
+        primaryLabel="Присоединиться и разместить изделия"
+        secondaryLabel="Продавайте торты с нами"
+        secondaryView="for-confectioners"
+        className="from-emerald-50 via-accent/30 to-lime-100 border-emerald-200"
+      />
 
       {/* ===== HOW IT WORKS ===== */}
       <Card className="p-6 lg:p-8 mt-8 bg-emerald-50/50 border-emerald-200">

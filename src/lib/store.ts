@@ -155,6 +155,11 @@ interface AppState {
    * кондитеров / профили автоматически обновлялись без правок компонентов.
    */
   setConfectioners: (confectioners: typeof MOCK_CONFECTIONERS) => void;
+  /**
+   * Live-гидрация витрины: замещает mock-товары товарами из БД
+   * (вызывается LiveProductsHydrator'ом; пустой список НЕ затирает mock).
+   */
+  setLiveProducts: (products: Product[]) => void;
   couriers: Courier[];
   products: typeof MOCK_PRODUCTS;
   // Product CRUD
@@ -533,6 +538,12 @@ export const useAppStore = create<AppState>()(
       confectioners: MOCK_CONFECTIONERS,
       couriers: MOCK_COURIERS,
       products: MOCK_PRODUCTS,
+
+      setLiveProducts: (liveProducts) => {
+        // Пустой ответ из БД — витрина остаётся на mock-данных (dev/фоллбэк)
+        if (!liveProducts || liveProducts.length === 0) return;
+        set({ products: liveProducts });
+      },
 
       addProduct: (productData) => {
         const newProduct: Product = {

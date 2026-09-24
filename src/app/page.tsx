@@ -6,6 +6,7 @@ import { Header } from "@/components/layout/header";
 import { CommandPalette, useCommandPaletteShortcut } from "@/components/layout/command-palette";
 import { Footer } from "@/components/layout/footer";
 import { AuthModal } from "@/components/layout/auth-modal";
+import { LiveProductsHydrator } from "@/components/marketplace/live-products-hydrator";
 import { PromoPopup } from "@/components/layout/promo-popup";
 import { CartDrawer } from "@/components/marketplace/cart-drawer";
 import { ChatWidget } from "@/components/chat/chat-widget";
@@ -67,6 +68,10 @@ const AdminDashboard = dynamic(
 );
 const ExtraDashboards = dynamic(
   () => import("@/components/dashboard/extra-dashboards").then((m) => m.ExtraDashboards),
+  { ssr: false, loading: () => <DashboardSkeleton /> }
+);
+const VenueOwnerDashboard = dynamic(
+  () => import("@/components/dashboard/venue-owner-dashboard").then((m) => m.VenueOwnerDashboard),
   { ssr: false, loading: () => <DashboardSkeleton /> }
 );
 
@@ -219,7 +224,12 @@ export default function Home() {
         return <AdminDashboard />;
       case "dashboard-extra":
         return <ExtraDashboards />;
+      case "dashboard-venue-owner":
+        return <VenueOwnerDashboard />;
       default:
+        // Нераспознанные dashboard-view нишевых ролей → их дашборд через roleMap,
+        // а не HomePage (раньше падали на главную без объяснений)
+        if (view.startsWith("dashboard-")) return <ExtraDashboards />;
         return <HomePage />;
     }
   };
@@ -234,6 +244,7 @@ export default function Home() {
       {!isDashboard && <Footer />}
 
       {/* Global overlays */}
+      <LiveProductsHydrator />
       <AuthModal />
       <PromoPopup />
       <CartDrawer />

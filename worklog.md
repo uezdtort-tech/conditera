@@ -6272,3 +6272,24 @@ Stage Summary:
 - Storage API (бинарь supabase/storage-api) на /storage/v1 — загрузка файлов onboarding в E2E (сейчас файлы скипаются с warning: upstream 3013 недоступен).
 - Миграция витрины магазина на live-данные (каталог/продукты на mock).
 - Cron-задачи production: /api/cron/auto-approve, sitemap-refresh, daily-digest с CRON_SECRET.
+
+---
+Task ID: preview-restore-check
+Agent: main (Super Z)
+Task: Пользователь сообщил «preview-chat-8db0d6a2-...space-z.ai не позволяет установить соединение». Диагностика, восстановление доступности, попытка push 2 локальных коммитов (H4).
+
+Work Log:
+- Диагностика: весь стек УЖЕ поднят и здоров — postgres (PPID=1, с 13:48), mini-kong :8000 (PPID=1), next dev :3000 (PPID=1), postgrest :3011 (PPID=1). Все процессы демонизированы daemon-run.py — перезапуск сессии им не страшен.
+- localhost:3000 → HTTP 200 за 0.13s, title «Уездный кондитер — маркетплейс кондитерских изделий».
+- Preview-URL проверен из песочницы: https://preview-chat-8db0d6a2-4d76-4c2f-97e1-f2acac844b21.space-z.ai/ → HTTP 200 + реальный контент сайта (формат с префиксом «chat-» — единственно верный; вариант без «chat-» даёт 404).
+- Прогрев маршрутов: /confectioners → 200, /login → 200.
+- Вывод: сбой был временным (попытка пользователя пришлась на окно перезапуска стека ~15:00 UTC после рестарта сессии). Сейчас всё отвечает.
+- git status: main ahead of origin/main by 2 (7390e51 v3 round, 485af75 v3 round 2). Коммит 654d969 из старого чек-листа поглощён/переписан в этих двух.
+- Попытка git push origin main → FATAL «could not read Username for 'https://github.com'»: в песочнице нет gh CLI, ~/.git-credentials, ~/.netrc, credential.helper. H4 остаётся заблокирован учётными данными.
+- Запасной канал доставки кода: git bundle origin/main..main → /home/z/my-project/download/conditera-2commits-485af75.bundle (1.9 МБ, verify OK, базируется на 306552c = текущий origin/main).
+
+Stage Summary:
+- Preview-сайт восстановлен и проверен end-to-end (200 на /, /confectioners, /login через публичный URL).
+- H4 (push) заблокирован только отсутствием GitHub PAT; либо пользователь даёт токен (fine-grained, write на uezdtort-tech/conditera), либо применяет bundle локально: git pull /path/conditera-2commits-485af75.bundle main.
+- Незначительное: test-results/ не трекается (артефакты Playwright) — можно добавить в .gitignore в следующем раунде.
+- Актуальные остатки после v3-round-2: Storage API на /storage/v1, витрина на live-данные, cron + CRON_SECRET, Yandex OAuth, supabase gen types (C4).
