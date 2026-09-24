@@ -7,6 +7,7 @@ import {
   Bell, Check, Trash2, X, ShoppingBag, MessageCircle, Tag,
   Star, Truck, CreditCard, Info, Heart,
 } from "lucide-react";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 
 interface NotificationItem {
   id: string;
@@ -52,7 +53,9 @@ export function NotificationsBell() {
 
   const loadNotifications = async () => {
     try {
-      const res = await fetch("/api/notifications");
+      const res = await fetch("/api/notifications", {
+        headers: await getSessionAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications || []);
@@ -66,22 +69,34 @@ export function NotificationsBell() {
 
   const markRead = (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-    fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, read: true }) }).catch(() => {});
+    (async () => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      fetch("/api/notifications", { method: "PATCH", headers, body: JSON.stringify({ id, read: true }) }).catch(() => {});
+    })();
   };
 
   const markAllRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ readAll: true }) }).catch(() => {});
+    (async () => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      fetch("/api/notifications", { method: "PATCH", headers, body: JSON.stringify({ readAll: true }) }).catch(() => {});
+    })();
   };
 
   const deleteNotif = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
-    fetch(`/api/notifications?id=${id}`, { method: "DELETE" }).catch(() => {});
+    (async () => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      fetch(`/api/notifications?id=${id}`, { method: "DELETE", headers }).catch(() => {});
+    })();
   };
 
   const clearAll = () => {
     setNotifications([]);
-    fetch("/api/notifications?all=true", { method: "DELETE" }).catch(() => {});
+    (async () => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      fetch("/api/notifications?all=true", { method: "DELETE", headers }).catch(() => {});
+    })();
   };
 
   // Close on outside click

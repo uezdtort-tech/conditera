@@ -208,7 +208,8 @@ export async function cleanupOldMaintenanceLogs(daysOld: number): Promise<Cleanu
     cutoff.setDate(cutoff.getDate() - daysOld);
 
     const { count, error } = await deleteAndCount("maintenance_logs", (q) =>
-      q.lt("created_at", cutoff.toISOString())
+      // maintenance_logs (0017) — camelCase-таблица: createdAt, не created_at
+      q.lt("createdAt", cutoff.toISOString())
     );
 
     if (error) throw new Error(error.message);

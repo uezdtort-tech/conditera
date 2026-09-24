@@ -132,9 +132,12 @@ export function showTfaRequiredToast(message: string) {
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 export async function getSessionAuthHeaders(
-  csrf?: string
+  csrf?: string,
+  opts?: { json?: boolean }
 ): Promise<Record<string, string>> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // json: false — для multipart/form-data (Content-Type выставит браузер с boundary)
+  const headers: Record<string, string> =
+    opts?.json === false ? {} : { "Content-Type": "application/json" };
   try {
     const { data } = await supabaseBrowser.auth.getSession();
     const token = data.session?.access_token;
@@ -144,4 +147,20 @@ export async function getSessionAuthHeaders(
   }
   if (csrf) headers["x-csrf-token"] = csrf;
   return headers;
+}
+
+/**
+ * CSRF double-submit cookie: токен выдаёт GET /api/csrf-token
+ * (тот же токен кладётся в httpOnly cookie csrf_token).
+ * Обязателен во всех мутациях: header x-csrf-token.
+ */
+export async function getCsrfToken(): Promise<string> {
+  try {
+    const res = await fetch("/api/csrf-token");
+    if (!res.ok) return "";
+    const data = (await res.json()) as { token?: string };
+    return data.token || "";
+  } catch {
+    return "";
+  }
 }

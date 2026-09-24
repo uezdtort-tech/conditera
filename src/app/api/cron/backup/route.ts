@@ -35,8 +35,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     .insert({
       type: "BACKUP_FULL",
       status: "running",
-      triggered_by: "cron",
-      started_at: new Date().toISOString(),
+      triggeredBy: "cron",
+      startedAt: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -58,12 +58,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .from("maintenance_logs")
       .update({
         status: result.success ? "success" : "failed",
-        finished_at: new Date().toISOString(),
-        duration_ms: result.durationMs,
+        finishedAt: new Date().toISOString(),
+        durationMs: result.durationMs,
         backup_path: result.backupPath,
         backup_size_bytes: result.backupSizeBytes,
         tables_count: result.tablesCount,
-        records_affected: result.recordsExported,
+        recordsAffected: result.recordsExported,
         details: {
           oldBackupsDeleted: oldDeleted,
           backupPath: result.backupPath,
@@ -96,7 +96,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .from("maintenance_logs")
       .update({
         status: "failed",
-        finished_at: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
         error_message: error?.message ?? "Unknown error",
       })
       .eq("id", log.id);

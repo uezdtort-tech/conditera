@@ -187,10 +187,23 @@ export function AuthModal() {
     }
   };
 
-  // OAuth через Яндекс и ВК
-  const handleOAuth = (provider: "yandex" | "vk") => {
-    const redirectUrl = `${window.location.origin}/api/auth/oauth/${provider}`;
-    window.location.href = redirectUrl;
+  // OAuth через Яндекс и ВК: сначала проверяем, настроен ли провайдер
+  // (иначе навигация показала бы JSON-заглушку), потом редирект на initiation,
+  // который 302-ит на страницу провайдера.
+  const handleOAuth = async (provider: "yandex" | "vk") => {
+    try {
+      const res = await fetch(`/api/auth/oauth/${provider}?mode=check`);
+      const data = (await res.json()) as { configured?: boolean };
+      if (!data.configured) {
+        toast.error(`Вход через ${provider === "yandex" ? "Яндекс" : "ВКонтакте"} пока не настроен`, {
+          description: "Провайдер OAuth не сконфигурирован в окружении.",
+        });
+        return;
+      }
+      window.location.href = `${window.location.origin}/api/auth/oauth/${provider}`;
+    } catch {
+      toast.error("Не удалось запустить вход через соцсеть");
+    }
   };
 
   const handleRegister = (e: React.FormEvent) => {

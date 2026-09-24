@@ -48,8 +48,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     .insert({
       type: "CLEANUP_LOGS",
       status: "running",
-      triggered_by: "cron",
-      started_at: new Date().toISOString(),
+      triggeredBy: "cron",
+      startedAt: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -70,9 +70,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .from("maintenance_logs")
       .update({
         status: "success",
-        finished_at: new Date().toISOString(),
-        duration_ms: result.totalDurationMs,
-        records_affected: result.totalDeleted,
+        finishedAt: new Date().toISOString(),
+        durationMs: result.totalDurationMs,
+        recordsAffected: result.totalDeleted,
         details: {
           operations: result.results.map((r) => ({
             type: r.type,
@@ -109,7 +109,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .from("maintenance_logs")
       .update({
         status: "failed",
-        finished_at: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
         error_message: error?.message ?? "Unknown error",
       })
       .eq("id", log.id);

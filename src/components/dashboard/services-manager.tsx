@@ -13,14 +13,14 @@
  * Цены вводятся в рублях, хранятся в копейках.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Pencil, Plus, Trash2, Loader2, Sparkles, Eye, EyeOff } from "lucide-react";
+import { Pencil, Plus, Trash2, Loader2, Sparkles, Eye, EyeOff, ImagePlus, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,7 @@ import {
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/finance";
 import { SERVICE_CATEGORIES } from "@/lib/mock-data-services";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 interface ServiceRow {
   id: string;
@@ -78,6 +79,7 @@ interface FormState {
   tags: string;
   safetyNote: string;
   customizable: boolean;
+  images: string[];
 }
 
 const EMPTY_FORM: FormState = {
@@ -96,6 +98,7 @@ const EMPTY_FORM: FormState = {
   tags: "",
   safetyNote: "",
   customizable: false,
+  images: [],
 };
 
 const PRICE_TYPE_LABELS: Record<string, string> = {
@@ -136,9 +139,11 @@ export function ServicesManager() {
   const [items, setItems] = useState<ServiceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -182,6 +187,7 @@ export function ServicesManager() {
       tags: (s.tags || []).join(", "),
       safetyNote: s.safety_note || "",
       customizable: Boolean(s.customizable),
+      images: s.images || [],
     });
     setDialogOpen(true);
   };
@@ -203,7 +209,50 @@ export function ServicesManager() {
     tags: form.tags.split(",").map((s) => s.trim()).filter(Boolean),
     safety_note: form.safetyNote.trim() || null,
     customizable: form.customizable,
+    images: form.images,
   });
+
+  /** Загрузка фото в Storage (product_images) через /api/services/upload. */
+  const handleUploadFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const csrf = await getCsrfToken();
+      const fd = new FormData();
+      Array.from(files).forEach((f) => fd.append("files", f));
+      const res = await fetch("/api/services/upload", {
+        method: "POST",
+        headers: await getSessionAuthHeaders(csrf, { json: false }),
+        body: fd,
+      });
+      const data = (await res.json()) as { urls?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error || "Ошибка загрузки фото");
+      setForm((prev) => ({
+        ...prev,
+        images: [...prev.images, ...(data.urls || [])].slice(0, 8),
+      }));
+      toast.success(`Фото загружены (${(data.urls || []).length})`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Ошибка загрузки фото");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const addImageUrl = () => {
+    const url = window.prompt("URL фото (https://…)");
+    if (!url) return;
+    if (!/^https?:\/\//.test(url)) {
+      toast.error("URL должен начинаться с http(s)://");
+      return;
+    }
+    setForm((prev) => ({ ...prev, images: [...prev.images, url].slice(0, 8) }));
+  };
+
+  const removeImage = (idx: number) => {
+    setForm((prev) => ({ ...prev, images: prev.images.filter((_, i) => i !== idx) }));
+  };
 
   const handleSave = async () => {
     if (!form.title.trim()) {
@@ -308,11 +357,20 @@ export function ServicesManager() {
           {items.map((s) => (
             <Card key={s.id} className={`p-4 ${!s.is_active ? "opacity-60" : ""}`}>
               <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="min-w-0">
-                  <div className="font-semibold truncate">{s.title}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {categoryLabel(s.category)} • {PRICE_TYPE_LABELS[s.price_type] || s.price_type}
-                    {s.city ? ` • ${s.city}` : ""}
+                <div className="flex items-start gap-2 min-w-0">
+                  {s.images && s.images.length > 0 && (
+                    <img
+                      src={s.images[0]}
+                      alt={s.title}
+                      className="h-11 w-11 rounded-md object-cover border border-border shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate">{s.title}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {categoryLabel(s.category)} • {PRICE_TYPE_LABELS[s.price_type] || s.price_type}
+                      {s.city ? ` • ${s.city}` : ""}
+                    </div>
                   </div>
                 </div>
                 <Badge variant={s.is_active ? "default" : "secondary"} className="shrink-0 text-[10px]">
@@ -519,6 +577,69 @@ export function ServicesManager() {
                 placeholder="Что входит в услугу, формат программы, реквизит…"
                 rows={3}
               />
+            </div>
+
+            {/* Фото объявления — Storage (product_images), до 8 штук */}
+            <div>
+              <Label>Фотографии ({form.images.length}/8)</Label>
+              {form.images.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {form.images.map((url, idx) => (
+                    <div key={`${url}-${idx}`} className="relative group">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={`Фото ${idx + 1}`}
+                        className="h-16 w-16 rounded-md object-cover border border-border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(idx)}
+                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Убрать фото"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleUploadFiles(e.target.files)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploading || form.images.length >= 8}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-4 w-4 mr-1" />
+                  )}
+                  {uploading ? "Загружаем…" : "Загрузить фото"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={uploading || form.images.length >= 8}
+                  onClick={addImageUrl}
+                >
+                  <Plus className="h-4 w-4 mr-1" />По ссылке
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                JPG/PNG/WebP до 10 МБ. Хранятся в Supabase Storage.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

@@ -1,0 +1,68 @@
+{"id": "conditera_daily_digest",
+  "name": "Conditera — Ежедневный дайджест в 09:00",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 9 * * *" }
+          ]
+        }
+      },
+      "id": "sched-daily",
+      "name": "Ежедневно 09:00 (Europe/Moscow)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:3000/api/cron/weekly-digest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Cron-Secret", "value": "={{ $env.CONDITERA_CRON_SECRET }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-digest",
+      "name": "GET /api/cron/weekly-digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/api/cron/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Cron-Secret", "value": "={{ $env.CONDITERA_CRON_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"n8n-daily-digest\",\n  \"status\": \"success\",\n  \"duration\": 0\n}",
+        "options": {}
+      },
+      "id": "http-status",
+      "name": "Записать прогон в /api/cron/status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    }
+  ],
+  "connections": {
+    "Ежедневно 09:00 (Europe/Moscow)": {
+      "main": [[{ "node": "GET /api/cron/weekly-digest", "type": "main", "index": 0 }]]
+    },
+    "GET /api/cron/weekly-digest": {
+      "main": [[{ "node": "Записать прогон в /api/cron/status", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

@@ -127,6 +127,16 @@ export async function GET(
 
   const config = getProviderConfig(provider);
 
+  // Режим проверки для UI: кнопка соцвхода узнаёт, настроен ли провайдер,
+  // до навигации (иначе пользователь увидит JSON-заглушку).
+  const { searchParams: checkParams } = new URL(request.url);
+  if (checkParams.get("mode") === "check") {
+    return NextResponse.json({
+      provider,
+      configured: Boolean(config),
+    });
+  }
+
   // Stub mode — no real credentials configured.
   if (!config) {
     return NextResponse.json(
@@ -140,14 +150,18 @@ export async function GET(
   }
 
   // Production mode — construct the authorization URL.
-  // `state` is a CSRF token linking the initiation to the callback.
+  // `state` — CSRF-токен: кладём в httpOnly-cookie и сверяем в callback
+  // (сравнение параметра с cookie, cookie живёт 10 минут, путь — наш callback).
   const state = randomBytes(16).toString("hex");
   const redirectUrl = buildAuthorizationUrl(provider, config, state);
 
-  return NextResponse.json({
-    provider,
-    redirectUrl,
-    state,
-    stub: false,
+  const response = NextResponse.redirect(redirectUrl, { status: 302 });
+  response.cookies.set(`oauth_state_${provider}`, state, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: false, // превью-песочница без TLS на origin
+    maxAge: 600,
+    path: "/api/auth/oauth",
   });
+  return response;
 }

@@ -1,0 +1,41 @@
+{"id": "conditera_order_tg",
+  "name": "Conditera — Webhook: новый заказ → Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-order",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-new-order",
+      "name": "Webhook /webhook/new-order",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "conditera-new-order"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.CONDITERA_TG_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.CONDITERA_TG_CHAT_ID }}\",\n  \"text\": \"🎂 Новый заказ!\\n№{{ $json.body.order_number }} — {{ $json.body.total }} ₽\\nКлиент: {{ $json.body.customer_name }}\"\n}",
+        "options": {}
+      },
+      "id": "tg-notify",
+      "name": "Telegram sendMessage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Webhook /webhook/new-order": {
+      "main": [[{ "node": "Telegram sendMessage", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

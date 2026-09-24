@@ -34,6 +34,8 @@ import {
   FileText,
 } from "lucide-react";
 import { formatDistanceToNow } from "@/lib/utils";
+import { toast } from "sonner";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 
 interface Verification {
   id: string;
@@ -115,10 +117,12 @@ export function AdminOrganizationVerificationTab() {
       if (filterInn) params.set("inn", filterInn);
       params.set("limit", "100");
 
-      const resp = await fetch(`/api/organization/history?${params.toString()}`);
-      if (!resp.ok) throw new Error("Failed to load");
+      const resp = await fetch(`/api/organization/history?${params.toString()}`, {
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
+      });
+      if (!resp.ok) throw new Error(`Failed to load: HTTP ${resp.status}`);
       const data = await resp.json();
-      setVerifications(data.verifications || []);
+      setVerifications(data.verifications || data.history || []);
 
       // Compute stats
       const all = data.verifications || [];
@@ -146,7 +150,7 @@ export function AdminOrganizationVerificationTab() {
     try {
       await fetch("/api/organization/verify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({ inn, trigger: "ADMIN_MANUAL" }),
       });
       await loadVerifications();

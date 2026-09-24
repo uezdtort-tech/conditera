@@ -1,0 +1,44 @@
+{"id": "conditera_auto_approve",
+  "name": "Conditera — Cron: auto-approve каждые 30 мин",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 30 }
+          ]
+        }
+      },
+      "id": "sched-autoapprove",
+      "name": "Каждые 30 минут",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:3000/api/cron/auto-approve",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Cron-Secret", "value": "={{ $env.CONDITERA_CRON_SECRET }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-autoapprove",
+      "name": "POST /api/cron/auto-approve",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Каждые 30 минут": {
+      "main": [[{ "node": "POST /api/cron/auto-approve", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

@@ -6398,3 +6398,37 @@ Origin/main: 915b9da. /venues live + витрина услуг live + полны
 - UI-вкладка услуг для EVENT_ORGANIZER/FOOD_SERVICE (API уже принимает их роли).
 - Фото объявлений из Storage в формах услуг (бакеты готовы).
 - Yandex OAuth, cron + CRON_SECRET, supabase gen types (C4).
+
+---
+Task ID: v3-round-5-cron-oauth-n8n-db-fixes
+Agent: main (Super Z)
+Task: Пользователь: (1) console error loadVerifications, (2) фото объявлений из Storage в формах услуг, (3) cron/Yandex OAuth из бэклога, (4) n8n локально + автоматизация, (5) проверка кодовой базы, устранение проблем, полировка UI, улучшение Supabase.
+
+Work Log:
+- **loadVerifications fix (3 слоя проблем)**: миграция 0031 — schema drift: 0010 создала organization_verifications на 13 колонок, dadata.ts пишет 22 → inserts падали, история пустая. API /api/organization/history: маппинг snake_case→camelCase + обогащение profiles/confectioners + ключ verifications (компонент ждал verifications, а роут отдавал history). Компонент: getSessionAuthHeaders (Bearer) + getCsrfToken — раньше голый fetch → 401 «Failed to load». DADATA_API_KEY добавлен в .env.local (код ждёт DADATA_API_KEY, пользователь дал DADATA_API) → verify ИНН 7707083893 реально прошёл DaData (СБЕРБАНК, ACTIVE), запись в БД.
+- **run-sql.js**: после каждого DDL шлёт NOTIFY pgrst 'reload schema' (иначе PostgREST «Could not find column in schema cache»).
+- **Фото услуг из Storage**: POST /api/services/upload (multipart, 1..8 файлов, JPG/PNG/WebP ≤10МБ, бакет product_images, путь {userId}/{ts}-{i}.{ext}, роли SERVICE_PROVIDER_ROLES); ServicesManager: фото-секция в форме (загрузка файлов + по ссылке + превью с удалением, счётчик /8), миниатюры в карточках списка, images в payload. E2E: upload→create→публичная витрина с images→delete — ок.
+- **Centralized auth-хелперы**: getCsrfToken вынесен в api-client; getSessionAuthHeaders({json:false}) для multipart.
+- **/api/notifications CRUD** (GET/PATCH/DELETE, таблица notifications) — header-колокол поллил несуществующий роут (404 в консоли). PATCH/DELETE шлют Bearer+CSRF. Приглашённые получают 401 молча.
+- **Cron-комплекс**: роут /api/cron/sitemap-refresh (revalidatePath + прогрев + статус); scripts/cron-runner.js — демон-планировщик на 14 джоб (интервалы 30мин..7дней, retry каждую минуту при сбое, запись истории в /api/cron/status), daemonized. Первый прогон вскрыл и починено: (а) expiring-bonuses: loyalty_transactions.points не существует → amount; (б) cleanup/backup: вставки snake_case в camelCase maintenance_logs (0017) + maintenance_logs.id TEXT без default → миграция 0032 (gen_random_uuid()::text); (в) user-reenagement: сломанный .not("in",[query-builder]) → двухшаговый NOT-IN + metadata вместо data + orders.user_id вместо customer_id; (г) holiday-reminders/user-reenagement только POST → добавлены GET-обёртки (Vercel Cron шлёт GET). Прогон: cleanup success (все операции), backup success (gzip 30 таблиц), user-reenagement processed=25.
+- **Миграция 0032_db_fixes_and_optimization.sql**: defaults для uuid-PK без default по всем public-таблицам (DO-блок) + maintenance_logs.id TEXT; 9 индексов горячих путей (service_products popular/provider, venues city, products status, notifications user, orders user/created, user_roles, org_verif); ANALYZE 8 таблиц.
+- **Watchdog dev-сервера**: next-server дважды погиб OOM (2.5ГБ RSS на 4ГБ песочницы) — scripts/dev-watchdog.sh: NODE_OPTIONS=--max-old-space-size=1536 + авторестарт; демонизирован.
+- **Yandex OAuth (реальный флоу)**: initiation /api/auth/oauth/[provider] — state в httpOnly-cookie (10 мин) + 302 на провайдера + ?mode=check для UI; callback — реальный exchange для yandex (oauth.yandex.ru/token + login.yandex.ru/info) и google (openidconnect), GoTrue Admin API find-or-create (email_confirm, случайный пароль), upsert profiles + роль CUSTOMER, server-side signInWithPassword → handoff httpOnly-cookie (60 сек) → страница /oauth/finish → /api/auth/oauth/handoff → supabaseBrowser.auth.setSession(). Auth-modal кнопки: mode=check → тост если не настроено. Провайдер env-gated (YANDEX_CLIENT_ID/OAUTH_REDIRECT; vk/telegram остались заглушками).
+- **n8n локально**: npm ENOSPC (диск 9.9ГБ) → чистка кэшей, установка через bun в /home/z/n8n (2.1ГБ, n8n 2.40.6); демон на 127.0.0.1:5678 (SQLite, encryption key в .env-n8n). Owner создан через REST (admin@conditera.local). Импортированы и АКТИВНЫ 3 workflow (automation/*.json + README.md): cron auto-approve 30 мин; daily digest 09:00 MSK + запись статуса; webhook POST /webhook/new-order → Telegram (@conditera; работает, отправка ждёт CONDITERA_TG_BOT_TOKEN). Webhook-тест: 200, execution записан. Грабли: N8N_USER_FOLDER должен указывать на РОДИТЕЛЯ .n8n; CLI без env писал в ~/.n8n — БД расходились.
+- **Проверки раунда (честные exit-коды, без пайпов)**: tsc 0 errors; eslint 0 errors (2 pre-existing warnings); vitest 731/731; verify-venues-services 20/20. UI-полировка: empty-states/фильтры/CTA витрин подтверждены (сделаны в раунде 4).
+
+Stage Summary:
+Origin/main: 15f44fd. Консольные ошибки устранены (loadVerifications, notifications 404), Storage-фото в формах, cron-комплекс с планировщиком и починенными джобами, Yandex/Google OAuth, n8n с 3 активными workflow, БД: 0031+0032.
+
+Изменённые/новые:
+- supabase/migrations/{0031_org_verifications_schema,0032_db_fixes_and_optimization}.sql
+- src/app/api/{organization/history,notifications,services/upload,cron/sitemap-refresh}/route.ts — новые/переработанные
+- src/app/api/auth/oauth/[provider]/{route,callback/route}.ts, handoff/route.ts, src/app/oauth/finish/page.tsx — OAuth-флоу
+- src/components/{dashboard/services-manager,dashboard/admin-organization-verification-tab,layout/notifications-bell,layout/auth-modal}.tsx
+- src/app/api/cron/{expiring-bonuses,cleanup,backup,user-reenagement,holiday-reminders}/route.ts, src/lib/{api-client,cleanup}.ts
+- automation/{README.md,n8n-*.json} ×3
+
+Осталось (следующий раунд):
+- Playwright E2E прогон (пропущен в раунде из-за OOM-риска с chromium; покрытие — curl-скрипты 20/20).
+- Bookings-флоу площадок (слоты/подтверждение/депозит); UI-вкладка услуг EVENT_ORGANIZER/FOOD_SERVICE.
+- В prod: Vercel Cron/n8n вместо локального runner; YANDEX_* креды для включения кнопки.

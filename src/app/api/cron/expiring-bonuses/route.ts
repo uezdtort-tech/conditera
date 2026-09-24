@@ -44,12 +44,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() + 14);
 
-    // Найти все EARN-транзакции, истекающие в течение 14 дней
+    // Найти все EARN-транзакции, истекающие в течение 14 дней.
+    // Колонка начисленных баллов — amount (миграция 0010); 'points' в схеме нет.
     const { data: expiring, error } = await supabaseAdmin
       .from("loyalty_transactions")
-      .select("user_id, points, expires_at")
+      .select("user_id, amount, expires_at")
       .eq("type", "EARN")
-      .gt("points", 0)
+      .gt("amount", 0)
       .gt("expires_at", now.toISOString())
       .lte("expires_at", cutoff.toISOString())
       .order("expires_at", { ascending: true });
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const byUser = new Map<string, { points: number; earliestExpiry: Date }>();
     for (const tx of expiring || []) {
       const userId = tx.user_id as string;
-      const points = Number(tx.points);
+      const points = Number(tx.amount);
       const expiresAt = tx.expires_at ? new Date(tx.expires_at) : cutoff;
 
       const existing = byUser.get(userId);
