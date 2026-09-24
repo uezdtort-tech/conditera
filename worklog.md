@@ -6293,3 +6293,108 @@ Stage Summary:
 - H4 (push) заблокирован только отсутствием GitHub PAT; либо пользователь даёт токен (fine-grained, write на uezdtort-tech/conditera), либо применяет bundle локально: git pull /path/conditera-2commits-485af75.bundle main.
 - Незначительное: test-results/ не трекается (артефакты Playwright) — можно добавить в .gitignore в следующем раунде.
 - Актуальные остатки после v3-round-2: Storage API на /storage/v1, витрина на live-данные, cron + CRON_SECRET, Yandex OAuth, supabase gen types (C4).
+
+---
+Task ID: v3-round-3-storage-vitrina-cta
+Agent: main (Super Z)
+Task: По запросу пользователя: (1) push с выданным PAT, (2) Storage API для загрузки файлов в onboarding, (3) CTA-карточки-«зазывалки» в 5 разделах маркетплейса, (4) аудит ролей на предмет размещения/редактирования/удаления объявлений, (5) витрина магазина на live-данных.
+
+Work Log:
+- **Push (H4 закрыт)**: коммиты 7390e51+485af75 запушены одноразовым URL-токеном; затем раунд 3 — коммит 814e6aa → origin/main. Токен в файлах/worklog НЕ сохранялся.
+- **Storage API v1.14.5 без Docker** (слот :3013 в mini-kong был готов):
+  - storage-api v1.14.5 — Node-приложение (не Go): клон тега, npm ci, npm run build → /home/z/storage-api-src/dist/start/server.js.
+  - Миграции: server.ts синхронно гоняет tenant/*.sql при старте — на baseline падали бы (CREATE ROLE в 0002). Решение: scripts/seed-storage-migrations.js предзаполняет storage.migrations (26 строк ids 0..25; раннер добавляет свою 0_create-migrations-table; hash = sha1(fileName+contents)). Ничего не выполняется, hash-валидация проходит.
+  - Гранты: baseline не содержал GRANT на storage.* для anon/authenticated/service_role → «new row violates row-level security»/«permission denied» на GET /bucket. scripts/fix-storage-db.sql: GRANT USAGE/TABLES/SEQUENCES/FUNCTIONS + дефолтные привилегии.
+  - RLS: из 0026 в БД была только 1 политика из 9 (транзакция прервалась на mime_types→allowed_mime_types) — все 9 пересозданы (public read avatars/covers/portfolio/product_images + owner-write/update/delete + documents/messages owner-all).
+  - Схема: storage.objects.last_accessed_at отсутствует (новый Supabase её дропнул) — колонка возвращена; storage.search() пересоздана цепочкой 0009→00010→0023 (8-аргументная).
+  - Конфиг: /home/z/storage-api.env (SERVER_PORT=3013, AUTH_JWT_SECRET = общий секрет, ANON/SERVICE из .env.local, STORAGE_BACKEND=file → /home/z/storage-files, DB_INSTALL_ROLES=false, S3/queue/imgproxy off). Запуск daemon-run.py, CWD=/home/z/storage-api-src (иначе ENOENT ./migrations/tenant).
+  - Smoke (scripts/storage-smoke-test.js через supabase-js → mini-kong): listBuckets/upload/publicUrl(200, bytes match)/private upload+signedUrl(200)/list/cleanup — ALL PASSED.
+  - **E2E onboarding 4/4 passed** (chromium+mobile) с РЕАЛЬНЫМИ загрузками файлов: строки в storage.objects ({userId}/{ts}-{i}.png), файлы на диске.
+  - scripts/start-local-stack.sh — идемпотентный подъём всего стека (pg/postgrest/gotrue/storage-api/mini-kong) после рестарта песочницы.
+- **Витрина на live-данных**:
+  - scripts/seed-vitrina.sql: 8 категорий product_categories, демо-кондитер «Уездный сахар» (UUID userId, VERIFIED), 8 товаров status='published', price в копейках.
+  - Багфикс GET /api/products: confectionerMap ключился по c.id (TEXT), а искался по confectioner_id (auth-UUID) → confectioner всегда null. Теперь .select("...userId...") + ключ по c.userId (split-brain M1).
+  - Багфикс POST /api/products: profile lookup .eq("user_id")/business_name на camelCase-таблице (404 всем кондитерам) + фантомные колонки insert (category/images/weight/prep_time/fillings/... которых нет в 0002) → camelCase lookup, category_id-резолв по slug, weight_grams, status='published'.
+  - useLiveProducts + mapApiProductToProduct (копейки→рубли, guessCategory по title/tags, prepTime/isHit из is_featured) в use-marketplace.ts; store.setLiveProducts (пустой список НЕ затирает mock); LiveProductsHydrator в обеих оболочках.
+  - Проверка браузером: /catalog показывает «Медовик „Уездный“» из БД.
+- **CTA-карточки**: новый src/components/marketplace/marketplace-cta-card.tsx (badge/title/description/2 кнопки: auth-modal + navigate, опц. stats/gradient/compact). Вставлены: decor-shop («производите декор?»), services-shop ×2 (услуги + «сдайте площадку» — публичного раздела площадок нет, зазывалка размещена в «Услугах и площадках»), supplier-shop (поставщики ингредиентов), ready-made (кондитеры с изделиями в наличии).
+- **Аудит ролей + фиксы навигации**:
+  - VENUE_OWNER был сиротой (header → view без case → HomePage; dashboard-extra без roleMap → «Назначьте роль»). Теперь: case dashboard-venue-owner в app/page.tsx + VenueOwnerDashboard в roleMap extra-dashboards; внутри дашборда уже был полный CRUD услуг/прайсов.
+  - Нераспознанные dashboard-* view теперь → ExtraDashboards (в обеих оболочках), чинит header-навигацию всех нишевых ролей.
+  - SUPPLIER: вкладка «Товары» была заглушкой (toast). API имел только GET/POST → добавлены PATCH/DELETE с ownership-проверками (confectioner_id=userId). Новый SupplierProductsManager (list/create/edit/delete через Dialog, CSRF x-csrf-token, склад: кол-во/мин.остаток/цена/срок/хранение).
+  - CONFECTIONER: полный CRUD товаров был (catalog-manager). Проверено.
+  - **Критический попутный фикс**: прямые URL /decor-shop, /services-shop, /supplier-shop, /corporate-events, /gift-certificates, /promotions, /telegram-bot падали в Error Boundary «Element type is invalid» — extra-pages.tsx не реэкспортировал 7 страниц, RouteFallback обращается pages.X. РЭЭКСПОРТЫ добавлены (баг существовал до раунда — подтверждено git stash).
+- **Проверки раунда**: tsc 0; eslint 0; vitest 731/731; verify-vitrina.js 5/5 (catalog live + 3 CTA + ready-made); E2E onboarding 4/4; push → 814e6aa.
+- test-results/ добавлен в .gitignore, артефакт снят с индекса.
+
+Stage Summary:
+Origin/main: 814e6aa. Preview живёт ( dev-server на :3000 демо-vitrina из БД ).
+
+Новые файлы:
+- src/components/marketplace/marketplace-cta-card.tsx — универсальная зазывалка
+- src/components/marketplace/live-products-hydrator.tsx — гидрация витрины live-данными
+- src/components/dashboard/supplier-products-manager.tsx — CRUD товаров поставщика
+- scripts/ (вне репо): seed-storage-migrations.js, fix-storage-db.sql, storage-smoke-test.js, start-local-stack.sh, seed-vitrina.sql, verify-vitrina.js
+
+Изменённые:
+- src/app/api/products/route.ts — GET enrichment userId, POST schema-fix
+- src/app/api/supplier/products/route.ts — +PATCH/+DELETE
+- src/components/pages/{decor-shop,services-shop,supplier-shop,extra-pages}.tsx — CTA + реэкспорты
+- src/app/page.tsx, src/components/route-fallback.tsx — venue-owner case, dashboard-* fallback, гидратор
+- src/components/dashboard/{extra-dashboards,supplier-dashboard}.tsx — VENUE_OWNER, SupplierProductsManager
+- src/lib/store.ts — setLiveProducts; src/lib/supabase/use-marketplace.ts — useLiveProducts
+- .gitignore — test-results/
+
+Ключевые решения:
+1. Storage-API миграции не выполняются на baseline — seed таблицы migrations с точными sha1-хешами (ids 0..25 с учётом встроенной 0-миграции).
+2. Витрина: dual-mode как у marquee — live из БД при наличии, иначе mock; hydrator в обеих оболочках.
+3. POST /api/products публикует сразу (status=published) — авто-модерация удаляет rejected; админ может скрыть.
+4. CTA-зазывалки — единый компонент; для площадок (без публичного раздела) карточка в «Услугах и площадках».
+
+Осталось (следующий раунд):
+- Публичный раздел площадок (/venues) с live-данными из таблицы venues + бронирование.
+- CRUD услуг для ANIMATOR_AGENCY/RECREATION_CENTER/KIDS_CLUB (сейчас витрины статичные; таблицы под service-products в БД нет — нужна миграция).
+- Backend для декор- и сервис-объявлений (сейчас только mock + CTA).
+- Yandex OAuth, cron + CRON_SECRET, supabase gen types (C4), Storage API в проде.
+
+---
+Task ID: v3-round-4-venues-services-role-matrix
+Agent: main (Super Z)
+Task: По одобрению пользователя: (1) публичный раздел площадок /venues на live-данных, (2) CRUD услуг для аниматоров/детских клубов, (3) стандартная ролевая матрица по практикам маркетплейсов (Avito/Etsy/Airbnb/Яндекс.Услуги) с расширением функций ролей, (4) «обнови репозиторий» — коммит и push.
+
+Work Log:
+- **Ролевая матрица**: docs/ROLE_MATRIX.md — базовый жизненный цикл объявления (создать → опубликовать → редактировать → добавить ещё → пауза → удалить) для всех ролей-поставщиков; матрица по ролям с ресурсами и эндпоинтами; правила владения (ownership, CSRF, RLS-defence-in-depth); честный бэклог.
+- **Миграция 0029_service_products.sql**: таблица объявлений услуг (snake_case, price в копейках, service_format venue/travel/both, age_min/max, includes/suitable_for, is_active пауза); 6 индексов; RLS public-read активных + owner-write + admin/moderator-байпас через user_roles; гранты anon/authenticated; venues_delete_owner_or_admin.
+- **Миграция 0030_rls_user_roles_profiles.sql**: SELECT-политики для user_roles (свои роли) и profiles (свой профиль + staff видит все) — без них useAuth() в браузере получал пустые массивы ролей, дашборд падал в «Кабинет покупателя».
+- **API услуг**: GET/POST /api/services + GET/PATCH/DELETE /api/services/[id] (SERVICE_PROVIDER_ROLES: ANIMATOR_AGENCY, RECREATION_CENTER, KIDS_CLUB, VENUE_OWNER, EVENT_ORGANIZER, FOOD_SERVICE, ADMIN; валидация price/price_type/service_format, обогащение профилем провайдера, ownership-проверки, is_active пауза без потери статистики).
+- **/venues**: src/app/venues/page.tsx + VenuesPage (525 строк: фильтры город/вместимость/цена, карточки с amenities, бронирование с контактами); GET /api/venues отдаёт venues+data, обогащённые поля (city/region/min_rent_hours/contacts/rules/is_verified/rating).
+- **ServicesManager** (579 строк): универсальный CRUD-менеджер объявлений услуг в дашбордах — вкладка «Объявления» у ANIMATOR_AGENCY/RECREATION_CENTER/KIDS_CLUB (extra-dashboards-v2) и VENUE_OWNER («Объявления услуг»); создание/редактирование/пауза/удаление через API.
+- **Live-витрина услуг**: useLiveServices + mapApiServiceToServiceProduct (копейки→рубли, duration format, priceUnit person, новые категории masterclass/trampoline/kids_room), setLiveServiceProducts (dual-mode, пустой ответ не затирает mock), LiveServicesHydrator в обеих оболочках.
+- **GoTrue-JWT в API**: getUserFromRequest понимает payload.sub (Supabase-токен браузера) наряду с app-JWT payload.userId; getSessionAuthHeaders() в api-client (Bearer + CSRF) для клиентских запросов к API из дашбордов.
+- **Навигация/SEO/CSP**: header — пункт «Площадки» (MapPin), sitemap + /venues, VIEW_META venues, CTA «Сдайте площадку» ведёт на /venues (secondaryView=venues), CSP img/connect-src localhost:8000 (self-hosted Supabase для браузерных signInWithPassword/Storage).
+- **БД проверена**: 0029/0030 применены, RLS-политики на месте; сиды: 7 услуг, 4 площадки; активные роли CONFECTIONER=23, RECREATION_CENTER/VENUE_OWNER/ANIMATOR_AGENCY/KIDS_CLUB/ADMIN по 1.
+- **Проверки раунда**: tsc 0; eslint 0 (2 warnings — стилевые); vitest 731/731; verify-venues-services.js 20/20 (списки, provider enrichment, auth-401, CRUD-цикл 201→PATCH→пауза→возврат→DELETE, mine=1, HTML 200 /venues и /services-shop); удалены tmp-скрипты tests/tmp-*.
+
+Stage Summary:
+Origin/main: 915b9da. /venues live + витрина услуг live + полный CRUD объявлений услуг для 4 ролей + ролевая матрица docs/ROLE_MATRIX.md.
+
+Новые файлы:
+- docs/ROLE_MATRIX.md — эталонная ролевая матрица маркетплейса
+- supabase/migrations/{0029_service_products,0030_rls_user_roles_profiles}.sql
+- src/app/api/services/{route.ts,[id]/route.ts} — CRUD услуг
+- src/app/venues/page.tsx + src/components/pages/venues-page.tsx — публичная витрина площадок
+- src/components/dashboard/services-manager.tsx — универсальный CRUD-менеджер
+- src/components/marketplace/live-services-hydrator.tsx — гидрация live-услуг
+
+Изменённые:
+- src/lib/{auth,api-client,store,types,use-seo-metadata,mock-data-services}.ts — GoTrue-JWT, getSessionAuthHeaders, setLiveServiceProducts, категории, SEO
+- src/lib/supabase/use-marketplace.ts — useLiveServices/mapper
+- src/app/{page,sitemap}.tsx, src/proxy.ts, next.config.ts — роутинг venues, CSP
+- src/components/layout/header.tsx, route-fallback.tsx, pages/services-shop-page.tsx — навигация/CTA
+- src/components/dashboard/{extra-dashboards-v2,venue-owner-dashboard}.tsx — вкладки «Объявления»
+
+Осталось (следующий раунд):
+- Полноценный bookings-флоу площадок (слоты, подтверждение, депозит) — сейчас заявка с контактами.
+- UI-вкладка услуг для EVENT_ORGANIZER/FOOD_SERVICE (API уже принимает их роли).
+- Фото объявлений из Storage в формах услуг (бакеты готовы).
+- Yandex OAuth, cron + CRON_SECRET, supabase gen types (C4).

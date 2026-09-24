@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/finance";
 import { DashboardShell, StatCard, EmptyState } from "@/components/dashboard/_shared";
+import { ServicesManager } from "@/components/dashboard/services-manager";
 
 // ==================== ANIMATOR_AGENCY ====================
 export function AnimatorAgencyDashboard() {
@@ -49,6 +50,7 @@ export function AnimatorAgencyDashboard() {
 
   const tabs = [
     { id: "overview", label: "Обзор", icon: LayoutDashboard },
+    { id: "listings", label: "Объявления", icon: Package },
     { id: "animators", label: "Аниматоры", icon: Users, badge: "8" },
     { id: "programs", label: "Программы", icon: Sparkles },
     { id: "bookings", label: "Заказы", icon: Calendar, badge: "5" },
@@ -217,6 +219,8 @@ export function AnimatorAgencyDashboard() {
         </Card>
       )}
 
+      {tab === "listings" && <ServicesManager />}
+
       {tab === "settings" && (
         <Card className="p-5 border-border/60">
           <h3 className="font-semibold mb-3">Профиль агентства</h3>
@@ -259,6 +263,7 @@ export function RecreationCenterDashboard() {
 
   const tabs = [
     { id: "overview", label: "Обзор", icon: LayoutDashboard },
+    { id: "listings", label: "Объявления", icon: Package },
     { id: "venue", label: "Площадка", icon: Building },
     { id: "bookings", label: "Бронирования", icon: Calendar, badge: "6" },
     { id: "cakes", label: "Пронос тортов", icon: Cake },
@@ -445,6 +450,8 @@ export function RecreationCenterDashboard() {
         </Card>
       )}
 
+      {tab === "listings" && <ServicesManager />}
+
       {tab === "settings" && (
         <Card className="p-5 border-border/60">
           <h3 className="font-semibold mb-3">Настройки центра</h3>
@@ -483,6 +490,7 @@ export function KidsClubDashboard() {
 
   const tabs = [
     { id: "overview", label: "Обзор", icon: LayoutDashboard },
+    { id: "listings", label: "Объявления", icon: Package },
     { id: "birthdays", label: "Дни рождения", icon: Cake, badge: "8" },
     { id: "kids", label: "Дети", icon: Baby, badge: "45" },
     { id: "partners", label: "Кондитеры", icon: Users2, badge: "3" },
@@ -699,6 +707,8 @@ export function KidsClubDashboard() {
           </ResponsiveContainer>
         </Card>
       )}
+
+      {tab === "listings" && <ServicesManager />}
 
       {tab === "settings" && (
         <Card className="p-5 border-border/60">

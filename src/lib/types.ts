@@ -401,6 +401,9 @@ export type ServiceCategory =
   | "print_custom_cookie" // печать на пряниках/печенье
   | "print_edible_stickers" // съедобные наклейки
   | "print_design" // печать по дизайну
+  | "masterclass" // мастер-классы (кондитерские, творческие)
+  | "trampoline" // батуты и аттракционы
+  | "kids_room" // детские комнаты
   | "other";
 
 export type ServiceUnit = "hour" | "item" | "set" | "event" | "sqm" | "sheet";
@@ -444,7 +447,7 @@ export interface ServiceProduct {
   price: number;
   oldPrice?: number;
   // Цена за (единицу, час, штуку)
-  priceUnit: "item" | "hour" | "set" | "event" | "sqm" | "sheet";
+  priceUnit: "item" | "hour" | "set" | "event" | "sqm" | "sheet" | "person";
   images: string[];
   // Характеристики
   duration?: string; // длительность услуги (2 часа, весь вечер)
@@ -1433,6 +1436,7 @@ export type ViewKey =
   | "corporate-events"
   | "decor-shop"
   | "services-shop"
+  | "venues"
   | "gift-certificates"
   | "telegram-bot"
   | "search"

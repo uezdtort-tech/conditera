@@ -117,3 +117,31 @@ export function showTfaRequiredToast(message: string) {
     },
   });
 }
+
+/**
+ * Заголовки для клиентских запросов к Next API routes, требующим аутентификации:
+ *   • Authorization: Bearer <access_token> — из Supabase-сессии (GoTrue JWT).
+ *     Секрет GoTrue совпадает с app JWT_SECRET (self-hosted), поэтому
+ *     getUserFromRequest() валидирует этот токен и берёт userId из payload.sub.
+ *   • x-csrf-token — double-submit cookie для мутаций.
+ *
+ * Использование:
+ *   const headers = await getSessionAuthHeaders(await getCsrfToken());
+ *   const res = await fetch("/api/services?mine=1", { headers });
+ */
+import { supabaseBrowser } from "@/lib/supabase/browser";
+
+export async function getSessionAuthHeaders(
+  csrf?: string
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const { data } = await supabaseBrowser.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  } catch {
+    // нет сессии — запрос уйдёт анонимным (API вернёт 401, UI покажет «Войти»)
+  }
+  if (csrf) headers["x-csrf-token"] = csrf;
+  return headers;
+}

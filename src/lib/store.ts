@@ -202,6 +202,7 @@ interface AppState {
   // Услуги (фейерверки, шары, аниматоры)
   serviceShops: ServiceShop[];
   serviceProducts: ServiceProduct[];
+  setLiveServiceProducts: (services: ServiceProduct[]) => void;
   // Новые фичи
   userHolidays: UserHoliday[];
   giftCertificates: GiftCertificate[];
@@ -543,6 +544,12 @@ export const useAppStore = create<AppState>()(
         // Пустой ответ из БД — витрина остаётся на mock-данных (dev/фоллбэк)
         if (!liveProducts || liveProducts.length === 0) return;
         set({ products: liveProducts });
+      },
+
+      setLiveServiceProducts: (liveServices) => {
+        // Пустой ответ из БД — витрина услуг остаётся на mock-данных (dual-mode)
+        if (!liveServices || liveServices.length === 0) return;
+        set({ serviceProducts: liveServices });
       },
 
       addProduct: (productData) => {

@@ -7,6 +7,7 @@ import { CommandPalette, useCommandPaletteShortcut } from "@/components/layout/c
 import { Footer } from "@/components/layout/footer";
 import { AuthModal } from "@/components/layout/auth-modal";
 import { LiveProductsHydrator } from "@/components/marketplace/live-products-hydrator";
+import { LiveServicesHydrator } from "@/components/marketplace/live-services-hydrator";
 import { PromoPopup } from "@/components/layout/promo-popup";
 import { CartDrawer } from "@/components/marketplace/cart-drawer";
 import { ChatWidget } from "@/components/chat/chat-widget";
@@ -23,6 +24,7 @@ import { RecipeDetailPage } from "@/components/pages/recipe-detail-page";
 import { CorporateEventsPage } from "@/components/pages/corporate-events-page";
 import { DecorShopPage } from "@/components/pages/decor-shop-page";
 import { ServicesShopPage } from "@/components/pages/services-shop-page";
+import { VenuesPage } from "@/components/pages/venues-page";
 import { GiftCertificatesPage } from "@/components/pages/gift-certificates-page";
 import { TelegramBotPage } from "@/components/dashboard/customer-features-tabs";
 import { CakeBuilderPage } from "@/components/cake-builder/cake-builder-page";
@@ -178,6 +180,8 @@ export default function Home() {
         return <DecorShopPage />;
       case "services-shop":
         return <ServicesShopPage />;
+      case "venues":
+        return <VenuesPage />;
       case "gift-certificates":
         return <GiftCertificatesPage />;
       case "telegram-bot":
@@ -245,6 +249,7 @@ export default function Home() {
 
       {/* Global overlays */}
       <LiveProductsHydrator />
+      <LiveServicesHydrator />
       <AuthModal />
       <PromoPopup />
       <CartDrawer />

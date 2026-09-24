@@ -29,7 +29,7 @@ import {
   Star, TrendingUp, Phone, HelpCircle, Info, Newspaper, Mail,
   Package, Palette, PartyPopper, Users, Award, Zap, Flame,
   Shield, FileText, Cookie, ShoppingBag, Contact, Briefcase,
-  ChefHat, Wrench, ChevronLeft, Home as HomeIcon,
+  ChefHat, Wrench, ChevronLeft, Home as HomeIcon, MapPin,
 } from "lucide-react";
 import { CATEGORIES, CATEGORY_GROUPS } from "@/lib/mock-data";
 import { LocationPicker } from "@/components/layout/location-picker";
@@ -51,7 +51,8 @@ const NAV_MAIN: { label: string; view: ViewKey; icon: typeof Cake }[] = [
 const NAV_B2B: { label: string; view: ViewKey; icon: typeof Building2; desc: string }[] = [
   { label: "Корпоративам", view: "corporate-events", icon: Building2, desc: "Торты на корпоративы" },
   { label: "Магазин декора", view: "decor-shop", icon: Palette, desc: "Декор, упаковка" },
-  { label: "Услуги и площадки", view: "services-shop", icon: PartyPopper, desc: "Батуты, картинг, лофты" },
+  { label: "Услуги и площадки", view: "services-shop", icon: PartyPopper, desc: "Аниматоры, шары, шоу" },
+  { label: "Площадки", view: "venues", icon: MapPin, desc: "Лофты, залы, веранды" },
   { label: "Ингредиенты", view: "supplier-shop", icon: Package, desc: "B2B-магазин" },
   { label: "Тендеры", view: "tenders", icon: Award, desc: "Разместить заказ" },
   { label: "Готовые изделия", view: "ready-made", icon: Zap, desc: "В наличии, быстро" },

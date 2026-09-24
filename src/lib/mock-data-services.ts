@@ -788,6 +788,9 @@ export const SERVICE_CATEGORIES = [
   { slug: "print_custom_cookie", name: "Печать на печенье", icon: "🍪", group: "Печать на пряниках и бумаге" },
   { slug: "print_edible_stickers", name: "Съедобные наклейки", icon: "🏷️", group: "Печать на пряниках и бумаге" },
   { slug: "print_design", name: "Дизайн для печати", icon: "🎨", group: "Печать на пряниках и бумаге" },
+  { slug: "masterclass", name: "Мастер-классы", icon: "🧑‍🍳", group: "Площадки и развлечения" },
+  { slug: "trampoline", name: "Батуты и аттракционы", icon: "🤸", group: "Площадки и развлечения" },
+  { slug: "kids_room", name: "Детские комнаты", icon: "🧸", group: "Площадки и развлечения" },
 ] as const;
 
 export const SERVICE_GROUPS = [

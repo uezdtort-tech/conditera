@@ -55,8 +55,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .from("venues")
       .select(
         `
-        id, owner_id, name, address, capacity, price_per_hour,
-        description, images, amenities, is_active, created_at
+        id, owner_id, name, address, city, region, capacity, price_per_hour,
+        min_rent_hours, description, images, amenities, contacts, rules,
+        is_active, is_verified, rating, reviews_count, bookings_count, created_at
       `
       )
       .eq("is_active", true)
@@ -91,6 +92,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({
+      // Ключ venues — для витрины /venues; data — обратная совместимость
+      venues: data || [],
       data: data || [],
       meta: { limit, offset, count: data?.length ?? 0 },
     });

@@ -34,6 +34,7 @@ const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "wee
   { path: "corporate-events", priority: 0.7, changeFreq: "monthly" },
   { path: "decor-shop", priority: 0.7, changeFreq: "weekly" },
   { path: "services-shop", priority: 0.7, changeFreq: "weekly" },
+  { path: "venues", priority: 0.7, changeFreq: "weekly" },
   { path: "supplier-shop", priority: 0.7, changeFreq: "weekly" },
   { path: "gift-certificates", priority: 0.6, changeFreq: "monthly" },
   { path: "for-confectioners", priority: 0.6, changeFreq: "monthly" },

@@ -15,13 +15,14 @@ import {
   LayoutDashboard, Package, FileText, Wallet, Settings, LogOut,
   Plus, Edit, Trash2, Star, Eye, Upload, ChevronLeft, Calendar,
   TrendingUp, DollarSign, Users, MapPin, Clock, Sparkles, Check,
-  X, Building2, Image as ImageIcon, ArrowRight, Download,
+  X, Building2, Image as ImageIcon, ArrowRight, Download, Megaphone,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/finance";
 import { SERVICE_CATEGORIES, PRICE_UNIT_LABELS } from "@/lib/mock-data-services";
+import { ServicesManager } from "@/components/dashboard/services-manager";
 import { toast } from "sonner";
 
-type Tab = "overview" | "venue" | "services" | "priceLists" | "bookings" | "earnings" | "settings";
+type Tab = "overview" | "venue" | "services" | "listings" | "priceLists" | "bookings" | "earnings" | "settings";
 
 export function VenueOwnerDashboard() {
   const navigate = useAppStore((s) => s.navigate);
@@ -55,7 +56,8 @@ export function VenueOwnerDashboard() {
   const tabs = [
     { id: "overview" as Tab, label: "Обзор", icon: LayoutDashboard },
     { id: "venue" as Tab, label: "Моя площадка", icon: Building2 },
-    { id: "services" as Tab, label: "Услуги", icon: Package, badge: String(myServices.length) },
+    { id: "services" as Tab, label: "Услуги площадки", icon: Package, badge: String(myServices.length) },
+    { id: "listings" as Tab, label: "Объявления услуг", icon: Megaphone },
     { id: "priceLists" as Tab, label: "Прайс-листы", icon: FileText, badge: String(myPriceLists.length) },
     { id: "bookings" as Tab, label: "Бронирования", icon: Calendar, badge: "3" },
     { id: "earnings" as Tab, label: "Финансы", icon: Wallet },
@@ -236,6 +238,10 @@ export function VenueOwnerDashboard() {
                   </div>
                 </Card>
               </div>
+            )}
+
+            {tab === "listings" && (
+              <ServicesManager />
             )}
 
             {tab === "settings" && (

@@ -143,10 +143,15 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice(7);
   const payload = await verifyAccessToken(token);
-  if (!payload || !payload.userId) return null;
+  // Поддержка двух форматов токена:
+  //   • app-JWT (создан /api/auth/login): payload.userId
+  //   • GoTrue-JWT (signInWithPassword в браузере, секрет общий с Supabase-стеком):
+  //     payload.sub, JWT-claims как у Supabase (role/email в top-level)
+  const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
+  if (!payload || !userId) return null;
 
   // Проверяем, не заблокирован ли пользователь (кэш 60 секунд)
-  const cacheKey = `__blocked_check_${payload.userId}`;
+  const cacheKey = `__blocked_check_${userId}`;
   const cacheStore = globalThis as unknown as Record<string, BlockedUserCacheEntry>;
   const cached = cacheStore[cacheKey];
   if (cached && Date.now() - cached.ts < 60_000) {
@@ -158,7 +163,7 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
     const result = await supabaseAdmin
       .from("profiles")
       .select("id, is_blocked, name, email")
-      .eq("id", payload.userId)
+      .eq("id", userId)
       .maybeSingle() as { data: UserRow | null; error: SupabaseError | null };
     const user = result.data;
     const error = result.error;
@@ -181,9 +186,10 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
 }
 
 function buildUserFromPayload(payload: JwtPayload): AuthenticatedUser {
+  const sub = (payload as { sub?: string }).sub;
   return {
-    id: payload.userId,
-    userId: payload.userId,
+    id: payload.userId || sub || "",
+    userId: payload.userId || sub || "",
     email: payload.email || "",
     name: typeof payload.name === "string" ? payload.name : undefined,
     roles: payload.roles || [],

@@ -59,11 +59,12 @@ const nextConfig: NextConfig = {
       // Шрифты — только локальные (self-hosted через next/font)
       `font-src 'self' data:`,
       // Изображения — широкий whitelist для каталога
-      `img-src 'self' data: blob: https: https://images.unsplash.com https://i.pravatar.cc`,
+      `img-src 'self' data: blob: http://localhost:8000 http://127.0.0.1:8000 https: https://images.unsplash.com https://i.pravatar.cc`,
       // Медиа (голосовые сообщения в чате)
       `media-src 'self' data: blob:`,
       // WebSocket (Socket.IO чат) + fetch к API
-      `connect-src 'self' https: wss: ws:`,
+      // localhost:8000 — self-hosted Supabase (GoTrue/Storage через mini-kong) для браузерных signInWithPassword/Storage-upload
+      `connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https: wss: ws:`,
       // iframe — только свои + preview-платформа
       `frame-src 'self' https://www.google.com`,
       `frame-ancestors 'self' https://*.space-z.ai https://space-z.ai http://localhost:*`,

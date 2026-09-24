@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
 import { AuthModal } from '@/components/layout/auth-modal';
 import { LiveProductsHydrator } from '@/components/marketplace/live-products-hydrator';
+import { LiveServicesHydrator } from '@/components/marketplace/live-services-hydrator';
 import { PromoPopup } from '@/components/layout/promo-popup';
 import { CartDrawer } from '@/components/marketplace/cart-drawer';
 import { ChatWidget } from '@/components/chat/chat-widget';
@@ -99,6 +100,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
   const pages = require('@/components/pages/extra-pages');
   const { HomePage } = require('@/components/pages/home-page');
   const { CatalogPage } = require('@/components/pages/catalog-page');
+  const { VenuesPage } = require('@/components/pages/venues-page');
   const { ProductPage } = require('@/components/pages/product-page');
   const { ConfectionersPage } = require('@/components/pages/confectioners-page');
   const { ConfectionerProfilePage } = require('@/components/pages/confectioner-profile-page');
@@ -130,6 +132,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       case 'corporate-events': return <pages.CorporateEventsPage />;
       case 'decor-shop': return <pages.DecorShopPage />;
       case 'services-shop': return <pages.ServicesShopPage />;
+      case 'venues': return <VenuesPage />;
       case 'supplier-shop': return <pages.SupplierShopPage />;
       case 'gift-certificates': return <pages.GiftCertificatesPage />;
       case 'telegram-bot': return <pages.TelegramBotPage />;
@@ -156,6 +159,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       <main className="flex-1">{renderView()}</main>
       {!isDashboard && <Footer />}
       <LiveProductsHydrator />
+      <LiveServicesHydrator />
       <AuthModal />
       <PromoPopup />
       <CartDrawer />

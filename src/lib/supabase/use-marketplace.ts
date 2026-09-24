@@ -866,3 +866,135 @@ export function useLiveProducts(limit = 60) {
     retry: 1,
   });
 }
+
+// ==================== Live-услуги (/api/services) ====================
+
+/** Сырая строка service_products из GET /api/services (snake_case, копейки). */
+export interface ApiServiceRow {
+  id: string;
+  provider_id: string;
+  provider_role: string;
+  title: string;
+  description: string | null;
+  category: string;
+  price_type: string;
+  price: number;
+  old_price: number | null;
+  duration_minutes: number | null;
+  age_min: number | null;
+  age_max: number | null;
+  city: string | null;
+  service_format: string;
+  images: string[] | null;
+  tags: string[] | null;
+  includes: string[] | null;
+  safety_note: string | null;
+  customizable: boolean | null;
+  suitable_for: string[] | null;
+  is_active: boolean;
+  is_verified: boolean;
+  rating: number | null;
+  reviews_count: number | null;
+  bookings_count: number | null;
+  created_at: string;
+  provider?: {
+    id: string;
+    name: string | null;
+    avatar_url: string | null;
+    is_verified: boolean | null;
+  } | null;
+}
+
+/** Копейки → рубли. */
+function kopToRub(kop: number): number {
+  return Math.round(kop / 100);
+}
+
+/** 90 → "1 ч 30 мин", 45 → "45 мин". */
+function formatDuration(minutes: number | null): string | undefined {
+  if (!minutes || minutes <= 0) return undefined;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h && m) return `${h} ч ${m} мин`;
+  if (h) return `${h} ч`;
+  return `${m} мин`;
+}
+
+/** price_type → priceUnit сторового ServiceProduct. */
+function mapPriceType(priceType: string): StoreServiceProduct["priceUnit"] {
+  switch (priceType) {
+    case "per_hour": return "hour";
+    case "per_event": return "event";
+    case "per_guest": return "person";
+    default: return "item";
+  }
+}
+
+type StoreServiceProduct = import("@/lib/types").ServiceProduct;
+
+/**
+ * mapApiServiceToServiceProduct — приведение live-строки БД к сторовому типу
+ * ServiceProduct, который рендерит ServicesShopPage. Unknown-category
+ * fallback → "animator_show" (группа «Аниматоры»), чтобы бейдж не был пустым.
+ */
+export function mapApiServiceToServiceProduct(s: ApiServiceRow): StoreServiceProduct {
+  const KNOWN_CATEGORIES = new Set([
+    "fireworks_indoor", "fireworks_outdoor", "fireworks_stage",
+    "balloons_helium", "balloons_composition", "balloons_arch", "balloons_release",
+    "animator_clown", "animator_hero", "animator_show", "animator_facepaint", "animator_quest",
+    "photographer", "videographer", "music", "host",
+    "print_gingerbread", "print_sugar_paper", "print_rice_paper", "print_wafer_paper",
+    "print_chocolate", "print_icing_sheet", "print_custom_cookie", "print_edible_stickers",
+    "print_design", "masterclass", "trampoline", "kids_room",
+  ]);
+  const category = (KNOWN_CATEGORIES.has(s.category) ? s.category : "animator_show") as import("@/lib/types").ServiceCategory;
+
+  const created = new Date(s.created_at).getTime();
+  const isNew = Date.now() - created < 14 * 24 * 60 * 60 * 1000;
+
+  return {
+    id: s.id,
+    shopId: s.provider_id,
+    shopName: s.provider?.name || "Партнёр платформы",
+    shopAvatar: s.provider?.avatar_url || undefined,
+    title: s.title,
+    description: s.description || "",
+    category,
+    price: kopToRub(s.price),
+    oldPrice: s.old_price ? kopToRub(s.old_price) : undefined,
+    priceUnit: mapPriceType(s.price_type),
+    images: s.images && s.images.length > 0 ? s.images : ["https://images.unsplash.com/photo-1530103862676-de8c9debad1d?w=800"],
+    duration: formatDuration(s.duration_minutes),
+    programDuration: s.duration_minutes ?? undefined,
+    ageRange: s.age_min != null && s.age_max != null ? `${s.age_min}–${s.age_max} лет` : undefined,
+    customizable: Boolean(s.customizable),
+    suitableFor: s.suitable_for || [],
+    rating: Number(s.rating ?? 0),
+    reviewsCount: s.reviews_count ?? 0,
+    isPopular: (s.bookings_count ?? 0) >= 50,
+    isNew,
+    inStock: 1,
+    available: s.is_active,
+    safetyNote: s.safety_note || undefined,
+    productionTime: undefined,
+  };
+}
+
+/**
+ * useLiveServices — активные услуги из БД (через публичный /api/services).
+ * Пустой список = в БД нет услуг (витрина остаётся на mock-fallback).
+ */
+export function useLiveServices(limit = 60) {
+  return useQuery<StoreServiceProduct[]>({
+    queryKey: ["live-services", limit],
+    queryFn: async () => {
+      const res = await fetch(`/api/services?limit=${limit}&sort=popular`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { services?: ApiServiceRow[] };
+      return (json.services ?? []).map(mapApiServiceToServiceProduct);
+    },
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+}

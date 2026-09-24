@@ -167,9 +167,10 @@ export async function proxy(request: NextRequest) {
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://yookassa.ru https://*.yoomoney.ru",
         "style-src 'self' 'unsafe-inline'",
         "font-src 'self' data:",
-        "img-src 'self' data: blob: https: https://images.unsplash.com https://i.pravatar.cc",
+        "img-src 'self' data: blob: http://localhost:8000 http://127.0.0.1:8000 https: https://images.unsplash.com https://i.pravatar.cc",
         "media-src 'self' data: blob:",
-        "connect-src 'self' https: wss: ws:",
+        // localhost:8000 — self-hosted Supabase (GoTrue/Storage) для браузерных запросов
+        "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https: wss: ws:",
         "frame-src 'self' https://www.google.com",
         `frame-ancestors ${ALLOWED_FRAME_ANCESTORS.join(" ")}`,
         "form-action 'self' https://yookassa.ru https://*.yoomoney.ru",
