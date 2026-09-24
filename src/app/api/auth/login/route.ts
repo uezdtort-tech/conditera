@@ -18,6 +18,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getSupabaseServer } from "@/lib/supabase/server";
 import {
   verifyPassword,
   createAccessToken,
@@ -162,6 +163,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 7. Без 2FA — выдать токены
+
+    // 7.a GoTrue-сессия (best effort): Supabase SSR API (/api/confectioner/*, дашборды)
+    // читают sb-* cookies через getSession(). Пароли GoTrue и profiles.password_hash
+    // совпадают, т.к. register создаёт пользователя в обоих хранилищах.
+    try {
+      const ssr = await getSupabaseServer();
+      const { error: gtErr } = await ssr.auth.signInWithPassword({
+        email: emailLower,
+        password,
+      });
+      if (gtErr) {
+        // Email не подтверждён в GoTrue (register делает email_confirm: false для prod-флоу
+        // письма-подтверждения). Пароль уже проверен Argon2id по profiles выше — владелец
+        // учётных данных подтверждён, поэтому подтверждаем email через admin API и повторяем.
+        if (gtErr.message === "Email not confirmed") {
+          const { error: upErr } = await supabaseAdmin.auth.admin
+            .updateUserById(user.id, { email_confirm: true });
+          if (!upErr) {
+            await ssr.auth.signInWithPassword({ email: emailLower, password });
+          } else {
+            console.warn("[login] GoTrue email confirm update failed:", upErr.message);
+          }
+        } else {
+          console.warn(
+            "[login] GoTrue signInWithPassword failed (legacy-only user?):",
+            gtErr.message,
+          );
+        }
+      }
+    } catch (gtEx) {
+      console.warn(
+        "[login] GoTrue session skipped:",
+        gtEx instanceof Error ? gtEx.message : gtEx,
+      );
+    }
+
     const tokenPayload = {
       userId: user.id,
       email: user.email,

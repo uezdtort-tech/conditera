@@ -62,7 +62,7 @@ export function ConfectionerProfilePage() {
 
   const productsList = products.filter((p) => p.confectionerId === confectioner.id);
   const posts = channelPosts.filter((p) => p.confectionerId === confectioner.id);
-  const trust = TRUST_LEVELS[confectioner.trustLevel];
+  const trust = TRUST_LEVELS[confectioner.trustLevel] ?? TRUST_LEVELS.NEW;
   const tariff = TARIFFS[confectioner.tariff];
   const legal = LEGAL_STATUS_INFO[confectioner.legalInfo.status];
 

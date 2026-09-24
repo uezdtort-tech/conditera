@@ -58,6 +58,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       status: conf.verificationStatus,
+      // Каноничное имя поля (v3 ТЗ): verificationStatus = "pending" | "approved" | "rejected"
+      verificationStatus: conf.verificationStatus,
       rejectionReason: conf.rejectionReason,
       verifiedAt: conf.verifiedAt,
       canPublish: Boolean(conf.verified) || conf.verificationStatus === "approved",

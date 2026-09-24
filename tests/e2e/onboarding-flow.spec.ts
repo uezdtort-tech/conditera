@@ -27,7 +27,10 @@ const TS = Date.now();
 const CONFECTIONER = {
   email: `e2e-conf-${TS}@e2e.conditera.ru`,
   password: "E2e-Str0ng-Pass!2026",
-  name: "E2E Тестовая Кондитерская",
+  // Уникальное имя: повторные прогоны создают новые строки, approve должен
+  // одобрять строку ИМЕННО этого прогона (иначе marquee-проверка ложно падает).
+  name: `E2E Тестовая Кондитерская ${TS}`,
+  phone: `+7900${String(TS).slice(-7)}`, // register требует phone (обязательное поле)
 };
 
 const ADMIN = {
@@ -41,66 +44,86 @@ const PORTFOLIO_PNG = Buffer.from(
 );
 
 test.describe("Onboarding flow кондитера", () => {
+  // CSRF (double-submit cookie): GET /api/csrf-token ставит httpOnly-cookie и возвращает токен;
+  // каждый мутирующий запрос должен нести x-csrf-token.
+  async function getCsrf(req: { get: (url: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }> }): Promise<string> {
+    const res = await req.get(`${APP}/api/csrf-token`);
+    expect(res.ok(), "csrf-token fetch failed").toBeTruthy();
+    return ((await res.json()) as { token: string }).token;
+  }
+
   test("register → onboarding → approve → marquee → sitemap", async ({ request, page }) => {
+    const csrf = await getCsrf(request);
+    const post = (url: string, opts: Record<string, unknown> = {}) =>
+      request.post(url, { ...opts, headers: { "x-csrf-token": csrf, ...(opts.headers as object) } });
+
     test.skip(
       process.env.E2E_FULL_STACK !== "1",
       "Требуется полный Supabase-стек (docker-compose.supabase.yml). Запуск: E2E_FULL_STACK=1 npm run test:e2e",
     );
 
     // ── 1. Регистрация CONFECTIONER ──────────────────────────────
-    const regRes = await request.post(`${APP}/api/auth/register`, {
+    const regRes = await post(`${APP}/api/auth/register`, {
       data: {
         email: CONFECTIONER.email,
         password: CONFECTIONER.password,
         name: "E2E Кондитер",
+        phone: CONFECTIONER.phone,
         role: "CONFECTIONER",
       },
     });
     expect(regRes.ok(), `register failed: ${regRes.status()} ${await regRes.text()}`).toBeTruthy();
 
-    // ── 2. Логин (получаем cookies сессии) ───────────────────────
-    const loginRes = await request.post(`${APP}/api/auth/login`, {
+    // ── 2. Логин (сессия в cookies + legacy JWT accessToken в JSON) ──────
+    const loginRes = await post(`${APP}/api/auth/login`, {
       data: { email: CONFECTIONER.email, password: CONFECTIONER.password },
     });
     expect(loginRes.ok(), "login failed").toBeTruthy();
+    const { accessToken: confToken } = (await loginRes.json()) as { accessToken: string };
+    const confAuth = { Authorization: `Bearer ${confToken}` };
 
     // ── 3. Onboarding (multipart) ────────────────────────────────
-    const multipart = {
-      businessName: CONFECTIONER.name,
-      description: "E2E-кондитер: торты на заказ, автотест onboarding-флоу проекта.",
-      city: "Москва",
-      legalStatus: "IP",
-      inn: "7700000123", // валидный ИП ИНН → возможен auto-approve через DaData (stub в dev)
-      specialization: JSON.stringify(["Торты"]),
-      selfPickup: "true",
-      portfolioFiles: [
-        {
-          name: "work.png",
-          mimeType: "image/png",
-          buffer: PORTFOLIO_PNG,
-        },
-      ],
-    };
-    const onbRes = await request.post(`${APP}/api/confectioner/onboarding`, { multipart });
+    // Web FormData + File — playwright-совместимый способ передачи файлов:
+    // object-multipart playwright НЕ поддерживает массивы значений
+    // (isFilePayload({name,mimeType,buffer}) для массива === false → падение на readStreamToJson).
+    const multipart = new FormData();
+    multipart.append("businessName", CONFECTIONER.name);
+    multipart.append("description", "E2E-кондитер: торты на заказ, автотест onboarding-флоу проекта.");
+    multipart.append("city", "Москва");
+    multipart.append("legalStatus", "IP");
+    multipart.append("inn", "7700000123"); // валидный ИП ИНН → возможен auto-approve через DaData (stub в dev)
+    multipart.append("specialization", JSON.stringify(["Торты"]));
+    multipart.append("selfPickup", "true");
+    multipart.append(
+      "portfolioFiles",
+      new File([PORTFOLIO_PNG], "work.png", { type: "image/png" }),
+    );
+    const onbRes = await post(`${APP}/api/confectioner/onboarding`, { multipart });
     const onbBody = await onbRes.json().catch(() => ({}));
     // 409 — уже есть строка (повторный прогон) — считается OK
     expect([200, 201, 409]).toContain(onbRes.status());
     if (onbRes.status() === 409) test.info().annotations.push({ type: "note", text: "onboarding 409: профиль уже существует" });
 
-    // ── 4. Статус верификации ────────────────────────────────────
-    const statusRes = await request.get(`${APP}/api/confectioner/status`);
+    // ── 4. Статус верификации (legacy Bearer JWT) ──────────────
+    const statusRes = await request.get(`${APP}/api/confectioner/status`, {
+      headers: confAuth,
+    });
     expect(statusRes.ok(), "confectioner/status failed").toBeTruthy();
     const status = await statusRes.json();
     expect(["pending", "approved"]).toContain(status.verificationStatus);
 
     // ── 5. Если pending — админ одобряет ─────────────────────────
     if (status.verificationStatus === "pending") {
-      const adminLogin = await request.post(`${APP}/api/auth/login`, {
+      const adminLogin = await post(`${APP}/api/auth/login`, {
         data: { email: ADMIN.email, password: ADMIN.password },
       });
       expect(adminLogin.ok(), "admin login failed").toBeTruthy();
+      const { accessToken: adminToken } = (await adminLogin.json()) as { accessToken: string };
+      const adminAuth = { Authorization: `Bearer ${adminToken}` };
 
-      const pendingRes = await request.get(`${APP}/api/admin/confectioners/pending`);
+      const pendingRes = await request.get(`${APP}/api/admin/confectioners/pending`, {
+        headers: adminAuth,
+      });
       expect(pendingRes.ok(), "admin/confectioners/pending failed").toBeTruthy();
       const pending = await pendingRes.json();
       const row = (pending.items ?? pending.confectioners ?? []).find(
@@ -108,8 +131,9 @@ test.describe("Onboarding flow кондитера", () => {
       );
       expect(row, "новый кондитер в очереди на одобрение").toBeTruthy();
 
-      const approveRes = await request.post(`${APP}/api/admin/confectioners/approve`, {
+      const approveRes = await post(`${APP}/api/admin/confectioners/approve`, {
         data: { confectionerId: row.id },
+        headers: adminAuth,
       });
       expect(approveRes.ok(), `approve failed: ${approveRes.status()}`).toBeTruthy();
     }

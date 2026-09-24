@@ -163,7 +163,7 @@ export function ConfectionerDashboard() {
   const myPosts = channelPosts.filter((p) => p.confectionerId === confectioner.id);
 
   const tariff = TARIFFS[confectioner.tariff];
-  const trust = TRUST_LEVELS[confectioner.trustLevel];
+  const trust = TRUST_LEVELS[confectioner.trustLevel] ?? TRUST_LEVELS.NEW;
 
   // Подсчёты для бейджей в sidebar
   const promotionsCount = promotions.filter(

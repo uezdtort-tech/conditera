@@ -288,11 +288,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // ===== Tax mode + legal info =====
+  // Маппинг legalStatus → DB enum TaxMode ('NPD'|'USN'|'OSNO'|'PSN'|'SELF_EMPLOYED',
+  // миграция 0016b). Legacy-значения IP/OOO в enum отсутствуют:
+  // IP → USN, OOO → OSNO (тот же маппинг, что и в supabase/seed_confectioners.sql).
   const taxMode =
     legalStatus === "PHYSICAL" ? "SELF_EMPLOYED" :
     legalStatus === "NPD" ? "NPD" :
-    legalStatus === "IP" ? "IP" :
-    "OOO";
+    legalStatus === "IP" ? "USN" :
+    "OSNO"; // OOO
 
   const legalInfo: Record<string, unknown> = {
     status: legalStatus,

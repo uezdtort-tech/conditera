@@ -17,6 +17,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
+// ISR: перегенерация sitemap раз в минуту (v3 ТЗ, Medium-16).
+// Без revalidate Next.js кэширует sitemap.ts как статический route —
+// новые кондитеры (register→approve) не попадали в sitemap до рестарта сервера.
+export const revalidate = 60;
+
 // Статичные публичные страницы с приоритетами
 const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "weekly" | "monthly" }[] = [
   { path: "", priority: 1.0, changeFreq: "daily" },
@@ -109,11 +114,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // 3. Профили верифицированных кондитеров (Supabase, fallback на mock)
+  // Чистые slug-URL /confectioners/<slug> (роут src/app/confectioners/[slug]/page.tsx).
+  // Query-URL (?confectioner=<id>) поисковики не индексируют как отдельные страницы.
   try {
     const confectioners = await fetchVerifiedConfectioners();
     for (const c of confectioners) {
       entries.push({
-        url: `${APP_URL}/confectioners?confectioner=${c.id}`,
+        url: `${APP_URL}/confectioners/${c.slug}`,
         lastModified: c.updatedAt ? new Date(c.updatedAt) : now,
         changeFrequency: "weekly" as const,
         priority: 0.7,

@@ -31,7 +31,7 @@ interface MarqueeItemProps {
 
 function MarqueeItem({ confectioner }: MarqueeItemProps) {
   const navigate = useAppStore((s) => s.navigate);
-  const trust = TRUST_LEVELS[confectioner.trustLevel];
+  const trust = TRUST_LEVELS[confectioner.trustLevel] ?? TRUST_LEVELS.NEW;
   const workImage = confectioner.portfolioImages?.[0];
 
   const handleClick = () => {

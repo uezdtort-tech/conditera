@@ -17,7 +17,7 @@ export function ConfectionerCard({ confectioner }: { confectioner: Confectioner 
   const navigate = useAppStore((s) => s.navigate);
   const userLocation = useAppStore((s) => s.userLocation);
 
-  const trust = TRUST_LEVELS[confectioner.trustLevel];
+  const trust = TRUST_LEVELS[confectioner.trustLevel] ?? TRUST_LEVELS.NEW;
   const legalInfo = LEGAL_STATUS_INFO[confectioner.legalInfo.status];
 
   // Расчёт расстояния от пользователя

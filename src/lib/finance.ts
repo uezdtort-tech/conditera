@@ -545,6 +545,8 @@ export const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: strin
 // Траст-уровни кондитера
 export const TRUST_LEVELS: Record<string, { label: string; color: string; description: string }> = {
   NEW: { label: "Новичок", color: "bg-slate-100 text-slate-800", description: "Менее 10 заказов" },
+  // VERIFIED — имя из DB enum TrustLevel (миграция 0016b); TRUSTED — legacy mock-имя. Это синонимы.
+  VERIFIED: { label: "Проверенный", color: "bg-blue-100 text-blue-800", description: "Более 30 заказов, рейтинг 4.5+" },
   TRUSTED: { label: "Проверенный", color: "bg-blue-100 text-blue-800", description: "Более 30 заказов, рейтинг 4.5+" },
   EXPERT: { label: "Эксперт", color: "bg-purple-100 text-purple-800", description: "Более 100 заказов, рейтинг 4.8+" },
   MASTER: { label: "Мастер", color: "bg-amber-100 text-amber-800", description: "Более 500 заказов, рейтинг 4.9+" },
