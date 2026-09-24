@@ -8,8 +8,9 @@
 
 export const siteConfig = {
   // === Бренд ===
-  name: process.env.NEXT_PUBLIC_APP_NAME || "Кондитера",
-  fullName: process.env.NEXT_PUBLIC_APP_NAME || "Кондитера",
+  // ⚠️ Правило №1 ТЗ: бренд — всегда «Уездный кондитер» (не «Кондитера», не «Уездный»)
+  name: process.env.NEXT_PUBLIC_APP_NAME || "Уездный кондитер",
+  fullName: process.env.NEXT_PUBLIC_APP_NAME || "Уездный кондитер",
   domain: process.env.NEXT_PUBLIC_APP_URL?.replace(/^https?:\/\//, "") || "conditera.ru",
   url: process.env.NEXT_PUBLIC_APP_URL || "https://conditera.ru",
 

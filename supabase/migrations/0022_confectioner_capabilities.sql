@@ -121,7 +121,7 @@ CREATE POLICY "cap_insert_own" ON public.confectioner_capabilities
     EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = confectioner_id
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur
@@ -137,7 +137,7 @@ CREATE POLICY "cap_update_own" ON public.confectioner_capabilities
     EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = confectioner_id
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur
@@ -153,7 +153,7 @@ CREATE POLICY "cap_delete_own" ON public.confectioner_capabilities
     EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = confectioner_id
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur

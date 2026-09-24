@@ -38,7 +38,7 @@ CREATE INDEX idx_cms_page_history_page ON public.cms_page_history(page_id);
 
 -- ===== 3. Design Settings =====
 CREATE TABLE IF NOT EXISTS public.design_settings (
-  id UUID PRIMARY KEY DEFAULT 1,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   theme TEXT DEFAULT 'default', -- default|dark|custom
   primary_color TEXT DEFAULT '#8B2942',
   accent_color TEXT DEFAULT '#D97706',
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS public.design_settings (
 );
 
 COMMENT ON TABLE public.design_settings IS 'Настройки дизайна сайта';
-INSERT INTO public.design_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+INSERT INTO public.design_settings DEFAULT VALUES ON CONFLICT DO NOTHING;
 
 -- ===== 4. Payout Requests =====
 CREATE TABLE IF NOT EXISTS public.payout_requests (

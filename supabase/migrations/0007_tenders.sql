@@ -161,7 +161,7 @@ CREATE POLICY "tender_reviews_insert_participant" ON public.tender_reviews
     reviewer_id = auth.uid() AND
     EXISTS (SELECT 1 FROM public.tenders t WHERE t.id = tender_id AND (
       t.customer_id = auth.uid() OR
-      EXISTS (SELECT 1 FROM public.tender_offers to WHERE to.tender_id = tender_id AND to.confectioner_id = auth.uid())
+      EXISTS (SELECT 1 FROM public.tender_offers tor WHERE tor.tender_id = tender_id AND tor.confectioner_id = auth.uid())
     ))
   );
 

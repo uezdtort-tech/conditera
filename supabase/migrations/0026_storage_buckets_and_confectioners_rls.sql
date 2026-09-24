@@ -18,7 +18,7 @@ BEGIN;
 -- 1.1. Создаём 5 buckets. public=true для тех, что отдаются через CDN.
 --     private=true для документов и сообщений — доступ через signed URLs.
 
-INSERT INTO storage.buckets (id, name, public, mime_types, created_at, updated_at)
+INSERT INTO storage.buckets (id, name, public, allowed_mime_types, created_at, updated_at)
 VALUES
   ('avatars',       'avatars',       true,  ARRAY['image/jpeg','image/png','image/webp','image/gif'], now(), now()),
   ('covers',        'covers',        true,  ARRAY['image/jpeg','image/png','image/webp'],              now(), now()),
@@ -28,7 +28,7 @@ VALUES
   ('messages',      'messages',      false, ARRAY['image/jpeg','image/png','image/webp','video/mp4'], now(), now())
 ON CONFLICT (id) DO UPDATE
   SET public = EXCLUDED.public,
-      mime_types = EXCLUDED.mime_types,
+      allowed_mime_types = EXCLUDED.allowed_mime_types,
       updated_at = now();
 
 -- 1.2. Storage RLS policies — кто может читать/писать в каждый bucket.
@@ -59,7 +59,7 @@ CREATE POLICY "avatars_owner_write" ON storage.objects
   TO authenticated
   WITH CHECK (
     bucket_id = 'avatars'
-    AND (storage.foldername(name) = auth.uid()::text  OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text  OR name LIKE auth.uid()::text || '%')
   );
 
 CREATE POLICY "covers_owner_write" ON storage.objects
@@ -67,7 +67,7 @@ CREATE POLICY "covers_owner_write" ON storage.objects
   TO authenticated
   WITH CHECK (
     bucket_id = 'covers'
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   );
 
 CREATE POLICY "portfolio_owner_write" ON storage.objects
@@ -75,7 +75,7 @@ CREATE POLICY "portfolio_owner_write" ON storage.objects
   TO authenticated
   WITH CHECK (
     bucket_id = 'portfolio'
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   );
 
 CREATE POLICY "product_images_owner_write" ON storage.objects
@@ -83,7 +83,7 @@ CREATE POLICY "product_images_owner_write" ON storage.objects
   TO authenticated
   WITH CHECK (
     bucket_id = 'product_images'
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   );
 
 -- UPDATE/DELETE — владелец может заменить/удалить свой файл.
@@ -92,7 +92,7 @@ CREATE POLICY "avatars_owner_update" ON storage.objects
   TO authenticated
   USING (
     bucket_id IN ('avatars','covers','portfolio','product_images')
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   );
 
 CREATE POLICY "avatars_owner_delete" ON storage.objects
@@ -100,7 +100,7 @@ CREATE POLICY "avatars_owner_delete" ON storage.objects
   TO authenticated
   USING (
     bucket_id IN ('avatars','covers','portfolio','product_images')
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   );
 
 -- documents / messages: приватные, только владелец.
@@ -109,11 +109,11 @@ CREATE POLICY "documents_owner_all" ON storage.objects
   TO authenticated
   USING (
     bucket_id = 'documents'
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   )
   WITH CHECK (
     bucket_id = 'documents'
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   );
 
 CREATE POLICY "messages_owner_all" ON storage.objects
@@ -121,11 +121,11 @@ CREATE POLICY "messages_owner_all" ON storage.objects
   TO authenticated
   USING (
     bucket_id = 'messages'
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   )
   WITH CHECK (
     bucket_id = 'messages'
-    AND (storage.foldername(name) = auth.uid()::text OR name LIKE auth.uid()::text || '%')
+    AND ((storage.foldername(name))[1] = auth.uid()::text OR name LIKE auth.uid()::text || '%')
   );
 
 -- =====================================================================
@@ -166,20 +166,20 @@ CREATE POLICY "confectioners_select_admin" ON public.confectioners
 CREATE POLICY "confectioners_insert_own" ON public.confectioners
   FOR INSERT
   TO authenticated
-  WITH CHECK (userId = auth.uid()::text);
+  WITH CHECK ("userId" = auth.uid()::text);
 
 -- Обновление: только владелец строки. Админ может обновлять через admin SDK.
 CREATE POLICY "confectioners_update_own" ON public.confectioners
   FOR UPDATE
   TO authenticated
-  USING (userId = auth.uid()::text)
-  WITH CHECK (userId = auth.uid()::text);
+  USING ("userId" = auth.uid()::text)
+  WITH CHECK ("userId" = auth.uid()::text);
 
 -- Удаление: только владелец.
 CREATE POLICY "confectioners_delete_own" ON public.confectioners
   FOR DELETE
   TO authenticated
-  USING (userId = auth.uid()::text);
+  USING ("userId" = auth.uid()::text);
 
 -- =====================================================================
 -- 3. Индексы для производительности публичных запросов
@@ -205,7 +205,7 @@ CREATE INDEX IF NOT EXISTS idx_confectioners_slug_verified
 CREATE OR REPLACE FUNCTION public.set_confectioners_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.updatedAt = CURRENT_TIMESTAMP;
+  NEW."updatedAt" = CURRENT_TIMESTAMP;  -- колонка camelCase (0017), нужен quoted-доступ
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

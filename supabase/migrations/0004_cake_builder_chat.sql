@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS public.chat_channel_members (
   role TEXT DEFAULT 'member', -- 'admin' | 'member' | 'viewer'
   -- Уведомления
   muted BOOLEAN DEFAULT FALSE,
-  last_read_message_id UUID REFERENCES public.chat_messages(id),
+  last_read_message_id UUID, -- FK добавляется ниже (после создания chat_messages)
   last_read_at TIMESTAMPTZ,
   -- Timestamps
   joined_at TIMESTAMPTZ DEFAULT NOW(),
@@ -250,6 +250,17 @@ CREATE INDEX idx_chat_messages_sender ON public.chat_messages(sender_id);
 CREATE INDEX idx_chat_messages_created ON public.chat_messages(channel_id, created_at DESC);
 -- Для realtime: индекс на id (для быстрых INSERT notifications)
 CREATE INDEX idx_chat_messages_id_created ON public.chat_messages(id, created_at);
+
+-- FK last_read_message_id → chat_messages (добавляется после создания таблицы)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chat_channel_members_last_read_fk'
+  ) THEN
+    ALTER TABLE public.chat_channel_members
+      ADD CONSTRAINT chat_channel_members_last_read_fk
+      FOREIGN KEY (last_read_message_id) REFERENCES public.chat_messages(id);
+  END IF;
+END $$;
 
 -- ===== 10. Chat Message Reads (для unread count) =====
 CREATE TABLE IF NOT EXISTS public.chat_message_reads (

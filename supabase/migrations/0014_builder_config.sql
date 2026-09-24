@@ -65,8 +65,8 @@ COMMENT ON TABLE public.builder_partner_offers IS 'Предложения пар
 ALTER TABLE public.builder_partner_offers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "partner_offers_read_all" ON public.builder_partner_offers FOR SELECT USING (true);
 CREATE POLICY "partner_offers_write_owner" ON public.builder_partner_offers FOR ALL
-  USING (partner_id = auth.uid() OR EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role IN ('ADMIN', 'SUPER_ADMIN') AND ur.is_active = true))
-  WITH CHECK (partner_id = auth.uid() OR EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role IN ('ADMIN', 'SUPER_ADMIN') AND ur.is_active = true));
+  USING (partner_id = auth.uid()::text OR EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role IN ('ADMIN', 'SUPER_ADMIN') AND ur.is_active = true))
+  WITH CHECK (partner_id = auth.uid()::text OR EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role IN ('ADMIN', 'SUPER_ADMIN') AND ur.is_active = true));
 
 -- ===== 3. builder_decor_shops — магазины декора =====
 -- Магазины, поставляющие декор для кондитерских изделий.

@@ -35,7 +35,7 @@ CREATE POLICY "uploads_insert_auth" ON public.uploads FOR INSERT
 
 -- Удаление — владелец или админ
 CREATE POLICY "uploads_delete_owner" ON public.uploads FOR DELETE
-  USING (uploaded_by = auth.uid() OR EXISTS (
+  USING (uploaded_by = auth.uid()::text OR EXISTS (
     SELECT 1 FROM public.user_roles ur
     WHERE ur.user_id = auth.uid()
       AND ur.role IN ('ADMIN', 'SUPER_ADMIN')

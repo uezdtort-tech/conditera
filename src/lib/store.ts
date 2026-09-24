@@ -232,6 +232,8 @@ interface AppState {
   // Actions
   login: (email: string, password: string) => { success: boolean; error?: string };
   loginAs: (role: Role) => void;
+  /** Синхронизация сессии Supabase → Zustand (вызывает SupabaseAuthSync) */
+  setSupabaseUser: (user: User | null) => void;
   logout: () => void;
   setActiveRole: (role: Role) => void;
   setAuthModalOpen: (open: boolean) => void;
@@ -695,6 +697,21 @@ export const useAppStore = create<AppState>()(
           nav: { view: "home" },
           cart: [],
           favorites: [],
+        });
+      },
+
+      setSupabaseUser: (user) => {
+        if (!user) {
+          // SIGNED_OUT: очищаем пользователя, но НЕ сбрасываем nav/cart
+          // (машину покупателя и текущий раздел сохраняем)
+          set({ user: null, activeRole: null, isAuthenticated: false });
+          return;
+        }
+        set({
+          user,
+          activeRole: user.roles[0] ?? null,
+          isAuthenticated: true,
+          authModalOpen: false,
         });
       },
 

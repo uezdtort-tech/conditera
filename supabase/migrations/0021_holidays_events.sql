@@ -79,30 +79,30 @@ CREATE POLICY "holidays_write_admin" ON public.holidays FOR ALL USING (
 -- SEED: Праздники России
 -- ============================================================================
 
-INSERT INTO public.holidays (name, description, holiday_type, month, day, category, icon, sort_order) VALUES
+INSERT INTO public.holidays (name, description, holiday_type, month, day, category, icon, sort_order, is_floating, floating_calc) VALUES
 -- Федеральные праздники
-('Новый год', 'Главный праздник года — ёлка, подарки, шампанское', 'federal', 1, 1, 'newyear', '🎄', 1),
-('Рождество Христово', 'Православный праздник — Рождественский сочельник', 'religious', 1, 7, 'christmas', '🕯️', 2),
-('Старый Новый год', 'Традиционный праздник по юлианскому календарю', 'family', 1, 14, 'newyear', '🎉', 3),
-('Крещение Господне', 'Православный праздник', 'religious', 1, 19, 'christmas', '✨', 4),
-('День святого Валентина', 'День влюблённых — романтический праздник', 'international', 2, 14, 'valentine', '💝', 5),
-('День защитника Отечества', 'Мужской праздник — 23 февраля', 'federal', 2, 23, 'feb23', '🎖️', 6),
-('Масленица (плавающая)', 'Проводы зимы — блины и ярмарки', 'religious', NULL, NULL, 'general', '🥞', 7, 'is_floating', true, 'floating_calc', 'maslenitsa'),
-('Международный женский день', 'Весенний праздник — 8 марта', 'federal', 3, 8, 'march8', '🌷', 8),
-('День космонавтики', 'День космонавтики — 12 апреля', 'federal', 4, 12, 'general', '🚀', 9),
-('Пасха (плавающая)', 'Христово Воскресение — куличи и яйца', 'religious', NULL, NULL, 'easter', '🥚', 10, 'is_floating', true, 'floating_calc', 'easter'),
-('Красная горка', 'Первое воскресенье после Пасхи — свадьбы', 'religious', NULL, NULL, 'wedding', '💒', 11, 'is_floating', true, 'floating_calc', 'first_sunday_after_easter'),
-('Праздник Весны и Труда', '1 Мая — День труда', 'federal', 5, 1, 'general', '🌿', 12),
-('День Победы', '9 мая — День Победы в Великой Отечественной войне', 'federal', 5, 9, 'memorial', '🎖️', 13),
-('День России', '12 июня — национальный праздник', 'federal', 6, 12, 'general', '🇷🇺', 14),
-('День народного единства', '4 ноября — государственный праздник', 'federal', 11, 4, 'general', '🤝', 15),
-('День матери', 'Последнее воскресенье ноября', 'international', NULL, NULL, 'family', '❤️', 16, 'is_floating', true, 'floating_calc', 'last_sunday_november'),
-('День знаний', '1 сентября — начало учебного года', 'school', 9, 1, 'school', '📚', 17),
-('День учителя', '5 октября — профессиональный праздник', 'professional', 10, 5, 'professional', '🍎', 18),
-('День медика', 'Первый понедельник октября', 'professional', NULL, NULL, 'professional', '⚕️', 19, 'is_floating', true, 'floating_calc', 'first_monday_october'),
-('Хэллоуин', 'Канун Дня всех святых — 31 октября', 'international', 10, 31, 'kids', '🎃', 20),
-('День отца', 'Третье воскресенье октября', 'family', NULL, NULL, 'family', '👨', 21, 'is_floating', true, 'floating_calc', 'third_sunday_october'),
-('Предновогний вечер', '31 декабря — подготовка к Новому году', 'family', 12, 31, 'newyear', '🎆', 22)
+('Новый год', 'Главный праздник года — ёлка, подарки, шампанское', 'federal', 1, 1, 'newyear', '🎄', 1, FALSE, NULL),
+('Рождество Христово', 'Православный праздник — Рождественский сочельник', 'religious', 1, 7, 'christmas', '🕯️', 2, FALSE, NULL),
+('Старый Новый год', 'Традиционный праздник по юлианскому календарю', 'family', 1, 14, 'newyear', '🎉', 3, FALSE, NULL),
+('Крещение Господне', 'Православный праздник', 'religious', 1, 19, 'christmas', '✨', 4, FALSE, NULL),
+('День святого Валентина', 'День влюблённых — романтический праздник', 'international', 2, 14, 'valentine', '💝', 5, FALSE, NULL),
+('День защитника Отечества', 'Мужской праздник — 23 февраля', 'federal', 2, 23, 'feb23', '🎖️', 6, FALSE, NULL),
+('Масленица (плавающая)', 'Проводы зимы — блины и ярмарки', 'religious', NULL, NULL, 'general', '🥞', 7, true, 'maslenitsa'),
+('Международный женский день', 'Весенний праздник — 8 марта', 'federal', 3, 8, 'march8', '🌷', 8, FALSE, NULL),
+('День космонавтики', 'День космонавтики — 12 апреля', 'federal', 4, 12, 'general', '🚀', 9, FALSE, NULL),
+('Пасха (плавающая)', 'Христово Воскресение — куличи и яйца', 'religious', NULL, NULL, 'easter', '🥚', 10, true, 'easter'),
+('Красная горка', 'Первое воскресенье после Пасхи — свадьбы', 'religious', NULL, NULL, 'wedding', '💒', 11, true, 'first_sunday_after_easter'),
+('Праздник Весны и Труда', '1 Мая — День труда', 'federal', 5, 1, 'general', '🌿', 12, FALSE, NULL),
+('День Победы', '9 мая — День Победы в Великой Отечественной войне', 'federal', 5, 9, 'memorial', '🎖️', 13, FALSE, NULL),
+('День России', '12 июня — национальный праздник', 'federal', 6, 12, 'general', '🇷🇺', 14, FALSE, NULL),
+('День народного единства', '4 ноября — государственный праздник', 'federal', 11, 4, 'general', '🤝', 15, FALSE, NULL),
+('День матери', 'Последнее воскресенье ноября', 'international', NULL, NULL, 'family', '❤️', 16, true, 'last_sunday_november'),
+('День знаний', '1 сентября — начало учебного года', 'school', 9, 1, 'school', '📚', 17, FALSE, NULL),
+('День учителя', '5 октября — профессиональный праздник', 'professional', 10, 5, 'professional', '🍎', 18, FALSE, NULL),
+('День медика', 'Первый понедельник октября', 'professional', NULL, NULL, 'professional', '⚕️', 19, true, 'first_monday_october'),
+('Хэллоуин', 'Канун Дня всех святых — 31 октября', 'international', 10, 31, 'kids', '🎃', 20, FALSE, NULL),
+('День отца', 'Третье воскресенье октября', 'family', NULL, NULL, 'family', '👨', 21, true, 'third_sunday_october'),
+('Предновогний вечер', '31 декабря — подготовка к Новому году', 'family', 12, 31, 'newyear', '🎆', 22, FALSE, NULL)
 
 ON CONFLICT DO NOTHING;
 

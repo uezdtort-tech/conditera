@@ -1,7 +1,7 @@
 -- 0016_channel_moderation.sql
 -- Модерация публикаций кондитеров и авто-публикация в Telegram-канал.
--- Когда админ одобряет пост кондитера, он автоматически публикуется в TG-канал.
-
+-- (ПЕРЕИМЕНОВАНО из 0016_channel_moderation.sql: выполняется ПОСЛЕ 0017_sync_missing_tables.sql,
+--  т.к. channel_posts создаётся в 0017, а эта миграция делает ALTER TABLE над ним.)
 -- Добавляем поля модерации в channel_posts
 ALTER TABLE public.channel_posts ADD COLUMN IF NOT EXISTS moderation_status TEXT DEFAULT 'approved';
 ALTER TABLE public.channel_posts ADD COLUMN IF NOT EXISTS moderated_by TEXT;

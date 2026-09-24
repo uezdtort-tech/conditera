@@ -6157,3 +6157,68 @@ Stage Summary:
 - Запустить `docker-compose -f docker-compose.supabase.yml up -d` локально — недоступно в этом dev-окружении.
 - Тестирование end-to-end: register CONFECTIONER → POST /api/confectioner/onboarding → admin approve → marquee показывает нового кондитера.
 - E2E через playwright: уже есть e2e-roles-flow.py, нужно обновить на onboarding flow.
+
+---
+Task ID: v3-critical-1-7
+Agent: main (Super Z)
+Task: Выполнить финальную проверку production-готовности по v3 ТЗ: применить миграции 0001..0026 к живой БД, сгенерировать supabase-типы, E2E-тест onboarding-флоу, задачи 10/11/13 из «Что осталось».
+
+Work Log:
+- **Базлайн (окружение без Docker)**: bun install (1063 пакета), npx prisma generate не нужен (Prisma удалена из deps), tsc --noEmit = 0, eslint = 0 errors/1 warning, vitest 731/731 (26 файлов), next build — успешно. .env исправлен (убран file: URL, оставлен пустой dev-fallback).
+- **Локальный PostgreSQL 15.14 без Docker**: скачаны portable-бинарники theseus-rs/postgresql-binaries в /home/z/pg; libossp-uuid16 получен через apt-get download + dpkg -x (для uuid-ossp); initdb в /home/z/pgdata, сервер на :5432, listen_addresses='*' + pg_hba trust для introspection.
+- **Supabase baseline (/home/z/pg-baseline/supabase-baseline.sql)**: воспроизведены схемы auth (users, identities, sessions, refresh_tokens, mfa_*, auth.uid()/role()/jwt()), storage (buckets, objects, foldername/filename/extension), роли anon/authenticated/service_role/authenticator, схема extensions. Это замена docker-compose-стека для тестирования миграций.
+- **Миграции 0001→0027: найдено и исправлено 17 реальных SQL-багов** (все валидированы на живой PG 15):
+  1. 0002: тип payment_method использован, но не создан → добавлен DO-блок CREATE TYPE (7 значений, включая self).
+  2. 0004: chat_channel_members.last_read_message_id FK → chat_messages, создаваемая 13 строками ниже → колонка без FK + ALTER-добавление после создания.
+  3. 0007:166: алиас `to` (зарезервированное слово) → переименован в tor.
+  4. 0009: design_settings.id UUID DEFAULT 1 → gen_random_uuid(); INSERT VALUES(1) → DEFAULT VALUES.
+  5. 0012: CREATE TRIGGER IF NOT EXISTS (невалидный синтаксис PG, 5 шт) → DROP TRIGGER IF EXISTS + CREATE.
+  6. 0012: DO-блок ALTER TYPE ADD VALUE внутри BEGIN/COMMIT — PG 12+ запрещает использовать новое значение enum до коммита («unsafe use of new value RECIPE_DEVELOPER») → блок вынесен перед BEGIN.
+  7. 0013: GET DIAGNOSTICS v = (ROW_COUNT > 0) — выражения запрещены → v_rowcount = ROW_COUNT; v_inserted := (v_rowcount > 0).
+  8. 0014: partner_id = auth.uid() (text=uuid) → ::text (2 места).
+  9. 0015: uploaded_by = auth.uid() → ::text.
+  10. 0021: INSERT праздников — 12 значений в 8-колоночный список (плавающие даты писали 'is_floating', true как позиционные) → колонки расширены до 10 (is_floating, floating_calc), 6 плавающих + 16 фиксированных строк исправлены.
+  11. 0022/0023: c."userId" = auth.uid() → ::text (10 мест).
+  12. 0024: индексы по несуществующим orders.customer_id/products.is_active → переписаны на user_id и category_id+status WHERE published.
+  13. 0026: storage.buckets mime_types → allowed_mime_types (реальная схема Supabase Storage; ломало создание всех 6 бакетов и в Docker!).
+  14. 0026: storage.foldername(name) = auth.uid()::text (text[]=text) → (storage.foldername(name))[1] = auth.uid()::text (10 политик).
+  15. 0026: userId = auth.uid()::text без кавычек → "userId" (колонка camelCase из 0017; фолдилась в userid).
+  16. 0016→0017b: ПЕРЕИМЕНОВАНА в 0017b_channel_moderation.sql — ALTER TABLE channel_posts выполнялась ДО создания таблицы в 0017 (порядок glob).
+  17. 0026: триггер set_confectioners_updated_at: NEW.updatedAt → NEW."updatedAt" (plpgsql record-поле case-sensitive; ломало ЛЮБОЙ UPDATE кондитера, найдено через seed-upsert).
+- **Верификация схемы**: 209 таблиц public, 310 RLS-политик, 798 индексов, 6 бакетов (avatars/covers/portfolio/product_images public=true; documents/messages public=false), RLS на confectioners включена, camelCase-колонки 0017 точны.
+- **Типы (задача Critical-4 без Docker/CLI)**: supabase CLI v2.48.3/v1.192.1 требует Docker даже для gen types --db-url (интроспекция через pg_meta-контейнер). Написан scripts/generate-supabase-types.mjs — Node-генератор supabase-совместимого Database-типа из information_schema (public+storage, 209 таблиц, Row/Insert/Update/Relationships, 29 enum'ов top-level, convenience-алиасы ConfectionerRow и др.). Выход: src/lib/supabase/types.generated.ts (~10k строк, eslint-disable header). tsc проекта = 0. Проверено соответствие hand-written ConfectionerRow ↔ autogen.
+- **E2E (задача High-6)**: создана tests/e2e/onboarding-flow.spec.ts — полный сценарий (register CONFECTIONER → login → onboarding multipart с ИНН 7700000123 → status → admin approve → /api/confectioners verified → бегущая строка → sitemap slug), помечен E2E_FULL_STACK=1 (гейт). Smoke-тест (health, /api/confectioners, title главной) проходит против dev-сервера. scripts/e2e-screenshots.mjs — 6 скриншотов в download/screenshots/.
+- **Баги №18-19 (брендинг, найдены E2E)**: (a) src/lib/site-config.ts: fallback "Кондитера" → "Уездный кондитер" (правило №1 ТЗ; <title> рендерил «Кондитера»); (b) use-seo-metadata.ts: 33 title/description были не-интерполированными строками "${siteConfig.name}" → шаблонные строки с ${APP_NAME}.
+- **Задача 10 (mock → seed)**: scripts/generate-seed-confectioners.mjs (bun, импортирует mock-data.ts) → supabase/seed_confectioners.sql: 5 кондитеров, маппинг legacy-enum'ов (TRUSTED→VERIFIED, PROFI→PREMIUM, IP→USN, OOO→OSNO), idempotent ON CONFLICT, self-check DO-блок. Применён: 0 ошибок, повторный прогон чистый.
+- **Задача 11 (audit auth-modal)**: Explore-аудит — mock auth-modal.tsx монтируется в page.tsx + route-fallback.tsx (~25 страниц), SupabaseAuthModal — в dashboard + login. Удаление НЕБЕЗОПАСНО (5 блокеров): SupabaseAuthModal не пишет в Zustand (header/дашборды останутся гостем); dev без Docker теряет вход; потеря фич (вход по телефону, самостоятельный выбор 19 ролей, B2B-регистрация с ИНН/КПП, semaphore/blacklist, согласия 152-ФЗ); OAuth требует GoTrue-провайдеров; store.logout не делает signOut GoTrue. Решение: mock оставлен, план миграции зафиксирован в аудите. Исправлен блокер №1: создан src/components/layout/supabase-auth-sync.tsx (SupabaseAuthSync: getSession + profiles + user_roles → store.setSupabaseUser, подписка onAuthStateChange SIGNED_IN/OUT/USER_UPDATED/TOKEN_REFRESHED) — смонтирован в dashboard/page.tsx (2 точки). store.ts: добавлен action setSupabaseUser(user|null) (SIGNED_OUT сохраняет cart/nav).
+- **Задача 13 (split-brain FK)**: аудит pg_constraint — 100+ FK → auth.users (user-identity, корректно). Миграция 0027_confectioner_identity_unification.sql: 5 таблиц из 0006/0007/0008 (favorite_confectioners, tender_offers, tender_invitations, confectioner_geo, delivery_zones) — confectioner_id UUID→TEXT, FK перенесён на public.confectioners(id), orphan-safe (WARNING вместо failure), 11 RLS-политик пересозданы с auth.uid()::text (tender_offers ×3, tender_invitations ×2, tender_reviews_insert_participant, confectioner_geo_write_own, ateliers_write_owner, tastings_write_owner, tasting_bookings_select, delivery_zones_write_own). Грабли: DROP FK ДО ALTER TYPE (иначе "cannot be implemented"), DROP политик ДО ALTER TYPE (иначе "cannot alter type of a column used in a policy"). Вне скоупа задокументировано: orders/products/negotiations/payouts/split_payments/lessons/franchise_points остаются auth.users-ref.
+- **Финальная сквозная проверка**: чистая БД → baseline → 28 миграций (только pg_cron/pgsodium недоступны — env) → seed → 209 таблиц / 310 RLS / 6 бакетов / 5 seeded; tsc 0, eslint 0 errors, vitest 731/731.
+
+Stage Summary:
+Новые файлы:
+- supabase/migrations/0027_confectioner_identity_unification.sql — унификация confectioner identity (задача 13)
+- supabase/seed_confectioners.sql — демо-кондитеры для прод-БД (задача 10)
+- scripts/generate-supabase-types.mjs — генератор Database-типов без Docker/CLI (Critical-4)
+- scripts/generate-seed-confectioners.mjs — генератор seed из mock-data
+- scripts/e2e-screenshots.mjs — скриншоты ключевых страниц
+- tests/e2e/onboarding-flow.spec.ts — E2E onboarding-флоу (High-6)
+- src/components/layout/supabase-auth-sync.tsx — синхронизация GoTrue → Zustand (баг 18)
+- src/lib/supabase/types.generated.ts — автогенерированный Database-тип (209 таблиц)
+- /home/z/pg-baseline/supabase-baseline.sql (вне репо) — auth/storage baseline для локальной PG
+
+Исправленные файлы (миграции): 0002, 0004, 0007, 0009, 0012, 0013, 0014, 0015, 0021, 0022, 0023, 0024, 0026; 0016 → переименована в 0017b.
+Исправленные файлы (код): site-config.ts (бренд), use-seo-metadata.ts (33 title), store.ts (+setSupabaseUser), dashboard/page.tsx (+SupabaseAuthSync), .env.
+
+Ключевые решения:
+1. Тестирование миграций без Docker: нативная PG 15.14 + самописный auth/storage-baseline — воспроизводит контейнер supabase-db достаточно для psql-валидации. Итоговая цепочка 0001→0027 = 0 ошибок (кроме CREATE EXTENSION pg_cron/pgsodium).
+2. supabase gen types неприменим без Docker → собственный интроспектор information_schema даёт supabase-совместимый тип и работает в CI/локально по одной команде.
+3. Задача 11: mock auth-modal СОХРАНЁН — условие «если SupabaseAuthModal покрывает все случаи» не выполнено (5 блокеров). Предпосылка для будущего удаления создана (SupabaseAuthSync + setSupabaseUser).
+4. Задача 13 скоуп ограничен 0006/0007/0008 (рекомендация ТЗ); остальные confectioner_id UUID FK — кандидаты в 0028+ после решения о модели identity.
+5. Seed содержит ТОЛЬКО verified-кондитеров → сразу проходят RLS-политику public SELECT (0026).
+
+Осталось (следующий раунд):
+- E2E_FULL_STACK=1 прогон onboarding-flow.spec.ts против docker-compose.supabase.yml (нужен Docker).
+- supabase gen types в окружении с Docker — сверить с types.generated.ts, зафиксировать расхождения (если появятся Functions/Views).
+- Yandex OAuth app (пользователь): oauth.yandex.ru/client/new + Studio → Providers → Yandex.
+- Cron: /api/cron/auto-approve (30 мин), /api/cron/sitemap-refresh (hourly), /api/cron/daily-digest (09:00) с CRON_SECRET.
+- Миграция витрины магазина на live-данные (каталог/продукты сейчас mock-совместимы).

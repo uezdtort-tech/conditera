@@ -20,13 +20,10 @@
 -- Все таблицы включают RLS-политики. Триггеры для updated_at.
 -- ════════════════════════════════════════════════════════════════════
 
-BEGIN;
-
 -- ─────────────────────────────────────────────────────────────────────
--- 1. Добавить новые значения в enum user_role
+-- 0. Добавить новые значения в enum user_role (ВЫНЕСЕНО из транзакции:
+--    PG 12+ запрещает использовать новое значение enum до коммита)
 -- ─────────────────────────────────────────────────────────────────────
--- ALTER TYPE ... ADD VALUE не может выполняться внутри транзакции в PostgreSQL <12,
--- но в PG 12+ работает. Supabase использует PG 15.
 DO $$ BEGIN
   -- Проверяем, не добавлены ли уже значения
   IF NOT EXISTS (
@@ -51,6 +48,15 @@ DO $$ BEGIN
     ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'AI_ASSISTANT';
   END IF;
 END $$;
+
+BEGIN;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 1. Добавить новые значения в enum user_role
+-- ─────────────────────────────────────────────────────────────────────
+-- ALTER TYPE ... ADD VALUE не может выполняться внутри транзакции в PostgreSQL <12,
+-- но в PG 12+ работает. Supabase использует PG 15.
+
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 2. recipe_marketplace — каталог авторских рецептов
@@ -251,23 +257,28 @@ CREATE INDEX IF NOT EXISTS idx_ai_logs_error ON public.ai_assistant_logs(error_c
 DO $$ BEGIN
   -- Проверяем существование функции
   IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_updated_at_column') THEN
-    CREATE TRIGGER IF NOT EXISTS trg_recipe_marketplace_updated
+    DROP TRIGGER IF EXISTS trg_recipe_marketplace_updated ON public.recipe_marketplace;
+    CREATE TRIGGER trg_recipe_marketplace_updated
       BEFORE UPDATE ON public.recipe_marketplace
       FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
-    CREATE TRIGGER IF NOT EXISTS trg_recipe_subscriptions_updated
+    DROP TRIGGER IF EXISTS trg_recipe_subscriptions_updated ON public.recipe_subscriptions;
+    CREATE TRIGGER trg_recipe_subscriptions_updated
       BEFORE UPDATE ON public.recipe_subscriptions
       FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
-    CREATE TRIGGER IF NOT EXISTS trg_loyalty_partners_updated
+    DROP TRIGGER IF EXISTS trg_loyalty_partners_updated ON public.loyalty_partners;
+    CREATE TRIGGER trg_loyalty_partners_updated
       BEFORE UPDATE ON public.loyalty_partners
       FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
-    CREATE TRIGGER IF NOT EXISTS trg_loyalty_cross_actions_updated
+    DROP TRIGGER IF EXISTS trg_loyalty_cross_actions_updated ON public.loyalty_cross_actions;
+    CREATE TRIGGER trg_loyalty_cross_actions_updated
       BEFORE UPDATE ON public.loyalty_cross_actions
       FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
-    CREATE TRIGGER IF NOT EXISTS trg_ai_conversations_updated
+    DROP TRIGGER IF EXISTS trg_ai_conversations_updated ON public.ai_assistant_conversations;
+    CREATE TRIGGER trg_ai_conversations_updated
       BEFORE UPDATE ON public.ai_assistant_conversations
       FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
   END IF;

@@ -12,9 +12,9 @@
 
 -- ===== 1. Составные индексы для частых запросов =====
 
--- Orders: частый запрос — customer_id + status + created_at
+-- Orders: частый запрос — user_id + status + created_at
 CREATE INDEX IF NOT EXISTS idx_orders_customer_status_date
-  ON public.orders(customer_id, status, created_at DESC)
+  ON public.orders(user_id, status, created_at DESC)
   WHERE status NOT IN ('CANCELLED', 'REFUNDED');
 
 -- Orders: confectioner_id + status (для дашборда кондитера)
@@ -22,10 +22,10 @@ CREATE INDEX IF NOT EXISTS idx_orders_confectioner_status_date
   ON public.orders(confectioner_id, status, created_at DESC)
   WHERE status NOT IN ('CANCELLED', 'REFUNDED');
 
--- Products: category + is_active (для каталога)
+-- Products: category + published (для каталога)
 CREATE INDEX IF NOT EXISTS idx_products_category_active
-  ON public.products(category, is_active)
-  WHERE is_active = TRUE;
+  ON public.products(category_id, status)
+  WHERE status = 'published';
 
 -- Fillings: status + usage_count (для конструктора — популярные сначала)
 CREATE INDEX IF NOT EXISTS idx_fillings_status_usage
@@ -87,7 +87,7 @@ SELECT
   DATE_TRUNC('month', created_at) as month,
   COUNT(*) as orders_count,
   SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_count,
-  SUM(CASE WHEN status = 'COMPLETED' THEN total_amount ELSE 0 END) as revenue
+  SUM(CASE WHEN status = 'COMPLETED' THEN total ELSE 0 END) as revenue
 FROM public.orders
 WHERE status NOT IN ('CANCELLED', 'REFUNDED')
   AND created_at > NOW() - INTERVAL '12 months'

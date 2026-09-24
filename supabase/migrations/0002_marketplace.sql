@@ -243,6 +243,13 @@ CREATE INDEX idx_order_items_order ON public.order_items(order_id);
 CREATE INDEX idx_order_items_product ON public.order_items(product_id);
 
 -- ===== 10. Payments =====
+-- Тип метода оплаты (используется таблицей payments ниже)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_method') THEN
+    CREATE TYPE payment_method AS ENUM ('card', 'sbp', 'cash', 'split', 'installment', 'yookassa', 'self');
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS public.payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,

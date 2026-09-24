@@ -307,6 +307,7 @@ AS $$
 DECLARE
   v_existing_id TEXT;
   v_inserted BOOLEAN := FALSE;
+  v_rowcount BIGINT := 0;
 BEGIN
   -- Если подписка на самого себя — отказ
   IF p_confectioner_id = p_user_id THEN
@@ -332,7 +333,8 @@ BEGIN
     INSERT INTO public.channel_followers (confectioner_id, user_id, created_at)
     VALUES (p_confectioner_id, p_user_id, NOW())
     ON CONFLICT DO NOTHING;
-    GET DIAGNOSTICS v_inserted = (ROW_COUNT > 0);
+    GET DIAGNOSTICS v_rowcount = ROW_COUNT;
+    v_inserted := (v_rowcount > 0);
   EXCEPTION WHEN unique_violation THEN
     v_inserted := FALSE;
   END;

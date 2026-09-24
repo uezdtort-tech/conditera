@@ -112,7 +112,7 @@ CREATE POLICY "pricing_insert_own" ON public.confectioner_pricing
     EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = confectioner_id
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur
@@ -128,7 +128,7 @@ CREATE POLICY "pricing_update_own" ON public.confectioner_pricing
     EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = confectioner_id
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur
@@ -210,7 +210,7 @@ CREATE POLICY "quote_select_own_or_confectioner" ON public.quote_requests
     OR EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = ANY(confectioner_ids)
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur
@@ -231,7 +231,7 @@ CREATE POLICY "quote_update_own_or_confectioner" ON public.quote_requests
     OR EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = ANY(confectioner_ids)
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur
@@ -310,7 +310,7 @@ CREATE POLICY "quotes_select_related" ON public.confectioner_quotes
              OR EXISTS (
                SELECT 1 FROM public.confectioners c
                WHERE c.id = confectioner_id
-                 AND c."userId" = auth.uid()
+                 AND c."userId" = auth.uid()::text
              ))
     )
     OR EXISTS (
@@ -327,7 +327,7 @@ CREATE POLICY "quotes_insert_confectioner" ON public.confectioner_quotes
     EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = confectioner_id
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
   );
 
@@ -337,7 +337,7 @@ CREATE POLICY "quotes_update_confectioner" ON public.confectioner_quotes
     EXISTS (
       SELECT 1 FROM public.confectioners c
       WHERE c.id = confectioner_id
-        AND c."userId" = auth.uid()
+        AND c."userId" = auth.uid()::text
     )
     OR EXISTS (
       SELECT 1 FROM public.quote_requests qr
