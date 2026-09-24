@@ -43,7 +43,7 @@ RUN npm run build
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
 # Использует postgres:16-alpine чтобы был psql клиент.
-FROM postgres:16-alpine AS migrator
+FROM postgres:18-alpine AS migrator
 WORKDIR /migrations
 
 # Копируем все SQL миграции
