@@ -13,7 +13,7 @@
 # ====================================================================
 
 # --- Этап 1: Dependencies (all, including dev) ---
-FROM node:20-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 
 # Копируем package файлы
@@ -30,7 +30,7 @@ RUN if [ -f package-lock.json ]; then \
     fi
 
 # --- Этап 2: Build ---
-FROM node:20-alpine AS builder
+FROM node:25-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -58,7 +58,7 @@ RUN chmod +x /docker-entrypoint-initdb.d/01-apply-migrations.sh
 ENTRYPOINT ["sh", "/docker-entrypoint-initdb.d/01-apply-migrations.sh"]
 
 # --- Этап 4: Production runner ---
-FROM node:20-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
