@@ -1,0 +1,211 @@
+{
+  "name": "🔔 Реактивация пользователей — персональные офферы неактивным",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-weekly",
+      "name": "Каждый понедельник 11:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.APP_URL }}/api/cron/user-reenagement?inactiveDays=30",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-inactive",
+      "name": "Найти неактивных пользователей",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "users",
+        "options": {}
+      },
+      "id": "split-users",
+      "name": "Разделить по пользователям",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Подбираем персональный оффер на основе истории пользователя.\nconst u = $input.first().json;\nconst lastOrderDaysAgo = u.lastOrderDaysAgo || 30;\nconst totalOrders = u.totalOrders || 0;\nconst loyaltyLevel = u.loyaltyLevel || 'BRONZE';\n\nlet offer;\nif (totalOrders === 0) {\n  offer = { type: 'first_order', discountPct: 15, bonusPoints: 200, code: 'WELCOME_BACK_15' };\n} else if (lastOrderDaysAgo > 90) {\n  offer = { type: 'huge_winback', discountPct: 20, bonusPoints: 500, code: 'MISS_YOU_20' };\n} else if (loyaltyLevel === 'GOLD' || loyaltyLevel === 'PLATINUM') {\n  offer = { type: 'vip_winback', discountPct: 12, bonusPoints: 300, freeDelivery: true, code: 'VIP_BACK_12' };\n} else {\n  offer = { type: 'standard_winback', discountPct: 10, bonusPoints: 150, code: 'COME_BACK_10' };\n}\n\nreturn [{\n  json: {\n    ...u,\n    offer,\n    personalizedMessage: `Мы соскучились! Вот вам ${offer.discountPct}% на следующий заказ${offer.bonusPoints ? ` и +${offer.bonusPoints} бонусов` : ''}. Промокод: ${offer.code}`,\n    validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()\n  }\n}];"
+      },
+      "id": "build-offer",
+      "name": "Подобрать персональный оффер",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/notifications/send",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId || $json.id }}\",\n  \"template\": \"REENGAGEMENT_OFFER\",\n  \"vars\": {\n    \"discountPct\": {{ $json.offer.discountPct }},\n    \"bonusPoints\": {{ $json.offer.bonusPoints }},\n    \"promoCode\": \"{{ $json.offer.code }}\",\n    \"message\": \"{{ $json.personalizedMessage }}\",\n    \"validUntil\": \"{{ $json.validUntil }}\"\n  },\n  \"channels\": [\"email\", \"push\", \"in_app\"],\n  \"data\": { \"type\": \"reenagement\", \"offer\": {{ JSON.stringify($json.offer) }} }\n}",
+        "options": {}
+      },
+      "id": "send-offer",
+      "name": "Отправить оффер",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"user-reenagement\",\n  \"status\": \"success\",\n  \"sent\": {{ $node[\"Разделить по пользователям\"].items.length }},\n  \"inactiveThresholdDays\": 30\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Каждый понедельник 11:00": {
+      "main": [
+        [
+          {
+            "node": "Найти неактивных пользователей",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Найти неактивных пользователей": {
+      "main": [
+        [
+          {
+            "node": "Разделить по пользователям",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разделить по пользователям": {
+      "main": [
+        [
+          {
+            "node": "Подобрать персональный оффер",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подобрать персональный оффер": {
+      "main": [
+        [
+          {
+            "node": "Отправить оффер",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить оффер": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "retention"
+    },
+    {
+      "name": "marketing"
+    }
+  ],
+  "id": "c39673c1-dc06-58e7-aeb2-03d6e51806dc"
+}

@@ -1,0 +1,120 @@
+{
+  "name": "💾 Резервное копирование БД — ежедневный backup",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Ежедневно 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.APP_URL }}/api/cron/backup",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            }
+          ]
+        },
+        "timeout": 600000,
+        "options": {}
+      },
+      "id": "run-backup",
+      "name": "Запустить backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"backup\",\n  \"status\": \"success\",\n  \"duration\": {{ $json.durationMs }},\n  \"backupSizeBytes\": {{ $json.backupSizeBytes }},\n  \"tablesCount\": {{ $json.tablesCount }},\n  \"recordsExported\": {{ $json.recordsExported }},\n  \"oldBackupsDeleted\": {{ $json.oldBackupsDeleted }}\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Ежедневно 03:00": {
+      "main": [
+        [
+          {
+            "node": "Запустить backup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Запустить backup": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "maintenance"
+    },
+    {
+      "name": "backup"
+    }
+  ],
+  "id": "7b775b04-7f7f-5fb3-b532-a5b80e75b10b"
+}

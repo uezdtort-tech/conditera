@@ -1,0 +1,191 @@
+{
+  "name": "25. AI Smart Cake Search",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "smart-cake-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "smart-cake-search-webhook"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "systemPrompt",
+              "value": "Ты — AI-консультант кондитерской платформы «Уездный кондитер». По описанию пользователя подбери тип изделия, начинку, покрытие, форму и количество ярусов. Верни JSON: {\"productType\": \"cake|cupcakes|macarons|...\", \"filling\": \"название\", \"coating\": \"название\", \"shape\": \"round|square|heart|...\", \"tiers\": 1-4, \"budget\": \"оценка в рублях\", \"reasoning\": \"краткое объяснение выбора\"}"
+            },
+            {
+              "name": "userQuery",
+              "value": "={{$json.query || 'торт на день рождения ребенка'}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Prepare Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.OLLAMA_HOST || 'http://host.docker.internal:11434'}}/v1/chat/completions",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{$env.LLM_MODEL || 'qwen2.5:7b'}}"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\":\"system\",\"content\":\"{{$json.systemPrompt}}\"},{\"role\":\"user\",\"content\":\"{{$json.userQuery}}\"}]"
+            },
+            {
+              "name": "stream",
+              "value": false
+            },
+            {
+              "name": "temperature",
+              "value": 0.3
+            },
+            {
+              "name": "max_tokens",
+              "value": 500
+            },
+            {
+              "name": "format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "headers": {
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "name": "Ollama AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "={{$json.choices[0].message.content}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Extract Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {}
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama AI": {
+      "main": [
+        [
+          {
+            "node": "Extract Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": [
+    {
+      "name": "AI"
+    },
+    {
+      "name": "Search"
+    },
+    {
+      "name": "Cake"
+    }
+  ],
+  "notes": "AI-умный подбор торта через Ollama.\n\nПользователь описывает желаемый торт словами:\n\"торт на свадьбу на 80 человек в стиле бохо\"\n\nAI возвращает JSON с параметрами для конструктора:\n- productType: cake/cupcakes/macarons/...\n- filling: название начинки\n- coating: название покрытия\n- shape: round/square/heart/...\n- tiers: 1-4\n- budget: оценка в рублях\n- reasoning: объяснение выбора\n\nEndpoint: POST http://localhost:5678/webhook/smart-cake-search\nBody: { \"query\": \"торт на свадьбу...\" }",
+  "id": "ebc59010-9275-5fb2-9b9c-de9b01336431"
+}

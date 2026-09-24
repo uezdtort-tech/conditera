@@ -1,0 +1,187 @@
+{
+  "name": "📧 Дайджест недели — сводка для активных пользователей",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-weekly",
+      "name": "Каждый понедельник 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.APP_URL }}/api/cron/weekly-digest",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-digest-data",
+      "name": "Получить данные дайджеста",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "users",
+        "options": {}
+      },
+      "id": "split-users",
+      "name": "Разделить по пользователям",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/notifications/send",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"PROMO_NEAR_YOU\",\n  \"vars\": {\n    \"confectionerName\": \"Уездный кондитер\",\n    \"promoTitle\": \"Ваш дайджест недели\",\n    \"promoDesc\": \"Новинок: {{ $json.newProducts }}, акций: {{ $json.activePromos }}, новых кондитеров: {{ $json.newConfectioners }}. Заходите!\"\n  },\n  \"channels\": [\"email\", \"in_app\"],\n  \"data\": { \"type\": \"weekly_digest\" }\n}",
+        "options": {}
+      },
+      "id": "send-digest",
+      "name": "Отправить дайджест",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"weekly-digest\",\n  \"status\": \"success\",\n  \"sent\": {{ $node[\"Разделить по пользователям\"].items.length }},\n  \"duration\": \"{{ $now.minus($node[\"Каждый понедельник 10:00\"].startTime).toMillis() }}ms\"\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус выполнения",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Каждый понедельник 10:00": {
+      "main": [
+        [
+          {
+            "node": "Получить данные дайджеста",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Получить данные дайджеста": {
+      "main": [
+        [
+          {
+            "node": "Разделить по пользователям",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разделить по пользователям": {
+      "main": [
+        [
+          {
+            "node": "Отправить дайджест",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить дайджест": {
+      "main": [
+        [
+          {
+            "node": "Записать статус выполнения",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "email"
+    },
+    {
+      "name": "retention"
+    }
+  ],
+  "id": "7d6b6872-8933-523c-92f6-b7a76e8b9dff"
+}

@@ -1,0 +1,70 @@
+# supabase/vector.yaml — Конфигурация Vector для сбора логов Docker
+# ============================================================================
+# Vector собирает логи со всех Docker-контейнеров и отправляет в Logflare
+# (supabase-analytics сервис).
+#
+# Документация: https://vector.dev/docs/reference/configuration/sources/docker_logs/
+# ============================================================================
+
+sources:
+  # Источник: логи Docker-контейнеров через Docker API
+  docker_logs:
+    type: docker_logs
+    # Собираем логи только с контейнеров conditera-* (чтобы не засорять)
+    include_containers:
+      - "conditera-*"
+    # Автоматически определяем кодировку (UTF-8, ANSI и т.д.)
+    auto_partial_merge: true
+
+transforms:
+  # Парсим JSON-логи (наши сервисы пишут логи в JSON формате)
+  parse_json:
+    type: remap
+    inputs: ["docker_logs"]
+    source: |
+      .container_name = .container_name ?? "unknown"
+      .timestamp = now()
+      # Если лог — JSON, парсим его
+      parsed, err = parse_json(.message)
+      if err == null {
+        . = merge(., parsed)
+      }
+      # Добавляем metadata
+      .source = "docker"
+      .environment = get_env_var!("NODE_ENV") ?? "production"
+
+  # Фильтруем пустые логи
+  filter_empty:
+    type: filter
+    inputs: ["parse_json"]
+    condition: .message != "" && .message != null
+
+sinks:
+  # Отправляем в Logflare (supabase-analytics) через HTTP API
+  logflare:
+    type: http
+    inputs: ["filter_empty"]
+    uri: "http://supabase-analytics:4000/api/endpoints?api_key=${LOGFLARE_API_KEY}"
+    method: post
+    encoding:
+      codec: json
+    # Отправляем батчами по 100 записей или раз в 5 секунд
+    batch:
+      max_events: 100
+      timeout_secs: 5
+    # Ретраи при ошибках
+    request:
+      retry_attempts: 3
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 30
+    # Healthcheck
+    healthcheck:
+      enabled: true
+      path: "http://supabase-analytics:4000/healthz"
+
+  # Также пишем в stdout для отладки (можно смотреть через docker logs)
+  stdout:
+    type: console
+    inputs: ["filter_empty"]
+    encoding:
+      codec: json

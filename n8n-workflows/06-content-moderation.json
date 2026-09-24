@@ -1,0 +1,224 @@
+{
+  "name": "🛡️ Модерация контента — авто-проверка отзывов и постов",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "content-moderation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Webhook: новый контент",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "content-moderation-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Авто-модерация: ищем запрещённые паттерны и спам\nconst payload = $input.first().json.body || $input.first().json;\nconst text = String(payload.text || '').toLowerCase();\nconst contentId = payload.contentId || payload.id;\nconst contentType = payload.contentType || 'review';\nconst authorId = payload.authorId;\n\n// Запрещённые слова/фразы\nconst prohibited = ['казино', 'ставки', 'наркотик', 'оружие', 'порно', 'обман'];\n// Спам-паттерны: капслок, повторяющиеся символы, много ссылок\nconst spamPatterns = [\n  /(.)\\1{9,}/i,            // 10+ одинаковых символов подряд\n  /(https?:\\/\\/[^\\s]+\\s*){3,}/i, // 3+ ссылок\n  /^[^a-zа-я0-9\\s]+$/i,    // только спецсимволы\n];\nconst capsRatio = (text.replace(/[^A-ZА-Я]/g, '').length) / Math.max(text.replace(/[^a-zа-яA-ZА-Я]/g, '').length, 1);\n\nconst reasons = [];\nfor (const w of prohibited) {\n  if (text.includes(w)) reasons.push(`prohibited_word:${w}`);\n}\nfor (const re of spamPatterns) {\n  if (re.test(text)) reasons.push(`spam_pattern:${re.source.slice(0, 20)}`);\n}\nif (capsRatio > 0.6 && text.length > 30) reasons.push('excessive_caps');\nif (text.trim().length < 5) reasons.push('too_short');\n\nreturn [{\n  json: {\n    contentId,\n    contentType,\n    authorId,\n    text: text.slice(0, 500),\n    isFlagged: reasons.length > 0,\n    reasons,\n    status: reasons.length > 0 ? 'flagged' : 'approved',\n    checkedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "scan-content",
+      "name": "Сканировать контент",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-flagged",
+              "leftValue": "={{ $json.isFlagged }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-flagged",
+      "name": "Если нарушений найдены",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"content_moderation\",\n  \"data\": {\n    \"contentId\": \"{{ $json.contentId }}\",\n    \"contentType\": \"{{ $json.contentType }}\",\n    \"authorId\": \"{{ $json.authorId }}\",\n    \"status\": \"flagged\",\n    \"reasons\": {{ JSON.stringify($json.reasons) }},\n    \"checkedAt\": \"{{ $json.checkedAt }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "send-flagged",
+      "name": "Отправить flagged",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        940,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"content_moderation\",\n  \"data\": {\n    \"contentId\": \"{{ $json.contentId }}\",\n    \"contentType\": \"{{ $json.contentType }}\",\n    \"authorId\": \"{{ $json.authorId }}\",\n    \"status\": \"approved\",\n    \"reasons\": [],\n    \"checkedAt\": \"{{ $json.checkedAt }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "send-approved",
+      "name": "Отправить approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        940,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: $json.status, reasons: $json.reasons } }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Ответить на webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: новый контент": {
+      "main": [
+        [
+          {
+            "node": "Сканировать контент",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сканировать контент": {
+      "main": [
+        [
+          {
+            "node": "Если нарушений найдены",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Если нарушений найдены": {
+      "main": [
+        [
+          {
+            "node": "Отправить flagged",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Отправить approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить flagged": {
+      "main": [
+        [
+          {
+            "node": "Ответить на webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить approved": {
+      "main": [
+        [
+          {
+            "node": "Ответить на webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "moderation"
+    },
+    {
+      "name": "security"
+    }
+  ],
+  "id": "0ac87358-3ec4-5fba-b922-160de1ef7f7d"
+}

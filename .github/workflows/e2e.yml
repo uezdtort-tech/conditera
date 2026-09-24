@@ -1,0 +1,247 @@
+# ============================================================
+# E2E Tests — отдельный workflow для расширенного запуска Playwright
+# ============================================================
+# Запускается:
+#   • По расписанию: nightly в 03:00 UTC
+#   • При изменениях в API routes или e2e тестах
+#   • Вручную (workflow_dispatch) с параметром браузера
+#
+# Pipeline: install → build → start preview → run Playwright → upload report
+#
+# Отличие от ci.yml:
+#   • Запускается отдельно (не блокирует основной CI)
+#   • Поддерживает все 3 браузера (chromium, firefox, webkit)
+#   • Загружает HTML-отчёт как артефакт
+# ============================================================
+
+name: E2E Tests
+
+on:
+  schedule:
+    # Nightly в 03:00 UTC — полный smoke для всех браузеров
+    - cron: "0 3 * * *"
+
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: "Браузер (chromium, firefox, webkit, или all)"
+        required: false
+        default: "chromium"
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+          - all
+      grep:
+        description: "Фильтр тестов (regex, пусто = все)"
+        required: false
+        default: ""
+        type: string
+
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      # Запускать только при изменениях в коде, который тестируется e2e
+      - "src/app/api/**"
+      - "src/components/**"
+      - "src/lib/**"
+      - "tests/e2e/**"
+      - "playwright.config.ts"
+      - "package.json"
+      - "package-lock.json"
+
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - "src/app/api/**"
+      - "src/components/**"
+      - "src/lib/**"
+      - "tests/e2e/**"
+      - "playwright.config.ts"
+
+env:
+  NODE_VERSION: "20"
+  # Используем PGlite для изолированных тестов
+  DATABASE_URL: "file:./db/e2e-test.db"
+  JWT_SECRET: "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa"
+  TFA_ENCRYPTION_KEY: "e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+  CRON_SECRET: "e2e_test_cron_secret"
+  NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+  NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
+  NODE_ENV: test
+  CI: "true"
+
+jobs:
+  # ===== 1. Установка и сборка =====
+  setup:
+    name: Setup & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        continue-on-error: true
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: |
+            .next/cache
+            node_modules/.cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-
+
+      - name: Build application
+        run: npm run build
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NODE_ENV: ${{ env.NODE_ENV }}
+
+      - name: Cache build for downstream
+        uses: actions/cache@v4
+        with:
+          path: .next
+          key: nextjs-build-${{ github.sha }}
+
+  # ===== 2. Запуск Playwright тестов =====
+  test:
+    name: Playwright (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        # По умолчанию только chromium, для nightly — все 3 браузера
+        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit"]')) || fromJson('["chromium"]') }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        continue-on-error: true
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: .next
+          key: nextjs-build-${{ github.sha }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Start application
+        run: |
+          npm run start &
+          # Ждём пока приложение поднимется
+          for i in {1..30}; do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health | grep -q "200"; then
+              echo "✓ Application is up"
+              break
+            fi
+            echo "  Waiting for app to start... ($i/30)"
+            sleep 2
+          done
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NODE_ENV: ${{ env.NODE_ENV }}
+
+      - name: Run Playwright tests
+        run: npm run test:e2e -- --project=${{ matrix.browser }} ${{ github.event.inputs.grep && format('--grep "{0}"', github.event.inputs.grep) || '' }}
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NODE_ENV: ${{ env.NODE_ENV }}
+          CI: "true"
+
+      - name: Upload Playwright HTML report
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test results (XML)
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-results-${{ matrix.browser }}
+          path: test-results/
+          retention-days: 7
+
+      - name: Upload screenshots on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-failures-${{ matrix.browser }}
+          path: test-results/**/test-video.webm
+          retention-days: 7
+
+  # ===== 3. Отчёт в Slack/Telegram (опционально) =====
+  notify:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: test
+    if: failure() && github.ref == 'refs/heads/main'
+    steps:
+      - name: Send Telegram notification
+        if: env.TELEGRAM_BOT_TOKEN != ''
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🔴 E2E Tests FAILED
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+
+            Failed job: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

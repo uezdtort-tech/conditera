@@ -1,0 +1,57 @@
+{
+  "name": "20 Franchisee Reports",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "schedule": {
+        "interval": [
+          {
+            "field": "hours",
+            "hoursInterval": 168
+          }
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://web:3000/api/cron/franchisee-reports",
+        "method": "GET",
+        "headers": {
+          "X-Cron-Secret": "={{$env.CRON_SECRET}}"
+        }
+      },
+      "name": "Call API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        450,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Call API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "bf558b81-9d82-5085-a43f-28d900fdf563"
+}

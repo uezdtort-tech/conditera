@@ -1,0 +1,248 @@
+{
+  "name": "🛒 Брошенная корзина — напоминание",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Каждый час",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.APP_URL }}/api/cron/abandoned-cart",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-abandoned",
+      "name": "Найти брошенные корзины",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "carts",
+        "options": {}
+      },
+      "id": "split-carts",
+      "name": "Разделить по корзинам",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-not-notified",
+              "leftValue": "={{ $json.notifiedAt }}",
+              "rightValue": "",
+              "operator": {
+                "type": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-not-notified",
+      "name": "Если не уведомлён",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/notifications/send",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"ABANDONED_CART\",\n  \"vars\": {\n    \"itemsCount\": {{ $json.itemsCount }},\n    \"total\": {{ $json.total }}\n  },\n  \"data\": { \"cartId\": \"{{ $json.id }}\", \"type\": \"abandoned_cart\" }\n}",
+        "options": {}
+      },
+      "id": "send-notification",
+      "name": "Отправить напоминание",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1180,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.APP_URL }}/api/cron/abandoned-cart",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"cartId\": \"{{ $json.id }}\",\n  \"action\": \"mark_notified\"\n}",
+        "options": {}
+      },
+      "id": "mark-notified",
+      "name": "Пометить как уведомлённый",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1400,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "no-action",
+      "name": "Пропустить",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Каждый час": {
+      "main": [
+        [
+          {
+            "node": "Найти брошенные корзины",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Найти брошенные корзины": {
+      "main": [
+        [
+          {
+            "node": "Разделить по корзинам",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разделить по корзинам": {
+      "main": [
+        [
+          {
+            "node": "Если не уведомлён",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Если не уведомлён": {
+      "main": [
+        [
+          {
+            "node": "Отправить напоминание",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Пропустить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить напоминание": {
+      "main": [
+        [
+          {
+            "node": "Пометить как уведомлённый",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "loyalty"
+    },
+    {
+      "name": "retention"
+    }
+  ],
+  "id": "37e7a360-e26d-56db-9e6d-983269bd83bc"
+}

@@ -1,0 +1,547 @@
+# ===== Docker Compose для "Уездного кондитера" (production) =====
+# Запуск: docker-compose up -d
+# Требует .env.production со всеми секретами (см. .env.example)
+# ====================================================================
+
+# Общие настройки логирования (ротация логов)
+# Применяется ко всем сервисам через YAML anchor
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Общие ограничения ресурсов (можно переопределять в сервисе)
+x-default-restart: &default-restart
+  restart: unless-stopped
+
+services:
+  # ===== Migrator (init-контейнер — применяет миграции БД один раз) =====
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    container_name: conditera-migrator
+    restart: "no"  # запускается один раз, затем завершается
+    env_file:
+      - .env.production
+    environment:
+      # Миграции идут НАПРЯМУЮ к PostgreSQL (не через PgBouncer!)
+      # PgBouncer в transaction mode не поддерживает DDL операции
+      - DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/conditera?schema=public
+      # POSTGRES_USER/DB нужны для init-scripts/01-apply-migrations.sh
+      - POSTGRES_USER=conditera
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=conditera
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== Веб-приложение (Next.js) =====
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: conditera-web
+    <<: *default-restart
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.production
+    environment:
+      # Подключение через PgBouncer (порт 5432 внутри контейнера pgbouncer)
+      # PgBouncer мультиплексирует соединения к реальной БД (db:5432)
+      - DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@pgbouncer:5432/conditera?schema=public&pgbouncer=true
+      - DIRECT_DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/conditera?schema=public
+      - REDIS_URL=redis://redis:6379
+      - MEILISearch_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
+      - NODE_ENV=production
+      # Telegram bot + канал (для уведомлений о заказах, лидах, тикетах)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHANNEL_ID=${TELEGRAM_CHANNEL_ID:-}
+      - TELEGRAM_ADMIN_CHAT_IDS=${TELEGRAM_ADMIN_CHAT_IDS:-}
+      # Яндекс Метрика (аналитика)
+      - NEXT_PUBLIC_YANDEX_METRIKA_ID=${NEXT_PUBLIC_YANDEX_METRIKA_ID:-111432662}
+      - YANDEX_METRIKA_OAUTH_TOKEN=${YANDEX_METRIKA_OAUTH_TOKEN:-}
+      # Email (SMTP для отправки + webhook keys для приёма)
+      - SMTP_HOST=${SMTP_HOST:-mailu}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-noreply@conditera.ru}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-Кондитера <noreply@conditera.ru>}
+      - SMTP_REPLY_TO=${SMTP_REPLY_TO:-support@conditera.ru}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-false}
+      - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
+      - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
+      # Контакты сайта (NEXT_PUBLIC_ — видны на клиенте)
+      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-Кондитера}
+      - NEXT_PUBLIC_APP_DESCRIPTION=${NEXT_PUBLIC_APP_DESCRIPTION:-Маркетплейс кондитерских изделий}
+      - NEXT_PUBLIC_SUPPORT_EMAIL=${NEXT_PUBLIC_SUPPORT_EMAIL:-support@conditera.ru}
+      - NEXT_PUBLIC_INFO_EMAIL=${NEXT_PUBLIC_INFO_EMAIL:-info@conditera.ru}
+      - NEXT_PUBLIC_PRIVACY_EMAIL=${NEXT_PUBLIC_PRIVACY_EMAIL:-privacy@conditera.ru}
+      - NEXT_PUBLIC_SUPPORT_PHONE=${NEXT_PUBLIC_SUPPORT_PHONE:-8 (800) 000-00-00}
+      - NEXT_PUBLIC_SUPPORT_PHONE_HREF=${NEXT_PUBLIC_SUPPORT_PHONE_HREF:-+78000000000}
+      - NEXT_PUBLIC_COMPANY_ADDRESS=${NEXT_PUBLIC_COMPANY_ADDRESS:-}
+      - NEXT_PUBLIC_COMPANY_INN=${NEXT_PUBLIC_COMPANY_INN:-}
+      - NEXT_PUBLIC_COMPANY_OGRN=${NEXT_PUBLIC_COMPANY_OGRN:-}
+      - NEXT_PUBLIC_TELEGRAM_CHANNEL=${NEXT_PUBLIC_TELEGRAM_CHANNEL:-@conditera}
+      - NEXT_PUBLIC_TELEGRAM_URL=${NEXT_PUBLIC_TELEGRAM_URL:-https://t.me/conditera}
+      - NEXT_PUBLIC_VK_URL=${NEXT_PUBLIC_VK_URL:-}
+      - NEXT_PUBLIC_INSTAGRAM_URL=${NEXT_PUBLIC_INSTAGRAM_URL:-}
+      - NEXT_PUBLIC_LEGAL_NAME=${NEXT_PUBLIC_LEGAL_NAME:-}
+      - NEXT_PUBLIC_LEGAL_ADDRESS=${NEXT_PUBLIC_LEGAL_ADDRESS:-}
+      - NEXT_PUBLIC_FOUNDED_YEAR=${NEXT_PUBLIC_FOUNDED_YEAR:-2024}
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== PostgreSQL (продакшн БД) =====
+  # ВАЖНО: Используем postgres:18-alpine — актуальный major release.
+  # Если у вас в volume postgres_data лежат данные от старой версии (PG16/17),
+  # нужно либо сделать pg_upgrade, либо удалить volume:
+  #   docker compose down
+  #   docker volume rm conditera_postgres_data  (или conditera_postgres_data)
+  #   docker compose up -d
+  # Volume postgres_data_v18 — новый, чистый, без конфликтов версий.
+  db:
+    image: postgres:18-alpine
+    container_name: conditera-db
+    <<: *default-restart
+    environment:
+      POSTGRES_USER: conditera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: conditera
+    # НЕ пробрасываем порт 5432 наружу — БД доступна только в сети conditera-net
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data_v18:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conditera -d conditera"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== PgBouncer (connection pooling для PostgreSQL) =====
+  # Мультиплексирует соединения: 200 клиентских → 20 реальных к БД.
+  # Prisma открывает connection per query → без пулера PostgreSQL падает при 100+ юзеров.
+  # Режим transaction: поддерживает все Prisma-операции, но НЕ поддерживает
+  # session-level features (temp tables, SET без транзакции, LISTEN/NOTIFY).
+  # Для Prisma этого достаточно — все запросы в явных транзакциях.
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    container_name: conditera-pgbouncer
+    <<: *default-restart
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: conditera
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      DB_NAME: conditera
+      # Pool mode: transaction (рекомендуется для Prisma)
+      POOL_MODE: transaction
+      # Максимум клиентских соединений к пулеру
+      MAX_CLIENT_CONN: 200
+      # Размер пула реальных соединений к БД
+      DEFAULT_POOL_SIZE: 20
+      # Минимум соединений (держим открытыми)
+      MIN_POOL_SIZE: 5
+      # Reserve pool — для пиковых нагрузок
+      RESERVE_POOL_SIZE: 5
+      RESERVE_POOL_TIMEOUT: 3
+      # Idle timeout — закрывать простаивающие соединения (сек)
+      SERVER_IDLE_TIMEOUT: 240
+      # Query timeout (сек) — убивать долгие запросы
+      QUERY_TIMEOUT: 60
+      # Логирование
+      LOG_CONNECTIONS: "1"
+      LOG_DISCONNECTIONS: "0"
+      LOG_POOLER_ERRORS: "1"
+      LOG_STATS: "0"
+      AUTH_TYPE: scram-sha-256
+    expose:
+      - "5432"
+    ports:
+      - "6432:5432"  # PgBouncer порт для внешних подключений (pgAdmin, DBeaver)
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -u conditera"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 32M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== Meilisearch (full-text search для каталога товаров) =====
+  # Мгновенный поиск с опечатками, фильтрами, фасетами.
+  # Индексация через API endpoint /api/search/reindex.
+  # Заменяет медленный ILIKE '%...%' в PostgreSQL.
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: conditera-meilisearch
+    <<: *default-restart
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
+      MEILI_DB_PATH: /meili_data
+      MEILI_HTTP_ADDR: 0.0.0.0:7700
+      # Лимиты
+      MEILI_MAX_INDEXING_MEMORY: 512MB
+      MEILI_MAX_INDEXING_THREADS: 2
+      # Snapshot для бекапа (каждые 24 часа)
+      MEILI_SCHEDULE_SNAPSHOT: "true"
+      MEILI_SNAPSHOT_DIR: /meili_data/snapshots
+    expose:
+      - "7700"
+    ports:
+      - "7700:7700"  # Meilisearch Studio (admin UI) — закрыть в production через firewall
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== Redis (кэш, сессии, Socket.IO adapter, rate-limiting) =====
+  redis:
+    image: redis:7-alpine
+    container_name: conditera-redis
+    <<: *default-restart
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== Сервис чата (Socket.IO) =====
+  chat-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.chat
+    container_name: conditera-chat
+    <<: *default-restart
+    env_file:
+      - .env.production
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHAT_PORT=3030
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3030/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== n8n (автоматизация: брошенная корзина, дайджест, сгорание бонусов) =====
+  n8n:
+    image: n8nio/n8n:1.95.0
+    container_name: conditera-n8n
+    <<: *default-restart
+    environment:
+      - N8N_HOST=n8n
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=https://${DOMAIN:-conditera.ru}/n8n/
+      - GENERIC_TIMEZONE=Europe/Moscow
+      - APP_URL=http://web:3000
+      - CRON_SECRET=${CRON_SECRET:?CRON_SECRET required}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_ADMIN_PASSWORD:?N8N_ADMIN_PASSWORD required}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n-workflows:/imports
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== Caddy (обратный прокси + HTTPS) =====
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: conditera-caddy
+    <<: *default-restart
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      chat-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 32M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== SimpleX SMP server (приватный E2E-канал) =====
+  # ВНИМАНИЕ: SimpleX-сервисы (smp-server + simplex-bridge) — опциональны.
+  # Они нужны только для E2E-чата PREMIUM-пользователей.
+  # Чтобы запустить стек без SimpleX (например для первого деплоя или тестов):
+  #   docker compose up -d web db redis chat-service n8n caddy
+  # Или создать профиль: docker compose --profile simplex up -d
+  smp-server:
+    image: simplexchat/smp-server:v7.0.1
+    container_name: conditera-smp
+    <<: *default-restart
+    profiles: ["simplex", "full"]
+    ports:
+      - "5223:5223"
+    volumes:
+      - smp_data:/var/opt/simplex
+      - ./simplex/config:/etc/opt/simplex:ro
+    environment:
+      - PUBLIC_HOSTNAME=${SIMPLEX_HOSTNAME:-smp.conditera.ru}
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 5223 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== SimpleX Bridge (bot-мост: WebSocket ↔ HTTP webhook) =====
+  simplex-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.simplex-bridge
+    container_name: conditera-simplex-bridge
+    <<: *default-restart
+    profiles: ["simplex", "full"]
+    env_file:
+      - .env.production
+    environment:
+      - SIMPLEX_CLI_WS=ws://localhost:5225
+      - BACKEND_WEBHOOK=${NEXT_PUBLIC_APP_URL}/api/simplex/incoming
+      - BACKEND_API_KEY=${SIMPLEX_BRIDGE_API_KEY:?SIMPLEX_BRIDGE_API_KEY required}
+      - SIMPLEX_PROFILE_NAME=${SIMPLEX_PROFILE_NAME:-Кондитера}
+      - NODE_ENV=production
+    depends_on:
+      smp-server:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5226/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== Mailu (self-hosted почтовый сервер — ОПЦИОНАЛЬНО) =====
+  # Полноценный почтовый сервер: SMTP (отправка) + IMAP (приём) + Webmail + Admin.
+  # Включается через profile: docker compose --profile mail up -d
+  #
+  # Требования:
+  #   1. MX-запись: mail.conditera.ru → IP сервера
+  #   2. PTR-запись (reverse DNS): IP → mail.conditera.ru (настраивается у хостинг-провайдера)
+  #   3. Порты 25, 465, 587, 993 — открыты в firewall
+  #   4. Отдельный IP-адрес (рекомендуется — shared IP могут быть в чёрных списках)
+  #
+  # Альтернатива: использовать внешний SMTP (Яндекс 360, Mailgun, SendGrid)
+  # В этом случае НЕ включайте profile mail — просто задайте SMTP_HOST в .env
+  mailu:
+    image: ghcr.io/mailu/mailu:3.3
+    container_name: conditera-mailu
+    <<: *default-restart
+    profiles: ["mail", "full"]
+    env_file: mailu.env
+    environment:
+      - DOMAIN=conditera.ru
+      - HOSTNAMES=mail.conditera.ru
+      - POSTMASTER=admin@conditera.ru
+      - TZ=Europe/Moscow
+    ports:
+      - "25:25"     # SMTP (приём писем от других серверов)
+      - "465:465"   # SMTPS (отправка через SSL)
+      - "587:587"   # SMTP (отправка через STARTTLS)
+      - "993:993"   # IMAPS (приём почты клиентами)
+      - "8081:80"   # Webmail (Roundcube) — закрыть в production, оставить через Caddy
+    volumes:
+      - mailu_data:/data
+      - mailu_mail:/mail
+      - ./mailu/certs:/certs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+volumes:
+  postgres_data_v18:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  n8n_data:
+  smp_data:
+  meili_data:
+  mailu_data:
+  mailu_mail:
+
+networks:
+  conditera-net:
+    driver: bridge

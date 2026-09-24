@@ -1,0 +1,57 @@
+{
+  "name": "19 Taster Assignment",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "schedule": {
+        "interval": [
+          {
+            "field": "hours",
+            "hoursInterval": 168
+          }
+        ]
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://web:3000/api/cron/taster-assignment",
+        "method": "GET",
+        "headers": {
+          "X-Cron-Secret": "={{$env.CRON_SECRET}}"
+        }
+      },
+      "name": "Call API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        450,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Call API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "9e1f69f1-50f6-5e0c-9af4-f5dc9774de43"
+}

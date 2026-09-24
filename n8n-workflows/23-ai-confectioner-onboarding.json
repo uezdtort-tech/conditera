@@ -1,0 +1,191 @@
+{
+  "name": "23. AI Confectioner Onboarding",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "confectioner-onboarding",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "confectioner-onboarding-webhook"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "systemPrompt",
+              "value": "Ты — AI-ассистент платформы «Уездный кондитер». Помоги новому кондитеру заполнить профиль. Запроси: 1) Название бизнеса 2) Город 3) Специализация (торты, капкейки, макаронс) 4) Опыт работы 5) Тариф (Старт 15%, Профи 10%+990₽/мес, Премиум 5%+2990₽/мес). Отвечай кратко и по делу на русском."
+            },
+            {
+              "name": "userMessage",
+              "value": "={{$json.message || 'Помоги заполнить профиль кондитера'}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Prepare Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.OLLAMA_HOST || 'http://host.docker.internal:11434'}}/v1/chat/completions",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{$env.LLM_MODEL || 'qwen2.5:7b'}}"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\":\"system\",\"content\":\"{{$json.systemPrompt}}\"},{\"role\":\"user\",\"content\":\"{{$json.userMessage}}\"}]"
+            },
+            {
+              "name": "stream",
+              "value": false
+            },
+            {
+              "name": "temperature",
+              "value": 0.5
+            },
+            {
+              "name": "max_tokens",
+              "value": 800
+            }
+          ]
+        },
+        "options": {
+          "headers": {
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "name": "Ollama AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        720,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "={{$json.choices[0].message.content}}"
+            },
+            {
+              "name": "model",
+              "value": "={{$json.model}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Extract AI Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {}
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ollama AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama AI": {
+      "main": [
+        [
+          {
+            "node": "Extract AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract AI Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": [
+    {
+      "name": "AI"
+    },
+    {
+      "name": "Onboarding"
+    },
+    {
+      "name": "Confectioner"
+    }
+  ],
+  "notes": "AI-онбординг кондитеров через Ollama.\n\nПомогает новому кондитеру заполнить профиль:\n- Название бизнеса\n- Город\n- Специализация\n- Опыт работы\n- Выбор тарифа\n\nEndpoint: POST http://localhost:5678/webhook/confectioner-onboarding\nBody: { \"message\": \"...\" }",
+  "id": "80f5e1cc-88c6-5628-81ee-b9aea63f4da8"
+}

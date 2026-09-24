@@ -1,0 +1,259 @@
+{
+  "name": "📦 Управление складом — алерты поставщикам о низких остатках",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Ежедневно 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.APP_URL }}/api/supplier/warehouse?lowStock=1",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.N8N_SUPPLIER_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-low-stock",
+      "name": "Найти позиции с низким остатком",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "items",
+        "options": {}
+      },
+      "id": "split-items",
+      "name": "Разделить по позициям",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-below-min",
+              "leftValue": "={{ $json.quantity }}",
+              "rightValue": "={{ $json.minQuantity }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-below-min",
+      "name": "Если остаток ≤ минимума",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/notifications/send",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.confectionerId }}\",\n  \"template\": \"LOW_STOCK_ALERT\",\n  \"vars\": {\n    \"itemName\": \"{{ $json.name }}\",\n    \"currentQty\": {{ $json.quantity }},\n    \"minQty\": {{ $json.minQuantity }},\n    \"unit\": \"{{ $json.unit }}\",\n    \"category\": \"{{ $json.category }}\"\n  },\n  \"channels\": [\"email\", \"in_app\"],\n  \"data\": { \"type\": \"low_stock\", \"itemId\": \"{{ $json.id }}\" }\n}",
+        "options": {}
+      },
+      "id": "send-alert",
+      "name": "Отправить алерт поставщику",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "skip-item",
+      "name": "Пропустить",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"inventory-management\",\n  \"status\": \"success\",\n  \"notified\": {{ $node[\"Разделить по позициям\"].items.length }},\n  \"checkedAt\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Ежедневно 08:00": {
+      "main": [
+        [
+          {
+            "node": "Найти позиции с низким остатком",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Найти позиции с низким остатком": {
+      "main": [
+        [
+          {
+            "node": "Разделить по позициям",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разделить по позициям": {
+      "main": [
+        [
+          {
+            "node": "Если остаток ≤ минимума",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Если остаток ≤ минимума": {
+      "main": [
+        [
+          {
+            "node": "Отправить алерт поставщику",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Пропустить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить алерт поставщику": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Пропустить": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "inventory"
+    },
+    {
+      "name": "supplier"
+    }
+  ],
+  "id": "56a4d4ed-58e1-5585-ac21-452edc2e9fe8"
+}

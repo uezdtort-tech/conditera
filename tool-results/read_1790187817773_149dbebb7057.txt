@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import { create } from "zustand";
+     4→import { persist, createJSONStorage } from "zustand/middleware";
+     5→import type {
+     6→  User,
+     7→  Role,
+     8→  NavState,
+     9→  CartItem,
+    10→  Product,
+    11→  ChatRoom,
+    12→  ChatMessage,
+    13→  CakeBuilderState,
+    14→  Courier,
+    15→  Location,
+    16→  Promotion,
+    17→  Recipe,
+    18→  InventoryItem,
+    19→  StockMovement,
+    20→  GanttTask,
+    21→  Reminder,
+    22→  CorporateEvent,
+    23→  BlacklistEntry,
+    24→  SemaphoreEntry,
+    25→  UserLegalInfo,
+    26→  DecorShop,
+    27→  DecorProduct,
+    28→  ProductBundle,
+    29→  ServiceShop,
+    30→  ServiceProduct,
+    31→  UserHoliday,
+    32→  GiftCertificate,
+    33→  Referral,
+    34→  VideoReview,
+    35→  CourierTracking,
+    36→  OrderNegotiation,
+    37→  NegotiationItem,
+    38→  NegotiationStatus,
+    39→  ChannelStory,
+    40→  ChannelFollower,
+    41→  ChannelComment,
+    42→  TastingLocation,
+    43→  QuickReply,
+    44→  ConfectionerWork,
+    45→  FraudReport,
+    46→  FraudRule,
+    47→} from "./types";
+    48→import {
+    49→  MOCK_USERS,
+    50→  MOCK_CONFECTIONERS,
+    51→  MOCK_PRODUCTS,
+    52→  MOCK_ORDERS,
+    53→  MOCK_CHAT_ROOMS,
+    54→  MOCK_CHAT_MESSAGES,
+    55→  MOCK_CHANNEL_POSTS,
+    56→  MOCK_CHANNEL_STORIES,
+    57→  MOCK_CHANNEL_FOLLOWERS,
+    58→  MOCK_CONSTRUCTOR_INQUIRIES,
+    59→  MOCK_TEAM_TASKS,
+    60→  MOCK_COURIERS,
+    61→} from "./mock-data";
+    62→import {
+    63→  MOCK_PROMOTIONS,
+    64→  MOCK_RECIPES,
+    65→  MOCK_INVENTORY,
+    66→  MOCK_STOCK_MOVEMENTS,
+    67→  MOCK_GANTT_TASKS,
+    68→  MOCK_REMINDERS,
+    69→} from "./mock-data-extra";
+    70→import {
+    71→  MOCK_CORPORATE_EVENTS,
+    72→  MOCK_BLACKLIST,
+    73→  MOCK_SEMAPHORES,
+    74→  MOCK_LEGAL_USERS,
+    75→} from "./mock-data-corporate";
+    76→import {
+    77→  MOCK_DECOR_SHOPS,
+    78→  MOCK_DECOR_PRODUCTS,
+    79→  MOCK_BUNDLES,
+    80→} from "./mock-data-decor";
+    81→import {
+    82→  MOCK_SERVICE_SHOPS,
+    83→  MOCK_SERVICE_PRODUCTS,
+    84→} from "./mock-data-services";
+    85→import {
+    86→  MOCK_USER_HOLIDAYS,
+    87→  MOCK_GIFT_CERTIFICATES,
+    88→  MOCK_REFERRAL,
+    89→  MOCK_VIDEO_REVIEWS,
+    90→  MOCK_COURIER_TRACKING,
+    91→} from "./mock-data-features";
+    92→import {
+    93→  MOCK_CMS_PAGES,
+    94→  MOCK_CMS_BLOCKS,
+    95→  MOCK_BANNERS,
+    96→  MOCK_SITE_SETTINGS,
+    97→  MOCK_NAV_MENU,
+    98→  MOCK_REVIEWS_MODERATION,
+    99→} from "./mock-data-cms";
+   100→import { MOCK_NEGOTIATIONS } from "./mock-data-negotiation";
+   101→import { MOCK_VENUES, MOCK_VENUE_SERVICES, MOCK_VENUE_VENDORS } from "./mock-data-venues";
+   102→import { FILLINGS_SEED } from "./fillings-data";
+   103→
+   104→interface AppState {
+   105→  // Auth
+   106→  user: User | null;
+   107→  activeRole: Role | null;
+   108→  isAuthenticated: boolean;
+   109→  authModalOpen: boolean;
+   110→
+   111→  // Navigation
+   112→  nav: NavState;
+   113→
+   114→  // Cart
+   115→  cart: CartItem[];
+   116→  cartOpen: boolean;
+   117→  promoCode: string | null;
+   118→  promoDiscount: number;
+   119→
+   120→  // Favorites
+   121→  favorites: string[]; // product ids
+   122→
+   123→  // ===== Точки дегустации (где попробовать) =====
+   124→  tastingLocations: TastingLocation[];
+   125→  addTastingLocation: (loc: Omit<TastingLocation, "id" | "createdAt" | "verified">) => string;
+   126→  updateTastingLocation: (id: string, patch: Partial<TastingLocation>) => void;
+   127→  deleteTastingLocation: (id: string) => void;
+   128→  getTastingLocations: (confectionerId: string) => TastingLocation[];
+   129→  getAllTastingLocations: () => TastingLocation[];
+   130→  getTastingLocationsByCity: (city: string) => TastingLocation[];
+   131→
+   132→  // UI
+   133→  chatOpen: boolean;
+   134→  mobileMenuOpen: boolean;
+   135→  theme: "light" | "dark";
+   136→
+   137→  // Chat
+   138→  chatRooms: ChatRoom[];
+   139→  chatMessages: ChatMessage[];
+   140→  activeChatRoom: string | null;
+   141→
+   142→  // Cake Builder
+   143→  cakeBuilder: CakeBuilderState;
+   144→  cakeBuilderOpen: boolean;
+   145→
+   146→  // User location (для фильтра «рядом»)
+   147→  userLocation: Location | null;
+   148→  userCity: string | null;
+   149→
+   150→  // Data (для дашбордов)
+   151→  confectioners: typeof MOCK_CONFECTIONERS;
+   152→  couriers: Courier[];
+   153→  products: typeof MOCK_PRODUCTS;
+   154→  // Product CRUD
+   155→  addProduct: (product: Omit<Product, "id" | "rating" | "reviewsCount" | "createdAt">) => void;
+   156→  updateProduct: (id: string, updates: Partial<Product>) => void;
+   157→  deleteProduct: (id: string) => void;
+   158→  toggleProductVisibility: (id: string, reason?: string) => void;
+   159→  // Promotion CRUD
+   160→  addPromotion: (promotion: Omit<Promotion, "id" | "createdAt" | "views" | "clicks" | "conversions" | "usedCount">) => void;
+   161→  // Recipe CRUD
+   162→  addRecipe: (recipe: Omit<Recipe, "id" | "createdAt" | "views" | "likes" | "comments">) => void;
+   163→  orders: typeof MOCK_ORDERS;
+   164→  channelPosts: typeof MOCK_CHANNEL_POSTS;
+   165→  channelStories: ChannelStory[];
+   166→  channelFollowers: ChannelFollower[];
+   167→  inquiries: typeof MOCK_CONSTRUCTOR_INQUIRIES;
+   168→  teamTasks: typeof MOCK_TEAM_TASKS;
+   169→  // Новые данные
+   170→  promotions: Promotion[];
+   171→  venues: typeof MOCK_VENUES;
+   172→  venueServices: typeof MOCK_VENUE_SERVICES;
+   173→  venueVendors: typeof MOCK_VENUE_VENDORS;
+   174→  fillings: import("./fillings-data").FillingSeed[];
+   175→  recipes: Recipe[];
+   176→  inventory: InventoryItem[];
+   177→  stockMovements: StockMovement[];
+   178→  ganttTasks: GanttTask[];
+   179→  reminders: Reminder[];
+   180→  // Promo popup (региональная реклама)
+   181→  promoPopupShown: boolean;
+   182→  promoPopupDismissed: string[]; // id просмотренных акций
+   183→  // Корпоративные праздники + чёрный список + семафор
+   184→  corporateEvents: CorporateEvent[];
+   185→  blacklist: BlacklistEntry[];
+   186→  semaphores: SemaphoreEntry[];
+   187→  // Декор и упаковка
+   188→  decorShops: DecorShop[];
+   189→  decorProducts: DecorProduct[];
+   190→  bundles: ProductBundle[];
+   191→  // Услуги (фейерверки, шары, аниматоры)
+   192→  serviceShops: ServiceShop[];
+   193→  serviceProducts: ServiceProduct[];
+   194→  // Новые фичи
+   195→  userHolidays: UserHoliday[];
+   196→  giftCertificates: GiftCertificate[];
+   197→  referral: Referral | null;
+   198→  videoReviews: VideoReview[];
+   199→  courierTracking: CourierTracking | null;
+   200→  // CMS
+   201→  cmsPages: any[];
+   202→  cmsBlocks: any[];
+   203→  banners: any[];
+   204→  siteSettings: any[];
+   205→  navMenu: any[];
+   206→  reviewsModeration: any[];
+   207→  // Согласование заказов
+   208→  negotiations: OrderNegotiation[];
+   209→  // Работы кондитеров (портфолио)
+   210→  confectionerWorks: ConfectionerWork[];
+   211→  addConfectionerWork: (work: Omit<ConfectionerWork, "id" | "createdAt" | "views" | "likes">) => void;
+   212→  updateConfectionerWork: (id: string, updates: Partial<ConfectionerWork>) => void;
+   213→  deleteConfectionerWork: (id: string) => void;
+   214→  toggleWorkFeatured: (id: string) => void;
+   215→  likeConfectionerWork: (id: string) => void;
+   216→  // Fraud reports
+   217→  fraudReports: FraudReport[];
+   218→  riskScores: Record<string, number>;
+   219→  fraudRules: FraudRule[];
+   220→  resolveFraudReport: (id: string, resolution: string) => void;
+   221→  assignFraudReport: (id: string, assignedTo: string) => void;
+   222→  toggleFraudRule: (id: string) => void;
+   223→  calculateRiskScore: (userId: string) => number;
+   224→  createFraudReport: (report: Omit<FraudReport, "id" | "reportedAt" | "riskScore" | "status">) => void;
+   225→
+   226→  // Actions
+   227→  login: (email: string, password: string) => { success: boolean; error?: string };
+   228→  loginAs: (role: Role) => void;
+   229→  logout: () => void;
+   230→  setActiveRole: (role: Role) => void;
+   231→  setAuthModalOpen: (open: boolean) => void;
+   232→
+   233→  navigate: (view: NavState["view"], params?: Record<string, string>) => void;
+   234→
+   235→  addToCart: (product: Product, customization?: CartItem["customization"], quantity?: number) => void;
+   236→  removeFromCart: (productId: string) => void;
+   237→  updateCartQuantity: (productId: string, quantity: number) => void;
+   238→  clearCart: () => void;
+   239→  setCartOpen: (open: boolean) => void;
+   240→  applyPromo: (code: string) => { success: boolean; discount: number; error?: string };
+   241→  clearPromo: () => void;
+   242→
+   243→  toggleFavorite: (productId: string) => void;
+   244→  isFavorite: (productId: string) => boolean;
+   245→
+   246→  setChatOpen: (open: boolean) => void;
+   247→  setMobileMenuOpen: (open: boolean) => void;
+   248→  setActiveChatRoom: (roomId: string | null) => void;
+   249→  sendMessage: (roomId: string, text: string) => void;
+   250→  sendQuickReply: (roomId: string, reply: QuickReply) => void;
+   251→
+   252→  setCakeBuilderOpen: (open: boolean) => void;
+   253→  updateCakeBuilder: (state: Partial<CakeBuilderState>) => void;
+   254→  resetCakeBuilder: () => void;
+   255→
+   256→  // Location
+   257→  setUserLocation: (location: Location | null) => void;
+   258→  setUserCity: (city: string | null) => void;
+   259→  detectUserLocation: () => Promise<void>;
+   260→
+   261→  // Dashboards
+   262→  updateOrderStatus: (orderId: string, status: string) => void;
+   263→  updateTaskStatus: (taskId: string, status: string) => void;
+   264→  respondToInquiry: (inquiryId: string, price: number) => void;
+   265→
+   266→  // Promotions
+   267→  createPromotion: (promo: Omit<Promotion, "id" | "createdAt" | "views" | "clicks" | "conversions" | "usedCount">) => void;
+   268→  updatePromotion: (id: string, updates: Partial<Promotion>) => void;
+   269→  deletePromotion: (id: string) => void;
+   270→  promotePromotion: (id: string, budget: number, regions: string[]) => void;
+   271→
+   272→  // Recipes
+   273→  createRecipe: (recipe: Omit<Recipe, "id" | "createdAt" | "views" | "likes" | "comments">) => void;
+   274→  updateRecipe: (id: string, updates: Partial<Recipe>) => void;
+   275→  deleteRecipe: (id: string) => void;
+   276→
+   277→  // Inventory
+   278→  addInventoryItem: (item: Omit<InventoryItem, "id" | "createdAt" | "updatedAt">) => void;
+   279→  updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
+   280→  deleteInventoryItem: (id: string) => void;
+   281→  addStockMovement: (movement: Omit<StockMovement, "id" | "date">) => void;
+   282→
+   283→  // Gantt
+   284→  updateGanttTask: (id: string, updates: Partial<GanttTask>) => void;
+   285→  addGanttTask: (task: Omit<GanttTask, "id">) => void;
+   286→
+   287→  // Reminders
+   288→  markReminderRead: (id: string) => void;
+   289→  markReminderDone: (id: string) => void;
+   290→  addReminder: (reminder: Omit<Reminder, "id" | "createdAt" | "isRead" | "isDone">) => void;
+   291→
+   292→  // Promo popup
+   293→  showPromoPopup: () => void;
+   294→  dismissPromoPopup: (promotionId: string) => void;
+   295→
+   296→  // Corporate events
+   297→  createCorporateEvent: (event: Omit<CorporateEvent, "id" | "createdAt" | "responsesCount">) => void;
+   298→  updateCorporateEvent: (id: string, updates: Partial<CorporateEvent>) => void;
+   299→  respondToCorporateEvent: (eventId: string, confectionerId: string) => void;
+   300→
+   301→  // Blacklist
+   302→  addToBlacklist: (entry: Omit<BlacklistEntry, "id" | "blockedAt">) => void;
+   303→  removeFromBlacklist: (id: string) => void;
+   304→  appealBlacklist: (id: string, text: string) => void;
+   305→  checkBlacklist: (value: string, scope?: string) => BlacklistEntry | null;
+   306→
+   307→  // Semaphore
+   308→  checkSemaphore: (type: "email" | "phone", value: string) => { available: boolean; existingUser?: string };
+   309→  registerSemaphore: (type: "email" | "phone", value: string, userId: string) => void;
+   310→
+   311→  // User legal info
+   312→  updateUserLegalInfo: (userId: string, legalInfo: UserLegalInfo) => void;
+   313→  updateUserAccountType: (userId: string, accountType: "individual" | "legal") => void;
+   314→
+   315→  // Register new user (с семафором)
+   316→  registerUser: (data: {
+   317→    email: string;
+   318→    password: string;
+   319→    name: string;
+   320→    phone: string;
+   321→    role: Role;
+   322→    accountType: "individual" | "legal";
+   323→    legalInfo?: UserLegalInfo;
+   324→  }) => { success: boolean; error?: string };
+   325→
+   326→  // Holidays
+   327→  addHoliday: (holiday: Omit<UserHoliday, "id" | "userId">) => void;
+   328→  deleteHoliday: (id: string) => void;
+   329→  // Gift certificates
+   330→  purchaseGiftCertificate: (cert: Omit<GiftCertificate, "id" | "code" | "purchasedAt" | "expiresAt" | "status" | "remainingAmount">) => void;
+   331→  // Referral
+   332→  copyReferralLink: () => string;
+   333→  // Video reviews
+   334→  addVideoReview: (review: Omit<VideoReview, "id" | "createdAt" | "views" | "likes">) => void;
+   335→
+   336→  // CMS
+   337→  updateCmsPage: (id: string, updates: any) => void;
+   338→  updateCmsBlock: (id: string, updates: any) => void;
+   339→  addCmsBlock: (block: any) => void;
+   340→  deleteCmsBlock: (id: string) => void;
+   341→  updateBanner: (id: string, updates: any) => void;
+   342→  addBanner: (banner: any) => void;
+   343→  deleteBanner: (id: string) => void;
+   344→  updateSiteSetting: (key: string, value: string) => void;
+   345→  updateNavMenu: (items: any[]) => void;
+   346→  approveReview: (id: string) => void;
+   347→  rejectReview: (id: string, reason: string) => void;
+   348→
+   349→  // Согласование заказов
+   350→  quoteNegotiation: (id: string, items: NegotiationItem[], total: number, comment: string, deliveryCost: number, prepTime: string) => void;
+   351→  approveNegotiation: (id: string, comment?: string) => void;
+   352→  rejectNegotiation: (id: string, comment: string) => void;
+   353→  reviseNegotiation: (id: string, items: NegotiationItem[], total: number, comment: string, deliveryCost: number, prepTime: string) => void;
+   354→  createNegotiationFromInquiry: (inquiryId: string, confectionerId: string) => void;
+   355→  // Кондитер: смена тарифа
+   356→  updateConfectionerTariff: (confectionerId: string, tariff: "START" | "PROFI" | "PREMIUM") => void;
+   357→  // Кондитер: отзыв предложения
+   358→  withdrawNegotiation: (id: string) => void;
+   359→  // Канал: лайки, комментарии, сторис, подписки
+   360→  togglePostLike: (postId: string) => void;
+   361→  addPostComment: (postId: string, text: string) => void;
+   362→  toggleCommentLike: (commentId: string) => void;
+   363→  viewStory: (storyId: string) => void;
+   364→  toggleFollow: (confectionerId: string) => void;
+   365→  isFollowing: (confectionerId: string) => boolean;
+   366→  // Venue owner
+   367→  getVenueByOwner: (ownerId: string) => any;
+   368→  priceLists: any[];
+   369→  addVenueService: (service: any) => void;
+   370→  updateVenueService: (id: string, updates: any) => void;
+   371→  deleteVenueService: (id: string) => void;
+   372→  toggleVenueServiceFeatured: (id: string) => void;
+   373→  addPriceList: (priceList: any) => void;
+   374→  addPriceListItem: (priceListId: string, item: any) => void;
+   375→  deletePriceListItem: (priceListId: string, itemId: string) => void;
+   376→  convertPriceItemToService: (priceListId: string, itemId: string) => void;
+   377→}
+   378→
+   379→const PROMO_CODES: Record<string, number> = {
+   380→  WELCOME10: 0.1,
+   381→  SWEET15: 0.15,
+   382→  UYEZD20: 0.2,
+   383→  BIRTHDAY: 0.25,
+   384→};
+   385→
+   386→// === Клиентский mini-FAQ для авточата в preview-mode ===
+   387→// (полная версия — в src/lib/chat-faq.ts, но она для server-side)
+   388→const DEFAULT_QUICK_REPLIES: QuickReply[] = [
+   389→  { label: "Как сделать заказ?", action: "faq:how_to_order" },
+   390→  { label: "Способы оплаты", action: "faq:payment" },
+   391→  { label: "Сроки доставки", action: "faq:delivery_time" },
+   392→  { label: "Программа лояльности", action: "faq:bonuses" },
+   393→  { label: "Соединить с оператором", action: "human:operator" },
+   394→];
+   395→
+   396→const MINI_FAQ: { keywords: string[]; answer: string; quickReplies?: QuickReply[] }[] = [
+   397→  {
+   398→    keywords: ["когда", "доставка", "привезут", "срок"],
+   399→    answer:
+   400→      "📅 Сроки доставки:\n  • По Москве — день в день или на следующий день\n  • По России — 2-7 дней через СДЭК/Boxberry\n  • Самовывоз — сразу после готовности",
+   401→    quickReplies: [
+   402→      { label: "Как отследить?", action: "faq:track_order" },
+   403→      { label: "Самовывоз", action: "faq:self_pickup" },
+   404→    ],
+   405→  },
+   406→  {
+   407→    keywords: ["оплат", "карт", "сбп", "налич", "рассрочк"],
+   408→    answer:
+   409→      "💳 Способы оплаты:\n  • Карта (Visa, Mastercard, Мир)\n  • СБП по QR\n  • Наличные при получении\n  • Рассрочка: Сплит, Тинькофф, Сбер\n  • Подарочный сертификат\n\n🔒 Все платежи защищены по 3-D Secure.",
+   410→    quickReplies: [
+   411→      { label: "Что такое эскроу?", action: "faq:escrow" },
+   412→      { label: "Рассрочка", action: "faq:installment" },
+   413→    ],
+   414→  },
+   415→  {
+   416→    keywords: ["эскроу", "безопасн", "гаранти"],
+   417→    answer:
+   418→      "🛡️ Эскроу — промежуточный счёт, где ваши деньги 24 часа после получения заказа.\n\n  1. Оплата → деньги на эскроу\n  2. Получение заказа и проверка\n  3. Через 24ч → деньги кондитеру\n  4. Если проблема → спор, деньги остаются на эскроу",
+   419→    quickReplies: [
+   420→      { label: "Открыть спор", action: "dispute:open" },
+   421→    ],
+   422→  },
+   423→  {
+   424→    keywords: ["бонус", "балл", "лояльност", "кэшбек"],
+   425→    answer:
+   426→      "🎁 Программа лояльности:\n  • 1 балл за каждые 100₽\n  • 1 балл = 1₽\n\nУровни:\n  🥉 Бронзовый — ×1\n  🥈 Серебряный (5000₽) — ×1.2, скидка 3%\n  🥇 Золотой (15000₽) — ×1.5, скидка 5%\n  💎 Платиновый (50000₽) — ×2, скидка 10%",
+   427→    quickReplies: [
+   428→      { label: "Мои бонусы", action: "loyalty:my" },
+   429→    ],
+   430→  },
+   431→  {
+   432→    keywords: ["отмен", "вернуть", "отказ"],
+   433→    answer:
+   434→      "❌ Отмена заказа:\n  • PENDING/CONFIRMED — полная отмена\n  • IN_PROGRESS — с удержанием расходов\n  • После доставки — спор в течение 24ч\n\nВозврат: 3 рабочих дня на ту же карту.",
+   435→    quickReplies: [
+   436→      { label: "Отменить заказ", action: "order:cancel" },
+   437→      { label: "Соединить с оператором", action: "human:operator" },
+   438→    ],
+   439→  },
+   440→  {
+   441→    keywords: ["аллерг", "состав", "глютен", "орех", "пп", "веган"],
+   442→    answer:
+   443→      "🥗 Аллергены и состав:\n  • Полный состав в карточке товара\n  • Возможные: глютен, молоко, яйца, орехи, соя\n  • ПП-варианты: на стевии/эритрите\n  • Безглютеновые: миндальная/рисовая мука",
+   444→    quickReplies: [
+   445→      { label: "ПП-каталог", action: "catalog:pp" },
+   446→      { label: "Безглютеновые", action: "catalog:gluten_free" },
+   447→    ],
+   448→  },
+   449→  {
+   450→    keywords: ["конструктор", "собрать торт", "индивид", "на заказ"],
+   451→    answer:
+   452→      "🎂 Конструктор тортов:\n  • Выбор формы, размера, начинки, покрытия, декора\n  • Подпись на торте\n  • Подбор кондитеров\n  • Запрос скидки у нескольких",
+   453→    quickReplies: [
+   454→      { label: "Открыть конструктор", action: "cake_builder:open" },
+   455→    ],
+   456→  },
+   457→  {
+   458→    keywords: ["жалоб", "плохо", "невкус", "испорч", "битый"],
+   459→    answer:
+   460→      "😞 Сожалею. Что делать:\n  1. Сделайте фото проблемы\n  2. Откройте спор в течение 24ч\n  3. Опишите и приложите фото\n  4. Модератор ответит за 24ч\n\nВозможно: возврат, частичная компенсация или замена.",
+   461→    quickReplies: [
+   462→      { label: "Открыть спор", action: "dispute:open" },
+   463→      { label: "Оператор", action: "human:operator" },
+   464→    ],
+   465→  },
+   466→];
+   467→
+   468→function simpleFaqMatch(message: string): { answer: string; quickReplies?: QuickReply[] } | null {
+   469→  const lower = message.toLowerCase();
+   470→  let best: { answer: string; quickReplies?: QuickReply[] } | null = null;
+   471→  let bestScore = 0;
+   472→  for (const topic of MINI_FAQ) {
+   473→    let score = 0;
+   474→    for (const kw of topic.keywords) {
+   475→      if (lower.includes(kw)) score += kw.length > 5 ? 2 : 1;
+   476→    }
+   477→    if (score > bestScore) {
+   478→      bestScore = score;
+   479→      best = { answer: topic.answer, quickReplies: topic.quickReplies };
+   480→    }
+   481→  }
+   482→  return bestScore > 0 ? best : null;
+   483→}
+   484→
+   485→export const useAppStore = create<AppState>()(
+   486→  persist(
+   487→    (set, get) => ({
+   488→      // ===== Initial state =====
+   489→      user: null,
+   490→      activeRole: null,
+   491→      isAuthenticated: false,
+   492→      authModalOpen: false,
+   493→
+   494→      nav: { view: "home" },
+   495→
+   496→      cart: [],
+   497→      cartOpen: false,
+   498→      promoCode: null,
+   499→      promoDiscount: 0,
+   500→
+   501→      favorites: [],
+   502→
+   503→      chatOpen: false,
+   504→      mobileMenuOpen: false,
+   505→      theme: "light",
+   506→
+   507→      chatRooms: MOCK_CHAT_ROOMS,
+   508→      chatMessages: MOCK_CHAT_MESSAGES,
+   509→      activeChatRoom: null,
+   510→
+   511→      cakeBuilder: { step: 0, decorations: [], dietary: [], productType: undefined, servings: undefined, quantity: undefined },
+   512→      cakeBuilderOpen: false,
+   513→
+   514→      // По умолчанию — Москва
+   515→      userLocation: {
+   516→        country: "Россия",
+   517→        region: "Москва",
+   518→        city: "Москва",
+   519→        district: "Тверской",
+   520→        lat: 55.7558,
+   521→        lng: 37.6173,
+   522→      },
+   523→      userCity: "Москва",
+   524→
+   525→      confectioners: MOCK_CONFECTIONERS,
+   526→      couriers: MOCK_COURIERS,
+   527→      products: MOCK_PRODUCTS,
+   528→
+   529→      addProduct: (productData) => {
+   530→        const newProduct: Product = {
+   531→          ...productData,
+   532→          id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+   533→          rating: 0,
+   534→          reviewsCount: 0,
+   535→          createdAt: new Date().toISOString(),
+   536→        } as Product;
+   537→        set({ products: [newProduct, ...get().products] });
+   538→      },
+   539→
+   540→      updateProduct: (id, updates) => {
+   541→        set({
+   542→          products: get().products.map((p) =>
+   543→            p.id === id ? { ...p, ...updates } : p
+   544→          ),
+   545→        });
+   546→      },
+   547→
+   548→      deleteProduct: (id) => {
+   549→        set({ products: get().products.filter((p) => p.id !== id) });
+   550→      },
+   551→
+   552→      toggleProductVisibility: (id, reason) => {
+   553→        set({
+   554→          products: get().products.map((p) =>
+   555→            p.id === id
+   556→              ? {
+   557→                  ...p,
+   558→                  isHidden: !p.isHidden,
+   559→                  hiddenReason: !p.isHidden ? (reason || "Скрыт администратором") : undefined,
+   560→                  hiddenAt: !p.isHidden ? new Date().toISOString() : undefined,
+   561→                }
+   562→              : p
+   563→          ),
+   564→        });
+   565→      },
+   566→
+   567→      addPromotion: (promoData) => {
+   568→        const newPromo: Promotion = {
+   569→          ...promoData,
+   570→          id: `promo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+   571→          createdAt: new Date().toISOString(),
+   572→          views: 0,
+   573→          clicks: 0,
+   574→          conversions: 0,
+   575→          usedCount: 0,
+   576→        } as Promotion;
+   577→        set({ promotions: [newPromo, ...get().promotions] });
+   578→      },
+   579→
+   580→      addRecipe: (recipeData) => {
+   581→        const newRecipe: Recipe = {
+   582→          ...recipeData,
+   583→          id: `recipe_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+   584→          createdAt: new Date().toISOString(),
+   585→          views: 0,
+   586→          likes: 0,
+   587→          comments: 0,
+   588→        } as Recipe;
+   589→        set({ recipes: [newRecipe, ...get().recipes] });
+   590→      },
+   591→
+   592→      orders: MOCK_ORDERS,
+   593→      channelPosts: MOCK_CHANNEL_POSTS,
+   594→  channelStories: MOCK_CHANNEL_STORIES,
+   595→  channelFollowers: MOCK_CHANNEL_FOLLOWERS,
+   596→      inquiries: MOCK_CONSTRUCTOR_INQUIRIES,
+   597→      teamTasks: MOCK_TEAM_TASKS,
+   598→      // Новые данные
+   599→      promotions: MOCK_PROMOTIONS,
+   600→      venues: MOCK_VENUES,
+   601→      venueServices: MOCK_VENUE_SERVICES,
+   602→      venueVendors: MOCK_VENUE_VENDORS,
+   603→      fillings: FILLINGS_SEED,
+   604→      recipes: MOCK_RECIPES,
+   605→      inventory: MOCK_INVENTORY,
+   606→      stockMovements: MOCK_STOCK_MOVEMENTS,
+   607→      ganttTasks: MOCK_GANTT_TASKS,
+   608→      reminders: MOCK_REMINDERS,
+   609→      promoPopupShown: false,
+   610→      promoPopupDismissed: [],
+   611→      // Корпоратив + чёрный список + семафор
+   612→      corporateEvents: MOCK_CORPORATE_EVENTS,
+   613→      blacklist: MOCK_BLACKLIST,
+   614→      semaphores: [...MOCK_SEMAPHORES, ...MOCK_LEGAL_USERS.flatMap((u) => [
+   615→        { id: `s_${u.id}_e`, type: "email" as const, value: u.email, userId: u.id, verified: true, registeredAt: u.createdAt, attempts: 1 },
+   616→        ...(u.phone ? [{ id: `s_${u.id}_p`, type: "phone" as const, value: u.phone, userId: u.id, verified: true, registeredAt: u.createdAt, attempts: 1 }] : []),
+   617→      ])],
+   618→      decorShops: MOCK_DECOR_SHOPS,
+   619→      decorProducts: MOCK_DECOR_PRODUCTS,
+   620→      bundles: MOCK_BUNDLES,
+   621→      serviceShops: MOCK_SERVICE_SHOPS,
+   622→      serviceProducts: MOCK_SERVICE_PRODUCTS,
+   623→      userHolidays: MOCK_USER_HOLIDAYS,
+   624→      giftCertificates: MOCK_GIFT_CERTIFICATES,
+   625→      referral: MOCK_REFERRAL,
+   626→      videoReviews: MOCK_VIDEO_REVIEWS,
+   627→      courierTracking: MOCK_COURIER_TRACKING,
+   628→      // CMS
+   629→      cmsPages: MOCK_CMS_PAGES,
+   630→      cmsBlocks: MOCK_CMS_BLOCKS,
+   631→      banners: MOCK_BANNERS,
+   632→      siteSettings: MOCK_SITE_SETTINGS,
+   633→      navMenu: MOCK_NAV_MENU,
+   634→      reviewsModeration: MOCK_REVIEWS_MODERATION,
+   635→      negotiations: MOCK_NEGOTIATIONS,
+   636→      confectionerWorks: [],
+   637→      fraudReports: [],
+   638→      riskScores: {},
+   639→      fraudRules: [],
+   640→
+   641→      // ===== Actions =====
+   642→      login: (email, password) => {
+   643→        // Объединяем демо-пользователей + зарегистрированных юрлиц
+   644→        const legalUsersWithPasswords = MOCK_LEGAL_USERS.map((u) => ({ ...u, password: "demo123" }));
+   645→        const allUsers = [...MOCK_USERS, ...legalUsersWithPasswords];
+   646→        const user = allUsers.find((u) => u.email === email && u.password === password);
+   647→        if (user) {
+   648→          const { password: _, ...userWithoutPassword } = user;
+   649→          set({
+   650→            user: userWithoutPassword,
+   651→            activeRole: userWithoutPassword.roles[0],
+   652→            isAuthenticated: true,
+   653→            authModalOpen: false,
+   654→          });
+   655→          return { success: true };
+   656→        }
+   657→        return { success: false, error: "Неверный email или пароль" };
+   658→      },
+   659→
+   660→      loginAs: (role) => {
+   661→        // Демо-вход под ролью (без пароля)
+   662→        const roleUserMap: Record<string, string> = {
+   663→          CUSTOMER: "customer@demo.ru",
+   664→          CONFECTIONER: "confectioner@demo.ru",
+   665→          SUPPLIER: "supplier@demo.ru",
+   666→          COURIER: "courier@demo.ru",
+   667→          ADMIN: "admin@demo.ru",
+   668→          SUPER_ADMIN: "admin@demo.ru",
+   669→        };
+   670→        const email = roleUserMap[role] || "customer@demo.ru";
+   671→        const user = MOCK_USERS.find((u) => u.email === email);
+   672→        if (user) {
+   673→          const { password: _, ...userWithoutPassword } = user;
+   674→          set({
+   675→            user: userWithoutPassword,
+   676→            activeRole: role,
+   677→            isAuthenticated: true,
+   678→            authModalOpen: false,
+   679→            nav: { view: getDashboardView(role) },
+   680→          });
+   681→        }
+   682→      },
+   683→
+   684→      logout: () => {
+   685→        set({
+   686→          user: null,
+   687→          activeRole: null,
+   688→          isAuthenticated: false,
+   689→          nav: { view: "home" },
+   690→          cart: [],
+   691→          favorites: [],
+   692→        });
+   693→      },
+   694→
+   695→      setActiveRole: (role) => set({ activeRole: role }),
+   696→
+   697→      setAuthModalOpen: (open) => set({ authModalOpen: open }),
+   698→
+   699→      navigate: (view, params) => {
+   700→        set({ nav: { view, params }, mobileMenuOpen: false });
+   701→        if (typeof window !== "undefined") {
+   702→          window.scrollTo({ top: 0, behavior: "smooth" });
+   703→        }
+   704→      },
+   705→
+   706→      addToCart: (product, customization, quantity = 1) => {
+   707→        const cart = get().cart;
+   708→        const existingIndex = cart.findIndex(
+   709→          (item) =>
+   710→            item.productId === product.id &&
+   711→            JSON.stringify(item.customization) === JSON.stringify(customization)
+   712→        );
+   713→        if (existingIndex >= 0) {
+   714→          const newCart = [...cart];
+   715→          newCart[existingIndex].quantity += quantity;
+   716→          set({ cart: newCart, cartOpen: true });
+   717→        } else {
+   718→          let price = product.price;
+   719→          if (customization) {
+   720→            const filling = product.fillings?.find((f) => f.name === customization.filling);
+   721→            const coating = product.coatings?.find((c) => c.name === customization.coating);
+   722→            const decoration = product.decorations?.find((d) => d.name === customization.decoration);
+   723→            if (filling) price += filling.priceModifier;
+   724→            if (coating) price += coating.priceModifier;
+   725→            if (decoration) price += decoration.priceModifier;
+   726→          }
+   727→          set({
+   728→            cart: [
+   729→              ...cart,
+   730→              {
+   731→                productId: product.id,
+   732→                title: product.title,
+   733→                image: product.images[0],
+   734→                price,
+   735→                quantity,
+   736→                confectionerId: product.confectionerId,
+   737→                customization,
+   738→              },
+   739→            ],
+   740→            cartOpen: true,
+   741→          });
+   742→        }
+   743→      },
+   744→
+   745→      removeFromCart: (productId) => {
+   746→        set({ cart: get().cart.filter((item) => item.productId !== productId) });
+   747→      },
+   748→
+   749→      updateCartQuantity: (productId, quantity) => {
+   750→        if (quantity <= 0) {
+   751→          get().removeFromCart(productId);
+   752→          return;
+   753→        }
+   754→        set({
+   755→          cart: get().cart.map((item) =>
+   756→            item.productId === productId ? { ...item, quantity } : item
+   757→          ),
+   758→        });
+   759→      },
+   760→
+   761→      clearCart: () => set({ cart: [], promoCode: null, promoDiscount: 0 }),
+   762→      setCartOpen: (open) => set({ cartOpen: open }),
+   763→
+   764→      applyPromo: (code) => {
+   765→        const upperCode = code.toUpperCase();
+   766→        if (PROMO_CODES[upperCode]) {
+   767→          set({ promoCode: upperCode, promoDiscount: PROMO_CODES[upperCode] });
+   768→          return { success: true, discount: PROMO_CODES[upperCode] };
+   769→        }
+   770→        return { success: false, discount: 0, error: "Промокод не найден" };
+   771→      },
+   772→
+   773→      clearPromo: () => set({ promoCode: null, promoDiscount: 0 }),
+   774→
+   775→      toggleFavorite: (productId) => {
+   776→        const favorites = get().favorites;
+   777→        if (favorites.includes(productId)) {
+   778→          set({ favorites: favorites.filter((id) => id !== productId) });
+   779→        } else {
+   780→          set({ favorites: [...favorites, productId] });
+   781→        }
+   782→      },
+   783→
+   784→      isFavorite: (productId) => get().favorites.includes(productId),
+   785→
+   786→      // ===== ТОЧКИ ДЕГУСТАЦИИ (где попробовать продукцию) =====
+   787→      tastingLocations: [
+   788→        {
+   789→          id: "tl-1",
+   790→          confectionerId: "c0",
+   791→          type: "cafe" as const,
+   792→          typeLabel: "Кофейня",
+   793→          establishmentName: "Кофейня «Уют»",
+   794→          description: "Здесь всегда можно купить торты с сахарной печатью на заказ. Свежие десерты ежедневно. Также доступен заказ тортов на праздничные даты.",
+   795→          availableProducts: ["Торт с фото на день рождения", "Торт на крестины", "Набор пряников с печатью"],
+   796→          contactName: "Анна",
+   797→          contactPhone: "+7 916 555-12-34",
+   798→          address: "ул. Революционная, 15",
+   799→          city: "Волоколамск",
+   800→          region: "Московская область",
+   801→          lat: 56.9555,
+   802→          lng: 35.9567,
+   803→          metroStation: "Центр",
+   804→          workingHours: "Пн-Вс 9:00-21:00",
+   805→          averageCheck: 500,
+   806→          photo: "https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=600",
+   807→          status: "active" as const,
+   808→          verified: true,
+   809→          createdAt: "2026-06-15T10:00:00",
+   810→        },
+   811→        {
+   812→          id: "tl-2",
+   813→          confectionerId: "c0",
+   814→          type: "restaurant" as const,
+   815→          typeLabel: "Ресторан",
+   816→          establishmentName: "Ресторан «Волоколамск»",
+   817→          description: "В меню ресторана — фирменные торты от нашего кондитера. На банкеты и свадьбы можно заказать многоярусные торты с сахарной печатью.",
+   818→          availableProducts: ["Свадебный торт «Сахарная печать»", "Торт на заказ (индивидуальный)"],
+   819→          contactName: "Администратор",
+   820→          contactPhone: "+7 496 222-33-44",
+   821→          address: "пр. Ленина, 28",
+   822→          city: "Волоколамск",
+   823→          region: "Московская область",
+   824→          lat: 56.9570,
+   825→          lng: 35.9590,
+   826→          metroStation: "",
+   827→          workingHours: "Пн-Вс 12:00-23:00",
+   828→          averageCheck: 2500,
+   829→          photo: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600",
+   830→          status: "active" as const,
+   831→          verified: false,
+   832→          createdAt: "2026-06-20T14:00:00",
+   833→        },
+   834→      ],
+   835→
+   836→      addTastingLocation: (loc) => {
+   837→        const id = `tl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+   838→        const newLoc: TastingLocation = {
+   839→          ...loc,
+   840→          id,
+   841→          verified: false,
+   842→          createdAt: new Date().toISOString(),
+   843→        };
+   844→        set((s) => ({ tastingLocations: [newLoc, ...s.tastingLocations] }));
+   845→        return id;
+   846→      },
+   847→
+   848→      updateTastingLocation: (id, patch) =>
+   849→        set((s) => ({
+   850→          tastingLocations: s.tastingLocations.map((tl) =>
+   851→            tl.id === id ? { ...tl, ...patch, updatedAt: new Date().toISOString() } : tl
+   852→          ),
+   853→        })),
+   854→
+   855→      deleteTastingLocation: (id) =>
+   856→        set((s) => ({ tastingLocations: s.tastingLocations.filter((tl) => tl.id !== id) })),
+   857→
+   858→      getTastingLocations: (confectionerId) =>
+   859→        get().tastingLocations.filter((tl) => tl.confectionerId === confectionerId && tl.status === "active"),
+   860→
+   861→      getAllTastingLocations: () =>
+   862→        get().tastingLocations.filter((tl) => tl.status === "active"),
+   863→
+   864→      getTastingLocationsByCity: (city) =>
+   865→        get().tastingLocations.filter((tl) => tl.city === city && tl.status === "active"),
+   866→
+   867→      setChatOpen: (open) => set({ chatOpen: open }),
+   868→      setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
+   869→      setActiveChatRoom: (roomId) => set({ activeChatRoom: roomId }),
+   870→
+   871→      sendMessage: (roomId, text) => {
+   872→        const user = get().user;
+   873→        if (!user) return;
+   874→        // === Клиентская модерация: проверка стоп-слов ===
+   875→        // Полная проверка — на сервере (через /api/moderation). Здесь — быстрая защита от очевидного.
+   876→        const STOP_WORDS = ["наркотик", "экстремизм", "теракт", "бомба", "убить"];
+   877→        const lowerText = text.toLowerCase();
+   878→        const hasStopWord = STOP_WORDS.some((w) => lowerText.includes(w));
+   879→        if (hasStopWord) {
+   880→          // Не отправляем, показываем предупреждение
+   881→          console.warn("[chat] Message blocked by client-side moderation");
+   882→          return;
+   883→        }
+   884→        // Dedup guard — если такое же сообщение уже было добавлено за последние 2 секунды, не дублируем
+   885→        const recentSame = get().chatMessages.find(
+   886→          (m) => m.roomId === roomId && m.text === text && m.senderId === user.id &&
+   887→            Date.now() - new Date(m.createdAt).getTime() < 2000
+   888→        );
+   889→        if (recentSame) return;
+   890→        const msgId = `m${Date.now()}_${Math.random().toString(36).slice(2, 10)}_${(get() as any)._msgSeq = ((get() as any)._msgSeq || 0) + 1}`;
+   891→        const newMsg: ChatMessage = {
+   892→          id: msgId,
+   893→          roomId,
+   894→          senderId: user.id,
+   895→          senderName: user.name,
+   896→          senderAvatar: user.avatar,
+   897→          text,
+   898→          createdAt: new Date().toISOString(),
+   899→          isOwn: true,
+   900→        };
+   901→        set({ chatMessages: [...get().chatMessages, newMsg] });
+   902→
+   903→        // Авточат: только для support/order комнат (не для direct чатов с кондитерами)
+   904→        const room = get().chatRooms.find(r => r.id === roomId);
+   905→        if (!room || room.type === "support" || room.type === "order") {
+   906→          setTimeout(() => {
+   907→            let botReply: ChatMessage;
+   908→            const botId = `b${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+   909→            try {
+   910→              const faqMatch = simpleFaqMatch(text);
+   911→              if (faqMatch) {
+   912→                botReply = {
+   913→                  id: botId,
+   914→                  roomId,
+   915→                  senderId: "bot",
+   916→                  senderName: "Уездный помощник",
+   917→                  senderAvatar: "/logo.png",
+   918→                  text: faqMatch.answer,
+   919→                  createdAt: new Date().toISOString(),
+   920→                  isBot: true,
+   921→                  botKind: "faq",
+   922→                  quickReplies: faqMatch.quickReplies,
+   923→                };
+   924→              } else if (/^(оператор|поддержк|человек|operator|support)\b/i.test(text.trim())) {
+   925→                botReply = {
+   926→                  id: botId,
+   927→                  roomId,
+   928→                  senderId: "bot",
+   929→                  senderName: "Уездный помощник",
+   930→                  senderAvatar: "/logo.png",
+   931→                  text: "👩‍💼 Я передал ваш запрос оператору поддержки. Среднее время ответа — 5-10 минут в рабочее время (10:00-22:00 МСК).",
+   932→                  createdAt: new Date().toISOString(),
+   933→                  isBot: true,
+   934→                  botKind: "escalation",
+   935→                };
+   936→              } else {
+   937→                botReply = {
+   938→                  id: botId,
+   939→                  roomId,
+   940→                  senderId: "bot",
+   941→                  senderName: "Уездный помощник",
+   942→                  senderAvatar: "/logo.png",
+   943→                  text: "🤔 Я не уверен, что правильно понял вопрос. Переформулируйте, пожалуйста, или выберите тему ниже:",
+   944→                  createdAt: new Date().toISOString(),
+   945→                  isBot: true,
+   946→                  botKind: "faq",
+   947→                  quickReplies: DEFAULT_QUICK_REPLIES,
+   948→                };
+   949→              }
+   950→            } catch (e) {
+   951→              botReply = {
+   952→                id: botId,
+   953→                roomId,
+   954→                senderId: "bot",
+   955→                senderName: "Уездный помощник",
+   956→                senderAvatar: "/logo.png",
+   957→                text: "Спасибо за сообщение! Оператор ответит в ближайшее время.",
+   958→                createdAt: new Date().toISOString(),
+   959→                isBot: true,
+   960→              };
+   961→            }
+   962→            set({ chatMessages: [...get().chatMessages, botReply] });
+   963→          }, 800);
+   964→        }
+   965→      },
+   966→
+   967→      // Отправка quick-reply: пользователь нажал кнопку под bot-сообщением
+   968→      sendQuickReply: (roomId, reply) => {
+   969→        const user = get().user;
+   970→        if (!user) return;
+   971→        // Добавляем сообщение пользователя с текстом кнопки
+   972→        const userMsg: ChatMessage = {
+   973→          id: `m${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+   974→          roomId,
+   975→          senderId: user.id,
+   976→          senderName: user.name,
+   977→          senderAvatar: user.avatar,
+   978→          text: reply.label,
+   979→          createdAt: new Date().toISOString(),
+   980→          isOwn: true,
+   981→        };
+   982→        set({ chatMessages: [...get().chatMessages, userMsg] });
+   983→
+   984→        // Если это эскалация на оператора
+   985→        if (reply.action === "human:operator") {
+   986→          setTimeout(() => {
+   987→            const botReply: ChatMessage = {
+   988→              id: `b${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+   989→              roomId,
+   990→              senderId: "bot",
+   991→              senderName: "Уездный помощник",
+   992→              senderAvatar: "/logo.png",
+   993→              text: "👩‍💼 Соединяю с оператором поддержки. Среднее время ожидания — 5-10 минут.",
+   994→              createdAt: new Date().toISOString(),
+   995→              isBot: true,
+   996→              botKind: "escalation",
+   997→            };
+   998→            set({ chatMessages: [...get().chatMessages, botReply] });
+   999→          }, 500);
+  1000→          return;
+  1001→        }
+  1002→
+  1003→        // Иначе — обрабатываем как FAQ-запрос (без вызова sendMessage, чтобы не дублировать)
+  1004→        setTimeout(() => {
+  1005→          const botId = `b${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  1006→          let botReply: ChatMessage;
+  1007→          try {
+  1008→            const faqMatch = simpleFaqMatch(reply.label);
+  1009→            if (faqMatch) {
+  1010→              botReply = {
+  1011→                id: botId,
+  1012→                roomId,
+  1013→                senderId: "bot",
+  1014→                senderName: "Уездный помощник",
+  1015→                senderAvatar: "/logo.png",
+  1016→                text: faqMatch.answer,
+  1017→                createdAt: new Date().toISOString(),
+  1018→                isBot: true,
+  1019→                botKind: "faq",
+  1020→                quickReplies: faqMatch.quickReplies,
+  1021→              };
+  1022→            } else {
+  1023→              botReply = {
+  1024→                id: botId,
+  1025→                roomId,
+  1026→                senderId: "bot",
+  1027→                senderName: "Уездный помощник",
+  1028→                senderAvatar: "/logo.png",
+  1029→                text: "🤔 Я не уверен, что правильно понял вопрос. Переформулируйте, пожалуйста, или выберите тему ниже:",
+  1030→                createdAt: new Date().toISOString(),
+  1031→                isBot: true,
+  1032→                botKind: "faq",
+  1033→                quickReplies: DEFAULT_QUICK_REPLIES,
+  1034→              };
+  1035→            }
+  1036→          } catch {
+  1037→            botReply = {
+  1038→              id: botId,
+  1039→              roomId,
+  1040→              senderId: "bot",
+  1041→              senderName: "Уездный помощник",
+  1042→              senderAvatar: "/logo.png",
+  1043→              text: "Спасибо за сообщение! Оператор ответит в ближайшее время.",
+  1044→              createdAt: new Date().toISOString(),
+  1045→              isBot: true,
+  1046→            };
+  1047→          }
+  1048→          set({ chatMessages: [...get().chatMessages, botReply] });
+  1049→        }, 800);
+  1050→      },
+  1051→
+  1052→      setCakeBuilderOpen: (open) => set({ cakeBuilderOpen: open }),
+  1053→      updateCakeBuilder: (state) =>
+  1054→        set({ cakeBuilder: { ...get().cakeBuilder, ...state } }),
+  1055→      resetCakeBuilder: () =>
+  1056→        set({ cakeBuilder: { step: 0, decorations: [], dietary: [], productType: undefined, servings: undefined, quantity: undefined } }),
+  1057→
+  1058→      setUserLocation: (location) => set({ userLocation: location }),
+  1059→      setUserCity: (city) => {
+  1060→        if (city) {
+  1061→          set({
+  1062→            userCity: city,
+  1063→            userLocation: {
+  1064→              country: "Россия",
+  1065→              region: city,
+  1066→              city: city,
+  1067→            },
+  1068→          });
+  1069→        } else {
+  1070→          set({ userCity: null });
+  1071→        }
+  1072→      },
+  1073→      detectUserLocation: async () => {
+  1074→        if (typeof window === "undefined" || !navigator.geolocation) return;
+  1075→        return new Promise<void>((resolve) => {
+  1076→          navigator.geolocation.getCurrentPosition(
+  1077→            (position) => {
+  1078→              set({
+  1079→                userLocation: {
+  1080→                  country: "Россия",
+  1081→                  region: "Москва",
+  1082→                  city: "Москва",
+  1083→                  lat: position.coords.latitude,
+  1084→                  lng: position.coords.longitude,
+  1085→                },
+  1086→              });
+  1087→              resolve();
+  1088→            },
+  1089→            () => resolve(),
+  1090→            { timeout: 5000 }
+  1091→          );
+  1092→        });
+  1093→      },
+  1094→
+  1095→      updateOrderStatus: (orderId, status) => {
+  1096→        set({
+  1097→          orders: get().orders.map((o) =>
+  1098→            o.id === orderId ? { ...o, status: status as any } : o
+  1099→          ),
+  1100→        });
+  1101→      },
+  1102→
+  1103→      updateTaskStatus: (taskId, status) => {
+  1104→        set({
+  1105→          teamTasks: get().teamTasks.map((t) =>
+  1106→            t.id === taskId ? { ...t, status: status as any } : t
+  1107→          ),
+  1108→        });
+  1109→      },
+  1110→
+  1111→      respondToInquiry: (inquiryId, price) => {
+  1112→        set({
+  1113→          inquiries: get().inquiries.map((i) =>
+  1114→            i.id === inquiryId ? { ...i, status: "quoted" as const } : i
+  1115→          ),
+  1116→        });
+  1117→      },
+  1118→
+  1119→      // ===== Promotions =====
+  1120→      createPromotion: (promo) => {
+  1121→        const newPromo: Promotion = {
+  1122→          ...promo,
+  1123→          id: `pr${Date.now()}`,
+  1124→          createdAt: new Date().toISOString().slice(0, 10),
+  1125→          views: 0,
+  1126→          clicks: 0,
+  1127→          conversions: 0,
+  1128→          usedCount: 0,
+  1129→        };
+  1130→        set({ promotions: [newPromo, ...get().promotions] });
+  1131→      },
+  1132→      updatePromotion: (id, updates) => {
+  1133→        set({
+  1134→          promotions: get().promotions.map((p) =>
+  1135→            p.id === id ? { ...p, ...updates } : p
+  1136→          ),
+  1137→        });
+  1138→      },
+  1139→      deletePromotion: (id) => {
+  1140→        set({ promotions: get().promotions.filter((p) => p.id !== id) });
+  1141→      },
+  1142→      promotePromotion: (id, budget, regions) => {
+  1143→        const promotedUntil = new Date();
+  1144→        promotedUntil.setDate(promotedUntil.getDate() + 30);
+  1145→        set({
+  1146→          promotions: get().promotions.map((p) =>
+  1147→            p.id === id
+  1148→              ? {
+  1149→                  ...p,
+  1150→                  isPromoted: true,
+  1151→                  promotionBudget: budget,
+  1152→                  promotedRegions: regions,
+  1153→                  promotedUntil: promotedUntil.toISOString().slice(0, 10),
+  1154→                }
+  1155→              : p
+  1156→          ),
+  1157→        });
+  1158→      },
+  1159→
+  1160→      // ===== Recipes =====
+  1161→      createRecipe: (recipe) => {
+  1162→        const newRecipe: Recipe = {
+  1163→          ...recipe,
+  1164→          id: `rc${Date.now()}`,
+  1165→          createdAt: new Date().toISOString().slice(0, 10),
+  1166→          views: 0,
+  1167→          likes: 0,
+  1168→          comments: 0,
+  1169→        };
+  1170→        set({ recipes: [newRecipe, ...get().recipes] });
+  1171→      },
+  1172→      updateRecipe: (id, updates) => {
+  1173→        set({
+  1174→          recipes: get().recipes.map((r) =>
+  1175→            r.id === id ? { ...r, ...updates } : r
+  1176→          ),
+  1177→        });
+  1178→      },
+  1179→      deleteRecipe: (id) => {
+  1180→        set({ recipes: get().recipes.filter((r) => r.id !== id) });
+  1181→      },
+  1182→
+  1183→      // ===== Inventory =====
+  1184→      addInventoryItem: (item) => {
+  1185→        const newItem: InventoryItem = {
+  1186→          ...item,
+  1187→          id: `inv${Date.now()}`,
+  1188→          createdAt: new Date().toISOString(),
+  1189→          updatedAt: new Date().toISOString(),
+  1190→        };
+  1191→        set({ inventory: [newItem, ...get().inventory] });
+  1192→      },
+  1193→      updateInventoryItem: (id, updates) => {
+  1194→        set({
+  1195→          inventory: get().inventory.map((i) =>
+  1196→            i.id === id
+  1197→              ? { ...i, ...updates, updatedAt: new Date().toISOString() }
+  1198→              : i
+  1199→          ),
+  1200→        });
+  1201→      },
+  1202→      deleteInventoryItem: (id) => {
+  1203→        set({ inventory: get().inventory.filter((i) => i.id !== id) });
+  1204→      },
+  1205→      addStockMovement: (movement) => {
+  1206→        const newMovement: StockMovement = {
+  1207→          ...movement,
+  1208→          id: `sm${Date.now()}`,
+  1209→          date: new Date().toISOString(),
+  1210→        };
+  1211→        // Обновляем количество на складе
+  1212→        const item = get().inventory.find((i) => i.id === movement.itemId);
+  1213→        if (item) {
+  1214→          const delta =
+  1215→            movement.type === "incoming"
+  1216→              ? movement.quantity
+  1217→              : movement.type === "outgoing" || movement.type === "waste"
+  1218→              ? -movement.quantity
+  1219→              : 0;
+  1220→          get().updateInventoryItem(item.id, {
+  1221→            quantity: Math.max(0, item.quantity + delta),
+  1222→            lastRestocked:
+  1223→              movement.type === "incoming"
+  1224→                ? newMovement.date
+  1225→                : item.lastRestocked,
+  1226→          });
+  1227→        }
+  1228→        set({ stockMovements: [newMovement, ...get().stockMovements] });
+  1229→      },
+  1230→
+  1231→      // ===== Gantt =====
+  1232→      updateGanttTask: (id, updates) => {
+  1233→        set({
+  1234→          ganttTasks: get().ganttTasks.map((t) =>
+  1235→            t.id === id ? { ...t, ...updates } : t
+  1236→          ),
+  1237→        });
+  1238→      },
+  1239→      addGanttTask: (task) => {
+  1240→        const newTask: GanttTask = { ...task, id: `g${Date.now()}` };
+  1241→        set({ ganttTasks: [...get().ganttTasks, newTask] });
+  1242→      },
+  1243→
+  1244→      // ===== Reminders =====
+  1245→      markReminderRead: (id) => {
+  1246→        set({
+  1247→          reminders: get().reminders.map((r) =>
+  1248→            r.id === id ? { ...r, isRead: true } : r
+  1249→          ),
+  1250→        });
+  1251→      },
+  1252→      markReminderDone: (id) => {
+  1253→        set({
+  1254→          reminders: get().reminders.map((r) =>
+  1255→            r.id === id ? { ...r, isDone: true, isRead: true } : r
+  1256→          ),
+  1257→        });
+  1258→      },
+  1259→      addReminder: (reminder) => {
+  1260→        const newReminder: Reminder = {
+  1261→          ...reminder,
+  1262→          id: `rm${Date.now()}`,
+  1263→          createdAt: new Date().toISOString(),
+  1264→          isRead: false,
+  1265→          isDone: false,
+  1266→        };
+  1267→        set({ reminders: [newReminder, ...get().reminders] });
+  1268→      },
+  1269→
+  1270→      // ===== Promo popup =====
+  1271→      showPromoPopup: () => set({ promoPopupShown: true }),
+  1272→      dismissPromoPopup: (promotionId) => {
+  1273→        set({
+  1274→          promoPopupShown: false,
+  1275→          promoPopupDismissed: [...new Set([...get().promoPopupDismissed, promotionId])],
+  1276→        });
+  1277→      },
+  1278→
+  1279→      // ===== Corporate events =====
+  1280→      createCorporateEvent: (event) => {
+  1281→        const newEvent: CorporateEvent = {
+  1282→          ...event,
+  1283→          id: `ce${Date.now()}`,
+  1284→          createdAt: new Date().toISOString().slice(0, 10),
+  1285→          responsesCount: 0,
+  1286→        };
+  1287→        set({ corporateEvents: [newEvent, ...get().corporateEvents] });
+  1288→      },
+  1289→      updateCorporateEvent: (id, updates) => {
+  1290→        set({
+  1291→          corporateEvents: get().corporateEvents.map((e) =>
+  1292→            e.id === id ? { ...e, ...updates } : e
+  1293→          ),
+  1294→        });
+  1295→      },
+  1296→      respondToCorporateEvent: (eventId, _confectionerId) => {
+  1297→        set({
+  1298→          corporateEvents: get().corporateEvents.map((e) =>
+  1299→            e.id === eventId ? { ...e, responsesCount: e.responsesCount + 1 } : e
+  1300→          ),
+  1301→        });
+  1302→      },
+  1303→
+  1304→      // ===== Blacklist =====
+  1305→      addToBlacklist: (entry) => {
+  1306→        const newEntry: BlacklistEntry = {
+  1307→          ...entry,
+  1308→          id: `bl${Date.now()}`,
+  1309→          blockedAt: new Date().toISOString().slice(0, 10),
+  1310→        };
+  1311→        set({ blacklist: [newEntry, ...get().blacklist] });
+  1312→      },
+  1313→      removeFromBlacklist: (id) => {
+  1314→        set({
+  1315→          blacklist: get().blacklist.map((b) =>
+  1316→            b.id === id ? { ...b, status: "lifted" as const } : b
+  1317→          ),
+  1318→        });
+  1319→      },
+  1320→      appealBlacklist: (id, text) => {
+  1321→        const appeal = {
+  1322→          id: `ap${Date.now()}`,
+  1323→          text,
+  1324→          createdAt: new Date().toISOString().slice(0, 10),
+  1325→          status: "pending" as const,
+  1326→        };
+  1327→        set({
+  1328→          blacklist: get().blacklist.map((b) =>
+  1329→            b.id === id
+  1330→              ? { ...b, status: "appealed" as const, appeals: [...(b.appeals || []), appeal] }
+  1331→              : b
+  1332→          ),
+  1333→        });
+  1334→      },
+  1335→      checkBlacklist: (value, scope) => {
+  1336→        const normalized = value.toLowerCase().trim();
+  1337→        return (
+  1338→          get().blacklist.find(
+  1339→            (b) =>
+  1340→              b.status === "active" &&
+  1341→              b.value.toLowerCase().trim() === normalized &&
+  1342→              (!scope || b.scope === scope)
+  1343→          ) || null
+  1344→        );
+  1345→      },
+  1346→
+  1347→      // ===== Semaphore =====
+  1348→      checkSemaphore: (type, value) => {
+  1349→        const normalized = value.toLowerCase().trim();
+  1350→        const entry = get().semaphores.find(
+  1351→          (s) => s.type === type && s.value.toLowerCase().trim() === normalized
+  1352→        );
+  1353→        if (entry) {
+  1354→          return { available: false, existingUser: entry.userId };
+  1355→        }
+  1356→        return { available: true };
+  1357→      },
+  1358→      registerSemaphore: (type, value, userId) => {
+  1359→        const normalized = value.trim();
+  1360→        const existing = get().semaphores.find(
+  1361→          (s) => s.type === type && s.value.toLowerCase().trim() === normalized.toLowerCase()
+  1362→        );
+  1363→        if (existing) {
+  1364→          // Увеличиваем счётчик попыток
+  1365→          set({
+  1366→            semaphores: get().semaphores.map((s) =>
+  1367→              s.id === existing.id
+  1368→                ? { ...s, attempts: s.attempts + 1, lastAttemptAt: new Date().toISOString() }
+  1369→                : s
+  1370→            ),
+  1371→          });
+  1372→        } else {
+  1373→          const newEntry: SemaphoreEntry = {
+  1374→            id: `s${Date.now()}`,
+  1375→            type,
+  1376→            value: normalized,
+  1377→            userId,
+  1378→            verified: false,
+  1379→            registeredAt: new Date().toISOString().slice(0, 10),
+  1380→            attempts: 1,
+  1381→          };
+  1382→          set({ semaphores: [...get().semaphores, newEntry] });
+  1383→        }
+  1384→      },
+  1385→
+  1386→      // ===== User legal info =====
+  1387→      updateUserLegalInfo: (userId, legalInfo) => {
+  1388→        set({
+  1389→          user: get().user?.id === userId
+  1390→            ? { ...get().user!, legalInfo, accountType: "legal" }
+  1391→            : get().user,
+  1392→        });
+  1393→      },
+  1394→      updateUserAccountType: (userId, accountType) => {
+  1395→        set({
+  1396→          user: get().user?.id === userId
+  1397→            ? { ...get().user!, accountType }
+  1398→            : get().user,
+  1399→        });
+  1400→      },
+  1401→
+  1402→      // ===== Register new user (с семафором) =====
+  1403→      registerUser: (data) => {
+  1404→        // Проверка семафора — уникальность email
+  1405→        const emailCheck = get().checkSemaphore("email", data.email);
+  1406→        if (!emailCheck.available) {
+  1407→          return { success: false, error: "Email уже зарегистрирован" };
+  1408→        }
+  1409→        // Проверка семафора — уникальность телефона
+  1410→        const phoneCheck = get().checkSemaphore("phone", data.phone);
+  1411→        if (!phoneCheck.available) {
+  1412→          return { success: false, error: "Телефон уже зарегистрирован" };
+  1413→        }
+  1414→        // Проверка чёрного списка
+  1415→        const emailBlacklist = get().checkBlacklist(data.email, "email");
+  1416→        if (emailBlacklist) {
+  1417→          return { success: false, error: `Email в чёрном списке: ${emailBlacklist.reasonDetails}` };
+  1418→        }
+  1419→        const phoneBlacklist = get().checkBlacklist(data.phone, "phone");
+  1420→        if (phoneBlacklist) {
+  1421→          return { success: false, error: `Телефон в чёрном списке: ${phoneBlacklist.reasonDetails}` };
+  1422→        }
+  1423→
+  1424→        // Создаём пользователя
+  1425→        const newUserId = `u${Date.now()}`;
+  1426→        const newUser: User = {
+  1427→          id: newUserId,
+  1428→          email: data.email,
+  1429→          name: data.name,
+  1430→          phone: data.phone,
+  1431→          avatar: `https://i.pravatar.cc/150?u=${newUserId}`,
+  1432→          roles: [data.role],
+  1433→          createdAt: new Date().toISOString().slice(0, 10),
+  1434→          accountType: data.accountType,
+  1435→          legalInfo: data.legalInfo,
+  1436→          loyaltyLevel: "BRONZE",
+  1437→          bonusBalance: 0,
+  1438→        };
+  1439→
+  1440→        // Регистрируем в семафоре
+  1441→        get().registerSemaphore("email", data.email, newUserId);
+  1442→        get().registerSemaphore("phone", data.phone, newUserId);
+  1443→
+  1444→        // Логиним
+  1445→        set({
+  1446→          user: newUser,
+  1447→          activeRole: data.role,
+  1448→          isAuthenticated: true,
+  1449→          authModalOpen: false,
+  1450→        });
+  1451→
+  1452→        return { success: true };
+  1453→      },
+  1454→
+  1455→      // ===== Holidays =====
+  1456→      addHoliday: (holiday) => {
+  1457→        const newHoliday: UserHoliday = {
+  1458→          ...holiday,
+  1459→          id: `uh${Date.now()}`,
+  1460→          userId: get().user?.id || "u1",
+  1461→        };
+  1462→        set({ userHolidays: [...get().userHolidays, newHoliday] });
+  1463→      },
+  1464→      deleteHoliday: (id) => {
+  1465→        set({ userHolidays: get().userHolidays.filter((h) => h.id !== id) });
+  1466→      },
+  1467→
+  1468→      // ===== Gift certificates =====
+  1469→      purchaseGiftCertificate: (cert) => {
+  1470→        const newCert: GiftCertificate = {
+  1471→          ...cert,
+  1472→          id: `gc${Date.now()}`,
+  1473→          code: `UK-GIFT-2026-${String(get().giftCertificates.length + 1).padStart(3, "0")}`,
+  1474→          purchasedAt: new Date().toISOString().slice(0, 10),
+  1475→          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+  1476→          status: "active",
+  1477→          remainingAmount: cert.amount,
+  1478→        };
+  1479→        set({ giftCertificates: [newCert, ...get().giftCertificates] });
+  1480→      },
+  1481→
+  1482→      // ===== Referral =====
+  1483→      copyReferralLink: () => {
+  1484→        const ref = get().referral;
+  1485→        return ref?.referralLink || "";
+  1486→      },
+  1487→
+  1488→      // ===== Video reviews =====
+  1489→      addVideoReview: (review) => {
+  1490→        const newReview: VideoReview = {
+  1491→          ...review,
+  1492→          id: `vr${Date.now()}`,
+  1493→          createdAt: new Date().toISOString().slice(0, 10),
+  1494→          views: 0,
+  1495→          likes: 0,
+  1496→        };
+  1497→        set({ videoReviews: [newReview, ...get().videoReviews] });
+  1498→      },
+  1499→
+  1500→      // ===== CMS =====
+  1501→      updateCmsPage: (id, updates) => {
+  1502→        set({
+  1503→          cmsPages: get().cmsPages.map((p) =>
+  1504→            p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString().slice(0, 10) } : p
+  1505→          ),
+  1506→        });
+  1507→      },
+  1508→      updateCmsBlock: (id, updates) => {
+  1509→        set({
+  1510→          cmsBlocks: get().cmsBlocks.map((b) =>
+  1511→            b.id === id ? { ...b, ...updates, updatedAt: new Date().toISOString().slice(0, 10) } : b
+  1512→          ),
+  1513→        });
+  1514→      },
+  1515→      addCmsBlock: (block) => {
+  1516→        const newBlock = { ...block, id: `cms_b${Date.now()}`, updatedAt: new Date().toISOString().slice(0, 10) };
+  1517→        set({ cmsBlocks: [...get().cmsBlocks, newBlock] });
+  1518→      },
+  1519→      deleteCmsBlock: (id) => {
+  1520→        set({ cmsBlocks: get().cmsBlocks.filter((b) => b.id !== id) });
+  1521→      },
+  1522→      updateBanner: (id, updates) => {
+  1523→        set({
+  1524→          banners: get().banners.map((b) =>
+  1525→            b.id === id ? { ...b, ...updates, updatedAt: new Date().toISOString().slice(0, 10) } : b
+  1526→          ),
+  1527→        });
+  1528→      },
+  1529→      addBanner: (banner) => {
+  1530→        const newBanner = {
+  1531→          ...banner,
+  1532→          id: `bn${Date.now()}`,
+  1533→          createdAt: new Date().toISOString().slice(0, 10),
+  1534→          updatedAt: new Date().toISOString().slice(0, 10),
+  1535→        };
+  1536→        set({ banners: [newBanner, ...get().banners] });
+  1537→      },
+  1538→      deleteBanner: (id) => {
+  1539→        set({ banners: get().banners.filter((b) => b.id !== id) });
+  1540→      },
+  1541→      updateSiteSetting: (key, value) => {
+  1542→        set({
+  1543→          siteSettings: get().siteSettings.map((s) =>
+  1544→            s.key === key ? { ...s, value, updatedAt: new Date().toISOString().slice(0, 10) } : s
+  1545→          ),
+  1546→        });
+  1547→      },
+  1548→      updateNavMenu: (items) => {
+  1549→        set({ navMenu: items });
+  1550→      },
+  1551→      approveReview: (id) => {
+  1552→        set({
+  1553→          reviewsModeration: get().reviewsModeration.map((r) =>
+  1554→            r.id === id ? { ...r, status: "approved" } : r
+  1555→          ),
+  1556→        });
+  1557→      },
+  1558→      rejectReview: (id, reason) => {
+  1559→        set({
+  1560→          reviewsModeration: get().reviewsModeration.map((r) =>
+  1561→            r.id === id ? { ...r, status: "rejected", rejectReason: reason } : r
+  1562→          ),
+  1563→        });
+  1564→      },
+  1565→
+  1566→      // ===== Согласование заказов =====
+  1567→      quoteNegotiation: (id, items, total, comment, deliveryCost, prepTime) => {
+  1568→        const now = new Date().toISOString();
+  1569→        const validUntil = new Date();
+  1570→        validUntil.setDate(validUntil.getDate() + 7);
+  1571→        set({
+  1572→          negotiations: get().negotiations.map((n) =>
+  1573→            n.id === id
+  1574→              ? {
+  1575→                  ...n,
+  1576→                  quotedItems: items,
+  1577→                  quotedTotal: total,
+  1578→                  quotedComment: comment,
+  1579→                  quotedDeliveryCost: deliveryCost,
+  1580→                  quotedPrepTime: prepTime,
+  1581→                  quotedAt: now,
+  1582→                  status: "pending_customer" as NegotiationStatus,
+  1583→                  validUntil: validUntil.toISOString(),
+  1584→                  updatedAt: now,
+  1585→                  revisions: [
+  1586→                    ...n.revisions,
+  1587→                    {
+  1588→                      id: `rev${Date.now()}`,
+  1589→                      at: now,
+  1590→                      by: "confectioner" as const,
+  1591→                      action: "Отправлено предложение",
+  1592→                      oldTotal: n.quotedTotal || n.originalRequest.estimatedPrice,
+  1593→                      newTotal: total,
+  1594→                      comment,
+  1595→                    },
+  1596→                  ],
+  1597→                }
+  1598→              : n
+  1599→          ),
+  1600→        });
+  1601→      },
+  1602→
+  1603→      approveNegotiation: (id, comment) => {
+  1604→        const now = new Date().toISOString();
+  1605→        set({
+  1606→          negotiations: get().negotiations.map((n) =>
+  1607→            n.id === id
+  1608→              ? {
+  1609→                  ...n,
+  1610→                  status: "approved" as NegotiationStatus,
+  1611→                  customerResponse: "approved" as const,
+  1612→                  customerComment: comment,
+  1613→                  customerRespondedAt: now,
+  1614→                  updatedAt: now,
+  1615→                  revisions: [
+  1616→                    ...n.revisions,
+  1617→                    {
+  1618→                      id: `rev${Date.now()}`,
+  1619→                      at: now,
+  1620→                      by: "customer" as const,
+  1621→                      action: "Одобрено покупателем",
+  1622→                      comment: comment || "Согласован, готов к оплате",
+  1623→                    },
+  1624→                  ],
+  1625→                }
+  1626→              : n
+  1627→          ),
+  1628→        });
+  1629→      },
+  1630→
+  1631→      rejectNegotiation: (id, comment) => {
+  1632→        const now = new Date().toISOString();
+  1633→        set({
+  1634→          negotiations: get().negotiations.map((n) =>
+  1635→            n.id === id
+  1636→              ? {
+  1637→                  ...n,
+  1638→                  status: "rejected" as NegotiationStatus,
+  1639→                  customerResponse: "rejected" as const,
+  1640→                  customerComment: comment,
+  1641→                  customerRespondedAt: now,
+  1642→                  updatedAt: now,
+  1643→                  revisions: [
+  1644→                    ...n.revisions,
+  1645→                    {
+  1646→                      id: `rev${Date.now()}`,
+  1647→                      at: now,
+  1648→                      by: "customer" as const,
+  1649→                      action: "Отклонено покупателем",
+  1650→                      comment,
+  1651→                    },
+  1652→                  ],
+  1653→                }
+  1654→              : n
+  1655→          ),
+  1656→        });
+  1657→      },
+  1658→
+  1659→      reviseNegotiation: (id, items, total, comment, deliveryCost, prepTime) => {
+  1660→        const now = new Date().toISOString();
+  1661→        set({
+  1662→          negotiations: get().negotiations.map((n) =>
+  1663→            n.id === id
+  1664→              ? {
+  1665→                  ...n,
+  1666→                  quotedItems: items,
+  1667→                  quotedTotal: total,
+  1668→                  quotedComment: comment,
+  1669→                  quotedDeliveryCost: deliveryCost,
+  1670→                  quotedPrepTime: prepTime,
+  1671→                  quotedAt: now,
+  1672→                  status: "pending_customer" as NegotiationStatus,
+  1673→                  customerResponse: undefined,
+  1674→                  customerComment: undefined,
+  1675→                  customerRespondedAt: undefined,
+  1676→                  updatedAt: now,
+  1677→                  revisions: [
+  1678→                    ...n.revisions,
+  1679→                    {
+  1680→                      id: `rev${Date.now()}`,
+  1681→                      at: now,
+  1682→                      by: "confectioner" as const,
+  1683→                      action: "Пересмотрено предложение",
+  1684→                      oldTotal: n.quotedTotal,
+  1685→                      newTotal: total,
+  1686→                      comment,
+  1687→                    },
+  1688→                  ],
+  1689→                }
+  1690→              : n
+  1691→          ),
+  1692→        });
+  1693→      },
+  1694→
+  1695→      createNegotiationFromInquiry: (inquiryId, confectionerId) => {
+  1696→        const inquiry = get().inquiries.find((i) => i.id === inquiryId);
+  1697→        if (!inquiry) return;
+  1698→        const confectioner = get().confectioners.find((c) => c.id === confectionerId);
+  1699→        if (!confectioner) return;
+  1700→        const now = new Date().toISOString();
+  1701→        const newNeg: OrderNegotiation = {
+  1702→          id: `neg${Date.now()}`,
+  1703→          inquiryId,
+  1704→          customerId: "u_new",
+  1705→          customerName: inquiry.customerName,
+  1706→          customerAvatar: inquiry.customerAvatar,
+  1707→          confectionerId,
+  1708→          confectionerName: confectioner.businessName,
+  1709→          confectionerAvatar: confectioner.avatar,
+  1710→          originalRequest: {
+  1711→            eventType: inquiry.eventType,
+  1712→            base: inquiry.base,
+  1713→            filling: inquiry.filling,
+  1714→            coating: inquiry.coating,
+  1715→            decorations: inquiry.decorations,
+  1716→            servings: inquiry.servings,
+  1717→            city: inquiry.city,
+  1718→            deliveryDate: inquiry.deliveryDate,
+  1719→            deliveryType: "delivery",
+  1720→            comment: inquiry.comment,
+  1721→            estimatedPrice: inquiry.budget,
+  1722→          },
+  1723→          quotedItems: [],
+  1724→          quotedTotal: 0,
+  1725→          quotedDeliveryCost: 0,
+  1726→          quotedPrepTime: "",
+  1727→          status: "pending_confectioner",
+  1728→          createdAt: now,
+  1729→          updatedAt: now,
+  1730→          revisions: [
+  1731→            {
+  1732→              id: `rev${Date.now()}`,
+  1733→              at: now,
+  1734→              by: "customer",
+  1735→              action: "Создана заявка из конструктора",
+  1736→              comment: `Оценка: ${inquiry.budget}₽`,
+  1737→            },
+  1738→          ],
+  1739→        };
+  1740→        set({ negotiations: [newNeg, ...get().negotiations] });
+  1741→      },
+  1742→
+  1743→      // ===== Смена тарифа кондитера =====
+  1744→      updateConfectionerTariff: (confectionerId, tariff) => {
+  1745→        set({
+  1746→          confectioners: get().confectioners.map((c) =>
+  1747→            c.id === confectionerId ? { ...c, tariff } : c
+  1748→          ),
+  1749→        });
+  1750→      },
+  1751→
+  1752→      // ===== Работы кондитеров (портфолио) =====
+  1753→      addConfectionerWork: (work) => {
+  1754→        const newWork: ConfectionerWork = {
+  1755→          ...work,
+  1756→          id: `work_${Date.now()}`,
+  1757→          createdAt: new Date().toISOString(),
+  1758→          views: 0,
+  1759→          likes: 0,
+  1760→          images: work.images || [],
+  1761→          tags: work.tags || [],
+  1762→          decorations: work.decorations || [],
+  1763→          status: "published" as const,
+  1764→          featured: false,
+  1765→        };
+  1766→        set({ confectionerWorks: [newWork, ...get().confectionerWorks] });
+  1767→      },
+  1768→
+  1769→      updateConfectionerWork: (id, updates) => {
+  1770→        set({
+  1771→          confectionerWorks: get().confectionerWorks.map((w) =>
+  1772→            w.id === id ? { ...w, ...updates } : w
+  1773→          ),
+  1774→        });
+  1775→      },
+  1776→
+  1777→      deleteConfectionerWork: (id) => {
+  1778→        set({ confectionerWorks: get().confectionerWorks.filter((w) => w.id !== id) });
+  1779→      },
+  1780→
+  1781→      toggleWorkFeatured: (id) => {
+  1782→        set({
+  1783→          confectionerWorks: get().confectionerWorks.map((w) =>
+  1784→            w.id === id ? { ...w, featured: !w.featured } : w
+  1785→          ),
+  1786→        });
+  1787→      },
+  1788→
+  1789→      likeConfectionerWork: (id) => {
+  1790→        set({
+  1791→          confectionerWorks: get().confectionerWorks.map((w) =>
+  1792→            w.id === id ? { ...w, likes: w.likes + 1 } : w
+  1793→          ),
+  1794→        });
+  1795→      },
+  1796→
+  1797→      // ===== Fraud reports =====
+  1798→      resolveFraudReport: (id, resolution) => {
+  1799→        set({
+  1800→          fraudReports: get().fraudReports.map((r) =>
+  1801→            r.id === id ? { ...r, status: "resolved" as const, resolution, resolvedAt: new Date().toISOString() } : r
+  1802→          ),
+  1803→        });
+  1804→      },
+  1805→
+  1806→      assignFraudReport: (id, assignedTo) => {
+  1807→        set({
+  1808→          fraudReports: get().fraudReports.map((r) =>
+  1809→            r.id === id ? { ...r, status: "investigating" as const, assignedTo } : r
+  1810→          ),
+  1811→        });
+  1812→      },
+  1813→
+  1814→      toggleFraudRule: (id) => {
+  1815→        set({
+  1816→          fraudRules: get().fraudRules.map((r) =>
+  1817→            r.id === id ? { ...r, enabled: !r.enabled } : r
+  1818→          ),
+  1819→        });
+  1820→      },
+  1821→
+  1822→      calculateRiskScore: (userId) => {
+  1823→        const userReports = get().fraudReports.filter((r) => r.targetUserId === userId);
+  1824→        return Math.min(100, userReports.length * 25);
+  1825→      },
+  1826→
+  1827→      createFraudReport: (report) => {
+  1828→        const newReport: FraudReport = {
+  1829→          ...report,
+  1830→          id: `fraud_${Date.now()}`,
+  1831→          reportedAt: new Date().toISOString(),
+  1832→          riskScore: 0,
+  1833→          status: "new" as const,
+  1834→        };
+  1835→        set({ fraudReports: [newReport, ...get().fraudReports] });
+  1836→      },
+  1837→
+  1838→      withdrawNegotiation: (id) => {
+  1839→        const now = new Date().toISOString();
+  1840→        set({
+  1841→          negotiations: get().negotiations.map((n) =>
+  1842→            n.id === id
+  1843→              ? {
+  1844→                  ...n,
+  1845→                  status: "pending_confectioner" as NegotiationStatus,
+  1846→                  quotedItems: [],
+  1847→                  quotedTotal: 0,
+  1848→                  quotedComment: undefined,
+  1849→                  quotedAt: undefined,
+  1850→                  customerResponse: undefined,
+  1851→                  customerComment: undefined,
+  1852→                  customerRespondedAt: undefined,
+  1853→                  updatedAt: now,
+  1854→                  revisions: [
+  1855→                    ...n.revisions,
+  1856→                    {
+  1857→                      id: `rev${Date.now()}`,
+  1858→                      at: now,
+  1859→                      by: "confectioner" as const,
+  1860→                      action: "Предложение отозвано",
+  1861→                      comment: "Кондитер отозвал предложение",
+  1862→                    },
+  1863→                  ],
+  1864→                }
+  1865→              : n
+  1866→          ),
+  1867→        });
+  1868→      },
+  1869→
+  1870→      // ===== Канал: лайки, комментарии, сторис, подписки =====
+  1871→      togglePostLike: (postId) => {
+  1872→        set({
+  1873→          channelPosts: get().channelPosts.map((p) => {
+  1874→            if (p.id !== postId) return p;
+  1875→            const wasLiked = p.liked || false;
+  1876→            return {
+  1877→              ...p,
+  1878→              liked: !wasLiked,
+  1879→              likes: wasLiked ? p.likes - 1 : p.likes + 1,
+  1880→            };
+  1881→          }),
+  1882→        });
+  1883→      },
+  1884→
+  1885→      addPostComment: (postId, text) => {
+  1886→        const user = get().user;
+  1887→        if (!user || !text.trim()) return;
+  1888→        const newComment: ChannelComment = {
+  1889→          id: `cc${Date.now()}`,
+  1890→          postId,
+  1891→          userId: user.id,
+  1892→          userName: user.name,
+  1893→          userAvatar: user.avatar,
+  1894→          text: text.trim(),
+  1895→          createdAt: new Date().toISOString(),
+  1896→          likes: 0,
+  1897→        };
+  1898→        set({
+  1899→          channelPosts: get().channelPosts.map((p) =>
+  1900→            p.id === postId
+  1901→              ? {
+  1902→                  ...p,
+  1903→                  comments: p.comments + 1,
+  1904→                  postComments: [...(p.postComments || []), newComment],
+  1905→                }
+  1906→              : p
+  1907→          ),
+  1908→        });
+  1909→      },
+  1910→
+  1911→      toggleCommentLike: (commentId) => {
+  1912→        set({
+  1913→          channelPosts: get().channelPosts.map((p) => ({
+  1914→            ...p,
+  1915→            postComments: p.postComments?.map((c) => {
+  1916→              if (c.id !== commentId) return c;
+  1917→              const wasLiked = c.liked || false;
+  1918→              return {
+  1919→                ...c,
+  1920→                liked: !wasLiked,
+  1921→                likes: wasLiked ? c.likes - 1 : c.likes + 1,
+  1922→              };
+  1923→            }),
+  1924→          })),
+  1925→        });
+  1926→      },
+  1927→
+  1928→      viewStory: (storyId) => {
+  1929→        set({
+  1930→          channelStories: get().channelStories.map((s) =>
+  1931→            s.id === storyId ? { ...s, viewed: true, views: s.views + 1 } : s
+  1932→          ),
+  1933→        });
+  1934→      },
+  1935→
+  1936→      toggleFollow: (confectionerId) => {
+  1937→        const user = get().user;
+  1938→        if (!user) return;
+  1939→        const existing = get().channelFollowers.find(
+  1940→          (f) => f.confectionerId === confectionerId && f.userId === user.id
+  1941→        );
+  1942→        if (existing) {
+  1943→          // Отписка
+  1944→          set({
+  1945→            channelFollowers: get().channelFollowers.filter((f) => f.id !== existing.id),
+  1946→          });
+  1947→        } else {
+  1948→          // Подписка
+  1949→          const newFollower: ChannelFollower = {
+  1950→            id: `cf${Date.now()}`,
+  1951→            confectionerId,
+  1952→            userId: user.id,
+  1953→            userName: user.name,
+  1954→            userAvatar: user.avatar,
+  1955→            followedAt: new Date().toISOString().slice(0, 10),
+  1956→            isFollowing: false,
+  1957→          };
+  1958→          set({ channelFollowers: [...get().channelFollowers, newFollower] });
+  1959→        }
+  1960→      },
+  1961→
+  1962→      isFollowing: (confectionerId) => {
+  1963→        const user = get().user;
+  1964→        if (!user) return false;
+  1965→        return get().channelFollowers.some(
+  1966→          (f) => f.confectionerId === confectionerId && f.userId === user.id
+  1967→        );
+  1968→      },
+  1969→
+  1970→      // ===== Venue owner (заглушки) =====
+  1971→      getVenueByOwner: (ownerId) => {
+  1972→        return get().venues.find((v: any) => v.ownerId === ownerId) || null;
+  1973→      },
+  1974→      priceLists: [],
+  1975→      addVenueService: (service) => {
+  1976→        set({ venueServices: [...get().venueServices, service] });
+  1977→      },
+  1978→      updateVenueService: (id, updates) => {
+  1979→        set({
+  1980→          venueServices: get().venueServices.map((s: any) =>
+  1981→            s.id === id ? { ...s, ...updates } : s
+  1982→          ),
+  1983→        });
+  1984→      },
+  1985→      deleteVenueService: (id) => {
+  1986→        set({ venueServices: get().venueServices.filter((s: any) => s.id !== id) });
+  1987→      },
+  1988→      toggleVenueServiceFeatured: (id) => {
+  1989→        set({
+  1990→          venueServices: get().venueServices.map((s: any) =>
+  1991→            s.id === id ? { ...s, featured: !s.featured } : s
+  1992→          ),
+  1993→        });
+  1994→      },
+  1995→
+  1996→      addPriceList: (priceList) => {
+  1997→        set({ priceLists: [...get().priceLists, priceList] });
+  1998→      },
+  1999→
+  2000→      addPriceListItem: (priceListId, item) => {
+
+[showing lines 1-2000 of 2115; use offset=2001 with limit to continue reading]

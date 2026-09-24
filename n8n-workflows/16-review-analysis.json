@@ -1,0 +1,211 @@
+{
+  "name": "💬 Анализ отзывов — sentiment + авто-ответ",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-daily",
+      "name": "Ежедневно 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.APP_URL }}/api/cron/review-analysis?status=new",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-new-reviews",
+      "name": "Получить новые отзывы",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "reviews",
+        "options": {}
+      },
+      "id": "split-reviews",
+      "name": "Разделить по отзывам",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Лёгкий лексический sentiment-анализ отзывов.\n// Положительные/отрицательные слова → score в диапазоне [-1, +1].\n// Пороговые значения определяют авто-ответ или эскалацию оператору.\nconst r = $input.first().json;\nconst text = String(r.text || '').toLowerCase();\n\nconst positive = ['отлично', 'прекрасно', 'вкусно', 'красиво', 'спасибо', 'рекомендую', 'люблю', 'шик', 'супер', 'молодец', 'идеально', 'свежий', ' нежный'];\nconst negative = ['ужасно', 'плохо', 'невкусно', 'грубый', 'опоздал', 'испортил', 'обман', 'отвратительно', 'разочарован', 'гнилой', 'плесень', 'несвежий', 'отмена', 'вернуть деньги'];\n\nlet score = 0;\nfor (const w of positive) if (text.includes(w)) score += 0.2;\nfor (const w of negative) if (text.includes(w)) score -= 0.25;\nscore = Math.max(-1, Math.min(1, score));\n\nconst rating = r.rating || 5;\n// Корректируем score на основе rating\nif (rating <= 2) score = Math.min(score, -0.3);\nif (rating >= 5) score = Math.max(score, 0.4);\n\nconst sentiment = score > 0.3 ? 'positive' : (score < -0.3 ? 'negative' : 'neutral');\n\n// Шаблон авто-ответа\nlet autoReply = null;\nif (sentiment === 'positive') {\n  autoReply = `Спасибо за тёплый отзыв! Рады, что вам понравилось. Будем рады видеть вас снова 🎂`;\n} else if (sentiment === 'neutral') {\n  autoReply = `Спасибо за отзыв! Мы ценим ваше мнение и работаем над улучшениями.`;\n}\n// negative → эскалация оператору, без авто-ответа\n\nreturn [{\n  json: {\n    ...r,\n    sentiment,\n    score,\n    rating,\n    autoReply,\n    shouldEscalate: sentiment === 'negative',\n    analyzedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "analyze-sentiment",
+      "name": "Анализ тональности",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"review_analysis\",\n  \"data\": {\n    \"reviewId\": \"{{ $json.id }}\",\n    \"productId\": \"{{ $json.productId }}\",\n    \"confectionerId\": \"{{ $json.confectionerId }}\",\n    \"userId\": \"{{ $json.userId }}\",\n    \"sentiment\": \"{{ $json.sentiment }}\",\n    \"score\": {{ $json.score }},\n    \"rating\": {{ $json.rating }},\n    \"autoReply\": {{ $json.autoReply ? JSON.stringify($json.autoReply) : 'null' }},\n    \"shouldEscalate\": {{ $json.shouldEscalate }},\n    \"analyzedAt\": \"{{ $json.analyzedAt }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "send-analysis",
+      "name": "Отправить результат анализа",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"review-analysis\",\n  \"status\": \"success\",\n  \"analyzed\": {{ $node[\"Разделить по отзывам\"].items.length }},\n  \"escalated\": {{ $node[\"Анализ тональности\"].items.filter(i => i.json.shouldEscalate).length }},\n  \"checkedAt\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Ежедневно 06:00": {
+      "main": [
+        [
+          {
+            "node": "Получить новые отзывы",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Получить новые отзывы": {
+      "main": [
+        [
+          {
+            "node": "Разделить по отзывам",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разделить по отзывам": {
+      "main": [
+        [
+          {
+            "node": "Анализ тональности",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Анализ тональности": {
+      "main": [
+        [
+          {
+            "node": "Отправить результат анализа",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить результат анализа": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "reviews"
+    },
+    {
+      "name": "sentiment"
+    }
+  ],
+  "id": "bca5c129-0ca5-5ae0-85fb-601aa9e72044"
+}

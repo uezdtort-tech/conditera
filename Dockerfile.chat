@@ -1,0 +1,42 @@
+# ====================================================================
+# Dockerfile для chat-service (Socket.IO) — «Уездный кондитер»
+# ====================================================================
+# Исходники: mini-services/chat-server/ (index.ts + package.json)
+# Runtime: bun (быстрее node для TypeScript без компиляции)
+# Порт: 3030
+# Healthcheck: GET /health → 200 OK
+#
+# Запуск в docker-compose.yml:
+#   chat-service:
+#     build:
+#       context: .
+#       dockerfile: Dockerfile.chat
+# ====================================================================
+
+FROM oven/bun:1-alpine
+WORKDIR /app
+
+# dumb-init для корректной обработки сигналов (SIGTERM, SIGINT)
+RUN apk add --no-cache dumb-init wget
+
+# Копируем package.json и ставим зависимости
+COPY mini-services/chat-server/package.json ./
+RUN bun install --production --frozen-lockfile || bun install --production
+
+# Копируем исходники
+COPY mini-services/chat-server/index.ts ./
+COPY mini-services/chat-server/bun.lock* ./
+
+# Создаём непривилегированного пользователя
+RUN addgroup -S chat && adduser -S chat -G chat
+RUN chown -R chat:chat /app
+USER chat
+
+EXPOSE 3030
+
+# Healthcheck: проверяем что chat-server отвечает на /health
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:3030/health > /dev/null 2>&1 || exit 1
+
+# Запускаем через dumb-init для корректной обработки сигналов
+CMD ["dumb-init", "bun", "run", "index.ts"]

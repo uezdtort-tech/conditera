@@ -1,0 +1,1696 @@
+     1→// Типы данных платформы "Кондитера"
+     2→
+     3→export type Role =
+     4→  | "GUEST"
+     5→  | "CUSTOMER"
+     6→  | "CONFECTIONER"
+     7→  | "SUPPLIER"
+     8→  | "COURIER"
+     9→  | "ADMIN"
+    10→  | "MODERATOR"
+    11→  | "SUPPORT"
+    12→  | "STUDIO"
+    13→  | "COPYWRITER"
+    14→  | "FOOD_SERVICE"
+    15→  | "EVENT_ORGANIZER"
+    16→  | "BLOGGER"
+    17→  | "PICKUP_POINT"
+    18→  | "WHOLESALER"
+    19→  | "TASTER"
+    20→  | "FRANCHISEE"
+    21→  | "NUTRITIONIST"
+    22→  | "CORPORATE_CLIENT"
+    23→  | "QUALITY_INSPECTOR"
+    24→  | "CERTIFICATION_AGENT"
+    25→  | "SUPER_ADMIN"
+    26→  | "VENUE_OWNER"
+    27→  | "ANIMATOR_AGENCY"
+    28→  | "RECREATION_CENTER"
+    29→  | "KIDS_CLUB"
+    30→  | "INSPECTOR";
+    31→
+    32→export interface User {
+    33→  id: string;
+    34→  email: string;
+    35→  name: string;
+    36→  phone?: string;
+    37→  avatar?: string;
+    38→  roles: Role[];
+    39→  createdAt: string;
+    40→  // Профильные поля
+    41→  city?: string;
+    42→  loyaltyLevel?: "BRONZE" | "SILVER" | "GOLD" | "PLATINUM";
+    43→  bonusBalance?: number;
+    44→  // Тип покупателя: физлицо или юрлицо
+    45→  accountType?: "individual" | "legal";
+    46→  // Реквизиты юрлица (если accountType === "legal")
+    47→  legalInfo?: UserLegalInfo;
+    48→  // Статус блокировки
+    49→  isBlocked?: boolean;
+    50→  blockedReason?: string;
+    51→  blockedAt?: string;
+    52→}
+    53→
+    54→// Реквизиты юрлица для покупателя
+    55→export interface UserLegalInfo {
+    56→  // Тип организации
+    57→  type: "IP" | "OOO" | "PAO" | "NAO" | "FKUP" | "GUP" | "OTHER";
+    58→  // Название
+    59→  companyName: string;
+    60→  fullName?: string; // полное наименование
+    61→  // Реквизиты
+    62→  inn: string; // ИНН (10 для юрлица, 12 для ИП)
+    63→  kpp?: string; // КПП (только для ООО)
+    64→  ogrn?: string; // ОГРН (13) или ОГРНИП (15)
+    65→  // Адрес
+    66→  legalAddress: string;
+    67→  postalAddress?: string;
+    68→  // Банк
+    69→  bankAccount?: string; // расчётный счёт
+    70→  bankBik?: string;
+    71→  bankName?: string;
+    72→  correspondentAccount?: string;
+    73→  // Контакт
+    74→  ceoName?: string; // ФИО руководителя
+    75→  ceoPosition?: string; // должность
+    76→  ceoBasis?: string; // действует на основании (Устава, доверенности)
+    77→  accountingEmail?: string; // email бухгалтерии
+    78→  accountingPhone?: string;
+    79→  // Система налогообложения
+    80→  taxSystem?: "OSNO" | "USN_6" | "USN_15" | "VAT";
+    81→  hasVat?: boolean; // работает с НДС
+    82→  // Документы
+    83→  documentsVerified?: boolean;
+    84→  verifiedAt?: string;
+    85→}
+    86→
+    87→// ===== СОГЛАСОВАНИЕ ЗАКАЗА (NEGOTIATION) =====
+    88→// После конструктора → кондитер корректирует → покупатель одобряет → оплата
+    89→export type NegotiationStatus =
+    90→  | "pending_confectioner" // ждёт реакции кондитера
+    91→  | "quoted" // кондитер отправил предложение
+    92→  | "pending_customer" // ждёт реакции покупателя
+    93→  | "approved" // покупатель одобрил → можно оплатить
+    94→  | "rejected" // покупатель отклонил
+    95→  | "expired" // срок истёк
+    96→  | "revised"; // кондитер пересмотрел (после отклонения покупателем)
+    97→
+    98→export interface NegotiationItem {
+    99→  name: string;
+   100→  description: string;
+   101→  quantity: number;
+   102→  unitPrice: number;
+   103→  totalPrice: number;
+   104→  category: "cake" | "filling" | "coating" | "decoration" | "service" | "delivery" | "other";
+   105→}
+   106→
+   107→export interface OrderNegotiation {
+   108→  id: string;
+   109→  // Связи
+   110→  inquiryId?: string; // связь с заявкой из конструктора
+   111→  customerId: string;
+   112→  customerName: string;
+   113→  customerAvatar?: string;
+   114→  confectionerId: string;
+   115→  confectionerName: string;
+   116→  confectionerAvatar?: string;
+   117→  // Исходные данные (от покупателя)
+   118→  originalRequest: {
+   119→    eventType: string;
+   120→    base: string;
+   121→    filling: string;
+   122→    coating: string;
+   123→    decorations: string[];
+   124→    servings: number;
+   125→    city: string;
+   126→    deliveryDate: string;
+   127→    deliveryType: string;
+   128→    inscription?: string;
+   129→    comment?: string;
+   130→    estimatedPrice: number;
+   131→  };
+   132→  // Предложение кондитера (корректировка)
+   133→  quotedItems: NegotiationItem[];
+   134→  quotedTotal: number;
+   135→  quotedComment?: string; // комментарий кондитера
+   136→  quotedDeliveryCost: number;
+   137→  quotedPrepTime: string;
+   138→  quotedAt?: string;
+   139→  // Согласование
+   140→  status: NegotiationStatus;
+   141→  customerResponse?: "approved" | "rejected";
+   142→  customerComment?: string;
+   143→  customerRespondedAt?: string;
+   144→  // Запрос скидки
+   145→  discountRequested?: boolean;
+   146→  discountPercent?: number;
+   147→  discountComment?: string;
+   148→  // История изменений
+   149→  revisions: {
+   150→    id: string;
+   151→    at: string;
+   152→    by: "confectioner" | "customer";
+   153→    action: string;
+   154→    oldTotal?: number;
+   155→    newTotal?: number;
+   156→    comment?: string;
+   157→  }[];
+   158→  // Срок действия предложения
+   159→  validUntil?: string;
+   160→  createdAt: string;
+   161→  updatedAt: string;
+   162→}
+   163→export type CorporateEventType =
+   164→  | "new_year" // Новый год
+   165→  | "christmas" // Рождество
+   166→  | "feb_23" // 23 февраля
+   167→  | "mar_8" // 8 марта
+   168→  | "easter" // Пасха
+   169→  | "may_1" // 1 мая
+   170→  | "may_9" // 9 мая
+   171→  | "russia_day" // 12 июня
+   172→  | "nov_4" // 4 ноября День народного единства
+   173→  | "knowledge_day" // 1 сентября
+   174→  | "company_anniversary" // годовщина компании
+   175→  | "office_party" // офисная вечеринка
+   176→  | "team_building" // тимбилдинг
+   177→  | "conference" // конференция
+   178→  | "client_event" // клиентское мероприятие
+   179→  | "corporate_gifts" // корпоративные подарки
+   180→  | "other";
+   181→
+   182→export interface CorporateEvent {
+   183→  id: string;
+   184→  customerId: string;
+   185→  customerName: string;
+   186→  customerAvatar?: string;
+   187→  // Кто заказчик
+   188→  companyName: string;
+   189→  companyInn?: string;
+   190→  contactName: string;
+   191→  contactPhone: string;
+   192→  contactEmail: string;
+   193→  // Событие
+   194→  type: CorporateEventType;
+   195→  title: string;
+   196→  description: string;
+   197→  // Детали
+   198→  eventDate: string;
+   199→  eventLocation: string;
+   200→  attendeesCount: number;
+   201→  budget: { min: number; max: number };
+   202→  // Что нужно
+   203→  neededItems: string[]; // торты, капкейки, подарки
+   204→  // Статус
+   205→  status: "draft" | "open" | "in_progress" | "completed" | "cancelled";
+   206→  // Отклики
+   207→  responsesCount: number;
+   208→  selectedConfectionerId?: string;
+   209→  // Даты
+   210→  createdAt: string;
+   211→  deadline: string; // срок подачи заявок
+   212→  // B2B особенности
+   213→  needsInvoice: boolean; // нужен счёт на оплату
+   214→  needsVatInvoice: boolean; // счёт-фактура с НДС
+   215→  needsAct: boolean; // акт выполненных работ
+   216→  needsContract: boolean; // договор
+   217→  paymentDeferred: boolean; // отсрочка платежа
+   218→  paymentDays?: number; // отсрочка в днях
+   219→}
+   220→
+   221→// ===== ЧЁРНЫЙ СПИСОК =====
+   222→export type BlacklistReason =
+   223→  | "fraud" // мошенничество
+   224→  | "scam" // обман
+   225→  | "extortion" // вымогательство
+   226→  | "spam" // спам
+   227→  | "fake_reviews" // накрутка отзывов
+   228→  | "non_payment" // неоплата
+   229→  | "abuse" // оскорбления
+   230→  | "threats" // угрозы
+   231→  | "duplicate_account" // дубль-аккаунт
+   232→  | "violated_terms" // нарушение условий
+   233→  | "suspicious_activity" // подозрительная активность
+   234→  | "other";
+   235→
+   236→export type BlacklistScope = "user" | "email" | "phone" | "ip" | "device" | "company";
+   237→
+   238→export interface BlacklistEntry {
+   239→  id: string;
+   240→  // Что блокируем
+   241→  scope: BlacklistScope;
+   242→  value: string; // email/phone/ip/userId/inn
+   243→  userId?: string;
+   244→  // Причина
+   245→  reason: BlacklistReason;
+   246→  reasonDetails: string;
+   247→  // Доказательства
+   248→  evidence?: string[]; // ссылки на скриншоты, переписки
+   249→  // Кто заблокировал
+   250→  blockedBy: string;
+   251→  blockedAt: string;
+   252→  // Срок
+   253→  isPermanent: boolean;
+   254→  expiresAt?: string;
+   255→  // Статус
+   256→  status: "active" | "expired" | "appealed" | "lifted";
+   257→  // Жалобы/апелляции
+   258→  appeals?: {
+   259→    id: string;
+   260→    text: string;
+   261→    createdAt: string;
+   262→    status: "pending" | "approved" | "rejected";
+   263→  }[];
+   264→  // Связанные заказы/чаты
+   265→  relatedOrderIds?: string[];
+   266→  relatedChatIds?: string[];
+   267→}
+   268→
+   269→// ===== МАГАЗИНЫ ДЕКОРА И УПАКОВКИ =====
+   270→export type DecorCategory =
+   271→  | "candles" // свечи
+   272→  | "toppers" // топперы
+   273→  | "boards" // подложки
+   274→  | "boxes" // коробки
+   275→  | "ribbon" // ленты
+   276→  | "sparklers" // бенгальские огни
+   277→  | "figures" // фигурки
+   278→  | "flowers" // цветы (искусственные/живые)
+   279→  | "packaging" // упаковка
+   280→  | "tools" // инструменты
+   281→  | "gift_cards" // подарочные карты
+   282→  | "other";
+   283→
+   284→export interface DecorShop {
+   285→  id: string;
+   286→  businessName: string;
+   287→  description: string;
+   288→  avatar: string;
+   289→  cover?: string;
+   290→  city: string;
+   291→  rating: number;
+   292→  reviewsCount: number;
+   293→  // Доставка по России или только свой город
+   294→  shipsNationwide: boolean;
+   295→  deliveryCities?: string[];
+   296→  // Минимальный заказ
+   297→  minOrder: number;
+   298→  // Категории
+   299→  categories: DecorCategory[];
+   300→  // Верификация
+   301→  verified: boolean;
+   302→  // Скидка для покупателей платформы
+   303→  platformDiscount?: number; // %
+   304→}
+   305→
+   306→export interface DecorProduct {
+   307→  id: string;
+   308→  shopId: string;
+   309→  shopName: string;
+   310→  shopAvatar?: string;
+   311→  title: string;
+   312→  description: string;
+   313→  category: DecorCategory;
+   314→  price: number;
+   315→  oldPrice?: number;
+   316→  images: string[];
+   317→  // Характеристики
+   318→  material?: string;
+   319→  color?: string;
+   320→  size?: string;
+   321→  // Количество в наборе
+   322→  packQuantity?: number;
+   323→  // Многоразовое?
+   324→  reusable?: boolean;
+   325→  // Персонализация (гравировка, надпись)
+   326→  customizable?: boolean;
+   327→  // Связь с праздниками
+   328→  suitableFor?: string[]; // ["birthday", "wedding", "new_year"]
+   329→  // Рейтинг
+   330→  rating: number;
+   331→  reviewsCount: number;
+   332→  // Метрики
+   333→  isPopular?: boolean;
+   334→  isNew?: boolean;
+   335→  // Связь с тортами (cross-sell)
+   336→  crossSellWith?: string[]; // id продуктов-тортов
+   337→  inStock: number;
+   338→}
+   339→
+   340→// ===== УМНЫЕ ПОДБОРКИ (CROSS-SELL / UP-SELL) =====
+   341→export type CrossSellType =
+   342→  | "frequently_bought" // "С этим товаром покупают"
+   343→  | "similar_taste" // "Похожие вкусы"
+   344→  | "complete_the_look" // "Дополните образ"
+   345→  | "bundle_offer" // "Выгодный набор"
+   346→  | "seasonal_match" // "Сезонное сочетание"
+   347→  | "occasion_match"; // "Для этого праздника"
+   348→
+   349→export interface ProductBundle {
+   350→  id: string;
+   351→  name: string;
+   352→  description: string;
+   353→  // Товары в наборе
+   354→  items: {
+   355→    productId: string;
+   356→    productType: "cake" | "decor" | "packaging";
+   357→    title: string;
+   358→    image: string;
+   359→    price: number;
+   360→    quantity: number;
+   361→  }[];
+   362→  // Цена набора (может быть дешевле суммы)
+   363→  bundlePrice: number;
+   364→  originalPrice: number; // сумма отдельных товаров
+   365→  discount: number; // % скидки
+   366→  // Изображение
+   367→  image?: string;
+   368→  // Связанный торт (для какого торта подходит)
+   369→  mainProductId?: string;
+   370→  // Для какого праздника
+   371→  suitableFor?: string;
+   372→  // Метрики
+   373→  soldCount: number;
+   374→  rating: number;
+   375→}
+   376→
+   377→// ===== МАГАЗИНЫ УСЛУГ (ФЕЙЕРВЕРКИ, ШАРЫ, АНИМАТОРЫ) =====
+   378→export type ServiceCategory =
+   379→  | "fireworks_indoor" // холодные фейерверки для помещения
+   380→  | "fireworks_outdoor" // уличные салюты
+   381→  | "fireworks_stage" // сценические
+   382→  | "balloons_helium" // гелиевые шары
+   383→  | "balloons_composition" // композиции из шаров
+   384→  | "balloons_arch" // арки из шаров
+   385→  | "balloons_release" // запуск шаров
+   386→  | "animator_clown" // клоуны
+   387→  | "animator_hero" // сказочные герои
+   388→  | "animator_show" // шоу-программы
+   389→  | "animator_facepaint" // аквагрим
+   390→  | "animator_quest" // квесты
+   391→  | "photographer" // фотограф
+   392→  | "videographer" // видеограф
+   393→  | "music" // музыканты, диджей
+   394→  | "host" // ведущий
+   395→  | "print_gingerbread" // печать на пряниках
+   396→  | "print_sugar_paper" // печать на сахарной бумаге
+   397→  | "print_rice_paper" // печать на рисовой бумаге
+   398→  | "print_wafer_paper" // печать на вафельной бумаге
+   399→  | "print_chocolate" // печать на шоколаде
+   400→  | "print_icing_sheet" // печать на глазурной бумаге
+   401→  | "print_custom_cookie" // печать на пряниках/печенье
+   402→  | "print_edible_stickers" // съедобные наклейки
+   403→  | "print_design" // печать по дизайну
+   404→  | "other";
+   405→
+   406→export type ServiceUnit = "hour" | "item" | "set" | "event" | "sqm" | "sheet";
+   407→
+   408→export interface ServiceShop {
+   409→  id: string;
+   410→  businessName: string;
+   411→  description: string;
+   412→  avatar: string;
+   413→  cover?: string;
+   414→  city: string;
+   415→  region?: string;
+   416→  rating: number;
+   417→  reviewsCount: number;
+   418→  // Доставка по России или только свой город (для фейерверков и шаров)
+   419→  shipsNationwide: boolean;
+   420→  deliveryCities?: string[];
+   421→  // Для аниматоров — выезд
+   422→  serviceRadiusKm?: number;
+   423→  // Минимальный заказ
+   424→  minOrder: number;
+   425→  // Категории
+   426→  categories: ServiceCategory[];
+   427→  // Верификация
+   428→  verified: boolean;
+   429→  // Скидка для покупателей платформы
+   430→  platformDiscount?: number; // %
+   431→  // Контакты
+   432→  phone?: string;
+   433→  website?: string;
+   434→}
+   435→
+   436→export interface ServiceProduct {
+   437→  id: string;
+   438→  shopId: string;
+   439→  shopName: string;
+   440→  shopAvatar?: string;
+   441→  title: string;
+   442→  description: string;
+   443→  category: ServiceCategory;
+   444→  price: number;
+   445→  oldPrice?: number;
+   446→  // Цена за (единицу, час, штуку)
+   447→  priceUnit: "item" | "hour" | "set" | "event" | "sqm" | "sheet";
+   448→  images: string[];
+   449→  // Характеристики
+   450→  duration?: string; // длительность услуги (2 часа, весь вечер)
+   451→  // Для фейерверков
+   452→  durationSeconds?: number; // длительность салюта в секундах
+   453→  shotsCount?: number; // количество залпов
+   454→  // Для шаров
+   455→  balloonsCount?: number; // количество шаров
+   456→  // Для аниматоров
+   457→  ageRange?: string; // 3-7 лет
+   458→  programDuration?: number; // минут
+   459→  // Персонализация
+   460→  customizable?: boolean;
+   461→  // Связь с праздниками
+   462→  suitableFor?: string[];
+   463→  // Рейтинг
+   464→  rating: number;
+   465→  reviewsCount: number;
+   466→  // Метрики
+   467→  isPopular?: boolean;
+   468→  isNew?: boolean;
+   469→  // Связь с тортами (cross-sell)
+   470→  crossSellWith?: string[];
+   471→  // Доступность
+   472→  inStock: number; // для товаров
+   473→  available: boolean; // для услуг (аниматоры могут быть заняты)
+   474→  // Безопасность (для фейерверков)
+   475→  safetyNote?: string;
+   476→  // Портфолио
+   477→  portfolioImages?: string[];
+   478→  // Локации (города/адреса), где оказывается услуга печати
+   479→  locations?: string[];
+   480→  // Варианты цен (несколько тарифов предложения)
+   481→  priceOffers?: {
+   482→    name: string;        // "1 пряник", "Опт от 10 шт", "Срочный заказ"
+   483→    price: number;
+   484→    unit?: string;       // "шт.", "лист", "набор"
+   485→    description?: string;
+   486→  }[];
+   487→  // Срок изготовления
+   488→  productionTime?: string;
+   489→}
+   490→export interface SemaphoreEntry {
+   491→  id: string;
+   492→  type: "email" | "phone";
+   493→  value: string;
+   494→  userId: string;
+   495→  verified: boolean;
+   496→  // Метаданные
+   497→  ip?: string;
+   498→  deviceFingerprint?: string;
+   499→  registeredAt: string;
+   500→  // Попытки регистрации (для антифрода)
+   501→  attempts: number;
+   502→  lastAttemptAt?: string;
+   503→}
+   504→
+   505→
+   506→export type ProductCategory =
+   507→  | "cakes"
+   508→  | "cupcakes"
+   509→  | "pastries"
+   510→  | "cookies"
+   511→  | "chocolate"
+   512→  | "macarons"
+   513→  | "bento"
+   514→  | "desserts"
+   515→  | "zephyr_bouquets"    // Зефирные букеты
+   516→  | "pies"               // Пироги
+   517→  | "patties"            // Пирожки
+   518→  | "rolls"              // Рулеты
+   519→  | "healthy"            // ПП изделия
+   520→  | "pastila"            // Пастила
+   521→  | "oriental_sweets"    // Рахат лукум, чак-чак
+   522→  | "candies"            // Конфеты
+   523→  | "marmalade"          // Мармелад
+   524→  | "lollipops"          // Леденцы
+   525→  | "gingerbread"        // Пряники
+   526→  | "realistic_cakes";   // Реалистичные пирожные
+   527→
+   528→export interface Product {
+   529→  id: string;
+   530→  title: string;
+   531→  slug: string;
+   532→  description: string;
+   533→  price: number;
+   534→  oldPrice?: number;
+   535→  category: ProductCategory;
+   536→  subcategory?: string;
+   537→  customizable?: boolean;
+   538→  suitableFor?: string[];
+   539→  available?: boolean;
+   540→  ecoBadges?: string[];
+   541→  bulkPrices?: { quantity: number; price: number }[];
+   542→  addons?: string[];
+   543→  basePrice?: number;
+   544→  images: string[];
+   545→  confectionerId: string;
+   546→  confectionerName?: string;
+   547→  confectionerAvatar?: string;
+   548→  rating: number;
+   549→  reviewsCount: number;
+   550→  weight?: string;
+   551→  servings?: number;
+   552→  prepTime?: string;
+   553→  isPopular?: boolean;
+   554→  isNew?: boolean;
+   555→  isHit?: boolean;
+   556→  tags?: string[];
+   557→  // Кастомизация
+   558→  fillings?: { name: string; priceModifier: number }[];
+   559→  coatings?: { name: string; priceModifier: number }[];
+   560→  decorations?: { name: string; priceModifier: number }[];
+   561→  // Способы оплаты, доступные для этого товара
+   562→  // (наследуются от кондитера, но могут быть переопределены)
+   563→  paymentOptions?: ProductPaymentOptions;
+   564→  // AR / 3D preview
+   565→  modelUrl?: string;      // GLB/GLTF URL for 3D + AR preview (Android/Chrome via Scene Viewer)
+   566→  modelUsdzUrl?: string;  // USDZ URL for iOS Quick Look
+   567→  // Состав продукта (из чего состоит)
+   568→  composition?: {
+   569→    ingredients: string[];        // основные ингредиенты ("Мука пшеничная", "Сахар", "Масло сливочное 82.5%")
+   570→    allergens: string[];          // аллергены ("Глютен", "Молоко", "Яйца", "Орехи")
+   571→    nutritionalValue?: {          // КБЖУ на 100г
+   572→      calories?: number;         // ккал
+   573→      protein?: number;          // белки, г
+   574→      fat?: number;              // жиры, г
+   575→      carbs?: number;            // углеводы, г
+   576→    };
+   577→    storageConditions?: string;   // условия хранения ("Хранить при температуре 2-6°C не более 48 часов")
+   578→    shelfLife?: string;           // срок годности ("48 часов с момента изготовления")
+   579→  };
+   580→  // Дополнительные изображения (детали, разрез, упаковка)
+   581→  detailImages?: string[];
+   582→  arEnabled?: boolean;
+   583→  // Видимость товара (админ может скрыть товар платформы)
+   584→  isHidden?: boolean;
+   585→  hiddenReason?: string;
+   586→  hiddenAt?: string;
+   587→  // Наличие на складе (для готовых изделий)
+   588→  inStock?: number | boolean;
+   589→}
+   590→
+   591→// ===== СПОСОБЫ ОПЛАТЫ И РАССРОЧКА =====
+   592→// Кондитер настраивает какие способы оплаты он принимает
+   593→export interface ConfectionerPaymentSettings {
+   594→  // Карта / СБП / Наличные
+   595→  acceptCard: boolean;
+   596→  acceptSbp: boolean;
+   597→  acceptCash: boolean;
+   598→  acceptSplit: boolean; // СБП (split между несколькими)
+   599→  // Эскроу всегда включён
+   600→  // Рассрочка
+   601→  acceptInstallment: boolean;
+   602→  installmentPlans: InstallmentPlan[]; // варианты рассрочки от кондитера
+   603→  // Минимальная сумма для рассрочки
+   604→  installmentMinAmount: number;
+   605→  // Партнёры рассрочки
+   606→  installmentProviders: ("split" | "tinkoff" | "sberbank" | "alfa" | "vtb")[];
+   607→}
+   608→
+   609→// Вариант рассрочки — устанавливается кондитером
+   610→export interface InstallmentPlan {
+   611→  id: string;
+   612→  name: string; // "Рассрочка на 3 месяца"
+   613→  months: number; // количество месяцев
+   614→  // Процент (0 = беспроцентная, 5 = 5% сверху за весь срок)
+   615→  interestRate: number;
+   616→  // Минимальная сумма заказа
+   617→  minAmount: number;
+   618→  // Максимальная сумма заказа
+   619→  maxAmount?: number;
+   620→  // Первый взнос в процентах (0 = без первого взноса, 30 = 30% сразу)
+   621→  downPaymentPercent: number;
+   622→  // Партнёр
+   623→  provider: "split" | "tinkoff" | "sberbank" | "alfa" | "vtb" | "internal";
+   624→  // Описание для покупателей
+   625→  description?: string;
+   626→  // Активна ли эта рассрочка
+   627→  isActive: boolean;
+   628→}
+   629→
+   630→// Способы оплаты конкретного товара (наследуются или переопределяются)
+   631→export interface ProductPaymentOptions {
+   632→  // Какие способы принимает кондитер для этого товара
+   633→  acceptCard?: boolean;
+   634→  acceptSbp?: boolean;
+   635→  acceptCash?: boolean;
+   636→  acceptSplit?: boolean;
+   637→  acceptInstallment?: boolean;
+   638→  // Доступные варианты рассрочки (id из ConfectionerPaymentSettings.installmentPlans)
+   639→  availableInstallments?: string[];
+   640→}
+   641→
+   642→// Способы оплаты в каталоге (для фильтра)
+   643→export type PaymentFilterOption =
+   644→  | "card" // банковская карта
+   645→  | "sbp" // СБП
+   646→  | "cash" // наличные
+   647→  | "installment_0" // беспроцентная рассрочка
+   648→  | "installment_3" // рассрочка на 3+ месяца
+   649→  | "installment_6" // рассрочка на 6+ месяцев
+   650→  | "split" // разделить платёж
+   651→  | "escrow"; // эскроу (всегда)
+   652→
+   653→// Юридический статус (для кондитера, поставщика, курьера)
+   654→export type LegalStatus = "NPD" | "IP" | "OOO" | "PHYSICAL";
+   655→
+   656→// Локация — адрес + гео + зона доставки
+   657→export interface Location {
+   658→  country: string;
+   659→  region: string; // субъект РФ (Москва, Тульская обл., ...)
+   660→  city: string;
+   661→  district?: string; // район города
+   662→  street?: string;
+   663→  house?: string;
+   664→  apartment?: string;
+   665→  postalCode?: string;
+   666→  lat?: number;
+   667→  lng?: number;
+   668→  // Зона обслуживания (для кондитеров — куда доставляют, для курьеров — где работают)
+   669→  serviceRadiusKm?: number; // радиус доставки в км
+   670→  deliveryCities?: string[]; // доп. города куда доставляют
+   671→}
+   672→
+   673→// Юридические реквизиты — зависят от статуса
+   674→export interface LegalInfo {
+   675→  status: LegalStatus;
+   676→  // НПД (самозанятый)
+   677→  inn?: string; // ИНН физлица (12 цифр) — обязателен для НПД
+   678→  npdRegisteredAt?: string; // дата регистрации в качестве плательщика НПД
+   679→  // ИП
+   680→  ipOgrnip?: string; // ОГРНИП (15 цифр)
+   681→  ipInn?: string; // ИНН ИП (12 цифр)
+   682→  ipUsnRate?: "6%" | "15%"; // ставка УСН для ИП
+   683→  // ООО
+   684→  oooOgrn?: string; // ОГРН юрлица (13 цифр)
+   685→  oooInn?: string; // ИНН юрлица (10 цифр)
+   686→  oooKpp?: string; // КПП
+   687→  oooLegalAddress?: string; // юридический адрес
+   688→  oooTaxSystem?: "OSNO" | "USN_6" | "USN_15" | "VAT"; // система налогообложения ООО
+   689→  // Общие
+   690→  bankAccount?: string; // расчётный счёт
+   691→  bankBik?: string; // БИК банка
+   692→  bankName?: string;
+   693→  // Верификация документов (платформа подтверждает)
+   694→  documentsVerified?: boolean;
+   695→  verifiedAt?: string;
+   696→}
+   697→
+   698→// ===== Точка дегустации (ресторан/кафе, где можно попробовать продукцию кондитера) =====
+   699→export interface TastingLocation {
+   700→  id: string;
+   701→  confectionerId: string;
+   702→  // Тип заведения
+   703→  type: "restaurant" | "cafe" | "bakery" | "coffee_shop" | "hotel" | "shop" | "food_court" | "canteen";
+   704→  typeLabel?: string;
+   705→  // Название заведения
+   706→  establishmentName: string;
+   707→  // Описание — что доступно
+   708→  description: string;
+   709→  // Какие товары доступны
+   710→  availableProducts: string[];
+   711→  // Контакт
+   712→  contactName?: string;
+   713→  contactPhone?: string;
+   714→  // Локация
+   715→  address: string;
+   716→  city: string;
+   717→  region?: string;
+   718→  lat?: number;
+   719→  lng?: number;
+   720→  // Метро/ориентир
+   721→  metroStation?: string;
+   722→  // Часы работы заведения
+   723→  workingHours?: string;
+   724→  // Средний чек заведения
+   725→  averageCheck?: number;
+   726→  // Фото заведения
+   727→  photo?: string;
+   728→  // Статус
+   729→  status: "active" | "inactive" | "pending";
+   730→  verified: boolean;
+   731→  // Время
+   732→  createdAt: string;
+   733→  updatedAt?: string;
+   734→}
+   735→
+   736→export interface Confectioner {
+   737→  id: string;
+   738→  userId: string;
+   739→  businessName: string;
+   740→  slug: string;
+   741→  description: string;
+   742→  avatar: string;
+   743→  cover?: string;
+   744→  // Локация (полный адрес + гео)
+   745→  location: Location;
+   746→  // Совместимость со старым полем city
+   747→  city: string;
+   748→  rating: number;
+   749→  reviewsCount: number;
+   750→  ordersCount: number;
+   751→  verified: boolean;
+   752→  trustLevel: "NEW" | "TRUSTED" | "EXPERT" | "MASTER";
+   753→  tariff: "START" | "PROFI" | "PREMIUM";
+   754→  // Юридический статус с реквизитами
+   755→  legalInfo: LegalInfo;
+   756→  // Совместимость
+   757→  taxMode: "NPD" | "IP" | "OOO";
+   758→  specialization: string[];
+   759→  portfolioImages: string[];
+   760→  followersCount: number;
+   761→  responseTime: string;
+   762→  joinedAt: string;
+   763→  // Доставка
+   764→  selfPickup: boolean; // самовывоз
+   765→  deliveryOptions: ("own" | "courier" | "pickup_point" | "cdek")[]; // своя доставка / курьер платформы / ПВЗ / СДЭК
+   766→  // Настройки оплаты и рассрочки
+   767→  paymentSettings?: ConfectionerPaymentSettings;
+   768→  // Финансы (для дашборда)
+   769→  balance?: number;
+   770→  totalEarnings?: number;
+   771→  monthlyEarnings?: number;
+   772→}
+   773→
+   774→export interface Supplier {
+   775→  id: string;
+   776→  businessName: string;
+   777→  description: string;
+   778→  avatar: string;
+   779→  // Локация склада
+   780→  location: Location;
+   781→  city: string;
+   782→  rating: number;
+   783→  minOrder: number;
+   784→  deliveryTime: string;
+   785→  categories: string[];
+   786→  // Юридический статус
+   787→  legalInfo: LegalInfo;
+   788→  // Доставка
+   789→  deliveryRegions: string[]; // регионы России куда возят
+   790→  deliveryOptions: ("own" | "cdek" | "boxberry" | "pickup_point")[];
+   791→}
+   792→
+   793→export interface Courier {
+   794→  id: string;
+   795→  userId: string;
+   796→  name: string;
+   797→  avatar: string;
+   798→  phone: string;
+   799→  // Локация — где работает курьер
+   800→  location: Location;
+   801→  city: string;
+   802→  // Юридический статус
+   803→  legalInfo: LegalInfo;
+   804→  // Транспорт
+   805→  transport: "foot" | "bicycle" | "motorbike" | "car" | "van";
+   806→  maxWeightKg: number; // максимальный вес доставки
+   807→  // Зона работы
+   808→  serviceRadiusKm: number;
+   809→  workingHours: { from: string; to: string };
+   810→  workingDays: number[]; // 0..6 (вс..сб)
+   811→  // Статус
+   812→  isOnline: boolean;
+   813→  rating: number;
+   814→  deliveriesCount: number;
+   815→  // Финансы
+   816→  balance: number;
+   817→  earningsToday: number;
+   818→  earningsMonth: number;
+   819→  earningsTotal: number;
+   820→  // Тариф
+   821→  earningsPerDelivery: number;
+   822→  verified: boolean;
+   823→}
+   824→
+   825→// ===== АКЦИИ (PROMOTIONS) =====
+   826→export type PromotionType =
+   827→  | "discount_percent" // скидка N%
+   828→  | "discount_fixed" // скидка N₽
+   829→  | "free_delivery" // бесплатная доставка
+   830→  | "gift" // подарок
+   831→  | "bundle" // набор со скидкой
+   832→  | "early_booking" // раннее бронирование
+   833→  | "loyalty_bonus" // множитель бонусов
+   834→  | "happy_hours" // счастье-часы (временная скидка)
+   835→  | "first_order" // скидка на первый заказ
+   836→  | "holiday"; // праздничная акция
+   837→
+   838→export type PromotionStatus = "draft" | "active" | "paused" | "expired" | "scheduled";
+   839→
+   840→export interface Promotion {
+   841→  id: string;
+   842→  confectionerId: string;
+   843→  confectionerName: string;
+   844→  confectionerAvatar?: string;
+   845→  title: string;
+   846→  description: string;
+   847→  type: PromotionType;
+   848→  // Значение акции
+   849→  value?: number; // процент или рубли
+   850→  // Промокод (опционально)
+   851→  promoCode?: string;
+   852→  // Условия
+   853→  minOrderAmount?: number;
+   854→  applicableProducts?: string[]; // id продуктов
+   855→  applicableCategories?: string[];
+   856→  // Сроки
+   857→  startDate: string;
+   858→  endDate: string;
+   859→  // Регион (если null — все города кондитера)
+   860→  cities?: string[];
+   861→  regions?: string[];
+   862→  // Лимиты
+   863→  maxUsageCount?: number;
+   864→  usedCount: number;
+   865→  maxPerUser?: number;
+   866→  // Статус
+   867→  status: PromotionStatus;
+   868→  // Платное продвижение
+   869→  isPromoted: boolean; // показ всплывающей рекламы
+   870→  promotedUntil?: string;
+   871→  promotedRegions?: string[]; // регионы для продвижения
+   872→  promotionBudget?: number; // бюджет продвижения
+   873→  // Изображение
+   874→  image?: string;
+   875→  // Создание
+   876→  createdAt: string;
+   877→  // Метрики
+   878→  views: number;
+   879→  clicks: number;
+   880→  conversions: number; // сколько раз использовали
+   881→}
+   882→
+   883→// ===== РЕЦЕПТЫ И УРОКИ =====
+   884→export type RecipeType = "recipe" | "master_class" | "video_lesson" | "article";
+   885→export type RecipeDifficulty = "easy" | "medium" | "hard" | "expert";
+   886→export type RecipeAccess = "free" | "paid" | "subscription";
+   887→
+   888→export interface Recipe {
+   889→  id: string;
+   890→  confectionerId: string;
+   891→  confectionerName: string;
+   892→  confectionerAvatar?: string;
+   893→  type: RecipeType;
+   894→  title: string;
+   895→  description: string;
+   896→  // Содержание
+   897→  coverImage: string;
+   898→  images?: string[];
+   899→  videoUrl?: string;
+   900→  // Время
+   901→  prepTime: number; // минут
+   902→  cookTime: number; // минут
+   903→  totalTime: number; // минут
+   904→  // Сложность
+   905→  difficulty: RecipeDifficulty;
+   906→  // Порции
+   907→  servings: number;
+   908→  // Ингредиенты
+   909→  ingredients: {
+   910→    name: string;
+   911→    amount: string;
+   912→    unit: string;
+   913→  }[];
+   914→  // Шаги
+   915→  steps: {
+   916→    title: string;
+   917→    description: string;
+   918→    image?: string;
+   919→  }[];
+   920→  // Советы
+   921→  tips?: string[];
+   922→  // Теги
+   923→  tags: string[];
+   924→  category: string;
+   925→  // Доступ
+   926→  access: RecipeAccess;
+   927→  price?: number; // если платный
+   928→  // Метрики
+   929→  views: number;
+   930→  likes: number;
+   931→  comments: number;
+   932→  // Статус
+   933→  published: boolean;
+   934→  publishedAt?: string;
+   935→  createdAt: string;
+   936→}
+   937→
+   938→// ===== СКЛАДСКОЙ УЧЁТ =====
+   939→export type InventoryUnit = "kg" | "g" | "l" | "ml" | "pc" | "pack" | "box";
+   940→
+   941→export interface InventoryItem {
+   942→  id: string;
+   943→  confectionerId: string;
+   944→  name: string;
+   945→  category: string; // мука, сахар, масло, ягоды, упаковка...
+   946→  unit: InventoryUnit;
+   947→  // Количество
+   948→  quantity: number;
+   949→  minQuantity: number; // минимальный остаток для уведомления
+   950→  // Цена
+   951→  costPerUnit: number; // себестоимость за единицу
+   952→  // Поставщик
+   953→  supplierId?: string;
+   954→  supplierName?: string;
+   955→  // Срок годности
+   956→  expiryDate?: string;
+   957→  // Локация на складе
+   958→  storageLocation?: string; // полка, стеллаж
+   959→  // Метрики
+   960→  lastRestocked?: string;
+   961→  createdAt: string;
+   962→  updatedAt: string;
+   963→}
+   964→
+   965→// Движение по складу
+   966→export type StockMovementType =
+   967→  | "incoming" // поступление
+   968→  | "outgoing" // списание (на заказ)
+   969→  | "adjustment" // корректировка
+   970→  | "waste" // списание (брак/истечение срока)
+   971→  | "transfer"; // перемещение
+   972→
+   973→export interface StockMovement {
+   974→  id: string;
+   975→  itemId: string;
+   976→  itemName: string;
+   977→  type: StockMovementType;
+   978→  quantity: number;
+   979→  unit: InventoryUnit;
+   980→  // Причина
+   981→  reason?: string;
+   982→  orderId?: string;
+   983→  // Стоимость
+   984→  costPerUnit?: number;
+   985→  totalCost?: number;
+   986→  // Дата
+   987→  date: string;
+   988→  createdBy: string;
+   989→}
+   990→
+   991→// ===== ТАБЛИЦА ГАНТА (ПРОИЗВОДСТВО) =====
+   992→export type ProductionStage =
+   993→  | "preparation" // подготовка ингредиентов
+   994→  | "baking" // выпечка
+   995→  | "cooling" // охлаждение
+   996→  | "assembling" // сборка
+   997→  | "decorating" // декорирование
+   998→  | "packaging" // упаковка
+   999→  | "delivery_prep" // подготовка к доставке
+  1000→  | "completed"; // готово
+  1001→
+  1002→export interface GanttTask {
+  1003→  id: string;
+  1004→  orderId: string;
+  1005→  orderNumber: string;
+  1006→  customerName: string;
+  1007→  productName: string;
+  1008→  // Этап производства
+  1009→  stage: ProductionStage;
+  1010→  stageLabel: string;
+  1011→  // Временные рамки
+  1012→  startDate: string; // ISO
+  1013→  endDate: string; // ISO
+  1014→  duration: number; // минут
+  1015→  // Статус
+  1016→  status: "pending" | "in_progress" | "completed" | "delayed" | "cancelled";
+  1017→  progress: number; // 0-100
+  1018→  // Исполнитель
+  1019→  assignee?: string;
+  1020→  // Зависимости
+  1021→  dependsOn?: string[];
+  1022→  // Цвет
+  1023→  color: string;
+  1024→  // Напоминание
+  1025→  reminderAt?: string;
+  1026→  reminderSent?: boolean;
+  1027→}
+  1028→
+  1029→// ===== НАПОМИНАНИЯ =====
+  1030→export type ReminderType =
+  1031→  | "order_deadline" // срок заказа
+  1032→  | "restock" // пополнить склад
+  1033→  | "expiry" // срок годности
+  1034→  | "promotion_end" // конец акции
+  1035→  | "review_request" // запрос отзыва
+  1036→  | "payment"; // платёж
+  1037→
+  1038→export interface Reminder {
+  1039→  id: string;
+  1040→  type: ReminderType;
+  1041→  title: string;
+  1042→  description: string;
+  1043→  // Связь
+  1044→  orderId?: string;
+  1045→  itemId?: string;
+  1046→  promotionId?: string;
+  1047→  // Сроки
+  1048→  dueDate: string;
+  1049→  // Статус
+  1050→  isRead: boolean;
+  1051→  isDone: boolean;
+  1052→  // Приоритет
+  1053→  priority: "low" | "medium" | "high" | "urgent";
+  1054→  // Создание
+  1055→  createdAt: string;
+  1056→}
+  1057→
+  1058→
+  1059→export interface SupplierProduct {
+  1060→  id: string;
+  1061→  supplierId: string;
+  1062→  title: string;
+  1063→  description: string;
+  1064→  price: number;
+  1065→  unit: string;
+  1066→  category: string;
+  1067→  inStock: number;
+  1068→  image: string;
+  1069→  bulkPrices?: { quantity: number; price: number }[];
+  1070→}
+  1071→
+  1072→export type OrderStatus =
+  1073→  | "PENDING"
+  1074→  | "NEGOTIATING"
+  1075→  | "CONFIRMED"
+  1076→  | "PREPARING"
+  1077→  | "IN_PROGRESS"
+  1078→  | "READY"
+  1079→  | "DELIVERING"
+  1080→  | "COMPLETED"
+  1081→  | "CANCELLED"
+  1082→  | "DISPUTE"
+  1083→  | "REFUNDED";
+  1084→
+  1085→export interface OrderItem {
+  1086→  productId: string;
+  1087→  title: string;
+  1088→  image: string;
+  1089→  price: number;
+  1090→  quantity: number;
+  1091→  customization?: {
+  1092→    filling?: string;
+  1093→    coating?: string;
+  1094→    decoration?: string;
+  1095→    inscription?: string;
+  1096→  };
+  1097→}
+  1098→
+  1099→export interface Order {
+  1100→  id: string;
+  1101→  number: string;
+  1102→  customerId: string;
+  1103→  customerName: string;
+  1104→  confectionerId?: string;
+  1105→  confectionerName?: string;
+  1106→  courierId?: string;
+  1107→  items: OrderItem[];
+  1108→  total: number;
+  1109→  status: OrderStatus;
+  1110→  deliveryAddress?: string;
+  1111→  deliveryDate: string;
+  1112→  deliveryTime?: string;
+  1113→  deliveryCost: number;
+  1114→  createdAt: string;
+  1115→  paymentMethod: "card" | "cash" | "split";
+  1116→  paymentStatus: "pending" | "paid" | "escrow" | "released" | "refunded";
+  1117→  comment?: string;
+  1118→}
+  1119→
+  1120→export interface ChatMessage {
+  1121→  id: string;
+  1122→  roomId: string;
+  1123→  senderId: string;
+  1124→  senderName: string;
+  1125→  senderAvatar?: string;
+  1126→  text: string;
+  1127→  createdAt: string;
+  1128→  isSystem?: boolean;
+  1129→  isOwn?: boolean;
+  1130→  reactions?: { emoji: string; count: number }[];
+  1131→  // === Bot / Auto-chat ===
+  1132→  isBot?: boolean;
+  1133→  botKind?: "welcome" | "order_status" | "faq" | "quick_reply" | "escalation" | "payment_reminder";
+  1134→  quickReplies?: QuickReply[];
+  1135→  // === Voice message ===
+  1136→  voice?: {
+  1137→    url: string;          // data:audio/webm;base64,... или URL
+  1138→    durationSec: number;  // длительность в секундах
+  1139→    waveform?: number[];  // массив амплитуд для визуализации (0..1)
+  1140→  };
+  1141→}
+  1142→
+  1143→export interface QuickReply {
+  1144→  label: string;
+  1145→  action: string;
+  1146→  payload?: any;
+  1147→}
+  1148→
+  1149→export interface ChatRoom {
+  1150→  id: string;
+  1151→  type: "direct" | "group" | "support" | "order";
+  1152→  name: string;
+  1153→  avatar?: string;
+  1154→  participants: { id: string; name: string; avatar?: string }[];
+  1155→  lastMessage?: string;
+  1156→  lastMessageAt?: string;
+  1157→  unreadCount: number;
+  1158→  orderId?: string;
+  1159→}
+  1160→
+  1161→export interface CartItem {
+  1162→  productId: string;
+  1163→  title: string;
+  1164→  image: string;
+  1165→  price: number;
+  1166→  quantity: number;
+  1167→  confectionerId: string;
+  1168→  customization?: {
+  1169→    filling?: string;
+  1170→    coating?: string;
+  1171→    decoration?: string;
+  1172→    inscription?: string;
+  1173→  };
+  1174→}
+  1175→
+  1176→export interface ChannelPost {
+  1177→  id: string;
+  1178→  confectionerId: string;
+  1179→  confectionerName: string;
+  1180→  confectionerAvatar: string;
+  1181→  image: string;
+  1182→  caption: string;
+  1183→  likes: number;
+  1184→  comments: number;
+  1185→  createdAt: string;
+  1186→  liked?: boolean;
+  1187→  // Комментарии к посту
+  1188→  postComments?: ChannelComment[];
+  1189→  // Множественные изображения
+  1190→  images?: string[];
+  1191→}
+  1192→
+  1193→// Сторис кондитера (исчезают через 24 часа)
+  1194→export interface ChannelStory {
+  1195→  id: string;
+  1196→  confectionerId: string;
+  1197→  confectionerName: string;
+  1198→  confectionerAvatar: string;
+  1199→  image: string;
+  1200→  caption?: string;
+  1201→  createdAt: string;
+  1202→  expiresAt: string; // через 24 часа
+  1203→  views: number;
+  1204→  viewed?: boolean;
+  1205→}
+  1206→
+  1207→// Подписчик
+  1208→export interface ChannelFollower {
+  1209→  id: string;
+  1210→  confectionerId: string;
+  1211→  userId: string;
+  1212→  userName: string;
+  1213→  userAvatar?: string;
+  1214→  followedAt: string;
+  1215→  isFollowing: boolean; // mutual follow
+  1216→}
+  1217→
+  1218→// Комментарий к посту
+  1219→export interface ChannelComment {
+  1220→  id: string;
+  1221→  postId: string;
+  1222→  userId: string;
+  1223→  userName: string;
+  1224→  userAvatar?: string;
+  1225→  text: string;
+  1226→  createdAt: string;
+  1227→  likes: number;
+  1228→  liked?: boolean;
+  1229→}
+  1230→
+  1231→// Конструктор тортов — 8 шагов
+  1232→export interface CakeBuilderState {
+  1233→  step: number; // 0..9 (0: тип, 1: событие, 2: основа, 2.5: ярусы/форма, 3: начинка, ...)
+  1234→  // Шаг 0: Тип кондитерского изделия
+  1235→  productType?: string;
+  1236→  // Шаг 1: Тип мероприятия
+  1237→  eventType?: string;
+  1238→  // Шаг 2: Основа
+  1239→  base?: string;
+  1240→  // Шаг 2.5: Ярусы и форма (для тортов)
+  1241→  tiers?: number;
+  1242→  shape?: string;
+  1243→  // Шаг 3: Начинка
+  1244→  filling?: string;
+  1245→  // Шаг 4: Покрытие
+  1246→  coating?: string;
+  1247→  // Шаг 5: Декор
+  1248→  decorations: string[];
+  1249→  // Шаг 6: Диетические предпочтения
+  1250→  dietary: string[];
+  1251→  // Шаг 7: Локация и доставка
+  1252→  city?: string;
+  1253→  deliveryDate?: string;
+  1254→  deliveryType?: "delivery" | "pickup";
+  1255→  address?: string;
+  1256→  // Шаг 8: Резюме
+  1257→  servings?: number;
+  1258→  quantity?: number;
+  1259→  inscription?: string;
+  1260→  comment?: string;
+  1261→}
+  1262→
+  1263→// ===== КАЛЕНДАРЬ ПРАЗДНИКОВ ПОЛЬЗОВАТЕЛЯ =====
+  1264→export interface UserHoliday {
+  1265→  id: string;
+  1266→  userId: string;
+  1267→  title: string; // "День рождения Маши"
+  1268→  type: "birthday" | "anniversary" | "wedding_anniversary" | "graduation" | "other";
+  1269→  date: string; // ISO date
+  1270→  recurring: boolean; // ежегодно
+  1271→  personName?: string; // имя именинника
+  1272→  relationship?: string; // "дочь", "муж", "коллега"
+  1273→  // Напоминание
+  1274→  reminderDays: number; // за сколько дней напомнить (7, 14, 30)
+  1275→  reminderSent?: boolean;
+  1276→  // История заказов
+  1277→  pastOrderIds?: string[];
+  1278→  notes?: string;
+  1279→}
+  1280→
+  1281→// ===== ПОДАРОЧНЫЕ СЕРТИФИКАТЫ =====
+  1282→export interface GiftCertificate {
+  1283→  id: string;
+  1284→  code: string; // уникальный код
+  1285→  // Номинал
+  1286→  amount: number;
+  1287→  // Кто подарил
+  1288→  fromName: string;
+  1289→  fromEmail: string;
+  1290→  // Кому
+  1291→  toName: string;
+  1292→  toEmail: string;
+  1293→  toPhone?: string;
+  1294→  // Поздравление
+  1295→  message?: string;
+  1296→  // Дизайн
+  1297→  design: "classic" | "birthday" | "wedding" | "new_year" | "floral";
+  1298→  // Срок
+  1299→  purchasedAt: string;
+  1300→  expiresAt: string; // обычно 1 год
+  1301→  // Статус
+  1302→  status: "active" | "used" | "expired" | "refunded";
+  1303→  usedAt?: string;
+  1304→  usedAmount?: number; // сколько использовано
+  1305→  remainingAmount?: number;
+  1306→  // Способ доставки
+  1307→  deliveryMethod: "email" | "sms" | "print";
+  1308→  // Дата доставки (когда отправить)
+  1309→  sendDate?: string;
+  1310→  sentAt?: string;
+  1311→}
+  1312→
+  1313→// ===== РЕФЕРАЛЬНАЯ ПРОГРАММА =====
+  1314→export interface Referral {
+  1315→  id: string;
+  1316→  userId: string;
+  1317→  referralCode: string; // уникальный код
+  1318→  referralLink: string;
+  1319→  // Статистика
+  1320→  totalInvited: number;
+  1321→  activeReferrals: number; // сделали заказ
+  1322→  totalEarned: number; // заработано с рефералов
+  1323→  availableBalance: number; // доступно к выводу/использованию
+  1324→  // Настройки
+  1325→  rewardAmount: number; // сколько получает приглашённый
+  1326→  rewardPercent: number; // % от заказов реферала
+  1327→  // История
+  1328→  history: ReferralHistoryEntry[];
+  1329→}
+  1330→
+  1331→export interface ReferralHistoryEntry {
+  1332→  id: string;
+  1333→  referredName: string;
+  1334→  referredEmail: string;
+  1335→  invitedAt: string;
+  1336→  firstOrderAt?: string;
+  1337→  orderAmount?: number;
+  1338→  earnedAmount?: number;
+  1339→  status: "invited" | "registered" | "ordered" | "inactive";
+  1340→}
+  1341→
+  1342→// ===== ЭКО-БЕЙДЖИ =====
+  1343→export interface EcoBadge {
+  1344→  type:
+  1345→    | "biodegradable_packaging" // биоразлагаемая упаковка
+  1346→    | "local_ingredients" // локальные ингредиенты
+  1347→    | "organic" // органические продукты
+  1348→    | "zero_waste" // zero waste
+  1349→    | "no_preservatives" // без консервантов
+  1350→    | "no_margarine" // без маргарина
+  1351→    | "solar_power" // солнечная энергия
+  1352→    | "carbon_offset" // компенсация CO2
+  1353→    | "fair_trade" // справедливая торговля
+  1354→    | "recyclable"; // перерабатываемые материалы
+  1355→  label: string;
+  1356→  icon: string;
+  1357→  description: string;
+  1358→  verified: boolean;
+  1359→}
+  1360→
+  1361→// ===== ВИДЕО-ОТЗЫВЫ =====
+  1362→export interface VideoReview {
+  1363→  id: string;
+  1364→  productId: string;
+  1365→  userId: string;
+  1366→  userName: string;
+  1367→  userAvatar?: string;
+  1368→  videoUrl: string; // URL записи
+  1369→  thumbnailUrl?: string;
+  1370→  rating: number;
+  1371→  text?: string;
+  1372→  duration: number; // секунд
+  1373→  createdAt: string;
+  1374→  views: number;
+  1375→  likes: number;
+  1376→}
+  1377→
+  1378→// ===== ТРЕКИНГ КУРЬЕРА =====
+  1379→export interface CourierTracking {
+  1380→  orderId: string;
+  1381→  orderNumber: string;
+  1382→  courierId: string;
+  1383→  courierName: string;
+  1384→  courierAvatar?: string;
+  1385→  courierPhone: string;
+  1386→  // Текущая позиция
+  1387→  currentLat: number;
+  1388→  currentLng: number;
+  1389→  // Маршрут
+  1390→  routePoints: {
+  1391→    lat: number;
+  1392→    lng: number;
+  1393→    timestamp: string;
+  1394→    label?: string;
+  1395→  }[];
+  1396→  // Пункты
+  1397→  pickupPoint: { lat: number; lng: number; label: string; arrived?: boolean };
+  1398→  deliveryPoint: { lat: number; lng: number; label: string; arrived?: boolean };
+  1399→  // ETA
+  1400→  estimatedArrival: string; // ISO
+  1401→  minutesLeft: number;
+  1402→  // Статус
+  1403→  status: "picked_up" | "en_route" | "nearby" | "arrived" | "delivered";
+  1404→  // Транспорт
+  1405→  transport: string;
+  1406→  distanceKm: number;
+  1407→  distanceLeftKm: number;
+  1408→}
+  1409→
+  1410→// Тип для навигации (single-page app)
+  1411→export type ViewKey =
+  1412→  | "home"
+  1413→  | "catalog"
+  1414→  | "product"
+  1415→  | "confectioners"
+  1416→  | "confectioner-profile"
+  1417→  | "cake-builder"
+  1418→  | "cart"
+  1419→  | "checkout"
+  1420→  | "supplier-shop"
+  1421→  | "supplier-product"
+  1422→  | "auth"
+  1423→  | "blog"
+  1424→  | "tenders"
+  1425→  | "ready-made"
+  1426→  | "promotions"
+  1427→  | "recipes"
+  1428→  | "recipe-detail"
+  1429→  | "corporate-events"
+  1430→  | "decor-shop"
+  1431→  | "services-shop"
+  1432→  | "gift-certificates"
+  1433→  | "telegram-bot"
+  1434→  | "search"
+  1435→  | "about"
+  1436→  | "legal"
+  1437→  | "contacts"
+  1438→  | "help"
+  1439→  | "reviews"
+  1440→  | "for-confectioners"
+  1441→  | "for-suppliers"
+  1442→  | "faq"
+  1443→  | "dashboard-customer"
+  1444→  | "dashboard-confectioner"
+  1445→  | "dashboard-supplier"
+  1446→  | "dashboard-courier"
+  1447→  | "dashboard-admin"
+  1448→  | "dashboard-moderator"
+  1449→  | "dashboard-support"
+  1450→  | "dashboard-copywriter"
+  1451→  | "dashboard-food-service"
+  1452→  | "dashboard-event-organizer"
+  1453→  | "dashboard-blogger"
+  1454→  | "dashboard-pickup-point"
+  1455→  | "dashboard-wholesaler"
+  1456→  | "dashboard-taster"
+  1457→  | "dashboard-franchisee"
+  1458→  | "dashboard-nutritionist"
+  1459→  | "dashboard-corporate-client"
+  1460→  | "dashboard-inspector"
+  1461→  | "dashboard-certification-agent"
+  1462→  | "dashboard-venue-owner"
+  1463→  | "dashboard-studio"
+  1464→  | "dashboard-extra"
+  1465→  | "dashboard-quality-inspector"
+  1466→  | "dashboard-animator-agency"
+  1467→  | "dashboard-recreation-center"
+  1468→  | "dashboard-kids-club"
+  1469→  | "dashboard-recipe-developer"
+  1470→  | "dashboard-loyalty-partner"
+  1471→  | "chat";
+  1472→
+  1473→export interface NavState {
+  1474→  view: ViewKey;
+  1475→  params?: Record<string, string>;
+  1476→}
+  1477→
+  1478→// ===== ПЛОЩАДКИ ДЛЯ ПРАЗДНИКОВ =====
+  1479→
+  1480→export interface VenueVendor {
+  1481→  id: string;
+  1482→  venueId: string;
+  1483→  vendorId: string;          // ID кондитера/продавца
+  1484→  vendorName: string;
+  1485→  vendorAvatar?: string;
+  1486→  vendorType: "confectioner" | "catering" | "decorator" | "animator" | "photographer" | "other";
+  1487→  placement: string;         // где именно размещён: "1 этаж, павильон 12", "фуд-корт зона B", и т.д.
+  1488→  floor?: string;            // "1", "2", "цоколь"
+  1489→  pavilion?: string;         // "A-12", "B-7"
+  1490→  unit?: string;             // "стойка 5", "остров 3"
+  1491→  contractStart?: string;    // дата начала размещения
+  1492→  contractEnd?: string;      // дата окончания
+  1493→  commissionPercent?: number; // комиссия площадки с продаж
+  1494→  status: "active" | "pending" | "inactive";
+  1495→  createdAt: string;
+  1496→}
+  1497→
+  1498→export interface Venue {
+  1499→  id: string;
+  1500→  ownerId: string;
+  1501→  ownerName: string;
+  1502→  businessName: string;
+  1503→  slug: string;
+  1504→  description: string;
+  1505→  logo: string;
+  1506→  coverImage: string;
+  1507→  galleryImages: string[];
+  1508→  // Локация
+  1509→  country: string;
+  1510→  region: string;
+  1511→  city: string;
+  1512→  district?: string;          // район/округ
+  1513→  street: string;             // улица
+  1514→  building: string;           // дом/корпус
+  1515→  floor?: string;             // этаж здания
+  1516→  pavilion?: string;          // павильон/зона
+  1517→  unit?: string;              // офис/комната
+  1518→  fullAddress: string;        // полный адрес одной строкой
+  1519→  address?: string;           // краткий адрес
+  1520→  postalCode?: string;
+  1521→  lat?: number;
+  1522→  lng?: number;
+  1523→  // Характеристики
+  1524→  venueType: string;
+  1525→  venueTypeLabel: string;
+  1526→  area: number;
+  1527→  capacity: number;
+  1528→  ageGroups: string[];
+  1529→  amenities: string[];
+  1530→  services: string[];
+  1531→  workingHours: { days: string; from: string; to: string };
+  1532→  phone: string;
+  1533→  email: string;
+  1534→  website?: string;
+  1535→  // Метрики
+  1536→  rating: number;
+  1537→  reviewsCount: number;
+  1538→  bookingsCount: number;
+  1539→  verified: boolean;
+  1540→  minOrder: number;
+  1541→  platformDiscount: number;
+  1542→  createdAt: string;
+  1543→  status: "draft" | "published" | "archived";
+  1544→}
+  1545→
+  1546→export interface VenueService {
+  1547→  id: string;
+  1548→  venueId: string;
+  1549→  venueName?: string;
+  1550→  venueLogo?: string;
+  1551→  title: string;
+  1552→  description: string;
+  1553→  category: string;
+  1554→  categoryLabel?: string;
+  1555→  price: number;
+  1556→  priceUnit: "item" | "hour" | "set" | "event" | "sqm" | "rent";
+  1557→  duration?: string;
+  1558→  durationMinutes?: number;
+  1559→  images?: string[];
+  1560→  mainImage?: string;
+  1561→  includes?: string[];
+  1562→  groupSize?: string | { min: number; max: number };
+  1563→  placement?: string;
+  1564→  ageRestriction?: string | { min: number; max: number };
+  1565→  suitableFor?: string[];
+  1566→  rating?: number;
+  1567→  reviewsCount?: number;
+  1568→  bookingsCount?: number;
+  1569→  isPopular?: boolean;
+  1570→  isFeatured?: boolean;
+  1571→  availability?: string;
+  1572→  cancellationPolicy?: string;
+  1573→  depositRequired?: boolean;
+  1574→  depositPercent?: number;
+  1575→  crossSellWith?: string[];
+  1576→  safetyNote?: string;
+  1577→  createdAt?: string;
+  1578→  status?: "draft" | "published" | "archived" | "active" | "inactive";
+  1579→  city?: string;
+  1580→  featured?: boolean;
+  1581→  available?: boolean;
+  1582→  ecoBadges?: string[];
+  1583→  bulkPrices?: { quantity: number; price: number }[];
+  1584→  addons?: string[];
+  1585→  basePrice?: number;
+  1586→}
+  1587→
+  1588→export interface PriceList {
+  1589→  id: string;
+  1590→  venueId?: string;
+  1591→  ownerId?: string;
+  1592→  ownerName?: string;
+  1593→  ownerType?: string;
+  1594→  title: string;
+  1595→  description?: string;
+  1596→  category?: string;
+  1597→  validFrom?: string;
+  1598→  validTo?: string;
+  1599→  isActive?: boolean;
+  1600→  currency?: string;
+  1601→  createdAt?: string;
+  1602→  updatedAt?: string;
+  1603→  status?: "draft" | "published" | "archived" | "active" | "inactive";
+  1604→  items: {
+  1605→    id?: string;
+  1606→    priceListId?: string;
+  1607→    serviceName?: string;
+  1608→    name?: string;
+  1609→    description?: string;
+  1610→    category?: string;
+  1611→    price: number;
+  1612→    priceUnit?: string;
+  1613→    duration?: string | number;
+  1614→    minQuantity?: number;
+  1615→    maxQuantity?: number;
+  1616→    isAvailable?: boolean;
+  1617→    notes?: string;
+  1618→    venueServiceId?: string;
+  1619→    unit?: string;
+  1620→  }[];
+  1621→}
+  1622→
+  1623→
+  1624→
+  1625→// ===== РАБОТЫ КОНДИТЕРОВ (портфолио) =====
+  1626→export interface ConfectionerWork {
+  1627→  id: string;
+  1628→  confectionerId: string;
+  1629→  confectionerName: string;
+  1630→  title: string;
+  1631→  description?: string;
+  1632→  mainImage: string;
+  1633→  images?: string[];
+  1634→  category: string;
+  1635→  categoryLabel?: string;
+  1636→  tags: string[];
+  1637→  weight?: string;
+  1638→  prepTime?: string;
+  1639→  price?: number;
+  1640→  priceLabel?: string;
+  1641→  servings?: number;
+  1642→  shape?: string;
+  1643→  tiers?: number;
+  1644→  filling?: string;
+  1645→  coating?: string;
+  1646→  decorations?: string[];
+  1647→  fillings?: string[];
+  1648→  eventType?: string;
+  1649→  city?: string;
+  1650→  views: number;
+  1651→  likes: number;
+  1652→  status: "draft" | "published" | "archived";
+  1653→  featured: boolean;
+  1654→  createdAt: string;
+  1655→  updatedAt?: string;
+  1656→}
+  1657→
+  1658→// ===== FRAUD REPORTS =====
+  1659→export type ReportType = "spam" | "fake_review" | "duplicate_account" | "suspicious_order" | "payment_fraud" | "other" | "fraud" | "scam" | "fake_product" | "non_delivery" | "non_payment" | "abuse" | "threats" | "fake_reviews" | "duplicate" | "suspicious" | "copyright";
+  1660→export type ReportStatus = "open" | "investigating" | "resolved" | "false_positive" | "confirmed" | "new" | "assigned" | "closed" | "pending" | "reviewing" | "rejected" | "escalated";
+  1661→
+  1662→export interface FraudReport {
+  1663→  id: string;
+  1664→  type: ReportType;
+  1665→  status: ReportStatus;
+  1666→  reportedBy: string;
+  1667→  reporterName?: string;
+  1668→  targetName?: string;
+  1669→  reportedAt: string;
+  1670→  targetUserId?: string;
+  1671→  targetOrderId?: string;
+  1672→  reason: string;
+  1673→  description?: string;
+  1674→  riskScore: number;
+  1675→  assignedTo?: string;
+  1676→  resolvedAt?: string;
+  1677→  resolution?: string;
+  1678→  urgency?: string;
+  1679→  createdAt?: string;
+  1680→  autoFlags?: number;
+  1681→  evidence?: string[];
+  1682→}
+  1683→
+  1684→export interface FraudRule {
+  1685→  id: string;
+  1686→  name: string;
+  1687→  description: string;
+  1688→  enabled: boolean;
+  1689→  threshold: number;
+  1690→  action: "flag" | "block" | "notify" | "require_verification";
+  1691→  points?: number;
+  1692→  lastTriggered?: string;
+  1693→  triggered?: boolean;
+  1694→  triggeredCount?: number;
+  1695→}
+  1696→

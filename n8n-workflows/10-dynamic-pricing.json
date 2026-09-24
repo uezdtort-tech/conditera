@@ -1,0 +1,151 @@
+{
+  "name": "💵 Динамическое ценообразование — ежедневная корректировка",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Ежедневно 03:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Параметры ценообразования: какие факторы учитывать, диапазоны корректировки.\nconst today = new Date();\nconst month = today.getMonth() + 1;\nconst isHighSeason = (month === 12 || month === 2 || month === 3); // Новый год, 14 февраля, 8 марта\nconst factors = ['demand', 'stock', 'season', 'competitor_prices', 'conversion_rate'];\nreturn [{\n  json: {\n    event: 'price_update',\n    date: today.toISOString().slice(0, 10),\n    isHighSeason,\n    factors,\n    minAdjustmentPct: -10,\n    maxAdjustmentPct: 15,\n    rules: {\n      lowStock_markup_pct: 5,        // мало остатков → +5%\n      highStock_discount_pct: 8,     // много остатков → −8%\n      highDemand_markup_pct: 7,      // высокий спрос → +7%\n      lowConversion_discount_pct: 5  // низкая конверсия → −5%\n    }\n  }\n}];"
+      },
+      "id": "prepare-pricing-rules",
+      "name": "Подготовить правила ценообразования",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"price_update\",\n  \"data\": {\n    \"date\": \"{{ $json.date }}\",\n    \"isHighSeason\": {{ $json.isHighSeason }},\n    \"factors\": {{ JSON.stringify($json.factors) }},\n    \"minAdjustmentPct\": {{ $json.minAdjustmentPct }},\n    \"maxAdjustmentPct\": {{ $json.maxAdjustmentPct }},\n    \"rules\": {{ JSON.stringify($json.rules) }}\n  }\n}",
+        "timeout": 300000,
+        "options": {}
+      },
+      "id": "send-price-update",
+      "name": "Отправить корректировку цен",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"dynamic-pricing\",\n  \"status\": \"success\",\n  \"productsUpdated\": {{ $json.productsUpdated || 0 }},\n    \"isHighSeason\": {{ $node[\"Подготовить правила ценообразования\"].json.isHighSeason }}\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Ежедневно 03:30": {
+      "main": [
+        [
+          {
+            "node": "Подготовить правила ценообразования",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подготовить правила ценообразования": {
+      "main": [
+        [
+          {
+            "node": "Отправить корректировку цен",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить корректировку цен": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "pricing"
+    },
+    {
+      "name": "analytics"
+    }
+  ],
+  "id": "a5eae359-5a27-57ad-a76f-c67f4683e0e0"
+}

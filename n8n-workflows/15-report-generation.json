@@ -1,0 +1,151 @@
+{
+  "name": "📊 Генерация отчётов — еженедельная финансовая сводка для кондитеров",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-weekly",
+      "name": "Каждый понедельник 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Параметры еженедельного отчёта: период, метрики, формат.\nconst now = new Date();\nconst weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);\nreturn [{\n  json: {\n    event: 'report',\n    type: 'weekly_financial',\n    periodFrom: weekAgo.toISOString(),\n    periodTo: now.toISOString(),\n    metrics: ['revenue', 'orders_count', 'avg_check', 'top_products', 'payouts', 'refunds', 'new_reviews', 'avg_rating'],\n    format: 'pdf',\n    audience: 'confectioners',\n    channels: ['email', 'in_app']\n  }\n}];"
+      },
+      "id": "prepare-report-params",
+      "name": "Подготовить параметры отчёта",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"report\",\n  \"data\": {\n    \"type\": \"{{ $json.type }}\",\n    \"periodFrom\": \"{{ $json.periodFrom }}\",\n    \"periodTo\": \"{{ $json.periodTo }}\",\n    \"metrics\": {{ JSON.stringify($json.metrics) }},\n    \"format\": \"{{ $json.format }}\",\n    \"audience\": \"{{ $json.audience }}\",\n    \"channels\": {{ JSON.stringify($json.channels) }}\n  }\n}",
+        "timeout": 600000,
+        "options": {}
+      },
+      "id": "send-report-request",
+      "name": "Запросить генерацию отчётов",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"report-generation\",\n  \"status\": \"success\",\n  \"reportsGenerated\": {{ $json.reportsGenerated || 0 }},\n  \"reportsSent\": {{ $json.reportsSent || 0 }},\n  \"periodFrom\": \"{{ $node[\"Подготовить параметры отчёта\"].json.periodFrom }}\",\n  \"periodTo\": \"{{ $node[\"Подготовить параметры отчёта\"].json.periodTo }}\"\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Каждый понедельник 09:00": {
+      "main": [
+        [
+          {
+            "node": "Подготовить параметры отчёта",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подготовить параметры отчёта": {
+      "main": [
+        [
+          {
+            "node": "Запросить генерацию отчётов",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Запросить генерацию отчётов": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "reports"
+    },
+    {
+      "name": "finance"
+    }
+  ],
+  "id": "fc3cf8b4-3ac7-5f1f-b9c7-0b162e043167"
+}

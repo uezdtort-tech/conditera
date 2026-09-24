@@ -1,0 +1,1201 @@
+     1→# 🧁 ПОЛНОЕ ТЕХНИЧЕСКОЕ ЗАДАНИЕ (ПРОМПТ)
+     2→
+     3→## Маркетплейс кондитерских изделий «Уездный кондитер» v2.0 — Полная реконструкция на self-hosted Supabase
+     4→
+     5→---
+     6→
+     7→## 🎯 КОНТЕКСТ ПРОЕКТА
+     8→
+     9→Создаётся маркетплейс кондитерских изделий и услуг **«Уездный кондитер»** — российский аналог Goldbelly/CakeIt/Flowwow, объединяющий **покупателей**, **домашних кондитеров**, **поставщиков ингредиентов**, **курьеров** и **администраторов**.
+    10→
+    11→**Бренд и домен:**
+    12→- **Название:** «Уездный кондитер» (не «Кондитера», не «Уездный»)
+    13→- **Домен:** `conditera.ru` (+ www.conditera.ru)
+    14→- **Telegram-канал:** @conditera
+    15→- **Фирменные шрифты:** Brokgauz & Efron Italic (заголовки), TriodPostnaja Medium (брендовое название), Neucha (рукописный), Geist/Geist Mono (body)
+    16→- **Палитра:** тёмно-ягодный #8B2942 (primary), амбер #D97706 (accent), slate #1F2937 (body)
+    17→- **Стиль:** дореволюционный кондитерский колорит + современный UX
+    18→
+    19→**Целевая аудитория:**
+    20→- Частные покупатели, ищущие уникальные десерты
+    21→- Домашние кондитеры и кондитерские ателье
+    22→- Поставщики ингредиентов, декора, упаковки
+    23→- Корпоративные клиенты (рестораны, отели, ивент-агентства)
+    24→
+    25→---
+    26→
+    27→## ⚠️ КРИТИЧЕСКИ ВАЖНО: СТЕК ПРОЕКТА (НЕ МЕНЯТЬ!)
+    28→
+    29→| Компонент | Технология | Примечание |
+    30→|-----------|------------|------------|
+    31→| **Frontend** | Next.js 16 (App Router) | Turbopack, SSR/SSG |
+    32→| **Backend** | Next.js API routes | Route handlers |
+    33→| **База данных** | **Supabase PostgreSQL 15** (self-hosted) | Через Docker |
+    34→| **ORM/клиент** | **@supabase/supabase-js** | **НЕ PRISMA!** |
+    35→| **Аутентификация** | Supabase Auth (GoTrue) | JWT, OAuth, Magic Link, 2FA |
+    36→| **Realtime** | Supabase Realtime | WebSockets, postgres_changes |
+    37→| **Хранилище** | Supabase Storage | S3-совместимое + imgproxy |
+    38→| **Поиск** | Postgres FTS (tsvector + GIN) | Замена Meilisearch |
+    39→| **Автоматизация** | pg_cron + Supabase Edge Functions | Замена n8n |
+    40→| **Деплой** | Docker Compose + GitHub Actions | Единый стек |
+    41→| **Reverse Proxy** | Caddy 2.8 | Авто-HTTPS + health-check |
+    42→| **Туннель** | Cloudflare Tunnel | Доступ без публичного IP |
+    43→
+    44→### 🚫 ЗАПРЕЩЕНО ИСПОЛЬЗОВАТЬ:
+    45→- ❌ Prisma (любой версии)
+    46→- ❌ SQLite (любой версии)
+    47→- ❌ Drizzle ORM, TypeORM, MikroORM
+    48→- ❌ Socket.IO (заменён на Supabase Realtime)
+    49→- ❌ Redis (заменён на Supabase)
+    50→- ❌ n8n (заменён на Edge Functions)
+    51→- ❌ Meilisearch (заменён на Postgres FTS)
+    52→
+    53→### ✅ РАЗРЕШЕНО:
+    54→- ✅ @supabase/supabase-js
+    55→- ✅ @supabase/ssr
+    56→- ✅ Raw SQL через `supabase.rpc()`
+    57→
+    58→---
+    59→
+    60→## 📋 ОСНОВНЫЕ ФУНКЦИОНАЛЬНЫЕ МОДУЛИ (12)
+    61→
+    62→### Модуль 1: Auth (аутентификация)
+    63→**Возможности:**
+    64→- Email + password регистрация и логин
+    65→- Email confirmation (письмо с подтверждением)
+    66→- Password reset (forgot password flow)
+    67→- Magic Link (бесшарольный вход)
+    68→- OAuth: Google, Яндекс, ВКонтакте
+    69→- 2FA через TOTP (Google Authenticator, Authy)
+    70→- Session management: access token (1 час) + refresh token (7 дней)
+    71→- Row Level Security (RLS) на уровне БД
+    72→
+    73→**Таблицы БД:**
+    74→- `auth.users` — встроенная GoTrue
+    75→- `auth.identities` — OAuth providers
+    76→- `auth.sessions` — активные сессии
+    77→- `auth.mfa_factors` — 2FA TOTP secrets
+    78→- `public.profiles` — расширение auth.users (full_name, avatar_url, phone, city, address)
+    79→- `public.user_roles` — множественные роли (user_id, role, is_active)
+    80→
+    81→**API Endpoints:**
+    82→```
+    83→GET    /api/auth/callback       - OAuth redirect callback
+    84→POST   /api/auth/refresh        - Обновить access token
+    85→POST   /api/auth/logout         - Выход (revoke session)
+    86→GET    /api/auth/check          - Проверка сессии
+    87→GET    /api/profile             - Получить профиль
+    88→PATCH  /api/profile             - Обновить профиль
+    89→POST   /api/profile/avatar      - Загрузить аватар
+    90→PATCH  /api/profile/password    - Сменить пароль
+    91→DELETE /api/profile/delete      - Удалить аккаунт
+    92→```
+    93→
+    94→**UI Компоненты:**
+    95→- `AuthModal` — модалка входа/регистрации (email+pass, OAuth, Magic Link)
+    96→- `ProfileSettings` — настройки профиля (смена пароля, 2FA, адреса)
+    97→- `AvatarUpload` — загрузка аватара с crop и resize
+    98→- `RoleSwitcher` — переключатель ролей
+    99→
+   100→---
+   101→
+   102→### Модуль 2: Marketplace (маркетплейс)
+   103→**Возможности:**
+   104→- Каталог товаров с фильтрацией по категориям, городу, цене, рейтингу
+   105→- Карточка товара с фото, видео, 3D-срезом, описанием, отзывами
+   106→- Корзина (работает без логина, через session ID)
+   107→- Оформление заказа с выбором доставки
+   108→- Оплата через Yookassa (test mode + production)
+   109→- Избранное (wishlist)
+   110→- Поиск через Postgres FTS (tsvector + GIN + pg_trgm)
+   111→- История заказов с возможностью повторного заказа
+   112→
+   113→**Таблицы БД:**
+   114→```sql
+   115→products (id, name, description, price, category, confectioner_id, status, created_at, views_count)
+   116→product_categories (id, name, slug, description, parent_id)
+   117→product_images (id, product_id, url, position)
+   118→product_videos (id, product_id, video_url, title, is_primary, position, status, views_count)
+   119→product_variants (id, product_id, name, price, weight_grams, is_default, in_stock)
+   120→cart_items (id, session_id, user_id, product_id, variant_id, quantity)
+   121→orders (id, customer_id, confectioner_id, total_amount, status, delivery_address, delivery_date, created_at, previous_order_id, is_repeat_order)
+   122→order_items (id, order_id, product_id, quantity, price_snapshot, custom_options)
+   123→order_status_history (id, order_id, status_from, status_to, changed_by, created_at)
+   124→payments (id, order_id, yookassa_payment_id, status, amount, method)
+   125→deliveries (id, order_id, type, status, courier_id, delivery_address, tracking_code)
+   126→delivery_tracking (id, order_id, courier_id, lat, lng, status, created_at)
+   127→```
+   128→
+   129→**API Endpoints (15):**
+   130→```
+   131→GET    /api/products                 - Список товаров с фильтрами
+   132→GET    /api/products/[id]            - Карточка товара
+   133→GET    /api/products/[id]/reviews    - Отзывы на товар
+   134→POST   /api/products/[id]/reviews    - Добавить отзыв
+   135→GET    /api/cart                     - Получить корзину
+   136→POST   /api/cart                     - Добавить в корзину
+   137→DELETE /api/cart/[id]                - Удалить из корзины
+   138→POST   /api/checkout                 - Оформление заказа
+   139→POST   /api/payment/create           - Создать платёж Yookassa
+   140→POST   /api/payment/webhook          - Webhook от Yookassa
+   141→GET    /api/orders                   - Список заказов
+   142→GET    /api/orders/[id]              - Детали заказа
+   143→PATCH  /api/orders/[id]              - Обновить заказ
+   144→POST   /api/orders/[id]/repeat       - Повторить заказ
+   145→GET    /api/orders/[id]/track        - Отслеживание доставки
+   146→GET    /api/favorites                - Избранное
+   147→POST   /api/favorites                - Добавить в избранное
+   148→DELETE /api/favorites/[id]           - Удалить из избранного
+   149→GET    /api/search                    - Поиск через FTS
+   150→POST   /api/search/reindex            - Переиндексация FTS (admin only)
+   151→```
+   152→
+   153→**UI Компоненты:**
+   154→- `CatalogPage` — каталог с фильтрами
+   155→- `ProductPage` — карточка товара с видео и 3D-срезом
+   156→- `CartDrawer` — корзина (выдвижная панель)
+   157→- `CheckoutPage` — оформление заказа
+   158→- `ProductCard` — карточка товара в списке
+   159→- `ProductGallery` — галерея изображений и видео
+   160→- `OrderHistory` — история заказов с фильтрацией
+   161→- `OrderTracking` — отслеживание доставки
+   162→
+   163→---
+   164→
+   165→### Модуль 3: Cake Builder (конструктор тортов) — ПОЛНАЯ РЕАЛИЗАЦИЯ
+   166→
+   167→**Компонент:** `src/components/cake-builder/cake-builder-dialog.tsx` (930 строк)
+   168→**Тип:** Модальное окно (Dialog из shadcn/ui)
+   169→**State management:** Zustand store (`useAppStore`) → в v2.0 Supabase (`useSubmitInquiry`)
+   170→**Размер:** `max-w-4xl max-h-[95vh]`
+   171→**Поведение:** 8-шаговый wizard с прогресс-баром
+   172→
+   173→**Архитектура компонента:**
+   174→
+   175→```
+   176→┌──────────────────────────────────────────────────┐
+   177→│  Dialog (max-w-4xl, max-h-95vh)                  │
+   178→│  ┌────────────────────────────────────────────┐  │
+   179→│  │  Background Image (/builder-bg.png)         │  │
+   180→│  │  + Semi-transparent overlay (bg-background/90)│
+   181→│  │  ┌──────────────────────────────────────┐  │  │
+   182→│  │  │  HEADER (shrink-0)                    │  │  │
+   183→│  │  │  - Cake icon (круглый, primary)       │  │  │
+   184→│  │  │  - Title: "Конструктор тортов"        │  │  │
+   185→│  │  │  - Badge: "Шаг N / 8"                 │  │  │
+   186→│  │  │  - Subtitle: STEP_LABELS[step]        │  │  │
+   187→│  │  │  - Close button (X)                   │  │  │
+   188→│  │  │  - Progress bar: 8 сегментов          │  │  │
+   189→│  │  └──────────────────────────────────────┘  │  │
+   190→│  │  ┌──────────────────────────────────────┐  │  │
+   191→│  │  │  CONTENT (flex-1, overflow-y-auto)    │  │  │
+   192→│  │  │  - step === 0 → Мероприятие          │  │  │
+   193→│  │  │  - step === 1 → Основа               │  │  │
+   194→│  │  │  - step === 2 → Начинка              │  │  │
+   195→│  │  │  - step === 3 → Покрытие             │  │  │
+   196→│  │  │  - step === 4 → Декор                │  │  │
+   197→│  │  │  - step === 5 → Диета                │  │  │
+   198→│  │  │  - step === 6 → Доставка             │  │  │
+   199→│  │  │  - step === 7 → Резюме + Кондитеры    │  │  │
+   200→│  │  │  - submitted → Success screen         │  │  │
+   201→│  │  └──────────────────────────────────────┘  │  │
+   202→│  │  ┌──────────────────────────────────────┐  │  │
+   203→│  │  │  FOOTER (shrink-0, border-t)         │  │  │
+   204→│  │  │  - Back button (ghost, disabled 0)   │  │  │
+   205→│  │  │  - "Шаг N из 8" / "Отправить N"     │  │  │
+   206→│  │  │  - Next/Submit button (primary)      │  │  │
+   207→│  │  └──────────────────────────────────────┘  │  │
+   208→│  └────────────────────────────────────────────┘  │
+   209→└──────────────────────────────────────────────────┘
+   210→```
+   211→
+   212→**State (Zustand store):**
+   213→```typescript
+   214→interface CakeBuilderState {
+   215→  step: number;              // 0-7 (текущий шаг)
+   216→  eventType: string | null;  // 'birthday' | 'wedding' | 'kids' | 'corporate' | 'romantic' | 'just'
+   217→  base: string | null;       // 'sponge' | 'mousse' | 'cheesecake' | 'honey' | 'red_velvet' | 'biscuit'
+   218→  filling: string | null;    // 'condensed_milk' | 'cream_pleshir' | 'chocolate_ganache' | ...
+   219→  coating: string | null;    // 'cream_cheese' | 'ganache_white' | 'ganache_dark' | 'mirror_glaze' | ...
+   220→  decorations: string[];     // ['berries', 'chocolate_curls', 'macarons', ...] — мультивыбор
+   221→  dietary: string[];         // ['sugar_free', 'gluten_free', 'vegan', ...] — мультивыбор
+   222→  servings: number;          // 2-200 (по умолчанию 8)
+   223→  city: string | null;       // 'Москва', 'Тула', ...
+   224→  deliveryDate: string;      // '2026-08-20'
+   225→  deliveryType: string;      // 'delivery' | 'pickup' | 'self_pickup'
+   226→  address: string;           // 'ул. Тверская, д. 12, кв. 45'
+   227→  inscription: string;       // 'С днём рождения, Маша!' (max 50 символов)
+   228→  comment: string;           // особые пожелания
+   229→}
+   230→```
+   231→
+   232→**ДЕТАЛЬНОЕ ОПИСАНИЕ ШАГОВ:**
+   233→
+   234→**Шаг 0: Мероприятие (обязательно)**
+   235→- Заголовок: "Какое мероприятие?"
+   236→- Layout: Grid 2×3 (mobile) / 3×2 (desktop)
+   237→- 6 опций: День рождения, Свадьба, Детский праздник, Корпоратив, Романтический, Просто так
+   238→- canProceed: `!!cakeBuilder.eventType`
+   239→
+   240→**Шаг 1: Основа (обязательно)**
+   241→- Заголовок: "Выберите основу торта"
+   242→- 6 опций: Бисквит, Муссовый, Чизкейк, Медовик, Красный бархат, Песочный бисквит
+   243→- Цена: добавляется `priceBase` к базовой (0-400 ₽)
+   244→- canProceed: `!!cakeBuilder.base`
+   245→
+   246→**Шаг 2: Начинка (обязательно)**
+   247→- Заголовок: "Начинка"
+   248→- 8 опций с **3D-превью среза** через `FillingSlicePreview` компонент (56px)
+   249→- Цена: добавляется `price` (0-400 ₽)
+   250→- canProceed: `!!cakeBuilder.filling`
+   251→
+   252→**Шаг 3: Покрытие (обязательно)**
+   253→- Заголовок: "Покрытие"
+   254→- 6 опций: Крем-чиз, Белый ганаш, Тёмный ганаш, Зеркальная глазурь, Велюровое напыление, Мастика
+   255→- Цена: добавляется `price` (0-500 ₽)
+   256→- canProceed: `!!cakeBuilder.coating`
+   257→
+   258→**Шаг 4: Декор (опционально, мультивыбор)**
+   259→- Заголовок: "Декор"
+   260→- 8 опций: Свежие ягоды, Шоколадная стружка, Макаронс, Безе, Сахарные цветы, Свежие фрукты, Сусальное золото, Вафельная бумага
+   261→- Цена: сумма всех выбранных `price`
+   262→- canProceed: `true` (всегда)
+   263→
+   264→**Шаг 5: Диета (опционально, мультивыбор)**
+   265→- Заголовок: "Диетические предпочтения"
+   266→- 6 опций: Без сахара, Без глютена, Без лактозы, Веганский, Кето, Гипоаллергенный
+   267→- Цена: не влияет (но влияет на фильтрацию кондитеров)
+   268→- canProceed: `true` (всегда)
+   269→
+   270→**Шаг 6: Доставка (обязательно)**
+   271→- Заголовок: "Доставка"
+   272→- Поля: Город (input), Дата доставки (date), Способ получения (OptionCard × 2), Адрес доставки (input), Количество порций (2-200)
+   273→- Способы получения: Доставка (расчёт через `calculateDelivery(price)`) или Самовывоз (бесплатно)
+   274→- canProceed: `!!city && !!deliveryDate && !!deliveryType`
+   275→
+   276→**Шаг 7: Резюме + Кондитеры (обязательно)**
+   277→- Заголовок: "Выберите кондитеров"
+   278→- 4 секции: Сводка заказа, Надпись и комментарий, Запрос скидки (0-30%), Список кондитеров (мультивыбор)
+   279→- canProceed: `selectedConfectioners.length > 0`
+   280→
+   281→**Формула расчёта цены:**
+   282→```
+   283→estimatedPrice = 1500                               // базовая цена (8 порций)
+   284→               + base.priceBase                     // + основа (0-400 ₽)
+   285→               + filling.price                      // + начинка (0-400 ₽)
+   286→               + coating.price                      // + покрытие (0-500 ₽)
+   287→               + SUM(decorations[].price)           // + декор (мультивыбор)
+   288→               + MAX(0, servings - 8) × 180         // + доп. порции
+   289→
+   290→deliveryCost   = calculateDelivery(estimatedPrice)  // 0 при ≥3000₽, иначе 300+50/км
+   291→                 if deliveryType === "delivery", else 0
+   292→
+   293→total          = estimatedPrice + deliveryCost
+   294→               × (1 - discountPercent / 100)        // если запрошена скидка
+   295→```
+   296→
+   297→**UI Компоненты:**
+   298→- `CakeBuilderDialog` — основное модальное окно (930 строк)
+   299→- `StepContainer` — обёртка для каждого шага
+   300→- `OptionCard` — карточка опции (selected/unselected)
+   301→- `FillingSlicePreview` — 3D-превью среза торта (56px / 64px)
+   302→- `SummaryRow` — строка в сводке
+   303→
+   304→**Интеграция с Supabase (v2.0):**
+   305→```typescript
+   306→// Отправка запроса
+   307→useSubmitInquiry.mutate({
+   308→  draftId: "draft-123",
+   309→  confectionerIds: ["conf-1", "conf-2"],
+   310→  estimatedPrice: 7710,
+   311→  requestDiscount: true,
+   312→  discountPercent: 10,
+   313→  discountComment: "Постоянный клиент",
+   314→});
+   315→// → POST /api/inquiries
+   316→//   → Создаёт inquiry (snapshot проекта торта)
+   317→//   → Создаёт N negotiations (по одной на кондитера)
+   318→//   → Помечает draft как is_submitted = true
+   319→//   → Отправляет уведомления кондитерам через Edge Function
+   320→```
+   321→
+   322→---
+   323→
+   324→### Модуль 4: Тендерная площадка
+   325→**Возможности:**
+   326→- Создание тендера заказчиком (частное лицо, ресторан, отель)
+   327→- Подача предложений кондитерами
+   328→- Выбор победителя с автоматическим созданием заказа
+   329→- Приглашение конкретных кондитеров (закрытые тендеры)
+   330→- Автоматическое создание чата при создании тендера
+   331→- Событие в календаре кондитера при создании тендера
+   332→
+   333→**Таблицы БД:**
+   334→```sql
+   335→tenders (id, customer_id, title, description, category, required_servings, budget_min, budget_max, required_city, required_delivery_date, end_date, specifications JSONB, status, is_public, is_urgent, chat_channel_id, created_at)
+   336→tender_offers (id, tender_id, confectioner_id, offer_price, offer_description, proposed_delivery_date, status, is_winner, created_at)
+   337→tender_invitations (id, tender_id, confectioner_id, status, invited_at)
+   338→tender_history (id, tender_id, user_id, action, old_value JSONB, new_value JSONB, created_at)
+   339→tender_reviews (id, tender_id, reviewer_id, target_user_id, rating, comment, created_at)
+   340→```
+   341→
+   342→**API Endpoints:**
+   343→```
+   344→GET    /api/tenders                     - Список активных тендеров
+   345→GET    /api/tenders/[id]                - Детали тендера
+   346→POST   /api/tenders                     - Создать тендер
+   347→PATCH  /api/tenders/[id]                - Обновить тендер
+   348→POST   /api/tenders/[id]/offers         - Подать предложение
+   349→GET    /api/tenders/[id]/offers         - Список предложений
+   350→POST   /api/tenders/[id]/offers/[id]/accept - Принять предложение
+   351→POST   /api/tenders/[id]/invite         - Пригласить кондитера
+   352→POST   /api/tenders/[id]/reviews        - Оставить отзыв
+   353→```
+   354→
+   355→**UI Компоненты:**
+   356→- `TenderCard` — карточка тендера
+   357→- `CreateTenderForm` — форма создания тендера
+   358→- `TenderDetail` — страница тендера
+   359→- `OfferList` — список предложений
+   360→- `CreateOfferForm` — форма подачи предложения
+   361→
+   362→---
+   363→
+   364→### Модуль 5: Карта кондитеров (Яндекс Карты)
+   365→**Возможности:**
+   366→- Автоопределение геолокации пользователя (IP + браузер)
+   367→- Поиск кондитеров на карте с кластеризацией
+   368→- Фильтры: дегустация, ателье, открыто сейчас, радиус поиска
+   369→- Карточка кондитера при клике на маркер
+   370→- Сайдбар со списком результатов
+   371→- Построение маршрута до кондитера
+   372→- Управление геоданными в дашборде кондитера
+   373→- Поиск кондитеров по локации для тендера
+   374→
+   375→**Таблицы БД:**
+   376→```sql
+   377→confectioner_geo (id, confectioner_id, location GEOMETRY(POINT,4326), address, city, delivery_radius_km, working_hours JSONB, tasting_available, tasting_price, has_atelier, is_active, is_verified)
+   378→ateliers (id, confectioner_geo_id, name, description, location GEOMETRY(POINT,4326), services TEXT[], photos UUID[], working_hours JSONB)
+   379→tastings (id, atelier_id, date, start_time, end_time, max_participants, current_participants, price, status)
+   380→tasting_bookings (id, tasting_id, user_id, participants_count, status)
+   381→delivery_zones (id, confectioner_id, name, polygon GEOMETRY(POLYGON,4326), delivery_price, min_order_amount)
+   382→```
+   383→
+   384→**API Endpoints:**
+   385→```
+   386→GET    /api/map/confectioners        - Поиск кондитеров в радиусе
+   387→GET    /api/map/ateliers             - Поиск ателье с дегустациями
+   388→POST   /api/confectioner/geo         - Управление геоданными
+   389→GET    /api/geo/ip                   - Определение города по IP
+   390→```
+   391→
+   392→**UI Компоненты:**
+   393→- `ConfectionerMap` — карта с маркерами и кластеризацией
+   394→- `FilterPanel` — панель фильтров
+   395→- `ConfectionerCard` — карточка кондитера в сайдбаре
+   396→- `GeoManagement` — управление геоданными в дашборде
+   397→- `WorkingHoursEditor` — редактор часов работы
+   398→
+   399→---
+   400→
+   401→### Модуль 6: Чат (Supabase Realtime)
+   402→**Возможности:**
+   403→- Чат между покупателем и кондитером
+   404→- Чат между покупателем и поддержкой
+   405→- Групповые чаты (заказ → покупатель + кондитер + курьер)
+   406→- Статус "печатает" (typing indicator)
+   407→- Реакции на сообщения (эмодзи)
+   408→- Система непрочитанных сообщений
+   409→- Отправка файлов и изображений
+   410→- Push-уведомления о новых сообщениях
+   411→- Системные сообщения о смене статуса заказа
+   412→
+   413→**Таблицы БД:**
+   414→```sql
+   415→chat_channels (id, type TEXT CHECK (type IN ('direct', 'order', 'group', 'support')), metadata JSONB, created_at)
+   416→chat_channel_members (id, channel_id, user_id, created_at)
+   417→chat_messages (id, channel_id, user_id, content, type TEXT CHECK (type IN ('text', 'image', 'file', 'system', 'status_update')), metadata JSONB, created_at)
+   418→chat_typing_indicators (channel_id, user_id, is_typing, updated_at)
+   419→chat_unread (user_id, channel_id, last_read_message_id, unread_count, updated_at)
+   420→chat_message_reactions (id, message_id, user_id, emoji, created_at)
+   421→```
+   422→
+   423→**API Endpoints:**
+   424→```
+   425→GET    /api/chat/channels              - Список каналов
+   426→POST   /api/chat/channels              - Создать канал
+   427→GET    /api/chat/channels/[id]         - Детали канала
+   428→GET    /api/chat/channels/[id]/messages - Сообщения канала
+   429→POST   /api/chat/channels/[id]/messages - Отправить сообщение
+   430→PATCH  /api/chat/messages/[id]/read    - Отметить как прочитанное
+   431→POST   /api/chat/messages/[id]/reaction - Добавить реакцию
+   432→POST   /api/chat/typing                - Статус "печатает"
+   433→GET    /api/chat/unread                - Общее количество непрочитанных
+   434→```
+   435→
+   436→**UI Компоненты:**
+   437→- `ChatWidget` — виджет чата (в правом нижнем углу)
+   438→- `ChatWindow` — полноэкранный чат
+   439→- `ChatMessage` — сообщение с аватаром
+   440→- `ChatInput` — поле ввода с поддержкой файлов
+   441→- `ChatTypingIndicator` — индикатор "печатает"
+   442→
+   443→---
+   444→
+   445→### Модуль 7: CRM (управление клиентами)
+   446→**Возможности:**
+   447→- Клиентская база (список, карточка, сегментация)
+   448→- Тикеты поддержки (список, ответы, эскалация)
+   449→- Kanban-доска лидов (drag-and-drop)
+   450→- История взаимодействий (timeline, заметки)
+   451→- Экспорт базы клиентов в CSV/Excel
+   452→- Автоматическое логирование действий
+   453→
+   454→**Таблицы БД:**
+   455→```sql
+   456→support_tickets (id, user_id, title, description, category, priority, status, assigned_to, created_at)
+   457→ticket_messages (id, ticket_id, user_id, content, is_internal, created_at)
+   458→leads (id, source, status, stage, contact_name, contact_phone, contact_email, notes, assigned_to, created_at)
+   459→lead_activities (id, lead_id, type, description, created_at)
+   460→customer_profiles (id, user_id, total_orders, total_spent, lifetime_value, last_order_at, tags TEXT[], notes)
+   461→customer_timeline (id, user_id, event_type, description, metadata JSONB, created_at)
+   462→```
+   463→
+   464→**API Endpoints:**
+   465→```
+   466→GET    /api/crm/clients                 - Список клиентов
+   467→GET    /api/crm/clients/[id]            - Карточка клиента
+   468→GET    /api/crm/tickets                 - Список тикетов
+   469→POST   /api/crm/tickets                 - Создать тикет
+   470→GET    /api/crm/tickets/[id]            - Детали тикета
+   471→POST   /api/crm/tickets/[id]/messages   - Ответить на тикет
+   472→GET    /api/crm/leads                   - Список лидов (Kanban)
+   473→POST   /api/crm/leads                   - Создать лид
+   474→PATCH  /api/crm/leads/[id]              - Обновить лид
+   475→GET    /api/crm/timeline                - Таймлайн клиента
+   476→```
+   477→
+   478→**UI Компоненты:**
+   479→- `ClientList` — список клиентов с фильтрацией
+   480→- `ClientCard` — карточка клиента с историей
+   481→- `TicketList` — список тикетов
+   482→- `TicketDetail` — детали тикета с ответами
+   483→- `LeadBoard` — Kanban-доска лидов
+   484→- `ClientTimeline` — таймлайн взаимодействий
+   485→
+   486→---
+   487→
+   488→### Модуль 8: CMS (управление контентом)
+   489→**Возможности:**
+   490→- Управление страницами (WYSIWYG, версионирование)
+   491→- Управление баннерами (таргетинг, статистика)
+   492→- Управление навигацией (drag-and-drop, подменю)
+   493→- Медиатека (загрузка, категоризация, оптимизация)
+   494→- SEO-метаданные (Open Graph, JSON-LD)
+   495→- Управление дизайном (цвета, шрифты, макет)
+   496→
+   497→**Таблицы БД:**
+   498→```sql
+   499→cms_pages (id, slug, title, content MDX, status, published_at, version, created_at)
+   500→cms_page_history (id, page_id, content, version, created_by, created_at)
+   501→cms_banners (id, name, type, title, description, image_url, link_url, target_roles TEXT[], target_pages TEXT[], show_start, show_end, priority, is_active, created_at)
+   502→cms_navigation (id, label, url, icon, parent_id, sort_order, roles TEXT[], is_active)
+   503→cms_media (id, name, url, type, size, mime_type, alt_text, uploaded_by, created_at)
+   504→cms_meta (page_slug, meta_title, meta_description, meta_keywords, og_title, og_description, og_image, json_ld JSONB, updated_at)
+   505→design_settings (id, theme, primary_color, accent_color, font_heading, font_body, layout_style, max_width, animations_enabled, custom_css, custom_js, updated_at)
+   506→```
+   507→
+   508→**API Endpoints:**
+   509→```
+   510→GET    /api/cms/pages                   - Список страниц
+   511→POST   /api/cms/pages                   - Создать страницу
+   512→GET    /api/cms/pages/[slug]            - Получить страницу
+   513→PATCH  /api/cms/pages/[slug]            - Обновить страницу
+   514→DELETE /api/cms/pages/[slug]            - Удалить страницу
+   515→GET    /api/cms/banners                 - Список баннеров
+   516→POST   /api/cms/banners                 - Создать баннер
+   517→PATCH  /api/cms/banners/[id]            - Обновить баннер
+   518→DELETE /api/cms/banners/[id]            - Удалить баннер
+   519→GET    /api/cms/navigation              - Навигация
+   520→PATCH  /api/cms/navigation              - Обновить навигацию
+   521→GET    /api/cms/media                   - Медиатека
+   522→POST   /api/cms/media                   - Загрузить файл
+   523→DELETE /api/cms/media/[id]              - Удалить файл
+   524→GET    /api/admin/design/settings       - Настройки дизайна
+   525→PATCH  /api/admin/design/settings       - Обновить настройки
+   526→```
+   527→
+   528→**UI Компоненты:**
+   529→- `PageEditor` — WYSIWYG редактор страниц
+   530→- `PageList` — список страниц
+   531→- `BannerManager` — управление баннерами
+   532→- `NavigationManager` — управление навигацией
+   533→- `MediaLibrary` — медиатека
+   534→- `DesignSettings` — настройки дизайна
+   535→
+   536→---
+   537→
+   538→### Модуль 9: Dashboards (личные кабинеты)
+   539→**Роли и их возможности:**
+   540→
+   541→**CUSTOMER Dashboard:**
+   542→- Список заказов (active, history) с фильтрацией
+   543→- Избранное (wishlist)
+   544→- Адреса доставки (CRUD)
+   545→- Бонусы и скидки
+   546→- Переговоры с кондитерами
+   547→- Сообщения (chat)
+   548→- Настройки профиля
+   549→- Шаблоны повторных заказов
+   550→- Избранные кондитеры
+   551→- Отслеживание доставки
+   552→
+   553→**CONFECTIONER Dashboard:**
+   554→- Входящие запросы (cake builder inquiries)
+   555→- Активные переговоры (suggest price, accept, decline)
+   556→- Заказы (принять, готовить, отправить) с трекингом
+   557→- Управление товарами (CRUD с видео)
+   558→- Календарь заказов с зонами доставки
+   559→- Финансы (доход, выплаты, комиссии)
+   560→- Отзывы и рейтинг
+   561→- Управление геоданными (карта)
+   562→- Аналитика продаж (графики, когорты)
+   563→- Склад (ингредиенты с остатками)
+   564→- Рецепты с расчётом КБЖУ и себестоимости
+   565→- Таблица Ганта для визуализации заказов
+   566→
+   567→**SUPPLIER Dashboard:**
+   568→- Управление товарами (ингредиенты, упаковка)
+   569→- Склад (остатки, цены)
+   570→- Заказы от кондитеров (B2B)
+   571→- Финансы (доход, выплаты)
+   572→
+   573→**COURIER Dashboard:**
+   574→- Активные доставки (список)
+   575→- История доставок
+   576→- Заработок за период
+   577→- Смена статуса (picked up, in transit, delivered)
+   578→- Отправка геопозиции (GPS)
+   579→
+   580→**ADMIN Dashboard:**
+   581→- Пользователи (список, фильтр по ролям, ban/unban)
+   582→- Заказы (все, фильтры, экспорт CSV)
+   583→- Финансы (общий доход, комиссии, выплаты)
+   584→- CRM (тикеты, лиды, клиенты)
+   585→- CMS (страницы, баннеры, навигация)
+   586→- Модерация контента (отзывы, фото, видео)
+   587→- Аналитика (графики, Яндекс Метрика)
+   588→- Управление дизайном (цвета, шрифты, макет)
+   589→- Платёжная система (транзакции, выплаты, комиссии)
+   590→
+   591→**UI Компоненты:**
+   592→- `DashboardLayout` — общая обёртка с сайдбаром
+   593→- `DashboardHeader` — шапка с приветствием
+   594→- `KpiGrid` — карточки KPI
+   595→- `RevenueChart` — график выручки
+   596→- `OrdersChart` — график заказов
+   597→- `UpcomingOrders` — ближайшие заказы
+   598→- `OrderHistory` — история заказов
+   599→- `OrderTracking` — отслеживание доставки
+   600→- `VideoManager` — управление видео в дашборде
+   601→- `InventoryManager` — управление складом
+   602→- `RecipeManager` — управление рецептами
+   603→
+   604→---
+   605→
+   606→### Модуль 10: Payments (платежи Yookassa)
+   607→**Возможности:**
+   608→- Создание платежа через Yookassa
+   609→- Webhook для подтверждения платежа
+   610→- Эскроу-счёт (деньги замораживаются до подтверждения)
+   611→- Возвраты (рефанды)
+   612→- Комиссии платформы (5-15% по тарифу)
+   613→- Выплаты кондитерам
+   614→
+   615→**Поток платежа:**
+   616→1. Пользователь оформляет заказ → POST /api/checkout
+   617→2. Backend создаёт payment в Yookassa
+   618→3. Yookassa возвращает confirmation_url → редирект пользователя
+   619→4. Пользователь вводит карту, оплачивает на стороне Yookassa
+   620→5. Yookassa отправляет webhook на /api/payment/webhook (payment.succeeded)
+   621→6. Backend обновляет order.status = paid, отправляет уведомления
+   622→
+   623→**Таблицы БД:**
+   624→```sql
+   625→payments (id, order_id, yookassa_payment_id, status, amount, method, escrow_released_at, refund_id, created_at)
+   626→refunds (id, order_id, amount, reason, status, yookassa_refund_id, processed_at)
+   627→payout_requests (id, confectioner_id, amount, status, bank_details, paid_at, created_at)
+   628→```
+   629→
+   630→**API Endpoints:**
+   631→```
+   632→POST   /api/payment/create    - Создать платёж
+   633→POST   /api/payment/webhook   - Webhook от Yookassa
+   634→POST   /api/payment/refund    - Создать возврат
+   635→GET    /api/payment/status    - Статус платежа
+   636→POST   /api/admin/payouts     - Создать выплату
+   637→```
+   638→
+   639→---
+   640→
+   641→### Модуль 11: Telegram (уведомления + бот)
+   642→**Возможности:**
+   643→- Уведомления в канал @conditera о событиях (новый заказ, новый лид, тикет)
+   644→- Бот для пользователей (статус заказа, чат с поддержкой)
+   645→- Push-уведомления о новых сообщениях
+   646→- Реализация через Supabase Edge Functions
+   647→
+   648→**Edge Functions:**
+   649→```
+   650→supabase/functions/telegram-webhook/      - Приём update от Telegram
+   651→supabase/functions/send-channel-notification/ - Отправка уведомления в канал
+   652→supabase/functions/telegram-bot-command/  - Обработка команд бота (/start, /status, /help)
+   653→supabase/functions/chat-notification/     - Push-уведомления о сообщениях
+   654→supabase/functions/send-push/             - Отправка push-уведомлений
+   655→```
+   656→
+   657→**API Endpoints:**
+   658→```
+   659→POST   /api/telegram/webhook   - Webhook от Telegram
+   660→POST   /api/telegram/setup     - Установка webhook
+   661→POST   /api/telegram/test      - Тестовая отправка
+   662→```
+   663→
+   664→---
+   665→
+   666→### Модуль 12: Automation (автоматизация)
+   667→**Возможности:**
+   668→- Брошенная корзина (Edge Function + pg_cron)
+   669→- Ежедневный дайджест (Edge Function + pg_cron)
+   670→- Сгорание бонусов (Edge Function + pg_cron)
+   671→- Автоматические отчёты (ежедневные, еженедельные)
+   672→- Автоматические рассылки (email, push, sms, telegram)
+   673→- Автоматические уведомления о статусе заказа
+   674→
+   675→**Cron-задачи:**
+   676→```
+   677→Брошенная корзина  → Каждый час: 0 * * * *
+   678→Ежедневный дайджест → 9:00 MSK: 0 9 * * *
+   679→Сгорание бонусов   → Полночь: 0 0 * * *
+   680→Реиндексация поиска → On INSERT/UPDATE products
+   681→Backup БД          → 3:00 MSK: 0 3 * * *
+   682→Авто-закрытие тендеров → Каждый час: 0 * * * *
+   683→Напоминание о дегустации → 9:00 MSK: 0 9 * * *
+   684→```
+   685→
+   686→**Edge Functions:**
+   687→```
+   688→supabase/functions/abandoned-cart/        - Уведомление о брошенной корзине
+   689→supabase/functions/daily-digest/          - Ежедневный дайджест
+   690→supabase/functions/bonus-expiry/          - Сгорание бонусов
+   691→supabase/functions/send-email/            - Отправка email
+   692→supabase/functions/send-push/             - Отправка push-уведомлений
+   693→supabase/functions/auto-close-tenders/    - Авто-закрытие просроченных тендеров
+   694→supabase/functions/tasting-reminder/      - Напоминание о дегустации
+   695→```
+   696→
+   697→**pg_cron настройка:**
+   698→```sql
+   699→SELECT cron.schedule('abandoned-cart', '0 * * * *', 'SELECT net.http_post(...)');
+   700→SELECT cron.schedule('daily-digest', '0 9 * * *', 'SELECT net.http_post(...)');
+   701→SELECT cron.schedule('bonus-expiry', '0 0 * * *', 'SELECT net.http_post(...)');
+   702→SELECT cron.schedule('auto-close-tenders', '0 * * * *', 'SELECT net.http_post(...)');
+   703→SELECT cron.schedule('tasting-reminder', '0 9 * * *', 'SELECT net.http_post(...)');
+   704→```
+   705→
+   706→---
+   707→
+   708→## 👥 РОЛИ ПОЛЬЗОВАТЕЛЕЙ (27 РОЛЕЙ)
+   709→
+   710→### Базовые роли (5)
+   711→| # | Роль | Код | Описание |
+   712→|---|------|-----|----------|
+   713→| 1 | **Покупатель** | `CUSTOMER` | Заказывает торты, пишет отзывы, копит бонусы |
+   714→| 2 | **Кондитер** | `CONFECTIONER` | Продаёт изделия, принимает заказы |
+   715→| 3 | **Курьер** | `COURIER` | Доставляет заказы |
+   716→| 4 | **Поставщик** | `SUPPLIER` | Продаёт ингредиенты/упаковку |
+   717→| 5 | **Администратор** | `ADMIN` / `SUPER_ADMIN` | Управляет платформой |
+   718→
+   719→### Расширенные роли (10)
+   720→| # | Роль | Код | Описание |
+   721→|---|------|-----|----------|
+   722→| 6 | **Гость** | `GUEST` | Неавторизованный посетитель |
+   723→| 7 | **Модератор** | `MODERATOR` | Модерирует контент |
+   724→| 8 | **Поддержка** | `SUPPORT` | Обрабатывает тикеты |
+   725→| 9 | **Студия** | `STUDIO` | Фотосъёмка, мастер-классы |
+   726→| 10 | **Блогер** | `BLOGGER` | Рецензии, промо |
+   727→| 11 | **Дегустатор** | `TASTER` | Сертифицированные отзывы |
+   728→| 12 | **Франчайзи** | `FRANCHISEE` | Управляет сетью |
+   729→| 13 | **Диетолог** | `NUTRITIONIST` | Верифицирует КБЖУ |
+   730→| 14 | **Корпоративный клиент** | `CORPORATE_CLIENT` | B2B заказы |
+   731→| 15 | **Копирайтер** | `COPYWRITER` | Создаёт контент |
+   732→
+   733→### Нишевые роли (12)
+   734→| # | Роль | Код | Описание |
+   735→|---|------|-----|----------|
+   736→| 16 | **Владелец площадки** | `VENUE_OWNER` | Сдаёт залы |
+   737→| 17 | **Агентство аниматоров** | `ANIMATOR_AGENCY` | Доп. услуги |
+   738→| 18 | **Развлекательный центр** | `RECREATION_CENTER` | Площадки |
+   739→| 19 | **Детский клуб** | `KIDS_CLUB` | Площадки |
+   740→| 20 | **Инспектор качества** | `QUALITY_INSPECTOR` | Проверяет кондитеров |
+   741→| 21 | **Агент сертификации** | `CERTIFICATION_AGENT` | Выдаёт сертификаты |
+   742→| 22 | **Предприятие общепита** | `FOOD_SERVICE` | B2B заказы |
+   743→| 23 | **Организатор мероприятий** | `EVENT_ORGANIZER` | Организует мероприятия |
+   744→| 24 | **ПВЗ** | `PICKUP_POINT` | Пункт выдачи |
+   745→| 25 | **Оптовик** | `WHOLESALER` | Закупает большие объёмы |
+   746→| 26 | **Внутренний аудитор** | `INSPECTOR` | Финансовые проверки |
+   747→| 27 | **Франчайзи** | `FRANCHISEE` | Управляет сетью |
+   748→
+   749→---
+   750→
+   751→## 📦 КАТЕГОРИИ ТОВАРОВ (18)
+   752→
+   753→### Кондитерские изделия (10)
+   754→| № | Категория | Описание |
+   755→|---|-----------|----------|
+   756→| 1 | **Торты** | Бисквитные, муссовые, чизкейки, свадебные |
+   757→| 2 | **Капкейки** | Мини-тортики с кремом |
+   758→| 3 | **Пирожные** | Эклеры, макаруны, тарты |
+   759→| 4 | **Печенье** | Имбирное, овсяное, шоколадное |
+   760→| 5 | **Шоколад** | Трюфели, плитки, конфеты |
+   761→| 6 | **Макарон** | Французские пирожные |
+   762→| 7 | **Бенто-торты** | Мини-торты с надписями |
+   763→| 8 | **Десерты** | Муссы, панна-котта |
+   764→| 9 | **Зефирные букеты** | Букеты из зефира |
+   765→| 10 | **Пироги** | Открытые и закрытые |
+   766→
+   767→### Сопутствующие товары и услуги (8)
+   768→| № | Категория | Описание |
+   769→|---|-----------|----------|
+   770→| 11 | **Декор для тортов** | Мастика, фигурки, топперы |
+   771→| 12 | **Упаковка** | Коробки, подложки, ленты |
+   772→| 13 | **Ингредиенты** | Мука, масло, красители |
+   773→| 14 | **Оборудование** | Миксеры, формы, плиты |
+   774→| 15 | **Инвентарь** | Шпатели, насадки, мешки |
+   775→| 16 | **Услуги и площадки** | Доставка, аренда, мастер-классы |
+   776→| 17 | **Подарочные сертификаты** | Номиналы 500, 1000, 3000, 5000, 10000 ₽ |
+   777→| 18 | **Печать на пряниках** | Именные пряники, вафельные картинки |
+   778→
+   779→---
+   780→
+   781→## 🗄️ ПОЛНАЯ МОДЕЛЬ БАЗЫ ДАННЫХ (162 таблицы)
+   782→
+   783→### Группы таблиц:
+   784→
+   785→**Аутентификация и пользователи (15):**
+   786→- `auth.users`, `auth.identities`, `auth.sessions`, `auth.mfa_factors`, `auth.mfa_challenges`
+   787→- `public.profiles`, `public.user_roles`, `public.accounts`, `public.sessions`, `public.refresh_tokens`
+   788→- `public.two_factor_challenges`, `public.notification_preferences`, `public.push_subscriptions`
+   789→- `public.referrals`, `public.user_holidays`
+   790→
+   791→**Профили ролей (17):**
+   792→- `CourierProfile`, `SupplierProfile`, `CustomerProfile`, `BloggerProfile`, `TasterProfile`
+   793→- `FranchiseeProfile`, `NutritionistProfile`, `CorporateClientProfile`, `QualityInspectorProfile`
+   794→- `CertificationAgentProfile`, `CopywriterProfile`, `ModeratorProfile`, `EventOrganizerProfile`
+   795→- `FoodServiceProfile`, `StudioProfile`, `PickupPointProfile`, `WholesalerProfile`
+   796→
+   797→**Кондитерское дело (10):**
+   798→- `Confectioner`, `Product`, `ProductSlice`, `Filling`, `ConfectionerAtelier`
+   799→- `ConfectionerLesson`, `LessonEnrollment`, `HolidayReminder`, `ProductVideos`, `ProductVariants`
+   800→
+   801→**Маркетплейс (15):**
+   802→- `Order`, `OrderItem`, `OrderNegotiation`, `OrderTracking`, `CourierLocation`
+   803→- `CartItem`, `WishlistItem`, `Review`, `VideoReview`, `ConstructorDraft`, `PriceInquiry`
+   804→- `OrderStatusHistory`, `RepeatOrderTemplates`, `FavoriteConfectioners`, `RoleNotificationSettings`
+   805→
+   806→**Финансы (12):**
+   807→- `Payment`, `PayoutRequest`, `Refund`, `LoyaltyTransaction`, `GiftCertificate`
+   808→- `PromoCode`, `PromoCodeUsage`, `PromoCampaign`, `BusinessExpense`, `InsuranceContribution`
+   809→- `TaxReport`, `FinancialAuditLog`
+   810→
+   811→**Тендеры (6):**
+   812→- `tenders`, `tender_offers`, `tender_invitations`, `tender_history`, `tender_reviews`, `tender_chat`
+   813→
+   814→**Чат (10):**
+   815→- `chat_channels`, `chat_channel_members`, `chat_messages`, `chat_message_reads`
+   816→- `chat_attachments`, `chat_typing_indicators`, `chat_unread`, `chat_message_reactions`
+   817→
+   818→**CRM (10):**
+   819→- `SupportTicket`, `TicketMessage`, `Lead`, `CustomerInteraction`, `EmailMessage`
+   820→- `EmailAttachment`, `OperatorEscalation`, `CannedResponse`, `ActionLog`, `AuditLog`
+   821→
+   822→**CMS (10):**
+   823→- `CmsPage`, `CmsPageHistory`, `CmsBanner`, `CmsNavigation`, `CmsMedia`
+   824→- `CmsMeta`, `DesignSettings`, `DesignThemes`, `DesignChangeLog`, `PageTemplates`
+   825→
+   826→**Геоданные (5):**
+   827→- `confectioner_geo`, `ateliers`, `tastings`, `tasting_bookings`, `delivery_zones`
+   828→
+   829→**Автоматизация (4):**
+   830→- `MaintenanceLog`, `OrganizationVerification`, `Semaphore`, `HolidayReminder`
+   831→
+   832→**Уведомления (3):**
+   833→- `Notification`, `PushSubscription`, `NotificationPreferences`
+   834→
+   835→**Геймификация (4):**
+   836→- `Badge`, `UserBadge`, `Challenge`, `UserChallenge`
+   837→
+   838→**Прочее (остальные):**
+   839→- `InventoryItem`, `StockMovement`, `Recipe`, `RecipeAcceptance`
+   840→
+   841→---
+   842→
+   843→## 🔐 БЕЗОПАСНОСТЬ (RLS политики)
+   844→
+   845→**Принцип:** Каждая таблица с user data имеет RLS-политики. PostgREST автоматически фильтрует по `auth.uid()`.
+   846→
+   847→**Примеры политик:**
+   848→```sql
+   849→-- Пользователь видит только свои заказы
+   850→CREATE POLICY "users_select_own_orders" ON orders
+   851→  FOR SELECT USING (auth.uid() = user_id);
+   852→
+   853→-- Кондитер видит заказы где он назначен
+   854→CREATE POLICY "confectioner_select_assigned_orders" ON orders
+   855→  FOR SELECT USING (
+   856→    EXISTS (SELECT 1 FROM order_items oi
+   857→            JOIN products p ON oi.product_id = p.id
+   858→            WHERE oi.order_id = orders.id AND p.confectioner_id = auth.uid())
+   859→  );
+   860→
+   861→-- Участники канала видят сообщения
+   862→CREATE POLICY "members_select_messages" ON chat_messages
+   863→  FOR SELECT USING (
+   864→    EXISTS (SELECT 1 FROM chat_channel_members
+   865→            WHERE channel_id = chat_messages.channel_id
+   866→            AND user_id = auth.uid())
+   867→  );
+   868→
+   869→-- Только админ может создавать промокоды
+   870→CREATE POLICY "admin_insert_promocodes" ON promo_codes
+   871→  FOR INSERT WITH CHECK (
+   872→    EXISTS (SELECT 1 FROM user_roles
+   873→            WHERE user_id = auth.uid() AND role IN ('ADMIN', 'SUPER_ADMIN') AND is_active = true)
+   874→  );
+   875→```
+   876→
+   877→**Security headers (через Caddy + Next.js):**
+   878→- CSP: `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://yookassa.ru https://*.yoomoney.ru https://api-maps.yandex.ru; ...`
+   879→- HSTS: `max-age=31536000; includeSubDomains; preload`
+   880→- X-Frame-Options: SAMEORIGIN
+   881→- X-Content-Type-Options: nosniff
+   882→
+   883→**CSRF защита:** Supabase Auth session-based, CSRF токен генерируется на сервере.
+   884→
+   885→**Rate limiting:**
+   886→- `/api/auth/*` — 5 запросов/мин на IP
+   887→- `/api/payment/*` — 10 запросов/мин на пользователя
+   888→- `/api/search` — 60 запросов/мин на IP
+   889→
+   890→---
+   891→
+   892→## 🎨 UI/UX ПРАВИЛА
+   893→
+   894→### Фирменный стиль
+   895→- **Брендовое название:** «Уездный кондитер» (шрифт TriodPostnaja Medium)
+   896→- **Заголовки:** Brokgauz & Efron Italic (энциклопедическая антиква)
+   897→- **Body:** Geist Sans
+   898→- **Скрипт (рукописный):** Neucha
+   899→
+   900→### Палитра
+   901→```css
+   902→--primary: #8B2942;        /* тёмно-ягодный (бренд) */
+   903→--primary-foreground: #FFFFFF;
+   904→--accent: #D97706;         /* амбер (акценты, CTA) */
+   905→--background: #FFFFFF;
+   906→--foreground: #1F2937;     /* slate-800 */
+   907→--muted: #F3F4F6;          /* slate-100 */
+   908→--muted-foreground: #6B7280; /* slate-500 */
+   909→--border: #E5E7EB;         /* slate-200 */
+   910→--destructive: #DC2626;    /* red-600 */
+   911→--success: #16A34A;        /* green-600 */
+   912→--warning: #F59E0B;        /* amber-500 */
+   913→```
+   914→
+   915→### Страницы (26 публичных + 5 дашбордов)
+   916→
+   917→**Публичные страницы:**
+   918→1. `/` — главная
+   919→2. `/catalog` — каталог с фильтрами
+   920→3. `/catalog/[id]` — карточка товара
+   921→4. `/confectioners` — список кондитеров
+   922→5. `/confectioners/[id]` — профиль кондитера
+   923→6. `/recipes` — рецепты
+   924→7. `/recipes/[id]` — детально
+   925→8. `/blog` — блог
+   926→9. `/faq`, `/help`, `/about`, `/contacts`, `/reviews`
+   927→10. `/checkout` — оформление
+   928→11. `/promotions`, `/ready-made`, `/tenders`, `/corporate-events`
+   929→12. `/decor-shop`, `/services-shop`, `/supplier-shop`, `/gift-certificates`
+   930→13. `/map` — карта кондитеров
+   931→14. `/gift-ideas` — идеи подарков
+   932→15. `/handmade` — ручная работа
+   933→16. Легальные: `/about?legal=terms|privacy|consent|cookies`
+   934→
+   935→**Дашборды (5):**
+   936→- `/dashboard` → редирект по роли (CUSTOMER, CONFECTIONER, SUPPLIER, COURIER, ADMIN)
+   937→
+   938→---
+   939→
+   940→## 🌐 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
+   941→
+   942→```bash
+   943→# .env (dev)
+   944→NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000
+   945→NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
+   946→SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...    # только server-side
+   947→NEXT_PUBLIC_APP_URL=http://localhost:3000
+   948→NEXT_PUBLIC_APP_NAME=Уездный кондитер
+   949→
+   950→YOOKASSA_API_URL=https://api.yookassa.ru/v3
+   951→YOOKASSA_SHOP_ID=123456
+   952→YOOKASSA_SECRET_KEY=test_XXXX
+   953→
+   954→TELEGRAM_BOT_TOKEN=123456:ABC-DEF
+   955→TELEGRAM_CHANNEL_ID=@conditera
+   956→TELEGRAM_ADMIN_CHAT_IDS=123456789
+   957→
+   958→SMTP_HOST=smtp.mailgun.org
+   959→SMTP_USER=postmaster@...
+   960→SMTP_PASSWORD=...
+   961→SMTP_FROM=Кондитерский маркетплейс <noreply@conditera.ru>
+   962→
+   963→NEXT_PUBLIC_YANDEX_METRIKA_ID=111432662
+   964→NEXT_PUBLIC_YANDEX_MAPS_API_KEY=your_api_key
+   965→NEXT_PUBLIC_YANDEX_GEOCODER_KEY=your_geocoder_key
+   966→```
+   967→
+   968→---
+   969→
+   970→## 📁 СТРУКТУРА ПРОЕКТА
+   971→
+   972→```
+   973→/home/z/my-project/
+   974→├── docker-compose.yml              # Единый Docker-стек (Supabase + Next.js + Caddy)
+   975→├── docker-compose.dev.yml          # Dev: только Next.js + remote Supabase
+   976→├── Dockerfile                      # Multi-stage Next.js (deps → build → runner)
+   977→├── Dockerfile.bot                  # Telegram-бот (Deno)
+   978→├── Caddyfile                       # Reverse proxy + health-check
+   979→├── next.config.ts                  # Без experimental, без watchOptions
+   980→├── package.json
+   981→├── tsconfig.json
+   982→├── tailwind.config.ts
+   983→├── .env                            # Dev env
+   984→├── .env.production                 # Prod env (в .gitignore)
+   985→├── .env.example                    # Шаблон
+   986→│
+   987→├── src/
+   988→│   ├── app/                        # Next.js App Router
+   989→│   │   ├── page.tsx                # Главная
+   990→│   │   ├── layout.tsx              # Root: шрифты, Toaster, JsonLd
+   991→│   │   ├── dashboard/              # Личные кабинеты
+   992→│   │   │   ├── page.tsx            # Редирект по роли
+   993→│   │   │   ├── customer/           # Покупатель
+   994→│   │   │   ├── confectioner/       # Кондитер
+   995→│   │   │   ├── supplier/           # Поставщик
+   996→│   │   │   ├── courier/            # Курьер
+   997→│   │   │   └── admin/              # Админ
+   998→│   │   ├── catalog/                # Каталог
+   999→│   │   ├── confectioners/          # Кондитеры
+  1000→│   │   ├── recipes/                # Рецепты
+  1001→│   │   ├── tenders/                # Тендеры
+  1002→│   │   ├── map/                    # Карта кондитеров
+  1003→│   │   ├── reviews/                # Отзывы
+  1004→│   │   ├── checkout/               # Оформление заказа
+  1005→│   │   ├── gift-ideas/             # Подарки
+  1006→│   │   ├── handmade/               # Ручная работа
+  1007→│   │   └── api/                    # 58+ route handlers
+  1008→│   │       ├── auth/               # Аутентификация
+  1009→│   │       ├── products/           # Товары
+  1010→│   │       ├── orders/             # Заказы
+  1011→│   │       ├── tenders/            # Тендеры
+  1012→│   │       ├── chat/               # Чат
+  1013→│   │       ├── map/                # Карта
+  1014→│   │       ├── crm/                # CRM
+  1015→│   │       ├── cms/                # CMS
+  1016→│   │       ├── payment/            # Платежи
+  1017→│   │       ├── telegram/           # Telegram
+  1018→│   │       ├── admin/              # Администрирование
+  1019→│   │       └── confectioner/       # Кондитер (дашборд API)
+  1020→│   │
+  1021→│   ├── components/                 # React компоненты
+  1022→│   │   ├── layout/                 # Header, Footer, AuthModal
+  1023→│   │   ├── dashboard/              # Дашборды (5 ролей)
+  1024→│   │   ├── cake-builder/           # Конструктор (8 шагов, 930 строк)
+  1025→│   │   ├── marketplace/            # Cart, checkout, product cards
+  1026→│   │   ├── tenders/                # Тендеры
+  1027→│   │   ├── map/                    # Карта
+  1028→│   │   ├── chat/                   # Чат
+  1029→│   │   ├── reviews/                # Отзывы
+  1030→│   │   ├── admin/                  # Админ-панель
+  1031→│   │   │   ├── design/             # Управление дизайном
+  1032→│   │   │   ├── crm/                # CRM
+  1033→│   │   │   └── cms/                # CMS
+  1034→│   │   ├── cake-slice/             # 3D-превью среза торта
+  1035→│   │   └── ui/                     # shadcn/ui компоненты
+  1036→│   │
+  1037→│   ├── lib/
+  1038→│   │   ├── supabase/               # browser, server, admin клиенты
+  1039→│   │   ├── auth/                   # getSession, requireRole
+  1040→│   │   ├── realtime/               # useChat, useNotifications hooks
+  1041→│   │   ├── storage/                # uploadAvatar, getProductImage
+  1042→│   │   ├── validation/             # Zod-схемы
+  1043→│   │   ├── finance/                # Расчёт цен, доставка, налоги
+  1044→│   │   ├── pricing/                # Ценовой движок
+  1045→│   │   ├── ai/                     # AI-помощник
+  1046→│   │   ├── repositories/           # Слой доступа к данным
+  1047→│   │   └── services/               # Бизнес-логика
+  1048→│   │
+  1049→│   ├── types/                      # TypeScript типы (из Supabase schema)
+  1050→│   ├── middleware.ts               # Refresh Supabase session
+  1051→│   └── styles/globals.css
+  1052→│
+  1053→├── supabase/
+  1054→│   ├── config.toml
+  1055→│   ├── migrations/                 # SQL миграции
+  1056→│   │   ├── 0001_init.sql           # Все таблицы
+  1057→│   │   ├── 0002_rls.sql            # RLS политики
+  1058→│   │   ├── 0003_functions.sql      # Триггеры, scheduled jobs
+  1059→│   │   ├── 0004_fts.sql            # Full Text Search
+  1060→│   │   ├── 0005_seed.sql           # Seed данные
+  1061→│   │   ├── 0006_hybrid_migration.sql # FDW на старую БД
+  1062→│   │   ├── 0007_cake_builder.sql   # Конструктор тортов
+  1063→│   │   ├── 0008_tenders.sql        # Тендеры
+  1064→│   │   └── 0009_video.sql          # Видео в карточках товаров
+  1065→│   ├── functions/                  # Edge Functions (Deno)
+  1066→│   │   ├── telegram-webhook/
+  1067→│   │   ├── send-notification/
+  1068→│   │   ├── abandoned-cart/
+  1069→│   │   ├── bonus-expiry/
+  1070→│   │   ├── daily-digest/
+  1071→│   │   ├── chat-notification/
+  1072→│   │   ├── send-email/
+  1073→│   │   ├── send-push/
+  1074→│   │   ├── auto-close-tenders/
+  1075→│   │   └── tasting-reminder/
+  1076→│   └── seed.sql
+  1077→│
+  1078→├── scripts/
+  1079→│   ├── health-check.sh             # Curl всех 58 API
+  1080→│   ├── backup.sh                   # Backup БД
+  1081→│   ├── setup-secrets.sh            # GitHub Secrets из .env.production
+  1082→│   └── generate-tz.js              # Генерация ТЗ документа
+  1083→│
+  1084→├── public/                         # Статика (fonts, images, icons)
+  1085→├── docs/                           # Документация
+  1086→└── .github/workflows/
+  1087→    └── deploy.yml                  # CI/CD: build → SSH → docker compose
+  1088→```
+  1089→
+  1090→---
+  1091→
+  1092→## 🚀 ПЛАН МИГРАЦИИ (14 дней)
+  1093→
+  1094→### Этап 1: Setup Supabase (дни 1-2)
+  1095→- Docker-стек, генерация ключей
+  1096→- Конвертация schema.prisma → SQL миграции
+  1097→- Применение миграций (162 таблицы)
+  1098→- RLS-политики
+  1099→
+  1100→### Этап 2: Auth + Profile (дни 3-4)
+  1101→- supabase-js + @supabase/ssr
+  1102→- AuthModal (email+pass, OAuth, Magic Link)
+  1103→- AvatarUpload через Supabase Storage
+  1104→- ProfileSettings (смена пароля, 2FA)
+  1105→- RoleSwitcher
+  1106→
+  1107→### Этап 3: Marketplace (дни 5-6)
+  1108→- Каталог + карточка + корзина + заказ + оплата
+  1109→- Webhook от Yookassa
+  1110→- FTS поиск через tsvector + GIN
+  1111→- Видео в карточках товаров
+  1112→
+  1113→### Этап 4: Cake Builder + Chat (дни 7-8)
+  1114→- Конструктор тортов (8 шагов, 930 строк)
+  1115→- 3D-превью среза через FillingSlicePreview
+  1116→- Запрос скидки (0-30%)
+  1117→- Inquiries + Negotiations
+  1118→- Чат через Supabase Realtime (postgres_changes)
+  1119→- Typing indicator, presence, unread count
+  1120→
+  1121→### Этап 5: Тендеры + Карта (дни 9-10)
+  1122→- Тендерная площадка (создание, предложения, выбор победителя)
+  1123→- Карта с Яндекс Картами (поиск по локации, фильтры)
+  1124→- Интеграция геоданных в календарь
+  1125→
+  1126→### Этап 6: Dashboards + CRM + CMS (дни 11-12)
+  1127→- 5 дашбордов (Customer, Confectioner, Supplier, Courier, Admin)
+  1128→- CRM (клиентская база, тикеты, лиды, timeline)
+  1129→- CMS (страницы, баннеры, навигация, медиатека)
+  1130→- Управление дизайном (цвета, шрифты, макет)
+  1131→
+  1132→### Этап 7: Автоматизация + Тестирование (дни 13-14)
+  1133→- Edge Functions (telegram-webhook, abandoned-cart, daily-digest, bonus-expiry)
+  1134→- pg_cron расписание
+  1135→- 300+ unit-тестов, 20 e2e сценариев
+  1136→- health-check.sh (curl всех 58 API)
+  1137→- GitHub Actions: build → SSH → docker compose up
+  1138→- Production деплой https://conditera.ru
+  1139→
+  1140→---
+  1141→
+  1142→## ✅ КРИТЕРИИ ПРИЁМКИ
+  1143→
+  1144→### 1. Unit-тесты (≥300 тестов)
+  1145→- Auth (30), Marketplace (50), Cake Builder (20), Chat (15), CRM (20), CMS (15)
+  1146→- Finance (30), Validation (50), Security (20), Utils (50)
+  1147→
+  1148→### 2. E2E тесты Playwright (≥20 сценариев)
+  1149→- Регистрация+логин, OAuth Google, покупка товара, конструктор торта
+  1150→- Чат, тикет, Kanban, CMS, админ-панель, Telegram уведомление
+  1151→- Mobile responsive, security headers, CSRF, rate limiting, realtime chat
+  1152→- Search, favorites, avatar upload, order status flow, payouts
+  1153→- Видео в карточках товаров, 3D-превью среза
+  1154→
+  1155→### 3. Health-check скрипт
+  1156→`scripts/health-check.sh` — curl всех 58 API endpoints, отчёт в Markdown. Минимум 95% endpoints должны вернуть 200 или ожидаемые 4xx.
+  1157→
+  1158→### 4. Ручное тестирование + скриншоты
+  1159→- Полный цикл: регистрация → покупка → конструктор → чат → дашборды → CRM → CMS
+  1160→- Скриншоты всех ключевых экранов в `/home/z/my-project/download/screenshots/`
+  1161→
+  1162→### 5. Критерии успеха
+  1163→- `docker compose up -d` разворачивает всё за ≤5 минут без ошибок
+  1164→- Все 26 публичных страниц возвращают HTTP 200
+  1165→- Все 58 API endpoints возвращают HTTP 200 или ожидаемые 4xx (не 500)
+  1166→- Полный цикл: регистрация → заказ → оплата → уведомление в Telegram
+  1167→- Потребление RAM всем стеком ≤2 GB
+  1168→- Время cold start полного стека ≤30 секунд
+  1169→- **Нет импортов из `@prisma/client`**
+  1170→
+  1171→---
+  1172→
+  1173→## 🚨 ВАЖНЫЕ ПРАВИЛА ДЛЯ РАЗРАБОТЧИКА
+  1174→
+  1175→1. **Брендовое название** всегда «Уездный кондитер» — не «Кондитера», не «Уездный».
+  1176→2. **Домен** всегда `conditera.ru` — не `uyezdny.ru`.
+  1177→3. **Запрещены** Prisma, SQLite, Socket.IO, Redis, n8n, Meilisearch.
+  1178→4. **Все таблицы с user data** должны иметь RLS-политики.
+  1179→5. **Все API endpoints** типизированы через `src/types/supabase.ts`.
+  1180→6. **Все формы** валидируются через Zod-схемы.
+  1181→7. **Все финансовые операции** логируются в `FinancialAuditLog`.
+  1182→8. **Backup** БД каждый день в 3:00 MSK.
+  1183→9. **Деплой** только через GitHub Actions.
+  1184→10. **Скриншоты** после каждого этапа — обязательны.
+  1185→11. **Проверка на каждом шаге**: unit-тесты + e2e + health-check + скриншоты.
+  1186→12. **Конструктор тортов** должен быть реализован полностью по описанию (8 шагов, 3D-превью, запрос скидки).
+  1187→
+  1188→---
+  1189→
+  1190→## 🎯 С ЧЕГО НАЧАТЬ
+  1191→
+  1192→1. Прочитай этот промпт полностью
+  1193→2. Создай структуру проекта по файловой структуре выше
+  1194→3. Настрой Docker-стек (docker-compose.yml)
+  1195→4. Примени миграции Supabase
+  1196→5. Начни с **Этапа 1** (Setup Supabase)
+  1197→6. После каждого этапа — обновляй `worklog.md`
+  1198→
+  1199→---
+  1200→
+  1201→**⚠️ ВАЖНО: Если AI использует Prisma в коде — это критическая ошибка. Немедленно остановить разработку и потребовать переписать код на supabase-js.**

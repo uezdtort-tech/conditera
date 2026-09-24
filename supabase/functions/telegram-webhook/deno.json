@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "supabase/": "https://deno.land/x/supabase-functions/",
+    "@supabase/": "https://esm.sh/@supabase/"
+  },
+  "scopes": {}
+}

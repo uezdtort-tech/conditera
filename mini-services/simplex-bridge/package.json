@@ -1,0 +1,17 @@
+{
+  "name": "conditera-simplex-bridge",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "axios": "^1.7.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "@types/node": "^22.0.0"
+  }
+}

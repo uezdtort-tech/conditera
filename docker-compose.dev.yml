@@ -1,0 +1,116 @@
+# ===== Docker Compose для dev-режима =====
+# Запуск: docker-compose -f docker-compose.dev.yml up -d
+#
+# Включает: PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n
+# Next.js запускается отдельно через `npm run dev:local`
+
+version: "3.8"
+
+services:
+  # ===== PostgreSQL 18 (dev) =====
+  # ВАЖНО: postgres:18-alpine — актуальный major release.
+  # Старый volume uyezdny-db-dev-data мог содержать данные от PG16/17 —
+  # если контейнер падает с ошибкой "PG_VERSION mismatch", удалите volume:
+  #   docker-compose -f docker-compose.dev.yml down
+  #   docker volume rm uyezdny_uyezdny-db-dev-data
+  #   docker-compose -f docker-compose.dev.yml up -d
+  db-dev:
+    image: postgres:18-alpine
+    container_name: uyezdny-db-dev
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: uyezdny
+      POSTGRES_PASSWORD: uyezdny_dev_pass
+      POSTGRES_DB: uyezdny_konditer_dev
+    volumes:
+      - uyezdny-db-dev-data-v18:/var/lib/postgresql/data
+      # Mount migrations & seeds so init script can apply them.
+      # NOTE: files in /docker-entrypoint-initdb.d/ run only on FIRST init
+      # (when data volume is empty). For re-runs use ./scripts/init-db.sh.
+      - ./supabase/migrations:/migrations:ro
+      - ./supabase/seed.sql:/seeds/01-seed.sql:ro
+      - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
+      - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/01-apply-migrations.sh:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uyezdny -d uyezdny_konditer_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===== Redis (для сессий/кэша/rate-limiting) =====
+  redis-dev:
+    image: redis:7-alpine
+    container_name: uyezdny-redis-dev
+    ports:
+      - "6380:6379"
+    restart: unless-stopped
+
+  # ===== Meilisearch (полнотекстовый поиск) =====
+  meilisearch-dev:
+    image: getmeili/meilisearch:v1.12
+    container_name: uyezdny-meilisearch-dev
+    ports:
+      - "7700:7700"
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: dev_meili_key_32_chars_min_aaaaaa
+      MEILI_DB_PATH: /meili_data
+    volumes:
+      - uyezdny-meili-dev-data:/meili_data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ===== Mailpit (почтовый сервер для dev — перехват писем) =====
+  mailpit-dev:
+    image: axllent/mailpit:latest
+    container_name: uyezdny-mailpit-dev
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI (просмотр писем в браузере)
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    restart: unless-stopped
+
+  # ===== n8n (автоматизация: брошенная корзина, дайджест, бонусы, AI) =====
+  n8n-dev:
+    image: n8nio/n8n:latest
+    container_name: uyezdny-n8n-dev
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Europe/Moscow
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=admin
+      - N8N_ENCRYPTION_KEY=dev_n8n_encryption_key_32_chars
+      # App URL для cron-задач (URL нашего Next.js API)
+      - APP_URL=http://host.docker.internal:3000
+      # CRON_SECRET для авторизации cron-API запросов
+      - CRON_SECRET=dev_cron_secret_change_me_24chars
+      # AI / LLM settings (Ollama / LM Studio)
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - LM_STUDIO_HOST=http://host.docker.internal:1234
+      - LLM_MODEL=qwen2.5:7b
+    volumes:
+      - uyezdny-n8n-dev-data:/home/node/.n8n
+      - ./n8n-workflows:/imports
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  uyezdny-db-dev-data-v18:
+  uyezdny-meili-dev-data:
+  uyezdny-n8n-dev-data:

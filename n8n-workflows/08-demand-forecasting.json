@@ -1,0 +1,151 @@
+{
+  "name": "📈 Прогноз спроса — недельный анализ по категориям и сезонам",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-weekly",
+      "name": "Каждый понедельник 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Готовим параметры прогноза: период анализа, горизонт, категории.\nconst now = new Date();\nconst lookbackDays = 365; // история за год\nconst horizonDays = 30;   // прогноз на 30 дней\nconst categories = ['cakes', 'cupcakes', 'bento', 'desserts', 'gift_sets', 'services'];\nconst seasons = ['winter', 'spring', 'summer', 'autumn'];\nconst month = now.getMonth() + 1;\nconst currentSeason = (month >= 12 || month <= 2) ? 'winter' : (month <= 5 ? 'spring' : (month <= 8 ? 'summer' : 'autumn'));\n\nreturn [{\n  json: {\n    event: 'demand_forecast',\n    lookbackDays,\n    horizonDays,\n    categories,\n    seasons,\n    currentSeason,\n    forecastDate: now.toISOString(),\n    holidays: ['new_year', 'valentine', 'mar8', 'may9'].filter(h => true)\n  }\n}];"
+      },
+      "id": "prepare-forecast-params",
+      "name": "Подготовить параметры прогноза",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"demand_forecast\",\n  \"data\": {\n    \"lookbackDays\": {{ $json.lookbackDays }},\n    \"horizonDays\": {{ $json.horizonDays }},\n    \"categories\": {{ JSON.stringify($json.categories) }},\n    \"currentSeason\": \"{{ $json.currentSeason }}\",\n    \"forecastDate\": \"{{ $json.forecastDate }}\",\n    \"holidays\": {{ JSON.stringify($json.holidays) }}\n  }\n}",
+        "timeout": 300000,
+        "options": {}
+      },
+      "id": "send-forecast-request",
+      "name": "Запросить прогноз у приложения",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"demand-forecasting\",\n  \"status\": \"success\",\n  \"categoriesAnalyzed\": {{ ($json.categories || []).length }},\n  \"horizonDays\": {{ $json.horizonDays || 30 }},\n  \"currentSeason\": \"{{ $json.currentSeason }}\"\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Каждый понедельник 06:00": {
+      "main": [
+        [
+          {
+            "node": "Подготовить параметры прогноза",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подготовить параметры прогноза": {
+      "main": [
+        [
+          {
+            "node": "Запросить прогноз у приложения",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Запросить прогноз у приложения": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "analytics"
+    },
+    {
+      "name": "forecasting"
+    }
+  ],
+  "id": "c8ad619c-82a3-55d8-a0fa-d42b6cd2b30c"
+}

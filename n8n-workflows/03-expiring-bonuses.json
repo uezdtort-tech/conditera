@@ -1,0 +1,187 @@
+{
+  "name": "⏰ Сгорание бонусов — напоминание за 14 дней",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "trigger-daily",
+      "name": "Ежедневно 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.APP_URL }}/api/cron/expiring-bonuses",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-expiring",
+      "name": "Найти пользователей со сгорающими баллами",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "users",
+        "options": {}
+      },
+      "id": "split-users",
+      "name": "Разделить по пользователям",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/notifications/send",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"BONUS_EXPIRING\",\n  \"vars\": {\n    \"points\": {{ $json.points }},\n    \"expiresAt\": \"{{ $json.expiresAt }}\"\n  },\n  \"channels\": [\"email\", \"push\", \"in_app\"],\n  \"data\": { \"type\": \"bonus_expiring\", \"points\": {{ $json.points }} }\n}",
+        "options": {}
+      },
+      "id": "send-reminder",
+      "name": "Отправить напоминание",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"expiring-bonuses\",\n  \"status\": \"success\",\n  \"notified\": {{ $node[\"Разделить по пользователям\"].items.length }},\n  \"totalPoints\": {{ $node[\"Найти пользователей со сгорающими баллами\"].json.totalPoints }}\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус выполнения",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Ежедневно 09:00": {
+      "main": [
+        [
+          {
+            "node": "Найти пользователей со сгорающими баллами",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Найти пользователей со сгорающими баллами": {
+      "main": [
+        [
+          {
+            "node": "Разделить по пользователям",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разделить по пользователям": {
+      "main": [
+        [
+          {
+            "node": "Отправить напоминание",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить напоминание": {
+      "main": [
+        [
+          {
+            "node": "Записать статус выполнения",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "loyalty"
+    },
+    {
+      "name": "retention"
+    }
+  ],
+  "id": "de7829e3-16e6-5567-96ce-67fa9fb4967e"
+}

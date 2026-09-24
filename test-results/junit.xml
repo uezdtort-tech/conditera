@@ -1,0 +1,32 @@
+<testsuites id="" name="" tests="14" failures="0" skipped="0" errors="0" time="82.530722">
+<testsuite name="auth-flow.spec.ts" timestamp="2026-08-21T08:13:22.611Z" hostname="chromium" tests="14" failures="0" skipped="0" time="0.642" errors="0">
+<testcase name="Auth flow — register/login (exempt от CSRF) › POST /api/auth/register без полей → 400-500 (exempt от CSRF)" classname="auth-flow.spec.ts" time="0.359">
+</testcase>
+<testcase name="Auth flow — register/login (exempt от CSRF) › POST /api/auth/register с коротким паролем → 400-500" classname="auth-flow.spec.ts" time="0.02">
+</testcase>
+<testcase name="Auth flow — register/login (exempt от CSRF) › POST /api/auth/login без email/password → 400-500" classname="auth-flow.spec.ts" time="0.017">
+</testcase>
+<testcase name="Auth flow — register/login (exempt от CSRF) › POST /api/auth/refresh без refreshToken → 400" classname="auth-flow.spec.ts" time="0.025">
+</testcase>
+<testcase name="Auth flow — register/login (exempt от CSRF) › POST /api/auth/refresh с невалидным refreshToken → 401" classname="auth-flow.spec.ts" time="0.021">
+</testcase>
+<testcase name="Auth flow — 2FA (setup/verify/disable требуют CSRF) › POST /api/auth/2fa/setup без CSRF → 403" classname="auth-flow.spec.ts" time="0.022">
+</testcase>
+<testcase name="Auth flow — 2FA (setup/verify/disable требуют CSRF) › POST /api/auth/2fa/verify без CSRF → 403" classname="auth-flow.spec.ts" time="0.076">
+</testcase>
+<testcase name="Auth flow — 2FA (setup/verify/disable требуют CSRF) › POST /api/auth/2fa/disable без CSRF → 403" classname="auth-flow.spec.ts" time="0.012">
+</testcase>
+<testcase name="Auth flow — 2FA (setup/verify/disable требуют CSRF) › POST /api/auth/2fa/login-verify без tfaTempToken → 400 (exempt)" classname="auth-flow.spec.ts" time="0.012">
+</testcase>
+<testcase name="Auth flow — 2FA (setup/verify/disable требуют CSRF) › POST /api/auth/2fa/login-verify без code и backupCode → 400" classname="auth-flow.spec.ts" time="0.013">
+</testcase>
+<testcase name="Auth flow — 2FA (setup/verify/disable требуют CSRF) › POST /api/auth/2fa/login-verify с невалидным tfaTempToken → 401" classname="auth-flow.spec.ts" time="0.017">
+</testcase>
+<testcase name="Auth flow — session &amp; logout › GET /api/auth/session без авторизации → 401/307/200" classname="auth-flow.spec.ts" time="0.015">
+</testcase>
+<testcase name="Auth flow — session &amp; logout › POST /api/auth/logout без CSRF → 403" classname="auth-flow.spec.ts" time="0.01">
+</testcase>
+<testcase name="Auth flow — health endpoint › GET /api/health возвращает status &quot;ok&quot; или &quot;degraded&quot;" classname="auth-flow.spec.ts" time="0.023">
+</testcase>
+</testsuite>
+</testsuites>

@@ -1,0 +1,70 @@
+# Dependabot configuration — авто-PR для обновления зависимостей
+# Документация: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+  # ===== npm dependencies =====
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"       # раз в неделю
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Moscow"
+    open-pull-requests-limit: 10
+    target-branch: "develop"
+    labels:
+      - "dependencies"
+      - "npm"
+    # Группируем minor/patch обновления в один PR
+    groups:
+      # Minor + patch обновления идут в один PR
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      # Major обновления — отдельные PR (могут ломать совместимость)
+      major:
+        update-types:
+          - "major"
+    # Игнорируем пакеты, которые требуют ручного обновления
+    ignore:
+      # Next.js major — ручное обновление (нужна проверка совместимости)
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      # Prisma — major обновления требуют миграций схемы
+      - dependency-name: "prisma"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@prisma/client"
+        update-types: ["version-update:semver-major"]
+      # React 19 — major обновление требует проверки всех компонентов
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "deps(npm)"
+      include: "scope"
+
+  # ===== Docker images =====
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "deps(docker)"
+
+  # ===== GitHub Actions =====
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "deps(ci)"

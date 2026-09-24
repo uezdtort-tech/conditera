@@ -1,0 +1,174 @@
+{
+  "name": "🔄 CRM-интеграция — экспорт клиентов и заказов",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Каждые 6 часов",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Готовим запрос на синхронизацию с внешней CRM.\n// Передаём дату последней синхронизации, чтобы получить только новые/изменённые записи.\nconst lastSyncAt = $getWorkflowStaticData('global').lastSyncAt || new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();\nreturn [{\n  json: {\n    event: 'crm_sync',\n    since: lastSyncAt,\n    requestedAt: new Date().toISOString(),\n    entities: ['customers', 'orders', 'payouts']\n  }\n}];"
+      },
+      "id": "prepare-payload",
+      "name": "Подготовить payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"crm_sync\",\n  \"data\": {\n    \"since\": \"{{ $json.since }}\",\n    \"requestedAt\": \"{{ $json.requestedAt }}\",\n    \"entities\": {{ JSON.stringify($json.entities) }}\n  }\n}",
+        "options": {}
+      },
+      "id": "send-webhook",
+      "name": "Отправить в CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cron-Secret",
+              "value": "={{ $env.CRON_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"workflow\": \"crm-integration\",\n  \"status\": \"success\",\n  \"syncedCustomers\": {{ $json.syncedCustomers || 0 }},\n  \"syncedOrders\": {{ $json.syncedOrders || 0 }},\n  \"since\": \"{{ $node[\"Подготовить payload\"].json.since }}\"\n}",
+        "options": {}
+      },
+      "id": "log-status",
+      "name": "Записать статус",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Сохраняем дату последней синхронизации для следующего запуска.\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lastSyncAt = new Date().toISOString();\nreturn [{ json: { ok: true } }];"
+      },
+      "id": "save-checkpoint",
+      "name": "Сохранить checkpoint",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Каждые 6 часов": {
+      "main": [
+        [
+          {
+            "node": "Подготовить payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подготовить payload": {
+      "main": [
+        [
+          {
+            "node": "Отправить в CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить в CRM": {
+      "main": [
+        [
+          {
+            "node": "Записать статус",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Записать статус": {
+      "main": [
+        [
+          {
+            "node": "Сохранить checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "integration"
+    },
+    {
+      "name": "crm"
+    }
+  ],
+  "id": "7b608dfd-9614-5f72-b7c2-cf0c166e2cbd"
+}

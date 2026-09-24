@@ -1,0 +1,3419 @@
+// Prisma schema for "Уездный кондитер" marketplace
+// PostgreSQL — real production database (also runs locally via PGlite WASM adapter)
+//
+// ВАЖНО: Начиная с Prisma v7, URL datasource берётся из prisma/prisma.config.ts.
+// В schema.prisma остаётся только указание провайдера БД.
+// См. https://www.prisma.io/docs/orm/prisma-schema/overview/data-sources
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===== РОЛИ (enum) =====
+// ТЗ v3.45: 22 роли + доп. роли для расширенной схемы
+enum UserRole {
+  // Базовые роли
+  CUSTOMER
+  CONFECTIONER
+  ADMIN
+  SUPER_ADMIN
+  COURIER
+  SUPPLIER
+  VENUE_OWNER
+  ANIMATOR_AGENCY
+  RECREATION_CENTER
+  KIDS_CLUB
+  // Расширенные роли (ТЗ v3.45)
+  GUEST
+  MODERATOR
+  SUPPORT
+  STUDIO
+  BLOGGER
+  TASTER
+  FRANCHISEE
+  NUTRITIONIST
+  CORPORATE_CLIENT
+  QUALITY_INSPECTOR
+  CERTIFICATION_AGENT
+  COPYWRITER
+  FOOD_SERVICE
+  EVENT_ORGANIZER
+  PICKUP_POINT
+  WHOLESALER
+}
+
+enum LoyaltyLevel {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum AccountType {
+  individual
+  legal
+}
+
+enum TrustLevel {
+  NEW
+  VERIFIED
+  MASTER
+  EXPERT
+}
+
+enum Tariff {
+  START
+  BASIC
+  PREMIUM
+  BUSINESS
+}
+
+enum TaxMode {
+  NPD
+  USN
+  OSNO
+  PSN
+  SELF_EMPLOYED
+}
+
+enum OrderStatus {
+  PENDING
+  NEGOTIATING
+  CONFIRMED
+  PREPARING
+  READY
+  IN_DELIVERY
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  pending
+  waiting_for_capture
+  succeeded
+  escrow
+  released
+  cancelled
+  refunded
+}
+
+enum PaymentMethod {
+  card
+  sbp
+  cash
+  split
+  installment
+  yookassa
+  self
+}
+
+enum LoyaltyTxType {
+  EARN
+  REDEEM
+  EXPIRE
+  REFUND
+  ADJUST
+  BONUS_WELCOME
+  BONUS_BIRTHDAY
+  BONUS_REFERRAL
+}
+
+enum NotificationChannel {
+  email
+  sms
+  push
+  in_app
+  telegram
+}
+
+enum NotificationStatus {
+  queued
+  sent
+  delivered
+  failed
+  read
+  dismissed
+}
+
+enum NotificationTemplate {
+  ORDER_CREATED
+  ORDER_CONFIRMED
+  ORDER_STATUS_CHANGED
+  ORDER_ACCEPTED
+  ORDER_IN_PRODUCTION
+  ORDER_READY
+  ORDER_READY_FOR_PICKUP
+  ORDER_OUT_FOR_DELIVERY
+  ORDER_RECEIVED
+  ORDER_DELIVERED
+  ORDER_CANCELLED
+  PAYMENT_SUCCEEDED
+  PAYMENT_PARTIAL
+  PAYMENT_FAILED
+  REFUND_PROCESSED
+  NEGOTIATION_RECEIVED
+  NEGOTIATION_QUOTED
+  NEGOTIATION_APPROVED
+  NEGOTIATION_REJECTED
+  NEW_MESSAGE
+  NEW_REVIEW
+  REVIEW_REPLY
+  BONUS_EARNED
+  BONUS_EXPIRING
+  LEVEL_UP
+  BIRTHDAY_GREETING
+  REFERRAL_REWARDED
+  PROMO_NEAR_YOU
+  ABANDONED_CART
+  VERIFICATION_APPROVED
+  VERIFICATION_REJECTED
+  PAYOUT_PROCESSED
+  SUPPORT_REPLY
+}
+
+// ===== ПОЛЬЗОВАТЕЛИ =====
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  passwordHash   String
+  name           String
+  phone          String?
+  avatar         String?
+  roles          UserRole[]   @default([CUSTOMER])
+  accountType    AccountType  @default(individual)
+  legalInfo      Json?
+  city           String?
+  loyaltyLevel   LoyaltyLevel @default(BRONZE)
+  bonusBalance   Int          @default(0)
+  isBlocked      Boolean      @default(false)
+  blockedReason  String?
+  // 2FA / TOTP
+  tfaSecret      String? // base32-секрет для TOTP (шифрованный)
+  tfaEnabled     Boolean      @default(false)
+  tfaBackupCodes String[]     @default([]) // хэши backup-кодов
+  tfaRequiredFor String[]     @default([]) // ["payout", "login", "settings"]
+  // Anti-fraud: последний IP входа
+  lastLoginIp    String?
+  lastLoginAt    DateTime?
+  // Bot-flag: системный пользователь-бот (auto-chat assistant)
+  isBot          Boolean      @default(false)
+  botRole        String? // "order_assistant" | "support" | "faq"
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  confectioner     Confectioner?
+  orders           Order[]
+  cartItems        CartItem[]
+  reviews          Review[]
+  chatMessages     ChatMessage[]
+  promotions       Promotion[]
+  recipes          Recipe[]
+  referrals        Referral?
+  giftCertsFrom    GiftCertificate[]          @relation("fromUser")
+  giftCertsTo      GiftCertificate[]          @relation("toUser")
+  holidays         UserHoliday[]
+  videoReviews     VideoReview[]
+  loyaltyTxs       LoyaltyTransaction[]
+  notifications    Notification[]
+  notifyPrefs      NotificationPreferences?
+  orgVerifications OrganizationVerification[]
+  simplexContacts  SimpleXContact[]
+
+  @@index([city])
+  @@index([isBlocked])
+  @@map("users")
+}
+
+// ===== ПРЕДПОЧТЕНИЯ УВЕДОМЛЕНИЙ =====
+model NotificationPreferences {
+  userId          String  @id
+  emailEnabled    Boolean @default(true)
+  smsEnabled      Boolean @default(false)
+  pushEnabled     Boolean @default(true)
+  telegramEnabled Boolean @default(false)
+  inAppEnabled    Boolean @default(true)
+
+  // Per-category opt-ins (all default true)
+  orderUpdates   Boolean @default(true)
+  paymentUpdates Boolean @default(true)
+  promos         Boolean @default(true)
+  messages       Boolean @default(true)
+  reviews        Boolean @default(true)
+  loyalty        Boolean @default(true)
+  abandonedCart  Boolean @default(true)
+  digest         Boolean @default(true)
+
+  // Quiet hours (e.g. 22:00–09:00 — messages queued, not sent)
+  quietHoursStart Int    @default(22)
+  quietHoursEnd   Int    @default(9)
+  timezone        String @default("Europe/Moscow")
+
+  // Frequency caps
+  maxPerDay Int @default(20)
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+// ===== ЛОЯЛЬНОСТЬ: ТРАНЗАКЦИИ =====
+model LoyaltyTransaction {
+  id           String        @id @default(cuid())
+  userId       String
+  type         LoyaltyTxType
+  points       Int // positive for EARN, negative for REDEEM/EXPIRE
+  balanceAfter Int
+  description  String
+  orderId      String?
+  amount       Int? // сумма заказа (в копейках)
+  multiplier   Float?
+  expiresAt    DateTime? // для бонусов с сроком действия
+  createdAt    DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([expiresAt])
+  @@map("loyalty_transactions")
+}
+
+// ===== GAMIFICATION: Бейджи =====
+// Бейдж — достижение, которое пользователь получает за определённое действие.
+// Например: "Первый заказ", "5 заказов за месяц", "Отзыв на 5 звёзд".
+model Badge {
+  id           String   @id @default(cuid())
+  code         String   @unique // "first_order", "five_orders_month", "review_5star"
+  name         String // "Первый заказ"
+  description  String // "Вы оформили свой первый заказ!"
+  icon         String // emoji или имя lucide-иконки: "🎉", "🏆", "⭐"
+  color        String   @default("#7c3aed") // hex color для бейджа
+  category     String   @default("orders") // "orders" | "reviews" | "social" | "loyalty" | "special"
+  // Условие получения (программно проверяется в сервисе)
+  condition    Json? // { type: "orders_count", value: 1 } или { type: "reviews_count", value: 5 }
+  // Награда за получение бейджа
+  rewardPoints Int      @default(0) // бонусные баллы
+  rewardType   String? // "points" | "discount" | "free_shipping"
+  rewardValue  Int? // значение награды (для discount — %, для free_shipping — 1)
+  // Сколько пользователей получили этот бейдж
+  awardedCount Int      @default(0)
+  // Редкость (для сортировки и отображения)
+  rarity       String   @default("common") // "common" | "rare" | "epic" | "legendary"
+  // Активен ли бейдж (можно ли его получить сейчас)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  userBadges UserBadge[]
+
+  @@index([category])
+  @@index([active])
+  @@index([rarity])
+  @@map("badges")
+}
+
+// Связь пользователя и бейджа (полученные бейджи)
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  // Когда получен
+  awardedAt DateTime @default(now())
+  // Контекст получения (например, orderId для "first_order")
+  context   Json?
+
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+  @@index([badgeId])
+  @@map("user_badges")
+}
+
+// ===== GAMIFICATION: Челленджи (задания) =====
+// Челлендж — временное задание с наградой за выполнение.
+// Например: "Закажи 3 торта в июле и получи 500 бонусов"
+model Challenge {
+  id                String   @id @default(cuid())
+  code              String   @unique // "three_cakes_july"
+  name              String // "Три торта в июле"
+  description       String // "Закажите 3 торта в июле и получите 500 бонусов"
+  icon              String // "🎂"
+  color             String   @default("#7c3aed")
+  // Тип цели
+  goalType          String // "orders_count" | "orders_amount" | "reviews_count" | "referrals"
+  goalValue         Int // 3 (заказа) или 5000 (рублей)
+  // Награда
+  rewardPoints      Int      @default(0)
+  rewardType        String? // "points" | "discount" | "free_shipping" | "gift"
+  rewardValue       Int?
+  // Период действия
+  startsAt          DateTime
+  endsAt            DateTime
+  // Активен ли
+  active            Boolean  @default(true)
+  // Сколько пользователей участвует / завершило
+  participantsCount Int      @default(0)
+  completedCount    Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  userChallenges UserChallenge[]
+
+  @@index([active])
+  @@index([endsAt])
+  @@map("challenges")
+}
+
+// Прогресс пользователя по челленджу
+model UserChallenge {
+  id              String    @id @default(cuid())
+  userId          String
+  challengeId     String
+  // Текущий прогресс (0 до goalValue)
+  progress        Int       @default(0)
+  // Завершён ли челлендж
+  completed       Boolean   @default(false)
+  completedAt     DateTime?
+  // Награда получена?
+  rewardClaimed   Boolean   @default(false)
+  rewardClaimedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, challengeId])
+  @@index([userId])
+  @@index([challengeId])
+  @@index([completed])
+  @@map("user_challenges")
+}
+
+// ===== УВЕДОМЛЕНИЯ =====
+model Notification {
+  id           String               @id @default(cuid())
+  userId       String
+  template     NotificationTemplate
+  channel      NotificationChannel  @default(in_app)
+  status       NotificationStatus   @default(queued)
+  title        String
+  body         String
+  data         Json?
+  // metadata about delivery (e.g. message ID from SMS/email provider)
+  externalId   String?
+  errorMessage String?
+  scheduledFor DateTime?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  readAt       DateTime?
+  createdAt    DateTime             @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([template])
+  @@index([scheduledFor])
+  @@index([channel, status])
+  @@map("notifications")
+}
+
+// ===== КОНДИТЕРЫ =====
+model Confectioner {
+  id                 String     @id @default(cuid())
+  userId             String     @unique
+  businessName       String
+  slug               String     @unique
+  description        String
+  avatar             String
+  cover              String?
+  city               String
+  location           Json
+  rating             Float      @default(0)
+  reviewsCount       Int        @default(0)
+  ordersCount        Int        @default(0)
+  verified           Boolean    @default(false)
+  // Статус модерации: pending (ожидает админа), approved (verified=true),
+  // rejected (отказ, причина в rejectionReason), needs_revision (запрос правок)
+  verificationStatus String     @default("pending")
+  verifiedBy         String? // userId админа
+  verifiedAt         DateTime?
+  rejectionReason    String?
+  trustLevel         TrustLevel @default(NEW)
+  tariff             Tariff     @default(START)
+  legalInfo          Json
+  taxMode            TaxMode    @default(NPD)
+  specialization     String[]   @default([])
+  portfolioImages    String[]   @default([])
+  followersCount     Int        @default(0)
+  responseTime       String     @default("")
+  joinedAt           DateTime   @default(now())
+  selfPickup         Boolean    @default(true)
+  deliveryOptions    String[]   @default(["own"])
+  paymentSettings    Json?
+  ecoBadges          String[]   @default([])
+  balance            Int        @default(0)
+  totalEarnings      Int        @default(0)
+  monthlyEarnings    Int        @default(0)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products         Product[]
+  orders           Order[]
+  orgVerifications OrganizationVerification[]
+
+  @@index([city])
+  @@index([verified])
+  @@index([verificationStatus])
+  @@index([trustLevel])
+  @@map("confectioners")
+}
+
+// ===== ТОВАРЫ =====
+model Product {
+  id             String   @id @default(cuid())
+  title          String
+  slug           String   @unique
+  description    String
+  price          Int
+  oldPrice       Int?
+  category       String
+  images         String[] @default([])
+  confectionerId String
+  rating         Float    @default(0)
+  reviewsCount   Int      @default(0)
+  weight         String?
+  servings       Int?
+  prepTime       String?
+  isPopular      Boolean  @default(false)
+  isNew          Boolean  @default(false)
+  isHit          Boolean  @default(false)
+  tags           String[] @default([])
+  fillings       Json?
+  coatings       Json?
+  decorations    Json?
+  paymentOptions Json?
+  // AR / 3D preview
+  modelUrl       String? // GLB/GLTF URL for 3D + AR preview
+  modelUsdzUrl   String? // USDZ (iOS Quick Look)
+  arEnabled      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  confectioner Confectioner  @relation(fields: [confectionerId], references: [id], onDelete: Cascade)
+  orderItems   OrderItem[]
+  cartItems    CartItem[]
+  reviews      Review[]
+  videoReviews VideoReview[]
+
+  @@index([confectionerId])
+  @@index([category])
+  @@index([isPopular])
+  @@index([isNew])
+  @@index([isHit])
+  @@map("products")
+}
+
+// ===== ЗАКАЗЫ =====
+model Order {
+  id                     String        @id @default(cuid())
+  number                 String        @unique
+  customerId             String
+  confectionerId         String?
+  courierId              String?
+  items                  OrderItem[]
+  total                  Int
+  status                 OrderStatus   @default(PENDING)
+  deliveryAddress        String?
+  deliveryDate           DateTime
+  deliveryTime           String?
+  deliveryCost           Int           @default(0)
+  paymentMethod          PaymentMethod @default(card)
+  paymentStatus          PaymentStatus @default(pending)
+  comment                String?
+  escrowReleasedAt       DateTime?
+  // P1: Снапшот тарифа и юр.статуса на момент создания заказа
+  tariffSnapshot         String?
+  commissionRateSnapshot Float?
+  legalStatusSnapshot    String?
+  // P1: Бонусный дисконт
+  bonusPointsRedeemed    Int           @default(0)
+  bonusDiscountRub       Int           @default(0)
+  // P1: Промокод
+  promoCodeApplied       String?
+  promoCodeId            String?       @unique
+  promoDiscount          Int?
+  promoCode              PromoCode?    @relation("OrderPromoCode", fields: [promoCodeId], references: [id])
+  // P1: Выплата
+  payoutTransferredAt    DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  customer     User          @relation(fields: [customerId], references: [id])
+  confectioner Confectioner? @relation(fields: [confectionerId], references: [id])
+
+  @@index([customerId])
+  @@index([confectionerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String @id @default(cuid())
+  orderId       String
+  productId     String
+  title         String
+  image         String
+  price         Int
+  quantity      Int
+  customization Json?
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ===== КОРЗИНА =====
+model CartItem {
+  id            String   @id @default(cuid())
+  userId        String
+  productId     String
+  title         String
+  image         String
+  price         Int
+  quantity      Int
+  customization Json?
+  createdAt     DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([userId])
+  @@map("cart_items")
+}
+
+// ===== ОТЗЫВЫ =====
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  userId    String
+  rating    Int
+  text      String
+  images    String[] @default([])
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([productId])
+  @@index([userId])
+  @@map("reviews")
+}
+
+// ===== ВИДЕО-ОТЗЫВЫ =====
+model VideoReview {
+  id           String   @id @default(cuid())
+  productId    String
+  userId       String
+  videoUrl     String
+  thumbnailUrl String?
+  rating       Int
+  text         String?
+  duration     Int
+  views        Int      @default(0)
+  likes        Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([productId])
+  @@map("video_reviews")
+}
+
+// ===== АКЦИИ =====
+model Promotion {
+  id              String    @id @default(cuid())
+  confectionerId  String
+  title           String
+  description     String
+  type            String
+  value           Float?
+  promoCode       String?
+  minOrderAmount  Int?
+  startDate       DateTime
+  endDate         DateTime
+  cities          String[]  @default([])
+  status          String    @default("active")
+  isPromoted      Boolean   @default(false)
+  promotedUntil   DateTime?
+  promotionBudget Int?
+  image           String?
+  views           Int       @default(0)
+  clicks          Int       @default(0)
+  conversions     Int       @default(0)
+  usedCount       Int       @default(0)
+  createdAt       DateTime  @default(now())
+
+  confectioner User @relation(fields: [confectionerId], references: [id])
+
+  @@index([confectionerId])
+  @@index([status])
+  @@map("promotions")
+}
+
+// ===== РЕЦЕПТЫ =====
+model Recipe {
+  id             String   @id @default(cuid())
+  confectionerId String
+  type           String   @default("recipe")
+  title          String
+  description    String
+  coverImage     String
+  prepTime       Int      @default(0)
+  cookTime       Int      @default(0)
+  difficulty     String   @default("easy")
+  servings       Int      @default(1)
+  ingredients    Json     @default("[]")
+  steps          Json     @default("[]")
+  tags           String[] @default([])
+  category       String   @default("")
+  access         String   @default("free")
+  price          Int?
+  views          Int      @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  published      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  confectioner User @relation(fields: [confectionerId], references: [id])
+
+  @@index([confectionerId])
+  @@map("recipes")
+}
+
+// ===== ЧАТ =====
+model ChatRoom {
+  id            String    @id @default(cuid())
+  type          String    @default("direct")
+  name          String
+  avatar        String?
+  participants  String[]  @default([])
+  lastMessage   String?
+  lastMessageAt DateTime?
+  orderId       String?
+  createdAt     DateTime  @default(now())
+
+  messages ChatMessage[]
+
+  @@map("chat_rooms")
+}
+
+model ChatMessage {
+  id        String    @id @default(cuid())
+  roomId    String
+  senderId  String
+  text      String
+  isSystem  Boolean   @default(false)
+  // Авточат: пометка bot-сообщений и их тип
+  isBot     Boolean   @default(false)
+  botKind   String? // "order_status" | "faq" | "quick_reply" | "escalation" | "welcome"
+  // Rich content: кнопки quick replies, карточки с заказом и т.д.
+  metadata  Json?
+  // Прочитано ли сообщение
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender User     @relation(fields: [senderId], references: [id])
+
+  @@index([roomId])
+  @@index([senderId])
+  @@index([isBot])
+  @@map("chat_messages")
+}
+
+// ===== РЕФЕРАЛЬНАЯ ПРОГРАММА =====
+model Referral {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  referralCode     String   @unique
+  totalInvited     Int      @default(0)
+  activeReferrals  Int      @default(0)
+  totalEarned      Int      @default(0)
+  availableBalance Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("referrals")
+}
+
+// ===== ПОДАРОЧНЫЕ СЕРТИФИКАТЫ =====
+model GiftCertificate {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  amount          Int
+  fromUserId      String
+  toName          String
+  toEmail         String
+  toPhone         String?
+  message         String?
+  design          String    @default("classic")
+  status          String    @default("active")
+  expiresAt       DateTime
+  purchasedAt     DateTime  @default(now())
+  usedAt          DateTime?
+  remainingAmount Int?
+  deliveryMethod  String    @default("email")
+  toUserId        String?
+
+  fromUser User  @relation("fromUser", fields: [fromUserId], references: [id])
+  toUser   User? @relation("toUser", fields: [toUserId], references: [id])
+
+  @@index([fromUserId])
+  @@map("gift_certificates")
+}
+
+// ===== ПРАЗДНИКИ ПОЛЬЗОВАТЕЛЯ =====
+model UserHoliday {
+  id           String   @id @default(cuid())
+  userId       String
+  title        String
+  type         String   @default("birthday")
+  date         DateTime
+  recurring    Boolean  @default(true)
+  personName   String?
+  relationship String?
+  reminderDays Int      @default(14)
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_holidays")
+}
+
+// ===== ПЛАТЁЖИ (YooKassa) =====
+model Payment {
+  id              String        @id @default(cuid())
+  orderId         String
+  yookassaId      String?
+  amount          Int
+  status          PaymentStatus @default(pending)
+  description     String?
+  confirmationUrl String?
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+// ===== ЧЁРНЫЙ СПИСОК =====
+model BlacklistEntry {
+  id            String    @id @default(cuid())
+  scope         String
+  value         String
+  userId        String?
+  reason        String
+  reasonDetails String
+  blockedBy     String
+  blockedAt     DateTime  @default(now())
+  isPermanent   Boolean   @default(true)
+  expiresAt     DateTime?
+  status        String    @default("active")
+
+  @@index([scope, value])
+  @@index([status])
+  @@map("blacklist")
+}
+
+// ===== СЕМАФОР (уникальность email/телефона) =====
+model Semaphore {
+  id        String   @id @default(cuid())
+  type      String
+  value     String   @unique
+  userId    String
+  verified  Boolean  @default(false)
+  attempts  Int      @default(1)
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@map("semaphores")
+}
+
+// ===== СКЛАД =====
+model InventoryItem {
+  id              String    @id @default(cuid())
+  confectionerId  String
+  name            String
+  category        String
+  unit            String    @default("kg")
+  quantity        Float     @default(0)
+  minQuantity     Float     @default(0)
+  costPerUnit     Int       @default(0)
+  supplierId      String?
+  supplierName    String?
+  expiryDate      DateTime?
+  storageLocation String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([confectionerId])
+  @@map("inventory_items")
+}
+
+model StockMovement {
+  id          String   @id @default(cuid())
+  itemId      String
+  itemName    String
+  type        String
+  quantity    Float
+  unit        String
+  reason      String?
+  orderId     String?
+  costPerUnit Int?
+  totalCost   Int?
+  date        DateTime @default(now())
+  createdBy   String
+
+  @@index([itemId])
+  @@map("stock_movements")
+}
+
+// ===== CMS: СТРАНИЦЫ И БЛОКИ =====
+model CmsPage {
+  id             String   @id @default(cuid())
+  slug           String   @unique
+  title          String
+  content        String
+  seoTitle       String?
+  seoDescription String?
+  isPublished    Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+  updatedBy      String?
+
+  blocks CmsBlock[]
+
+  @@map("cms_pages")
+}
+
+model CmsBlock {
+  id        String   @id @default(cuid())
+  pageId    String?
+  section   String
+  title     String?
+  subtitle  String?
+  content   String?
+  image     String?
+  link      String?
+  linkText  String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  metadata  Json?
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  page CmsPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@map("cms_blocks")
+}
+
+// ===== БАННЕРЫ =====
+model Banner {
+  id         String    @id @default(cuid())
+  title      String
+  subtitle   String?
+  image      String
+  link       String?
+  buttonText String?
+  position   String    @default("hero")
+  isActive   Boolean   @default(true)
+  sortOrder  Int       @default(0)
+  startDate  DateTime?
+  endDate    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([position, isActive])
+  @@map("banners")
+}
+
+// ===== НАСТРОЙКИ САЙТА =====
+model SiteSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  category    String   @default("general")
+  description String?
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@index([category])
+  @@map("site_settings")
+}
+
+// ===== ПУНКТЫ НАВИГАЦИИ =====
+model NavMenuItem {
+  id         String   @id @default(cuid())
+  label      String
+  link       String
+  icon       String?
+  sortOrder  Int      @default(0)
+  isActive   Boolean  @default(true)
+  isDropdown Boolean  @default(false)
+  parentId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([parentId])
+  @@map("nav_menu_items")
+}
+
+// ===== ПРОВЕРКА ОРГАНИЗАЦИЙ (DaData Party API) =====
+// Хранит результаты проверок ИНН/ОГРН через DaData.
+// Используется при регистрации юрлиц, при выставлении счетов,
+// и регулярной cron-задачей для повторной проверки активных.
+enum OrganizationStatus {
+  ACTIVE // действующая
+  LIQUIDATING // в процессе ликвидации
+  LIQUIDATED // ликвидирована
+  REORGANIZING // в процессе реорганизации
+  UNKNOWN // не найдена в DaData
+}
+
+enum VerificationTrigger {
+  REGISTRATION // при регистрации
+  PROFILE_UPDATE // при обновлении профиля
+  INVOICE_ISSUE // при выставлении счёта
+  PAYOUT_REQUEST // при запросе на выплату
+  CRON_PERIODIC // регулярная проверка
+  ADMIN_MANUAL // ручная проверка админом
+}
+
+model OrganizationVerification {
+  id             String              @id @default(cuid())
+  userId         String? // на кого ссылается (пользователь)
+  confectionerId String? // или кондитер
+  inn            String // ИНН проверенной организации
+  ogrn           String? // ОГРН/ОГРНИП
+  kpp            String? // КПП (для ООО)
+  companyName    String // наименование из DaData
+  fullName       String? // полное наименование
+  opfCode        String? // код ОПФ (12300=ООО, 50102=ИП)
+  opfShort       String? // короткая форма (ООО, ИП)
+  status         OrganizationStatus  @default(UNKNOWN)
+  // Подробности от DaData
+  managementName String? // ФИО руководителя
+  managementPost String? // должность
+  legalAddress   String? // юр. адрес
+  registeredAt   DateTime? // дата регистрации
+  liquidatedAt   DateTime? // дата ликвидации (если есть)
+  // Метаданные проверки
+  trigger        VerificationTrigger
+  success        Boolean             @default(false) // успешно ли прошла проверка
+  errorMessage   String? // ошибка если success=false
+  rawData        Json? // полный ответ DaData
+  // Действия, предпринятые по результату
+  actionTaken    String? // "blocked" | "suspended" | "notified" | "approved"
+  verifiedBy     String? // userId админа (для ADMIN_MANUAL)
+  createdAt      DateTime            @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  confectioner Confectioner? @relation(fields: [confectionerId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([confectionerId])
+  @@index([inn])
+  @@index([status])
+  @@index([createdAt])
+  @@map("organization_verifications")
+}
+
+// ===== ОБСЛУЖИВАНИЕ: backup + cleanup =====
+enum MaintenanceType {
+  BACKUP_FULL // полный backup БД
+  BACKUP_INCREMENTAL // инкрементальный (только изменения с последнего backup)
+  CLEANUP_LOGS // очистка старых логов
+  CLEANUP_SESSIONS // очистка истёкших сессий
+  CLEANUP_NOTIFICATIONS // удаление старых прочитанных уведомлений
+  CLEANUP_CARTS // удаление брошенных корзин
+  CLEANUP_ORPHANS // удаление записей без связей
+  VACUUM // VACUUM ANALYZE (PostgreSQL)
+}
+
+enum MaintenanceStatus {
+  queued
+  running
+  success
+  failed
+  partial
+}
+
+model MaintenanceLog {
+  id              String            @id @default(cuid())
+  type            MaintenanceType
+  status          MaintenanceStatus @default(queued)
+  startedAt       DateTime          @default(now())
+  finishedAt      DateTime?
+  durationMs      Int?
+  // Результаты
+  recordsAffected Int? // сколько записей удалено/обработано
+  backupPath      String? // путь к файлу backup (для BACKUP_*)
+  backupSizeBytes Int? // размер backup файла
+  tablesCount     Int? // количество таблиц в backup
+  // Детали
+  details         Json? // детальная статистика по таблицам
+  errorMessage    String?
+  triggeredBy     String? // userId админа или "cron"
+  createdAt       DateTime          @default(now())
+
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("maintenance_logs")
+}
+
+// ===== НАЧИНКИ ДЛЯ ТОРТОВ (с модерацией) =====
+enum FillingStatus {
+  APPROVED // одобрено администратором, доступно всем
+  PENDING // ожидает модерации (добавлено кондитером)
+  REJECTED // отклонено администратором
+}
+
+enum FillingCategory {
+  CREAM // кремовые (пломбир, чиз, маскарпоне)
+  CHOCOLATE // шоколадные (ганаш, мусс)
+  BERRY // ягодные (клубника, малина, вишня)
+  CARAMEL // карамельные (сгущёнка, солёная карамель)
+  NUT // ореховые (фисташка, миндаль, фундук)
+  FRUIT // фруктовые (манго, персик, маракуйя)
+  CLASSIC // классические (медовик, наполеон, прага)
+  MOUSSE // муссовые
+  CUSTARD // заварные (патисьер, англемаз)
+  OTHER // прочие
+}
+
+model Filling {
+  id                     String          @id @default(cuid())
+  name                   String          @unique
+  slug                   String          @unique
+  description            String // подробное описание (состав, вкус, текстура)
+  category               FillingCategory @default(OTHER)
+  // Изображение (URL)
+  image                  String?
+  // Аллергены
+  allergens              String[]        @default([])
+  // Согласованность/тип
+  consistency            String? // "густой крем", "жидкий", "плотный мусс"
+  // Цвет (для визуального выбора в конструкторе)
+  color                  String? // hex color, e.g. "#FFF5E1"
+  // === Срез торта (новый тренд) ===
+  // Загруженное изображение среза (фотография реального торта)
+  sliceImage             String?
+  // SVG-конфигурация среза (для визуализатора): { layers: [{type, color, label}], coating, decoration }
+  // Если есть — генерируется визуализатором, можно редактировать
+  sliceConfig            Json?
+  // Кто создал конфигурацию среза (null = системная начинка с дефолтным срезом)
+  sliceConfigCreatedBy   String?
+  // Средняя наценка (рекомендованная)
+  suggestedPriceModifier Int             @default(0) // в рублях
+  // Статус модерации
+  status                 FillingStatus   @default(APPROVED)
+  // Кто добавил
+  createdBy              String? // userId кондитера (null = системная)
+  createdByName          String? // имя кондитера
+  // Модерация
+  reviewedBy             String? // userId админа
+  reviewedAt             DateTime?
+  rejectionReason        String? // причина отклонения
+  // Метрики
+  usageCount             Int             @default(0) // сколько раз использовано в товарах
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@index([slug])
+  @@map("fillings")
+}
+
+// ===== Срезы торта для продуктов =====
+// Позволяет кондитеру загрузить/смоделировать срез торта
+// для конкретного продукта (а не только для начинки в общем).
+// Один продукт может иметь несколько срезов (по разным начинкам).
+model ProductSlice {
+  id          String   @id @default(cuid())
+  productId   String
+  fillingName String // название начинки (например "Шоколадный бисквит + ганаш")
+  // Загруженное изображение (URL)
+  image       String?
+  // SVG-конфигурация для визуализатора
+  config      Json?
+  // Подпись (опционально)
+  caption     String?
+  // Порядок отображения
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([productId])
+  @@index([fillingName])
+  @@map("product_slices")
+}
+
+// ===== LIVE-COMMERCE: Стримы кондитеров =====
+// Кондитер ведёт трансляцию процесса украшения торта, зрители заказывают в чате.
+model LiveStream {
+  id             String    @id @default(cuid())
+  confectionerId String
+  // Заголовок и описание стрима
+  title          String
+  description    String?
+  // Превью (обложка)
+  thumbnailUrl   String?
+  // Статус: scheduled | live | ended
+  status         String    @default("scheduled")
+  // Источник видео
+  streamUrl      String? // HLS .m3u8 для плеера
+  streamKey      String? // ключ для OBS (не публичный)
+  // Связанный товар (если стрим посвящён конкретному торту)
+  productId      String?
+  // Метрики
+  viewersCount   Int       @default(0)
+  peakViewers    Int       @default(0)
+  totalViewers   Int       @default(0) // уникальные
+  likesCount     Int       @default(0)
+  ordersCount    Int       @default(0) // заказы во время стрима
+  revenue        Int       @default(0) // выручка за стрим
+  // Запись (VOD после завершения)
+  recordUrl      String?
+  // Расписание
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  endedAt        DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([confectionerId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("live_streams")
+}
+
+// Зрители стрима (для подсчёта уникальных и истории)
+model LiveStreamViewer {
+  id        String    @id @default(cuid())
+  streamId  String
+  userId    String?
+  // Анонимный sessionId если не авторизован
+  sessionId String?
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+  // Время просмотра (сек)
+  watchTime Int       @default(0)
+  // Лайкнул ли стрим
+  liked     Boolean   @default(false)
+  // Сделал ли заказ
+  ordered   Boolean   @default(false)
+
+  @@index([streamId])
+  @@index([userId])
+  @@map("live_stream_viewers")
+}
+
+// Заказы, сделанные во время стрима (для расчёта выручки)
+model LiveStreamOrder {
+  id        String   @id @default(cuid())
+  streamId  String
+  orderId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([streamId, orderId])
+  @@index([streamId])
+  @@map("live_stream_orders")
+}
+
+// Чат стрима (отдельно от обычного чата, для модерации)
+model LiveStreamMessage {
+  id         String   @id @default(cuid())
+  streamId   String
+  userId     String?
+  sessionId  String?
+  userName   String // отображаемое имя
+  userAvatar String?
+  text       String
+  // Закреплено модератором
+  pinned     Boolean  @default(false)
+  // Удалено (модерацией)
+  deleted    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([streamId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("live_stream_messages")
+}
+
+// ===== PUSH-ПОДПИСКИ (Web Push / VAPID) =====
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+// ===== ПРОМОКОДЫ =====
+// P2: Серверная валидация промокодов (expiry, usage limit, role, minOrderAmount).
+// Связан с Order через orderId — один промокод = одна запись на заказ.
+model PromoCode {
+  id              String   @id @default(cuid())
+  code            String   @unique // UV-промокод, UPPER-CASE
+  description     String?
+  // Тип скидки
+  discountType    String   @default("percent") // "percent" | "fixed"
+  discountValue   Float    @default(0) // 10 = 10% или 500 = 500₽
+  maxDiscountRub  Int? // cap для percent
+  // Применимость
+  minOrderAmount  Int      @default(0) // минимум корзины
+  applicableRoles String[] @default([]) // CUSTOMER/CONFECTIONER/...; пусто = все
+  confectionerId  String? // null = любой кондитер
+  // Срок действия
+  startDate       DateTime @default(now())
+  endDate         DateTime
+  // Лимиты
+  maxUses         Int? // null = безлимит
+  maxUsesPerUser  Int      @default(1)
+  usedCount       Int      @default(0)
+  // Создатель
+  createdBy       String? // userId админа/кондитера
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  orders Order[] @relation("OrderPromoCode")
+
+  @@index([code])
+  @@index([confectionerId])
+  @@index([isActive])
+  @@map("promo_codes")
+}
+
+// ===== 2FA верификации (временные коды) =====
+// Лог одноразовых кодов для подтверждения 2FA-операций.
+// Запись создаётся при попытке операции, удаляется после успеха/экспирации.
+model TwoFactorChallenge {
+  id        String   @id @default(cuid())
+  userId    String
+  operation String // "payout" | "login" | "settings" | "delete_account"
+  codeHash  String // bcrypt-хэш 6-значного кода (или TOTP-валидация)
+  attempts  Int      @default(0) // счётчик неудачных попыток (max 5)
+  resolved  Boolean  @default(false)
+  expiresAt DateTime // 5 минут жизни
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("two_factor_challenges")
+}
+
+// ===== ANTI-FRAUD: лог заказов по IP/устройству =====
+// Для rate-limit: максимум N заказов с IP/устройства в час.
+// cron /api/cron/cleanup удаляет записи старше 24 часов.
+model OrderFraudLog {
+  id        String   @id @default(cuid())
+  ipHash    String // SHA-256 hash IP (не храним raw IP)
+  deviceFp  String? // fingerprint браузера (если передан клиентом)
+  userId    String? // userId если авторизован
+  orderId   String?
+  action    String // "order_create" | "register" | "login" | "review"
+  createdAt DateTime @default(now())
+
+  @@index([ipHash])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("order_fraud_logs")
+}
+
+// ===== ЭСКАЛАЦИИ ОПЕРАТОРУ =====
+// Когда авточат не справился — создаётся эскалация.
+// Оператор видит её в своём дашборде и принимает в работу.
+model OperatorEscalation {
+  id         String    @id @default(cuid())
+  roomId     String // чат, откуда эскалация
+  userId     String // пользователь, запросивший оператора
+  userName   String
+  reason     String // "manual_request" | "bot_unknown" | "complaint" | "dispute"
+  message    String // текст последнего сообщения пользователя
+  status     String    @default("pending") // "pending" | "assigned" | "resolved"
+  assignedTo String? // userId оператора
+  assignedAt DateTime?
+  resolvedAt DateTime?
+  resolution String? // "answered" | "redirected" | "no_action"
+  createdAt  DateTime  @default(now())
+
+  @@index([status])
+  @@index([assignedTo])
+  @@index([createdAt])
+  @@map("operator_escalations")
+}
+
+// ============================================================================
+// ТЗ v3.45 — РАСШИРЕНИЕ СХЕМЫ
+// Все новые модели используют строковые FK (без @relation к User/Confectioner),
+// чтобы не модифицировать существующие модели. Паттерн соответствует модели
+// Payment (orderId: String + @@index). При необходимости relations добавляются
+// миграцией позже.
+// ============================================================================
+
+// ===== AUTH & SESSIONS =====
+// OAuth-аккаунты (Yandex/VK/Google и т.д.)
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  provider              String // "google" | "yandex" | "vk" | "apple"
+  providerAccountId     String
+  refreshToken          String?
+  accessToken           String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  tokenType             String?   @default("Bearer")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+// Сессии пользователей
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  ip        String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// Refresh-токены
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@map("refresh_tokens")
+}
+
+// ===== ПРОФИЛИ ПО РОЛЯМ =====
+// (Confectioner уже существует — отдельный ConfectionerProfile не нужен)
+
+// Профиль курьера
+model CourierProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  transport       String   @default("bike") // "bike" | "car" | "foot" | "public"
+  availability    String[] @default([]) // рабочие дни
+  region          String?
+  rating          Float    @default(0)
+  deliveriesCount Int      @default(0)
+  isActive        Boolean  @default(true)
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([region])
+  @@index([isActive])
+  @@map("courier_profiles")
+}
+
+// Профиль поставщика
+model SupplierProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  companyName    String
+  inn            String?
+  deliveryTerms  String?
+  minOrderAmount Int      @default(0)
+  regions        String[] @default([])
+  rating         Float    @default(0)
+  isActive       Boolean  @default(true)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([inn])
+  @@index([isActive])
+  @@map("supplier_profiles")
+}
+
+// Профиль покупателя
+model CustomerProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  loyaltyLevel String   @default("BRONZE")
+  bonusBalance Int      @default(0)
+  preferences  Json?
+  totalOrders  Int      @default(0)
+  totalSpent   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("customer_profiles")
+}
+
+// Профиль блогера
+model BloggerProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  referralCode     String   @unique
+  followersCount   Int      @default(0)
+  postsCount       Int      @default(0)
+  clicksCount      Int      @default(0)
+  conversionsCount Int      @default(0)
+  totalEarned      Int      @default(0)
+  platform         String? // "instagram" | "youtube" | "telegram"
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([referralCode])
+  @@map("blogger_profiles")
+}
+
+// Профиль дегустатора
+model TasterProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  certificates Json?
+  rating       Float    @default(0)
+  reviewsCount Int      @default(0)
+  specialties  String[] @default([])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("taster_profiles")
+}
+
+// Профиль франчайзи
+model FranchiseeProfile {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  region      String
+  royaltyRate Float     @default(0)
+  startDate   DateTime  @default(now())
+  endDate     DateTime?
+  status      String    @default("active") // "active" | "suspended" | "terminated"
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([region])
+  @@index([status])
+  @@map("franchisee_profiles")
+}
+
+// Профиль нутрициолога
+model NutritionistProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  specializations    String[] @default([])
+  certificates       Json?
+  rating             Float    @default(0)
+  consultationsCount Int      @default(0)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("nutritionist_profiles")
+}
+
+// Профиль корпоративного клиента
+model CorporateClientProfile {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  companyName   String
+  inn           String?
+  budget        Int       @default(0)
+  contractStart DateTime?
+  contractEnd   DateTime?
+  managerName   String?
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([inn])
+  @@map("corporate_client_profiles")
+}
+
+// Профиль контролёра качества
+model QualityInspectorProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  certificates     Json?
+  inspectionsCount Int      @default(0)
+  rating           Float    @default(0)
+  region           String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([region])
+  @@map("quality_inspector_profiles")
+}
+
+// Профиль агента сертификации
+model CertificationAgentProfile {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  license             String?
+  licenseExpiresAt    DateTime?
+  certificationsCount Int       @default(0)
+  isActive            Boolean   @default(true)
+  metadata            Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([license])
+  @@map("certification_agent_profiles")
+}
+
+// Профиль копирайтера
+model CopywriterProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  skills        String[] @default([])
+  articlesCount Int      @default(0)
+  rating        Float    @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("copywriter_profiles")
+}
+
+// Профиль модератора
+model ModeratorProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  permissions String[] @default([])
+  casesCount  Int      @default(0)
+  rating      Float    @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("moderator_profiles")
+}
+
+// Профиль организатора мероприятий
+model EventOrganizerProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  agencyName  String
+  inn         String?
+  eventsCount Int      @default(0)
+  rating      Float    @default(0)
+  specialties String[] @default([])
+  isActive    Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([inn])
+  @@map("event_organizer_profiles")
+}
+
+// Профиль предприятия общепита
+model FoodServiceProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  venueName String
+  venueType String   @default("restaurant") // "restaurant" | "cafe" | "canteen" | "bar"
+  seats     Int      @default(0)
+  address   String?
+  inn       String?
+  rating    Float    @default(0)
+  isActive  Boolean  @default(true)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([venueType])
+  @@index([inn])
+  @@map("food_service_profiles")
+}
+
+// Профиль студии
+model StudioProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  studioName  String
+  teamSize    Int      @default(1)
+  description String?
+  specialties String[] @default([])
+  rating      Float    @default(0)
+  isActive    Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("studio_profiles")
+}
+
+// Профиль пункта выдачи
+model PickupPointProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  address      String
+  storageType  String   @default("ambient") // "ambient" | "refrigerated" | "frozen"
+  capacity     Int      @default(0)
+  workingHours String?
+  isActive     Boolean  @default(true)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([storageType])
+  @@index([isActive])
+  @@map("pickup_point_profiles")
+}
+
+// Профиль оптовика
+model WholesalerProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  companyName    String
+  inn            String?
+  volumePerMonth Int      @default(0)
+  contractType   String? // "monthly" | "quarterly" | "annual"
+  rating         Float    @default(0)
+  isActive       Boolean  @default(true)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([inn])
+  @@map("wholesaler_profiles")
+}
+
+// ===== Новые профили для недостающих ролей (v2.0) =====
+
+// Профиль агентства аниматоров
+model AnimatorAgencyProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  agencyName      String
+  inn             String?
+  animatorsCount  Int      @default(0)
+  specializations String[] @default([]) // ["kids", "adults", "corporate", "wedding"]
+  serviceArea     String? // город/регион
+  pricePerHour    Int      @default(3000) // от 3000₽/час
+  eventsCount     Int      @default(0)
+  rating          Float    @default(0)
+  isActive        Boolean  @default(true)
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([inn])
+  @@index([serviceArea])
+  @@map("animator_agency_profiles")
+}
+
+// Профиль развлекательного центра
+model RecreationCenterProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  centerName       String
+  inn              String?
+  centerType       String   @default("complex") // "bowling" | "billiards" | "kids_area" | "arcade" | "complex"
+  capacity         Int      @default(0) // число посадочных мест
+  address          String?
+  city             String?
+  cakeFee          Int      @default(0) // плата за пронос своего торта (₽)
+  kitchenAvailable Boolean  @default(false) // можно ли приносить свою еду
+  eventPackages    Json? // массив пакетов: birthday + торт + аниматор
+  bookingsCount    Int      @default(0)
+  rating           Float    @default(0)
+  isActive         Boolean  @default(true)
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([city])
+  @@index([centerType])
+  @@map("recreation_center_profiles")
+}
+
+// Профиль детского клуба
+model KidsClubProfile {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  clubName               String
+  inn                    String?
+  ageGroups              String[] @default([]) // ["3-6", "7-10", "11-14"]
+  membersCount           Int      @default(0)
+  monthlyBirthdays       Int      @default(0) // дней рождения в среднем в месяц
+  preferredConfectioners String[] @default([]) // IDs постоянных кондитеров
+  discountRate           Int      @default(0) // согласованная скидка с кондитерами (%)
+  address                String?
+  city                   String?
+  rating                 Float    @default(0)
+  isActive               Boolean  @default(true)
+  metadata               Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([city])
+  @@map("kids_club_profiles")
+}
+
+// Профиль внутреннего инспектора (аудитор)
+model InspectorProfile {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  fullName          String
+  position          String    @default("internal_auditor") // "internal_auditor" | "compliance" | "risk_officer"
+  accessLevel       Int       @default(2) // 1-3 (3 = полный доступ ко всем аудит-логам)
+  inspectionsCount  Int       @default(0)
+  lastAuditAt       DateTime?
+  canFreezeAccounts Boolean   @default(false) // может замораживать счета при подозрении
+  canSignTaxReports Boolean   @default(false)
+  certifications    String[]  @default([]) // ["ACCA", "CPA", "CIA"]
+  rating            Float     @default(0)
+  isActive          Boolean   @default(true)
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([accessLevel])
+  @@map("inspector_profiles")
+}
+
+// ===== РАСШИРЕНИЯ ЧАТА =====
+// Реакции на сообщения
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+  @@map("message_reactions")
+}
+
+// Вложения сообщений
+model MessageAttachment {
+  id        String   @id @default(cuid())
+  messageId String
+  url       String
+  type      String // "image" | "video" | "file" | "audio"
+  size      Int      @default(0)
+  filename  String?
+  mimeType  String?
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+  @@index([type])
+  @@map("message_attachments")
+}
+
+// Жалобы на сообщения
+model MessageReport {
+  id         String    @id @default(cuid())
+  messageId  String
+  reporterId String
+  reason     String
+  details    String?
+  status     String    @default("pending") // "pending" | "reviewing" | "resolved" | "rejected"
+  resolvedBy String?
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([messageId])
+  @@index([reporterId])
+  @@index([status])
+  @@map("message_reports")
+}
+
+// Шаблоны ответов операторов
+model CannedResponse {
+  id        String   @id @default(cuid())
+  category  String
+  label     String
+  text      String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@map("canned_responses")
+}
+
+// Настройки уведомлений чата (per-user / per-room)
+model ChatNotificationSettings {
+  id           String    @id @default(cuid())
+  userId       String
+  roomId       String?
+  pushEnabled  Boolean   @default(true)
+  emailEnabled Boolean   @default(false)
+  inAppEnabled Boolean   @default(true)
+  muteUntil    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([userId, roomId])
+  @@index([userId])
+  @@index([roomId])
+  @@map("chat_notification_settings")
+}
+
+// ===== СОЦИАЛЬНЫЙ КАНАЛ (лента кондитера) =====
+// Публикации в канале кондитера
+model ChannelPost {
+  id             String   @id @default(cuid())
+  confectionerId String
+  content        String
+  images         String[] @default([])
+  likesCount     Int      @default(0)
+  commentsCount  Int      @default(0)
+  isPinned       Boolean  @default(false)
+  isPublished    Boolean  @default(true)
+  publishedAt    DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([confectionerId])
+  @@index([publishedAt])
+  @@index([isPinned])
+  @@map("channel_posts")
+}
+
+// Истории (stories) кондитера
+model ChannelStory {
+  id             String   @id @default(cuid())
+  confectionerId String
+  // Медиа — изображение или видео
+  image          String
+  video          String? // URL видео (mp4) для видео-сторис
+  type           String   @default("image") // "image" | "video"
+  caption        String?
+  // Длительность показа (сек) — для видео-сторис
+  duration       Int      @default(5) // 5 секунд по умолчанию
+  // Связь с товаром — если сторис рекламирует конкретный торт
+  productId      String?
+  // Связь с акцией
+  promotionId    String?
+  // Метрики
+  viewsCount     Int      @default(0)
+  likesCount     Int      @default(0)
+  repliesCount   Int      @default(0)
+  // Кто посмотрел (для подсчёта уникальных просмотров)
+  viewedBy       String[] @default([])
+  // TTL — история истекает через 24 часа после создания
+  expiresAt      DateTime
+  // Порядок в ленте (для закрепления)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([confectionerId])
+  @@index([expiresAt])
+  @@index([productId])
+  @@index([type])
+  @@map("channel_stories")
+}
+
+// Лайки на сторис (отдельная модель для уникальности)
+model StoryLike {
+  id        String   @id @default(cuid())
+  storyId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([storyId, userId])
+  @@index([storyId])
+  @@index([userId])
+  @@map("story_likes")
+}
+
+// Ответы на сторис (как в Instagram — текстовый ответ)
+model StoryReply {
+  id        String   @id @default(cuid())
+  storyId   String
+  userId    String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([storyId])
+  @@index([userId])
+  @@map("story_replies")
+}
+
+// Подписчики канала кондитера
+model ChannelFollower {
+  id             String   @id @default(cuid())
+  confectionerId String
+  userId         String
+  createdAt      DateTime @default(now())
+
+  @@unique([confectionerId, userId])
+  @@index([confectionerId])
+  @@index([userId])
+  @@map("channel_followers")
+}
+
+// Комментарии к публикациям
+model ChannelComment {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  text      String
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId])
+  @@index([userId])
+  @@map("channel_comments")
+}
+
+// Лайки к публикациям
+model ChannelLike {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+  @@map("channel_likes")
+}
+
+// ===== КОМАНДЫ / СТУДИИ =====
+// Участники команды
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      String   @default("member") // "owner" | "admin" | "editor" | "member"
+  joinedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+// Задачи команды
+model TeamTask {
+  id          String    @id @default(cuid())
+  teamId      String
+  title       String
+  description String?
+  status      String    @default("todo") // "todo" | "in_progress" | "review" | "done"
+  priority    String    @default("medium")
+  assigneeId  String?
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([teamId])
+  @@index([assigneeId])
+  @@index([status])
+  @@map("team_tasks")
+}
+
+// События команды
+model TeamEvent {
+  id          String   @id @default(cuid())
+  teamId      String
+  title       String
+  description String?
+  date        DateTime
+  location    String?
+  durationMin Int      @default(60)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([teamId])
+  @@index([date])
+  @@map("team_events")
+}
+
+// Приглашения в команду
+model TeamInvitation {
+  id         String    @id @default(cuid())
+  teamId     String
+  email      String
+  token      String    @unique
+  role       String    @default("member")
+  status     String    @default("pending") // "pending" | "accepted" | "declined" | "expired"
+  invitedBy  String?
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([teamId])
+  @@index([email])
+  @@index([status])
+  @@map("team_invitations")
+}
+
+// Лог активности команды
+model TeamActivityLog {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("team_activity_logs")
+}
+
+// ===== ФИНАНСЫ: РАСШИРЕНИЯ =====
+// Транзакции кондитера (доход/расход/выплата)
+model ConfectionerTransaction {
+  id             String   @id @default(cuid())
+  confectionerId String
+  type           String // "income" | "expense" | "refund" | "fee" | "payout"
+  amount         Int
+  description    String?
+  orderId        String?
+  balanceAfter   Int?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([confectionerId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("confectioner_transactions")
+}
+
+// Запросы на вывод средств
+model PayoutRequest {
+  id              String    @id @default(cuid())
+  confectionerId  String
+  amount          Int
+  status          String    @default("pending") // "pending" | "approved" | "rejected" | "processing" | "completed"
+  method          String    @default("card") // "card" | "sbp" | "bank"
+  destination     String?
+  processedBy     String?
+  processedAt     DateTime?
+  rejectionReason String?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([confectionerId])
+  @@index([status])
+  @@map("payout_requests")
+}
+
+// Бизнес-расходы кондитера
+model BusinessExpense {
+  id             String   @id @default(cuid())
+  confectionerId String
+  category       String // "ingredients" | "equipment" | "marketing" | "logistics" | "taxes" | "other"
+  amount         Int
+  description    String?
+  date           DateTime @default(now())
+  receiptUrl     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([confectionerId])
+  @@index([category])
+  @@index([date])
+  @@map("business_expenses")
+}
+
+// Страховые взносы
+model InsuranceContribution {
+  id             String    @id @default(cuid())
+  confectionerId String
+  amount         Int
+  period         String // "2024-01" формат
+  type           String    @default("pension") // "pension" | "medical" | "social"
+  status         String    @default("pending") // "pending" | "paid" | "overdue"
+  paidAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([confectionerId])
+  @@index([period])
+  @@index([status])
+  @@map("insurance_contributions")
+}
+
+// Налоговые отчёты
+model TaxReport {
+  id             String    @id @default(cuid())
+  confectionerId String
+  period         String // "2024-Q1" или "2024-01"
+  income         Int       @default(0)
+  expenses       Int       @default(0)
+  tax            Int       @default(0)
+  taxMode        String? // "NPD" | "USN" | "OSNO" | "PSN" | "SELF_EMPLOYED"
+  status         String    @default("draft") // "draft" | "submitted" | "accepted" | "rejected"
+  filedAt        DateTime?
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([confectionerId])
+  @@index([period])
+  @@index([status])
+  @@map("tax_reports")
+}
+
+// Аудит-лог финансовых операций
+model FinancialAuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  entity      String?
+  entityId    String?
+  amount      Int?
+  description String?
+  ip          String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("financial_audit_logs")
+}
+
+// ===== ЗАКАЗЫ: РАСШИРЕНИЯ =====
+// Трекинг заказа (история координат)
+model OrderTracking {
+  id        String   @id @default(cuid())
+  orderId   String
+  courierId String?
+  lat       Float
+  lng       Float
+  heading   Float?
+  speed     Float?
+  timestamp DateTime @default(now())
+
+  @@index([orderId])
+  @@index([courierId])
+  @@index([timestamp])
+  @@map("order_tracking")
+}
+
+// Текущее местоположение курьера
+model CourierLocation {
+  id        String   @id @default(cuid())
+  courierId String   @unique
+  lat       Float
+  lng       Float
+  heading   Float?
+  updatedAt DateTime @updatedAt
+
+  @@map("courier_locations")
+}
+
+// Возвраты
+model Refund {
+  id          String    @id @default(cuid())
+  orderId     String
+  paymentId   String?
+  amount      Int
+  reason      String
+  details     String?
+  status      String    @default("requested") // "requested" | "approved" | "rejected" | "processing" | "completed"
+  processedBy String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([status])
+  @@map("refunds")
+}
+
+// Торг по цене заказа
+model OrderNegotiation {
+  id             String    @id @default(cuid())
+  orderId        String
+  confectionerId String
+  proposedPrice  Int
+  originalPrice  Int?
+  message        String?
+  status         String    @default("pending") // "pending" | "accepted" | "rejected" | "countered"
+  expiresAt      DateTime?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([orderId])
+  @@index([confectionerId])
+  @@index([status])
+  @@map("order_negotiations")
+}
+
+// ===== КОНСТРУКТОР ТОРТА =====
+// Черновики конструктора
+model ConstructorDraft {
+  id        String   @id @default(cuid())
+  userId    String
+  data      Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([updatedAt])
+  @@map("constructor_drafts")
+}
+
+// Запросы цены по черновику
+model PriceInquiry {
+  id              String   @id @default(cuid())
+  userId          String
+  draftId         String?
+  confectionerIds String[] @default([])
+  message         String?
+  status          String   @default("pending") // "pending" | "responded" | "closed"
+  responsesCount  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([draftId])
+  @@index([status])
+  @@map("price_inquiries")
+}
+
+// ===== B2B =====
+// Оптовые цены на товар
+model WholesalePrice {
+  id          String   @id @default(cuid())
+  productId   String
+  minQuantity Int      @default(1)
+  price       Int
+  currency    String   @default("RUB")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([productId, minQuantity])
+  @@index([productId])
+  @@index([isActive])
+  @@map("wholesale_prices")
+}
+
+// Регулярные (подписочные) заказы
+model RecurringOrder {
+  id         String    @id @default(cuid())
+  customerId String
+  supplierId String
+  schedule   String // "weekly" | "biweekly" | "monthly"
+  items      Json // [{ productId, quantity }]
+  nextRunAt  DateTime?
+  status     String    @default("active") // "active" | "paused" | "cancelled"
+  lastRunAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([nextRunAt])
+  @@index([status])
+  @@map("recurring_orders")
+}
+
+// ===== ПОДПИСКА НА ТОРТЫ =====
+// "Торт каждую неделю/месяц" — рекуррентные платежи со скидкой
+model CakeSubscription {
+  id                String    @id @default(cuid())
+  customerId        String
+  confectionerId    String
+  productId         String
+  // Расписание: weekly | biweekly | monthly
+  schedule          String    @default("monthly")
+  // Скидка за подписку (15% по умолчанию)
+  discountPercent   Int       @default(15)
+  // Количество порций/вес
+  servings          Int       @default(8)
+  // Цена с учётом скидки
+  pricePerDelivery  Int // в рублях
+  // Доставка
+  deliveryAddress   String?
+  deliveryCity      String?
+  // Оплата
+  paymentMethod     String    @default("card") // "card" | "sbp"
+  yookassaPaymentId String? // ID рекуррентного платежа в YooKassa
+  // Расписание
+  nextDeliveryAt    DateTime
+  lastDeliveryAt    DateTime?
+  // Статус
+  status            String    @default("active") // "active" | "paused" | "cancelled" | "failed"
+  cancelReason      String?
+  // Сколько доставок состоялось
+  deliveriesCount   Int       @default(0)
+  // Метрики
+  totalSpent        Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([confectionerId])
+  @@index([status])
+  @@index([nextDeliveryAt])
+  @@map("cake_subscriptions")
+}
+
+// ===== СТРУКТУРИРОВАННАЯ ИНФОРМАЦИЯ ОБ АТЕЛЬЕ КОНДИТЕРА =====
+// Расширенный профиль мастерской/студии
+model ConfectionerAtelier {
+  id                String   @id @default(cuid())
+  confectionerId    String   @unique // userId кондитера
+  // Описание ателье
+  about             String? // подробное описание ("Наша мастерская расположена...")
+  // Фото ателье (интерьер, процесс работы)
+  workshopPhotos    String[] @default([])
+  // Видео-презентация (URL)
+  presentationVideo String?
+  // Оборудование
+  equipment         Json? // [{ name: "Планетарный миксер KitchenAid", qty: 2 }, ...]
+  // Опыт и квалификация
+  experienceYears   Int      @default(0)
+  education         Json? // [{ institution: "Школа кондитеров...", year: "2018", specialization: "Торты" }]
+  certificates      Json? // [{ name: "Сертификат Maître Pâtissier", year: "2020", image: "url" }]
+  awards            Json? // [{ name: "1 место на Cake Expo 2023", year: "2023" }]
+  // График работы
+  workingHours      Json? // { mon: "9:00-18:00", tue: "9:00-18:00", ... }
+  // Команда
+  teamSize          Int      @default(1)
+  // Техника/стили
+  techniques        String[] @default([]) // ["аэрограф", "сахарная флористика", "изомальт", ...]
+  // Доставка/самовывоз
+  deliveryCities    String[] @default([])
+  serviceRadiusKm   Int      @default(0)
+  // Соцсети
+  socialLinks       Json? // { instagram: "...", vk: "...", telegram: "...", youtube: "..." }
+  // Метрики
+  totalStudents     Int      @default(0) // сколько учеников прошло курсы
+  totalLessons      Int      @default(0) // сколько уроков опубликовано
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("confectioner_ateliers")
+}
+
+// ===== УРОКИ И ПРЕЗЕНТАЦИИ КОНДИТЕРОВ =====
+// Структурированные обучающие материалы: видеоуроки, мастер-классы, презентации
+model ConfectionerLesson {
+  id              String    @id @default(cuid())
+  confectionerId  String // userId кондитера
+  // Тип контента
+  type            String    @default("video_lesson") // "video_lesson" | "master_class" | "presentation" | "article" | "live_workshop"
+  // Основная информация
+  title           String
+  description     String
+  // Медиа
+  videoUrl        String? // URL видео (mp4 или HLS)
+  videoDuration   Int       @default(0) // в секундах
+  posterUrl       String? // обложка
+  presentationUrl String? // URL PDF/Slides презентации
+  // Структура урока
+  chapters        Json? // [{ title: "Подготовка", duration: 300, videoUrl: "..." }, ...]
+  materials       Json? // [{ name: "Шаблон розы.pdf", url: "..." }, ...]
+  // Для кого
+  difficultyLevel String    @default("beginner") // "beginner" | "intermediate" | "advanced" | "professional"
+  // Цена (0 = бесплатно)
+  price           Int       @default(0) // в рублях
+  // Связанный продукт (если урок по конкретному торту)
+  productId       String?
+  // Метрики
+  viewsCount      Int       @default(0)
+  likesCount      Int       @default(0)
+  enrolledCount   Int       @default(0) // сколько записалось
+  rating          Float     @default(0)
+  reviewsCount    Int       @default(0)
+  // Теги для поиска
+  tags            String[]  @default([])
+  // Модерация
+  status          String    @default("draft") // "draft" | "pending" | "published" | "rejected"
+  rejectionReason String?
+  // Запись на живой мастер-класс
+  scheduledAt     DateTime? // для live_workshop
+  maxParticipants Int? // лимит участников
+  // Создание
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([confectionerId])
+  @@index([type])
+  @@index([status])
+  @@index([difficultyLevel])
+  @@index([createdAt])
+  @@map("confectioner_lessons")
+}
+
+// Записи учеников на уроки
+model LessonEnrollment {
+  id          String    @id @default(cuid())
+  lessonId    String
+  userId      String
+  progress    Int       @default(0) // 0-100%
+  completedAt DateTime?
+  // Оплата
+  paid        Boolean   @default(false)
+  paymentId   String?
+  // Отзыв
+  rating      Int? // 1-5
+  reviewText  String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([lessonId, userId])
+  @@index([lessonId])
+  @@index([userId])
+  @@map("lesson_enrollments")
+}
+
+// ===== КАЛЕНДАРЬ ПРАЗДНИКОВ =====
+// Праздники РФ + пользовательские — для напоминаний о заказе торта
+model HolidayReminder {
+  id                String    @id @default(cuid())
+  userId            String
+  // Тип: system (государственный) | personal (личный)
+  type              String    @default("personal")
+  // Название праздника
+  name              String // "День рождения мамы"
+  // Дата (без года — повторяется ежегодно)
+  month             Int // 1-12
+  day               Int // 1-31
+  // За сколько дней напоминать
+  remindDaysBefore  Int       @default(7)
+  // Напоминание отправлено?
+  lastNotifiedAt    DateTime?
+  // Предпочтения (для рекомендаций)
+  preferredCategory String? // "birthday" | "wedding" | "corporate"
+  budgetRange       Json? // { min, max }
+  // Активно
+  active            Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+  @@index([month, day])
+  @@index([active])
+  @@map("holiday_reminders")
+}
+
+// ===== ВИДЕО-ЛЕНТА (TikTok-style) =====
+// Вертикальные видео кондитеров с автопрокруткой
+model VideoFeedItem {
+  id             String   @id @default(cuid())
+  confectionerId String
+  // Видео
+  videoUrl       String // URL mp4
+  posterUrl      String? // обложка
+  // Описание
+  title          String
+  description    String?
+  // Метрики
+  viewsCount     Int      @default(0)
+  likesCount     Int      @default(0)
+  commentsCount  Int      @default(0)
+  sharesCount    Int      @default(0)
+  // Связанный товар
+  productId      String?
+  // Музыка/аудио (опционально)
+  audioTitle     String?
+  // Статус
+  status         String   @default("active") // "active" | "hidden" | "removed"
+  // Порядок в ленте (для алгоритма рекомендаций)
+  rating         Float    @default(0) // скоринг для алгоритма
+  createdAt      DateTime @default(now())
+
+  @@index([confectionerId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([rating])
+  @@map("video_feed_items")
+}
+
+// ===== CMS: РАСШИРЕНИЯ =====
+// Секции CMS (для блочного контента)
+model CmsSection {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  visible   Boolean  @default(true)
+  sortOrder Int      @default(0)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visible])
+  @@map("cms_sections")
+}
+
+// Блоки внутри секций CMS.
+// ВНИМАНИЕ: существующая модель CmsBlock привязана к CmsPage (pageId).
+// Новая модель для секций названа CmsSectionBlock, чтобы избежать конфликта имён.
+model CmsSectionBlock {
+  id        String   @id @default(cuid())
+  sectionId String
+  type      String // "text" | "image" | "video" | "gallery" | "html"
+  content   String?
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sectionId])
+  @@index([order])
+  @@map("cms_section_blocks")
+}
+
+// Медиафайлы (единый реестр)
+model MediaFile {
+  id         String   @id @default(cuid())
+  url        String   @unique
+  type       String // "image" | "video" | "audio" | "document"
+  size       Int      @default(0)
+  filename   String?
+  mimeType   String?
+  width      Int?
+  height     Int?
+  alt        String?
+  uploadedBy String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([uploadedBy])
+  @@index([type])
+  @@map("media_files")
+}
+
+// Очередь обработки изображений (resize, optimize, watermark)
+model ImageProcessingQueue {
+  id          String    @id @default(cuid())
+  mediaFileId String
+  status      String    @default("queued") // "queued" | "processing" | "completed" | "failed"
+  params      Json?
+  resultUrl   String?
+  error       String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([mediaFileId])
+  @@index([status])
+  @@map("image_processing_queue")
+}
+
+// ===== АУДИТ =====
+// Лог действий пользователя (детальный)
+model ActionLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("action_logs")
+}
+
+// Общий аудит-лог (короткий, с timestamp и ip)
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  metadata  Json?
+  ip        String?
+  userAgent String?
+  timestamp DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity, entityId])
+  @@index([timestamp])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ===== ПРОМО: РАСШИРЕНИЯ =====
+// Промо-кампании (отличаются от PromoCode: поддерживают периода и сценарии)
+model PromoCampaign {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  name         String
+  description  String?
+  discountType String    @default("percent") // "percent" | "fixed"
+  value        Float     @default(0)
+  startDate    DateTime  @default(now())
+  endDate      DateTime?
+  maxUses      Int?
+  usedCount    Int       @default(0)
+  isActive     Boolean   @default(true)
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+  @@index([startDate, endDate])
+  @@map("promo_campaigns")
+}
+
+// Использование промокодов пользователями
+model PromoCodeUsage {
+  id          String   @id @default(cuid())
+  promoCodeId String
+  userId      String
+  orderId     String?
+  discount    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@unique([promoCodeId, userId, orderId])
+  @@index([promoCodeId])
+  @@index([userId])
+  @@index([orderId])
+  @@map("promo_code_usages")
+}
+
+// ===== WISHLIST =====
+// Список желаний пользователя
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@map("wishlist_items")
+}
+
+// ===== ПОДТВЕРЖДЕНИЕ КОНДИТЕРАМИ ГОТОВНОСТИ ИЗГОТОВИТЬ РЕЦЕПТ =====
+// Кондитер подтверждает, что может изготовить изделие по данному рецепту.
+// Покупатель видит список ближайших кондитеров, готовых испечь.
+model RecipeAcceptance {
+  id             String   @id @default(cuid())
+  recipeId       String
+  confectionerId String // userId кондитера
+  priceFrom      Int // минимальная цена
+  priceTo        Int? // максимальная цена (null = договорная)
+  prepDays       Int      @default(3) // за сколько дней заказать
+  delivery       Boolean  @default(true)
+  selfPickup     Boolean  @default(true)
+  notes          String? // комментарий кондитера
+  status         String   @default("active") // "active" | "paused" | "removed"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([recipeId])
+  @@index([confectionerId])
+  @@index([status])
+  @@map("recipe_acceptances")
+}
+
+// ===== SimpleX Chat — приватный E2E-канал для премиум-клиентов =====
+// Связывает внутренний userId маркетплейса с SimpleX-контактом.
+// Используется для гибридной модели: Socket.IO (основной) + SimpleX (приватный).
+model SimpleXContact {
+  id               String   @id @default(cuid())
+  userId           String // владелец SimpleX-профиля (обычно кондитер)
+  // simplexConnectionId — локальный ID соединения в simplex-chat CLI
+  simplexConnId    String?
+  // simplexAddress — публичный адрес для подключения клиентов (smp://fp@host#key)
+  simplexAddress   String?
+  // displayName в SimpleX (имя, которое видят клиенты)
+  simplexName      String?
+  // тип профиля: "confectioner" | "support" | "b2b"
+  profileType      String   @default("confectioner")
+  // активен ли профиль (можно ли к нему подключаться)
+  active           Boolean  @default(true)
+  // сколько клиентов подключилось через этот адрес
+  connectionsCount Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  messages SimpleXMessage[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([profileType])
+  @@index([active])
+  @@map("simplex_contacts")
+}
+
+// Сообщения, пришедшие через SimpleX (сохраняем для истории в дашборде)
+// ВАЖНО: E2E означает, что simplex-bridge расшифровывает только те сообщения,
+// которые приходят на его собственный профиль. Сообщения между двумя
+// пользователями напрямую (без участия bridge) недоступны.
+model SimpleXMessage {
+  id               String   @id @default(cuid())
+  // simplexContactId — профиль маркетплейса, который получил сообщение
+  simplexContactId String
+  // chatId из SimpleX (локальный в CLI)
+  simplexChatId    String
+  // simplexMsgId — ID сообщения в SimpleX
+  simplexMsgId     String
+  // от кого пришло (имя контакта в SimpleX — анонимный идентификатор)
+  fromName         String?
+  // содержимое сообщения (text/files расшифровываются bridge-сервисом)
+  text             String?
+  // метаданные (тип сообщения, вложения)
+  metadata         Json?
+  // направление: "incoming" (от клиента) | "outgoing" (от оператора)
+  direction        String   @default("incoming")
+  // прочитано ли оператором
+  readByOperator   Boolean  @default(false)
+  // связанный заказ (если сообщение относится к заказу)
+  orderId          String?
+  receivedAt       DateTime @default(now())
+
+  simplexContact SimpleXContact @relation(fields: [simplexContactId], references: [id], onDelete: Cascade)
+
+  @@index([simplexContactId])
+  @@index([direction])
+  @@index([receivedAt])
+  @@index([orderId])
+  @@map("simplex_messages")
+}
+
+// ===== AI-ДИАЛОГИ: САМООБУЧЕНИЕ =====
+// Контекст отношений между конкретным покупателем и кондитером
+// Создаётся/обновляется при каждом заказе и диалоге
+model RelationshipContext {
+  id                 String    @id @default(cuid())
+  customerId         String // userId покупателя
+  confectionerId     String // userId кондитера
+  // Глубина отношений
+  ordersCount        Int       @default(0) // сколько заказов между ними
+  chatsCount         Int       @default(0) // сколько диалогов
+  // Тип отношений: new (первый контакт) | repeat (повторный) | regular (постоянный) | vip
+  relationshipType   String    @default("new")
+  // Извлечённые предпочтения покупателя (для этого кондитера)
+  preferences        Json? // { fillings: [], coatings: [], designs: [], budgetRange: {}, allergies: [] }
+  // Паттерны общения
+  communicationStyle Json? // { tone: "formal"|"friendly"|"casual", avgResponseTime, prefersShort: bool }
+  // История ключевых фактов
+  keyFacts           Json? // [{ fact: "Любит шоколад с малиной", date: "...", fromOrderId: "..." }]
+  // Последний заказ
+  lastOrderId        String?
+  lastOrderDate      DateTime?
+  // Уровень доверия (0-100) — растёт с каждым успешным заказом
+  trustScore         Int       @default(0)
+  // Метрики удовлетворённости
+  avgRating          Float     @default(0)
+  // Создание/обновление
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([customerId, confectionerId])
+  @@index([customerId])
+  @@index([confectionerId])
+  @@index([relationshipType])
+  @@map("relationship_contexts")
+}
+
+// Память диалога — извлечённые факты из переписки
+model ConversationMemory {
+  id              String    @id @default(cuid())
+  customerId      String
+  confectionerId  String
+  chatRoomId      String?
+  orderId         String?
+  // Тип памяти: preference | allergy | budget | design | event | feedback | personal
+  memoryType      String
+  // Содержание (что извлек AI)
+  content         String // "Любит тёмный шоколад без сахара"
+  // Уверенность AI (0-1) — как сильно доверяет этой памяти
+  confidence      Float     @default(0.5)
+  // Источник: из какого сообщения извлечено
+  sourceMessageId String?
+  sourceText      String?
+  // Подтверждено пользователем?
+  confirmed       Boolean   @default(false)
+  // Применимо только к этому кондитеру или глобально?
+  isGlobal        Boolean   @default(false)
+  // Срок годности (некоторые памяти устаревают — например, аллергии нет)
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([customerId])
+  @@index([confectionerId])
+  @@index([customerId, confectionerId])
+  @@index([memoryType])
+  @@index([isGlobal])
+  @@map("conversation_memories")
+}
+
+// Профиль обучения AI — агрегированный профиль пользователя
+model AILearningProfile {
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  // Общие предпочтения (из всех диалогов)
+  globalPreferences  Json? // { favoriteFillings: [], allergies: [], budgetRange: {}, designPreferences: [] }
+  // Стиль общения
+  communicationStyle Json? // { tone, avgMessageLength, prefersEmoji, responseTimeHours }
+  // Поведенческие паттерны
+  behaviorPatterns   Json? // { ordersOnWeekends: bool, prefersDelivery: bool, avgOrderValue: int }
+  // Качество AI-подсказок (для самообучения)
+  suggestionStats    Json? // { totalSuggestions: int, accepted: int, rejected: int, acceptanceRate: float }
+  // Последнее обучение
+  lastLearnedAt      DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("ai_learning_profiles")
+}
+
+// Лог обучения AI — каждая сессия извлечения фактов
+model AILearningLog {
+  id              String   @id @default(cuid())
+  userId          String
+  confectionerId  String?
+  // Что было на входе (диалог/заказ/отзыв)
+  sourceType      String // "chat" | "order" | "review" | "feedback"
+  sourceId        String?
+  // Что AI извлёк
+  extractedFacts  Json? // [{ type, content, confidence }]
+  // Сколько фактов добавлено в память
+  memoriesCreated Int      @default(0)
+  // Успешность (для метрики качества)
+  userFeedback    String? // "helpful" | "not_helpful" | "ignored"
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([confectionerId])
+  @@index([sourceType])
+  @@map("ai_learning_logs")
+}
+
+// ===== CRM: ТИКЕТЫ ПОДДЕРЖКИ =====
+// Тикеты от пользователей — обращения в поддержку по заказам, возвратам, вопросам.
+model SupportTicket {
+  id              String          @id @default(cuid())
+  number          String          @unique // T-1024 (генерируется автоматически)
+  customerId      String // ID пользователя (User.id)
+  customerName    String // Денормилизованное имя для быстрого отображения
+  customerEmail   String?
+  subject         String // Тема обращения
+  description     String // Подробное описание (Markdown)
+  priority        TicketPriority  @default(medium)
+  status          TicketStatus    @default(open)
+  category        TicketCategory? // Тип обращения
+  assignedTo      String? // ID админа/оператора (User.id)
+  assignedName    String? // Имя исполнителя
+  orderId         String? // Связь с заказом (опционально)
+  orderNumber     String? // Номер заказа для быстрого отображения
+  // SLA и время
+  firstResponseAt DateTime? // Первый ответ оператора
+  resolvedAt      DateTime? // Время закрытия
+  // Оценка
+  rating          Int? // 1-5 — оценка после закрытия
+  ratingComment   String?
+  // Метаданные
+  tags            String[] // Теги для фильтрации
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  messages     TicketMessage[]
+  interactions CustomerInteraction[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedTo])
+  @@index([createdAt])
+  @@map("support_tickets")
+}
+
+enum TicketPriority {
+  low // Низкий
+  medium // Средний
+  high // Срочный
+  urgent // Критический
+}
+
+enum TicketStatus {
+  open // Открыт
+  in_progress // В работе
+  waiting // Ожидает ответа клиента
+  resolved // Решён
+  closed // Закрыт
+  escalated // Эскалирован
+}
+
+enum TicketCategory {
+  order_issue // Проблема с заказом
+  payment // Оплата
+  delivery // Доставка
+  refund // Возврат
+  product_quality // Качество товара
+  confectioner // Кондитер
+  account // Аккаунт
+  technical // Техническая проблема
+  other // Другое
+}
+
+// ===== CRM: СООБЩЕНИЯ ТИКЕТОВ =====
+model TicketMessage {
+  id          String   @id @default(cuid())
+  ticketId    String
+  authorId    String // ID автора (User.id)
+  authorName  String // Имя автора
+  authorRole  String // "customer" | "admin" | "system"
+  message     String // Текст сообщения (Markdown)
+  isInternal  Boolean  @default(false) // Внутренний комментарий (не виден клиенту)
+  attachments Json? // [{ name, url, size }]
+  createdAt   DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([createdAt])
+  @@map("ticket_messages")
+}
+
+// ===== CRM: ЛИДЫ (входящие потенциальные клиенты) =====
+model Lead {
+  id            String     @id @default(cuid())
+  // Контакт
+  name          String
+  email         String?
+  phone         String?
+  company       String? // Для B2B
+  // Источник
+  source        LeadSource @default(website) // Откуда пришёл лид
+  sourceDetails String? // UTM-метки, реферер и т.п.
+  // Pipeline
+  status        LeadStatus @default(new)
+  stage         LeadStage  @default(awareness)
+  // Что нужно
+  need          String? // Описание потребности
+  budget        Int? // Потенциальный бюджет (в рублях)
+  // Ответственный
+  assignedTo    String? // ID админа/менеджера
+  assignedName  String?
+  // Связь
+  customerId    String? // Если лид конвертирован в клиента (User.id)
+  orderId       String? // Если создан заказ
+  // Метрики
+  score         Int        @default(0) // Lead scoring (0-100)
+  // Время
+  contactedAt   DateTime? // Первый контакт
+  convertedAt   DateTime? // Конвертация в клиента
+  lostAt        DateTime? // Потерян
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  interactions CustomerInteraction[]
+
+  @@index([status])
+  @@index([stage])
+  @@index([assignedTo])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+enum LeadSource {
+  website // Форма на сайте
+  phone // Звонок
+  email // Email
+  social_media // Соцсети
+  referral // Реферал
+  b2b_inquiry // B2B-запрос
+  event // Мероприятие
+  advertising // Реклама
+  other
+}
+
+enum LeadStatus {
+  new // Новый
+  contacted // Контакт установлен
+  qualified // Квалифицирован
+  converted // Конвертирован в клиента
+  lost // Потерян
+  disqualified // Дисквалифицирован
+}
+
+enum LeadStage {
+  awareness // Осведомлённость
+  interest // Интерес
+  consideration // Рассмотрение
+  intent // Намерение
+  evaluation // Оценка
+  decision // Решение
+}
+
+// ===== CRM: ИСТОРИЯ ВЗАИМОДЕЙСТВИЙ С КЛИЕНТОМ =====
+// Timeline всех контактов: заказы, тикеты, чаты, звонки, email.
+model CustomerInteraction {
+  id              String          @id @default(cuid())
+  customerId      String // ID пользователя (User.id)
+  customerName    String? // Имя для отображения
+  // Тип взаимодействия
+  type            InteractionType
+  // Связь с сущностью (опционально)
+  ticketId        String?
+  leadId          String?
+  orderId         String?
+  // Содержание
+  subject         String? // Краткое описание
+  description     String? // Подробности
+  metadata        Json? // Доп. данные (сумма заказа, длительность звонка и т.п.)
+  // Результат
+  outcome         String? // "positive" | "negative" | "neutral" | "pending"
+  // Кто инициировал
+  initiatedBy     String? // "customer" | "admin" | "system"
+  initiatedByName String?
+  // Время
+  createdAt       DateTime        @default(now())
+
+  ticket SupportTicket? @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  lead   Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([ticketId])
+  @@index([leadId])
+  @@map("customer_interactions")
+}
+
+enum InteractionType {
+  order // Заказ
+  ticket // Тикет поддержки
+  chat // Чат
+  call // Звонок
+  email // Email
+  review // Отзыв
+  referral // Реферал
+  payment // Платёж
+  refund // Возврат
+  dispute // Спор
+  note // Заметка менеджера
+  other
+}
+
+// ===== EMAIL: ПИСЬМА (отправленные и входящие) =====
+// Хранит все email-сообщения — как отправленные платформой, так и входящие от пользователей.
+// Используется для:
+//  1. Журнала отправленных уведомлений (регистрация, заказы, тикеты)
+//  2. Входящих писем (через webhook от Mailgun/SendGrid/IMAP)
+//  3. Admin UI — таб «Почта» для просмотра переписки
+model EmailMessage {
+  id           String         @id @default(cuid())
+  // Направление: исходящее (sent) или входящее (received)
+  direction    EmailDirection
+  // Отправитель / Получатель
+  fromAddress  String // email отправителя
+  fromName     String? // имя отправителя
+  toAddress    String // email получателя
+  toName       String? // имя получателя
+  // Содержание
+  subject      String
+  textBody     String? // plain text версия
+  htmlBody     String? // HTML версия
+  // Связь с сущностями (опционально)
+  userId       String? // связанный пользователь (для исходящих — получатель)
+  orderId      String? // связанный заказ
+  ticketId     String? // связанный тикет
+  leadId       String? // связанный лид
+  // Шаблон (если отправлено через шаблон)
+  template     String? // "welcome", "order_created", "ticket_reply" и т.п.
+  // Статус
+  status       EmailStatus    @default(pending)
+  errorMessage String? // ошибка отправки (если failed)
+  // Метрики
+  messageId    String? // RFC 822 Message-ID (для thread-tracking)
+  inReplyTo    String? // Message-ID письма, на которое это отвечает
+  // Внешний ID (от Mailgun/SendGrid)
+  externalId   String? // ID во внешнем сервисе
+  // Время
+  sentAt       DateTime? // когда фактически отправлено
+  receivedAt   DateTime? // когда получено (для входящих)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  attachments EmailAttachment[]
+
+  @@index([direction])
+  @@index([userId])
+  @@index([orderId])
+  @@index([ticketId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([toAddress])
+  @@map("email_messages")
+}
+
+enum EmailDirection {
+  sent // исходящее (от платформы)
+  received // входящее (от пользователя)
+}
+
+enum EmailStatus {
+  pending // в очереди отправки
+  sent // отправлено успешно
+  failed // ошибка отправки
+  delivered // доставлено (подтверждение от Mailgun/SendGrid)
+  bounced // возвращено (bounce)
+  spam // помечено как спам
+}
+
+// ===== EMAIL: ВЛОЖЕНИЯ =====
+model EmailAttachment {
+  id        String   @id @default(cuid())
+  emailId   String
+  filename  String
+  mimeType  String
+  size      Int // в байтах
+  url       String? // URL файла (S3/локально)
+  content   Bytes? // бинарное содержимое (для небольших файлов)
+  createdAt DateTime @default(now())
+
+  email EmailMessage @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  @@index([emailId])
+  @@map("email_attachments")
+}
+
+// ===== МОДЕРАЦИЯ КОНТЕНТА: ОЧЕРЕДЬ ПРОВЕРКИ =====
+// Все пользовательские материалы (товары, отзывы, сообщения чата, рассылки)
+// проходят автоматическую модерацию перед публикацией или помечаются для ручной проверки.
+model ModerationQueue {
+  id               String                 @id @default(cuid())
+  // Тип контента
+  contentType      ModerationContentType // product, review, chat_message, broadcast, venue, etc.
+  contentId        String // ID связанной сущности
+  // Автор контента
+  authorId         String
+  authorName       String?
+  // Содержимое для модерации (snapshot)
+  title            String?
+  content          String // текст для проверки
+  images           String[] // URL изображений для проверки
+  // Результат автоматической проверки
+  autoStatus       ModerationAutoStatus   @default(pending)
+  autoReason       String? // причина (если отклонено/помечено)
+  autoScore        Float                  @default(0) // 0-1, уровень риска
+  // Категории нарушений (если найдены)
+  violations       String[] // ["18+", "extremism", "drugs", "spam", "insult"]
+  // Ручная модерация
+  manualStatus     ModerationManualStatus @default(pending)
+  moderatorId      String?
+  moderatorName    String?
+  moderatorComment String?
+  // Связь с жалобами
+  reports          ContentReport[]
+  // Время
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  reviewedAt       DateTime?
+
+  @@index([contentType])
+  @@index([autoStatus])
+  @@index([manualStatus])
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("moderation_queue")
+}
+
+enum ModerationContentType {
+  product // Карточка товара
+  product_review // Отзыв на товар
+  confectioner_review // Отзыв на кондитера
+  chat_message // Сообщение в чате
+  broadcast // Рассылка от админа/кондитера
+  venue // Площадка
+  service_product // Услуга (печать, фейерверки)
+  event // Событие (корпоратив)
+  user_profile // Профиль пользователя (имя, аватар, описание)
+  comment // Комментарий к блогу/рецепту
+}
+
+enum ModerationAutoStatus {
+  pending // в очереди на проверку
+  approved // автоматически одобрено
+  flagged // помечено (нужна ручная проверка)
+  rejected // автоматически отклонено
+  error // ошибка при проверке
+}
+
+enum ModerationManualStatus {
+  pending // ждёт ручной проверки
+  approved // одобрено модератором
+  rejected // отклонено модератором
+  escalated // эскалировано (возврат админу)
+  not_required // ручная проверка не требуется (авто-одобрено)
+}
+
+// ===== МОДЕРАЦИЯ КОНТЕНТА: ЖАЛОБЫ ПОЛЬЗОВАТЕЛЕЙ =====
+model ContentReport {
+  id               String       @id @default(cuid())
+  // Что жалуются
+  moderationId     String? // связь с ModerationQueue (если есть)
+  contentType      String // тип контента (дублирует для независимости)
+  contentId        String // ID контента
+  // Кто жалуется
+  reporterId       String
+  reporterName     String?
+  // Причина
+  reason           ReportReason
+  description      String? // пояснение от пользователя
+  // Статус
+  status           ReportStatus @default(new)
+  moderatorId      String?
+  moderatorComment String?
+  // Время
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  resolvedAt       DateTime?
+
+  moderation ModerationQueue? @relation(fields: [moderationId], references: [id], onDelete: SetNull)
+
+  @@index([contentType, contentId])
+  @@index([reporterId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("content_reports")
+}
+
+enum ReportReason {
+  adult_content // Порнография / 18+
+  violence // Насилие
+  extremism // Экстремизм / призывы к противоправным действиям
+  drugs // Наркотики
+  weapons // Оружие
+  spam // Спам
+  scam // Мошенничество
+  insult // Оскорбления
+  hate_speech // Разжигание ненависти
+  illegal_goods // Незаконные товары
+  copyright // Нарушение авторских прав
+  personal_data // Раскрытие персональных данных
+  other // Другое
+}
+
+enum ReportStatus {
+  new // Новая жалоба
+  in_review // На рассмотрении
+  resolved_action // Решено — действие принято (контент удалён)
+  resolved_no_action // Решено — действие не требуется
+  rejected // Отклонена (необоснованная)
+}
+
+// ===== МОДЕРАЦИЯ КОНТЕНТА: ПРАВИЛА (настраиваемые) =====
+// Администратор может добавлять/редактировать правила модерации через UI.
+model ModerationRule {
+  id            String               @id @default(cuid())
+  name          String // Название правила
+  description   String?
+  // Тип правила
+  ruleType      ModerationRuleType
+  // Параметры правила
+  pattern       String // regex или список слов (через запятую)
+  caseSensitive Boolean              @default(false)
+  wholeWord     Boolean              @default(false)
+  // Категория нарушения
+  violation     String // "18+", "extremism", "drugs", "spam", "insult"
+  // Действие при срабатывании
+  action        ModerationRuleAction @default(flag)
+  // Метаданные
+  isActive      Boolean              @default(true)
+  hitsCount     Int                  @default(0) // сколько раз сработало
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  createdBy     String?
+
+  @@index([isActive])
+  @@index([violation])
+  @@map("moderation_rules")
+}
+
+enum ModerationRuleType {
+  regex // Регулярное выражение
+  keywords // Список ключевых слов
+  url_pattern // Паттерн URL (для ссылок)
+  email_pattern // Паттерн email (для контактов в описании)
+}
+
+enum ModerationRuleAction {
+  reject // Автоматически отклонить
+  flag // Пометить для ручной проверки
+  warn // Предупредить автора (но опубликовать)
+}

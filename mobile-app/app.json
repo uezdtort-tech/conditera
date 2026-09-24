@@ -1,0 +1,81 @@
+{
+  "expo": {
+    "name": "Уездный кондитер",
+    "slug": "conditera-konditer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#7c3aed"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ru.conditera.konditer",
+      "buildNumber": "1",
+      "associatedDomains": [
+        "applinks:conditera.ru"
+      ],
+      "infoPlist": {
+        "NSCameraUsageDescription": "Приложение использует камеру для фото товаров в отзывах.",
+        "NSPhotoLibraryUsageDescription": "Приложение использует галерею для загрузки фото профиля и отзывов.",
+        "NSLocationWhenInUseUsageDescription": "Приложение использует геолокацию для поиска кондитеров рядом с вами.",
+        "NSFaceIDUsageDescription": "Приложение использует Face ID для быстрого входа без пароля.",
+        "NSMicrophoneUsageDescription": "Приложение использует микрофон для записи голосовых сообщений в чате с кондитером."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#7c3aed"
+      },
+      "package": "ru.conditera.konditer",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "VIBRATE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundling": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#7c3aed",
+          "sounds": []
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "scheme": "conditera",
+    "extra": {
+      "eas": {
+        "projectId": "conditera-konditer"
+      },
+      "apiUrl": "http://localhost:3000",
+      "chatUrl": "http://localhost:3030"
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/conditera-konditer"
+    }
+  }
+}

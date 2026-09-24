@@ -1,0 +1,1125 @@
+     1→     1→// Prisma schema for "Уездный кондитер" marketplace
+     2→     2→// PostgreSQL — real production database (also runs locally via PGlite WASM adapter)
+     3→     3→
+     4→     4→generator client {
+     5→     5→  provider        = "prisma-client-js"
+     6→     6→  previewFeatures = ["driverAdapters"]
+     7→     7→}
+     8→     8→
+     9→     9→datasource db {
+    10→    10→  provider = "postgres"
+    11→    11→  url      = env("DATABASE_URL")
+    12→    12→}
+    13→    13→
+    14→    14→// ===== РОЛИ (enum) =====
+    15→    15→enum UserRole {
+    16→    16→  CUSTOMER
+    17→    17→  CONFECTIONER
+    18→    18→  ADMIN
+    19→    19→  SUPER_ADMIN
+    20→    20→  COURIER
+    21→    21→  SUPPLIER
+    22→    22→  VENUE_OWNER
+    23→    23→  ANIMATOR_AGENCY
+    24→    24→  RECREATION_CENTER
+    25→    25→  KIDS_CLUB
+    26→    26→}
+    27→    27→
+    28→    28→enum LoyaltyLevel {
+    29→    29→  BRONZE
+    30→    30→  SILVER
+    31→    31→  GOLD
+    32→    32→  PLATINUM
+    33→    33→}
+    34→    34→
+    35→    35→enum AccountType {
+    36→    36→  individual
+    37→    37→  legal
+    38→    38→}
+    39→    39→
+    40→    40→enum TrustLevel {
+    41→    41→  NEW
+    42→    42→  VERIFIED
+    43→    43→  MASTER
+    44→    44→  EXPERT
+    45→    45→}
+    46→    46→
+    47→    47→enum Tariff {
+    48→    48→  START
+    49→    49→  BASIC
+    50→    50→  PREMIUM
+    51→    51→  BUSINESS
+    52→    52→}
+    53→    53→
+    54→    54→enum TaxMode {
+    55→    55→  NPD
+    56→    56→  USN
+    57→    57→  OSNO
+    58→    58→  PSN
+    59→    59→  SELF_EMPLOYED
+    60→    60→}
+    61→    61→
+    62→    62→enum OrderStatus {
+    63→    63→  PENDING
+    64→    64→  NEGOTIATING
+    65→    65→  CONFIRMED
+    66→    66→  PREPARING
+    67→    67→  READY
+    68→    68→  IN_DELIVERY
+    69→    69→  DELIVERED
+    70→    70→  COMPLETED
+    71→    71→  CANCELLED
+    72→    72→  REFUNDED
+    73→    73→}
+    74→    74→
+    75→    75→enum PaymentStatus {
+    76→    76→  pending
+    77→    77→  waiting_for_capture
+    78→    78→  succeeded
+    79→    79→  escrow
+    80→    80→  released
+    81→    81→  cancelled
+    82→    82→  refunded
+    83→    83→}
+    84→    84→
+    85→    85→enum PaymentMethod {
+    86→    86→  card
+    87→    87→  sbp
+    88→    88→  cash
+    89→    89→  split
+    90→    90→  installment
+    91→    91→  yookassa
+    92→    92→  self
+    93→    93→}
+    94→    94→
+    95→    95→enum LoyaltyTxType {
+    96→    96→  EARN
+    97→    97→  REDEEM
+    98→    98→  EXPIRE
+    99→    99→  REFUND
+   100→   100→  ADJUST
+   101→   101→  BONUS_WELCOME
+   102→   102→  BONUS_BIRTHDAY
+   103→   103→  BONUS_REFERRAL
+   104→   104→}
+   105→   105→
+   106→   106→enum NotificationChannel {
+   107→   107→  email
+   108→   108→  sms
+   109→   109→  push
+   110→   110→  in_app
+   111→   111→  telegram
+   112→   112→}
+   113→   113→
+   114→   114→enum NotificationStatus {
+   115→   115→  queued
+   116→   116→  sent
+   117→   117→  delivered
+   118→   118→  failed
+   119→   119→  read
+   120→   120→  dismissed
+   121→   121→}
+   122→   122→
+   123→   123→enum NotificationTemplate {
+   124→   124→  ORDER_CREATED
+   125→   125→  ORDER_CONFIRMED
+   126→   126→  ORDER_STATUS_CHANGED
+   127→   127→  ORDER_ACCEPTED
+   128→   128→  ORDER_IN_PRODUCTION
+   129→   129→  ORDER_READY
+   130→   130→  ORDER_READY_FOR_PICKUP
+   131→   131→  ORDER_OUT_FOR_DELIVERY
+   132→   132→  ORDER_RECEIVED
+   133→   133→  ORDER_DELIVERED
+   134→   134→  ORDER_CANCELLED
+   135→   135→  PAYMENT_SUCCEEDED
+   136→   136→  PAYMENT_PARTIAL
+   137→   137→  PAYMENT_FAILED
+   138→   138→  REFUND_PROCESSED
+   139→   139→  NEGOTIATION_RECEIVED
+   140→   140→  NEGOTIATION_QUOTED
+   141→   141→  NEGOTIATION_APPROVED
+   142→   142→  NEGOTIATION_REJECTED
+   143→   143→  NEW_MESSAGE
+   144→   144→  NEW_REVIEW
+   145→   145→  REVIEW_REPLY
+   146→   146→  BONUS_EARNED
+   147→   147→  BONUS_EXPIRING
+   148→   148→  LEVEL_UP
+   149→   149→  BIRTHDAY_GREETING
+   150→   150→  REFERRAL_REWARDED
+   151→   151→  PROMO_NEAR_YOU
+   152→   152→  ABANDONED_CART
+   153→   153→  VERIFICATION_APPROVED
+   154→   154→  VERIFICATION_REJECTED
+   155→   155→  PAYOUT_PROCESSED
+   156→   156→  SUPPORT_REPLY
+   157→   157→}
+   158→   158→
+   159→   159→// ===== ПОЛЬЗОВАТЕЛИ =====
+   160→   160→model User {
+   161→   161→  id            String        @id @default(cuid())
+   162→   162→  email         String        @unique
+   163→   163→  passwordHash  String
+   164→   164→  name          String
+   165→   165→  phone         String?
+   166→   166→  avatar        String?
+   167→   167→  roles         UserRole[]    @default([CUSTOMER])
+   168→   168→  accountType   AccountType   @default(individual)
+   169→   169→  legalInfo     Json?
+   170→   170→  city          String?
+   171→   171→  loyaltyLevel  LoyaltyLevel  @default(BRONZE)
+   172→   172→  bonusBalance  Int           @default(0)
+   173→   173→  isBlocked     Boolean       @default(false)
+   174→   174→  blockedReason String?
+   175→   175→  // 2FA / TOTP
+   176→   176→  tfaSecret       String?      // base32-секрет для TOTP (шифрованный)
+   177→   177→  tfaEnabled      Boolean      @default(false)
+   178→   178→  tfaBackupCodes  String[]     @default([]) // хэши backup-кодов
+   179→   179→  tfaRequiredFor  String[]     @default([]) // ["payout", "login", "settings"]
+   180→   180→  // Anti-fraud: последний IP входа
+   181→   181→  lastLoginIp     String?
+   182→   182→  lastLoginAt     DateTime?
+   183→   183→  // Bot-flag: системный пользователь-бот (auto-chat assistant)
+   184→   184→  isBot           Boolean      @default(false)
+   185→   185→  botRole         String?      // "order_assistant" | "support" | "faq"
+   186→   186→  createdAt     DateTime      @default(now())
+   187→   187→  updatedAt     DateTime      @updatedAt
+   188→   188→
+   189→   189→  // Relations
+   190→   190→  confectioner  Confectioner?
+   191→   191→  orders        Order[]
+   192→   192→  cartItems     CartItem[]
+   193→   193→  reviews         Review[]
+   194→   194→  chatMessages    ChatMessage[]
+   195→   195→  promotions      Promotion[]
+   196→   196→  recipes         Recipe[]
+   197→   197→  referrals       Referral?
+   198→   198→  giftCertsFrom   GiftCertificate[] @relation("fromUser")
+   199→   199→  giftCertsTo     GiftCertificate[] @relation("toUser")
+   200→   200→  holidays        UserHoliday[]
+   201→   201→  videoReviews    VideoReview[]
+   202→   202→  loyaltyTxs      LoyaltyTransaction[]
+   203→   203→  notifications   Notification[]
+   204→   204→  notifyPrefs     NotificationPreferences?
+   205→   205→  orgVerifications OrganizationVerification[]
+   206→   206→
+   207→   207→  @@index([city])
+   208→   208→  @@index([isBlocked])
+   209→   209→  @@map("users")
+   210→   210→}
+   211→   211→
+   212→   212→// ===== ПРЕДПОЧТЕНИЯ УВЕДОМЛЕНИЙ =====
+   213→   213→model NotificationPreferences {
+   214→   214→  userId              String   @id
+   215→   215→  emailEnabled        Boolean  @default(true)
+   216→   216→  smsEnabled          Boolean  @default(false)
+   217→   217→  pushEnabled         Boolean  @default(true)
+   218→   218→  telegramEnabled     Boolean  @default(false)
+   219→   219→  inAppEnabled        Boolean  @default(true)
+   220→   220→
+   221→   221→  // Per-category opt-ins (all default true)
+   222→   222→  orderUpdates        Boolean  @default(true)
+   223→   223→  paymentUpdates      Boolean  @default(true)
+   224→   224→  promos              Boolean  @default(true)
+   225→   225→  messages            Boolean  @default(true)
+   226→   226→  reviews             Boolean  @default(true)
+   227→   227→  loyalty             Boolean  @default(true)
+   228→   228→  abandonedCart       Boolean  @default(true)
+   229→   229→  digest              Boolean  @default(true)
+   230→   230→
+   231→   231→  // Quiet hours (e.g. 22:00–09:00 — messages queued, not sent)
+   232→   232→  quietHoursStart     Int      @default(22)
+   233→   233→  quietHoursEnd       Int      @default(9)
+   234→   234→  timezone            String   @default("Europe/Moscow")
+   235→   235→
+   236→   236→  // Frequency caps
+   237→   237→  maxPerDay           Int      @default(20)
+   238→   238→
+   239→   239→  updatedAt           DateTime @updatedAt
+   240→   240→
+   241→   241→  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   242→   242→
+   243→   243→  @@map("notification_preferences")
+   244→   244→}
+   245→   245→
+   246→   246→// ===== ЛОЯЛЬНОСТЬ: ТРАНЗАКЦИИ =====
+   247→   247→model LoyaltyTransaction {
+   248→   248→  id              String          @id @default(cuid())
+   249→   249→  userId          String
+   250→   250→  type            LoyaltyTxType
+   251→   251→  points          Int             // positive for EARN, negative for REDEEM/EXPIRE
+   252→   252→  balanceAfter    Int
+   253→   253→  description     String
+   254→   254→  orderId         String?
+   255→   255→  amount          Int?            // сумма заказа (в копейках)
+   256→   256→  multiplier      Float?
+   257→   257→  expiresAt       DateTime?       // для бонусов с сроком действия
+   258→   258→  createdAt       DateTime        @default(now())
+   259→   259→
+   260→   260→  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+   261→   261→
+   262→   262→  @@index([userId])
+   263→   263→  @@index([type])
+   264→   264→  @@index([expiresAt])
+   265→   265→  @@map("loyalty_transactions")
+   266→   266→}
+   267→   267→
+   268→   268→// ===== УВЕДОМЛЕНИЯ =====
+   269→   269→model Notification {
+   270→   270→  id              String                @id @default(cuid())
+   271→   271→  userId          String
+   272→   272→  template        NotificationTemplate
+   273→   273→  channel         NotificationChannel   @default(in_app)
+   274→   274→  status          NotificationStatus    @default(queued)
+   275→   275→  title           String
+   276→   276→  body            String
+   277→   277→  data            Json?
+   278→   278→  // metadata about delivery (e.g. message ID from SMS/email provider)
+   279→   279→  externalId      String?
+   280→   280→  errorMessage    String?
+   281→   281→  scheduledFor    DateTime?
+   282→   282→  sentAt          DateTime?
+   283→   283→  deliveredAt     DateTime?
+   284→   284→  readAt          DateTime?
+   285→   285→  createdAt       DateTime              @default(now())
+   286→   286→
+   287→   287→  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+   288→   288→
+   289→   289→  @@index([userId, status])
+   290→   290→  @@index([template])
+   291→   291→  @@index([scheduledFor])
+   292→   292→  @@index([channel, status])
+   293→   293→  @@map("notifications")
+   294→   294→}
+   295→   295→
+   296→   296→// ===== КОНДИТЕРЫ =====
+   297→   297→model Confectioner {
+   298→   298→  id              String      @id @default(cuid())
+   299→   299→  userId          String      @unique
+   300→   300→  businessName    String
+   301→   301→  slug            String      @unique
+   302→   302→  description     String
+   303→   303→  avatar          String
+   304→   304→  cover           String?
+   305→   305→  city            String
+   306→   306→  location        Json
+   307→   307→  rating          Float       @default(0)
+   308→   308→  reviewsCount    Int         @default(0)
+   309→   309→  ordersCount     Int         @default(0)
+   310→   310→  verified        Boolean     @default(false)
+   311→   311→  // Статус модерации: pending (ожидает админа), approved (verified=true),
+   312→   312→  // rejected (отказ, причина в rejectionReason), needs_revision (запрос правок)
+   313→   313→  verificationStatus   String  @default("pending")
+   314→   314→  verifiedBy           String? // userId админа
+   315→   315→  verifiedAt           DateTime?
+   316→   316→  rejectionReason      String?
+   317→   317→  trustLevel      TrustLevel  @default(NEW)
+   318→   318→  tariff          Tariff      @default(START)
+   319→   319→  legalInfo       Json
+   320→   320→  taxMode         TaxMode     @default(NPD)
+   321→   321→  specialization  String[]    @default([])
+   322→   322→  portfolioImages String[]    @default([])
+   323→   323→  followersCount  Int         @default(0)
+   324→   324→  responseTime    String      @default("")
+   325→   325→  joinedAt        DateTime    @default(now())
+   326→   326→  selfPickup      Boolean     @default(true)
+   327→   327→  deliveryOptions String[]    @default(["own"])
+   328→   328→  paymentSettings Json?
+   329→   329→  ecoBadges       String[]    @default([])
+   330→   330→  balance         Int         @default(0)
+   331→   331→  totalEarnings   Int         @default(0)
+   332→   332→  monthlyEarnings Int         @default(0)
+   333→   333→  createdAt       DateTime    @default(now())
+   334→   334→  updatedAt       DateTime    @updatedAt
+   335→   335→
+   336→   336→  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+   337→   337→  products        Product[]
+   338→   338→  orders          Order[]
+   339→   339→  orgVerifications OrganizationVerification[]
+   340→   340→
+   341→   341→  @@index([city])
+   342→   342→  @@index([verified])
+   343→   343→  @@index([verificationStatus])
+   344→   344→  @@index([trustLevel])
+   345→   345→  @@map("confectioners")
+   346→   346→}
+   347→   347→
+   348→   348→// ===== ТОВАРЫ =====
+   349→   349→model Product {
+   350→   350→  id              String    @id @default(cuid())
+   351→   351→  title           String
+   352→   352→  slug            String    @unique
+   353→   353→  description     String
+   354→   354→  price           Int
+   355→   355→  oldPrice        Int?
+   356→   356→  category        String
+   357→   357→  images          String[]  @default([])
+   358→   358→  confectionerId  String
+   359→   359→  rating          Float     @default(0)
+   360→   360→  reviewsCount    Int       @default(0)
+   361→   361→  weight          String?
+   362→   362→  servings        Int?
+   363→   363→  prepTime        String?
+   364→   364→  isPopular       Boolean   @default(false)
+   365→   365→  isNew           Boolean   @default(false)
+   366→   366→  isHit           Boolean   @default(false)
+   367→   367→  tags            String[]  @default([])
+   368→   368→  fillings        Json?
+   369→   369→  coatings        Json?
+   370→   370→  decorations     Json?
+   371→   371→  paymentOptions  Json?
+   372→   372→  // AR / 3D preview
+   373→   373→  modelUrl        String?   // GLB/GLTF URL for 3D + AR preview
+   374→   374→  modelUsdzUrl    String?   // USDZ (iOS Quick Look)
+   375→   375→  arEnabled       Boolean   @default(false)
+   376→   376→  createdAt       DateTime  @default(now())
+   377→   377→  updatedAt       DateTime  @updatedAt
+   378→   378→
+   379→   379→  confectioner    Confectioner @relation(fields: [confectionerId], references: [id], onDelete: Cascade)
+   380→   380→  orderItems      OrderItem[]
+   381→   381→  cartItems       CartItem[]
+   382→   382→  reviews         Review[]
+   383→   383→  videoReviews    VideoReview[]
+   384→   384→
+   385→   385→  @@index([confectionerId])
+   386→   386→  @@index([category])
+   387→   387→  @@index([isPopular])
+   388→   388→  @@index([isNew])
+   389→   389→  @@index([isHit])
+   390→   390→  @@map("products")
+   391→   391→}
+   392→   392→
+   393→   393→// ===== ЗАКАЗЫ =====
+   394→   394→model Order {
+   395→   395→  id               String         @id @default(cuid())
+   396→   396→  number           String         @unique
+   397→   397→  customerId       String
+   398→   398→  confectionerId   String?
+   399→   399→  courierId        String?
+   400→   400→  items            OrderItem[]
+   401→   401→  total            Int
+   402→   402→  status           OrderStatus    @default(PENDING)
+   403→   403→  deliveryAddress  String?
+   404→   404→  deliveryDate     DateTime
+   405→   405→  deliveryTime     String?
+   406→   406→  deliveryCost     Int            @default(0)
+   407→   407→  paymentMethod    PaymentMethod  @default(card)
+   408→   408→  paymentStatus    PaymentStatus  @default(pending)
+   409→   409→  comment          String?
+   410→   410→  escrowReleasedAt DateTime?
+   411→   411→  // P1: Снапшот тарифа и юр.статуса на момент создания заказа
+   412→   412→  tariffSnapshot   String?
+   413→   413→  commissionRateSnapshot Float?
+   414→   414→  legalStatusSnapshot String?
+   415→   415→  // P1: Бонусный дисконт
+   416→   416→  bonusPointsRedeemed  Int      @default(0)
+   417→   417→  bonusDiscountRub      Int      @default(0)
+   418→   418→  // P1: Промокод
+   419→   419→  promoCodeApplied String?
+   420→   420→  promoCodeId      String?  @unique
+   421→   421→  promoDiscount    Int?
+   422→   422→  promoCode        PromoCode? @relation("OrderPromoCode", fields: [promoCodeId], references: [id])
+   423→   423→  // P1: Выплата
+   424→   424→  payoutTransferredAt  DateTime?
+   425→   425→  createdAt        DateTime       @default(now())
+   426→   426→  updatedAt        DateTime       @updatedAt
+   427→   427→
+   428→   428→  customer         User           @relation(fields: [customerId], references: [id])
+   429→   429→  confectioner     Confectioner?  @relation(fields: [confectionerId], references: [id])
+   430→   430→
+   431→   431→  @@index([customerId])
+   432→   432→  @@index([confectionerId])
+   433→   433→  @@index([status])
+   434→   434→  @@index([paymentStatus])
+   435→   435→  @@map("orders")
+   436→   436→}
+   437→   437→
+   438→   438→model OrderItem {
+   439→   439→  id            String   @id @default(cuid())
+   440→   440→  orderId       String
+   441→   441→  productId     String
+   442→   442→  title         String
+   443→   443→  image         String
+   444→   444→  price         Int
+   445→   445→  quantity      Int
+   446→   446→  customization Json?
+   447→   447→
+   448→   448→  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+   449→   449→  product       Product  @relation(fields: [productId], references: [id])
+   450→   450→
+   451→   451→  @@index([orderId])
+   452→   452→  @@index([productId])
+   453→   453→  @@map("order_items")
+   454→   454→}
+   455→   455→
+   456→   456→// ===== КОРЗИНА =====
+   457→   457→model CartItem {
+   458→   458→  id            String   @id @default(cuid())
+   459→   459→  userId        String
+   460→   460→  productId     String
+   461→   461→  title         String
+   462→   462→  image         String
+   463→   463→  price         Int
+   464→   464→  quantity      Int
+   465→   465→  customization Json?
+   466→   466→  createdAt     DateTime @default(now())
+   467→   467→
+   468→   468→  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   469→   469→  product       Product  @relation(fields: [productId], references: [id])
+   470→   470→
+   471→   471→  @@index([userId])
+   472→   472→  @@map("cart_items")
+   473→   473→}
+   474→   474→
+   475→   475→// ===== ОТЗЫВЫ =====
+   476→   476→model Review {
+   477→   477→  id         String   @id @default(cuid())
+   478→   478→  productId  String
+   479→   479→  userId     String
+   480→   480→  rating     Int
+   481→   481→  text       String
+   482→   482→  images     String[] @default([])
+   483→   483→  createdAt  DateTime @default(now())
+   484→   484→
+   485→   485→  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+   486→   486→  user       User     @relation(fields: [userId], references: [id])
+   487→   487→
+   488→   488→  @@index([productId])
+   489→   489→  @@index([userId])
+   490→   490→  @@map("reviews")
+   491→   491→}
+   492→   492→
+   493→   493→// ===== ВИДЕО-ОТЗЫВЫ =====
+   494→   494→model VideoReview {
+   495→   495→  id           String   @id @default(cuid())
+   496→   496→  productId    String
+   497→   497→  userId       String
+   498→   498→  videoUrl     String
+   499→   499→  thumbnailUrl String?
+   500→   500→  rating       Int
+   501→   501→  text         String?
+   502→   502→  duration     Int
+   503→   503→  views        Int      @default(0)
+   504→   504→  likes        Int      @default(0)
+   505→   505→  createdAt    DateTime @default(now())
+   506→   506→
+   507→   507→  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+   508→   508→  user         User     @relation(fields: [userId], references: [id])
+   509→   509→
+   510→   510→  @@index([productId])
+   511→   511→  @@map("video_reviews")
+   512→   512→}
+   513→   513→
+   514→   514→// ===== АКЦИИ =====
+   515→   515→model Promotion {
+   516→   516→  id              String    @id @default(cuid())
+   517→   517→  confectionerId  String
+   518→   518→  title           String
+   519→   519→  description     String
+   520→   520→  type            String
+   521→   521→  value           Float?
+   522→   522→  promoCode       String?
+   523→   523→  minOrderAmount  Int?
+   524→   524→  startDate       DateTime
+   525→   525→  endDate         DateTime
+   526→   526→  cities          String[]  @default([])
+   527→   527→  status          String    @default("active")
+   528→   528→  isPromoted      Boolean   @default(false)
+   529→   529→  promotedUntil   DateTime?
+   530→   530→  promotionBudget Int?
+   531→   531→  image           String?
+   532→   532→  views           Int       @default(0)
+   533→   533→  clicks          Int       @default(0)
+   534→   534→  conversions     Int       @default(0)
+   535→   535→  usedCount       Int       @default(0)
+   536→   536→  createdAt       DateTime  @default(now())
+   537→   537→
+   538→   538→  confectioner    User      @relation(fields: [confectionerId], references: [id])
+   539→   539→
+   540→   540→  @@index([confectionerId])
+   541→   541→  @@index([status])
+   542→   542→  @@map("promotions")
+   543→   543→}
+   544→   544→
+   545→   545→// ===== РЕЦЕПТЫ =====
+   546→   546→model Recipe {
+   547→   547→  id              String   @id @default(cuid())
+   548→   548→  confectionerId  String
+   549→   549→  type            String   @default("recipe")
+   550→   550→  title           String
+   551→   551→  description     String
+   552→   552→  coverImage      String
+   553→   553→  prepTime        Int      @default(0)
+   554→   554→  cookTime        Int      @default(0)
+   555→   555→  difficulty      String   @default("easy")
+   556→   556→  servings        Int      @default(1)
+   557→   557→  ingredients     Json     @default("[]")
+   558→   558→  steps           Json     @default("[]")
+   559→   559→  tags            String[] @default([])
+   560→   560→  category        String   @default("")
+   561→   561→  access          String   @default("free")
+   562→   562→  price           Int?
+   563→   563→  views           Int      @default(0)
+   564→   564→  likes           Int      @default(0)
+   565→   565→  comments        Int      @default(0)
+   566→   566→  published       Boolean  @default(false)
+   567→   567→  createdAt       DateTime @default(now())
+   568→   568→
+   569→   569→  confectioner    User     @relation(fields: [confectionerId], references: [id])
+   570→   570→
+   571→   571→  @@index([confectionerId])
+   572→   572→  @@map("recipes")
+   573→   573→}
+   574→   574→
+   575→   575→// ===== ЧАТ =====
+   576→   576→model ChatRoom {
+   577→   577→  id            String    @id @default(cuid())
+   578→   578→  type          String    @default("direct")
+   579→   579→  name          String
+   580→   580→  avatar        String?
+   581→   581→  participants  String[]  @default([])
+   582→   582→  lastMessage   String?
+   583→   583→  lastMessageAt DateTime?
+   584→   584→  orderId       String?
+   585→   585→  createdAt     DateTime  @default(now())
+   586→   586→
+   587→   587→  messages      ChatMessage[]
+   588→   588→
+   589→   589→  @@map("chat_rooms")
+   590→   590→}
+   591→   591→
+   592→   592→model ChatMessage {
+   593→   593→  id         String   @id @default(cuid())
+   594→   594→  roomId     String
+   595→   595→  senderId   String
+   596→   596→  text       String
+   597→   597→  isSystem   Boolean  @default(false)
+   598→   598→  // Авточат: пометка bot-сообщений и их тип
+   599→   599→  isBot      Boolean  @default(false)
+   600→   600→  botKind    String?  // "order_status" | "faq" | "quick_reply" | "escalation" | "welcome"
+   601→   601→  // Rich content: кнопки quick replies, карточки с заказом и т.д.
+   602→   602→  metadata   Json?
+   603→   603→  // Прочитано ли сообщение
+   604→   604→  readAt     DateTime?
+   605→   605→  createdAt  DateTime @default(now())
+   606→   606→
+   607→   607→  room       ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+   608→   608→  sender     User     @relation(fields: [senderId], references: [id])
+   609→   609→
+   610→   610→  @@index([roomId])
+   611→   611→  @@index([senderId])
+   612→   612→  @@index([isBot])
+   613→   613→  @@map("chat_messages")
+   614→   614→}
+   615→   615→
+   616→   616→// ===== РЕФЕРАЛЬНАЯ ПРОГРАММА =====
+   617→   617→model Referral {
+   618→   618→  id                String   @id @default(cuid())
+   619→   619→  userId            String   @unique
+   620→   620→  referralCode      String   @unique
+   621→   621→  totalInvited      Int      @default(0)
+   622→   622→  activeReferrals   Int      @default(0)
+   623→   623→  totalEarned       Int      @default(0)
+   624→   624→  availableBalance  Int      @default(0)
+   625→   625→  createdAt         DateTime @default(now())
+   626→   626→
+   627→   627→  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   628→   628→
+   629→   629→  @@map("referrals")
+   630→   630→}
+   631→   631→
+   632→   632→// ===== ПОДАРОЧНЫЕ СЕРТИФИКАТЫ =====
+   633→   633→model GiftCertificate {
+   634→   634→  id              String    @id @default(cuid())
+   635→   635→  code            String    @unique
+   636→   636→  amount          Int
+   637→   637→  fromUserId      String
+   638→   638→  toName          String
+   639→   639→  toEmail         String
+   640→   640→  toPhone         String?
+   641→   641→  message         String?
+   642→   642→  design          String    @default("classic")
+   643→   643→  status          String    @default("active")
+   644→   644→  expiresAt       DateTime
+   645→   645→  purchasedAt     DateTime  @default(now())
+   646→   646→  usedAt          DateTime?
+   647→   647→  remainingAmount Int?
+   648→   648→  deliveryMethod  String    @default("email")
+   649→   649→  toUserId        String?
+   650→   650→
+   651→   651→  fromUser        User      @relation("fromUser", fields: [fromUserId], references: [id])
+   652→   652→  toUser          User?     @relation("toUser", fields: [toUserId], references: [id])
+   653→   653→
+   654→   654→  @@index([fromUserId])
+   655→   655→  @@map("gift_certificates")
+   656→   656→}
+   657→   657→
+   658→   658→// ===== ПРАЗДНИКИ ПОЛЬЗОВАТЕЛЯ =====
+   659→   659→model UserHoliday {
+   660→   660→  id            String   @id @default(cuid())
+   661→   661→  userId        String
+   662→   662→  title         String
+   663→   663→  type          String   @default("birthday")
+   664→   664→  date          DateTime
+   665→   665→  recurring     Boolean  @default(true)
+   666→   666→  personName    String?
+   667→   667→  relationship  String?
+   668→   668→  reminderDays  Int      @default(14)
+   669→   669→  notes         String?
+   670→   670→  createdAt     DateTime @default(now())
+   671→   671→
+   672→   672→  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   673→   673→
+   674→   674→  @@index([userId])
+   675→   675→  @@map("user_holidays")
+   676→   676→}
+   677→   677→
+   678→   678→// ===== ПЛАТЁЖИ (YooKassa) =====
+   679→   679→model Payment {
+   680→   680→  id              String        @id @default(cuid())
+   681→   681→  orderId         String
+   682→   682→  yookassaId      String?
+   683→   683→  amount          Int
+   684→   684→  status          PaymentStatus @default(pending)
+   685→   685→  description     String?
+   686→   686→  confirmationUrl String?
+   687→   687→  metadata        Json?
+   688→   688→  createdAt       DateTime      @default(now())
+   689→   689→  updatedAt       DateTime      @updatedAt
+   690→   690→
+   691→   691→  @@index([orderId])
+   692→   692→  @@map("payments")
+   693→   693→}
+   694→   694→
+   695→   695→// ===== ЧЁРНЫЙ СПИСОК =====
+   696→   696→model BlacklistEntry {
+   697→   697→  id              String    @id @default(cuid())
+   698→   698→  scope           String
+   699→   699→  value           String
+   700→   700→  userId          String?
+   701→   701→  reason          String
+   702→   702→  reasonDetails   String
+   703→   703→  blockedBy       String
+   704→   704→  blockedAt       DateTime  @default(now())
+   705→   705→  isPermanent     Boolean   @default(true)
+   706→   706→  expiresAt       DateTime?
+   707→   707→  status          String    @default("active")
+   708→   708→
+   709→   709→  @@index([scope, value])
+   710→   710→  @@index([status])
+   711→   711→  @@map("blacklist")
+   712→   712→}
+   713→   713→
+   714→   714→// ===== СЕМАФОР (уникальность email/телефона) =====
+   715→   715→model Semaphore {
+   716→   716→  id            String   @id @default(cuid())
+   717→   717→  type          String
+   718→   718→  value         String   @unique
+   719→   719→  userId        String
+   720→   720→  verified      Boolean  @default(false)
+   721→   721→  attempts      Int      @default(1)
+   722→   722→  createdAt     DateTime @default(now())
+   723→   723→
+   724→   724→  @@index([type])
+   725→   725→  @@map("semaphores")
+   726→   726→}
+   727→   727→
+   728→   728→// ===== СКЛАД =====
+   729→   729→model InventoryItem {
+   730→   730→  id              String    @id @default(cuid())
+   731→   731→  confectionerId  String
+   732→   732→  name            String
+   733→   733→  category        String
+   734→   734→  unit            String    @default("kg")
+   735→   735→  quantity        Float     @default(0)
+   736→   736→  minQuantity     Float     @default(0)
+   737→   737→  costPerUnit     Int       @default(0)
+   738→   738→  supplierId      String?
+   739→   739→  supplierName    String?
+   740→   740→  expiryDate      DateTime?
+   741→   741→  storageLocation String?
+   742→   742→  createdAt       DateTime  @default(now())
+   743→   743→  updatedAt       DateTime  @updatedAt
+   744→   744→
+   745→   745→  @@index([confectionerId])
+   746→   746→  @@map("inventory_items")
+   747→   747→}
+   748→   748→
+   749→   749→model StockMovement {
+   750→   750→  id            String    @id @default(cuid())
+   751→   751→  itemId        String
+   752→   752→  itemName      String
+   753→   753→  type          String
+   754→   754→  quantity      Float
+   755→   755→  unit          String
+   756→   756→  reason        String?
+   757→   757→  orderId       String?
+   758→   758→  costPerUnit   Int?
+   759→   759→  totalCost     Int?
+   760→   760→  date          DateTime  @default(now())
+   761→   761→  createdBy     String
+   762→   762→
+   763→   763→  @@index([itemId])
+   764→   764→  @@map("stock_movements")
+   765→   765→}
+   766→   766→
+   767→   767→// ===== CMS: СТРАНИЦЫ И БЛОКИ =====
+   768→   768→model CmsPage {
+   769→   769→  id            String     @id @default(cuid())
+   770→   770→  slug          String     @unique
+   771→   771→  title         String
+   772→   772→  content       String
+   773→   773→  seoTitle      String?
+   774→   774→  seoDescription String?
+   775→   775→  isPublished   Boolean    @default(true)
+   776→   776→  updatedAt     DateTime   @updatedAt
+   777→   777→  updatedBy     String?
+   778→   778→
+   779→   779→  blocks        CmsBlock[]
+   780→   780→
+   781→   781→  @@map("cms_pages")
+   782→   782→}
+   783→   783→
+   784→   784→model CmsBlock {
+   785→   785→  id          String   @id @default(cuid())
+   786→   786→  pageId      String?
+   787→   787→  section     String
+   788→   788→  title       String?
+   789→   789→  subtitle    String?
+   790→   790→  content     String?
+   791→   791→  image       String?
+   792→   792→  link        String?
+   793→   793→  linkText    String?
+   794→   794→  sortOrder   Int      @default(0)
+   795→   795→  isActive    Boolean  @default(true)
+   796→   796→  metadata    Json?
+   797→   797→  updatedAt   DateTime @updatedAt
+   798→   798→  updatedBy   String?
+   799→   799→
+   800→   800→  page        CmsPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+   801→   801→
+   802→   802→  @@index([pageId])
+   803→   803→  @@map("cms_blocks")
+   804→   804→}
+   805→   805→
+   806→   806→// ===== БАННЕРЫ =====
+   807→   807→model Banner {
+   808→   808→  id          String    @id @default(cuid())
+   809→   809→  title       String
+   810→   810→  subtitle    String?
+   811→   811→  image       String
+   812→   812→  link        String?
+   813→   813→  buttonText  String?
+   814→   814→  position    String    @default("hero")
+   815→   815→  isActive    Boolean   @default(true)
+   816→   816→  sortOrder   Int       @default(0)
+   817→   817→  startDate   DateTime?
+   818→   818→  endDate     DateTime?
+   819→   819→  createdAt   DateTime  @default(now())
+   820→   820→  updatedAt   DateTime  @updatedAt
+   821→   821→
+   822→   822→  @@index([position, isActive])
+   823→   823→  @@map("banners")
+   824→   824→}
+   825→   825→
+   826→   826→// ===== НАСТРОЙКИ САЙТА =====
+   827→   827→model SiteSetting {
+   828→   828→  id          String   @id @default(cuid())
+   829→   829→  key         String   @unique
+   830→   830→  value       String
+   831→   831→  category    String   @default("general")
+   832→   832→  description String?
+   833→   833→  updatedAt   DateTime @updatedAt
+   834→   834→  updatedBy   String?
+   835→   835→
+   836→   836→  @@index([category])
+   837→   837→  @@map("site_settings")
+   838→   838→}
+   839→   839→
+   840→   840→// ===== ПУНКТЫ НАВИГАЦИИ =====
+   841→   841→model NavMenuItem {
+   842→   842→  id          String   @id @default(cuid())
+   843→   843→  label       String
+   844→   844→  link        String
+   845→   845→  icon        String?
+   846→   846→  sortOrder   Int      @default(0)
+   847→   847→  isActive    Boolean   @default(true)
+   848→   848→  isDropdown  Boolean   @default(false)
+   849→   849→  parentId    String?
+   850→   850→  createdAt   DateTime @default(now())
+   851→   851→
+   852→   852→  @@index([parentId])
+   853→   853→  @@map("nav_menu_items")
+   854→   854→}
+   855→   855→
+   856→   856→// ===== ПРОВЕРКА ОРГАНИЗАЦИЙ (DaData Party API) =====
+   857→   857→// Хранит результаты проверок ИНН/ОГРН через DaData.
+   858→   858→// Используется при регистрации юрлиц, при выставлении счетов,
+   859→   859→// и регулярной cron-задачей для повторной проверки активных.
+   860→   860→enum OrganizationStatus {
+   861→   861→  ACTIVE       // действующая
+   862→   862→  LIQUIDATING  // в процессе ликвидации
+   863→   863→  LIQUIDATED   // ликвидирована
+   864→   864→  REORGANIZING // в процессе реорганизации
+   865→   865→  UNKNOWN      // не найдена в DaData
+   866→   866→}
+   867→   867→
+   868→   868→enum VerificationTrigger {
+   869→   869→  REGISTRATION        // при регистрации
+   870→   870→  PROFILE_UPDATE      // при обновлении профиля
+   871→   871→  INVOICE_ISSUE       // при выставлении счёта
+   872→   872→  PAYOUT_REQUEST      // при запросе на выплату
+   873→   873→  CRON_PERIODIC       // регулярная проверка
+   874→   874→  ADMIN_MANUAL        // ручная проверка админом
+   875→   875→}
+   876→   876→
+   877→   877→model OrganizationVerification {
+   878→   878→  id                  String              @id @default(cuid())
+   879→   879→  userId              String?             // на кого ссылается (пользователь)
+   880→   880→  confectionerId      String?             // или кондитер
+   881→   881→  inn                 String              // ИНН проверенной организации
+   882→   882→  ogrn                String?             // ОГРН/ОГРНИП
+   883→   883→  kpp                 String?             // КПП (для ООО)
+   884→   884→  companyName         String              // наименование из DaData
+   885→   885→  fullName            String?             // полное наименование
+   886→   886→  opfCode             String?             // код ОПФ (12300=ООО, 50102=ИП)
+   887→   887→  opfShort           String?             // короткая форма (ООО, ИП)
+   888→   888→  status              OrganizationStatus  @default(UNKNOWN)
+   889→   889→  // Подробности от DaData
+   890→   890→  managementName      String?             // ФИО руководителя
+   891→   891→  managementPost      String?             // должность
+   892→   892→  legalAddress        String?             // юр. адрес
+   893→   893→  registeredAt        DateTime?           // дата регистрации
+   894→   894→  liquidatedAt        DateTime?           // дата ликвидации (если есть)
+   895→   895→  // Метаданные проверки
+   896→   896→  trigger             VerificationTrigger
+   897→   897→  success             Boolean             @default(false) // успешно ли прошла проверка
+   898→   898→  errorMessage        String?             // ошибка если success=false
+   899→   899→  rawData             Json?               // полный ответ DaData
+   900→   900→  // Действия, предпринятые по результату
+   901→   901→  actionTaken         String?             // "blocked" | "suspended" | "notified" | "approved"
+   902→   902→  verifiedBy          String?             // userId админа (для ADMIN_MANUAL)
+   903→   903→  createdAt           DateTime            @default(now())
+   904→   904→
+   905→   905→  user                User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+   906→   906→  confectioner        Confectioner?       @relation(fields: [confectionerId], references: [id], onDelete: SetNull)
+   907→   907→
+   908→   908→  @@index([userId])
+   909→   909→  @@index([confectionerId])
+   910→   910→  @@index([inn])
+   911→   911→  @@index([status])
+   912→   912→  @@index([createdAt])
+   913→   913→  @@map("organization_verifications")
+   914→   914→}
+   915→   915→
+   916→   916→// ===== ОБСЛУЖИВАНИЕ: backup + cleanup =====
+   917→   917→enum MaintenanceType {
+   918→   918→  BACKUP_FULL       // полный backup БД
+   919→   919→  BACKUP_INCREMENTAL // инкрементальный (только изменения с последнего backup)
+   920→   920→  CLEANUP_LOGS       // очистка старых логов
+   921→   921→  CLEANUP_SESSIONS   // очистка истёкших сессий
+   922→   922→  CLEANUP_NOTIFICATIONS // удаление старых прочитанных уведомлений
+   923→   923→  CLEANUP_CARTS      // удаление брошенных корзин
+   924→   924→  CLEANUP_ORPHANS    // удаление записей без связей
+   925→   925→  VACUUM             // VACUUM ANALYZE (PostgreSQL)
+   926→   926→}
+   927→   927→
+   928→   928→enum MaintenanceStatus {
+   929→   929→  queued
+   930→   930→  running
+   931→   931→  success
+   932→   932→  failed
+   933→   933→  partial
+   934→   934→}
+   935→   935→
+   936→   936→model MaintenanceLog {
+   937→   937→  id              String           @id @default(cuid())
+   938→   938→  type            MaintenanceType
+   939→   939→  status          MaintenanceStatus @default(queued)
+   940→   940→  startedAt       DateTime         @default(now())
+   941→   941→  finishedAt      DateTime?
+   942→   942→  durationMs      Int?
+   943→   943→  // Результаты
+   944→   944→  recordsAffected Int?             // сколько записей удалено/обработано
+   945→   945→  backupPath      String?          // путь к файлу backup (для BACKUP_*)
+   946→   946→  backupSizeBytes Int?             // размер backup файла
+   947→   947→  tablesCount     Int?             // количество таблиц в backup
+   948→   948→  // Детали
+   949→   949→  details         Json?            // детальная статистика по таблицам
+   950→   950→  errorMessage    String?
+   951→   951→  triggeredBy     String?          // userId админа или "cron"
+   952→   952→  createdAt       DateTime         @default(now())
+   953→   953→
+   954→   954→  @@index([type])
+   955→   955→  @@index([status])
+   956→   956→  @@index([createdAt])
+   957→   957→  @@map("maintenance_logs")
+   958→   958→}
+   959→   959→
+   960→   960→// ===== НАЧИНКИ ДЛЯ ТОРТОВ (с модерацией) =====
+   961→   961→enum FillingStatus {
+   962→   962→  APPROVED     // одобрено администратором, доступно всем
+   963→   963→  PENDING      // ожидает модерации (добавлено кондитером)
+   964→   964→  REJECTED     // отклонено администратором
+   965→   965→}
+   966→   966→
+   967→   967→enum FillingCategory {
+   968→   968→  CREAM          // кремовые (пломбир, чиз, маскарпоне)
+   969→   969→  CHOCOLATE      // шоколадные (ганаш, мусс)
+   970→   970→  BERRY          // ягодные (клубника, малина, вишня)
+   971→   971→  CARAMEL        // карамельные (сгущёнка, солёная карамель)
+   972→   972→  NUT            // ореховые (фисташка, миндаль, фундук)
+   973→   973→  FRUIT          // фруктовые (манго, персик, маракуйя)
+   974→   974→  CLASSIC        // классические (медовик, наполеон, прага)
+   975→   975→  MOUSSE         // муссовые
+   976→   976→  CUSTARD        // заварные (патисьер, англемаз)
+   977→   977→  OTHER          // прочие
+   978→   978→}
+   979→   979→
+   980→   980→model Filling {
+   981→   981→  id              String         @id @default(cuid())
+   982→   982→  name            String         @unique
+   983→   983→  slug            String         @unique
+   984→   984→  description     String         // подробное описание (состав, вкус, текстура)
+   985→   985→  category        FillingCategory @default(OTHER)
+   986→   986→  // Изображение (URL)
+   987→   987→  image           String?
+   988→   988→  // Аллергены
+   989→   989→  allergens       String[]       @default([])
+   990→   990→  // Согласованность/тип
+   991→   991→  consistency     String?        // "густой крем", "жидкий", "плотный мусс"
+   992→   992→  // Цвет (для визуального выбора в конструкторе)
+   993→   993→  color           String?        // hex color, e.g. "#FFF5E1"
+   994→   994→  // Средняя наценка (рекомендованная)
+   995→   995→  suggestedPriceModifier Int    @default(0) // в рублях
+   996→   996→  // Статус модерации
+   997→   997→  status          FillingStatus  @default(APPROVED)
+   998→   998→  // Кто добавил
+   999→   999→  createdBy       String?        // userId кондитера (null = системная)
+  1000→  1000→  createdByName   String?        // имя кондитера
+  1001→  1001→  // Модерация
+  1002→  1002→  reviewedBy      String?        // userId админа
+  1003→  1003→  reviewedAt      DateTime?
+  1004→  1004→  rejectionReason String?        // причина отклонения
+  1005→  1005→  // Метрики
+  1006→  1006→  usageCount      Int            @default(0) // сколько раз использовано в товарах
+  1007→  1007→  createdAt       DateTime       @default(now())
+  1008→  1008→  updatedAt       DateTime       @updatedAt
+  1009→  1009→
+  1010→  1010→  @@index([status])
+  1011→  1011→  @@index([category])
+  1012→  1012→  @@index([slug])
+  1013→  1013→  @@map("fillings")
+  1014→  1014→}
+  1015→  1015→
+  1016→  1016→// ===== PUSH-ПОДПИСКИ (Web Push / VAPID) =====
+  1017→  1017→model PushSubscription {
+  1018→  1018→  id        String   @id @default(cuid())
+  1019→  1019→  userId    String
+  1020→  1020→  endpoint  String   @unique
+  1021→  1021→  p256dh    String
+  1022→  1022→  auth      String
+  1023→  1023→  userAgent String?
+  1024→  1024→  createdAt DateTime @default(now())
+  1025→  1025→
+  1026→  1026→  @@index([userId])
+  1027→  1027→  @@map("push_subscriptions")
+  1028→  1028→}
+  1029→  1029→
+  1030→  1030→// ===== ПРОМОКОДЫ =====
+  1031→  1031→// P2: Серверная валидация промокодов (expiry, usage limit, role, minOrderAmount).
+  1032→  1032→// Связан с Order через orderId — один промокод = одна запись на заказ.
+  1033→  1033→model PromoCode {
+  1034→  1034→  id              String    @id @default(cuid())
+  1035→  1035→  code            String    @unique // UV-промокод, UPPER-CASE
+  1036→  1036→  description     String?
+  1037→  1037→  // Тип скидки
+  1038→  1038→  discountType    String    @default("percent") // "percent" | "fixed"
+  1039→  1039→  discountValue   Float     @default(0)         // 10 = 10% или 500 = 500₽
+  1040→  1040→  maxDiscountRub  Int?                          // cap для percent
+  1041→  1041→  // Применимость
+  1042→  1042→  minOrderAmount  Int       @default(0)          // минимум корзины
+  1043→  1043→  applicableRoles String[]  @default([])         // CUSTOMER/CONFECTIONER/...; пусто = все
+  1044→  1044→  confectionerId  String?                        // null = любой кондитер
+  1045→  1045→  // Срок действия
+  1046→  1046→  startDate       DateTime  @default(now())
+  1047→  1047→  endDate         DateTime
+  1048→  1048→  // Лимиты
+  1049→  1049→  maxUses         Int?      // null = безлимит
+  1050→  1050→  maxUsesPerUser  Int       @default(1)
+  1051→  1051→  usedCount       Int       @default(0)
+  1052→  1052→  // Создатель
+  1053→  1053→  createdBy       String?   // userId админа/кондитера
+  1054→  1054→  isActive        Boolean   @default(true)
+  1055→  1055→  createdAt       DateTime  @default(now())
+  1056→  1056→  updatedAt       DateTime  @updatedAt
+  1057→  1057→
+  1058→  1058→  orders          Order[]   @relation("OrderPromoCode")
+  1059→  1059→
+  1060→  1060→  @@index([code])
+  1061→  1061→  @@index([confectionerId])
+  1062→  1062→  @@index([isActive])
+  1063→  1063→  @@map("promo_codes")
+  1064→  1064→}
+  1065→  1065→
+  1066→  1066→// ===== 2FA верификации (временные коды) =====
+  1067→  1067→// Лог одноразовых кодов для подтверждения 2FA-операций.
+  1068→  1068→// Запись создаётся при попытке операции, удаляется после успеха/экспирации.
+  1069→  1069→model TwoFactorChallenge {
+  1070→  1070→  id          String   @id @default(cuid())
+  1071→  1071→  userId      String
+  1072→  1072→  operation   String   // "payout" | "login" | "settings" | "delete_account"
+  1073→  1073→  codeHash    String   // bcrypt-хэш 6-значного кода (или TOTP-валидация)
+  1074→  1074→  attempts    Int      @default(0)  // счётчик неудачных попыток (max 5)
+  1075→  1075→  resolved    Boolean  @default(false)
+  1076→  1076→  expiresAt   DateTime // 5 минут жизни
+  1077→  1077→  createdAt   DateTime @default(now())
+  1078→  1078→
+  1079→  1079→  @@index([userId])
+  1080→  1080→  @@index([expiresAt])
+  1081→  1081→  @@map("two_factor_challenges")
+  1082→  1082→}
+  1083→  1083→
+  1084→  1084→// ===== ANTI-FRAUD: лог заказов по IP/устройству =====
+  1085→  1085→// Для rate-limit: максимум N заказов с IP/устройства в час.
+  1086→  1086→// cron /api/cron/cleanup удаляет записи старше 24 часов.
+  1087→  1087→model OrderFraudLog {
+  1088→  1088→  id          String   @id @default(cuid())
+  1089→  1089→  ipHash      String   // SHA-256 hash IP (не храним raw IP)
+  1090→  1090→  deviceFp    String?  // fingerprint браузера (если передан клиентом)
+  1091→  1091→  userId      String?  // userId если авторизован
+  1092→  1092→  orderId     String?
+  1093→  1093→  action      String   // "order_create" | "register" | "login" | "review"
+  1094→  1094→  createdAt   DateTime @default(now())
+  1095→  1095→
+  1096→  1096→  @@index([ipHash])
+  1097→  1097→  @@index([userId])
+  1098→  1098→  @@index([createdAt])
+  1099→  1099→  @@index([action])
+  1100→  1100→  @@map("order_fraud_logs")
+  1101→  1101→}
+  1102→  1102→
+  1103→  1103→// ===== ЭСКАЛАЦИИ ОПЕРАТОРУ =====
+  1104→  1104→// Когда авточат не справился — создаётся эскалация.
+  1105→  1105→// Оператор видит её в своём дашборде и принимает в работу.
+  1106→  1106→model OperatorEscalation {
+  1107→  1107→  id            String    @id @default(cuid())
+  1108→  1108→  roomId        String    // чат, откуда эскалация
+  1109→  1109→  userId        String    // пользователь, запросивший оператора
+  1110→  1110→  userName      String
+  1111→  1111→  reason        String    // "manual_request" | "bot_unknown" | "complaint" | "dispute"
+  1112→  1112→  message       String    // текст последнего сообщения пользователя
+  1113→  1113→  status        String    @default("pending") // "pending" | "assigned" | "resolved"
+  1114→  1114→  assignedTo    String?   // userId оператора
+  1115→  1115→  assignedAt    DateTime?
+  1116→  1116→  resolvedAt    DateTime?
+  1117→  1117→  resolution    String?   // "answered" | "redirected" | "no_action"
+  1118→  1118→  createdAt     DateTime  @default(now())
+  1119→  1119→
+  1120→  1120→  @@index([status])
+  1121→  1121→  @@index([assignedTo])
+  1122→  1122→  @@index([createdAt])
+  1123→  1123→  @@map("operator_escalations")
+  1124→  1124→}
+  1125→  1125→

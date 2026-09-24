@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Матрица взаимоотношений ролей — Уездный кондитер</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #F8FAFC;
+    color: #243447;
+    padding: 40px;
+    min-width: 1400px;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+  }
+  .header p {
+    font-size: 14px;
+    color: #64748B;
+  }
+
+  /* === Группы ролей === */
+  .roles-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  .role-group {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #E2E8F0;
+  }
+  .group-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid;
+  }
+  .group-core { border-color: #3B82F6; }
+  .group-core .group-title { color: #3B82F6; border-color: #3B82F6; }
+  .group-service { border-color: #10B981; }
+  .group-service .group-title { color: #10B981; border-color: #10B981; }
+  .group-business { border-color: #F59E0B; }
+  .group-business .group-title { color: #F59E0B; border-color: #F59E0B; }
+  .group-admin { border-color: #8B5CF6; }
+  .group-admin .group-title { color: #8B5CF6; border-color: #8B5CF6; }
+
+  .role-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 4px;
+    transition: background 0.2s;
+  }
+  .role-item:hover { background: #F1F5F9; }
+  .role-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+    background: #94A3B8;
+  }
+  .role-badge.core { background: #3B82F6; }
+  .role-badge.service { background: #10B981; }
+  .role-badge.business { background: #F59E0B; }
+  .role-badge.admin { background: #8B5CF6; }
+  .role-name { font-weight: 500; }
+  .role-desc { font-size: 11px; color: #64748B; }
+
+  /* === Матрица взаимодействий === */
+  .matrix-section {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #E2E8F0;
+    margin-bottom: 32px;
+  }
+  .matrix-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #1a1a2e;
+  }
+
+  .interaction {
+    display: grid;
+    grid-template-columns: 180px 40px 180px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    transition: background 0.15s;
+  }
+  .interaction:hover { background: #F8FAFC; }
+  .interaction:nth-child(odd) { background: #FAFBFC; }
+  .interaction:nth-child(odd):hover { background: #F1F5F9; }
+
+  .role-tag {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .tag-core { background: #DBEAFE; color: #1E40AF; }
+  .tag-service { background: #D1FAE5; color: #065F46; }
+  .tag-business { background: #FEF3C7; color: #92400E; }
+  .tag-admin { background: #EDE9FE; color: #5B21B6; }
+
+  .arrow {
+    text-align: center;
+    font-size: 18px;
+    color: #94A3B8;
+  }
+  .arrow.bidirectional { color: #3B82F6; }
+
+  .interaction-desc {
+    color: #475569;
+    font-size: 12px;
+  }
+  .interaction-status {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .status-ok { background: #D1FAE5; color: #065F46; }
+  .status-partial { background: #FEF3C7; color: #92400E; }
+  .status-missing { background: #FEE2E2; color: #991B1B; }
+
+  /* === Проблемы и рекомендации === */
+  .issues-section {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #E2E8F0;
+  }
+  .issue {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .issue.critical { background: #FEF2F2; border-left: 4px solid #EF4444; }
+  .issue.warning { background: #FFFBEB; border-left: 4px solid #F59E0B; }
+  .issue.info { background: #EFF6FF; border-left: 4px solid #3B82F6; }
+  .issue-icon { font-size: 16px; flex-shrink: 0; }
+  .issue-text { flex: 1; }
+  .issue-title { font-weight: 600; margin-bottom: 2px; }
+  .issue-desc { color: #64748B; font-size: 12px; }
+
+  .stats-bar {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+    justify-content: center;
+  }
+  .stat {
+    background: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #E2E8F0;
+    min-width: 140px;
+  }
+  .stat-value { font-size: 28px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+  .stat-ok .stat-value { color: #10B981; }
+  .stat-partial .stat-value { color: #F59E0B; }
+  .stat-missing .stat-value { color: #EF4444; }
+  .stat-total .stat-value { color: #3B82F6; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Матрица взаимоотношений ролей — «Уездный кондитер»</h1>
+  <p>26 ролей · 48 взаимодействий · Аудит полноты реализации</p>
+</div>
+
+<!-- Статистика -->
+<div class="stats-bar">
+  <div class="stat stat-total"><div class="stat-value">26</div><div class="stat-label">Ролей</div></div>
+  <div class="stat stat-ok"><div class="stat-value">31</div><div class="stat-label">Реализовано</div></div>
+  <div class="stat stat-partial"><div class="stat-value">12</div><div class="stat-label">Частично</div></div>
+  <div class="stat stat-missing"><div class="stat-value">5</div><div class="stat-label">Отсутствует</div></div>
+</div>
+
+<!-- Группы ролей -->
+<div class="roles-grid">
+  <div class="role-group group-core">
+    <div class="group-title">Основные (4)</div>
+    <div class="role-item"><div class="role-badge core">П</div><div><div class="role-name">CUSTOMER</div><div class="role-desc">Покупатель</div></div></div>
+    <div class="role-item"><div class="role-badge core">К</div><div><div class="role-name">CONFECTIONER</div><div class="role-desc">Кондитер</div></div></div>
+    <div class="role-item"><div class="role-badge core">Д</div><div><div class="role-name">COURIER</div><div class="role-desc">Курьер</div></div></div>
+    <div class="role-item"><div class="role-badge core">С</div><div><div class="role-name">SUPPLIER</div><div class="role-desc">Поставщик</div></div></div>
+  </div>
+
+  <div class="role-group group-service">
+    <div class="group-title">Сервисные (8)</div>
+    <div class="role-item"><div class="role-badge service">А</div><div><div class="role-name">ADMIN</div><div class="role-desc">Администратор</div></div></div>
+    <div class="role-item"><div class="role-badge service">SA</div><div><div class="role-name">SUPER_ADMIN</div><div class="role-desc">Супер-админ</div></div></div>
+    <div class="role-item"><div class="role-badge service">М</div><div><div class="role-name">MODERATOR</div><div class="role-desc">Модератор контента</div></div></div>
+    <div class="role-item"><div class="role-badge service">О</div><div><div class="role-name">SUPPORT</div><div class="role-desc">Оператор поддержки</div></div></div>
+    <div class="role-item"><div class="role-badge service">И</div><div><div class="role-name">QUALITY_INSPECTOR</div><div class="role-desc">Инспектор качества</div></div></div>
+    <div class="role-item"><div class="role-badge service">СА</div><div><div class="role-name">CERTIFICATION_AGENT</div><div class="role-desc">Сертификатор</div></div></div>
+    <div class="role-item"><div class="role-badge service">Н</div><div><div class="role-name">NUTRITIONIST</div><div class="role-desc">Нутрициолог</div></div></div>
+    <div class="role-item"><div class="role-badge service">ДГ</div><div><div class="role-name">TASTER</div><div class="role-desc">Дегустатор</div></div></div>
+  </div>
+
+  <div class="role-group group-business">
+    <div class="group-title">Бизнес (9)</div>
+    <div class="role-item"><div class="role-badge business">Ф</div><div><div class="role-name">FRANCHISEE</div><div class="role-desc">Франчайзи</div></div></div>
+    <div class="role-item"><div class="role-badge business">КК</div><div><div class="role-name">CORPORATE_CLIENT</div><div class="role-desc">Корпоративный клиент</div></div></div>
+    <div class="role-item"><div class="role-badge business">ОП</div><div><div class="role-name">WHOLESALER</div><div class="role-desc">Оптовик</div></div></div>
+    <div class="role-item"><div class="role-badge business">Б</div><div><div class="role-name">BLOGGER</div><div class="role-desc">Блогер</div></div></div>
+    <div class="role-item"><div class="role-badge business">ФС</div><div><div class="role-name">FOOD_SERVICE</div><div class="role-desc">Общепит</div></div></div>
+    <div class="role-item"><div class="role-badge business">ОМ</div><div><div class="role-name">EVENT_ORGANIZER</div><div class="role-desc">Организатор</div></div></div>
+    <div class="role-item"><div class="role-badge business">ПВ</div><div><div class="role-name">PICKUP_POINT</div><div class="role-desc">Пункт выдачи</div></div></div>
+    <div class="role-item"><div class="role-badge business">СТ</div><div><div class="role-name">STUDIO</div><div class="role-desc">Фотостудия</div></div></div>
+    <div class="role-item"><div class="role-badge business">КР</div><div><div class="role-name">COPYWRITER</div><div class="role-desc">Копирайтер</div></div></div>
+  </div>
+
+  <div class="role-group group-admin">
+    <div class="group-title">Прочие (5)</div>
+    <div class="role-item"><div class="role-badge admin">ВЛ</div><div><div class="role-name">VENUE_OWNER</div><div class="role-desc">Владелец площадки</div></div></div>
+    <div class="role-item"><div class="role-badge admin">АА</div><div><div class="role-name">ANIMATOR_AGENCY</div><div class="role-desc">Агентство аниматоров</div></div></div>
+    <div class="role-item"><div class="role-badge admin">ЦО</div><div><div class="role-name">RECREATION_CENTER</div><div class="role-desc">Центр отдыха</div></div></div>
+    <div class="role-item"><div class="role-badge admin">ДК</div><div><div class="role-name">KIDS_CLUB</div><div class="role-desc">Детский клуб</div></div></div>
+    <div class="role-item"><div class="role-badge admin">Г</div><div><div class="role-name">GUEST</div><div class="role-desc">Гость (неавторизованный)</div></div></div>
+  </div>
+</div>
+
+<!-- Матрица взаимодействий -->
+<div class="matrix-section">
+  <div class="matrix-title">Матрица взаимодействий (48 связей)</div>
+
+  <!-- Основные -->
+  <div class="interaction">
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Заказ торта → оплата (эскроу) → доставка → отзыв. Чат, согласование цены, конструктор.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">COURIER</div>
+    <div class="interaction-desc">Назначение курьера на заказ, трекинг доставки, передача заказа.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">SUPPLIER</div>
+    <div class="interaction-desc">Заказ ингредиентов, складской учёт, оптовые цены, поставки.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-core">COURIER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="interaction-desc">Доставка заказа, подтверждение получения, трекинг геолокации.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <!-- Сервисные -->
+  <div class="interaction">
+    <div class="role-tag tag-admin">ADMIN</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Верификация (DaData ИНН), модерация, бан/разбан, управление тарифами.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">SUPPORT</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="interaction-desc">Эскалация из авточата, canned responses, решение споров по эскроу.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">SUPPORT</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Помощь кондитеру, разрешение споров, SimpleX-канал поддержки.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">MODERATOR</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Модерация отзывов, фото, рецептов, начинок, баннеров, CMS-страниц.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">QUALITY_INSPECTOR</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Плановые проверки качества, расписание инспекций, отчёты.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">CERTIFICATION_AGENT</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Сертификация кондитера, проверка документов, выдача сертификата.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">NUTRITIONIST</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Сертификация ПП-продуктов, расчёт КБЖУ, рекомендации по составу.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">TASTER</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Дегустация新产品, оценка вкуса, сессии дегустации, отчёты.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">TASTER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="interaction-desc">Дегустационные мероприятия для покупателей, "Где попробовать".</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <!-- Бизнес -->
+  <div class="interaction">
+    <div class="role-tag tag-business">FRANCHISEE</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Управление кондитерами на территории, отчёты, биржа франшизы.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">CORPORATE_CLIENT</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">B2B-заказы, тендеры, счета с НДС, корпоративные мероприятия.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">WHOLESALER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Оптовые закупки тортов, оптовые цены, рекуррентные заказы.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">BLOGGER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Рекламные посты, обзорные видео, реферальные коды, бартер.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">FOOD_SERVICE</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Поставки тортов в рестораны/кафе, регулярные заказы.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">EVENT_ORGANIZER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Заказ тортов на мероприятия, тендеры, графики.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">PICKUP_POINT</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Приём и выдача заказов, инвентарь пункта, подтверждения.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">PICKUP_POINT</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="interaction-desc">Самовывоз из пункта выдачи, подтверждение получения.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">STUDIO</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Фотосъёмка тортов, аренда студии, портфолио.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">COPYWRITER</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Написание описаний товаров, контента для канала, SEO-текстов.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">COPYWRITER</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-admin">ADMIN</div>
+    <div class="interaction-desc">Создание CMS-страниц, блоговых статей, SEO-контента.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <!-- Прочие -->
+  <div class="interaction">
+    <div class="role-tag tag-admin">VENUE_OWNER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-business">EVENT_ORGANIZER</div>
+    <div class="interaction-desc">Аренда площадок для мероприятий, бронирование, календарь.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">VENUE_OWNER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Проведение дегустаций на площадках, "Где попробовать".</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">ANIMATOR_AGENCY</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-business">EVENT_ORGANIZER</div>
+    <div class="interaction-desc">Аниматоры на детские праздники, совместные мероприятия.</div>
+    <div class="interaction-status status-missing">✗ Отсутствует</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">RECREATION_CENTER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-business">EVENT_ORGANIZER</div>
+    <div class="interaction-desc">Центры отдыха для мероприятий с тортами.</div>
+    <div class="interaction-status status-missing">✗ Отсутствует</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">KIDS_CLUB</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Детские клубы — заказ тортов на праздники, мастер-классы.</div>
+    <div class="interaction-status status-missing">✗ Отсутствует</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">GUEST</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Просмотр каталога, профилей кондитеров без регистрации.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <!-- Дополнительные взаимодействия -->
+  <div class="interaction">
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Команда кондитера (TeamMember), совместные заказы, задачи.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="interaction-desc">Биржа франшизы: продажа/передача франшизы между кондитерами.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-admin">SUPPORT</div>
+    <div class="interaction-desc">SimpleX E2E-канал поддержки (PREMIUM), эскалация споров.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-core">CONFECTIONER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-admin">TASTER</div>
+    <div class="interaction-desc">Live-commerce стримы: кондитер стримит, дегустатор оценивает.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="interaction-desc">Реферальная программа, split-платежи (совместная оплата), gift-сертификаты.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">CORPORATE_CLIENT</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-business">EVENT_ORGANIZER</div>
+    <div class="interaction-desc">Корпоративные мероприятия: заказчик → организатор → кондитеры.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">WHOLESALER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">SUPPLIER</div>
+    <div class="interaction-desc">Оптовые закупки ингредиентов через поставщиков.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">BLOGGER</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">CUSTOMER</div>
+    <div class="interaction-desc">Блогер → реферальный код → покупатель → бонус обоим.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">ADMIN</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-business">FRANCHISEE</div>
+    <div class="interaction-desc">Управление франшизой, отчёты, договоры.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">ADMIN</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-core">COURIER</div>
+    <div class="interaction-desc">Управление курьерами, зоны доставки, рейтинги.</div>
+    <div class="interaction-status status-partial">⚠ Частично</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-admin">ADMIN</div>
+    <div class="arrow">→</div>
+    <div class="role-tag tag-business">COPYWRITER</div>
+    <div class="interaction-desc">Назначение задач копирайтеру, контроль качества текстов.</div>
+    <div class="interaction-status status-ok">✓ Полностью</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">STUDIO</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-business">BLOGGER</div>
+    <div class="interaction-desc">Съёмка контента для блогеров в студии.</div>
+    <div class="interaction-status status-missing">✗ Отсутствует</div>
+  </div>
+
+  <div class="interaction">
+    <div class="role-tag tag-business">FOOD_SERVICE</div>
+    <div class="arrow bidirectional">⇄</div>
+    <div class="role-tag tag-core">SUPPLIER</div>
+    <div class="interaction-desc">Заказ ингредиентов ресторанами напрямую у поставщиков.</div>
+    <div class="interaction-status status-missing">✗ Отсутствует</div>
+  </div>
+
+</div>
+
+<!-- Проблемы и рекомендации -->
+<div class="issues-section">
+  <div class="matrix-title">Проблемы и рекомендации</div>
+
+  <div class="issue critical">
+    <div class="issue-icon">🔴</div>
+    <div class="issue-text">
+      <div class="issue-title">ANIMATOR_AGENCY, RECREATION_CENTER, KIDS_CLUB — нет API и UI</div>
+      <div class="issue-desc">3 роли объявлены в enum, но не имеют ни API endpoints, ни дашбордов, ни профильных моделей. Нужно либо реализовать (API + UI), либо удалить из enum если не планируются.</div>
+    </div>
+  </div>
+
+  <div class="issue warning">
+    <div class="issue-icon">🟡</div>
+    <div class="issue-text">
+      <div class="issue-title">WHOLESALER → CONFECTIONER — нет отдельного API для оптовых заказов</div>
+      <div class="issue-desc">Модель WholesalePrice есть, но нет API для оформления оптового заказа. Кондитер не видит оптовиков в дашборде. Нужно: GET /api/wholesaler/orders, POST /api/wholesaler/order.</div>
+    </div>
+  </div>
+
+  <div class="issue warning">
+    <div class="issue-icon">🟡</div>
+    <div class="issue-text">
+      <div class="issue-title">BLOGGER → CONFECTIONER — нет системы бартера и реферальных отслеживаний</div>
+      <div class="issue-desc">BloggerProfile есть, но нет API для создания рекламных постов, отслеживания реферальных переходов, расчёта комиссий блогерам.</div>
+    </div>
+  </div>
+
+  <div class="issue warning">
+    <div class="issue-icon">🟡</div>
+    <div class="issue-text">
+      <div class="issue-title">FOOD_SERVICE → CONFECTIONER — нет API для регулярных B2B-поставок</div>
+      <div class="issue-desc">FoodServiceProfile есть, но нет API для оформления контракта на регулярные поставки тортов в рестораны/кафе.</div>
+    </div>
+  </div>
+
+  <div class="issue warning">
+    <div class="issue-icon">🟡</div>
+    <div class="issue-text">
+      <div class="issue-title">STUDIO → CONFECTIONER — нет API для бронирования фотосессий</div>
+      <div class="issue-desc">StudioProfile есть, но нет API для заказа фотосъёмки тортов в студии, календаря бронирования.</div>
+    </div>
+  </div>
+
+  <div class="issue warning">
+    <div class="issue-icon">🟡</div>
+    <div class="issue-text">
+      <div class="issue-title">MODERATOR → все роли — нет отдельного дашборда модератора</div>
+      <div class="issue-desc">Модерация разбросана по admin-вкладкам. Нет единого очереди модерации (отзывы + фото + рецепты + начинки). Нужно: единый Moderator Dashboard с очередью.</div>
+    </div>
+  </div>
+
+  <div class="issue warning">
+    <div class="issue-icon">🟡</div>
+    <div class="issue-text">
+      <div class="issue-title">ADMIN → COURIER — нет управления курьерами в админке</div>
+      <div class="issue-desc">Курьеры есть в API, но в админ-панели нет вкладки управления курьерами (зоны, рейтинги, бан/разбан, назначение на заказы вручную).</div>
+    </div>
+  </div>
+
+  <div class="issue info">
+    <div class="issue-icon">🔵</div>
+    <div class="issue-text">
+      <div class="issue-title">TASTER ↔ CONFECTIONER live-commerce — частично</div>
+      <div class="issue-desc">Live-стримы есть, но нет интеграции с дегустаторами (оценка во время стрима, синхронная дегустация).</div>
+    </div>
+  </div>
+
+  <div class="issue info">
+    <div class="issue-icon">🔵</div>
+    <div class="issue-text">
+      <div class="issue-title">STUDIO ↔ BLOGGER — отсутствует</div>
+      <div class="issue-desc">Нет связи между фотостудиями и блогерами для совместного контента.</div>
+    </div>
+  </div>
+
+  <div class="issue info">
+    <div class="issue-icon">🔵</div>
+    <div class="issue-text">
+      <div class="issue-title">FOOD_SERVICE ↔ SUPPLIER — отсутствует</div>
+      <div class="issue-desc">Рестораны не могут заказывать ингредиенты напрямую у поставщиков (только через кондитеров).</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

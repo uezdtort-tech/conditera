@@ -1,0 +1,174 @@
+# ===== Caddyfile — обратный прокси с авто-HTTPS для conditera.ru =====
+# Документация: https://caddyserver.com/docs/caddyfile
+#
+# ВАЖНО для Cloudflare Tunnel 502:
+# Если web:3000 недоступен (контейнер не запущен или ещё стартует),
+# Caddy возвращает 502 Bad Gateway. Чтобы этого избежать:
+#   1. health_check опрашивает /api/health каждые 10с — Caddy не отправляет
+#      трафик на нездоровый upstream (вместо 502 возвращает 503 с понятной ошибкой).
+#   2. fallback на статичную "service unavailable" страницу если web совсем мёртв.
+#   3. Для Cloudflare Tunnel: tunnel → http://localhost:80 (Caddy),
+#      НЕ напрямую к web:3000 — иначе при рестарте Next.js будет 502.
+
+# Основной домен + www-редирект
+conditera.ru, www.conditera.ru {
+        # Редирект www → корень (если зашли на www.conditera.ru)
+        # (Caddy автоматически делает это через 'www.conditera.ru' в сертификате)
+
+        # ===== Маршрутизация =====
+        # API (Next.js Route Handlers) — с health check
+        handle /api/* {
+                reverse_proxy web:3000 {
+                        # Health check — опрашивает /api/health каждые 10с
+                        health_uri /api/health
+                        health_interval 10s
+                        # Если web недоступен — вернуть 503 вместо 502
+                        # Таймауты для медленных API (генерация PDF, поиск, и т.д.)
+                        transport http {
+                                read_timeout 60s
+                                write_timeout 60s
+                                dial_timeout 5s
+                        }
+                }
+        }
+
+        # WebSocket (Socket.IO чат)
+        handle /socket.io/* {
+                reverse_proxy chat-service:3030 {
+                        # WebSocket требует долгих таймаутов
+                        transport http {
+                                read_timeout 300s
+                                write_timeout 300s
+                        }
+                }
+        }
+
+        # n8n (вебхуки автоматизации) — защищён basic auth внутри n8n
+        handle /n8n/* {
+                reverse_proxy n8n:5678
+        }
+
+        # Health-check endpoint для Cloudflare Tunnel / UptimeRobot
+        # Возвращает 200 OK даже если Next.js ещё стартует — Caddy живой
+        handle /healthz {
+                respond "OK" 200
+        }
+
+        # Всё остальное — Next.js (SSR/SSG)
+        handle {
+                reverse_proxy web:3000 {
+                        health_uri /api/health
+                        health_interval 10s
+                        transport http {
+                                read_timeout 30s
+                                write_timeout 30s
+                                dial_timeout 5s
+                        }
+                }
+                # Fallback — если web совсем мёртв, показываем статичную страницу
+                # (раскомментировать после создания /var/www/maintenance.html)
+                # handle_response 503 {
+                #       root * /var/www
+                #       file_server maintenance.html
+                # }
+        }
+
+        # ===== Безопасность (security headers) =====
+        header {
+                # MIME-type sniffing protection
+                X-Content-Type-Options nosniff
+                # Clickjacking: разрешаем встраивание только в iframe preview-платформы
+                X-Frame-Options SAMEORIGIN
+                # Referrer policy
+                Referrer-Policy strict-origin-when-cross-origin
+                # Permissions-Policy — отключаем всё лишнее
+                Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()"
+                # HSTS — принудительный HTTPS на 1 год + preload
+                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                # Cross-Origin políticas (изолируем от других страниц)
+                Cross-Origin-Opener-Policy same-origin
+                Cross-Origin-Resource-Policy same-origin
+                # Убираем X-Powered-By (Caddy добавляет свой, но мы убираем серверный)
+                -Server
+                # CORS для API (ограниченный)
+                Access-Control-Allow-Origin "https://conditera.ru"
+                Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+                Access-Control-Allow-Headers "Content-Type, Authorization, X-CSRF-Token, X-Requested-With"
+                Access-Control-Allow-Credentials "true"
+                # Cache-Control для sensitive endpoints (по умолчанию)
+                # Cache-Control "no-store" — для /api/auth/* (см. отдельный блок ниже)
+        }
+
+        # Для sensitive endpoints — no-store
+        @api_auth {
+                path /api/auth/* /api/payment/* /api/profile/* /api/admin/*
+        }
+        handle @api_auth {
+                reverse_proxy web:3000 {
+                        health_uri /api/health
+                        health_interval 10s
+                }
+                header Cache-Control "no-store, no-cache, must-revalidate, private"
+                header Pragma "no-cache"
+        }
+
+        # ===== Сжатие =====
+        encode gzip zstd
+
+        # ===== Логирование =====
+        log {
+                output file /data/access.log {
+                        roll_size 100mb
+                        roll_keep 10
+                        roll_keep_for 720h
+                }
+                format json
+        }
+
+        # ===== Rate-limit через Caddy (защита от DDoS на уровне прокси) =====
+        # 10 запросов/сек на один IP, burst 20
+        # (дополнительно к app-level rate limiting в Next.js)
+        # Требует плагин mholt/caddy-ratelimit — раскомментировать после установки:
+        # rate_limit {
+        #       zone dynamic {
+        #               key {remote_host}
+        #               events 10
+        #               window 1s
+        #       }
+        # }
+}
+
+# SimpleX SMP сервер — отдельный блок (порт 5223 проксируем в Caddy)
+# Альтернатива: открываем порт 5223 напрямую (см. docker-compose)
+smp.conditera.ru {
+        reverse_proxy smp-server:5223 {
+                transport http {
+                        # SimpleX использует TCP+TLS, не HTTP — этот блок только если проксируем
+                        # через Caddy. Обычно SMP-сервер открывается напрямую на 5223.
+                }
+        }
+        header {
+                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        }
+}
+
+# Для localhost (разработка без домена)
+localhost {
+        reverse_proxy web:3000
+}
+
+# ===== Cloudflare Tunnel: recommended config.yml =====
+# На сервере, где запущен cloudflared, ~/.cloudflared/config.yml должен содержать:
+#
+#   tunnel: <tunnel-id>
+#   credentials-file: /root/.cloudflared/<tunnel-id>.json
+#   protocol: http2
+#   ingress:
+#     - hostname: conditera.ru
+#       service: http://localhost:80    # Caddy (НЕ web:3000 напрямую!)
+#     - hostname: www.conditera.ru
+#       service: http://localhost:80
+#     - service: http_status:404
+#
+# После правки: sudo systemctl restart cloudflared
+# Проверка: cloudflared tunnel info <tunnel-name>

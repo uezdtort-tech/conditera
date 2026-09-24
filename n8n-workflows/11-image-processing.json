@@ -1,0 +1,130 @@
+{
+  "name": "🖼️ Обработка изображений — resize, оптимизация, thumbnails",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "image-processing",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Webhook: новый upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "image-processing-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Имитация обработки изображения: resize, оптимизация, генерация thumbnails.\n// В реальном прод-окружении здесь используется sharp / imagemagick.\nconst payload = $input.first().json.body || $input.first().json;\nconst imageId = payload.imageId || payload.id;\nconst sourceUrl = payload.url || payload.sourceUrl;\nconst contentType = payload.contentType || 'image/jpeg';\n\n// Конфигурация размеров thumbnails\nconst sizes = [\n  { name: 'thumbnail', width: 150, height: 150, quality: 70 },\n  { name: 'small', width: 400, height: 400, quality: 75 },\n  { name: 'medium', width: 800, height: 800, quality: 80 },\n  { name: 'large', width: 1600, height: 1600, quality: 85 }\n];\n\nconst thumbnails = sizes.map(s => ({\n  name: s.name,\n  width: s.width,\n  height: s.height,\n  url: sourceUrl ? sourceUrl.replace(/\\.[^.]+$/, `_${s.name}.webp`) : null,\n  format: 'webp',\n  quality: s.quality\n}));\n\nreturn [{\n  json: {\n    imageId,\n    sourceUrl,\n    contentType,\n    thumbnails,\n    optimized: {\n      format: 'webp',\n      quality: 82,\n      progressive: true,\n      strippedMetadata: true\n    },\n    processedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-image",
+      "name": "Обработать изображение",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"image_process\",\n  \"data\": {\n    \"imageId\": \"{{ $json.imageId }}\",\n    \"sourceUrl\": \"{{ $json.sourceUrl }}\",\n    \"thumbnails\": {{ JSON.stringify($json.thumbnails) }},\n    \"optimized\": {{ JSON.stringify($json.optimized) }},\n    \"processedAt\": \"{{ $json.processedAt }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "send-webhook",
+      "name": "Отправить результат обработки",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, imageId: $json.imageId, thumbnailsCount: $json.thumbnails.length } }}",
+        "options": {}
+      },
+      "id": "respond",
+      "name": "Ответить на webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook: новый upload": {
+      "main": [
+        [
+          {
+            "node": "Обработать изображение",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Обработать изображение": {
+      "main": [
+        [
+          {
+            "node": "Отправить результат обработки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отправить результат обработки": {
+      "main": [
+        [
+          {
+            "node": "Ответить на webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "media"
+    },
+    {
+      "name": "processing"
+    }
+  ],
+  "id": "bfaffc6e-29ff-55aa-b1a2-b733c75339c4"
+}

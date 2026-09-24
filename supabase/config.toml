@@ -1,0 +1,100 @@
+# ====================================================================
+# supabase/config.toml — конфигурация Supabase CLI
+# ====================================================================
+# Документация: https://supabase.com/docs/reference/cli/config
+#
+# Используется для:
+#   - supabase db push (применение миграций)
+#   - supabase functions deploy
+#   - supabase gen types typescript (генерация TS типов из схемы)
+# ====================================================================
+
+project_id = "conditera"
+
+[api]
+enabled = true
+port = 8000
+schemas = ["public", "storage", "graphql_public", "edge_functions"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 5432
+shadow_port = 54320
+major_version = 15
+
+[db.pooler]
+enabled = true
+port = 5433
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 200
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://conditera.ru/auth/callback"]
+jwt_expiry = 3600
+refresh_token_rotation = true
+security_update_password_require_reauthentication = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+template = {}
+
+[auth.external.google]
+enabled = false
+client_id = ""
+secret = ""
+redirect_uri = ""
+
+[auth.external.yandex]
+enabled = false
+client_id = ""
+secret = ""
+redirect_uri = ""
+
+[auth.external.vk]
+enabled = false
+client_id = ""
+secret = ""
+redirect_uri = ""
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[realtime]
+enabled = true
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+
+[functions.abandoned-cart]
+verify_jwt = true
+import_map = "./functions/abandoned-cart/deno.json"
+
+[functions.daily-digest]
+verify_jwt = true
+import_map = "./functions/daily-digest/deno.json"
+
+[functions.bonus-expiry]
+verify_jwt = true
+import_map = "./functions/bonus-expiry/deno.json"
+
+[functions.telegram-webhook]
+verify_jwt = false
+import_map = "./functions/telegram-webhook/deno.json"
+
+[functions.yookassa-webhook]
+verify_jwt = false
+import_map = "./functions/yookassa-webhook/deno.json"
+
+# ===== Analytics =====
+[analytics]
+enabled = true
+port = 5432
+backend = "postgres"

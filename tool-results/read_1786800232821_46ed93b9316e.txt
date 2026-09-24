@@ -1,0 +1,931 @@
+     1→// @ts-nocheck
+     2→"use client";
+     3→
+     4→import { useAppStore } from "@/lib/store";
+     5→import { Button } from "@/components/ui/button";
+     6→import { Input } from "@/components/ui/input";
+     7→import { Label } from "@/components/ui/label";
+     8→import { Textarea } from "@/components/ui/textarea";
+     9→import {
+    10→  Dialog,
+    11→  DialogContent,
+    12→  DialogTitle,
+    13→} from "@/components/ui/dialog";
+    14→import { Badge } from "@/components/ui/badge";
+    15→import { Separator } from "@/components/ui/separator";
+    16→import { FillingSlicePreview } from "@/components/cake-slice/cake-slice-visualizer";
+    17→import {
+    18→  CAKE_BUILDER_OPTIONS,
+    19→  MOCK_CONFECTIONERS,
+    20→} from "@/lib/mock-data";
+    21→import { formatCurrency, calculateDelivery } from "@/lib/finance";
+    22→import Image from "next/image";
+    23→import {
+    24→  Cake,
+    25→  Check,
+    26→  ChevronLeft,
+    27→  ChevronRight,
+    28→  Sparkles,
+    29→  MapPin,
+    30→  Calendar,
+    31→  Truck,
+    32→  User,
+    33→  Heart,
+    34→  X,
+    35→  PartyPopper,
+    36→  Percent,
+    37→} from "lucide-react";
+    38→import { toast } from "sonner";
+    39→import { useState } from "react";
+    40→import type { CakeBuilderState } from "@/lib/types";
+    41→
+    42→const STEP_LABELS = [
+    43→  "Мероприятие",
+    44→  "Основа",
+    45→  "Начинка",
+    46→  "Покрытие",
+    47→  "Декор",
+    48→  "Диета",
+    49→  "Доставка",
+    50→  "Резюме",
+    51→];
+    52→
+    53→export function CakeBuilderDialog() {
+    54→  const cakeBuilderOpen = useAppStore((s) => s.cakeBuilderOpen);
+    55→  const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
+    56→  const cakeBuilder = useAppStore((s) => s.cakeBuilder);
+    57→  const updateCakeBuilder = useAppStore((s) => s.updateCakeBuilder);
+    58→  const resetCakeBuilder = useAppStore((s) => s.resetCakeBuilder);
+    59→  const navigate = useAppStore((s) => s.navigate);
+    60→  const isAuthenticated = useAppStore((s) => s.isAuthenticated);
+    61→  const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
+    62→  const confectioners = useAppStore((s) => s.confectioners);
+    63→  const negotiations = useAppStore((s) => s.negotiations);
+    64→  const user = useAppStore((s) => s.user);
+    65→
+    66→  const [submitted, setSubmitted] = useState(false);
+    67→  const [selectedConfectioners, setSelectedConfectioners] = useState<string[]>([]);
+    68→  const [requestDiscount, setRequestDiscount] = useState(false);
+    69→  const [discountPercent, setDiscountPercent] = useState(0);
+    70→  const [discountComment, setDiscountComment] = useState("");
+    71→
+    72→  const step = cakeBuilder.step;
+    73→
+    74→  const calculatePrice = () => {
+    75→    let price = 1500; // базовая цена
+    76→    const base = CAKE_BUILDER_OPTIONS.bases.find((b) => b.id === cakeBuilder.base);
+    77→    if (base) price += base.priceBase;
+    78→    const filling = CAKE_BUILDER_OPTIONS.fillings.find((f) => f.id === cakeBuilder.filling);
+    79→    if (filling) price += filling.price;
+    80→    const coating = CAKE_BUILDER_OPTIONS.coatings.find((c) => c.id === cakeBuilder.coating);
+    81→    if (coating) price += coating.price;
+    82→    cakeBuilder.decorations.forEach((decId) => {
+    83→      const dec = CAKE_BUILDER_OPTIONS.decorations.find((d) => d.id === decId);
+    84→      if (dec) price += dec.price;
+    85→    });
+    86→    if (cakeBuilder.servings && cakeBuilder.servings > 8) {
+    87→      price += (cakeBuilder.servings - 8) * 180;
+    88→    }
+    89→    return price;
+    90→  };
+    91→
+    92→  const canProceed = () => {
+    93→    switch (step) {
+    94→      case 0:
+    95→        return !!cakeBuilder.eventType;
+    96→      case 1:
+    97→        return !!cakeBuilder.base;
+    98→      case 2:
+    99→        return !!cakeBuilder.filling;
+   100→      case 3:
+   101→        return !!cakeBuilder.coating;
+   102→      case 4:
+   103→        return true;
+   104→      case 5:
+   105→        return true;
+   106→      case 6:
+   107→        return !!cakeBuilder.city && !!cakeBuilder.deliveryDate && !!cakeBuilder.deliveryType;
+   108→      case 7:
+   109→        return selectedConfectioners.length > 0;
+   110→      default:
+   111→        return true;
+   112→    }
+   113→  };
+   114→
+   115→  // Кондитеры в выбранном городе
+   116→  const availableConfectioners = confectioners.filter((c) => {
+   117→    if (!cakeBuilder.city) return true;
+   118→    const cityMatch = c.city === cakeBuilder.city;
+   119→    const deliveryCities = (c.location as { deliveryCities?: string[] })?.deliveryCities;
+   120→    const servesCity = deliveryCities?.includes(cakeBuilder.city);
+   121→    return cityMatch || servesCity || c.city === "Москва"; // fallback
+   122→  });
+   123→
+   124→  const toggleConfectioner = (id: string) => {
+   125→    setSelectedConfectioners((prev) =>
+   126→      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+   127→    );
+   128→  };
+   129→
+   130→  const handleNext = () => {
+   131→    if (!canProceed()) {
+   132→      toast.error("Заполните обязательные поля");
+   133→      return;
+   134→    }
+   135→    if (step < 7) {
+   136→      updateCakeBuilder({ step: step + 1 });
+   137→    } else {
+   138→      // submit — отправка запросов выбранным кондитерам
+   139→      if (!isAuthenticated) {
+   140→        setCakeBuilderOpen(false);
+   141→        setAuthModalOpen(true);
+   142→        toast.info("Войдите, чтобы отправить запрос кондитерам");
+   143→        return;
+   144→      }
+   145→
+   146→      // Создаём negotiation для каждого выбранного кондитера
+   147→      const newNegotiations = selectedConfectioners.map((confId) => {
+   148→        const conf = confectioners.find((c) => c.id === confId);
+   149→        return {
+   150→          id: `neg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+   151→          inquiryId: `inq_${Date.now()}`,
+   152→          customerId: user?.id || "guest",
+   153→          customerName: user?.name || "Гость",
+   154→          customerAvatar: user?.avatar,
+   155→          confectionerId: confId,
+   156→          confectionerName: conf?.businessName || "Кондитер",
+   157→          confectionerAvatar: conf?.avatar,
+   158→          originalRequest: {
+   159→            eventType: cakeBuilder.eventType || "",
+   160→            base: cakeBuilder.base || "",
+   161→            filling: cakeBuilder.filling || "",
+   162→            coating: cakeBuilder.coating || "",
+   163→            decorations: cakeBuilder.decorations || [],
+   164→            servings: cakeBuilder.servings || 8,
+   165→            city: cakeBuilder.city || "",
+   166→            deliveryDate: cakeBuilder.deliveryDate || "",
+   167→            deliveryType: cakeBuilder.deliveryType || "delivery",
+   168→            inscription: cakeBuilder.inscription || "",
+   169→            comment: cakeBuilder.comment || "",
+   170→            estimatedPrice: estimatedPrice + deliveryCost,
+   171→          },
+   172→          // Запрос скидки
+   173→          discountRequested: requestDiscount,
+   174→          discountPercent: requestDiscount ? discountPercent : 0,
+   175→          discountComment: requestDiscount ? discountComment : "",
+   176→          quotedItems: [],
+   177→          quotedTotal: 0,
+   178→          quotedDeliveryCost: 0,
+   179→          quotedPrepTime: "",
+   180→          status: "pending_confectioner" as const,
+   181→          revisions: [],
+   182→          createdAt: new Date().toISOString(),
+   183→          expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+   184→        };
+   185→      });
+   186→
+   187→      // Добавляем negotiations в store
+   188→      useAppStore.setState({ negotiations: [...negotiations, ...newNegotiations] });
+   189→
+   190→      setSubmitted(true);
+   191→      toast.success(
+   192→        `Запрос отправлен ${selectedConfectioners.length} кондитер(ам)!`,
+   193→        {
+   194→          description: requestDiscount && discountPercent > 0
+   195→            ? `Запрошена скидка ${discountPercent}%. Ответы придут в течение 48 часов.`
+   196→            : "Кондитеры предложат цену в течение 48 часов. Согласование — в личном кабинете.",
+   197→        }
+   198→      );
+   199→    }
+   200→  };
+   201→
+   202→  const handleBack = () => {
+   203→    if (step > 0) updateCakeBuilder({ step: step - 1 });
+   204→  };
+   205→
+   206→  const handleClose = () => {
+   207→    setCakeBuilderOpen(false);
+   208→    setTimeout(() => {
+   209→      resetCakeBuilder();
+   210→      setSubmitted(false);
+   211→    }, 300);
+   212→  };
+   213→
+   214→  const toggleDecoration = (id: string) => {
+   215→    const decorations = cakeBuilder.decorations.includes(id)
+   216→      ? cakeBuilder.decorations.filter((d) => d !== id)
+   217→      : [...cakeBuilder.decorations, id];
+   218→    updateCakeBuilder({ decorations });
+   219→  };
+   220→
+   221→  const toggleDietary = (id: string) => {
+   222→    const dietary = cakeBuilder.dietary.includes(id)
+   223→      ? cakeBuilder.dietary.filter((d) => d !== id)
+   224→      : [...cakeBuilder.dietary, id];
+   225→    updateCakeBuilder({ dietary });
+   226→  };
+   227→
+   228→  const estimatedPrice = calculatePrice();
+   229→  const deliveryCost = cakeBuilder.deliveryType === "delivery" ? calculateDelivery(estimatedPrice) : 0;
+   230→
+   231→  return (
+   232→    <Dialog open={cakeBuilderOpen} onOpenChange={(open) => !open && handleClose()}>
+   233→      <DialogContent className="max-w-4xl max-h-[95vh] p-0 overflow-hidden gap-0 relative flex flex-col" showCloseButton={false}
+   234→      >
+   235→        <DialogTitle className="sr-only">Конструктор торта</DialogTitle>
+   236→        {/* Фон конструктора */}
+   237→        <Image
+   238→          src="/builder-bg.png"
+   239→          alt=""
+   240→          fill
+   241→          sizes="(max-width: 768px) 100vw, 56rem"
+   242→          quality={70}
+   243→          className="object-cover rounded-lg pointer-events-none"
+   244→        />
+   245→        {/* Полупрозрачный слой для читаемости */}
+   246→        <div className="absolute inset-0 bg-background/90 rounded-lg pointer-events-none" />
+   247→        {/* Header */}
+   248→        <div className="relative z-10 px-6 py-4 border-b bg-gradient-to-r from-primary/10 via-accent/20 to-primary/10 shrink-0">
+   249→          <div className="flex items-center justify-between">
+   250→            <div className="flex items-center gap-3">
+   251→              <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center">
+   252→                <Cake className="h-5 w-5 text-primary-foreground" />
+   253→              </div>
+   254→              <div>
+   255→                <h2 className="font-display font-bold text-lg flex items-center gap-2">
+   256→                  Конструктор тортов
+   257→                  <Badge variant="secondary" className="text-[10px]">
+   258→                    Шаг {step + 1} / 8
+   259→                  </Badge>
+   260→                </h2>
+   261→                <p className="text-xs text-muted-foreground">
+   262→                  {STEP_LABELS[step]}
+   263→                </p>
+   264→              </div>
+   265→            </div>
+   266→            <button
+   267→              onClick={handleClose}
+   268→              className="h-8 w-8 rounded-full hover:bg-accent flex items-center justify-center"
+   269→            >
+   270→              <X className="h-4 w-4" />
+   271→            </button>
+   272→          </div>
+   273→
+   274→          {/* Progress bar */}
+   275→          <div className="mt-4 flex gap-1">
+   276→            {STEP_LABELS.map((_, i) => (
+   277→              <div
+   278→                key={i}
+   279→                className={`h-1.5 flex-1 rounded-full transition-colors ${
+   280→                  i <= step ? "bg-primary" : "bg-border"
+   281→                }`}
+   282→              />
+   283→            ))}
+   284→          </div>
+   285→        </div>
+   286→
+   287→        {submitted ? (
+   288→          /* Success screen */
+   289→          <div className="relative z-10 p-8 text-center space-y-6 max-h-[70vh] overflow-y-auto">
+   290→            <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
+   291→              <PartyPopper className="h-10 w-10 text-emerald-600" />
+   292→            </div>
+   293→            <div>
+   294→              <h2 className="font-display text-2xl font-bold mb-2">
+   295→                Запрос отправлен {selectedConfectioners.length} кондитер(ам)!
+   296→              </h2>
+   297→              <p className="text-muted-foreground max-w-md mx-auto">
+   298→                Каждый кондитер получил ваш проект торта
+   299→                {requestDiscount && discountPercent > 0 && (
+   300→                  <> с запросом скидки {discountPercent}%</>
+   301→                )}. Ожидайте предложений с ценой в течение 48 часов.
+   302→                Согласование и оплата — в личном кабинете.
+   303→              </p>
+   304→            </div>
+   305→
+   306→            {/* Выбранные кондитеры */}
+   307→            <div className="bg-card border border-border rounded-lg p-4 max-w-md mx-auto">
+   308→              <div className="font-semibold mb-2 text-sm">Кому отправлено:</div>
+   309→              <div className="space-y-2">
+   310→                {selectedConfectioners.map((id) => {
+   311→                  const conf = confectioners.find((c) => c.id === id);
+   312→                  if (!conf) return null;
+   313→                  return (
+   314→                    <div key={id} className="flex items-center gap-2 text-sm">
+   315→                      <img src={conf.avatar} alt="" className="w-6 h-6 rounded-full" loading="lazy" decoding="async" />
+   316→                      <span>{conf.businessName}</span>
+   317→                      <Badge variant="outline" className="text-[10px] ml-auto">
+   318→                        ⏳ Ожидает ответа
+   319→                      </Badge>
+   320→                    </div>
+   321→                  );
+   322→                })}
+   323→              </div>
+   324→            </div>
+   325→
+   326→            <div className="bg-card border border-border rounded-lg p-4 text-left max-w-md mx-auto space-y-2">
+   327→              <div className="font-semibold mb-2">Ваш запрос:</div>
+   328→              <div className="text-sm space-y-1">
+   329→                <div>
+   330→                  <span className="text-muted-foreground">Мероприятие:</span>{" "}
+   331→                  {CAKE_BUILDER_OPTIONS.eventTypes.find((e) => e.id === cakeBuilder.eventType)?.label}
+   332→                </div>
+   333→                <div>
+   334→                  <span className="text-muted-foreground">Основа:</span>{" "}
+   335→                  {CAKE_BUILDER_OPTIONS.bases.find((b) => b.id === cakeBuilder.base)?.label}
+   336→                </div>
+   337→                <div>
+   338→                  <span className="text-muted-foreground">Начинка:</span>{" "}
+   339→                  {CAKE_BUILDER_OPTIONS.fillings.find((f) => f.id === cakeBuilder.filling)?.label}
+   340→                </div>
+   341→                <div>
+   342→                  <span className="text-muted-foreground">Покрытие:</span>{" "}
+   343→                  {CAKE_BUILDER_OPTIONS.coatings.find((c) => c.id === cakeBuilder.coating)?.label}
+   344→                </div>
+   345→                {cakeBuilder.decorations.length > 0 && (
+   346→                  <div>
+   347→                    <span className="text-muted-foreground">Декор:</span>{" "}
+   348→                    {cakeBuilder.decorations
+   349→                      .map((d) => CAKE_BUILDER_OPTIONS.decorations.find((o) => o.id === d)?.label)
+   350→                      .join(", ")}
+   351→                  </div>
+   352→                )}
+   353→                <div>
+   354→                  <span className="text-muted-foreground">Город:</span> {cakeBuilder.city}
+   355→                </div>
+   356→                <div>
+   357→                  <span className="text-muted-foreground">Дата:</span> {cakeBuilder.deliveryDate}
+   358→                </div>
+   359→                <Separator className="my-2" />
+   360→                <div className="flex justify-between font-semibold">
+   361→                  <span>Оценка стоимости:</span>
+   362→                  <span className="text-primary">
+   363→                    ~{formatCurrency(estimatedPrice + deliveryCost)}
+   364→                  </span>
+   365→                </div>
+   366→              </div>
+   367→            </div>
+   368→
+   369→            <div className="flex gap-2 justify-center">
+   370→              <Button onClick={handleClose} variant="outline">
+   371→                Закрыть
+   372→              </Button>
+   373→              <Button
+   374→                onClick={() => {
+   375→                  handleClose();
+   376→                  navigate("dashboard-customer", { tab: "negotiations" });
+   377→                }}
+   378→              >
+   379→                Перейти к согласованию
+   380→              </Button>
+   381→            </div>
+   382→          </div>
+   383→        ) : (
+   384→          <>
+   385→            {/* Body — step content */}
+   386→            <div className="relative z-10 flex-1 overflow-y-auto p-6 max-h-[60vh]">
+   387→              {step === 0 && (
+   388→                <StepContainer
+   389→                  title="Какое мероприятие?"
+   390→                  subtitle="Выберите тип события, чтобы мы подобрали подходящий торт"
+   391→                >
+   392→                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+   393→                    {CAKE_BUILDER_OPTIONS.eventTypes.map((opt) => (
+   394→                      <OptionCard
+   395→                        key={opt.id}
+   396→                        selected={cakeBuilder.eventType === opt.id}
+   397→                        onClick={() => updateCakeBuilder({ eventType: opt.id as CakeBuilderState["eventType"] })}
+   398→                      >
+   399→                        <div className="text-3xl mb-2">{opt.icon}</div>
+   400→                        <div className="font-medium text-sm">{opt.label}</div>
+   401→                        <div className="text-xs text-muted-foreground mt-0.5">
+   402→                          {opt.description}
+   403→                        </div>
+   404→                      </OptionCard>
+   405→                    ))}
+   406→                  </div>
+   407→                </StepContainer>
+   408→              )}
+   409→
+   410→              {step === 1 && (
+   411→                <StepContainer
+   412→                  title="Выберите основу торта"
+   413→                  subtitle="Это определит текстуру и вкус вашего торта"
+   414→                >
+   415→                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+   416→                    {CAKE_BUILDER_OPTIONS.bases.map((opt) => (
+   417→                      <OptionCard
+   418→                        key={opt.id}
+   419→                        selected={cakeBuilder.base === opt.id}
+   420→                        onClick={() => updateCakeBuilder({ base: opt.id as CakeBuilderState["base"] })}
+   421→                      >
+   422→                        <div className="flex items-start justify-between">
+   423→                          <div>
+   424→                            <div className="font-medium">{opt.label}</div>
+   425→                            <div className="text-xs text-muted-foreground mt-0.5">
+   426→                              {opt.description}
+   427→                            </div>
+   428→                          </div>
+   429→                          {opt.priceBase > 0 && (
+   430→                            <Badge variant="secondary" className="text-[10px]">
+   431→                              +{formatCurrency(opt.priceBase)}
+   432→                            </Badge>
+   433→                          )}
+   434→                        </div>
+   435→                      </OptionCard>
+   436→                    ))}
+   437→                  </div>
+   438→                </StepContainer>
+   439→              )}
+   440→
+   441→              {step === 2 && (
+   442→                <StepContainer
+   443→                  title="Начинка"
+   444→                  subtitle="Выберите любимую начинку для вашего торта"
+   445→                >
+   446→                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+   447→                    {CAKE_BUILDER_OPTIONS.fillings.map((opt) => (
+   448→                      <OptionCard
+   449→                        key={opt.id}
+   450→                        selected={cakeBuilder.filling === opt.id}
+   451→                        onClick={() => updateCakeBuilder({ filling: opt.id })}
+   452→                      >
+   453→                        <div className="flex items-center gap-3">
+   454→                          <FillingSlicePreview fillingName={opt.label} size={56} />
+   455→                          <div className="flex-1 min-w-0">
+   456→                            <div className="font-medium">{opt.label}</div>
+   457→                            {opt.price > 0 && (
+   458→                              <Badge variant="secondary" className="text-[10px] mt-0.5">
+   459→                                +{formatCurrency(opt.price)}
+   460→                              </Badge>
+   461→                            )}
+   462→                          </div>
+   463→                        </div>
+   464→                      </OptionCard>
+   465→                    ))}
+   466→                  </div>
+   467→                </StepContainer>
+   468→              )}
+   469→
+   470→              {step === 3 && (
+   471→                <StepContainer
+   472→                  title="Покрытие"
+   473→                  subtitle="Внешний вид вашего торта"
+   474→                >
+   475→                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+   476→                    {CAKE_BUILDER_OPTIONS.coatings.map((opt) => (
+   477→                      <OptionCard
+   478→                        key={opt.id}
+   479→                        selected={cakeBuilder.coating === opt.id}
+   480→                        onClick={() => updateCakeBuilder({ coating: opt.id })}
+   481→                      >
+   482→                        <div className="flex items-center justify-between">
+   483→                          <div className="font-medium">{opt.label}</div>
+   484→                          {opt.price > 0 && (
+   485→                            <Badge variant="secondary" className="text-[10px]">
+   486→                              +{formatCurrency(opt.price)}
+   487→                            </Badge>
+   488→                          )}
+   489→                        </div>
+   490→                      </OptionCard>
+   491→                    ))}
+   492→                  </div>
+   493→                </StepContainer>
+   494→              )}
+   495→
+   496→              {step === 4 && (
+   497→                <StepContainer
+   498→                  title="Декор"
+   499→                  subtitle="Можно выбрать несколько вариантов (опционально)"
+   500→                >
+   501→                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+   502→                    {CAKE_BUILDER_OPTIONS.decorations.map((opt) => (
+   503→                      <OptionCard
+   504→                        key={opt.id}
+   505→                        selected={cakeBuilder.decorations.includes(opt.id)}
+   506→                        onClick={() => toggleDecoration(opt.id)}
+   507→                      >
+   508→                        <div className="flex items-center justify-between">
+   509→                          <div className="font-medium text-sm">{opt.label}</div>
+   510→                          <Badge variant="secondary" className="text-[10px]">
+   511→                            +{formatCurrency(opt.price)}
+   512→                          </Badge>
+   513→                        </div>
+   514→                      </OptionCard>
+   515→                    ))}
+   516→                  </div>
+   517→                </StepContainer>
+   518→              )}
+   519→
+   520→              {step === 5 && (
+   521→                <StepContainer
+   522→                  title="Диетические предпочтения"
+   523→                  subtitle="Учтём особые требования (опционально)"
+   524→                >
+   525→                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+   526→                    {CAKE_BUILDER_OPTIONS.dietary.map((opt) => (
+   527→                      <OptionCard
+   528→                        key={opt.id}
+   529→                        selected={cakeBuilder.dietary.includes(opt.id)}
+   530→                        onClick={() => toggleDietary(opt.id)}
+   531→                      >
+   532→                        <div>
+   533→                          <div className="font-medium">{opt.label}</div>
+   534→                          <div className="text-xs text-muted-foreground mt-0.5">
+   535→                            {opt.description}
+   536→                          </div>
+   537→                        </div>
+   538→                      </OptionCard>
+   539→                    ))}
+   540→                  </div>
+   541→                </StepContainer>
+   542→              )}
+   543→
+   544→              {step === 6 && (
+   545→                <StepContainer
+   546→                  title="Доставка"
+   547→                  subtitle="Где и когда вам нужен торт?"
+   548→                >
+   549→                  <div className="space-y-4 max-w-2xl">
+   550→                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+   551→                      <div className="space-y-1.5">
+   552→                        <Label>
+   553→                          <MapPin className="h-3.5 w-3.5 inline mr-1" />
+   554→                          Город
+   555→                        </Label>
+   556→                        <Input
+   557→                          value={cakeBuilder.city || ""}
+   558→                          onChange={(e) => updateCakeBuilder({ city: e.target.value })}
+   559→                          placeholder="Москва"
+   560→                        />
+   561→                      </div>
+   562→                      <div className="space-y-1.5">
+   563→                        <Label>
+   564→                          <Calendar className="h-3.5 w-3.5 inline mr-1" />
+   565→                          Дата доставки
+   566→                        </Label>
+   567→                        <Input
+   568→                          type="date"
+   569→                          value={cakeBuilder.deliveryDate || ""}
+   570→                          onChange={(e) => updateCakeBuilder({ deliveryDate: e.target.value })}
+   571→                          placeholder="Выберите дату"
+   572→                        />
+   573→                        {!cakeBuilder.deliveryDate && (
+   574→                          <p className="text-xs text-muted-foreground">
+   575→                            Например: 2026-07-15
+   576→                          </p>
+   577→                        )}
+   578→                      </div>
+   579→                    </div>
+   580→
+   581→                    <div className="space-y-2">
+   582→                      <Label>Способ получения</Label>
+   583→                      <div className="grid grid-cols-2 gap-2">
+   584→                        <OptionCard
+   585→                          selected={cakeBuilder.deliveryType === "delivery"}
+   586→                          onClick={() => updateCakeBuilder({ deliveryType: "delivery" })}
+   587→                        >
+   588→                          <div className="flex items-center gap-2">
+   589→                            <Truck className="h-5 w-5 text-primary" />
+   590→                            <div>
+   591→                              <div className="font-medium text-sm">Доставка</div>
+   592→                              <div className="text-xs text-muted-foreground">
+   593→                                {deliveryCost === 0 ? "Бесплатно" : formatCurrency(deliveryCost)}
+   594→                              </div>
+   595→                            </div>
+   596→                          </div>
+   597→                        </OptionCard>
+   598→                        <OptionCard
+   599→                          selected={cakeBuilder.deliveryType === "pickup"}
+   600→                          onClick={() => updateCakeBuilder({ deliveryType: "pickup" })}
+   601→                        >
+   602→                          <div className="flex items-center gap-2">
+   603→                            <User className="h-5 w-5 text-primary" />
+   604→                            <div>
+   605→                              <div className="font-medium text-sm">Самовывоз</div>
+   606→                              <div className="text-xs text-muted-foreground">
+   607→                                Бесплатно
+   608→                              </div>
+   609→                            </div>
+   610→                          </div>
+   611→                        </OptionCard>
+   612→                      </div>
+   613→                    </div>
+   614→
+   615→                    {cakeBuilder.deliveryType === "delivery" && (
+   616→                      <div className="space-y-1.5">
+   617→                        <Label>Адрес доставки</Label>
+   618→                        <Input
+   619→                          value={cakeBuilder.address || ""}
+   620→                          onChange={(e) => updateCakeBuilder({ address: e.target.value })}
+   621→                          placeholder="ул. Тверская, д. 12, кв. 45"
+   622→                        />
+   623→                      </div>
+   624→                    )}
+   625→
+   626→                    <div className="space-y-1.5">
+   627→                      <Label>Количество порций</Label>
+   628→                      <Input
+   629→                        type="number"
+   630→                        min={2}
+   631→                        max={200}
+   632→                        value={cakeBuilder.servings || ""}
+   633→                        onChange={(e) =>
+   634→                          updateCakeBuilder({ servings: parseInt(e.target.value) || undefined })
+   635→                        }
+   636→                        placeholder="10"
+   637→                      />
+   638→                      <p className="text-xs text-muted-foreground">
+   639→                        Базовая цена рассчитана на 8 порций. Дополнительно: +180 ₽/порция
+   640→                      </p>
+   641→                    </div>
+   642→                  </div>
+   643→                </StepContainer>
+   644→              )}
+   645→
+   646→              {step === 7 && (
+   647→                <StepContainer
+   648→                  title="Выберите кондитеров"
+   649→                  subtitle={`Выберите одного или нескольких кондитеров в городе ${cakeBuilder.city || "—"} для отправки запроса. Каждый получит ваш проект торта и предложит свою цену.`}
+   650→                >
+   651→                  <div className="space-y-4 max-w-2xl">
+   652→                    {/* Сводка заказа (компактная) с превью среза */}
+   653→                    <div className="bg-card border border-border rounded-lg p-3 space-y-2 text-sm">
+   654→                      {cakeBuilder.filling && (
+   655→                        <div className="flex gap-3 items-center pb-2 border-b">
+   656→                          <FillingSlicePreview
+   657→                            fillingName={CAKE_BUILDER_OPTIONS.fillings.find((f) => f.id === cakeBuilder.filling)?.label || ""}
+   658→                            size={64}
+   659→                          />
+   660→                          <div>
+   661→                            <div className="text-xs text-muted-foreground">Срез выбранной начинки</div>
+   662→                            <div className="font-medium">
+   663→                              {CAKE_BUILDER_OPTIONS.fillings.find((f) => f.id === cakeBuilder.filling)?.label}
+   664→                            </div>
+   665→                          </div>
+   666→                        </div>
+   667→                      )}
+   668→                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+   669→                        <span><strong>Мероприятие:</strong> {CAKE_BUILDER_OPTIONS.eventTypes.find((e) => e.id === cakeBuilder.eventType)?.label}</span>
+   670→                        <span><strong>Основа:</strong> {CAKE_BUILDER_OPTIONS.bases.find((b) => b.id === cakeBuilder.base)?.label}</span>
+   671→                        <span><strong>Начинка:</strong> {CAKE_BUILDER_OPTIONS.fillings.find((f) => f.id === cakeBuilder.filling)?.label}</span>
+   672→                        <span><strong>Покрытие:</strong> {CAKE_BUILDER_OPTIONS.coatings.find((c) => c.id === cakeBuilder.coating)?.label}</span>
+   673→                        {cakeBuilder.servings && <span><strong>Порций:</strong> {cakeBuilder.servings}</span>}
+   674→                        <span><strong>Дата:</strong> {cakeBuilder.deliveryDate}</span>
+   675→                      </div>
+   676→                      {cakeBuilder.inscription && <span><strong>Надпись:</strong> {cakeBuilder.inscription}</span>}
+   677→                      {cakeBuilder.comment && <span><strong>Комментарий:</strong> {cakeBuilder.comment}</span>}
+   678→                      <div className="pt-2 border-t mt-2">
+   679→                        <span className="text-muted-foreground">Оценочная стоимость: </span>
+   680→                        <strong className="text-primary">~{formatCurrency(estimatedPrice + deliveryCost)}</strong>
+   681→                      </div>
+   682→                    </div>
+   683→
+   684→                    {/* Надпись и комментарий (если ещё не заполнены) */}
+   685→                    <div className="space-y-1.5">
+   686→                      <Label>Надпись на торте (опционально)</Label>
+   687→                      <Input
+   688→                        value={cakeBuilder.inscription || ""}
+   689→                        onChange={(e) => updateCakeBuilder({ inscription: e.target.value })}
+   690→                        placeholder="С днём рождения, Маша!"
+   691→                        maxLength={50}
+   692→                      />
+   693→                    </div>
+   694→                    <div className="space-y-1.5">
+   695→                      <Label>Комментарий кондитеру (опционально)</Label>
+   696→                      <Textarea
+   697→                        value={cakeBuilder.comment || ""}
+   698→                        onChange={(e) => updateCakeBuilder({ comment: e.target.value })}
+   699→                        placeholder="Особые пожелания, цветовое решение, аллергии..."
+   700→                        rows={2}
+   701→                      />
+   702→                    </div>
+   703→
+   704→                    {/* Запрос скидки */}
+   705→                    <div className="border border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg p-3 space-y-2">
+   706→                      <label className="flex items-center gap-2 cursor-pointer">
+   707→                        <input
+   708→                          type="checkbox"
+   709→                          checked={requestDiscount}
+   710→                          onChange={(e) => setRequestDiscount(e.target.checked)}
+   711→                          className="w-4 h-4 rounded"
+   712→                        />
+   713→                        <span className="text-sm font-medium flex items-center gap-1">
+   714→                          <Percent className="h-4 w-4 text-amber-600" />
+   715→                          Запросить скидку
+   716→                        </span>
+   717→                      </label>
+   718→                      {requestDiscount && (
+   719→                        <div className="space-y-2 pl-6">
+   720→                          <div className="flex items-center gap-2">
+   721→                            <Label className="text-xs whitespace-nowrap">Скидка %:</Label>
+   722→                            <input
+   723→                              type="range"
+   724→                              min={0}
+   725→                              max={30}
+   726→                              value={discountPercent}
+   727→                              onChange={(e) => setDiscountPercent(parseInt(e.target.value))}
+   728→                              className="flex-1"
+   729→                            />
+   730→                            <Badge className="bg-amber-100 text-amber-700 min-w-[50px] justify-center">
+   731→                              {discountPercent}%
+   732→                            </Badge>
+   733→                          </div>
+   734→                          <Input
+   735→                            value={discountComment}
+   736→                            onChange={(e) => setDiscountComment(e.target.value)}
+   737→                            placeholder="Комментарий к запросу скидки (опционально)..."
+   738→                            className="text-sm"
+   739→                          />
+   740→                          <p className="text-xs text-muted-foreground">
+   741→                            Кондитеры увидят ваш запрос скидки и могут предложить скидку или отказаться.
+   742→                          </p>
+   743→                        </div>
+   744→                      )}
+   745→                    </div>
+   746→
+   747→                    {/* Список кондитеров с мультивыбором */}
+   748→                    <div className="space-y-2">
+   749→                      <div className="flex items-center justify-between">
+   750→                        <Label className="font-semibold">
+   751→                          Кондитеры в г. {cakeBuilder.city || "—"} ({availableConfectioners.length})
+   752→                        </Label>
+   753→                        <Badge variant="outline" className="text-xs">
+   754→                          Выбрано: {selectedConfectioners.length}
+   755→                        </Badge>
+   756→                      </div>
+   757→                      {availableConfectioners.length === 0 ? (
+   758→                        <div className="text-center py-8 text-muted-foreground text-sm">
+   759→                          В вашем городе пока нет кондитеров. Выберите другой город на шаге 7.
+   760→                        </div>
+   761→                      ) : (
+   762→                        <div className="space-y-2 max-h-[300px] overflow-y-auto">
+   763→                          {availableConfectioners.map((conf) => {
+   764→                            const isSelected = selectedConfectioners.includes(conf.id);
+   765→                            return (
+   766→                              <button
+   767→                                key={conf.id}
+   768→                                onClick={() => toggleConfectioner(conf.id)}
+   769→                                className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
+   770→                                  isSelected
+   771→                                    ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+   772→                                    : "border-border hover:border-primary/30"
+   773→                                }`}
+   774→                              >
+   775→                                <img
+   776→                                  src={conf.avatar}
+   777→                                  alt=""
+   778→                                  className="w-10 h-10 rounded-full object-cover flex-shrink-0" loading="lazy" decoding="async" />
+   779→                                <div className="flex-1 min-w-0">
+   780→                                  <div className="flex items-center gap-2">
+   781→                                    <span className="font-medium text-sm truncate">{conf.businessName}</span>
+   782→                                    {conf.verified && (
+   783→                                      <Badge className="text-[9px] bg-primary">✓</Badge>
+   784→                                    )}
+   785→                                  </div>
+   786→                                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+   787→                                    <span>⭐ {conf.rating.toFixed(1)} ({conf.reviewsCount})</span>
+   788→                                    <span>· {conf.ordersCount} заказов</span>
+   789→                                    <span>· {conf.city}</span>
+   790→                                  </div>
+   791→                                  {conf.specialization && conf.specialization.length > 0 && (
+   792→                                    <div className="text-[10px] text-muted-foreground truncate mt-0.5">
+   793→                                      {conf.specialization.join(" · ")}
+   794→                                    </div>
+   795→                                  )}
+   796→                                </div>
+   797→                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+   798→                                  isSelected ? "border-primary bg-primary" : "border-border"
+   799→                                }`}>
+   800→                                  {isSelected && <Check className="h-3 w-3 text-white" />}
+   801→                                </div>
+   802→                              </button>
+   803→                            );
+   804→                          })}
+   805→                        </div>
+   806→                      )}
+   807→                    </div>
+   808→
+   809→                    {/* Price estimate */}
+   810→                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+   811→                      <div className="flex items-center justify-between">
+   812→                        <span className="text-sm text-muted-foreground">Оценочная стоимость</span>
+   813→                        <Badge className="bg-primary/10 text-primary text-xs">Предварительно</Badge>
+   814→                      </div>
+   815→                      <div className="font-display text-xl font-bold text-primary mt-1">
+   816→                        ~{formatCurrency(estimatedPrice + deliveryCost)}
+   817→                        {requestDiscount && discountPercent > 0 && (
+   818→                          <span className="text-sm text-amber-600 ml-2">
+   819→                            (со скидкой {discountPercent}%: ~{formatCurrency(Math.round((estimatedPrice + deliveryCost) * (1 - discountPercent / 100)))})
+   820→                          </span>
+   821→                        )}
+   822→                      </div>
+   823→                      <p className="text-xs text-muted-foreground mt-1">
+   824→                        Финальную цену предложат кондитеры. Согласование — в личном кабинете после ответа.
+   825→                      </p>
+   826→                    </div>
+   827→                  </div>
+   828→                </StepContainer>
+   829→              )}
+   830→            </div>
+   831→
+   832→            {/* Footer */}
+   833→            <div className="relative z-10 border-t p-4 flex items-center justify-between shrink-0 bg-card/90 backdrop-blur">
+   834→              <Button
+   835→                variant="ghost"
+   836→                onClick={handleBack}
+   837→                disabled={step === 0}
+   838→              >
+   839→                <ChevronLeft className="h-4 w-4 mr-1" />
+   840→                Назад
+   841→              </Button>
+   842→
+   843→              <div className="text-sm text-muted-foreground hidden sm:block">
+   844→                {step === 7
+   845→                  ? selectedConfectioners.length > 0
+   846→                    ? `Отправить ${selectedConfectioners.length} кондитер(ам)`
+   847→                    : "Выберите кондитеров"
+   848→                  : `Шаг ${step + 1} из 8`}
+   849→              </div>
+   850→
+   851→              <Button onClick={handleNext} disabled={!canProceed()}>
+   852→                {step === 7 ? (
+   853→                  <>
+   854→                    <Sparkles className="h-4 w-4 mr-1" />
+   855→                    Отправить запрос{selectedConfectioners.length > 0 ? ` (${selectedConfectioners.length})` : ""}
+   856→                  </>
+   857→                ) : (
+   858→                  <>
+   859→                    Далее
+   860→                    <ChevronRight className="h-4 w-4 ml-1" />
+   861→                  </>
+   862→                )}
+   863→              </Button>
+   864→            </div>
+   865→          </>
+   866→        )}
+   867→      </DialogContent>
+   868→    </Dialog>
+   869→  );
+   870→}
+   871→
+   872→function StepContainer({
+   873→  title,
+   874→  subtitle,
+   875→  children,
+   876→}: {
+   877→  title: string;
+   878→  subtitle: string;
+   879→  children: React.ReactNode;
+   880→}) {
+   881→  return (
+   882→    <div className="space-y-4">
+   883→      <div>
+   884→        <h3 className="font-display text-xl font-bold">{title}</h3>
+   885→        <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+   886→      </div>
+   887→      {children}
+   888→    </div>
+   889→  );
+   890→}
+   891→
+   892→function OptionCard({
+   893→  selected,
+   894→  onClick,
+   895→  children,
+   896→}: {
+   897→  selected: boolean;
+   898→  onClick: () => void;
+   899→  children: React.ReactNode;
+   900→}) {
+   901→  return (
+   902→    <button
+   903→      onClick={onClick}
+   904→      className={`text-left p-4 rounded-lg border-2 transition-all ${
+   905→        selected
+   906→          ? "border-primary bg-primary/5 shadow-sm"
+   907→          : "border-border hover:border-primary/40 hover:bg-accent/40"
+   908→      }`}
+   909→    >
+   910→      <div className="relative">
+   911→        {selected && (
+   912→          <div className="absolute top-0 right-0 h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+   913→            <Check className="h-3 w-3 text-primary-foreground" />
+   914→          </div>
+   915→        )}
+   916→        {children}
+   917→      </div>
+   918→    </button>
+   919→  );
+   920→}
+   921→
+   922→function SummaryRow({ label, value }: { label: string; value?: string }) {
+   923→  if (!value) return null;
+   924→  return (
+   925→    <div className="flex justify-between text-sm gap-2">
+   926→      <span className="text-muted-foreground shrink-0">{label}:</span>
+   927→      <span className="font-medium text-right">{value}</span>
+   928→    </div>
+   929→  );
+   930→}
+   931→

@@ -1,0 +1,43 @@
+# ===== Dockerfile для simplex-bridge =====
+# Запускает simplex-chat CLI + bot-мост на порту 5226
+#
+# ВАЖНО: URL для скачивания simplex-chat CLI часто меняется между релизами.
+# Если сборка падает на wget — проверьте актуальный asset на:
+#   https://github.com/simplex-chat/simplex-chat/releases
+# Ищите файл вида simplex-chat-ubuntu-XX_04-x86-64
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# dumb-init + simplex-chat CLI
+# Используем конкретную версию v6.2.0 (стабильный asset simplex-chat-ubuntu-22_04-x86-64)
+# Если нужно обновить — проверьте список assets на странице релизов
+RUN apk add --no-cache dumb-init wget ca-certificates && \
+    wget -qO /usr/local/bin/simplex-chat \
+      "https://github.com/simplex-chat/simplex-chat/releases/download/v6.2.0/simplex-chat-ubuntu-22_04-x86-64" && \
+    chmod +x /usr/local/bin/simplex-chat && \
+    # Проверяем что бинарник действительно скачался (не HTML error page)
+    test -s /usr/local/bin/simplex-chat && \
+    file /usr/local/bin/simplex-chat | grep -q "ELF"
+
+# Зависимости bridge
+COPY mini-services/simplex-bridge/package.json ./
+RUN npm install --production
+
+# Код bridge
+COPY mini-services/simplex-bridge/index.ts ./
+
+# Конфигурация SimpleX CLI (профиль, опции)
+ENV SIMPLEX_CLI_PORT=5225
+ENV BRIDGE_PORT=5226
+
+EXPOSE 5226
+
+# Healthcheck: проверяем bridge HTTP endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -qO- http://localhost:5226/health > /dev/null 2>&1 || exit 1
+
+# Старт: simplex-chat CLI в фоне → bridge подключается к нему
+CMD ["dumb-init", "sh", "-c", \
+     "simplex-chat -p ${SIMPLEX_CLI_PORT} --database /app/simplex.db --no-tui & sleep 2 && node --loader ts-node/esm index.ts"]

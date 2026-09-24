@@ -1,0 +1,955 @@
+@import "tailwindcss";
+/* tw-animate-css removed — not compatible with Turbopack */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Уездный кондитер — тёплая палитра русской кондитерской */
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.012 75);
+  --foreground: oklch(0.22 0.025 40);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.025 40);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.025 40);
+  /* Бордовый — фирменный цвет */
+  --primary: oklch(0.42 0.18 25);
+  --primary-foreground: oklch(0.98 0.005 75);
+  --secondary: oklch(0.95 0.025 70);
+  --secondary-foreground: oklch(0.30 0.05 35);
+  --muted: oklch(0.96 0.015 70);
+  --muted-foreground: oklch(0.50 0.025 50);
+  /* Золотой акцент */
+  --accent: oklch(0.92 0.05 80);
+  --accent-foreground: oklch(0.30 0.06 60);
+  --destructive: oklch(0.58 0.22 25);
+  --border: oklch(0.90 0.015 70);
+  --input: oklch(0.92 0.015 70);
+  --ring: oklch(0.55 0.14 30);
+  --chart-1: oklch(0.55 0.18 25);
+  --chart-2: oklch(0.70 0.14 70);
+  --chart-3: oklch(0.65 0.10 145);
+  --chart-4: oklch(0.78 0.16 80);
+  --chart-5: oklch(0.55 0.12 305);
+  --sidebar: oklch(0.97 0.018 70);
+  --sidebar-foreground: oklch(0.22 0.025 40);
+  --sidebar-primary: oklch(0.42 0.18 25);
+  --sidebar-primary-foreground: oklch(0.98 0.005 75);
+  --sidebar-accent: oklch(0.92 0.05 80);
+  --sidebar-accent-foreground: oklch(0.30 0.06 60);
+  --sidebar-border: oklch(0.90 0.015 70);
+  --sidebar-ring: oklch(0.55 0.14 30);
+
+  /* ===== Design Tokens (раздел 39) ===== */
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Typography */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
+  --text-5xl: 48px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Status colors */
+  --color-success: oklch(0.55 0.15 145);
+  --color-warning: oklch(0.75 0.15 75);
+  --color-info: oklch(0.55 0.15 250);
+
+  /* Eco */
+  --color-eco: oklch(0.45 0.12 145);
+  --color-eco-light: oklch(0.90 0.03 145);
+
+  /* Breakpoints (for reference, not usable in CSS) */
+  --bp-sm: 640px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+}
+
+.dark {
+  --background: oklch(0.18 0.015 40);
+  --foreground: oklch(0.96 0.012 75);
+  --card: oklch(0.22 0.02 40);
+  --card-foreground: oklch(0.96 0.012 75);
+  --popover: oklch(0.22 0.02 40);
+  --popover-foreground: oklch(0.96 0.012 75);
+  --primary: oklch(0.65 0.18 25);
+  --primary-foreground: oklch(0.15 0.02 40);
+  --secondary: oklch(0.28 0.025 40);
+  --secondary-foreground: oklch(0.96 0.012 75);
+  --muted: oklch(0.26 0.02 40);
+  --muted-foreground: oklch(0.70 0.015 70);
+  --accent: oklch(0.40 0.06 60);
+  --accent-foreground: oklch(0.95 0.02 80);
+  --destructive: oklch(0.70 0.20 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.65 0.15 30);
+  --chart-1: oklch(0.65 0.18 25);
+  --chart-2: oklch(0.75 0.14 70);
+  --chart-3: oklch(0.70 0.10 145);
+  --chart-4: oklch(0.80 0.16 80);
+  --chart-5: oklch(0.65 0.14 305);
+  --sidebar: oklch(0.22 0.02 40);
+  --sidebar-foreground: oklch(0.96 0.012 75);
+  --sidebar-primary: oklch(0.65 0.18 25);
+  --sidebar-primary-foreground: oklch(0.15 0.02 40);
+  --sidebar-accent: oklch(0.40 0.06 60);
+  --sidebar-accent-foreground: oklch(0.95 0.02 80);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.65 0.15 30);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "cv11";
+    /* Предотвращаем горизонтальный скролл на мобилках */
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    /* Плавный скролл */
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Безопасные отступы для устройств с вырезами (notch) */
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* === FONTS SWAP TUNING — минимизация CLS ===
+     Пока Brokgauz/TriodPostnaja/Neucha не загружены, браузер использует
+     fallback с теми же метриками (size-adjust), чтобы не было layout shift. */
+  @font-face {
+    font-family: "Brokgauz_fallback";
+    src: local("Georgia");
+    ascent-override: 95%;
+    descent-override: 25%;
+    line-gap-override: 0%;
+    size-adjust: 100%;
+  }
+  @font-face {
+    font-family: "Triod_fallback";
+    src: local("Georgia");
+    ascent-override: 92%;
+    descent-override: 22%;
+    line-gap-override: 0%;
+    size-adjust: 105%;
+  }
+  @font-face {
+    font-family: "Neucha_fallback";
+    src: local("Comic Sans MS");
+    ascent-override: 100%;
+    descent-override: 28%;
+    line-gap-override: 0%;
+    size-adjust: 95%;
+  }
+}
+
+/* ===== АДАПТИВНОСТЬ ===== */
+
+/* Минимальный размер touch-таргетов (44px по Apple HIG) */
+@media (max-width: 768px) {
+  button:not([class*="h-"]):not([class*="size-"]):not([data-slot="dropdown-menu-item"]):not([data-slot="dropdown-menu-trigger"]) {
+    min-height: 36px;
+  }
+  /* Уменьшаем отступы на мобилках */
+  .container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  /* Табы дашбордов — горизонтальная прокрутка на мобилках */
+  .dashboard-tabs {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    gap: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+  .dashboard-tabs button {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  /* Большие модальные окна — на весь экран на мобилках */
+  [role="dialog"][class*="max-w-2xl"],
+  [role="dialog"][class*="max-w-3xl"],
+  [role="dialog"][class*="max-w-4xl"] {
+    margin: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+  /* Попапы и дропдауны — на весь экран на мобилках */
+  [data-radix-popper-content-wrapper] {
+    width: 100% !important;
+  }
+  [data-radix-popper-content-wrapper] > * {
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+  }
+}
+
+/* Улучшение читаемости на retina-экранах */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Предотвращаем zoom при фокусе на input (iOS) */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Анимация появления для мобильного меню */
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* Кастомный скроллбар */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: oklch(0.96 0.015 70);
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.80 0.06 60);
+  border-radius: 8px;
+  border: 2px solid oklch(0.96 0.015 70);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.65 0.12 30);
+}
+
+/* Анимации для hero и карточек */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Шрифт для заголовков — Brokgauz & Efron Italic (русская энциклопедическая
+   антиква начала XX в., задаёт аутентичный «уездный» колорит проекта).
+   Курсивная антиква требует чуть большего интерлиньяжа и воздухa между буквами.
+   Fallback — Georgia с теми же метриками (см. @font-face выше) — без CLS. */
+.font-display {
+  font-family: var(--font-display), "Brokgauz_fallback", Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  line-height: 1.25;
+}
+
+/* Brokgauz — italic-only шрифт с единственным весом 400.
+   Tailwind's `font-bold` (font-weight: 700) заставляет браузер делать
+   синтетический bold (faux bold), который выглядит грубо и «замыленно».
+   Сбрасываем вес к 400, сохраняя визуальную иерархию через size + color.
+   Specificity: 2 класса > 1 класс Tailwind, поэтому побеждаем. */
+.font-display.font-bold,
+.font-display.font-semibold,
+.font-display.font-extrabold,
+h1.font-bold, h2.font-bold, h3.font-bold, h4.font-bold,
+h1.font-semibold, h2.font-semibold, h3.font-semibold, h4.font-semibold {
+  font-weight: 400;
+  /* Лёгкая «глубина» через тонкую тень, чтобы выделить заголовок
+     без утолщения штриха. Эффект как у дорогой книги. */
+  text-shadow: 0 0.4px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Декоративный рукописный шрифт — Neucha (для логотипа, акцентов) */
+.font-script {
+  font-family: var(--font-script), cursive;
+  letter-spacing: 0;
+}
+
+/* Применяем Brokgauz & Efron ко всем заголовкам h1-h4 */
+h1, h2, h3, h4 {
+  font-family: var(--font-display), "Brokgauz_fallback", Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  line-height: 1.25;
+  /* Слегка увеличенные поля вокруг заголовков — «газетный» ритм */
+  text-wrap: balance;
+}
+
+/* П.3: Капитель (small caps) для меток, бейджей, категорий.
+   Использование: <span className="small-caps">Хит</span>
+   Geist Sans поддерживает smcp feature — буквы переходят в мини-капитель,
+   что в духе дореволюционной типографики. */
+.small-caps {
+  font-feature-settings: "smcp" 1, "c2sc" 1;
+  letter-spacing: 0.08em;
+  text-transform: lowercase; /* чтобы заглавные тоже стали капителью */
+}
+
+/* Альтернатива: «газетная» капитель для лейблов секций */
+.eyebrow {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: oklch(0.55 0.14 30);
+}
+
+/* Логотип «Уездный кондитер» — старославянская полунаклонная антиква
+   TriodPostnaja Medium; рукописный Neucha остаётся как fallback для
+   мест, где триод-шрифт не успел подгрузиться. */
+.logo-text {
+  font-family: var(--font-brand), "Triod_fallback", var(--font-script), "Neucha_fallback", cursive;
+  font-weight: 500;
+  font-style: normal;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+/* Текстовый градиент */
+.text-gradient {
+  background: linear-gradient(135deg, oklch(0.42 0.18 25) 0%, oklch(0.65 0.15 60) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Декоративный паттерн для фона */
+.bg-pattern {
+  background-image: radial-gradient(oklch(0.55 0.14 30 / 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ===== 3D И СОВРЕМЕННЫЕ ЭФФЕКТЫ ===== */
+
+/* 3D Neumorphic кнопка */
+.btn-3d {
+  position: relative;
+  border: none;
+  border-radius: 0.75rem;
+  background: linear-gradient(145deg, oklch(0.45 0.18 25), oklch(0.38 0.16 25));
+  box-shadow:
+    0 4px 12px oklch(0.42 0.18 25 / 0.4),
+    0 1px 3px oklch(0.42 0.18 25 / 0.3),
+    inset 0 1px 0 oklch(0.55 0.18 25 / 0.5),
+    inset 0 -2px 4px oklch(0.30 0.14 25 / 0.3);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(0);
+}
+.btn-3d:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 20px oklch(0.42 0.18 25 / 0.5),
+    0 2px 6px oklch(0.42 0.18 25 / 0.35),
+    inset 0 1px 0 oklch(0.55 0.18 25 / 0.6),
+    inset 0 -2px 4px oklch(0.30 0.14 25 / 0.3);
+}
+.btn-3d:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 2px 6px oklch(0.42 0.18 25 / 0.3),
+    inset 0 2px 4px oklch(0.30 0.14 25 / 0.4),
+    inset 0 -1px 0 oklch(0.55 0.18 25 / 0.3);
+}
+
+/* 3D Neumorphic кнопка (светлая) */
+.btn-3d-light {
+  position: relative;
+  border: 1px solid oklch(0.88 0.02 70);
+  border-radius: 0.75rem;
+  background: linear-gradient(145deg, oklch(1 0 0), oklch(0.95 0.015 70));
+  box-shadow:
+    0 2px 8px oklch(0 0 0 / 0.08),
+    0 1px 2px oklch(0 0 0 / 0.06),
+    inset 0 1px 0 oklch(1 0 0);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-3d-light:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 12px oklch(0 0 0 / 0.12),
+    0 1px 3px oklch(0 0 0 / 0.08),
+    inset 0 1px 0 oklch(1 0 0);
+}
+.btn-3d-light:active {
+  transform: translateY(0);
+  box-shadow:
+    0 1px 3px oklch(0 0 0 / 0.06),
+    inset 0 2px 4px oklch(0 0 0 / 0.08);
+}
+
+/* Glassmorphism карточка */
+.glass-card {
+  background: oklch(1 0 0 / 0.65);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid oklch(1 0 0 / 0.3);
+  box-shadow:
+    0 8px 32px oklch(0 0 0 / 0.08),
+    inset 0 1px 0 oklch(1 0 0 / 0.4);
+}
+.dark .glass-card {
+  background: oklch(0.22 0.02 40 / 0.65);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  box-shadow:
+    0 8px 32px oklch(0 0 0 / 0.3),
+    inset 0 1px 0 oklch(1 0 0 / 0.06);
+}
+
+/* 3D Tilt карточка — наклон при наведении */
+.card-3d {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.card-3d:hover {
+  transform: perspective(800px) rotateX(2deg) rotateY(-2deg) translateY(-4px);
+  box-shadow:
+    0 20px 40px oklch(0 0 0 / 0.12),
+    0 8px 16px oklch(0 0 0 / 0.08);
+}
+
+/* Gradient border — анимированная градиентная рамка */
+.gradient-border {
+  position: relative;
+  background: oklch(1 0 0);
+  border-radius: 0.75rem;
+  z-index: 0;
+}
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, oklch(0.55 0.18 25), oklch(0.70 0.14 70), oklch(0.55 0.12 305), oklch(0.55 0.18 25));
+  background-size: 300% 300%;
+  z-index: -1;
+  animation: gradient-shift 4s ease infinite;
+}
+.dark .gradient-border {
+  background: oklch(0.22 0.02 40);
+}
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Spotlight эффект — подсветка за курсором */
+.spotlight {
+  position: relative;
+  overflow: hidden;
+}
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle 200px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    oklch(0.55 0.18 25 / 0.08),
+    transparent 80%
+  );
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 1;
+}
+.spotlight:hover::before {
+  opacity: 1;
+}
+.dark .spotlight::before {
+  background: radial-gradient(
+    circle 200px at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    oklch(0.65 0.18 25 / 0.12),
+    transparent 80%
+  );
+}
+
+/* Mesh gradient background */
+.mesh-gradient {
+  background-color: oklch(0.98 0.012 75);
+  background-image:
+    radial-gradient(at 20% 20%, oklch(0.55 0.18 25 / 0.12) 0px, transparent 50%),
+    radial-gradient(at 80% 10%, oklch(0.70 0.14 70 / 0.1) 0px, transparent 50%),
+    radial-gradient(at 50% 80%, oklch(0.55 0.12 305 / 0.08) 0px, transparent 50%),
+    radial-gradient(at 90% 60%, oklch(0.65 0.10 145 / 0.06) 0px, transparent 50%);
+}
+.dark .mesh-gradient {
+  background-color: oklch(0.18 0.015 40);
+  background-image:
+    radial-gradient(at 20% 20%, oklch(0.55 0.18 25 / 0.15) 0px, transparent 50%),
+    radial-gradient(at 80% 10%, oklch(0.70 0.14 70 / 0.1) 0px, transparent 50%),
+    radial-gradient(at 50% 80%, oklch(0.55 0.12 305 / 0.1) 0px, transparent 50%);
+}
+
+/* Glow эффект для важных кнопок */
+.glow-primary {
+  box-shadow:
+    0 0 20px oklch(0.42 0.18 25 / 0.3),
+    0 4px 12px oklch(0.42 0.18 25 / 0.2);
+}
+.glow-primary:hover {
+  box-shadow:
+    0 0 30px oklch(0.42 0.18 25 / 0.4),
+    0 6px 16px oklch(0.42 0.18 25 / 0.3);
+}
+
+/* Shimmer загрузка */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    oklch(0.92 0.01 70) 0%,
+    oklch(0.96 0.015 70) 50%,
+    oklch(0.92 0.01 70) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-slide 1.5s infinite;
+}
+@keyframes shimmer-slide {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Spring bounce анимация */
+@keyframes spring-bounce {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-spring {
+  animation: spring-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Floating анимация */
+@keyframes float-3d {
+  0%, 100% { transform: translateY(0) rotateX(0) rotateY(0); }
+  25% { transform: translateY(-8px) rotateX(2deg) rotateY(-1deg); }
+  50% { transform: translateY(-4px) rotateX(0) rotateY(1deg); }
+  75% { transform: translateY(-6px) rotateX(-1deg) rotateY(-2deg); }
+}
+.animate-float-3d {
+  animation: float-3d 8s ease-in-out infinite;
+}
+
+/* Pulse glow для бейджей */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px oklch(0.55 0.18 25 / 0.4); }
+  50% { box-shadow: 0 0 16px oklch(0.55 0.18 25 / 0.6); }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Бегущая строка кондитеров */
+@keyframes marquee-x {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes marquee-x-reverse {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+.animate-marquee {
+  animation: marquee-x var(--marquee-duration, 60s) linear infinite;
+  will-change: transform;
+}
+.animate-marquee-reverse {
+  animation: marquee-x-reverse var(--marquee-duration, 60s) linear infinite;
+  will-change: transform;
+}
+.marquee-mask {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+}
+.marquee-group:hover .animate-marquee,
+.marquee-group:hover .animate-marquee-reverse {
+  animation-play-state: paused;
+}
+
+/* Stagger delay utilities */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.3s; }
+.stagger-7 { animation-delay: 0.35s; }
+.stagger-8 { animation-delay: 0.4s; }
+
+/* Тонкий скроллбар */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.80 0.06 60) oklch(0.96 0.015 70);
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: oklch(0.80 0.06 60);
+  border-radius: 3px;
+}
+
+/* Конфитти эффект (для дня рождения) */
+@keyframes confetti-fall {
+  0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+/* ===================================================================
+   П.4: БУКВИЦА — декоративная первая буква в статьях блога/FAQ.
+   Имитация дореволюционной книжной типографики: первая буква абзаца
+   крупная, в Brokgauz italic, обтекаемая текстом.
+   Использование: <article class="prose-dropcap"><p>Первый абзац...</p></article>
+   =================================================================== */
+.prose-dropcap > p:first-of-type::first-letter {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 3.6em;
+  line-height: 0.85;
+  float: left;
+  margin: 0.1em 0.12em 0 0;
+  color: oklch(0.42 0.18 25);
+  font-weight: 400;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+/* На мобилках буквица чуть меньше */
+@media (max-width: 640px) {
+  .prose-dropcap > p:first-of-type::first-letter {
+    font-size: 2.8em;
+  }
+}
+
+/* ===================================================================
+   ДЕКОРАТИВНЫЕ ОРНАМЕНТЫ-РАЗДЕЛИТЕЛИ
+   Старорусский «книжный» декор: три точки-ромба, как в дореволюционных
+   изданиях. Использование: <div class="ornament-divider" />
+   =================================================================== */
+.ornament-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 2rem 0;
+  color: oklch(0.55 0.14 30);
+  user-select: none;
+}
+.ornament-divider::before,
+.ornament-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  max-width: 8rem;
+  background: linear-gradient(
+    to right,
+    transparent,
+    oklch(0.55 0.14 30 / 0.3) 50%,
+    transparent
+  );
+}
+.ornament-divider::after {
+  background: linear-gradient(
+    to left,
+    transparent,
+    oklch(0.55 0.14 30 / 0.3) 50%,
+    transparent
+  );
+}
+
+/* Центральный ромб-орнамент: ❖ но через CSS, чтобы не зависеть от шрифта */
+.ornament-divider > span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: oklch(0.55 0.14 30);
+  transform: rotate(45deg);
+  position: relative;
+}
+.ornament-divider > span::before,
+.ornament-divider > span::after {
+  content: "";
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: oklch(0.55 0.14 30 / 0.5);
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+}
+.ornament-divider > span::before { left: -14px; }
+.ornament-divider > span::after { right: -14px; }
+
+/* Лёгкий вариант разделителя — одна линия с ромбом по центру */
+.divider-fancy {
+  position: relative;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    oklch(0.70 0.10 60 / 0.4) 20%,
+    oklch(0.70 0.10 60 / 0.4) 80%,
+    transparent
+  );
+  margin: 1.5rem 0;
+}
+.divider-fancy::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: oklch(0.55 0.14 30);
+  box-shadow: 0 0 0 4px var(--background, white);
+}
+
+/* ===================================================================
+   Улучшенные КАТЕГОРИИ-БЕЙДЖИ — «уездная» стилизация
+   Бордовая подложка с золотистым кантом, как на старых вывесках.
+   =================================================================== */
+.badge-fancy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, oklch(0.95 0.04 60), oklch(0.92 0.05 80));
+  border: 1px solid oklch(0.70 0.10 60 / 0.4);
+  color: oklch(0.35 0.10 50);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-family: var(--font-geist-sans), sans-serif;
+  box-shadow:
+    0 1px 2px oklch(0.55 0.14 30 / 0.1),
+    inset 0 1px 0 oklch(1 0 0 / 0.4);
+}
+
+.badge-fancy.badge-hit {
+  background: linear-gradient(135deg, oklch(0.42 0.18 25), oklch(0.50 0.16 30));
+  color: oklch(0.98 0.005 75);
+  border-color: oklch(0.65 0.15 60 / 0.5);
+}
+
+.badge-fancy.badge-new {
+  background: linear-gradient(135deg, oklch(0.70 0.16 145), oklch(0.62 0.14 150));
+  color: oklch(0.98 0.005 75);
+  border-color: oklch(0.78 0.16 145 / 0.5);
+}
+
+/* ===================================================================
+   УЛУЧШЕННЫЕ КАРТОЧКИ — лёгкая «бумажная» тень + внутренняя подсветка
+   =================================================================== */
+.card-paper {
+  background: oklch(1 0 0);
+  border: 1px solid oklch(0.90 0.015 70);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 1px 0 oklch(1 0 0),
+    0 1px 3px oklch(0 0 0 / 0.04),
+    0 4px 12px oklch(0 0 0 / 0.04);
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+.card-paper:hover {
+  box-shadow:
+    0 1px 0 oklch(1 0 0),
+    0 4px 8px oklch(0 0 0 / 0.06),
+    0 8px 24px oklch(0.42 0.18 25 / 0.08);
+  transform: translateY(-2px);
+}
+
+/* ===================================================================
+   УГОЛОК-«МАРКА» — декоративный угол для важных карточек
+   Имитация почтовой марки / дореволюционного ярлыка.
+   =================================================================== */
+.corner-stamp {
+  position: relative;
+}
+.corner-stamp::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 28px 28px 0;
+  border-color: transparent oklch(0.42 0.18 25) transparent transparent;
+  z-index: 1;
+}
+.corner-stamp::after {
+  content: "★";
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 10px;
+  color: oklch(0.95 0.05 80);
+  z-index: 2;
+  line-height: 1;
+}
+
+/* ===================================================================
+   СТАРИННАЯ «ПЕЧАТЬ» — круглая печать для verified-бейджей кондитеров
+   =================================================================== */
+.stamp-verified {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border: 2px solid oklch(0.42 0.18 25);
+  border-radius: 50%;
+  color: oklch(0.42 0.18 25);
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.1;
+  background: oklch(1 0 0 / 0.85);
+  transform: rotate(-12deg);
+  opacity: 0.92;
+  box-shadow:
+    inset 0 0 0 2px oklch(1 0 0),
+    inset 0 0 0 3px oklch(0.42 0.18 25 / 0.6);
+}
+
+/* ===== Анимации (замена tw-animate-css) ===== */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes zoom-in { from { transform: scale(0.95); } to { transform: scale(1); } }
+@keyframes zoom-out { from { transform: scale(1); } to { transform: scale(0.95); } }
+@keyframes slide-in-from-bottom { from { transform: translateY(10px); } to { transform: translateY(0); } }
+@keyframes slide-in-from-right { from { transform: translateX(10px); } to { transform: translateX(0); } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+.animate-in { animation-duration: 200ms; animation-fill-mode: both; }
+.animate-out { animation-duration: 150ms; animation-fill-mode: both; }
+.fade-in-0 { animation-name: fade-in; }
+.fade-out-0 { animation-name: fade-out; }
+.zoom-in-95 { animation-name: zoom-in; }
+.zoom-out-95 { animation-name: zoom-out; }
+.slide-in-from-bottom-2 { animation-name: slide-in-from-bottom; }
+.slide-in-from-right-2 { animation-name: slide-in-from-right; }
+.spin { animation: spin 1s linear infinite; }
+.pulse { animation: pulse 2s ease-in-out infinite; }
+
+/* ===== prefers-reduced-motion (раздел 40) ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== Eco utility classes ===== */
+.text-eco { color: var(--color-eco); }
+.bg-eco { background-color: var(--color-eco); }
+.bg-eco-light { background-color: var(--color-eco-light); }
+.border-eco\/30 { border-color: var(--color-eco) !important; opacity: 0.3; }
+
+/* ===== Success/warning/info utility ===== */
+.text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+.bg-success { background-color: var(--color-success); }
