@@ -159,7 +159,8 @@ export async function GET(
   response.cookies.set(`oauth_state_${provider}`, state, {
     httpOnly: true,
     sameSite: "lax",
-    secure: false, // превью-песочница без TLS на origin
+    // Secure в production (HTTPS-деплой); в dev/preview без TLS остаётся false
+    secure: process.env.NODE_ENV === "production",
     maxAge: 600,
     path: "/api/auth/oauth",
   });

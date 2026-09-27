@@ -281,7 +281,8 @@ export async function GET(
     response.cookies.set("oauth_handoff", Buffer.from(JSON.stringify(handoff)).toString("base64"), {
       httpOnly: true,
       sameSite: "lax",
-      secure: false,
+      // Secure в production (HTTPS-деплой); в dev/preview без TLS остаётся false
+      secure: process.env.NODE_ENV === "production",
       maxAge: 60,
       path: "/",
     });

@@ -19,7 +19,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const response = NextResponse.json({ ok: true });
   // Стираем cookie сразу — одноразовость.
-  response.cookies.set("oauth_handoff", "", { httpOnly: true, maxAge: 0, path: "/" });
+  response.cookies.set("oauth_handoff", "", {
+    httpOnly: true,
+    maxAge: 0,
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+  });
 
   try {
     const data = JSON.parse(Buffer.from(raw, "base64").toString("utf8")) as {
