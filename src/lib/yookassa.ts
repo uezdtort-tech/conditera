@@ -246,8 +246,9 @@ function ipv4ToNumber(ip: string): number | null {
   return num >>> 0;
 }
 
-/** IPv6 (включая :: и встроенный IPv4) → bigint; null для не-IPv6 */
-function parseIPv6(ip: string): bigint | null {
+/** IPv6 (включая :: и встроенный IPv4) → 8 групп по 16 бит; null для не-IPv6.
+ *  Без BigInt (target ES2017): каждая группа ≤ 65535 — точность number достаточна. */
+function parseIPv6Groups(ip: string): number[] | null {
   if (!ip || !ip.includes(":")) return null;
   if (!/^[0-9a-fA-F:.]+$/.test(ip)) return null;
 
@@ -260,10 +261,10 @@ function parseIPv6(ip: string): bigint | null {
     tail = doubleColonParts[1] ?? "";
   }
 
-  const toGroups = (section: string): string[] | null => {
+  const toGroups = (section: string): number[] | null => {
     if (!section) return [];
     const raw = section.split(":");
-    const groups: string[] = [];
+    const groups: number[] = [];
     for (let i = 0; i < raw.length; i++) {
       const g = raw[i];
       if (g.includes(".")) {
@@ -271,10 +272,10 @@ function parseIPv6(ip: string): bigint | null {
         if (i !== raw.length - 1) return null;
         const v4 = ipv4ToNumber(g);
         if (v4 === null) return null;
-        groups.push(((v4 >>> 16) & 0xffff).toString(16), (v4 & 0xffff).toString(16));
+        groups.push((v4 >>> 16) & 0xffff, v4 & 0xffff);
       } else {
         if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return null;
-        groups.push(g);
+        groups.push(parseInt(g, 16));
       }
     }
     return groups;
@@ -289,14 +290,8 @@ function parseIPv6(ip: string): bigint | null {
   // без "::" должно быть ровно 8 групп
   if (doubleColonParts.length === 1 && missing !== 0) return null;
 
-  const all = [...headGroups, ...Array<string>(missing).fill("0"), ...tailGroups];
-  if (all.length !== 8) return null;
-
-  let result = 0n;
-  for (const g of all) {
-    result = (result << 16n) | BigInt(parseInt(g, 16));
-  }
-  return result;
+  const all = [...headGroups, ...Array<number>(missing).fill(0), ...tailGroups];
+  return all.length === 8 ? all : null;
 }
 
 /** Корректная проверка IP по CIDR для IPv4 и IPv6 */
@@ -311,11 +306,23 @@ export function ipInRange(ip: string, range: string): boolean {
   if (ip.includes(":") || base.includes(":")) {
     const maskBits = bits ?? 128;
     if (maskBits > 128) return false;
-    const ipBig = parseIPv6(ip);
-    const baseBig = parseIPv6(base);
-    if (ipBig === null || baseBig === null) return false;
-    const shift = BigInt(128 - maskBits);
-    return ipBig >> shift === baseBig >> shift;
+    const ipGroups = parseIPv6Groups(ip);
+    const baseGroups = parseIPv6Groups(base);
+    if (!ipGroups || !baseGroups) return false;
+
+    const fullGroups = Math.floor(maskBits / 16);
+    const remBits = maskBits % 16;
+    for (let i = 0; i < 8; i++) {
+      if (i < fullGroups) {
+        if (ipGroups[i] !== baseGroups[i]) return false;
+      } else if (i === fullGroups && remBits > 0) {
+        const mask = (0xffff << (16 - remBits)) & 0xffff;
+        if ((ipGroups[i] & mask) !== (baseGroups[i] & mask)) return false;
+      } else {
+        break; // остаток адреса под маской — не влияет
+      }
+    }
+    return true;
   }
 
   const maskBits = bits ?? 32;
