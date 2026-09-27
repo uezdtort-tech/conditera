@@ -6484,3 +6484,25 @@ Work Log:
 
 Stage Summary:
 Auth работает в preview (same-origin прокси + единый cookie-ключ), флоу бронирования площадок полный (создание→confirm→отмена, RLS, депозиты), витрины на live-данных (12 товаров/4 площадки/7 услуг в репо), вкладка объявлений для 2 новых ролей, 2 schema-drift бага исправлены. Миграция 0033. Осталось: Yandex OAuth креды, слоты/платёж депозита через YooKassa, Playwright E2E (риски OOM в этой песочнице).
+
+---
+Task ID: security-c1-c6-p0
+Agent: Super Z (new sandbox session)
+Task: Security hard gate C1–C6 + P0-API фикс по аудиту «API routes без авторизации» (один commit на пункт, порядок merge C1→C3→C6→C5→C4→C2→P0).
+
+Work Log:
+- C1 (ce2ebec): git rm --cached .env, backups/, playwright-report/, tool-results/; .gitignore += /backups/ /tool-results/ /upload/. Файлы остались на диске. Восстановлен случайно удалённый в worktree src/app/api/services/upload/route.ts (его использует services-manager).
+- C3 (c5a80ea): src/lib/auth.ts — getRequiredEnv fail-closed: production без JWT_SECRET/заглушка (CHANGE_ME/dev-/fallback-) → throw на module load; NEXT_PHASE=phase-production-build → placeholder+warn (next build не падает). JWT_REFRESH_SECRET — отдельная env вместо JWT_SECRET+'-refresh-v2' (старые refresh-токены инвалидируются). env-примеры + verify-env.sh обновлены. Тест: NODE_ENV=production без секрета → throw ✓, dev → dev-fallback ✓.
+- C6 (38b6918): cron-auth.ts — trim() у секретов; review-analysis и user-reenagement переведены с inline 'cronSecret !== process.env.CRON_SECRET' (bypass при CRON_SECRET='') на verifyCronSecret/cronUnauthorized; GET-обёртка user-reenagement → Promise<Response>. vitest cron-auth 16/16 ✓. rg: 0 inline-сравнений осталось.
+- C5 (7aa9baf): OAuth cookies secure: NODE_ENV==='production' — oauth_state_<provider> ([provider]/route.ts), oauth_handoff (callback), сброс cookie (handoff). Dev/preview без TLS работает как раньше.
+- C4 (c1196d3): docs/SUPABASE_ADMIN_POLICY.md (allowed/forbidden, план миграции) + scripts/check-admin-usage.sh (report-only, baseline 201 route.ts с supabaseAdmin).
+- C2 (4c485bb): docs/AUTH.md — канон getCurrentUser/SSR, legacy getUserFromRequest (163 routes) заморожен на расширение, план cutover C2b отдельным эпиком.
+- P0 (9291677): telegram webhook — проверка X-Telegram-Bot-Api-Secret-Token (timing-safe, через src/lib/secure-compare.ts); setWebhook передаёт secret_token; prod без TELEGRAM_WEBHOOK_SECRET → 503.
+- P0 (5c5bc94): bot-trigger — убран хардкод 'dev-bot-secret-change-me', без BOT_SECRET → 503; email/inbound — в prod без MAILGUN_SIGNING_KEY/SENDGRID_WEBHOOK_KEY → 503, при заданном ключе подпись обязательна (нет полей → 401).
+- P0 (3c39386): rate-limit на 5 AI/export POST: ai-cake-finder / ai-generate-slice / ai-description 10/min, visual-search 6/min (VLM+base64), slice/export-png 20/min (CPU); пресеты ai/aiVision/export в rate-limit.ts.
+- P1 (72bc062): auth/refresh rate-limit 10/min (login/register уже под anti-fraud checkFraudLimit); scripts/check-api-auth.sh — CI-гейт: POST/PATCH/DELETE/PUT без auth-паттерна и вне whitelist → exit 1 (162 mutation-роутов, sanity-tested: ловит непокрытый); docs/API_AUTH_MATRIX.md — матрица маршрут→метод→auth.
+- Runtime-верификация (prod-build + next start в песочнице): ROOT/health 200; cron без/с неверным секретом 401/401; telegram webhook без env 503; email/inbound без ключей 503; bot-trigger без BOT_SECRET (с CSRF-токеном) 503; ai-cake-finder 11-й запрос → 429 (10×200); auth/refresh без JWT_SECRET → fail-closed throw [auth] (ожидаемо в prod без секретов). tsc --noEmit 0 ошибок; eslint 0 ошибок (3 pre-existing warning).
+- Грабли: (1) 'bun run dev' в этом репо = next build && next start (production-режим) — все fail-closed ветки проверены по-настоящему; (2) CSRF-middleware перехватывает POST до rate-limit — тесты через GET /api/csrf-token + cookie jar; (3) tsc в песочнице требует NODE_OPTIONS=--max-old-space-size=1450.
+
+Stage Summary:
+10 коммитов security. Закрыты: tracked .env/backups/tool-results (C1), JWT fail-closed + отдельный refresh-секрет (C3), inline CRON_SECRET bypass (C6), OAuth Secure-флаги (C5), политика supabaseAdmin (C4), контракт auth (C2), Telegram webhook без проверки (P0), BOT_SECRET dev-default (P0), optional email-подпись (P0), 5 AI/export POST без защиты (P0). + P1: refresh rate-limit, CI-гейт check-api-auth.sh, docs/API_AUTH_MATRIX.md. ВНЕ скоупа (следующие PR): обязательная auth для /api/ai-* (middleware), cutover JWT→Supabase (C2b), ротация секретов из git-истории (публичный репо: filter-repo/BFG + rotate всех ключей).
