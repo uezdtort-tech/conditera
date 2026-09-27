@@ -6506,3 +6506,21 @@ Work Log:
 
 Stage Summary:
 10 коммитов security. Закрыты: tracked .env/backups/tool-results (C1), JWT fail-closed + отдельный refresh-секрет (C3), inline CRON_SECRET bypass (C6), OAuth Secure-флаги (C5), политика supabaseAdmin (C4), контракт auth (C2), Telegram webhook без проверки (P0), BOT_SECRET dev-default (P0), optional email-подпись (P0), 5 AI/export POST без защиты (P0). + P1: refresh rate-limit, CI-гейт check-api-auth.sh, docs/API_AUTH_MATRIX.md. ВНЕ скоупа (следующие PR): обязательная auth для /api/ai-* (middleware), cutover JWT→Supabase (C2b), ротация секретов из git-истории (публичный репо: filter-repo/BFG + rotate всех ключей).
+
+---
+Task ID: payments-audit-v1
+Agent: Super Z (new sandbox session)
+Task: Аудит платёжного контура (payment/**, orders/**, payouts, escrow-cron, finance libs, Prisma/SQL) + новая production-архитектура платежей + схема БД (по запросу пользователя после его внешнего аудита).
+
+Work Log:
+- Прочитан worklog (предыдущая сессия закрыла security C1–C6 + P0, 10 коммитов — не затрагивали платёжный контур).
+- Аудит по файлам: payment/create, payment/webhook (+route.test.ts, e2e payment-webhook-idempotency.spec), payment/refund, checkout, orders GET/POST, orders/[id] PATCH/GET (машина состояний STATUS_TRANSITIONS), orders/[id]/cancel, payouts/request, admin/payouts, cron/escrow-release; libs yookassa.ts, finance.ts, loyalty.ts (redeemPoints — эталон), supabase/use-escrow.ts.
+- Сверка со схемой: миграции 0002 (orders/payments в копейках), 0009 (payout_requests/refunds), 0011 (escrow_accounts + trigger release_escrow_after_delivery), 0013 (deduct_confectioner_balance), 0017 (двойная confectioners с camelCase), 0027 (identity unification); Prisma Order/Payment/PayoutRequest/Refund vs SQL — сильный дрейф (customer_id vs user_id, gateway_txn_id не существует).
+- Трассировка payment_status: "succeeded" нигде не пишется; "paid" не существует в enum; два webhook-обработчика (Next route + supabase/functions/yookassa-webhook).
+- Отчёт записан: download/ПЛАТЕЖНЫЙ_КОНТУР_АУДИТ_И_АРХИТЕКТУРА.md (аудит P0/P1/P2 + целевая архитектура + SQL 0034_payments_v2 + RPC create_payment_atomic/webhook_payment_succeeded/release_escrow_atomic/request_payout_atomic + план PAY-0..PAY-4 + go-live gate).
+
+Stage Summary:
+- Главные P0: (1) разнобой копейки/рубли — products.price в копейках, POST /api/orders считает рублями (микс 100×), payment/create шлёт order.total как рубли в YooKassa; (2) payment/create insert с несуществующими колонками (user_id/gateway_txn_id/gateway_response), ошибка не проверяется — платежи не сохраняются; (3) webhook не сверяет сумму и не матчит платёж по provider id, CIDR IPv6 всегда false (вебхуки по IPv6 никогда не подтверждаются), /27//25 трактуются как /24; (4) cancel вызывает refundPayment(orderId) вместо paymentId — реальный возврат невозможен, refunded ставится до факта; (5) payment/refund позволяет покупателю самовыплату без лимита/апрува; (6) три несогласованных контура выплат (instant payouts/request с мёртвым фильтром payment_status='succeeded' и не-атомарным fallback; payout_requests без проверки баланса, approve не двигает деньги; escrow-cron read-then-write balance — lost update); (7) checkout Idempotence-Key `${order.id}-${Date.now()}` — двойные платежи при dblclick; (8) BASIC-комиссия 0.15 (orders) vs 0.12 (finance.ts).
+- Хорошее: STATUS_TRANSITIONS в orders/[id], deduct_bonus_balance/redeemPoints (эталон атомарности), server-side цены, 2FA на выплатах, verifyCronSecret.
+- Решение в дизайне: копейки как единственная единица (сигнатуры *Kop), ledger (ledger_accounts/ledger_transactions/ledger_entries) + webhook_events (dedupe unique) + payment_log, RPC-переходы вместо read-then-write, единый payout-пайплайн через payout_requests + YooKassa Payouts, возврат requested→approved→succeeded, модули src/modules/{orders,payments}, план миграции PAY-0..PAY-4 без даунтайма.
+- ВНЕ скоупа (следующие шаги): реализация PAY-0 hotfix PR, решение бизнеса по BASIC-комиссии, синхронизация Prisma-схемы, nginx-уровневый IP allowlist для webhook.
