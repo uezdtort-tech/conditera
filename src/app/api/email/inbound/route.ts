@@ -134,6 +134,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const contentType = request.headers.get("content-type") || "";
 
+    // === Fail-closed: в production подпись обязательна ===
+    // Mailgun подписывает multipart-запросы (MAILGUN_SIGNING_KEY),
+    // SendGrid/Postmark — JSON (SENDGRID_WEBHOOK_KEY). Без хотя бы одного
+    // ключа endpoint не принимает письма вовсе (иначе — спуфинг тикетов/автоответов).
+    const mailgunKey = process.env.MAILGUN_SIGNING_KEY?.trim();
+    const sendgridKey = process.env.SENDGRID_WEBHOOK_KEY?.trim();
+    if (!mailgunKey && !sendgridKey) {
+      if (process.env.NODE_ENV === "production") {
+        console.error(
+          "[email/inbound] Ни MAILGUN_SIGNING_KEY, ни SENDGRID_WEBHOOK_KEY не заданы в production — отказ (fail-closed)"
+        );
+        return NextResponse.json(
+          { error: "Service unavailable: webhook signing key not configured" },
+          { status: 503 }
+        );
+      }
+      console.warn("[email/inbound] Signing keys не заданы — письмо принимается без проверки подписи (только dev)");
+    }
+
     let parsed: ParsedEmail;
 
     // === Mailgun (multipart/form-data) ===
@@ -141,17 +160,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const formData = await request.formData();
       parsed = await parseMultipartEmail(formData);
 
-      // Проверка подписи Mailgun
-      const signingKey = process.env.MAILGUN_SIGNING_KEY;
-      if (signingKey) {
+      // Проверка подписи Mailgun — обязательна, если ключ задан
+      if (mailgunKey) {
         const timestamp = String(formData.get("timestamp") || "");
         const token = String(formData.get("token") || "");
         const signature = String(formData.get("signature") || "");
-        if (timestamp && token && signature) {
-          if (!verifyMailgunSignature(signingKey, timestamp, token, signature)) {
-            console.warn("[email/inbound] Invalid Mailgun signature");
-            return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-          }
+        if (!timestamp || !token || !signature) {
+          console.warn("[email/inbound] Mailgun: подпись отсутствует в запросе");
+          return NextResponse.json({ error: "Missing signature" }, { status: 401 });
+        }
+        if (!verifyMailgunSignature(mailgunKey, timestamp, token, signature)) {
+          console.warn("[email/inbound] Invalid Mailgun signature");
+          return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
         }
       }
     }
@@ -164,21 +184,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       parsed = await parseJsonEmail(data);
 
-      // Проверка подписи SendGrid (упрощённая — в проде использовать полный SendGrid verification)
-      const sendgridKey = process.env.SENDGRID_WEBHOOK_KEY;
+      // Проверка подписи SendGrid — обязательна, если ключ задан
       if (sendgridKey) {
         const signature = request.headers.get("x-twilio-email-event-webhook-signature");
         const timestamp = request.headers.get("x-twilio-email-event-webhook-timestamp");
-        if (signature && timestamp) {
-          const expected = crypto
-            .createHmac("sha256", sendgridKey)
-            .update(timestamp + JSON.stringify(data))
-            .digest("base64");
-          // Basic comparison — для проде use full SendGrid verification
-          if (expected !== signature) {
-            console.warn("[email/inbound] Invalid SendGrid signature");
-            return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-          }
+        if (!signature || !timestamp) {
+          console.warn("[email/inbound] SendGrid: подпись отсутствует в заголовках");
+          return NextResponse.json({ error: "Missing signature" }, { status: 401 });
+        }
+        const expected = crypto
+          .createHmac("sha256", sendgridKey)
+          .update(timestamp + JSON.stringify(data))
+          .digest("base64");
+        if (expected !== signature) {
+          console.warn("[email/inbound] Invalid SendGrid signature");
+          return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
         }
       }
     } else {

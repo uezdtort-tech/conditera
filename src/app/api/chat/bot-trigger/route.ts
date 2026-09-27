@@ -10,14 +10,22 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { notifyOrderStatusChange, ensureOrderChatRoom, sendPaymentReminder } from "@/lib/chat-automation";
-
-const BOT_SECRET = process.env.BOT_SECRET || "dev-bot-secret-change-me";
+import { timingSafeEqualStr } from "@/lib/secure-compare";
 
 export async function POST(request: NextRequest) {
   try {
-    // Проверка secret
-    const secret = request.headers.get("x-bot-secret");
-    if (secret !== BOT_SECRET) {
+    // Проверка secret — fail-closed: без BOT_SECRET endpoint не работает вовсе
+    // (никаких dev-default в коде; dev-значение задаётся в .env.local).
+    const botSecret = process.env.BOT_SECRET?.trim();
+    if (!botSecret) {
+      console.error("[chat/bot-trigger] BOT_SECRET не задан — отказ (fail-closed)");
+      return NextResponse.json(
+        { error: "Service unavailable: BOT_SECRET not configured" },
+        { status: 503 }
+      );
+    }
+    const secret = request.headers.get("x-bot-secret")?.trim();
+    if (!secret || !timingSafeEqualStr(secret, botSecret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
