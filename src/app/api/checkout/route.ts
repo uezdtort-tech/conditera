@@ -1,61 +1,82 @@
 /**
- * POST /api/checkout — оформить заказ + создать платёж Yookassa.
+ * POST /api/checkout — оформить заказ + создать платёж YooKassa.
  *
  * Flow:
- *   1. Загружаем товары из cart_items (через admin client, в обход RLS)
- *   2. Считаем subtotal, delivery_cost, total
- *   3. Создаём order + order_items (snapshot цен)
- *   4. Создаём Yookassa payment через /v3/payments
- *   5. Возвращаем confirmation_url для редиректа пользователя
+ *   0. Rate limit (5/min, как payment/create) + auth (Supabase session)
+ *   1. Zod-валидация тела (quantity 1..999, обязательные поля)
+ *   2. Загружаем товары из products (admin client), проверяем published
+ *   3. Считаем subtotal/delivery/total — все суммы в РУБЛЯХ
+ *      (products.price в рублях: seed 2400 = 2400₽, formatCurrency без /100)
+ *   4. Создаём order + order_items (снапшот цен)
+ *   5. Платёж через lib/yookassa — детерминированный Idempotence-Key
+ *      (`uezd_konditer:create:{orderId}`): повторный клик/ретрай вернёт
+ *      тот же платёж, а не создаст новый. Раньше ключ был
+ *      `${order.id}-${Date.now()}` → двойной клик = два реальных платежа (P0).
+ *   6. Записываем payments (существующие колонки 0002, ошибка проверяется)
+ *   7. Корзину чистим ТОЛЬКО после успешного создания платежа
  *
  * Возвращает: { orderId, paymentUrl }
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getSession } from "@/lib/supabase/auth";
 import { calculateDelivery } from "@/lib/finance";
+import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
+import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
-interface CheckoutRequest {
-  cartItems: Array<{
-    id: string;
-    product_id: string;
-    quantity: number;
-    selected_attributes?: Record<string, string>;
-  }>;
-  deliveryAddress: string;
-  deliveryCity: string;
-  deliveryDate?: string;
-  deliveryType?: string;
-  notes?: string;
-}
-
-interface YookassaPaymentResponse {
-  id: string;
-  status: "pending" | "waiting_for_capture" | "succeeded" | "canceled";
-  confirmation: {
-    confirmation_url: string;
-  };
-  paid: boolean;
-  amount: { value: string; currency: "RUB" };
-  metadata?: Record<string, string>;
-}
-
-const YOOKASSA_API_URL = process.env.YOOKASSA_API_URL || "https://api.yookassa.ru/v3";
-const YOOKASSA_SHOP_ID = process.env.YOOKASSA_SHOP_ID;
-const YOOKASSA_SECRET_KEY = process.env.YOOKASSA_SECRET_KEY;
+const CheckoutSchema = z.object({
+  cartItems: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(100),
+        product_id: z.string().min(1).max(100),
+        quantity: z.number().int().min(1).max(999),
+        selected_attributes: z.record(z.string(), z.string()).optional(),
+      })
+    )
+    .min(1)
+    .max(50),
+  deliveryAddress: z.string().min(5).max(500),
+  deliveryCity: z.string().min(1).max(100),
+  deliveryDate: z.string().max(40).optional(),
+  deliveryType: z.enum(["delivery", "pickup", "self_pickup"]).optional(),
+  notes: z.string().max(1000).optional(),
+});
 
 // Stub mode — возвращает demo-данные без обращения к Yookassa
 const STUB_PAYMENT_URL = "/checkout/success?demo=true";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    // 0. Rate limit — деньги, тот же пресет что и payment/create
+    const ip = getClientIP(request);
+    const blocked = await enforceRateLimit(
+      request,
+      `checkout:${ip}`,
+      RATE_LIMITS.payment.limit,
+      RATE_LIMITS.payment.windowMs
+    );
+    if (blocked) return blocked as unknown as NextResponse;
+
     const { user } = await getSession();
     if (!user) {
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
     }
 
-    const body: CheckoutRequest = await request.json();
+    // 1. Валидация тела (P0: quantity не был проверялся — 0/отрицательное
+    // давало нулевой или отрицательный total)
+    const raw = await request.json().catch(() => null);
+    const parsed = CheckoutSchema.safeParse(raw);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const path = issue?.path?.join(".") || "body";
+      return NextResponse.json(
+        { error: `Некорректные данные (${path}): ${issue?.message || "validation failed"}` },
+        { status: 400 }
+      );
+    }
     const {
       cartItems,
       deliveryAddress,
@@ -63,18 +84,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       deliveryDate,
       deliveryType = "delivery",
       notes,
-    } = body;
+    } = parsed.data;
 
-    if (!cartItems || cartItems.length === 0) {
-      return NextResponse.json({ error: "Корзина пуста" }, { status: 400 });
-    }
-
-    if (!deliveryAddress || !deliveryCity) {
-      return NextResponse.json({ error: "Укажите адрес доставки" }, { status: 400 });
-    }
-
-    // 1. Загружаем товары (через admin client для обхода RLS, чтобы
-    //    получить данные даже если product status = draft — для админ-заказа)
+    // 2. Загружаем товары (admin client для обхода RLS)
     const productIds = cartItems.map((c) => c.product_id);
     const { data: products, error: productsError } = await supabaseAdmin
       .from("products")
@@ -102,7 +114,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 2. Считаем subtotal + формируем order_items
+    // 3. Считаем subtotal + формируем order_items (все суммы в РУБЛЯХ)
     const orderItems = cartItems.map((item) => {
       const product = products.find((p) => p.id === item.product_id);
       if (!product) throw new Error(`Product ${item.product_id} not found`);
@@ -110,10 +122,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return {
         product_id: item.product_id,
         product_title: product.title,
-        unit_price: product.price, // в копейках
+        unit_price: product.price, // рубли (НЕ копейки — см. seed/формат витрины)
         quantity: item.quantity,
         selected_attributes: item.selected_attributes,
-        total: product.price * item.quantity, // subtotal на эту позицию
+        total: product.price * item.quantity, // рубли
         confectioner_id: product.confectioner_id,
       };
     });
@@ -123,12 +135,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       deliveryType === "delivery" ? calculateDelivery(subtotal) : { cost: 0 };
     const deliveryCost = deliveryResult.cost;
     const discount = 0; // TODO: применять промокод
-    const total = subtotal + deliveryCost - discount;
+    const total = subtotal + deliveryCost - discount; // рубли
 
     // Confectioner_id — берём из первого товара (пока поддерживаем только 1 кондитера на заказ)
     const confectionerId = orderItems[0].confectioner_id;
 
-    // 3. Создаём order (через admin client)
+    // 4. Создаём order (через admin client)
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .insert({
@@ -155,7 +167,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Ошибка создания заказа" }, { status: 500 });
     }
 
-    // 4. Создаём order_items
+    // 4b. Создаём order_items
     const { error: itemsError } = await supabaseAdmin
       .from("order_items")
       .insert(
@@ -172,82 +184,57 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Ошибка создания позиций заказа" }, { status: 500 });
     }
 
-    // 5. Создаём payment в Yookassa
-    let yookassaPaymentId: string | null = null;
+    // 5. Платёж через lib — детерминированный Idempotence-Key внутри lib
     let paymentUrl: string = STUB_PAYMENT_URL;
+    let yookassaPaymentId: string | null = null;
 
-    if (YOOKASSA_SHOP_ID && YOOKASSA_SECRET_KEY) {
-      // Production: реальный запрос к Yookassa
-      const authHeader = Buffer.from(
-        `${YOOKASSA_SHOP_ID}:${YOOKASSA_SECRET_KEY}`
-      ).toString("base64");
-
-      const idempotenceKey = `${order.id}-${Date.now()}`;
-
-      const yookassaResponse = await fetch(`${YOOKASSA_API_URL}/payments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${authHeader}`,
-          "Idempotence-Key": idempotenceKey,
-        },
-        body: JSON.stringify({
-          amount: {
-            value: (total / 100).toFixed(2), // Yookassa требует рубли с копейками
-            currency: "RUB",
-          },
-          capture: true, // auto-capture (без separate capture flow)
-          confirmation: {
-            type: "redirect",
-            return_url: `${process.env.NEXT_PUBLIC_APP_URL}/checkout/success?orderId=${order.id}`,
-          },
-          metadata: {
-            order_id: order.id,
-            order_number: order.number,
-            user_id: user.id,
-          },
-          description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
-        }),
+    if (!isYookassaConfigured()) {
+      console.warn(
+        "[checkout] YooKassa не настроена (YOOKASSA_SHOP_ID/YOOKASSA_SECRET_KEY) — stub payment URL"
+      );
+    } else {
+      const paymentResult = await createPayment({
+        amount: total, // рубли
+        description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
+        returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${order.id}`,
+        orderId: order.id,
       });
 
-      if (!yookassaResponse.ok) {
-        const errorText = await yookassaResponse.text();
-        console.error("[checkout] Yookassa error:", errorText);
+      if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
+        console.error("[checkout] Yookassa error:", paymentResult.error);
+        // Заказ оставляем (можно повторить оплату через /api/payment/create),
+        // корзину НЕ чистим
         return NextResponse.json(
           { error: "Ошибка создания платежа в Yookassa" },
-          { status: 500 }
+          { status: 502 }
         );
       }
 
-      const payment: YookassaPaymentResponse = await yookassaResponse.json();
-      yookassaPaymentId = payment.id;
-      paymentUrl = payment.confirmation.confirmation_url;
-    } else {
-      // Dev mode: возвращаем stub
-      console.warn(
-        "[checkout] YOOKASSA_SHOP_ID/SECRET_KEY not set — using stub payment URL"
-      );
+      yookassaPaymentId = paymentResult.payment.id;
+      paymentUrl = paymentResult.payment.confirmation.confirmation_url;
     }
 
-    // 6. Создаём запись в payments
+    // 6. Запись в payments (существующие колонки 0002) + проверка ошибки
     const { error: paymentError } = await supabaseAdmin
       .from("payments")
       .insert({
         order_id: order.id,
         yookassa_payment_id: yookassaPaymentId,
-        amount: total,
+        amount: total, // рубли
         currency: "RUB",
-        status: yookassaPaymentId ? "pending" : "pending",
+        status: "pending",
         method: "yookassa",
         metadata: { confirmation_url: paymentUrl },
       });
 
     if (paymentError) {
+      // Платёж у провайдера уже создан; webhook найдёт заказ по
+      // metadata.orderId (fallback), поэтому не откатываем — но логируем.
       console.error("[checkout] Payment create error:", paymentError.message);
-      // Не откатываем order — платёж можно создать позже вручную
     }
 
-    // 7. Очищаем корзину пользователя
+    // 7. Корзину чистим только после успешного создания платежа
+    //    (раньше корзина стиралась даже если платёж не создался)
     const { error: cartClearError } = await supabaseAdmin
       .from("cart_items")
       .delete()
@@ -260,7 +247,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.warn("[checkout] Cart clear error:", cartClearError.message);
     }
 
-    // 8. Отправляем уведомление через Edge Function
+    // 8. Уведомление через Edge Function
     try {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       if (supabaseUrl) {
@@ -270,7 +257,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           body: JSON.stringify({
             type: "order_created",
             orderId: order.number,
-            amount: total / 100,
+            amount: total, // рубли
             customer: user.email,
           }),
         });
@@ -283,13 +270,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       orderId: order.id,
       orderNumber: order.number,
       paymentUrl,
-      total: total / 100, // в рублях для отображения
-      isStub: !YOOKASSA_SHOP_ID || !YOOKASSA_SECRET_KEY,
+      total, // рубли
+      isStub: !isYookassaConfigured(),
     });
   } catch (error) {
+    // detail не отдаём клиенту (утечка внутренностей)
     console.error("[checkout] Unexpected error:", (error as Error).message);
     return NextResponse.json(
-      { error: "Внутренняя ошибка", detail: (error as Error).message },
+      { error: "Внутренняя ошибка" },
       { status: 500 }
     );
   }
