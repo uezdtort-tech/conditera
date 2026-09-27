@@ -6,6 +6,18 @@
  *
  * Auth: AUTHENTICATED
  * Rate limit: 5 запросов/мин с IP
+ *
+ * P0 (pay0-2):
+ *  - запись в payments только в СУЩЕСТВУЮЩИЕ колонки (миграция 0002:
+ *    order_id, yookassa_payment_id, amount, currency, status, method,
+ *    metadata) — раньше писались несуществующие user_id/gateway_txn_id/
+ *    gateway_response, а ошибка insert не проверялась → платежи молча
+ *    не сохранялись и webhook не мог их найти;
+ *  - дедупликация по yookassa_payment_id (детерминированный
+ *    Idempotence-Key в lib возвращает тот же платёж при ретрае);
+ *  - блокировка повторной оплаты по валидным статусам (статуса "paid"
+ *    не существует в enum payment_status);
+ *  - суммы в рублях (orders.total — рубли).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -14,6 +26,10 @@ import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+
+// Статусы, означающие «деньги уже получены» (enum payment_status:
+// pending | waiting_for_capture | succeeded | escrow | released | cancelled | refunded)
+const PAID_ORDER_STATUSES = new Set(["escrow", "succeeded", "released"]);
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -29,17 +45,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const user = await getUserFromRequest(request);
     if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
 
-    const { orderId, installmentPlanId } = await request.json();
+    const body = (await request.json().catch(() => null)) as {
+      orderId?: unknown;
+      installmentPlanId?: unknown;
+    } | null;
+
+    const orderId = typeof body?.orderId === "string" ? body.orderId : "";
+    const installmentPlanId =
+      typeof body?.installmentPlanId === "string" ? body.installmentPlanId : undefined;
+
+    if (!orderId) {
+      return NextResponse.json({ error: "orderId обязателен" }, { status: 400 });
+    }
 
     const { data: order, error } = await supabaseAdmin
       .from("orders")
-      .select("*")
+      .select("id, number, total, user_id, payment_status")
       .eq("id", orderId)
       .maybeSingle();
 
     if (error || !order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
     if (order.user_id !== user.id) return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
-    if (order.payment_status === "paid" || order.payment_status === "escrow") {
+    if (PAID_ORDER_STATUSES.has(order.payment_status)) {
       return NextResponse.json({ error: "Заказ уже оплачен" }, { status: 400 });
     }
 
@@ -50,7 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const paymentResult = await createPayment({
-      amount: Number(order.total),
+      amount: Number(order.total), // рубли
       description: `Заказ ${order.number || orderId}`,
       returnUrl: `${appUrl}/checkout?order=${orderId}`,
       orderId,
@@ -58,19 +85,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     if (!paymentResult?.success || !paymentResult.payment?.confirmation?.confirmation_url) {
-      return NextResponse.json({ error: "Не удалось создать платёж" }, { status: 500 });
+      return NextResponse.json({ error: "Не удалось создать платёж" }, { status: 502 });
     }
 
-    // Save payment to DB
-    await supabaseAdmin.from("payments").insert({
-      order_id: orderId,
-      user_id: user.id,
-      amount: Number(order.total),
-      status: "pending",
-      gateway_response: paymentResult,
-      gateway_txn_id: paymentResult.payment.id,
-      created_at: new Date().toISOString(),
-    });
+    const yookassaPaymentId = paymentResult.payment.id;
+
+    // Идемпотентная запись в БД: ретрай с тем же Idempotence-Key вернёт
+    // тот же платёж провайдера — не создаём дубликат строки.
+    const { data: existingPayment } = await supabaseAdmin
+      .from("payments")
+      .select("id")
+      .eq("yookassa_payment_id", yookassaPaymentId)
+      .maybeSingle();
+
+    if (!existingPayment) {
+      // Только колонки, существующие в миграции 0002; ошибка ОБЯЗАТЕЛЬНО
+      // проверяется (раньше insert падал молча).
+      const { error: insertErr } = await supabaseAdmin.from("payments").insert({
+        order_id: orderId,
+        yookassa_payment_id: yookassaPaymentId,
+        amount: Number(order.total), // рубли
+        currency: "RUB",
+        status: "pending",
+        method: "yookassa",
+        metadata: {
+          confirmation_url: paymentResult.payment.confirmation.confirmation_url,
+          installment_plan_id: installmentPlanId ?? null,
+        },
+      });
+
+      if (insertErr) {
+        // Платёж у провайдера уже создан; webhook найдёт заказ по
+        // metadata.orderId (fallback) — не отдаём 500, но фиксируем.
+        console.error("[payment/create] payments insert failed:", insertErr.message);
+      }
+    }
 
     // Update order payment status
     await supabaseAdmin
@@ -80,10 +129,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       paymentUrl: paymentResult.payment.confirmation.confirmation_url,
-      paymentId: paymentResult.payment.id,
+      paymentId: yookassaPaymentId,
     });
-  } catch (error: any) {
-    console.error("[payment/create] error:", error?.message);
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
+  } catch (error: unknown) {
+    // detail наружу не отдаём (утечка внутренностей)
+    console.error("[payment/create] error:", (error as Error)?.message);
+    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }
