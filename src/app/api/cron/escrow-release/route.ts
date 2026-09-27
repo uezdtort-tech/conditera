@@ -19,6 +19,13 @@
  *
  * Важно: используется supabase-js напрямую (v2.0). Транзакция через
  * PostgreSQL RPC функцией release_escrow (опционально, если есть).
+ *
+ * P0 (pay0-7): баланс кондитера обновляется атомарно (CAS-цикл
+ * «прочитал → обновил только если не изменился» с 3 ретраями) вместо
+ * read-then-write (потерянные апдейты при параллельных релизах).
+ * Порядок шагов: сначала начисление, потом маркировка заказа; если
+ * конкурентный воркер релизнул заказ первым — своё начисление
+ * компенсируем назад. Payout клампится в ≥0.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -105,22 +112,76 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           continue;
         }
 
-        // Считаем выплату по снапшоту тарифа
+        // Считаем выплату по снапшоту тарифа (суммы в рублях)
         const commissionRate = order.commission_rate_snapshot ?? DEFAULT_COMMISSION_RATE;
         const itemsTotal = Number(order.total) - Number(order.delivery_cost || 0);
         const commission = Math.round(itemsTotal * commissionRate);
         const yookassaFee = Math.round(Number(order.total) * YOOKASSA_RATE);
-        const payout = Number(order.total) - commission - yookassaFee;
+        // Clamp: payout не может быть отрицательным (fee+комиссия > total —
+        // аномалия ценообразования; раньше уводил баланс в минус)
+        const payout = Math.max(
+          0,
+          Number(order.total) - commission - yookassaFee
+        );
+        if (Number(order.total) - commission - yookassaFee < 0) {
+          console.warn(`[cron:escrow] order ${order.id}: payout clamped to 0 (total ${order.total}, commission ${commission}, fee ${yookassaFee})`);
+        }
 
-        // Шаг 1: Обновить заказ — релиз эскроу
-        const { error: orderUpdateErr } = await supabaseAdmin
+        // P0: Шаг 1 — атомарное начисление баланса (CAS-цикл).
+        // Прежний read-then-write терял апдейты при параллельных релизах
+        // одному кондитеру (два cron-запуска → credited один, второй затёрт).
+        let credited = false;
+        let confUserId: string | null = null;
+        for (let attempt = 0; attempt < 3 && !credited; attempt++) {
+          const { data: conf, error: confErr } = await supabaseAdmin
+            .from("confectioners")
+            .select("id, user_id, balance, total_earnings")
+            .eq("id", order.confectioner_id)
+            .maybeSingle();
+
+          if (confErr || !conf) {
+            console.error(`[cron:escrow] confectioner not found for order ${order.id}`);
+            break;
+          }
+          confUserId = conf.user_id ?? null;
+
+          const newBalance = (Number(conf.balance) || 0) + payout;
+          const newTotalEarnings = (Number(conf.total_earnings) || 0) + payout;
+
+          // CAS: обновляем только если баланс не изменился с момента чтения
+          const { data: updRows, error: confUpdateErr } = await supabaseAdmin
+            .from("confectioners")
+            .update({
+              balance: newBalance,
+              total_earnings: newTotalEarnings,
+            })
+            .eq("id", conf.id)
+            .eq("balance", conf.balance ?? 0)
+            .select("id");
+
+          credited = !confUpdateErr && Array.isArray(updRows) && updRows.length > 0;
+        }
+
+        if (!credited) {
+          console.error(`[cron:escrow] balance CAS failed after retries for order ${order.id}`);
+          results.errors++;
+          continue;
+        }
+
+        // P0: Шаг 2 — маркируем заказ как релизнутый.
+        // Баланс начисляем ДО маркировки (обратный порядок терял деньги
+        // при падении между шагами). Если конкурентный воркер релизнул
+        // заказ раньше нас — компенсируем своё начисление назад.
+        const { data: orderUpd, error: orderUpdateErr } = await supabaseAdmin
           .from("orders")
           .update({
             escrow_released_at: new Date().toISOString(),
             payment_status: "released",
           })
           .eq("id", order.id)
-          .is("escrow_released_at", null); // optimistic lock — пропустить если уже released
+          .eq("payment_status", "escrow")
+          .is("escrow_released_at", null)
+          .select("id");
 
         if (orderUpdateErr) {
           console.error(`[cron:escrow] order update error for ${order.id}:`, orderUpdateErr.message);
@@ -128,34 +189,28 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           continue;
         }
 
-        // Шаг 2: Инкрементировать баланс кондитера
-        // Сначала читаем текущий баланс
-        const { data: conf, error: confErr } = await supabaseAdmin
-          .from("confectioners")
-          .select("id, user_id, balance, total_earnings")
-          .eq("id", order.confectioner_id)
-          .maybeSingle();
-
-        if (confErr || !conf) {
-          console.error(`[cron:escrow] confectioner not found for order ${order.id}`);
-          results.errors++;
-          continue;
-        }
-
-        const newBalance = (Number(conf.balance) || 0) + payout;
-        const newTotalEarnings = (Number(conf.total_earnings) || 0) + payout;
-
-        const { error: confUpdateErr } = await supabaseAdmin
-          .from("confectioners")
-          .update({
-            balance: newBalance,
-            total_earnings: newTotalEarnings,
-          })
-          .eq("id", conf.id);
-
-        if (confUpdateErr) {
-          console.error(`[cron:escrow] confectioner balance update error:`, confUpdateErr.message);
-          results.errors++;
+        if (!orderUpd || orderUpd.length === 0) {
+          // Уже релизнуто конкурентным запуском — откатываем свой инкремент
+          console.warn(`[cron:escrow] order ${order.id} already released concurrently — compensating balance`);
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const { data: conf } = await supabaseAdmin
+              .from("confectioners")
+              .select("id, balance, total_earnings")
+              .eq("id", order.confectioner_id)
+              .maybeSingle();
+            if (!conf) break;
+            const { data: updRows, error: compErr } = await supabaseAdmin
+              .from("confectioners")
+              .update({
+                balance: (Number(conf.balance) || 0) - payout,
+                total_earnings: Math.max(0, (Number(conf.total_earnings) || 0) - payout),
+              })
+              .eq("id", conf.id)
+              .eq("balance", conf.balance ?? 0)
+              .select("id");
+            if (!compErr && Array.isArray(updRows) && updRows.length > 0) break;
+          }
+          results.skipped++;
           continue;
         }
 
@@ -164,15 +219,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
         // Уведомляем кондитера (non-blocking)
         try {
-          const { sendNotification } = await import("@/lib/notifications");
-          await sendNotification({
-            userId: conf.user_id,
-            template: "PAYOUT_PROCESSED",
-            vars: {
-              amount: payout,
-              cardLast4: "баланс",
-            },
-          });
+          if (confUserId) {
+            const { sendNotification } = await import("@/lib/notifications");
+            await sendNotification({
+              userId: confUserId,
+              template: "PAYOUT_PROCESSED",
+              vars: {
+                amount: payout,
+                cardLast4: "баланс",
+              },
+            });
+          }
         } catch (notifErr: any) {
           console.warn(`[cron:escrow] notification failed (non-fatal):`, notifErr?.message);
         }
