@@ -1,0 +1,721 @@
+     1→# ПОЛНЫЙ ПРОМПТ И ТЗ ДЛЯ НОВОГО ЧАТА
+     2→## Маркетплейс кондитерских изделий «Уездный кондитер» v2.0+ — production-ready на self-hosted Supabase
+     3→
+     4→> **Статус на момент передачи:** 24 сентября 2026. Все 7 пунктов priority-list выполнены, проект готов к production-деплою. Осталась финальная проверка (запуск Docker, E2E-тесты, supabase gen types).
+     5→>
+     6→> **Яндекс.Метрика ID:** `111432662` (это конкретный счётчик проекта, не менять!)
+     7→
+     8→---
+     9→
+    10→## 📋 СТАРТОВЫЙ ПРОМПТ ДЛЯ НОВОГО ЧАТА
+    11→
+    12→**Скопируй это в новый чат как первое сообщение:**
+    13→
+    14→```
+    15→Я продолжаю работу над проектом «Уездный кондитер» (conditera.ru) — маркетплейс кондитерских изделий от частных кондитеров России. Проект на Next.js 16 + Supabase (self-hosted), в активной фазе перехода с демо-данных на реальную БД. Все детали ниже в ТЗ — прочитай его целиком, прежде чем начинать работу.
+    16→
+    17→Ключевое:
+    18→- Стек: Next.js 16 (App Router, Turbopack), TypeScript strict, Tailwind CSS 4, shadcn/ui, Supabase (PostgreSQL 15 + GoTrue + Storage + Realtime), Prisma 7 (только schema/migrations), Zustand для client state, TanStack Query для server data.
+    19→- База: 26 SQL-миграций (0001_init → 0026_storage_buckets_and_confectioners_rls). 197 таблиц, 221 RLS, 714 индексов.
+    20→- Схема public.confectioners (migration 0017) — camelCase колонки (businessName, verificationStatus, userId, legalInfo, taxMode, portfolioImages, ...). Все API-запросы к этой таблице — camelCase.
+    21→- Схема public.profiles, public.user_roles, public.addresses (migration 0001) — snake_case. Это стандарт Supabase auth.users-related таблиц.
+    22→- Яндекс.Метрика ID: 111432662 (в .env.local). Кнопка «Войти через Яндекс» требует YANDEX_CLIENT_ID (env, пользователь заполняет).
+    23→- Бегущая строка кондитеров на главной — useConfectioners() (TanStack Query) с fallback на MOCK_CONFECTIONERS при недоступной/пустой БД.
+    24→- Профильное редактирование всех ролей — POST/PATCH /api/profile/* (6 endpoint'ов), компонент ProfileSettings рендерится во всех 5 основных дашбордах + 12 нишевых.
+    25→- Onboarding нового кондитера — POST /api/confectioner/onboarding (multipart, загружает в storage buckets, создаёт строку в public.confectioners с verified=false).
+    26→
+    27→Что нужно сделать (выполни по очереди):
+    28→1. Прочитай worklog.md (там вся история по task IDs) — пойми контекст предыдущих раундов.
+    29→2. Запусти docker-compose -f docker-compose.supabase.yml up -d локально (если ещё не запущен).
+    30→3. Примени миграции 0001..0026 к БД: for f in supabase/migrations/*.sql; do docker exec -i conditera-supabase-db psql -U postgres -d postgres < "$f"; done
+    31→4. Установи supabase CLI (если нет) и сгенерируй типы: supabase gen types typescript --project-id conditera > src/lib/supabase/types.ts — затем проверь что ничего не сломалось в src/lib/types.ts (mock-data Confectioner interface).
+    32→5. E2E-тест через playwright: зарегистрируй CONFECTIONER → POST /api/confectioner/onboarding с INN → админ approve через /api/admin/confectioners/approve → проверь что бегущая строка на главной показывает нового кондитера (через useConfectioners).
+    33→6. Если есть проблемы — чини. Если нет — переходи к следующей задаче из списка ниже.
+    34→
+    35→Полное ТЗ, архитектура, конвенции кода, и список оставшихся задач — ниже в этом документе.
+    36→```
+    37→
+    38→---
+    39→
+    40→## 🏗️ АРХИТЕКТУРА И СТЕК
+    41→
+    42→### Бренд
+    43→- **Название:** «Уездный кондитер» (не «Кондитера», не «Уездный»)
+    44→- **Домен:** `conditera.ru`
+    45→- **Telegram-канал:** @conditera
+    46→- **Фирменные шрифты:** Brokgauz & Efron Italic (заголовки), TriodPostnaja Medium (брендовое), Neucha (рукописный), Geist/Geist Mono (body)
+    47→- **Палитра:** тёмно-ягодный `#8B2942` (primary), амбер `#D97706` (accent), slate `#1F2937` (body text)
+    48→- **Стиль:** дореволюционный кондитерский колорит, энциклопедическая антиква + современный UX
+    49→
+    50→### Стек v2.0+ (актуальный на сентябрь 2026)
+    51→
+    52→| Компонент | Технология |
+    53→|---|---|
+    54→| Frontend | Next.js 16 (App Router, Turbopack), React 19 |
+    55→| TypeScript | strict mode (ignoreBuildErrors=false) |
+    56→| Styling | Tailwind CSS 4 + shadcn/ui + Framer Motion |
+    57→| Client state | Zustand (src/lib/store.ts) |
+    58→| Server data | TanStack Query (src/lib/supabase/use-*.ts) |
+    59→| Backend | Next.js API Routes (Edge + Node runtimes) |
+    60→| Database | PostgreSQL 15 (self-hosted via `docker-compose.supabase.yml`) |
+    61→| Schema tooling | Prisma 7 (только для schema/migrations, не в runtime) |
+    62→| Auth | Supabase GoTrue (email/pass, OAuth Yandex/Google/VK, TOTP 2FA) |
+    63→| Storage | Supabase Storage + imgproxy (6 бакетов, миграция 0026) |
+    64→| Realtime | Supabase Realtime (postgres_changes) |
+    65→| Search | Postgres FTS (tsvector + GIN + pg_trgm) |
+    66→| Payments | YooKassa |
+    67→| Analytics | Yandex Metrika ID 111432662 (client-side + server-side via OAuth token) |
+    68→| Geocoder | Yandex Geocoder (YANDEX_GEOCODER_API_KEY) + DaData для верификации ИНН |
+    69→| Email | SMTP (mail.conditera.ru / smtp.yandex.ru) |
+    70→| Notifications | Internal + Telegram bot (TELEGRAM_BOT_TOKEN) |
+    71→
+    72→### Docker-стек (docker-compose.supabase.yml, 10 сервисов)
+    73→
+    74→1. **supabase-db** — PostgreSQL 15.6.1, порт 5432 (internal only)
+    75→2. **supabase-kong** — API gateway, порт 8000 (точка входа для Next.js)
+    76→3. **supabase-auth** — GoTrue v2.164.0
+    77→4. **supabase-rest** — PostgREST v12.2.0
+    78→5. **supabase-realtime** — WebSocket подписки
+    79→6. **supabase-storage** — S3-совместимое хранилище v1.14.5
+    80→7. **supabase-imgproxy** — v3.24.0 (resize/crop)
+    81→8. **supabase-meta** — postgres-meta
+    82→9. **supabase-studio** — Web UI, порт 8100 (не 3000 — чтобы не конфликтовать с Next.js)
+    83→10. **supabase-analytics** + **supabase-vector** — Logflare для логирования
+    84→
+    85→Запуск: `docker-compose -f docker-compose.supabase.yml up -d`
+    86→Health-check: `curl http://localhost:8000/` должен вернуть 200
+    87→Studio: `http://localhost:8100` (логин: postgres / пароль из POSTGRES_PASSWORD env)
+    88→
+    89→### Структура проекта (ключевые директории)
+    90→
+    91→```
+    92→/home/z/my-project/
+    93→├── src/
+    94→│   ├── app/                       # Next.js App Router
+    95→│   │   ├── layout.tsx              # Root layout, Yandex Metrika init
+    96→│   │   ├── page.tsx                # Главная (client component)
+    97→│   │   ├── dashboard/page.tsx      # Личный кабинет (роутинг по ролям)
+    98→│   │   ├── sitemap.ts              # Динамический sitemap.xml
+    99→│   │   ├── api/                    # API Routes
+   100→│   │   │   ├── auth/                # 11 auth endpoints
+   101→│   │   │   ├── profile/             # 6 profile endpoints (GET/PATCH, password, avatar, addresses, email, delete)
+   102→│   │   │   ├── confectioner/        # onboarding, portfolio, status, resubmit, atelier, capabilities
+   103→│   │   │   ├── admin/confectioners/# pending, approve, reject
+   104→│   │   │   ├── confectioners/       # GET /api/confectioners (public)
+   105→│   │   │   └── ... (другие endpoints)
+   106→│   │   └── ... (страницы: catalog, confectioners, blog, recipes, etc.)
+   107→│   ├── components/
+   108→│   │   ├── layout/                  # Header, Footer, SupabaseAuthModal, AuthModal (mock)
+   109→│   │   ├── marketplace/             # ConfectionerCard, ConfectionersMarquee, ProductCard
+   110→│   │   ├── dashboard/               # Customer/Confectioner/Supplier/Courier/Admin dashboards
+   111→│   │   ├── dashboard/profile-settings.tsx  # Единый компонент настроек (рендерится во всех дашбордах)
+   112→│   │   ├── pages/                   # HomePage, CatalogPage, ConfectionersPage, etc.
+   113→│   │   └── ui/                      # shadcn/ui базовые компоненты
+   114→│   └── lib/
+   115→│       ├── supabase/
+   116→│       │   ├── admin.ts             # Service role client (server-only, bypasses RLS)
+   117→│       │   ├── server.ts            # SSR client with Next.js cookies
+   118→│       │   ├── browser.ts           # Browser singleton
+   119→│       │   ├── auth.ts              # getSession, requireRole, requireAdmin
+   120→│       │   ├── use-auth.ts          # useSignIn, useSignUp, useOAuth, useUpdateProfile, useUploadAvatar, etc.
+   121→│       │   ├── use-marketplace.ts   # useCategories, useProducts, useConfectioners, ...
+   122→│       │   └── types.ts             # Hand-written types (с ConfectionerRow + ConfectionerAtelierRow)
+   123→│       ├── store.ts                 # Zustand store (Zustand single source)
+   124→│       ├── mock-data.ts             # MOCK_CONFECTIONERS, MOCK_PRODUCTS, CATEGORIES, etc.
+   125→│       ├── types.ts                 # Конфликт-совместимые типы для mock-data
+   126→│       ├── finance.ts               # TARIFFS, LEGAL_STATUS_INFO, calculateCommission, calculateTax
+   127→│       ├── confectioner-auto-approve.ts  # tryAutoApprove + autoApproveAllPending (DaData)
+   128→│       ├── yandex-metrika.ts        # trackEvent, setUserParams, server-side tracking
+   129→│       ├── geocoder.ts              # Geocoder с Yandex + DaData fallback
+   130→│       └── ... (другие утилиты)
+   131→├── supabase/
+   132→│   ├── migrations/                 # 0001_init → 0026_storage_buckets_and_confectioners_rls
+   133→│   ├── functions/                  # Edge Functions (Deno)
+   134→│   ├── seed.sql, seed_cms_crm.sql   # Seed данные
+   135→│   └── README.md                    # Документация по Supabase
+   136→├── prisma/
+   137→│   ├── schema.prisma                # 95+ моделей, 26+ enums (UserRole с 26 ролями)
+   138→│   ├── seed.ts                      # TS seeder
+   139→│   └── migrations/                  # Prisma snapshot migrations
+   140→├── scripts/
+   141→│   ├── setup-env.sh                 # Интерактивный мастер .env (Yandex Metrika ID по умолчанию 111432662)
+   142→│   ├── env-check.sh                 # Валидация 30+ env vars перед запуском
+   143→│   ├── update-from-archive.sh       # Безопасное обновление из нового архива
+   144→│   ├── deploy.sh                    # Production deploy (env-check + миграции + health)
+   145→│   └── ... (40+ утилит)
+   146→├── docs/DATABASE.md                 # Полная документация БД
+   147→├── UPDATE.md                        # Инструкция по системе обновлений
+   148→├── .env.local.example               # Шаблон для dev
+   149→├── .env.production.example          # Шаблон для prod
+   150→├── docker-compose.supabase.yml      # 10 сервисов Supabase
+   151→└── docker-compose.yml               # Production (Next.js + Caddy + Supabase)
+   152→```
+   153→
+   154→---
+   155→
+   156→## 📊 БАЗА ДАННЫХ И СХЕМА
+   157→
+   158→### 26 миграций в supabase/migrations/
+   159→
+   160→| Миграция | Содержание |
+   161→|---|---|
+   162→| 0001_init.sql | profiles, user_roles (snake_case), addresses, notification_preferences, triggers, RLS |
+   163→| 0002_marketplace.sql | products, categories, cart, orders, payments, deliveries (snake_case, RLS) |
+   164→| 0003_search_function.sql | Postgres FTS |
+   165→| 0004_cake_builder_chat.sql | Конструктор тортов |
+   166→| 0005_crm_cms.sql | CRM tickets, CMS pages, moderation |
+   167→| 0006_products_extended.sql | favorite_confectioners (refs auth.users) |
+   168→| 0007_tenders.sql | tender_offers.confectioner_id UUID → auth.users |
+   169→| 0008_geo.sql | confectioner_geo (UUID, refs auth.users) |
+   170→| 0009_cms_payments_extended.sql | |
+   171→| 0010_extended_catalog.sql | |
+   172→| 0011_rbac_franchise_escrow.sql | RBAC, franchise, escrow |
+   173→| 0012_new_roles_recipes_loyalty_ai.sql | Новые роли, recipes, loyalty, AI |
+   174→| 0013_atomic_counter_helpers.sql | |
+   175→| 0014_builder_config.sql | |
+   176→| 0015_uploads_registry.sql | public.uploads (метаданные) |
+   177→| 0016_channel_moderation.sql | |
+   178→| 0016b_prisma_enums.sql | Enums: UserRole, LoyaltyLevel, TrustLevel, Tariff, TaxMode |
+   179→| **0017_sync_missing_tables.sql** | **confectioners + confectioner_ateliers — camelCase колонки** |
+   180→| 0018_audit_log_table.sql | |
+   181→| 0019_missing_runtime_tables.sql | 9 runtime tables (fraud_alerts, supplier_products, etc.) |
+   182→| 0020_filling_moderation.sql | |
+   183→| 0021_holidays_events.sql | |
+   184→| 0022_confectioner_capabilities.sql | Capabilities (snake_case, refs confectioners via TEXT FK) |
+   185→| 0023_pricing_components.sql | |
+   186→| 0024_supabase_optimization.sql | |
+   187→| 0025_grants_and_fixes.sql | GRANTs |
+   188→| **0026_storage_buckets_and_confectioners_rls.sql** | **6 storage buckets + RLS на confectioners** |
+   189→
+   190→### ⚠️ КРИТИЧЕСКОЕ: dual-naming convention
+   191→
+   192→**Таблицы в snake_case (миграция 0001+ — стандарт Supabase):**
+   193→- `public.profiles` (id, email, name, phone, bio, avatar_url, city, two_factor_enabled, ...)
+   194→- `public.user_roles` (user_id, role, is_active, assigned_at, ...)
+   195→- `public.addresses` (user_id, label, text, lat, lng, is_default, ...)
+   196→- `public.notification_preferences` (user_id, ...)
+   197→- `public.products` (confectioner_id, category_id, slug, title, ...) — все snake_case
+   198→- `public.orders`, `public.order_items`, `public.payments`, `public.deliveries`
+   199→- `public.user_role` enum, `public.notification_preferences`
+   200→- Все остальные оригинальные таблицы
+   201→
+   202→**Таблицы в camelCase (миграция 0017 — Prisma-совместимые):**
+   203→- `public.confectioners` (id, userId, businessName, slug, description, avatar, cover, city, location JSONB, rating, reviewsCount, ordersCount, verified, verificationStatus, verifiedBy, verifiedAt, rejectionReason, trustLevel, tariff, legalInfo JSONB, taxMode, specialization TEXT[], portfolioImages TEXT[], followersCount, responseTime, joinedAt, selfPickup, deliveryOptions TEXT[], paymentSettings JSONB, ecoBadges TEXT[], balance, totalEarnings, monthlyEarnings, createdAt, updatedAt)
+   204→- `public.confectioner_ateliers` (id, confectionerId, about, workshopPhotos TEXT[], presentationVideo, equipment JSONB, experienceYears, education JSONB, certificates JSONB, awards JSONB, workingHours JSONB, teamSize, techniques TEXT[], deliveryCities TEXT[], serviceRadiusKm, socialLinks JSONB, totalStudents, totalLessons, createdAt, updatedAt)
+   205→
+   206→**Перед запросом к новой таблице — проверь её schema в `supabase/migrations/`.**
+   207→
+   208→### RLS политики (миграция 0026)
+   209→
+   210→**Storage buckets (6 штук):**
+   211→| Бакет | Public read | Owner-write | MIME | Max size |
+   212→|---|---|---|---|---|
+   213→| avatars | Да | `storage.foldername(name) = auth.uid()::text` | jpg/png/webp/gif | 5 МБ |
+   214→| covers | Да | Owner-only | jpg/png/webp | 5 МБ |
+   215→| portfolio | Да | Owner-only | jpg/png/webp | 10 МБ |
+   216→| product_images | Да | Owner-only | jpg/png/webp/gif | 10 МБ |
+   217→| documents | Нет | Owner-all (signed URLs) | pdf/jpg/png | 10 МБ |
+   218→| messages | Нет | Owner-all | jpg/png/webp/mp4 | 10 МБ |
+   219→
+   220→**public.confectioners:**
+   221→- `confectioners_select_public` (FOR SELECT, verified=true) — публичный доступ к верифицированным профилям
+   222→- `confectioners_select_admin` (FOR SELECT, ADMIN) — админ видит все строки
+   223→- `confectioners_insert_own` (FOR INSERT, userId = auth.uid()::text)
+   224→- `confectioners_update_own` (FOR UPDATE, userId = auth.uid()::text)
+   225→- `confectioners_delete_own` (FOR DELETE, userId = auth.uid()::text)
+   226→
+   227→### Enum types (миграция 0016b)
+   228→
+   229→- `UserRole` (26 ролей): CUSTOMER, CONFECTIONER, SUPPLIER, COURIER, ADMIN, SUPER_ADMIN, MODERATOR, SUPPORT, BLOGGER, TASTER, FRANCHISEE, NUTRITIONIST, CORPORATE_CLIENT, COPYWRITER, FOOD_SERVICE, EVENT_ORGANIZER, PICKUP_POINT, WHOLESALER, QUALITY_INSPECTOR, CERTIFICATION_AGENT, VENUE_OWNER, ANIMATOR_AGENCY, RECREATION_CENTER, KIDS_CLUB, INSPECTOR, RECIPE_DEVELOPER, LOYALTY_PARTNER
+   230→- `TrustLevel`: 'NEW' | 'VERIFIED' | 'MASTER' | 'EXPERT'
+   231→- `Tariff`: 'START' | 'BASIC' | 'PREMIUM' | 'BUSINESS'
+   232→- `TaxMode`: 'NPD' | 'USN' | 'OSNO' | 'PSN' | 'SELF_EMPLOYED'
+   233→
+   234→**Внимание:** в `src/lib/types.ts` и mock-data legacy значения: `trustLevel = 'TRUSTED'` (== 'VERIFIED' в БД), `tariff = 'PROFI'` (не в DB enum, оставлен для mock), `taxMode = 'IP' | 'OOO'` (не в DB enum, оставлены для mock). Не сломай это при refactor'е — mock-data всё ещё используется как fallback.
+   235→
+   236→---
+   237→
+   238→## 🔐 AUTH И РОЛИ
+   239→
+   240→### Auth система
+   241→
+   242→**11 endpoints в `src/app/api/auth/`:**
+   243→- POST `/api/auth/register` — создание auth.users + profiles + user_roles (CUSTOMER по умолчанию) + referrals
+   244→- POST `/api/auth/login` — email+password (Argon2id verify через profiles.password_hash), 2FA gate
+   245→- GET `/api/auth/session` — текущий user + profile + roles
+   246→- POST `/api/auth/refresh`, `/api/auth/logout`
+   247→- GET `/api/auth/callback` — OAuth callback (после Google/Yandex/VK)
+   248→- GET `/api/auth/oauth/[provider]` — инициация OAuth (проверяет YANDEX_CLIENT_ID/GOOGLE_CLIENT_ID/VK_CLIENT_ID, если stub — 501)
+   249→- GET `/api/auth/oauth/[provider]/callback`
+   250→- POST `/api/auth/2fa/setup`, `/api/auth/2fa/verify`, `/api/auth/2fa/disable`, `/api/auth/2fa/login-verify`
+   251→
+   252→**Двойной auth-modal:**
+   253→- `src/components/layout/auth-modal.tsx` (839 строк) — mock modal, использует Zustand store. Mounted на home page (`src/app/page.tsx`) и в `src/components/route-fallback.tsx`. Анонимным пользователям норма.
+   254→- `src/components/layout/supabase-auth-modal.tsx` (545 строк) — реальный Supabase auth. Mounted в `src/app/dashboard/page.tsx` (для аутентифицированных пользователей).
+   255→
+   256→**Hooks (src/lib/supabase/use-auth.ts):**
+   257→- useAuth, useSignIn, useSignUp, useSignOut, useOAuth(provider), useResetPassword, useUpdatePassword, useUpdateProfile, useUploadAvatar, use2FA
+   258→
+   259→### Профильное редактирование (POST/PATCH /api/profile/*)
+   260→
+   261→6 endpoint'ов в `src/app/api/profile/`:
+   262→
+   263→| Endpoint | Метод | Что делает |
+   264→|---|---|---|
+   265→| `/api/profile` | GET | Текущий профиль (name, phone, bio, avatar_url, city, addresses) |
+   266→| `/api/profile` | PATCH | Обновление name/phone/bio/avatar_url/city/default_delivery_address |
+   267→| `/api/profile/password` | PATCH | Смена пароля (verify old → update new через supabase.auth.updateUser) |
+   268→| `/api/profile/avatar` | POST (multipart) | Загрузка аватара в bucket "avatars" (≤5 МБ), обновление profiles.avatar_url |
+   269→| `/api/profile/addresses` | POST, DELETE | CRUD адресов доставки (public.addresses table) |
+   270→| `/api/profile/email` | POST | Смена email (verify old password → supabase.auth.updateUser + verification email) |
+   271→| `/api/profile/delete` | DELETE | Soft-delete (profiles.deleted_at + auth.users ban 24h, требуется confirmEmail) |
+   272→
+   273→**Компонент:** `src/components/dashboard/profile-settings.tsx` (461 строк) — рендерится во ВСЕХ дашбордах:
+   274→- CustomerDashboard, ConfectionerDashboard, SupplierDashboard, CourierDashboard, AdminDashboard (tab "Мой профиль")
+   275→- ExtraDashboards (12 мест, 18 нишевых ролей)
+   276→
+   277→### Onboarding кондитера (POST /api/confectioner/onboarding)
+   278→
+   279→Принимает multipart/form-data:
+   280→- `businessName` (string, 3..100, required)
+   281→- `description` (string, ≥30 символов, required)
+   282→- `city` (string, required)
+   283→- `phone` (string, optional)
+   284→- `legalStatus` (NPD | IP | OOO | PHYSICAL, required)
+   285→- `inn` (string, 10 или 12 цифр, required для IP/OOO)
+   286→- `specialization` (JSON array string, optional)
+   287→- `selfPickup` ("true" | "false", default "true")
+   288→- `avatar` (file, optional, ≤5 МБ)
+   289→- `cover` (file, optional, ≤5 МБ)
+   290→- `portfolioFiles` (file[], 0..8, ≤10 МБ)
+   291→
+   292→Логика:
+   293→1. Требует CONFECTIONER роль (проверяет через user_roles table)
+   294→2. Если уже есть строка в confectioners по userId — возвращает 409
+   295→3. Загружает avatar в bucket "avatars", cover в "covers", portfolioFiles в "portfolio" (путь: `{userId}/{timestamp}-{i}.{ext}`)
+   296→4. Создаёт строку в public.confectioners с verified=false, verificationStatus="pending"
+   297→5. Запускает tryAutoApprove (DaData, если IP/OOO с валидным ИНН)
+   298→6. Push-уведомление всем ADMIN/SUPER_ADMIN
+   299→
+   300→Также создан `POST /api/confectioner/portfolio` — добавление файлов к существующему профилю (после onboarding), лимит 50 total.
+   301→
+   302→---
+   303→
+   304→## 📊 MARCKETPLACE — ключевые компоненты
+   305→
+   306→### Бегущая строка кондитеров (`src/components/marketplace/confectioners-marquee.tsx`)
+   307→
+   308→- **Источник данных:** useConfectioners() hook (TanStack Query, staleTime 60s) → GET /api/confectioners
+   309→- **Fallback:** если БД недоступна или пуста — store.confectioners (= MOCK_CONFECTIONERS)
+   310→- **Гидратация Zustand:** при получении live-данных вызывает setConfectioners() → ConfectionerProfilePage и ConfectionersPage тоже видят live-данные
+   311→- **Dev-бейдж:** "src: Supabase (live) | mock (БД недоступна) | mock (пусто в БД)"
+   312→- **Анимация:** CSS marquee-x keyframe, pause on hover, edge-fade mask, длительность ~12s на карточку
+   313→- **Карточка:** avatar + verified-чекмарка, businessName, city + specialization[0], rating, trustLevel badge, миниатюра работы (portfolioImages[0])
+   314→
+   315→### Zustand store (`src/lib/store.ts`)
+   316→
+   317→- ~2100 строк, единый store для всего приложения
+   318→- `user`, `activeRole`, `nav`, `authModalOpen`, `setAuthModalOpen`
+   319→- `confectioners` (typeof MOCK_CONFECTIONERS) + `setConfectioners` (для гидратации из Supabase)
+   320→- `products`, `cart`, `favorites`, `addresses`, `confectionerWorks`, `couriers`
+   321→- CRUD actions: `addToCart`, `removeFromCart`, `updateCartQuantity`, `clearCart`, `addProduct`, `updateProduct`, `deleteProduct`, `toggleProductVisibility`
+   322→- `login`, `registerUser`, `logout` — mock auth (для auth-modal.tsx)
+   323→- `navigate(view, params)` — внутренняя навигация (NavState.view)
+   324→
+   325→### Yandex Metrika (`src/lib/yandex-metrika.ts`)
+   326→
+   327→- `METRIKA_ID = Number(process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID || 111432662)` — default 111432662 (счётчик «Уездный кондитер»)
+   328→- `trackEvent(event, params)`, `setUserParams(params)`, `trackPageView(url, title)`
+   329→- Server-side tracking через `YANDEX_METRIKA_OAUTH_TOKEN` + POST на `https://api-metrika.yandex.net/management/v1/counter/${METRIKA_ID}/goals/reached`
+   330→- Инициализация в `src/app/layout.tsx` через `<Script strategy="afterInteractive">` (только если `NEXT_PUBLIC_YANDEX_METRIKA_ID` задан)
+   331→
+   332→### Yandex OAuth (двойная настройка!)
+   333→
+   334→**Внимание:** в проекте 2 параллельные OAuth-интеграции, обе нужно настроить.
+   335→
+   336→**A. Server-side OAuth** (для mock-auth-modal в дашбордах и для SupabaseAuthModal):
+   337→- Env: `YANDEX_CLIENT_ID`, `YANDEX_OAUTH_REDIRECT`
+   338→- Маршрут: `/api/auth/oauth/yandex` → редирект на `https://oauth.yandex.ru/authorize?client_id=...&scope=login:email login:info`
+   339→- Callback: `/api/auth/oauth/yandex/callback`
+   340→- В Yandex OAuth app: Redirect URI = `http://localhost:3000/api/auth/oauth/yandex/callback` (dev) или `https://conditera.ru/api/auth/oauth/yandex/callback` (prod)
+   341→
+   342→**B. Supabase Auth OAuth** (через GoTrue для `/login` страницы):
+   343→- Настраивается в Supabase Studio: Authentication → Providers → Yandex → включить
+   344→- В Studio: Client ID, Client Secret, Redirect URL = `http://localhost:8000/auth/v1/callback`
+   345→- В Yandex OAuth app: добавить ещё Redirect URI = `http://localhost:8000/auth/v1/callback` (для self-hosted Kong) или `https://YOUR_PROJECT.supabase.co/auth/v1/callback` (cloud)
+   346→
+   347→---
+   348→
+   349→## 🗂️ ФАЙЛОВАЯ СТРУКТУРА — КЛЮЧЕВЫЕ ФАЙЛЫ
+   350→
+   351→### Конфигурация
+   352→- `.env` — минимальный dev-fallback (пустой `DATABASE_URL=`)
+   353→- `.env.local` — ваши dev-секреты (НЕ в git, создать через `bash scripts/setup-env.sh dev`)
+   354→- `.env.local.example` — шаблон для dev (с Yandex Metrika ID 111432662 по умолчанию)
+   355→- `.env.production` — prod-секреты (НЕ в git, создать через `bash scripts/setup-env.sh prod`)
+   356→- `.env.production.example` — шаблон для prod
+   357→- `next.config.ts` — whitelist доменов для next/image (включая Supabase Storage)
+   358→- `tailwind.config.ts`, `tsconfig.json`, `postcss.config.mjs`
+   359→- `package.json` — нет @electric-sql/pglite (удалён в этом раунде)
+   360→
+   361→### Скрипты (scripts/)
+   362→
+   363→| Скрипт | Назначение |
+   364→|---|---|
+   365→| `setup-env.sh dev\|prod` | Интерактивный мастер .env (Yandex Metrika ID 111432662 по умолчанию) |
+   366→| `env-check.sh [production]` | Валидация 30+ env vars, ✓ errors / ⚠ warnings |
+   367→| `update-from-archive.sh <archive> [--dry-run]` | Безопасное обновление из нового tar.gz, сохраняет .env/backups/uploads |
+   368→| `deploy.sh` | Production deploy (env-check + миграции + health-check) |
+   369→| `gen_readiness_report.py` | PDF-отчёт о готовности (10 страниц) |
+   370→
+   371→### Supabase clients (`src/lib/supabase/`)
+   372→
+   373→- `admin.ts` — service-role client, **server-only, bypasses RLS** (используется во всех API routes)
+   374→- `server.ts` — `createServerClient` from `@supabase/ssr` with Next.js 16 cookies API
+   375→- `browser.ts` — `createBrowserClient` singleton (RLS-aware)
+   376→- `middleware.ts` — `updateSession()` для refresh token в middleware
+   377→- `auth.ts` — `getSession()`, `getCurrentUser()` (с roles), `requireRole(role|role[])`, `requireAdmin`, `requireConfectioner`, `requireCourier`, `requireSupplier`, `requireAuthOrRedirect`, `unauthorizedResponse`, `forbiddenResponse`
+   378→
+   379→### Hooks (`src/lib/supabase/use-*.ts`)
+   380→
+   381→TanStack Query hooks, ~21 файл:
+   382→- `use-auth.ts` — useAuth, useSignIn, useSignUp, useOAuth, useResetPassword, useUpdatePassword, useUpdateProfile, useUploadAvatar
+   383→- `use-marketplace.ts` — useCategories, useProducts, useProduct, useConfectioners (новый), useFavorites, useCart, useOrders, useCreateOrder
+   384→- `use-dashboards.ts`, `use-crm.ts`, `use-cms.ts`, `use-chat.ts`, `use-cake-builder.ts`, `use-automation.ts`, `use-geo.ts`, `use-tenders.ts`, `use-rbac.ts`, `use-escrow.ts`, `use-franchise.ts`
+   385→
+   386→### Базовые утилиты
+   387→
+   388→- `src/lib/store.ts` — Zustand store (~2100 строк)
+   389→- `src/lib/mock-data.ts` — MOCK_CONFECTIONERS (5 шт: c0-c4), MOCK_PRODUCTS, CATEGORIES (28), MOCK_COURIERS, MOCK_SUPPLIERS
+   390→- `src/lib/types.ts` — TypeScript types (Confectioner interface с расширенными enums)
+   391→- `src/lib/finance.ts` — TARIFFS (START/PROFI/PREMIUM/BASIC/BUSINESS), LEGAL_STATUS_INFO, calculateCommission, calculateTaxByLegalStatus, calculateDistance
+   392→- `src/lib/confectioner-auto-approve.ts` — tryAutoApprove (DaData), autoApproveAllPending (cron)
+   393→- `src/lib/yandex-metrika.ts` — client + server-side tracking
+   394→- `src/lib/geocoder.ts` — geocodeAddress (Yandex Geocoder + DaData + city dict fallback)
+   395→- `src/lib/dadata.ts` — verifyOrganization (для auto-approve кондитеров)
+   396→- `src/lib/email.ts`, `src/lib/email-confectioner.ts` — SMTP sending
+   397→- `src/lib/notifications.ts` — sendNotification
+   398→- `src/lib/telegram-bot.ts` — notifyNewConfectionerPending
+   399→- `src/lib/totp.ts` — RFC 6233 TOTP для 2FA
+   400→- `src/lib/auth.ts` — legacy Argon2id + JWT helpers
+   401→- `src/lib/role-guards.ts` — requireAnyRole helper
+   402→
+   403→---
+   404→
+   405→## ✅ ЧТО УЖЕ СДЕЛАНО (статус на сентябрь 2026)
+   406→
+   407→### Architecture & Schema
+   408→- ✅ 26 SQL-миграций в supabase/migrations/ (197 таблиц, 221 RLS, 714 индексов)
+   409→- ✅ Migration 0017: public.confectioners + public.confectioner_ateliers (camelCase)
+   410→- ✅ Migration 0026: 6 storage buckets + RLS на confectioners
+   411→- ✅ Prisma schema (95+ моделей), но в runtime не используется (только для seed)
+   412→- ✅ Self-hosted Supabase stack (docker-compose.supabase.yml, 10 сервисов)
+   413→- ✅ 3 Supabase clients (admin/server/browser) + middleware session refresh
+   414→
+   415→### Auth
+   416→- ✅ 11 auth endpoints (login, register, refresh, logout, session, callback, oauth/[provider], oauth/[provider]/callback, 2fa/*)
+   417→- ✅ Argon2id password hashing (через profiles.password_hash)
+   418→- ✅ 2FA TOTP (RFC 6233) с backup codes
+   419→- ✅ OAuth: Google, Yandex, VK (env-configured, stub-mode если не заполнено)
+   420→- ✅ Mock auth-modal (для анонимных) + SupabaseAuthModal (для dashboard)
+   421→- ✅ SupabaseAuthModal now mounted in dashboard/page.tsx (was mock before)
+   422→
+   423→### Marketplace
+   424→- ✅ Бегущая строка кондитеров с live Supabase + mock fallback (useConfectioners hook)
+   425→- ✅ Гидратация Zustand store из Supabase (setConfectioners action)
+   426→- ✅ /api/confectioners route (camelCase columns, verified filter, PUBLIC_SELECT)
+   427→- ✅ Sitemap на реальных данных (fetchVerifiedConfectioners + mock fallback)
+   428→- ✅ Image whitelist в next.config.ts (Supabase Storage + localhost:8000 + **.supabase.co + custom domain)
+   429→
+   430→### Profile editing
+   431→- ✅ 6 /api/profile/* endpoints (GET/PATCH, password, avatar multipart, addresses CRUD, email, delete)
+   432→- ✅ ProfileSettings component рендерится во ВСЕХ дашбордах (5 основных + 12 нишевых)
+   433→- ✅ Storage upload для аватаров (bucket "avatars", path {userId}/{timestamp}.{ext})
+   434→
+   435→### Confectioner onboarding
+   436→- ✅ POST /api/confectioner/onboarding (multipart, ~290 строк)
+   437→- ✅ POST /api/confectioner/portfolio (добавление файлов к существующему профилю)
+   438→- ✅ Auto-approve через DaData (если IP/OOO с валидным ИНН)
+   439→- ✅ Admin уведомления через sendNotification
+   440→
+   441→### Admin routes
+   442→- ✅ Все 6 admin/confectioner маршрутов переведены на camelCase:
+   443→  - /api/admin/confectioners/pending (select + filter + summary)
+   444→  - /api/admin/confectioners/approve (select + update + notifications)
+   445→  - /api/admin/confectioners/reject (select + update + notifications)
+   446→  - /api/confectioner/status (select + eq)
+   447→  - /api/confectioner/resubmit (select + update + admin notifications)
+   448→  - /api/confectioner/atelier (camelCase AtelierData + upsert onConflict="confectionerId")
+   449→- ✅ src/lib/confectioner-auto-approve.ts (ConfectionerRow + tryAutoApprove + autoApproveAllPending)
+   450→
+   451→### Update system
+   452→- ✅ scripts/setup-env.sh (интерактивный, Yandex Metrika ID 111432662 по умолчанию)
+   453→- ✅ scripts/env-check.sh (30+ env vars, ✓ errors + ⚠ warnings)
+   454→- ✅ scripts/update-from-archive.sh (безопасное обновление, сохраняет .env/backups/uploads)
+   455→- ✅ scripts/deploy.sh (использует env-check.sh)
+   456→- ✅ .env.local.example + .env.production.example (полные шаблоны с Yandex/OAuth/Geocoder)
+   457→- ✅ UPDATE.md (240 строк, полная инструкция)
+   458→
+   459→### Cleanup
+   460→- ✅ PGlite удалён из package.json (deps + 2 npm scripts)
+   461→- ✅ README.md обновлён (требования + установка через docker-compose.supabase)
+   462→- ✅ .env.local.example — удалён ВАРИАНТ C (PGlite)
+   463→- ✅ TARIFFS расширены (BASIC + BUSINESS для совместимости с DB enum 0017)
+   464→- ✅ types.ts Confectioner interface — расширенные unions (TRUSTED, PROFI, IP, OOO для mock-совместимости)
+   465→- ✅ supabase/types.ts — ConfectionerRow + ConfectionerAtelierRow interfaces
+   466→
+   467→### Quality
+   468→- ✅ tsc --noEmit: 0 errors
+   469→- ✅ eslint: 0 errors, 0 warnings
+   470→- ✅ 731 vitest тестов, 26 test files (на момент последнего раунда)
+   471→- ✅ @ts-nocheck осталось 4 файла (все в dashboard chunk, ssr:false — не влияют на публичный bundle)
+   472→
+   473→---
+   474→
+   475→## ❌ ЧТО ОСТАЛОСЬ СДЕЛАТЬ
+   476→
+   477→### Critical (блокирует production)
+   478→
+   479→1. **Запустить Supabase локально:** `docker-compose -f docker-compose.supabase.yml up -d` (нет Docker в dev-окружении, пользователь должен запустить локально)
+   480→2. **Применить миграции 0001..0026:** `for f in supabase/migrations/*.sql; do docker exec -i conditera-supabase-db psql -U postgres -d postgres < "$f"; done`
+   481→3. **Создать storage buckets в Studio** (миграция 0026 делает это автоматически при применении, но проверить)
+   482→4. **Установить Supabase CLI** и сгенерировать типы: `supabase gen types typescript --project-id conditera > src/lib/supabase/types.ts`
+   483→5. **Проверить, что регенерированные типы не сломали** типы в `src/lib/types.ts` (mock-data Confectioner interface с расширенными enums)
+   484→
+   485→### High priority (после деплоя)
+   486→
+   487→6. **E2E тест через playwright** (`scripts/e2e-roles-flow.py`):
+   488→   - Зарегистрировать CONFECTIONER (POST /api/auth/register с role=CONFECTIONER)
+   489→   - POST /api/confectioner/onboarding с INN 7700000123 (валидный ИП ИНН)
+   490→   - Проверить что /api/confectioner/status возвращает verificationStatus: "pending" или "approved" (если DaData вернула ACTIVE)
+   491→   - Если "pending" — POST /api/admin/confectioners/approve (как админ)
+   492→   - Проверить что /api/confectioners возвращает нового кондитера в списке verified
+   493→   - Открыть главную страницу — бегущая строка должна показать нового кондитера
+   494→   - Открыть /sitemap.xml — должен содержать URL нового кондитера
+   495→
+   496→7. **Yandex OAuth app создание** (пользователь):
+   497→   - https://oauth.yandex.ru/client/new → создать приложение «Уездный кондитер»
+   498→   - Redirect URI: `http://localhost:3000/api/auth/oauth/yandex/callback` (dev), `https://conditera.ru/api/auth/oauth/yandex/callback` (prod)
+   499→   - Scope: `login:email login:info`
+   500→   - Получить ClientID, записать в .env.local → YANDEX_CLIENT_ID
+   501→   - Также настроить в Supabase Studio: Authentication → Providers → Yandex → Client ID, Client Secret, Redirect URL = `http://localhost:8000/auth/v1/callback`
+   502→   - Добавить в Yandex OAuth app ещё один Redirect URI: `http://localhost:8000/auth/v1/callback`
+   503→
+   504→8. **Cron-задачи** (production):
+   505→   - `/api/cron/auto-approve` — каждые 30 минут (проверяет pending кондитеров через DaData)
+   506→   - `/api/cron/sitemap-refresh` — hourly (пере-генерирует sitemap через ISR)
+   507→   - `/api/cron/daily-digest` — daily 09:00 (отправляет дайджест админам)
+   508→   - Использовать `CRON_SECRET` env для авторизации cron-запросов
+   509→
+   510→### Medium priority
+   511→
+   512→9. **Заменить hand-written types на автогенерированные:** после `supabase gen types` проверить, что ConfectionerRow interface совпадает с autogen — заменить hand-written на autogen, обновить import'ы.
+   513→
+   514→10. **Refactor mock-data.ts** — вынести MOCK_CONFECTIONERS в отдельный seed-скрипт (`prisma/seed.ts` или `supabase/seed_confectioners.sql`), удалить из runtime. Бегущая строка будет работать только с live-данными (с empty-fallback на [] или заглушкой "Скоро здесь появятся кондитеры").
+   515→
+   516→11. **Удалить auth-modal.tsx (mock)** если SupabaseAuthModal полностью покрывает все случаи — проверь, что anonymous users на public pages не нуждаются в auth modal вообще (только dashboard требует). Если да — удалить mock modal и использовать SupabaseAuthModal везде.
+   517→
+   518→12. **Image optimization:** `next/image` для portfolio/avatars из Supabase Storage — нужен whitelist в next.config.ts (уже добавлен). Проверить что `<Image src={supabase.storage.getPublicUrl(...)} />` работает.
+   519→
+   520→13. **Schema audit:** migration 0006/0007/0008 используют `confectioner_id UUID REFERENCES auth.users(id)`, а 0017 использует `userId TEXT` без FK. Это split-brain — нужно выбрать одну модель. Рекомендация: оставить 0017 как источник правды для confectioner identity, а 0006/0007/0008 переписать на `confectioner_id TEXT REFERENCES public.confectioners(id)`.
+   521→
+   522→### Low priority
+   523→
+   524→14. **Prisma models для всех таблиц** — сейчас Prisma schema имеет ~95 моделей, но некоторые таблицы (например addresses) не имеют Prisma model. Если нужно type-safe address CRUD через Prisma — добавить model Address.
+   525→
+   526→15. **Supabase Edge Functions** — мигрировать с n8n:
+   527→    - `telegram-webhook` (текущий n8n workflow)
+   528→    - `send-notification`
+   529→    - `yookassa-webhook`
+   530→    - `abandoned-cart`
+   531→    - `daily-digest`
+   532→    - `bonus-expiry`
+   533→
+   534→16. **Performance:** для большой таблицы confectioners (когда будет 1000+ кондитеров) — добавить кэширование (Redis или in-memory) для /api/confectioners, использовать ISR (revalidate=60) для sitemap.
+   535→
+   536→---
+   537→
+   538→## 🎯 КЛЮЧЕВЫЕ КОНВЕНЦИИ КОДА
+   539→
+   540→### TypeScript
+   541→- **strict mode** (ignoreBuildErrors=false в next.config.ts)
+   542→- **НЕ использовать @ts-nocheck** (4 файла имеют, в dashboard chunk — ssr:false, не влияет на public bundle)
+   543→- Все API routes возвращают `Promise<NextResponse>`
+   544→- Все hooks из `use-*.ts` — TanStack Query с `staleTime` и `retry` для устойчивости
+   545→- Типы в `src/lib/types.ts` — для mock-data совместимости, имеют расширенные union enums (TRUSTED, PROFI, IP, OOO — legacy mock-значения)
+   546→
+   547→### Naming
+   548→- **API routes:** `/api/profile`, `/api/profile/password`, `/api/confectioner/onboarding` — kebab-case
+   549→- **Files:** PascalCase для компонентов (`ConfectionerCard.tsx`), camelCase для утилит (`yandex-metrika.ts`), kebab-case для страниц (`confectioner-profile-page.tsx`)
+   550→- **Functions:** camelCase (`trackEvent`, `setConfectioners`, `useConfectioners`)
+   551→- **Constants:** UPPER_SNAKE (`MOCK_CONFECTIONERS`, `TARIFFS`, `CATEGORIES`)
+   552→
+   553→### Schema queries
+   554→- **public.confectioners** — camelCase колонки (migration 0017)
+   555→- **public.profiles, user_roles, addresses** — snake_case (migration 0001)
+   556→- **public.confectioner_ateliers** — camelCase (migration 0017)
+   557→- **Перед запросом к новой таблице — проверь schema в `supabase/migrations/`**
+   558→
+   559→### Storage paths
+   560→- `avatars`: `{userId}/{timestamp}.{ext}` — RLS `storage.foldername(name) = auth.uid()::text`
+   561→- `portfolio`: `{userId}/{timestamp}-{i}.{ext}` — та же RLS
+   562→- `product_images`: `{userId}/{timestamp}-{i}.{ext}`
+   563→- `covers`: `{userId}/{timestamp}.{ext}`
+   564→- `documents`: приватный, `{userId}/...`
+   565→- `messages`: приватный, `{userId}/...`
+   566→
+   567→### Auth
+   568→- API routes: `const { user, supabase } = await getSession()` — возвращает user (auth.users) + supabase server client
+   569→- Role-guard: `const guard = await requireRole(user.id, "CONFECTIONER"); if (guard) return new NextResponse(...)`
+   570→- Service role: `supabaseAdmin` (bypasses RLS) — только для server-side admin operations
+   571→
+   572→### Yandex Metrika
+   573→- ID: `111432662` (проект «Уездный кондитер», не менять!)
+   574→- Client: `trackEvent(event, params)`, `setUserParams(params)`, `trackPageView(url, title)`
+   575→- Server: `trackServerSide()` — требует `YANDEX_METRIKA_OAUTH_TOKEN`
+   576→- Init в `src/app/layout.tsx` через `<Script strategy="afterInteractive">`
+   577→
+   578→### Tests
+   579→- Vitest + jsdom (731 тестов, 26 файлов)
+   580→- Playwright для E2E (scripts/e2e-roles-flow.py)
+   581→- `npm run test` — vitest
+   582→- `npm run test:e2e` — playwright
+   583→
+   584→---
+   585→
+   586→## 🚀 WORKFLOW ДЛЯ НОВОЙ РАБОТЫ
+   587→
+   588→### При получении новой задачи
+   589→
+   590→1. **Прочитай worklog.md** (там вся история по task IDs, последние ~50 task IDs в конце файла) — пойми контекст
+   591→2. **Проверь что задача не сделана** — `grep "Task ID: ..." worklog.md`
+   592→3. **Создай TODO list** с TodoWrite для каждой подзадачи
+   593→4. **Используй Explore-агентов** для аудита больших файлов (не читай 2000-строчные файлы целиком в main контексте)
+   594→5. **Typecheck после каждого изменения:** `npx tsc --noEmit`
+   595→6. **Lint после каждого изменения:** `npx eslint src/path/to/file.tsx`
+   596→7. **Обнови worklog.md** с Task ID, Agent name, Work Log, Stage Summary
+   597→
+   598→### При работе с БД
+   599→
+   600→1. **Проверь schema таблицы** в `supabase/migrations/` перед запросом
+   601→2. **Используй supabaseAdmin** (service role) только когда нужно bypass RLS — в 90% случаев нужно supabaseBrowser или SSR client
+   602→3. **RLS политики** в миграции 0026 — публичный SELECT для verified=true на confectioners
+   603→4. **Не используй Prisma в runtime** — только для schema/migrations
+   604→5. **Миграции в `supabase/migrations/` применяются через psql, не через Prisma migrate**
+   605→
+   606→### При работе с OAuth
+   607→
+   608→1. **Проверь env:** `YANDEX_CLIENT_ID`, `YANDEX_OAUTH_REDIRECT` (для server-side OAuth)
+   609→2. **Supabase Studio настройки** для GoTrue OAuth (для /login страницы)
+   610→3. **Redirect URI** разные для env: dev = `http://localhost:3000/...`, prod = `https://conditera.ru/...`
+   611→4. **Stub mode**: если env не заполнено или начинается с `stub_*`, маршрут возвращает 501
+   612→
+   613→### При обновлении UI
+   614→
+   615→1. **Используй shadcn/ui компоненты** из `src/components/ui/`
+   616→2. **Tailwind CSS 4** — новые классы через `@layer` в `globals.css`
+   617→3. **framer-motion** для анимаций (микро-взаимодействия)
+   618→4. **next/image** для всех изображений (с whitelist в next.config.ts)
+   619→5. **Bilingual fonts** — Brokgauz/TriodPostnaja для заголовков, Geist для body, Neucha для рукописного
+   620→
+   621→### При добавлении нового API route
+   622→
+   623→1. **Добавь в `/src/app/api/<path>/route.ts`**
+   624→2. **Используй `getSession()` для auth** — возвращает `{ user, supabase }`
+   625→3. **Role-guard через `requireRole(user.id, "ROLE_NAME")`**
+   626→4. **Возвращай NextResponse.json()** с правильным status code
+   627→5. **Graceful fallback** при ошибках БД (возвращай empty array + warning, не 500)
+   628→6. **Не забывай `runtime = "nodejs"` для routes, использующих supabaseAdmin**
+   629→
+   630→---
+   631→
+   632→## 📚 ПОЛЕЗНЫЕ ССЫЛКИ И ФАЙЛЫ
+   633→
+   634→- **Полный аудит готовности:** `/home/z/my-project/download/production-readiness-report.pdf` (10 страниц, генерируется `scripts/gen_readiness_report.py`)
+   635→- **Документация БД:** `/home/z/my-project/docs/DATABASE.md` (417 строк)
+   636→- **Инструкция обновлений:** `/home/z/my-project/UPDATE.md` (240 строк)
+   637→- **README:** `/home/z/my-project/README.md` (быстрый старт, обновлён)
+   638→- **Worklog:** `/home/z/my-project/worklog.md` (~445 КБ, полная история по task IDs)
+   639→- **Pre-deploy checklist:** `/home/z/my-project/download/production-readiness-report.pdf` (раздел 6)
+   640→
+   641→---
+   642→
+   643→## 📝 КОНТРОЛЬНЫЕ ВОПРОСЫ ДЛЯ НОВОГО ЧАТА
+   644→
+   645→Если новый чат спросит "что у нас за проект?" — отвечай:
+   646→- Маркетплейс кондитерских изделий «Уездный кондитер» (conditera.ru)
+   647→- Next.js 16 + Supabase (self-hosted) + TypeScript strict
+   648→- Бегущая строка кондитеров на главной — useConfectioners() с mock fallback
+   649→- ID Yandex Metrika: 111432662 (в .env.local)
+   650→- Все 7 priority-list задач выполнены, кроме: запуск Docker локально, supabase gen types, E2E-тест
+   651→
+   652→Если новый чат спросит "почему camelCase в одном месте, snake_case в другом?" — отвечай:
+   653→- migration 0001 (Supabase стандарт) — profiles, user_roles, addresses — snake_case
+   654→- migration 0017 (Prisma-совместимые) — confectioners, confectioner_ateliers — camelCase
+   655→- Перед запросом к таблице — проверь её схему в supabase/migrations/
+   656→
+   657→Если новый чат спросит "как обновить .env?" — отвечай:
+   658→- `bash scripts/setup-env.sh dev` (интерактивный, спрашивает Yandex Metrika ID 111432662, OAuth Client IDs, YooKassa)
+   659→- `bash scripts/env-check.sh` — проверит 30+ env vars, покажет ошибки и warnings
+   660→- Не правь .env / .env.local вручную, используй скрипты
+   661→
+   662→Если новый чат спросит "как безопасно применить новый архив?" — отвечай:
+   663→- `bash scripts/update-from-archive.sh /path/to/archive.tar.gz --dry-run` (посмотреть что изменится)
+   664→- `bash scripts/update-from-archive.sh /path/to/archive.tar.gz` (применить, сохранит .env/backups/uploads)
+   665→- Скрипт сам вызовет env-check.sh, npm install, опционально миграции и build
+   666→
+   667→---
+   668→
+   669→## ✅ ФИНАЛЬНАЯ ПРОВЕРКА ГОТОВНОСТИ К PRODUCTION
+   670→
+   671→Запусти этот checklist перед первым деплоем:
+   672→
+   673→```bash
+   674→# 1. Проверь .env.local / .env.production
+   675→bash scripts/env-check.sh
+   676→bash scripts/env-check.sh production
+   677→
+   678→# 2. Запусти Supabase
+   679→docker-compose -f docker-compose.supabase.yml up -d
+   680→# Проверь: docker-compose ps — все 10 сервисов healthy
+   681→
+   682→# 3. Примени миграции
+   683→for f in supabase/migrations/*.sql; do
+   684→  echo "Applying $f..."
+   685→  docker exec -i conditera-supabase-db psql -U postgres -d postgres < "$f"
+   686→done
+   687→
+   688→# 4. Проверь что бакеты созданы
+   689→docker exec -i conditera-supabase-db psql -U postgres -d postgres -c \
+   690→  "SELECT id, name, public FROM storage.buckets;"
+   691→
+   692→# 5. Проверь что RLS включена
+   693→docker exec -i conditera-supabase-db psql -U postgres -d postgres -c \
+   694→  "SELECT relrowsecurity FROM pg_class WHERE relname='confectioners';"
+   695→
+   696→# 6. Typecheck + lint
+   697→npx tsc --noEmit
+   698→npx eslint .
+   699→
+   700→# 7. Build
+   701→npm run build
+   702→
+   703→# 8. Local dev test
+   704→npm run dev:local  # → http://localhost:3000
+   705→# Открой /sitemap.xml — должны быть реальные URL кондитеров (или mock fallback)
+   706→# Открой главную — бегущая строка должна работать
+   707→# Залогинься как admin (нужно зарегистрировать через Studio или seed)
+   708→# Одобри pending кондитера через /admin/confectioners/pending
+   709→# Проверь что бегущая строка обновилась
+   710→
+   711→# 9. Production deploy (если все OK)
+   712→bash scripts/deploy.sh
+   713→```
+   714→
+   715→---
+   716→
+   717→**Готово. Этот документ — полная база для продолжения работы. Если новый чат правильно прочитает ТЗ, он сможет продолжить без потери контекста.**
+   718→
+   719→**Версия ТЗ:** 3.0 (сентябрь 2026, после выполнения 7 пунктов priority-list)
+   720→**Контрольный hash кода:** проверить через `git log --oneline -20` после pull
+   721→
