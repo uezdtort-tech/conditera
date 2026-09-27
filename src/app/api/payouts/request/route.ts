@@ -14,6 +14,17 @@
  *   • POST: 2FA-проверка если tfa_required_for включает "payout".
  *   • Atomic balance decrement через RPC deduct_confectioner_balance — нет race condition.
  *   • Все db-запросы на supabaseAdmin с type-safe interfaces.
+ *
+ * P0 (pay0-6):
+ *   • eligible-заказы: payment_status='released' + escrow_released_at NOT NULL
+ *     (раньше фильтр был payment_status='succeeded' — этот статус нигде
+ *     не пишется, путь выплат был мёртвым).
+ *   • Fail-closed: при ошибке RPC — 500 (раньше был не-атомарный fallback
+ *     `balance = Math.max(0, balance − amount)` с гонкой и тихим овердрафтом).
+ *   • Выплата — только на ПОЛНУЮ доступную сумму батча: раньше частичный
+ *     запрос помечал ВСЕ eligible-заказы payout_transferred_at, остаток
+ *     становился невыплачиваем.
+ *   • Создаётся запись в payout_requests (раньше выплата была невидима админу).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -181,6 +192,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Находим заказы для выплаты (снапшот тарифа из заказа!)
+    // P0: 'released' — эскроу действительно релизнут (cron escrow-release);
+    // статус 'succeeded' в payment_status нигде не пишется — прежний
+    // фильтр не находил ни одного заказа.
     const { data: eligibleOrders, error: ordersErr } = await supabaseAdmin
       .from("orders")
       .select(`
@@ -188,9 +202,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         tariff_snapshot, commission_rate_snapshot
       `)
       .eq("confectioner_id", confectioner.id)
-      .eq("payment_status", "succeeded")
-      .is("payout_transferred_at", null)
+      .eq("payment_status", "released")
+      .not("escrow_released_at", "is", null)
       .in("status", ["DELIVERED", "COMPLETED"])
+      .is("payout_transferred_at", null)
       .limit(MAX_ORDERS_FOR_PAYOUT) as { data: OrderForPayoutRow[] | null; error: SupabaseError | null };
 
     if (ordersErr) {
@@ -216,14 +231,44 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       };
     });
 
-    if (totalPayout < body.amount) {
+    if (totalPayout <= 0) {
+      throw new HttpError(400, "Нет заказов, доступных для выплаты");
+    }
+
+    // P0: выплата — только на ПОЛНУЮ доступную сумму батча.
+    // Частичный запрос раньше помечал ВСЕ заказы выплаченными,
+    // и остаток становился невыплачиваем. Частичные выплаты — вместе
+    // с ledger-учётом (PAY-3).
+    if (body.amount !== totalPayout) {
       throw new HttpError(
         400,
-        `Максимальная выплата: ${totalPayout}₽ (по ${(eligibleOrders || []).length} заказам)`
+        `Выплата возможна только на полную доступную сумму: ${totalPayout}₽ (по ${(eligibleOrders || []).length} заказам). Частичные выплаты появятся вместе с ledger-учётом.`
       );
     }
 
-    // Списываем баланс кондитера атомарно через RPC (если есть)
+    // Регистрируем выплату в payout_requests — единый журнал для админа
+    // (раньше мгновенная выплата была невидима в /api/admin/payouts)
+    const { data: payoutRequest, error: payoutReqErr } = await supabaseAdmin
+      .from("payout_requests")
+      .insert({
+        user_id: user.userId,
+        amount: body.amount,
+        method: "card",
+        status: "pending",
+        metadata: {
+          source: "payouts/request",
+          orders: orderPayouts.map((o) => o.orderId),
+        },
+      })
+      .select("id")
+      .single();
+
+    if (payoutReqErr || !payoutRequest) {
+      console.error("[payouts/request] payout_requests insert failed:", payoutReqErr?.message);
+      throw new HttpError(500, "Не удалось зарегистрировать выплату");
+    }
+
+    // Списываем баланс кондитера атомарно через RPC
     const { error: balanceErr } = await supabaseAdmin
       .rpc("deduct_confectioner_balance", {
         p_confectioner_id: confectioner.id,
@@ -231,18 +276,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
 
     if (balanceErr) {
-      console.warn("[payouts/request] balance RPC failed, fallback:", balanceErr.message);
-      // Fallback на не-атомарный update
+      // P0: fail-closed. Прежний fallback `balance = Math.max(0, balance − amount)`
+      // был не атомарным (гонка) и молча прощал овердрафт.
+      console.error("[payouts/request] balance RPC failed:", balanceErr.message);
       await supabaseAdmin
-        .from("confectioners")
-        .update({
-          balance: Math.max(0, balance - body.amount),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", confectioner.id);
+        .from("payout_requests")
+        .update({ status: "rejected", rejection_reason: `balance RPC failed: ${balanceErr.message}` })
+        .eq("id", payoutRequest.id);
+      throw new HttpError(500, "Сервис баланса недоступен, попробуйте позже");
     }
 
-    // Отмечаем заказы как выплаченные
+    // Отмечаем заказы как выплаченные — на ПОЛНУЮ сумму которых и выплатили
     const nowIso = new Date().toISOString();
     for (const op of orderPayouts) {
       await supabaseAdmin
@@ -250,6 +294,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         .update({ payout_transferred_at: nowIso })
         .eq("id", op.orderId);
     }
+
+    // Закрываем запись выплаты
+    await supabaseAdmin
+      .from("payout_requests")
+      .update({ status: "paid", processed_at: nowIso })
+      .eq("id", payoutRequest.id);
 
     // Уведомление (non-blocking)
     try {
