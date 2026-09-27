@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { safeJsonBody, handleRouteError, HttpError } from "@/lib/http-helpers";
+import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -89,8 +90,18 @@ const FALLBACK_ANALYSIS: ImageAnalysis = {
   style: "modern",
 };
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<Response> {
   try {
+    // Rate-limit: тяжёлый VLM-запрос с base64-изображением
+    const ip = getClientIP(request);
+    const blocked = await enforceRateLimit(
+      request,
+      `visual-search:${ip}`,
+      RATE_LIMITS.aiVision.limit,
+      RATE_LIMITS.aiVision.windowMs
+    );
+    if (blocked) return blocked;
+
     const { data: body, error: parseErr } = await safeJsonBody<VisualSearchBody>(request);
     if (parseErr) {
       throw new HttpError(400, parseErr);

@@ -82,6 +82,6 @@ export async function POST(req: NextRequest): Promise<Response> {
  * GET — обёртка над POST для Vercel Cron / локального планировщика,
  * которые шлют GET (то же тело, тот же X-Cron-Secret).
  */
-export async function GET(req: NextRequest): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<Response> {
   return POST(req);
 }

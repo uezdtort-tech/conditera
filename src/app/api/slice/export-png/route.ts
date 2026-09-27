@@ -12,9 +12,20 @@
  * в браузере, что не подходит для серверной генерации.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate-limit: CPU-рендер PNG без auth — защита от перегрузки
+    const ip = getClientIP(request);
+    const blocked = await enforceRateLimit(
+      request,
+      `slice-export:${ip}`,
+      RATE_LIMITS.export.limit,
+      RATE_LIMITS.export.windowMs
+    );
+    if (blocked) return blocked;
+
     const { svg, width = 600, height = 600, scale = 2 } = await request.json();
 
     if (!svg || typeof svg !== "string") {

@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { safeJsonBody, handleRouteError, HttpError } from "@/lib/http-helpers";
+import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -82,8 +83,18 @@ const SYSTEM_PROMPT = `Ты — AI-консультант по подбору т
 Верни JSON: { "reply": "текст ответа", "stage": "questioning"|"recommending"|"done", "recommendations": [] }
 рекомендации: [{ "title": "название", "reason": "почему подходит", "priceFrom": число }]`;
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<Response> {
   try {
+    // Rate-limit: платный LLM-вызов — защита от сжигания квоты/денег без auth
+    const ip = getClientIP(request);
+    const blocked = await enforceRateLimit(
+      request,
+      `ai-cake-finder:${ip}`,
+      RATE_LIMITS.ai.limit,
+      RATE_LIMITS.ai.windowMs
+    );
+    if (blocked) return blocked;
+
     const { data: body, error: parseErr } = await safeJsonBody<AiFinderBody>(request);
     if (parseErr) {
       throw new HttpError(400, parseErr);

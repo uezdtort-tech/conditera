@@ -17,6 +17,7 @@
  * Если LLM недоступна — fallback на детерминированный detectPreset.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
 interface SliceLayer {
   type: "biscuit" | "cream" | "berry" | "chocolate" | "mousse" | "caramel" | "fruit" | "nuts";
@@ -136,6 +137,16 @@ const SYSTEM_PROMPT = `Ты — кондитер-дизайнер, помога�
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate-limit: платный LLM-вызов — защита от злоупотребления
+    const ip = getClientIP(request);
+    const blocked = await enforceRateLimit(
+      request,
+      `ai-generate-slice:${ip}`,
+      RATE_LIMITS.ai.limit,
+      RATE_LIMITS.ai.windowMs
+    );
+    if (blocked) return blocked;
+
     const { name, description, consistency, color } = await request.json();
 
     if (!name) {

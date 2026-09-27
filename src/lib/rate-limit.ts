@@ -209,4 +209,11 @@ export const RATE_LIMITS = {
   api: { limit: 60, windowMs: 60_000 },
   // POST /api/contact — 3 сообщения в час с одного IP
   contact: { limit: 3, windowMs: 60 * 60_000 },
+  // POST /api/ai-cake-finder, /api/fillings/ai-generate-slice,
+  // /api/products/ai-description — платный LLM-вызов, 10 в минуту с IP
+  ai: { limit: 10, windowMs: 60_000 },
+  // POST /api/visual-search — VLM + base64-картинка, тяжёлый запрос
+  aiVision: { limit: 6, windowMs: 60_000 },
+  // POST /api/slice/export-png — CPU-рендер PNG
+  export: { limit: 20, windowMs: 60_000 },
 } as const

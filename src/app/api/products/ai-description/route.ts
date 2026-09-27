@@ -24,6 +24,7 @@
  * Fallback на шаблонное описание если LLM недоступна.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
 const TONES = {
   selling: "продающий, эмоциональный, вызывает желание купить прямо сейчас",
@@ -52,6 +53,16 @@ const SYSTEM_PROMPT = `Ты — профессиональный копирай�
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate-limit: платный LLM-вызов — защита от злоупотребления
+    const ip = getClientIP(request);
+    const blocked = await enforceRateLimit(
+      request,
+      `ai-description:${ip}`,
+      RATE_LIMITS.ai.limit,
+      RATE_LIMITS.ai.windowMs
+    );
+    if (blocked) return blocked;
+
     const body = await request.json();
     const {
       title,
