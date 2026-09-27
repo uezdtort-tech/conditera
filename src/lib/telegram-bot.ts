@@ -315,6 +315,9 @@ export async function setWebhook(webhookUrl: string): Promise<boolean> {
   }
 
   try {
+    // TELEGRAM_WEBHOOK_SECRET: Telegram будет присылать его в каждом update
+    // в заголовке X-Telegram-Bot-Api-Secret-Token (проверка в webhook route).
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
     const response = await fetch(`${API_BASE}/${BOT_TOKEN}/setWebhook`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -327,6 +330,7 @@ export async function setWebhook(webhookUrl: string): Promise<boolean> {
           "inline_query",
           "chat_member",
         ],
+        ...(webhookSecret ? { secret_token: webhookSecret } : {}),
       }),
     })
 

@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendTelegramMessage, BOT_COMMANDS } from "@/lib/telegram-bot";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { timingSafeEqualStr } from "@/lib/secure-compare";
 
 export const runtime = "nodejs";
 
@@ -376,6 +377,28 @@ async function handleCallbackQuery(callbackQuery: TgCallbackQuery): Promise<void
 // ===== Webhook handler =====
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    // === Безопасность: secret token от Telegram ===
+    // setWebhook(..., secret_token: TELEGRAM_WEBHOOK_SECRET) → Telegram присылает его
+    // в каждом update в заголовке X-Telegram-Bot-Api-Secret-Token. Без проверки
+    // любой может подделать update (спуфинг команд, вплоть до admin /broadcast).
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+    if (webhookSecret) {
+      const got = request.headers.get("X-Telegram-Bot-Api-Secret-Token")?.trim();
+      if (!got || !timingSafeEqualStr(got, webhookSecret)) {
+        console.warn("[telegram/webhook] rejected: missing/invalid X-Telegram-Bot-Api-Secret-Token");
+        return NextResponse.json({ ok: false }, { status: 401 });
+      }
+    } else if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[telegram/webhook] TELEGRAM_WEBHOOK_SECRET не задан в production — update отклонён (fail-closed)"
+      );
+      return NextResponse.json({ ok: false }, { status: 503 });
+    } else {
+      console.warn(
+        "[telegram/webhook] TELEGRAM_WEBHOOK_SECRET не задан — update принимается без проверки (только dev)"
+      );
+    }
+
     const update = (await request.json().catch(() => null)) as TgUpdate | null;
     if (!update) {
       return NextResponse.json({ ok: true });
