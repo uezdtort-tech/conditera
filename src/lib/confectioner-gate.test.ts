@@ -9,7 +9,8 @@
  *   5. Отсутствующий rejectionReason → "причина не указана"
  *   6. canPublishProducts/canAcceptOrders/canRequestPayout — делегирование
  *
- * Мокаем supabaseAdmin.from("confectioners").select().eq("user_id").maybeSingle()
+ * Мокаем supabaseAdmin.from("confectioners").select().eq("userId").maybeSingle()
+ * (db1-3: колонки 0017 camelCase — businessName/verificationStatus/rejectionReason)
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -68,10 +69,10 @@ describe("checkConfectionerGate", () => {
   it("возвращает allowed, когда verification_status = approved", async () => {
     setMockData({
       id: "c1",
-      business_name: "Сладкая уездная",
+      businessName: "Сладкая уездная",
       verified: true,
-      verification_status: "approved",
-      rejection_reason: null,
+      verificationStatus: "approved",
+      rejectionReason: null,
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(true);
@@ -82,10 +83,10 @@ describe("checkConfectionerGate", () => {
   it("возвращает allowed, когда verified=true даже при pending", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test Conf",
+      businessName: "Test Conf",
       verified: true,
-      verification_status: "pending",
-      rejection_reason: null,
+      verificationStatus: "pending",
+      rejectionReason: null,
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(true);
@@ -95,10 +96,10 @@ describe("checkConfectionerGate", () => {
   it("возвращает not allowed, когда status = pending", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "pending",
-      rejection_reason: null,
+      verificationStatus: "pending",
+      rejectionReason: null,
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(false);
@@ -109,10 +110,10 @@ describe("checkConfectionerGate", () => {
   it("возвращает not allowed, когда status = rejected", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "rejected",
-      rejection_reason: "Документы не в порядке",
+      verificationStatus: "rejected",
+      rejectionReason: "Документы не в порядке",
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(false);
@@ -124,10 +125,10 @@ describe("checkConfectionerGate", () => {
   it("возвращает not allowed, когда status = needs_revision", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "needs_revision",
-      rejection_reason: "Уточните ИНН",
+      verificationStatus: "needs_revision",
+      rejectionReason: "Уточните ИНН",
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(false);
@@ -139,10 +140,10 @@ describe("checkConfectionerGate", () => {
   it("обрабатывает отсутствующий rejection_reason в rejected статусе", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "rejected",
-      rejection_reason: null,
+      verificationStatus: "rejected",
+      rejectionReason: null,
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(false);
@@ -152,10 +153,10 @@ describe("checkConfectionerGate", () => {
   it("нормализует неизвестный status к pending", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "unknown_status_value",
-      rejection_reason: null,
+      verificationStatus: "unknown_status_value",
+      rejectionReason: null,
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(false);
@@ -165,10 +166,10 @@ describe("checkConfectionerGate", () => {
   it("обрабатывает null verification_status как pending", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: null,
-      rejection_reason: null,
+      verificationStatus: null,
+      rejectionReason: null,
     });
     const result = await checkConfectionerGate("u1");
     expect(result.allowed).toBe(false);
@@ -178,10 +179,10 @@ describe("checkConfectionerGate", () => {
   it("обрабатывает null verified как false", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: null,
-      verification_status: "approved",
-      rejection_reason: null,
+      verificationStatus: "approved",
+      rejectionReason: null,
     });
     const result = await checkConfectionerGate("u1");
     // approved status должен пройти даже если verified=null
@@ -199,10 +200,10 @@ describe("canPublishProducts", () => {
   it("делегирует checkConfectionerGate — allowed", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: true,
-      verification_status: "approved",
-      rejection_reason: null,
+      verificationStatus: "approved",
+      rejectionReason: null,
     });
     const result = await canPublishProducts("u1");
     expect(result.allowed).toBe(true);
@@ -211,10 +212,10 @@ describe("canPublishProducts", () => {
   it("блокирует, когда не approved", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "pending",
-      rejection_reason: null,
+      verificationStatus: "pending",
+      rejectionReason: null,
     });
     const result = await canPublishProducts("u1");
     expect(result.allowed).toBe(false);
@@ -230,10 +231,10 @@ describe("canAcceptOrders", () => {
   it("разрешает, когда approved", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: true,
-      verification_status: "approved",
-      rejection_reason: null,
+      verificationStatus: "approved",
+      rejectionReason: null,
     });
     const result = await canAcceptOrders("u1");
     expect(result.allowed).toBe(true);
@@ -242,10 +243,10 @@ describe("canAcceptOrders", () => {
   it("блокирует, когда rejected", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "rejected",
-      rejection_reason: "Bad docs",
+      verificationStatus: "rejected",
+      rejectionReason: "Bad docs",
     });
     const result = await canAcceptOrders("u1");
     expect(result.allowed).toBe(false);
@@ -262,10 +263,10 @@ describe("canRequestPayout", () => {
   it("разрешает, когда approved", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: true,
-      verification_status: "approved",
-      rejection_reason: null,
+      verificationStatus: "approved",
+      rejectionReason: null,
     });
     const result = await canRequestPayout("u1");
     expect(result.allowed).toBe(true);
@@ -274,10 +275,10 @@ describe("canRequestPayout", () => {
   it("блокирует, когда pending", async () => {
     setMockData({
       id: "c1",
-      business_name: "Test",
+      businessName: "Test",
       verified: false,
-      verification_status: "pending",
-      rejection_reason: null,
+      verificationStatus: "pending",
+      rejectionReason: null,
     });
     const result = await canRequestPayout("u1");
     expect(result.allowed).toBe(false);

@@ -41,8 +41,8 @@ interface SupabaseError {
 }
 
 interface ConfectionerLegalRow {
-  legal_info: unknown;
-  user_id: string;
+  legalInfo: unknown;
+  userId: string;
   balance: number | null;
 }
 
@@ -74,9 +74,11 @@ export async function verifyForInvoice(
   _invoiceAmount?: number
 ): Promise<GateResult> {
   // Get the confectioner's legal info
+  // db1-3 (split-brain): confectioners — миграция 0017, колонки camelCase
+  // («legalInfo», «userId»); snake_case давал PGRST204 → вечный fail-closed.
   const { data: confectioner, error } = await supabaseAdmin
     .from("confectioners")
-    .select("legal_info, user_id")
+    .select("legalInfo, userId")
     .eq("id", confectionerId)
     .maybeSingle() as { data: ConfectionerLegalRow | null; error: SupabaseError | null };
 
@@ -89,7 +91,7 @@ export async function verifyForInvoice(
     return { allowed: false, reason: "Кондитер не найден" };
   }
 
-  const legalInfo = coerceLegalInfo(confectioner.legal_info);
+  const legalInfo = coerceLegalInfo(confectioner.legalInfo);
   if (!legalInfo?.inn) {
     return { allowed: false, reason: "У кондитера не указан ИНН организации" };
   }
@@ -103,7 +105,7 @@ export async function verifyForInvoice(
 
   if (!result.isAllowed) {
     const recorded = await recordVerification(result, {
-      userId: confectioner.user_id,
+      userId: confectioner.userId,
       confectionerId,
       trigger: "INVOICE_ISSUE",
     });
@@ -126,9 +128,10 @@ export async function verifyForPayout(
   confectionerId: string,
   payoutAmount?: number
 ): Promise<GateResult> {
+  // db1-3 (split-brain): camelCase-колонки 0017 (см. verifyForInvoice)
   const { data: confectioner, error } = await supabaseAdmin
     .from("confectioners")
-    .select("legal_info, user_id, balance")
+    .select("legalInfo, userId, balance")
     .eq("id", confectionerId)
     .maybeSingle() as { data: ConfectionerLegalRow | null; error: SupabaseError | null };
 
@@ -141,7 +144,7 @@ export async function verifyForPayout(
     return { allowed: false, reason: "Кондитер не найден" };
   }
 
-  const legalInfo = coerceLegalInfo(confectioner.legal_info);
+  const legalInfo = coerceLegalInfo(confectioner.legalInfo);
   if (!legalInfo?.inn) {
     return { allowed: false, reason: "У кондитера не указан ИНН организации" };
   }
@@ -163,7 +166,7 @@ export async function verifyForPayout(
 
   if (!result.isAllowed) {
     const recorded = await recordVerification(result, {
-      userId: confectioner.user_id,
+      userId: confectioner.userId,
       confectionerId,
       trigger: "PAYOUT_REQUEST",
     });

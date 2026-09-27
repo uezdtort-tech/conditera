@@ -25,6 +25,14 @@
  *     запрос помечал ВСЕ eligible-заказы payout_transferred_at, остаток
  *     становился невыплачиваем.
  *   • Создаётся запись в payout_requests (раньше выплата была невидима админу).
+ *
+ * P0 (db1-2, split-brain identity):
+ *   • Профиль кондитера ищется по «userId» (0017 camelCase), а не по
+ *     несуществующим «user_id»/«business_name» — прежде lookup падал с
+ *     PGRST204 → 500.
+ *   • eligible-заказы ищутся по confectioner.userId (orders.confectioner_id —
+ *     auth-UUID, миграция 0002), а не по confectioner.id (там conf_*-cuid) —
+ *     прежде список eligible был всегда пуст.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -38,13 +46,14 @@ interface SupabaseError {
   message: string;
 }
 
+/** Строка confectioners (0017, camelCase). */
 interface ConfectionerRow {
   id: string;
-  business_name: string;
+  businessName: string;
   balance: number | null;
   tariff: string | null;
-  legal_info: unknown;
-  user_id: string;
+  legalInfo: unknown;
+  userId: string;
 }
 
 interface UserTfaRow {
@@ -91,11 +100,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(400, "Укажите сумму выплаты (положительное число)");
     }
 
-    // Находим кондитера по userId
+    // Находим кондитера по «userId» (db1-2: auth-UUID; на схеме 0017
+    // колонки camelCase — «userId»/«businessName», snake_case даёт PGRST204)
     const { data: confectioner, error: confErr } = await supabaseAdmin
       .from("confectioners")
-      .select("id, business_name, balance, tariff, legal_info, user_id")
-      .eq("user_id", user.userId)
+      .select("id, businessName, balance, tariff, legalInfo, userId")
+      .eq("userId", user.userId)
       .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
 
     if (confErr) {
@@ -201,7 +211,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         id, number, total, delivery_cost,
         tariff_snapshot, commission_rate_snapshot
       `)
-      .eq("confectioner_id", confectioner.id)
+      // db1-2: orders.confectioner_id — auth-UUID (0002), поэтому фильтруем
+      // по confectioner.userId, а не по confectioner.id (conf_*-cuid).
+      // Прежний фильтр по conf-PK не находил ни одного заказа.
+      .eq("confectioner_id", confectioner.userId)
       .eq("payment_status", "released")
       .not("escrow_released_at", "is", null)
       .in("status", ["DELIVERED", "COMPLETED"])
@@ -305,7 +318,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       const { sendNotification } = await import("@/lib/notifications");
       await sendNotification({
-        userId: confectioner.user_id,
+        userId: confectioner.userId,
         template: "PAYOUT_PROCESSED",
         vars: {
           amount: body.amount,

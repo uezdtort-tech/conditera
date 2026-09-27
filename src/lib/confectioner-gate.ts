@@ -44,10 +44,10 @@ interface SupabaseError {
 
 interface ConfectionerRow {
   id: string;
-  business_name: string | null;
+  businessName: string | null;
   verified: boolean | null;
-  verification_status: string | null;
-  rejection_reason: string | null;
+  verificationStatus: string | null;
+  rejectionReason: string | null;
 }
 
 /**
@@ -57,10 +57,13 @@ interface ConfectionerRow {
 export async function checkConfectionerGate(
   userId: string
 ): Promise<ConfectionerGateResult> {
+  // db1-3 (split-brain): confectioners — миграция 0017, camelCase-колонки
+  // («userId», «businessName», «verificationStatus», «rejectionReason»);
+  // snake_case давал PGRST204 → все gate-проверки были вечным fail-closed.
   const { data: conf, error } = await supabaseAdmin
     .from("confectioners")
-    .select("id, business_name, verified, verification_status, rejection_reason")
-    .eq("user_id", userId)
+    .select("id, businessName, verified, verificationStatus, rejectionReason")
+    .eq("userId", userId)
     .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
 
   if (error) {
@@ -81,7 +84,7 @@ export async function checkConfectionerGate(
   }
 
   // Normalize to VerificationStatus union — fallback to "pending" для неизвестных значений
-  const rawStatus = conf.verification_status || "pending";
+  const rawStatus = conf.verificationStatus || "pending";
   const status: VerificationStatus =
     rawStatus === "approved" || rawStatus === "rejected" || rawStatus === "needs_revision"
       ? rawStatus
@@ -89,10 +92,10 @@ export async function checkConfectionerGate(
 
   const confectionerData = {
     id: conf.id,
-    businessName: conf.business_name || "",
+    businessName: conf.businessName || "",
     verified: conf.verified === true,
     verificationStatus: rawStatus,
-    rejectionReason: conf.rejection_reason,
+    rejectionReason: conf.rejectionReason,
   };
 
   if (status === "approved" || confectionerData.verified) {
@@ -105,8 +108,8 @@ export async function checkConfectionerGate(
 
   const reasons: Record<VerificationStatus, string> = {
     pending: "Ваш профиль ожидает модерации. После подтверждения администратором вы сможете публиковать товары и принимать заказы.",
-    rejected: `Ваш профиль отклонён: ${conf.rejection_reason || "причина не указана"}. Исправьте профиль и отправьте на повторную модерацию.`,
-    needs_revision: `Администратор запросил правки: ${conf.rejection_reason || "уточните детали"}. Внесите изменения и отправьте на повторную модерацию.`,
+    rejected: `Ваш профиль отклонён: ${conf.rejectionReason || "причина не указана"}. Исправьте профиль и отправьте на повторную модерацию.`,
+    needs_revision: `Администратор запросил правки: ${conf.rejectionReason || "уточните детали"}. Внесите изменения и отправьте на повторную модерацию.`,
     approved: "", // не должно сюда попасть
   };
 

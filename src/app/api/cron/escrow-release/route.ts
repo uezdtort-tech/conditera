@@ -26,6 +26,13 @@
  * Порядок шагов: сначала начисление, потом маркировка заказа; если
  * конкурентный воркер релизнул заказ первым — своё начисление
  * компенсируем назад. Payout клампится в ≥0.
+ *
+ * P0 (db1-1, split-brain identity): orders.confectioner_id — auth-UUID
+ * (FK → auth.users, миграция 0002), а у confectioners (миграция 0017)
+ * он лежит в TEXT-колонке «userId», НЕ в PK «id» (там conf_*-cuid).
+ * Прежний lookup .eq("id", order.confectioner_id) не находил кондитера
+ * → баланс не рос, а payout падал с «недостаточно средств». Колонки
+ * 0017 camelCase: «userId», «totalEarnings» (не user_id/total_earnings).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -37,6 +44,14 @@ const ESCROW_HOLD_HOURS = 24;
 const YOOKASSA_RATE = 0.025; // 2.5%
 const DEFAULT_COMMISSION_RATE = 0.15; // 15%
 const BATCH_SIZE = 100;
+
+/** Строка confectioners (0017, camelCase). */
+interface ConfectionerBalanceRow {
+  id: string;
+  userId: string;
+  balance: number | null;
+  totalEarnings: number | null;
+}
 
 interface EscrowOrder {
   id: string;
@@ -132,28 +147,31 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         // одному кондитеру (два cron-запуска → credited один, второй затёрт).
         let credited = false;
         let confUserId: string | null = null;
+        // db1-1: ищем по «userId» (auth-UUID = orders.confectioner_id),
+        // а не по PK «id»; колонки 0017 camelCase.
         for (let attempt = 0; attempt < 3 && !credited; attempt++) {
           const { data: conf, error: confErr } = await supabaseAdmin
             .from("confectioners")
-            .select("id, user_id, balance, total_earnings")
-            .eq("id", order.confectioner_id)
-            .maybeSingle();
+            .select("id, userId, balance, totalEarnings")
+            .eq("userId", order.confectioner_id)
+            .maybeSingle() as { data: ConfectionerBalanceRow | null; error: { message: string } | null };
 
           if (confErr || !conf) {
-            console.error(`[cron:escrow] confectioner not found for order ${order.id}`);
+            console.error(`[cron:escrow] confectioner not found (userId=${order.confectioner_id}) for order ${order.id}${confErr ? ": " + confErr.message : ""}`);
             break;
           }
-          confUserId = conf.user_id ?? null;
+          confUserId = conf.userId ?? null;
 
           const newBalance = (Number(conf.balance) || 0) + payout;
-          const newTotalEarnings = (Number(conf.total_earnings) || 0) + payout;
+          const newTotalEarnings = (Number(conf.totalEarnings) || 0) + payout;
 
           // CAS: обновляем только если баланс не изменился с момента чтения
+          // (обновляем по реальному PK conf.id из прочитанной строки)
           const { data: updRows, error: confUpdateErr } = await supabaseAdmin
             .from("confectioners")
             .update({
               balance: newBalance,
-              total_earnings: newTotalEarnings,
+              totalEarnings: newTotalEarnings,
             })
             .eq("id", conf.id)
             .eq("balance", conf.balance ?? 0)
@@ -192,18 +210,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         if (!orderUpd || orderUpd.length === 0) {
           // Уже релизнуто конкурентным запуском — откатываем свой инкремент
           console.warn(`[cron:escrow] order ${order.id} already released concurrently — compensating balance`);
+          // db1-1: та же identity-логика, что и в основном CAS-цикле
           for (let attempt = 0; attempt < 3; attempt++) {
             const { data: conf } = await supabaseAdmin
               .from("confectioners")
-              .select("id, balance, total_earnings")
-              .eq("id", order.confectioner_id)
-              .maybeSingle();
+              .select("id, balance, totalEarnings")
+              .eq("userId", order.confectioner_id)
+              .maybeSingle() as { data: ConfectionerBalanceRow | null };
             if (!conf) break;
             const { data: updRows, error: compErr } = await supabaseAdmin
               .from("confectioners")
               .update({
                 balance: (Number(conf.balance) || 0) - payout,
-                total_earnings: Math.max(0, (Number(conf.total_earnings) || 0) - payout),
+                totalEarnings: Math.max(0, (Number(conf.totalEarnings) || 0) - payout),
               })
               .eq("id", conf.id)
               .eq("balance", conf.balance ?? 0)

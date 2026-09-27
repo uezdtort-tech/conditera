@@ -448,6 +448,52 @@ DROP TABLE IF EXISTS public.venues CASCADE;
 
 ---
 
+## Money-path: identity кондитера и единицы денег
+
+> Обновлено после аудита «БД и целостность цепочек» @ `3f4ba40` (миграция `0034_money_path_identity.sql`).
+
+### Split-brain identity — как правильно
+
+В проекте **две модели кондитера**, и это осознанное состояние (вариант «A» аудита):
+
+| Сущность | Ключ | Смысл |
+|----------|------|-------|
+| `orders.confectioner_id`, `products.confectioner_id` | `UUID → auth.users` (0002) | ссылка на **пользователя** |
+| `confectioners.id` | `TEXT` PK (`conf_*`) | бизнес-профиль |
+| `confectioners."userId"` | `TEXT` (UNIQUE) | **связка профиля с пользователем** |
+
+Правила для кода money-path:
+
+1. **Профиль кондитера искать только по `"userId"`** — никогда `.eq("id", order.confectioner_id)`
+   (PK `id` — это `conf_*`-cuid, туда auth-UUID не попадает).
+2. **Eligible-заказы фильтровать только по `orders.confectioner_id`** (= auth-UUID = `confectioners."userId"`).
+3. Колонки `confectioners` — **camelCase** (0017): `businessName`, `balance`, `totalEarnings`, `legalInfo`, `verificationStatus`. Snake_case (`user_id`, `total_earnings`) даёт PGRST204.
+4. Таблицы из 0006–0008, унифицированные 0027 (`favorite_confectioners`, `tender_*`, `confectioner_geo`, `delivery_zones`), ссылаются на `confectioners.id` (профиль) — это другой контур, не money-path.
+
+Эталонные реализации: `src/app/api/cron/escrow-release/route.ts` (db1-1),
+`src/app/api/payouts/request/route.ts` (db1-2), `src/app/api/products/route.ts` (batch-join).
+
+### Единицы денег — РУБЛИ
+
+Все суммы в БД (`orders.total`, `payments.amount`, `refunds.amount`,
+`payout_requests.amount`, `payouts.amount`, `confectioners.balance`) — **целые рубли,
+без копеек**. Комментарии «в копейках» в миграциях 0002/0009/0019 **ложные** —
+перекрыты `COMMENT ON COLUMN` в 0034. На границе с YooKassa сумма конвертируется
+в строку `toFixed(2)`; webhook сверяет wire-копейки = `amount × 100`.
+См. аддендум в `download/ПЛАТЕЖНЫЙ_КОНТУР_АУДИТ_И_АРХИТЕКТУРА.md`.
+
+### Verification на живой БД
+
+```bash
+DATABASE_URL=postgresql://... npx tsx scripts/verify-money-path.ts
+```
+
+Проверяет: money-колонки `orders` (0034), grants RPC `deduct_conference_balance`,
+camelCase-схему `confectioners`, сирот заказов, застрявшие escrow/payout-состояния,
+сходимость `payments.amount = orders.total`, дубли payout-контуров. Read-only.
+
+---
+
 ## Контакты
 
 - **Документация по миграциям:** `supabase/migrations/README.md` (в каждом файле)
