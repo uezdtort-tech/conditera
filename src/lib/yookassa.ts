@@ -175,7 +175,8 @@ export async function getPaymentStatus(
 export async function refundPayment(
   paymentId: string,
   amount: number,
-  description?: string
+  description?: string,
+  idempotencyKey?: string
 ): Promise<{ success: boolean; refund?: any; error?: string }> {
   if (paymentId.startsWith("mock_")) {
     console.warn("⚠️ Mock refund для", paymentId);
@@ -187,8 +188,11 @@ export async function refundPayment(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // P3: детерминированный ключ — повторный запрос на возврат не задвоит деньги
-        "Idempotence-Key": idempotenceKeyFor("refund", paymentId),
+        // P0: детерминированный ключ — повторный запрос на возврат не задвоит деньги.
+        // Для ЧАСТИЧНЫХ возвратов передавайте уникальный ключ от refund-записи:
+        // один и тот же ключ при разных суммах вернёт ответ первого запроса,
+        // а второй возврат не исполнится.
+        "Idempotence-Key": idempotencyKey || idempotenceKeyFor("refund", paymentId),
         Authorization: getAuthHeader(),
       },
       body: JSON.stringify({
@@ -212,8 +216,12 @@ export async function refundPayment(
 }
 
 // Верификация webhook от YooKassa
-// В продакшене нужно проверять IP источника и/или подпись
-// P0 FIX: YooKassa webhook IP whitelist
+// В продакшене проверяем IP источника по официальным диапазонам YooKassa.
+// P0 FIX: прежняя реализация (1) не поддерживала IPv6 — диапазон
+// 2a02:5180::/32 отклонял ВСЕ IPv6-запросы (вебхуки по IPv6 никогда
+// не подтверждались), (2) трактовала маски /27 и /25 как /24 —
+// allowlist был в 8 раз шире допустимого. Теперь корректный CIDR
+// для IPv4 и IPv6.
 const YOOKASSA_IP_RANGES = [
   "185.71.76.0/27",
   "185.71.77.0/27",
@@ -224,24 +232,100 @@ const YOOKASSA_IP_RANGES = [
   "2a02:5180::/32",
 ];
 
-function ipInRange(ip: string, range: string): boolean {
-  // Simple check for exact IP or /32
-  if (range.includes("/")) {
-    // CIDR check — simplified for common cases
-    const [base, bits] = range.split("/");
-    const mask = parseInt(bits);
-    if (mask === 32) return ip === base;
-    // For /27, /25 etc. — simplified: check first N octets
-    const baseParts = base.split(".");
-    const ipParts = ip.split(".");
-    if (baseParts.length !== 4 || ipParts.length !== 4) return false;
-    const fullOctets = Math.floor(mask / 8);
-    for (let i = 0; i < fullOctets; i++) {
-      if (baseParts[i] !== ipParts[i]) return false;
-    }
-    return true;
+/** "185.71.76.13" → uint32; null для не-IPv4 */
+function ipv4ToNumber(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let num = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const n = Number(part);
+    if (n > 255) return null;
+    num = num * 256 + n;
   }
-  return ip === range;
+  return num >>> 0;
+}
+
+/** IPv6 (включая :: и встроенный IPv4) → bigint; null для не-IPv6 */
+function parseIPv6(ip: string): bigint | null {
+  if (!ip || !ip.includes(":")) return null;
+  if (!/^[0-9a-fA-F:.]+$/.test(ip)) return null;
+
+  let head = ip;
+  let tail = "";
+  const doubleColonParts = ip.split("::");
+  if (doubleColonParts.length > 2) return null; // только одно "::"
+  if (doubleColonParts.length === 2) {
+    head = doubleColonParts[0] ?? "";
+    tail = doubleColonParts[1] ?? "";
+  }
+
+  const toGroups = (section: string): string[] | null => {
+    if (!section) return [];
+    const raw = section.split(":");
+    const groups: string[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const g = raw[i];
+      if (g.includes(".")) {
+        // встроенный IPv4 (::ffff:1.2.3.4) — только последним элементом
+        if (i !== raw.length - 1) return null;
+        const v4 = ipv4ToNumber(g);
+        if (v4 === null) return null;
+        groups.push(((v4 >>> 16) & 0xffff).toString(16), (v4 & 0xffff).toString(16));
+      } else {
+        if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return null;
+        groups.push(g);
+      }
+    }
+    return groups;
+  };
+
+  const headGroups = toGroups(head);
+  const tailGroups = toGroups(tail);
+  if (!headGroups || !tailGroups) return null;
+
+  const missing = 8 - (headGroups.length + tailGroups.length);
+  if (missing < 0) return null;
+  // без "::" должно быть ровно 8 групп
+  if (doubleColonParts.length === 1 && missing !== 0) return null;
+
+  const all = [...headGroups, ...Array<string>(missing).fill("0"), ...tailGroups];
+  if (all.length !== 8) return null;
+
+  let result = 0n;
+  for (const g of all) {
+    result = (result << 16n) | BigInt(parseInt(g, 16));
+  }
+  return result;
+}
+
+/** Корректная проверка IP по CIDR для IPv4 и IPv6 */
+export function ipInRange(ip: string, range: string): boolean {
+  const slashIdx = range.indexOf("/");
+  const base = slashIdx === -1 ? range : range.slice(0, slashIdx);
+  const bitsRaw = slashIdx === -1 ? null : range.slice(slashIdx + 1);
+  const bits = bitsRaw === null ? null : Number(bitsRaw);
+  if (bits !== null && (!Number.isInteger(bits) || bits < 0)) return false;
+  if (!base) return false;
+
+  if (ip.includes(":") || base.includes(":")) {
+    const maskBits = bits ?? 128;
+    if (maskBits > 128) return false;
+    const ipBig = parseIPv6(ip);
+    const baseBig = parseIPv6(base);
+    if (ipBig === null || baseBig === null) return false;
+    const shift = BigInt(128 - maskBits);
+    return ipBig >> shift === baseBig >> shift;
+  }
+
+  const maskBits = bits ?? 32;
+  if (maskBits > 32) return false;
+  const ipNum = ipv4ToNumber(ip);
+  const baseNum = ipv4ToNumber(base);
+  if (ipNum === null || baseNum === null) return false;
+  if (maskBits === 0) return true;
+  const mask = (0xffffffff << (32 - maskBits)) >>> 0;
+  return (ipNum & mask) === (baseNum & mask);
 }
 
 export function verifyWebhook(request: Request): boolean {
