@@ -109,16 +109,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let query = supabaseAdmin
       .from("channel_stories")
       .select("*")
-      .gt("expires_at", nowIso)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: false })
+      .gt("expiresAt", nowIso)
+      .order("sortOrder", { ascending: true })
+      .order("createdAt", { ascending: false })
       .limit(MAX_STORIES_RETURN);
 
     if (confectionerId) {
-      query = query.eq("confectioner_id", confectionerId);
+      query = query.eq("confectionerId", confectionerId);
     }
     if (productId) {
-      query = query.eq("product_id", productId);
+      query = query.eq("productId", productId);
     }
 
     const { data: stories, error } = await query;
@@ -178,11 +178,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // TTL = 24 часа
     const expiresAt = new Date(Date.now() + STORY_TTL_HOURS * 60 * 60 * 1000).toISOString();
 
-    // Найти профиль кондитера
+    // Найти профиль кондитера (0017: camelCase — userId TEXT)
     const { data: confectioner, error: confErr } = await supabaseAdmin
       .from("confectioners")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("userId", user.id)
       .maybeSingle();
 
     if (confErr || !confectioner) {
@@ -195,19 +195,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: story, error: insertErr } = await supabaseAdmin
       .from("channel_stories")
       .insert({
-        confectioner_id: confectioner.id,
+        confectionerId: confectioner.id,
         image: image || "",
         video: video || null,
         type: type || (video ? "video" : "image"),
         caption: caption || null,
         duration: duration || 5,
-        product_id: productId || null,
-        promotion_id: promotionId || null,
-        expires_at: expiresAt,
-        views_count: 0,
-        likes_count: 0,
-        replies_count: 0,
-        sort_order: 0,
+        productId: productId || null,
+        promotionId: promotionId || null,
+        expiresAt: expiresAt,
+        viewsCount: 0,
+        likesCount: 0,
+        repliesCount: 0,
+        sortOrder: 0,
       })
       .select()
       .single();

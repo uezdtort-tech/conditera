@@ -9,6 +9,7 @@ import { OperatorDashboard } from "@/components/dashboard/operator-dashboard";
 import { ModeratorDashboardFull } from "@/components/dashboard/moderator-dashboard";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
 import { VenueOwnerDashboard } from "@/components/dashboard/venue-owner-dashboard";
+import { ServicesManager } from "@/components/dashboard/services-manager";
 import {
   AnimatorAgencyDashboard,
   RecreationCenterDashboard,
@@ -191,6 +192,7 @@ export function FoodServiceDashboard() {
     { id: "catalog", label: "Каталог", icon: Package },
     { id: "consign", label: "На реализацию", icon: Store },
     { id: "orders", label: "B2B-заказы", icon: ShoppingBag },
+    { id: "listings", label: "Объявления", icon: Megaphone },
     { id: "tastings", label: "Дегустации", icon: Calendar },
     { id: "finance", label: "Финансы", icon: DollarSign },
     { id: "settings", label: "Настройки", icon: Settings },
@@ -326,6 +328,7 @@ export function FoodServiceDashboard() {
           </Card>
         </div>
       )}
+      {tab === "listings" && <ServicesManager />}
       {tab === "settings" && <ProfileSettings />}
     </DashboardShell>
   );
@@ -375,6 +378,7 @@ export function EventOrganizerDashboard() {
       )}
       {tab === "events" && <EmptyState icon={Calendar} title="Все мероприятия" text="Календарь и список событий" action="Создать" />}
       {tab === "orders" && <EmptyState icon={ShoppingBag} title="Заказы на мероприятия" text="Торты, декор, услуги" />}
+      {tab === "listings" && <ServicesManager />}
       {tab === "settings" && <ProfileSettings />}
     </DashboardShell>
   );

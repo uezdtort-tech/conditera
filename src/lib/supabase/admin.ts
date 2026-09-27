@@ -16,8 +16,9 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { resolveSupabaseServerUrl } from "./url";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = resolveSupabaseServerUrl();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // Lazy warning — не падаем в build (next build запускается в production-mode,
@@ -38,7 +39,7 @@ if (_isStub) {
 }
 
 export const supabaseAdmin = createClient(
-  supabaseUrl || "http://localhost:8000",
+  supabaseUrl,
   serviceRoleKey || "stub-service-key",
   {
     auth: {

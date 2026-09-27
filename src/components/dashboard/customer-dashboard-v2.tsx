@@ -18,13 +18,14 @@ import {
 } from "recharts";
 import {
   Package, Heart, Coins, TrendingUp, Clock, Star, Settings, LogOut,
-  ChevronLeft, ShoppingBag, Gift, MessageSquare, Calendar,
+  ChevronLeft, ShoppingBag, Gift, MessageSquare, Calendar, CalendarDays,
 } from "lucide-react";
 import { formatCurrency, formatDate, ORDER_STATUS_LABELS } from "@/lib/finance";
 import {
   DashboardSidebarLayout, SidebarStat, LoadingState, ErrorState,
 } from "@/components/dashboard/_shared";
 import { useCustomerDashboard } from "@/lib/supabase/use-dashboards";
+import { VenueBookingsManager } from "@/components/dashboard/venue-bookings-manager";
 
 const TABS = [
   { id: "overview", label: "Обзор", icon: Package },
@@ -32,6 +33,7 @@ const TABS = [
   { id: "favorites", label: "Избранное", icon: Heart },
   { id: "inquiries", label: "Запросы", icon: MessageSquare, badge: "0" },
   { id: "bonuses", label: "Бонусы", icon: Coins },
+  { id: "venues", label: "Брони площадок", icon: CalendarDays },
   { id: "settings", label: "Настройки", icon: Settings },
 ];
 
@@ -292,6 +294,9 @@ export function CustomerDashboardV2(): React.JSX.Element {
             </Card>
           </div>
         );
+
+      case "venues":
+        return <VenueBookingsManager mode="customer" />;
 
       case "settings":
         return (

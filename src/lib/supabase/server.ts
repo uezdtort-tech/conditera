@@ -12,13 +12,14 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { resolveSupabaseServerUrl, SUPABASE_COOKIE_NAME } from "./url";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = resolveSupabaseServerUrl();
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseAnonKey) {
   console.warn(
-    "[supabase/server] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
+    "[supabase/server] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
     "Auth will not work."
   );
 }
@@ -27,9 +28,10 @@ export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
-    supabaseUrl || "http://localhost:8000",
+    supabaseUrl,
     supabaseAnonKey || "stub-anon-key",
     {
+      cookieOptions: { name: SUPABASE_COOKIE_NAME },
       cookies: {
         getAll() {
           return cookieStore.getAll();

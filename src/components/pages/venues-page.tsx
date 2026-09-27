@@ -13,8 +13,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +45,9 @@ import {
   Building2,
   Phone,
   Check,
+  CalendarDays,
+  Loader2,
+  PartyPopper,
 } from "lucide-react";
 
 interface VenueListing {
@@ -81,6 +87,10 @@ const AMENITY_LABELS: Record<string, string> = {
   bbq: "Мангальная зона",
   outdoor: "Открытая площадка",
   pond: "Водоём",
+  kids_zone: "Детская зона",
+  fireplace: "Камин",
+  terrace: "Терраса",
+  grill: "Гриль",
 };
 
 function amenityLabel(a: string): string {
@@ -109,6 +119,17 @@ export function VenuesPage() {
   const [minCapacity, setMinCapacity] = useState<string>("any");
   const [sortBy, setSortBy] = useState("popular");
   const [selected, setSelected] = useState<VenueListing | null>(null);
+
+  // ===== Бронирование (реальный флоу, таблица venue_bookings) =====
+  const [bookingStage, setBookingStage] = useState<"idle" | "form" | "sending" | "done">("idle");
+  const [bookingError, setBookingError] = useState("");
+  const [bDate, setBDate] = useState("");
+  const [bStart, setBStart] = useState("");
+  const [bEnd, setBEnd] = useState("");
+  const [bGuests, setBGuests] = useState("");
+  const [bPhone, setBPhone] = useState("");
+  const [bMessage, setBMessage] = useState("");
+  const [bReply, setBReply] = useState<{ deposit?: number; hours?: number | null }>({});
 
   // Загрузка live-данных (публичный API)
   useEffect(() => {
@@ -213,17 +234,74 @@ export function VenuesPage() {
     return result;
   }, [venues, search, city, minCapacity, sortBy]);
 
+  // Сброс формы брони при выборе другой площадки
+  useEffect(() => {
+    setBookingStage("idle");
+    setBookingError("");
+  }, [selected]);
+
+  const resetBookingForm = () => {
+    setBookingStage("idle");
+    setBookingError("");
+    setBDate("");
+    setBStart("");
+    setBEnd("");
+    setBGuests("");
+    setBMessage("");
+    setBReply({});
+  };
+
+  const submitBooking = async (v: VenueListing) => {
+    setBookingError("");
+    if (!bDate) {
+      setBookingError("Выберите дату мероприятия");
+      return;
+    }
+    setBookingStage("sending");
+    try {
+      const [csrf, headers] = await Promise.all([getCsrfToken(), getSessionAuthHeaders(undefined, { json: false })]);
+      const res = await fetch(`/api/venues/${v.id}/bookings`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json", "x-csrf-token": csrf },
+        body: JSON.stringify({
+          eventDate: bDate,
+          startTime: bStart || undefined,
+          endTime: bEnd || undefined,
+          guests: bGuests ? Number(bGuests) : undefined,
+          contactPhone: bPhone || undefined,
+          message: bMessage || undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBookingError(json.error || `Ошибка ${res.status}`);
+        setBookingStage("form");
+        return;
+      }
+      setBReply({ deposit: json.booking?.deposit_amount, hours: json.booking?.hours });
+      setBookingStage("done");
+      toast.success("Заявка отправлена", {
+        description: `«${v.name}» ответит вам в ближайшее время`,
+      });
+    } catch {
+      setBookingError("Сеть недоступна — попробуйте ещё раз");
+      setBookingStage("form");
+    }
+  };
+
   const handleBookingRequest = (v: VenueListing) => {
     const phone = asContacts(v.contacts).phone;
     if (!user) {
       setAuthModalOpen(true);
       return;
     }
-    toast.success("Заявка на бронирование отправлена", {
-      description: phone
-        ? `«${v.name}» ответит вам в ближайшее время. Телефон площадки: ${phone}`
-        : `«${v.name}» ответит вам в ближайшее время.`,
-    });
+    if (bookingStage === "done") {
+      resetBookingForm();
+    }
+    setBookingStage((s) => (s === "done" ? "done" : "form"));
+    if (phone) {
+      toast.info(`Телефон площадки: ${phone}`);
+    }
   };
 
   return (
@@ -504,7 +582,11 @@ export function VenuesPage() {
               )}
 
               <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                <Button className="flex-1" onClick={() => handleBookingRequest(selected)}>
+                <Button
+                  className="flex-1"
+                  onClick={() => handleBookingRequest(selected)}
+                  disabled={bookingStage === "sending"}
+                >
                   {user ? "Запросить бронирование" : "Войти и забронировать"}
                 </Button>
                 {asContacts(selected.contacts).phone && (
@@ -516,6 +598,71 @@ export function VenuesPage() {
                   </Button>
                 )}
               </div>
+
+              {user && (bookingStage === "form" || bookingStage === "sending") && (
+                <div className="mt-4 space-y-3 border-t pt-4">
+                  <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                    <CalendarDays className="h-4 w-4 text-primary" />
+                    Заявка на бронирование
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Дата *</Label>
+                      <Input type="date" min={new Date().toISOString().slice(0, 10)} value={bDate} onChange={(e) => setBDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Начало</Label>
+                      <Input type="time" value={bStart} onChange={(e) => setBStart(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Окончание</Label>
+                      <Input type="time" value={bEnd} onChange={(e) => setBEnd(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Гостей (до {selected.capacity})</Label>
+                      <Input type="number" min={1} max={selected.capacity} value={bGuests} onChange={(e) => setBGuests(e.target.value)} placeholder="50" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Телефон для связи</Label>
+                      <Input value={bPhone} onChange={(e) => setBPhone(e.target.value)} placeholder="+7 900 000-00-00" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Комментарий</Label>
+                    <Textarea rows={2} value={bMessage} onChange={(e) => setBMessage(e.target.value)} placeholder="Формат мероприятия, пожелания…" />
+                  </div>
+                  {bookingError && (
+                    <p className="text-xs text-destructive">{bookingError}</p>
+                  )}
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      {selected.min_rent_hours ? `Мин. срок — ${selected.min_rent_hours} ч. ` : ""}
+                      Депозит 50% после подтверждения.
+                    </p>
+                    <Button onClick={() => submitBooking(selected)} disabled={bookingStage === "sending"}>
+                      {bookingStage === "sending" && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                      Отправить заявку
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {bookingStage === "done" && (
+                <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30 p-3">
+                  <p className="text-sm font-semibold flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                    <PartyPopper className="h-4 w-4" />
+                    Заявка отправлена!
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Площадка рассмотрит заявку и свяжется с вами.
+                    {bReply.deposit ? ` Ориентировочный депозит: ${formatPrice(bReply.deposit)}${bReply.hours ? ` (${bReply.hours} ч)` : ""}.` : ""}
+                    {" "}
+                    Статус — в личном кабинете, раздел «Бронирования».
+                  </p>
+                </div>
+              )}
             </>
           )}
         </DialogContent>

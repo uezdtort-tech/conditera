@@ -20,6 +20,7 @@ import {
 import { formatCurrency, formatDate } from "@/lib/finance";
 import { SERVICE_CATEGORIES, PRICE_UNIT_LABELS } from "@/lib/mock-data-services";
 import { ServicesManager } from "@/components/dashboard/services-manager";
+import { VenueBookingsManager } from "@/components/dashboard/venue-bookings-manager";
 import { toast } from "sonner";
 
 type Tab = "overview" | "venue" | "services" | "listings" | "priceLists" | "bookings" | "earnings" | "settings";
@@ -59,7 +60,7 @@ export function VenueOwnerDashboard() {
     { id: "services" as Tab, label: "Услуги площадки", icon: Package, badge: String(myServices.length) },
     { id: "listings" as Tab, label: "Объявления услуг", icon: Megaphone },
     { id: "priceLists" as Tab, label: "Прайс-листы", icon: FileText, badge: String(myPriceLists.length) },
-    { id: "bookings" as Tab, label: "Бронирования", icon: Calendar, badge: "3" },
+    { id: "bookings" as Tab, label: "Бронирования", icon: Calendar },
     { id: "earnings" as Tab, label: "Финансы", icon: Wallet },
     { id: "settings" as Tab, label: "Настройки", icon: Settings },
   ];
@@ -208,14 +209,7 @@ export function VenueOwnerDashboard() {
 
             {tab === "priceLists" && <PriceListsTab ownerId={user.id} ownerName={user.name} />}
 
-            {tab === "bookings" && (
-              <Card className="p-6 text-center">
-                <Calendar className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                <h3 className="font-semibold">Календарь бронирований</h3>
-                <p className="text-sm text-muted-foreground mt-1">Полный список и управление слотами</p>
-                <Button className="mt-3">Открыть календарь</Button>
-              </Card>
-            )}
+            {tab === "bookings" && <VenueBookingsManager mode="owner" />}
 
             {tab === "earnings" && (
               <div className="space-y-4">

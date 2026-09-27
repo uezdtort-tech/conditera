@@ -134,8 +134,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 5. verifyPassword (Argon2id)
-    const isValid = await verifyPassword(password, user.password_hash);
+    // 5. verifyPassword (Argon2id).
+    // Переходный период (двойная auth-система): у пользователей, зарегистрированных
+    // через SupabaseAuthModal (GoTrue signInWithSignUp), password_hash в profiles нет —
+    // для них доверяем GoTrue signInWithPassword как источнику истины по паролю.
+    let goTrueAuthed = false;
+    let isValid = false;
+    if (user.password_hash) {
+      isValid = await verifyPassword(password, user.password_hash);
+    } else {
+      try {
+        const precheck = await getSupabaseServer();
+        const { error: gtPreErr } = await precheck.auth.signInWithPassword({
+          email: emailLower,
+          password,
+        });
+        if (!gtPreErr) {
+          isValid = true;
+          goTrueAuthed = true;
+        }
+      } catch {
+        // GoTrue недоступен — считаем пароль неверным (как и раньше)
+      }
+    }
     if (!isValid) {
       return NextResponse.json(
         { error: "Неверный email или пароль" },
@@ -167,36 +188,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // 7.a GoTrue-сессия (best effort): Supabase SSR API (/api/confectioner/*, дашборды)
     // читают sb-* cookies через getSession(). Пароли GoTrue и profiles.password_hash
     // совпадают, т.к. register создаёт пользователя в обоих хранилищах.
-    try {
-      const ssr = await getSupabaseServer();
-      const { error: gtErr } = await ssr.auth.signInWithPassword({
-        email: emailLower,
-        password,
-      });
-      if (gtErr) {
-        // Email не подтверждён в GoTrue (register делает email_confirm: false для prod-флоу
-        // письма-подтверждения). Пароль уже проверен Argon2id по profiles выше — владелец
-        // учётных данных подтверждён, поэтому подтверждаем email через admin API и повторяем.
-        if (gtErr.message === "Email not confirmed") {
-          const { error: upErr } = await supabaseAdmin.auth.admin
-            .updateUserById(user.id, { email_confirm: true });
-          if (!upErr) {
-            await ssr.auth.signInWithPassword({ email: emailLower, password });
+    // Для GoTrue-only пользователей сессия уже получена на шаге 5 (goTrueAuthed).
+    if (!goTrueAuthed) {
+      try {
+        const ssr = await getSupabaseServer();
+        const { error: gtErr } = await ssr.auth.signInWithPassword({
+          email: emailLower,
+          password,
+        });
+        if (gtErr) {
+          // Email не подтверждён в GoTrue (register делает email_confirm: false для prod-флоу
+          // письма-подтверждения). Пароль уже проверен Argon2id по profiles выше — владелец
+          // учётных данных подтверждён, поэтому подтверждаем email через admin API и повторяем.
+          if (gtErr.message === "Email not confirmed") {
+            const { error: upErr } = await supabaseAdmin.auth.admin
+              .updateUserById(user.id, { email_confirm: true });
+            if (!upErr) {
+              await ssr.auth.signInWithPassword({ email: emailLower, password });
+            } else {
+              console.warn("[login] GoTrue email confirm update failed:", upErr.message);
+            }
           } else {
-            console.warn("[login] GoTrue email confirm update failed:", upErr.message);
+            console.warn(
+              "[login] GoTrue signInWithPassword failed (legacy-only user?):",
+              gtErr.message,
+            );
           }
-        } else {
-          console.warn(
-            "[login] GoTrue signInWithPassword failed (legacy-only user?):",
-            gtErr.message,
-          );
         }
+      } catch (gtEx) {
+        console.warn(
+          "[login] GoTrue session skipped:",
+          gtEx instanceof Error ? gtEx.message : gtEx,
+        );
       }
-    } catch (gtEx) {
-      console.warn(
-        "[login] GoTrue session skipped:",
-        gtEx instanceof Error ? gtEx.message : gtEx,
-      );
     }
 
     const tokenPayload = {

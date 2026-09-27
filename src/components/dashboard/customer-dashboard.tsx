@@ -25,12 +25,14 @@ import {
   Gift,
   Building2,
   Calendar,
+  CalendarDays,
   Users,
   Navigation,
   FileText,
   Bell,
 } from "lucide-react";
 import { ProductCard } from "@/components/marketplace/product-card";
+import { VenueBookingsManager } from "@/components/dashboard/venue-bookings-manager";
 import {
   ORDER_STATUS_LABELS,
   PAYMENT_STATUS_LABELS,
@@ -197,6 +199,12 @@ export function CustomerDashboard() {
                   label="Уведомления"
                   active={activeTab === "notifications"}
                   onClick={() => setActiveTab("notifications")}
+                />
+                <SidebarTab
+                  icon={CalendarDays}
+                  label="Брони площадок"
+                  active={activeTab === "venueBookings"}
+                  onClick={() => setActiveTab("venueBookings")}
                 />
                 <SidebarTab
                   icon={FileText}
@@ -652,6 +660,8 @@ export function CustomerDashboard() {
             {activeTab === "negotiations" && <CustomerNegotiationTab />}
             {activeTab === "referral" && <CustomerReferralTab />}
             {activeTab === "tracking" && <CustomerTrackingTab />}
+
+            {activeTab === "venueBookings" && <VenueBookingsManager mode="customer" />}
 
             {activeTab === "settings" && (
               <ProfileSettings />

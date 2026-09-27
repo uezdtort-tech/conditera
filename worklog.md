@@ -6432,3 +6432,55 @@ Origin/main: 15f44fd. Консольные ошибки устранены (load
 - Playwright E2E прогон (пропущен в раунде из-за OOM-риска с chromium; покрытие — curl-скрипты 20/20).
 - Bookings-флоу площадок (слоты/подтверждение/депозит); UI-вкладка услуг EVENT_ORGANIZER/FOOD_SERVICE.
 - В prod: Vercel Cron/n8n вместо локального runner; YANDEX_* креды для включения кнопки.
+
+---
+Task ID: v3-round-6-setup-local-stack
+Agent: Super Z (new sandbox session)
+Task: Новый чат/песочница. Пользователь дал репо (uezdtort-tech/conditera) + ПРОМПТ_ДЛЯ_НОВОГО_ЧАТА_v3.md (upload/). Задача: развернуть проект в новой песочнице, поднять локальный Supabase-стек без Docker, проверить сайт браузером, продолжить разработку по бэклогу, запушить результат.
+
+Work Log:
+- Репо склонирован и развёрнут в /home/z/my-project (заменил sandbox-проект; sandbox Caddyfile/.zscripts/examples сохранены). bun install — 292 пакета (Next 16.3.5, @supabase/supabase-js 2.112.3).
+- Docker в песочнице НЕТ (как и раньше). Локальный стек пересобран с нуля в /home/z/stack:
+  - PostgreSQL 15.14 portable (theseus-rs/postgresql-binaries) → initdb в /home/z/stack/pgdata, :5432, LD_LIBRARY_PATH включает pg/lib (libossp-uuid16 из deb для uuid-ossp).
+  - GoTrue v2.197.0 — бинарь извлечён из Docker-образа supabase/gotrue:v2.197.0 (реестр, анонимный pull) → :3012. ВАЖНО: v2.164.0 не годится (его миграции создают таблицы БЕЗ квалификации auth.*); v2.197.0 создаёт auth.users/auth.uid()/auth.role() правильно.
+  - Storage API v1.14.5 — из образа supabase/storage-api:v1.14.5 (Node-приложение dist+node_modules) → :3013, backend=file, storage-files/. Нативный модуль fs-xattr пересобран под Node 24.
+  - PostgREST v12.2.0 (static, релиз GitHub) → :3011, схемы public,storage.
+  - mini-kong.js (:8000) — Node-прокси /rest/v1→3011, /auth/v1→3012, /storage/v1→3013 (замена Kong).
+  - JWT-секрет и anon/service_role ключи сгенерированы (gen-local-jwt.js → /home/z/stack/.env.stack), совпадающий секрет в postgrest/gotrue/storage.
+- baseline.sql (/home/z/stack/baseline.sql): роли authenticator/anon/authenticated/service_role(+gotrue), схемы public/extensions/auth/realtime/storage, uuid-ossp+pgcrypto+pg_trgm в extensions, search_path=public,extensions, public.update_updated_at_column() (0012 ожидает её, в 0001 её нет — без фикса DO-блок 0012 откатывал всю миграцию).
+- start-local-stack.sh — идемпотентный подъём всего стека + применение миграций 0001..0032 и сидов (маркер .migrations-applied).
+- .env.local создан (DATABASE_URL→:5432, NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000, ключи стека, METRIKA_ID=111432662).
+- Грабли и фиксы: (1) search_path без extensions → uuid_generate_v4() не резолвился; (2) psql-ошибки фильтровались паттерном ^ERROR (psql пишет "file:line: ERROR:") — исправлен фильтр; (3) GoTrue v2.164.0 → v2.197.0; (4) baseline не должен создавать auth.uid() (GoTrue падает "must be owner"); (5) fs-xattr под Node 24; (6) next-server убивался OOM-killer'ом при первой компиляции Turbopack — dev-watchdog.sh + NODE_OPTIONS=--max-old-space-size=2048.
+- Итог БД: 210 таблиц public, 307 RLS, 5 кондитеров (seed c0..c4), 28 категорий, 6 бакетов, auth-схема GoTrue. Ошибки миграций: 7 (pg_cron/pgsodium не установлены — не используются в runtime; 5 FK-нарушений в seed.sql на несуществующих users — безвредно).
+- E2E-проверка стека: signup через :8000/auth/v1/signup → user создан, access_token получен, триггер handle_new_user создал profile. PostgREST отдаёт confectioners. Все health-checks 200.
+
+Stage Summary:
+Стек полностью функционален без Docker. Next dev :3000 — все маршруты 200 (/, /confectioners, /catalog, /venues, /services-shop, /sitemap.xml, /api/confectioners|products|services|venues). /api/venues валиден (0 записей в БД). Артефакты: /home/z/stack/{start-local-stack.sh,mini-kong.js,baseline.sql,gen-local-jwt.js,dev-watchdog.sh,.env.stack}. .env.local в проекте. Далее: браузерная верификация, доработки раунда 6.
+
+---
+Task ID: v3-round-6-dev-auth-proxy-bookings-vitrine
+Agent: Super Z (new sandbox session)
+Task: Раунд 6 — браузерная верификация + доработки по бэклогу предыдущих раундов: (1) авторизация в preview-окружении, (2) bookings-флоу площадок, (3) сиды витрины, (4) вкладка «Объявления» для EVENT_ORGANIZER/FOOD_SERVICE, (5) найденные баги.
+
+Work Log:
+- **Same-origin прокси Supabase (ключевая проблема preview)**: в sandbox-preview браузер пользователя не может достучаться до http://localhost:8000 (его собственный localhost + CSP upgrade-insecure-requests). Реализовано:
+  - next.config.ts: rewrites beforeFiles /auth/v1|/rest/v1|/storage/v1 → 127.0.0.1:8000 (только когда NEXT_PUBLIC_SUPABASE_URL не задан/localhost; Next 16 требует rewrites-ФУНКЦИЮ — объект даёт "Invalid next.config.ts options").
+  - src/lib/supabase/url.ts (новый): resolveSupabaseServerUrl/BrowserUrl + SUPABASE_COOKIE_NAME="sb-conditera-auth-token". Storage key GoTrue выводится из hostname URL → браузер (origin preview) и сервер (127.0.0.1:8000) получали РАЗНЫЕ cookie-ключи; фикс — cookieOptions.name во всех 3 клиентах (browser/server/middleware).
+  - browser.ts/admin.ts/server.ts/middleware.ts — переведены на url.ts. Прод-поведение не меняется (реальный домен в env → используется как есть).
+- **Login fallback для GoTrue-only пользователей** (api/auth/login): у зарегистрированных через SupabaseAuthModal нет profiles.password_hash → Argon2 всегда падал «Неверный email или пароль». Теперь: если password_hash пуст → доверяем GoTrue signInWithPassword (источник истины) и продолжаем выдачу токенов; goTrueAuthed исключает повторный signIn на шаге 7a. E2E: login GoTrue-only юзера → 200, roles ['CUSTOMER','VENUE_OWNER'], оба токена.
+- **Бронирования площадок (полный флоу, бэклог round 4)**:
+  - Миграция 0033_venue_bookings.sql: таблица venue_bookings (snake_case, FK venues/auth.users, status pending/confirmed/rejected/cancelled/completed, price_snapshot, deposit_amount 50%, owner_reply), 5 индексов, updated_at-триггер, RLS (select own/owner/staff, insert own, update owner/author, delete own/admin), гранты.
+  - API: POST/GET /api/venues/[id]/bookings (создание с валидацией даты/времени/гостей/минималки + детекция пересечений 409; список для владельца/staff/свои), GET /api/venues/bookings ({mine,incoming} с enrich venues), PATCH /api/venues/[id]/bookings/[bookingId] (переходы статусов по роли + owner_reply). audit_log-заглушки заменены.
+  - UI: venues-page.tsx — форма брони в диалоге (дата/время/гости/телефон/комментарий) → POST → успех с депозитом; VenueBookingsManager (новый компонент, режимы owner/customer) в venue-owner-dashboard «Бронирования» и в customer-dashboard «Брони площадок» (обе версии дашборда: /dashboard монтирует v1, in-app nav — v2).
+  - E2E: бронь создана браузером (pending, депозит 180000 kop = 1800₽), owner confirm через PATCH с CSRF → confirmed + owner_reply.
+- **Сиды витрины (supabase/seed_vitrine.sql, в репо — раньше были вне репо)**: 5 демо-пользователей auth.users (confirmed_at — GENERATED, не вставлять!), привязка confectioners c0..c2 к auth-UUID, 12 товаров (products, статус published, цены в рублях), 4 площадки и 7 услуг (цены в КОПЕЙКАХ — первая версия сида была в рублях, исправлено), NOTIFY pgrst. Витрины /catalog, /venues, «Услуги и площадки» теперь на live-данных. Добавлен в start-local-stack.sh.
+- **Вкладка «Объявления» для EVENT_ORGANIZER/FOOD_SERVICE**: extra-dashboards.tsx — ServicesManager в оба дашборда (API уже принимал эти роли с round 4).
+- **Баги, найденные и исправленные**:
+  - src/app/api/stories/route.ts — schema drift: запросы в snake_case (expires_at, sort_order, confectioner_id, user_id на confectioners), а channel_stories (0017) — camelCase (expiresAt, sortOrder, confectionerId), confectioners — userId. Стрека падала с "column channel_stories.expires_at does not exist" при каждом GET. Исправлено на camelCase; GET отдаёт пустую ленту без ошибок.
+  - venues-page AMENITY_LABELS: +kids_zone/fireplace/terrace/grill (сида использовала ключи без лейблов).
+  - customer-dashboard-v2: вкладка «Брони площадок» добавлялась до импорта CalendarDays → ReferenceError в error boundary (найдено по dev.log, исправлено).
+- **Инфраструктура**: dev-watchdog.sh (авторестарт next dev после OOM-kill — Turbopack нативная память не ограничена NODE_OPTIONS), tsc требует --max-old-space-size=1450 в этой песочнице (4ГБ RAM, стек занимает ~1ГБ).
+- **Проверки раунда**: tsc --noEmit 0 ошибок; eslint 0 ошибок (3 pre-existing warning); браузерная верификация: главная/marquee "src: Supabase (live)"/каталог (live товары)/venues (live, 4)/услуги (live, 7)/кондитер-profile (live slug URL)/login реальный вход/dashboard сессии/бронирование end-to-end/мобильная вёрстка 390px; sitemap содержит slug-URL кондитеров; stories без ошибок.
+
+Stage Summary:
+Auth работает в preview (same-origin прокси + единый cookie-ключ), флоу бронирования площадок полный (создание→confirm→отмена, RLS, депозиты), витрины на live-данных (12 товаров/4 площадки/7 услуг в репо), вкладка объявлений для 2 новых ролей, 2 schema-drift бага исправлены. Миграция 0033. Осталось: Yandex OAuth креды, слоты/платёж депозита через YooKassa, Playwright E2E (риски OOM в этой песочнице).

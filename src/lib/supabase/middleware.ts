@@ -9,20 +9,22 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { resolveSupabaseServerUrl, SUPABASE_COOKIE_NAME } from "./url";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = resolveSupabaseServerUrl();
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
 
   // Если Supabase не настроен — пропускаем (dev mode без auth)
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseAnonKey) {
     return response;
   }
 
   try {
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookieOptions: { name: SUPABASE_COOKIE_NAME },
       cookies: {
         getAll() {
           return request.cookies.getAll();

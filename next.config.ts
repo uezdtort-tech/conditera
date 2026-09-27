@@ -8,6 +8,23 @@ const nextConfig: NextConfig = {
   // Standalone-сборка для Docker (генерирует .next/standalone)
   output: "standalone",
 
+  // ===== Same-origin прокси локального Supabase-стека (без Docker) =====
+  // Когда NEXT_PUBLIC_SUPABASE_URL не задан или указывает на localhost —
+  // браузерный клиент ходит по same-origin, а Next.js проксирует на mini-kong.
+  // В проде (реальный домен Supabase) rewrites не добавляются.
+  ...( !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(process.env.NEXT_PUBLIC_SUPABASE_URL)
+    ? {
+        rewrites: async () => ({
+          beforeFiles: [
+            { source: "/auth/v1/:path*", destination: "http://127.0.0.1:8000/auth/v1/:path*" },
+            { source: "/rest/v1/:path*", destination: "http://127.0.0.1:8000/rest/v1/:path*" },
+            { source: "/storage/v1/:path*", destination: "http://127.0.0.1:8000/storage/v1/:path*" },
+          ],
+        }),
+      }
+    : {}),
+
   // Turbopack: указываем корень проекта (исправляет предупреждение
   // "package-lock.json outside Git repository" на Windows в C:\www\Uezdny)
   turbopack: {

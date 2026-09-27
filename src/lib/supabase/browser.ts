@@ -10,16 +10,16 @@
  */
 
 import { createBrowserClient } from "@supabase/ssr";
+import { resolveSupabaseBrowserUrl, SUPABASE_COOKIE_NAME } from "./url";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 // Lazy warning — не падаем в build, только в runtime.
-const _isStub = !supabaseUrl || !supabaseAnonKey;
+const _isStub = !supabaseAnonKey;
 if (_isStub) {
   if (process.env.NODE_ENV === "development") {
     console.warn(
-      "[supabase/browser] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
+      "[supabase/browser] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
       "Auth will not work. Using stub client."
     );
   } else if (process.env.NODE_ENV === "production") {
@@ -29,9 +29,14 @@ if (_isStub) {
   }
 }
 
+// Браузерный URL: для локального стека — same-origin (см. url.ts),
+// для прода — env-домен как есть.
+const supabaseUrl = resolveSupabaseBrowserUrl();
+
 export const supabaseBrowser = createBrowserClient(
-  supabaseUrl || "http://localhost:8000",
-  supabaseAnonKey || "stub-anon-key"
+  supabaseUrl,
+  supabaseAnonKey || "stub-anon-key",
+  { cookieOptions: { name: SUPABASE_COOKIE_NAME } }
 );
 
 /**
