@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyRefreshToken, createAccessToken } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -27,8 +28,13 @@ interface RefreshRequestBody {
 /**
  * POST /api/auth/refresh — обновить access token.
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function POST(request: NextRequest): Promise<Response> {
   try {
+    // Rate-limit: защита от перебора refresh-токенов (10/min с IP)
+    const ip = getClientIP(request);
+    const blocked = await enforceRateLimit(request, `auth-refresh:${ip}`, 10, 60_000);
+    if (blocked) return blocked;
+
     const { data: refreshBody, error: parseErr } = await safeJsonBody<RefreshRequestBody>(request);
     if (parseErr || !refreshBody) {
       return NextResponse.json(
