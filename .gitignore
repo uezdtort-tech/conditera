@@ -63,3 +63,8 @@ server.log
 # Playwright artifacts
 test-results/
 playwright-report/
+
+# Local artifacts (never commit)
+/backups/
+/tool-results/
+/upload/
