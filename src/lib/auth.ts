@@ -1,10 +1,9 @@
 // JWT + bcrypt утилиты для авторизации.
 //
 // Безопасность:
-//   • Секреты JWT_SECRET берутся из env. Если не заданы — dev-fallback
-//     с предупреждением (НЕ для production).
-//   • В production секреты-заглушки (CHANGE_ME/fallback-/dev_) логируем как error,
-//     но не падаем (позволяем запустить для preview).
+//   • Секреты JWT_SECRET / JWT_REFRESH_SECRET берутся из env (fail-closed):
+//     в production отсутствие/заглушка → процесс не стартует; в dev — dev-fallback
+//     с предупреждением.
 //   • Все токены подписаны HS256.
 //   • Access token: 7d по умолчанию.
 //   • Refresh token: 30d, отдельный секрет.
@@ -17,27 +16,57 @@ import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-// === КРИТИЧНО: секреты без fallback ===
+// === КРИТИЧНО: секреты fail-closed ===
+//
+// Production: отсутствие секрета или заглушка (CHANGE_ME/fallback-/dev-/dev_)
+// → процесс отказывается стартовать (throw на module load).
+//   Исключение — фаза сборки (NEXT_PHASE=phase-production-build, `next build`):
+//   во время пререндера секреты могут быть недоступны, поэтому там — placeholder
+//   + warning; runtime всё равно потребует реальное значение.
+// Development: dev-значение с явным предупреждением.
 function getRequiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    console.warn(`⚠️  ${name} не задана — используется dev-значение. НЕ для production!`);
-    return `dev-${name}-${"0".repeat(32)}`;
+  const value = process.env[name]?.trim();
+  const isStub =
+    !value ||
+    value.startsWith("CHANGE_ME") ||
+    value.startsWith("fallback-") ||
+    value.startsWith("dev-") ||
+    value.startsWith("dev_");
+
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+  if (process.env.NODE_ENV === "production") {
+    if (isStub) {
+      if (isBuildPhase) {
+        console.warn(
+          `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
+            `используется placeholder. РАНТАЙМ всё равно потребует реальное значение!`
+        );
+        return `build-placeholder-${name}-${"0".repeat(24)}`;
+      }
+      throw new Error(
+        `[auth] ${name} отсутствует или содержит заглушку в production. ` +
+          `Отказ запуска. Задайте реальный секрет (openssl rand -hex 32) в окружении.`
+      );
+    }
+    return value;
   }
-  // В production — предупреждаем, но не падаем (чтобы не блокировать dev/preview)
-  if (process.env.NODE_ENV === "production" &&
-      (value.startsWith("CHANGE_ME") || value.startsWith("fallback-") || value.startsWith("dev_"))) {
-    console.error(`⚠️ КРИТИЧНО: ${name} содержит заглушку в production! Замените в .env.production.`);
-    // Не бросаем ошибку — позволяем запуститься для preview
+
+  // development / preview — только с предупреждением
+  if (isStub) {
+    console.warn(`⚠️  [auth] ${name} не задана — используется dev-значение. НЕ для production!`);
+    return `dev-${name}-${"0".repeat(32)}`;
   }
   return value;
 }
 
 const JWT_SECRET = new TextEncoder().encode(getRequiredEnv("JWT_SECRET"));
 
-// Refresh-секрет — отдельный от access, тоже без unsafe-default
+// Refresh-секрет — отдельная env-переменная (НЕ производная от JWT_SECRET).
+// ВНИМАНИЕ: после перехода на JWT_REFRESH_SECRET все прежние refresh-токены
+// инвалидируются — пользователи один раз перелогинятся.
 const JWT_REFRESH_SECRET = new TextEncoder().encode(
-  getRequiredEnv("JWT_SECRET") + "-refresh-v2"
+  getRequiredEnv("JWT_REFRESH_SECRET")
 );
 
 export interface JwtPayload extends JWTPayload {

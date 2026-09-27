@@ -47,6 +47,7 @@ check_var MEILI_MASTER_KEY ""
 check_var SMTP_HOST ""
 check_var SMTP_PORT ""
 check_var JWT_SECRET ""
+check_var JWT_REFRESH_SECRET ""
 check_var NEXT_PUBLIC_APP_URL "http"
 
 echo ""
