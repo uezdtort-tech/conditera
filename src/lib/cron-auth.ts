@@ -9,12 +9,12 @@
  * If CRON_SECRET is unset, the endpoints refuse to run (defensive default).
  */
 export function verifyCronSecret(req: Request): boolean {
-  const expected = process.env.CRON_SECRET;
+  const expected = process.env.CRON_SECRET?.trim();
   if (!expected) {
     console.warn("[cron] CRON_SECRET not set — refusing to run");
     return false;
   }
-  const got = req.headers.get("X-Cron-Secret");
+  const got = req.headers.get("X-Cron-Secret")?.trim();
   if (!got || got !== expected) {
     return false;
   }

@@ -6,15 +6,13 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { verifyCronSecret, cronUnauthorized } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<Response> {
   try {
-    const cronSecret = req.headers.get("X-Cron-Secret");
-    if (cronSecret !== process.env.CRON_SECRET) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!verifyCronSecret(req)) return cronUnauthorized();
 
     // Получить последние отзывы (за 24 часа)
     const { data: reviews, error } = await supabaseAdmin
