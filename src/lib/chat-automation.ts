@@ -65,11 +65,6 @@ interface OrderItemForChat {
   price: number;
 }
 
-interface ConfectionerRow {
-  user_id: string;
-  business_name: string | null;
-}
-
 /**
  * Получить (или создать) системного пользователя-бота.
  * Используется как senderId для всех auto-сообщений.
@@ -245,19 +240,12 @@ export async function ensureOrderChatRoom(orderId: string): Promise<string> {
     throw new Error(`Order ${orderId} not found`);
   }
 
-  // Получаем userId кондитера
-  let confectionerUserId: string | null = null;
-  if (order.confectioner_id) {
-    const { data: conf } = await supabaseAdmin
-      .from("confectioners")
-      .select("user_id, business_name")
-      .eq("id", order.confectioner_id)
-      .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
-    confectionerUserId = conf?.user_id || null;
-  }
-
+  // orders.confectioner_id = auth.users.id = confectioners."userId" (модель A / миграция 0034).
+  // Отдельный lookup профиля кондитера для participants не нужен.
   const participants = [order.customer_id];
-  if (confectionerUserId) participants.push(confectionerUserId);
+  if (order.confectioner_id) {
+    participants.push(order.confectioner_id);
+  }
 
   // Получаем items заказа для welcome-сообщения
   const { data: items, error: itemsErr } = await supabaseAdmin
