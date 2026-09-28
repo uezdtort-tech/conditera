@@ -6632,3 +6632,31 @@ Stage Summary:
 - НЕ сделано (PAY-2, осознанно): outbox для side-effects (текущий CAS закрывает гонку, но эффекты вне транзакции), журнал финансовых событий (ledger), PaymentAttempt-модель, сверка-реконсиляция по расписанию, сужение грантов остальных RPC 0013.
 - Ops: применить 0035 на живой БД (psql/SQL-editor) — до этого refund работает в fallback read-check режиме.
 - Напоминание: GitHub-токен светился в чате — ротация обязательна.
+
+---
+Task ID: pay3-payout-audit
+Agent: Z.ai Code (main)
+Task: PAY-раунд — аудит контура выплат @ 3eb6066 (маршруты выплат, схема БД, начисление/списание баланса, права доступа, конкурентные запросы, обработка ошибок провайдера) + исправления. Отправная точка проверена независимо: git fetch, origin/main = 3eb6066, дерево чистое.
+
+Work Log:
+- Инвентаризация: src/app/api/payouts/request, src/app/api/admin/payouts, cron escrow-release, finance.ts, organization-gate (verifyForPayout), confectioner-gate, RPC deduct_conference_balance (0013), DDL payout_requests (0009 — живая схема с user_id/bank_details; prisma 0001 c confectionerId — параллельная вселенная для PGlite), verify-money-path.ts.
+- Проверено и НЕ finding: grants deduct_conference_balance уже закрыты 0034 (REVOKE PUBLIC/anon/authenticated + service_role, сигнатурно-независимо); списание атомарно (FOR UPDATE + проверка достаточности); баланс пишут только два контура (escrow-cron +, payouts/request −) — двойной бухгалтерии нет.
+- P0-1 (двойная выплата батча): маркировка orders в payouts/request шла БЕЗ CAS и без проверки ошибок → конкурентные/повторные заявки списывали один батч дважды (окно: баланс > суммы батча, батч > MAX_ORDERS_FOR_PAYOUT=50 без ORDER BY, ретрай после частичного сбоя). Фикс: 0036 orders.payout_reserved_at + CAS-резерв каждого заказа + полная компенсация (unreserve по своей метке + возврат RPC add_conference_balance + rejected 409) + ORDER BY created_at.
+- P0-2 (немедленный 'paid' без провайдера и админа): payouts/request сам закрывал заявку 'paid', слал PAYOUT_PROCESSED «деньги поступят на карту» и ставил payout_transferred_at — при полном отсутствии payout-провайдера в коде. Фикс: заявка остаётся pending (резерв средств RPC deduct), а paid/payout_transferred_at — только админ complete.
+- P0-3 (POST admin/payouts): любой аутентифицированный мог создать заявку на любую сумму ≤10М без связи с балансом/кондитером. Фикс: POST только для профилей кондитеров; complete требует metadata.orders (заявки вне payouts/request не могут быть «выплачены»).
+- P0-4 (админ-контур сломан end-to-end): фронтовый useApprovePayout бил в несуществующий URL /api/admin/payouts/:id и не передавал payoutId в теле. Фикс: PATCH /api/admin/payouts {payoutId, action} + action 'complete'.
+- P1-5: INSPECTOR имел право PATCH выплат (и по RLS 0009). Фикс: код PATCH ADMIN/SUPER_ADMIN + RLS политика 0036 без INSPECTOR.
+- P1-6: PATCH менял статус с любого на любой (paid→rejected, повторный approve) без предусловий. Фикс: CAS-стейт-машина approve(pending→approved)/complete(approved→paid)/reject(pending|approved→rejected), конкурентный переход → 409.
+- P1-7: add/deduct_bonus_balance (0013) оставались PUBLIC EXECUTE — anon мог жечь/накачивать бонусные балансы. Фикс: гранты 0036 (service_role only; вызываются только через supabaseAdmin).
+- Миграция 0036_payout_integrity.sql (идемпотентна): payout_reserved_at + partial index; RPC add_conference_balance (SECURITY DEFINER, search_path=public); гранты 4 money/bonus-RPC; RLS без INSPECTOR; комментарии стейт-машины payout_requests (pending→approved→paid|rejected) и method.
+- Уведомления: PAYOUT_REQUEST_RECEIVED (заявка принята, средства зарезервированы), PAYOUT_PROCESSED теперь только на complete, PAYOUT_REJECTED (возврат на баланс).
+- verify-money-path.ts §7 (PAY-3): колонка payout_reserved_at, ACL add_conference_balance, ACL bonus-пары, RLS-политика без INSPECTOR, санитрия состояний (резервы, неизвестные статусы, открытые заявки без metadata.orders).
+- Валидация 0036 на PGlite 0.5.8 (scripts/verify-payout-0036-pglite.ts): 14/14 — CAS-семантика (второй резерв → 0 строк), RPC-ошибки (0/неизвестный id), гранты service_role-only, RLS без INSPECTOR, идемпотентность.
+- Гейты: tsc PASS; lint 0 errors (3 старых warning'а в чужих файлах); vitest 731/731; dev-сервер 200.
+
+Stage Summary:
+- Контур выплат переведён на стейт-машину pending(резерв) → approved → paid(факт) | rejected(возврат резерва); двойная выплата батча невозможна (CAS payout_reserved_at); админ-одобрение починено end-to-end; полномочия разделены (инспектор — читатель).
+- OPS (обязательно, до деплоя кода): применить 0036_payout_integrity.sql на живую БД (psql/SQL-editor) — новый код роутов ссылается на payout_reserved_at; затем прогнать DATABASE_URL=... npx tsx scripts/verify-money-path.ts (§7 валидирует 0036). До применения 0036 payouts/request будет 500 на выборке eligible.
+- Ops-долг с прошлых раундов: 0034, 0035, 0036 — применить на живой БД одним окном.
+- Осознанно НЕ сделано (PAY-2/PAY-3+): интеграция payout-провайдера (YooKassa payouts/СБП) — complete сейчас подтверждает ручной/внешний перевод; ledger-записи ConfectionerTransaction по-прежнему не пишутся ни одним движением баланса; частичные выплаты; унификация method-enum (card|sbp|bank_account vs invoice в типе фронта); админ-таб «Выплаты» в UI — мок-данные (admin-extra-tabs.tsx), реальное API не подключено; гонка списания 2FA backup-кода (два параллельных запроса).
+- Напоминание: GitHub-токен светился в чате — ротация обязательна (в истории репо токена НЕТ).
