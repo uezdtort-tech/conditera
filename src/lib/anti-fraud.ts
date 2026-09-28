@@ -47,16 +47,30 @@ export function hashIp(ip: string): string {
 
 /**
  * Извлечь IP из request headers.
- * Учитывает X-Forwarded-For, X-Real-IP (nginx/cloudflare).
+ *
+ * ДОВЕРЕННЫЙ ПРОКСИ: клиентский X-Forwarded-For подделываем — брать ПЕРВЫЙ
+ * элемент небезопасно, если запрос может прийти напрямую мимо доверенного
+ * прокси (обход rate-limit). Порядок доверия:
+ *   1. x-real-ip — заголовок доверенного reverse proxy (Caddy/nginx ставят
+ *      его перезаписью клиентского значения).
+ *   2. ХВОСТ x-forwarded-for с учётом TRUSTED_PROXY_HOPS (кол-во доверенных
+ *      прокси на пути, default 1) — реальный клиент в конце цепочки.
+ *   3. Иначе 0.0.0.0 (локальный/неизвестный).
+ *
+ * Эксплуатация: порт Next (:3000) не должен быть доступен извне напрямую —
+ * только через Caddy (см. docs/DNS_SETUP.md, раздел «Доверенный прокси»).
  */
 export function extractIp(req: Request): string {
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
-  }
   const realIp = req.headers.get("x-real-ip");
   if (realIp && realIp.trim().length > 0) return realIp.trim();
+
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const hops = Math.max(1, Number(process.env.TRUSTED_PROXY_HOPS || 1) || 1);
+    const parts = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
+    const idx = parts.length - hops;
+    if (idx >= 0 && parts[idx]) return parts[idx];
+  }
   return "0.0.0.0";
 }
 
@@ -91,38 +105,10 @@ export async function checkFraudLimit(
   const now = Date.now();
   const hourAgoIso = new Date(now - 60 * 60 * 1000).toISOString();
 
-  // Считаем попытки за последний час
-  const { count, error } = await supabaseAdmin
-    .from("order_fraud_logs")
-    .select("id", { count: "exact", head: true })
-    .eq("ip_hash", ipHash)
-    .eq("action", action)
-    .gte("created_at", hourAgoIso);
-
-  if (error) {
-    console.error("[anti-fraud] count failed:", error.message);
-    // Fail-open: лучше пропустить запрос, чем блокировать всех при сбое БД.
-    // Если fail-closed, то даже временный сбой БД блокирует всех пользователей.
-    return {
-      allowed: true,
-      remaining: config.maxPerHour,
-      resetAt: now + 60 * 60 * 1000,
-    };
-  }
-
-  const recentCount = count || 0;
-  const resetAt = now + 60 * 60 * 1000;
-
-  if (recentCount >= config.maxPerHour) {
-    return {
-      allowed: false,
-      reason: `Превышен лимит ${action} (${config.maxPerHour}/час с вашего IP). Попробуйте позже.`,
-      remaining: 0,
-      resetAt,
-    };
-  }
-
-  // Логируем попытку — fire-and-forget, но с await для надёжности.
+  // STRICT-порядок: сначала пишем попытку, потом считаем окно.
+  // Прежний порядок (count → insert) при N конкурентных запросах позволял
+  // всем пройти до первой записи — лимит занижался. Теперь каждая попытка
+  // даёт ровно одну запись: гонка не размывает счётчик.
   const { error: logErr } = await supabaseAdmin.from("order_fraud_logs").insert({
     ip_hash: ipHash,
     device_fp: deviceFp || null,
@@ -133,12 +119,50 @@ export async function checkFraudLimit(
 
   if (logErr) {
     console.warn("[anti-fraud] log insert failed:", logErr.message);
-    // Non-fatal — лимит уже проверен, лог не критичен.
+    // Fail-open: не смогли записать попытку — пропускаем, иначе сбой лога
+    // блокирует всех пользователей.
+    return {
+      allowed: true,
+      remaining: config.maxPerHour,
+      resetAt: now + 60 * 60 * 1000,
+    };
+  }
+
+  // Считаем попытки за последний час (включая только что записанную)
+  const { count, error } = await supabaseAdmin
+    .from("order_fraud_logs")
+    .select("id", { count: "exact", head: true })
+    .eq("ip_hash", ipHash)
+    .eq("action", action)
+    .gte("created_at", hourAgoIso);
+
+  if (error) {
+    console.error("[anti-fraud] count failed:", error.message);
+    // Fail-open: лучше пропустить запрос, чем блокировать всех при сбое БД.
+    return {
+      allowed: true,
+      remaining: config.maxPerHour,
+      resetAt: now + 60 * 60 * 1000,
+    };
+  }
+
+  const recentCount = count || 0;
+  const resetAt = now + 60 * 60 * 1000;
+
+  if (recentCount > config.maxPerHour) {
+    // Отклонённая попытка остаётся в логе: окно расходуется и на отказы —
+    // осознанный strict-режим против брутфорса/масс-регистрации.
+    return {
+      allowed: false,
+      reason: `Превышен лимит ${action} (${config.maxPerHour}/час с вашего IP). Попробуйте позже.`,
+      remaining: 0,
+      resetAt,
+    };
   }
 
   return {
     allowed: true,
-    remaining: config.maxPerHour - recentCount - 1,
+    remaining: config.maxPerHour - recentCount,
     resetAt,
   };
 }

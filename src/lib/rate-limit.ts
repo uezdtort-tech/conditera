@@ -178,16 +178,27 @@ export async function enforceRateLimit(
 
 /**
  * Извлекает IP-адрес клиента из запроса.
- * Учитывает proxy (X-Forwarded-For) и Vercel/Cloudflare заголовки.
+ *
+ * Доверенный прокси: клиентский X-Forwarded-For подделываем — первый элемент
+ * можно брать только если запрос гарантированно прошёл через доверенный прокси.
+ * Порядок доверия: x-real-ip (доверенный proxy, перезапись) → cf-connecting-ip
+ * (только когда Cloudflare Proxy реально на пути) → хвост X-Forwarded-For
+ * с учётом TRUSTED_PROXY_HOPS (default 1).
  */
 export function getClientIP(req: Request): string {
   const headers = req.headers
-  return (
-    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    headers.get('x-real-ip') ||
-    headers.get('cf-connecting-ip') ||
-    'unknown'
-  )
+  const realIp = headers.get('x-real-ip')?.trim()
+  if (realIp) return realIp
+  const cfIp = headers.get('cf-connecting-ip')?.trim()
+  if (cfIp) return cfIp
+  const forwarded = headers.get('x-forwarded-for')
+  if (forwarded) {
+    const hops = Math.max(1, Number(process.env.TRUSTED_PROXY_HOPS || 1) || 1)
+    const parts = forwarded.split(',').map((p) => p.trim()).filter(Boolean)
+    const idx = parts.length - hops
+    if (idx >= 0 && parts[idx]) return parts[idx]
+  }
+  return 'unknown'
 }
 
 /**

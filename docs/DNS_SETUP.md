@@ -214,3 +214,15 @@ Env при схеме:
 - `NEXT_PUBLIC_APP_URL=https://conditera.ru`
 - OAuth redirect URI — на публичный домен (не localhost)
 - YooKassa webhook URL — на публичный домен
+
+## Доверенный прокси и X-Forwarded-For (антифрод / rate-limit)
+
+`src/lib/anti-fraud.ts (extractIp)` и `src/lib/rate-limit.ts (getClientIP)` определяют IP так:
+1. `X-Real-IP` — заголовок доверенного reverse proxy (ставится перезаписью);
+2. `CF-Connecting-IP` — только если Cloudflare Proxy реально на пути;
+3. хвост `X-Forwarded-For` с учётом `TRUSTED_PROXY_HOPS` (по умолчанию 1).
+
+Требования схемы «белая IP»:
+- Внешний доступ — ТОЛЬКО через Caddy (80/443). Прямую публикацию порта Next (:3000) наружу исключить, иначе клиент подделывает XFF и обходит rate-limit.
+- В Caddyfile для upstream добавить: `header_up X-Real-IP {remote_host}`
+- Если прокси два (CDN → Caddy), выставить `TRUSTED_PROXY_HOPS=2`.
