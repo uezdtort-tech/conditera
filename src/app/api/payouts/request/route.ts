@@ -5,40 +5,44 @@
  * 1. Пользователь — кондитер
  * 2. Организация действующая (verifyForPayout)
  * 3. Сумма ≤ balance
- * 4. Есть завершённые заказы с payout_transferred_at = null
+ * 4. Есть завершённые заказы с payout_transferred_at = null И payout_reserved_at = null
  *
- * Создает запись о выплате и (в production) вызывает YooKassa payout API.
+ * P0 (pay3, state-machine выплат):
+ *   • Созданная заявка остаётся в статусе "pending" — резервирует средства
+ *     (RPC deduct_confectioner_balance) и состав (CAS payout_reserved_at на
+ *     каждом заказе). Фактическая выплата — только после админ-подтверждения:
+ *     PATCH /api/admin/payouts {payoutId, action:"approve"}, затем
+ *     action:"complete" ставит
+ *     payout_transferred_at и статус "paid". Прежний немедленный "paid"
+ *     без провайдера и без админа вводил в заблуждение и обходил одобрение.
+ *   • P0-1 (двойная выплата батча): каждый заказ резервируется CAS-апдейтом
+ *     (payout_reserved_at IS NULL → NOT NULL). Конкурентная/повторная заявка
+ *     не может включить тот же заказ; при частичном сбое резерва — полная
+ *     компенсация: возврат резерва RPC add_confectioner_balance + снятие
+ *     payout_reserved_at + заявка → rejected. Раньше маркировка заказов шла
+ *     без CAS и без проверки ошибок — один и тот же батч можно было списать
+ *     дважды (баланс > суммы батча, батч > MAX_ORDERS_FOR_PAYOUT, ретрай).
+ *   • Детерминированный батч: ORDER BY created_at (прежде порядок был
+ *     недетерминированным — два запроса могли увидеть разные наборы).
+ *
+ * Прежние фиксы (pay0-6, db1-2): eligible = payment_status='released' +
+ * escrow_released_at NOT NULL; профиль по «userId» (0017, camelCase);
+ * fail-closed вместо не-атомарного fallback; выплата только на ПОЛНУЮ
+ * сумму батча; запись в payout_requests.
  *
  * Безопасность:
  *   • POST: требует AUTHENTICATED + CONFECTIONER + checkConfectionerGate + verifyForPayout.
  *   • POST: 2FA-проверка если tfa_required_for включает "payout".
- *   • Atomic balance decrement через RPC deduct_confectioner_balance — нет race condition.
+ *   • Atomic balance decrement через RPC deduct_confectioner_balance (0013,
+ *     гранты 0034: EXECUTE только service_role).
+ *   • amount — целое число рублей, совпадающее с расчётом по снапшотам.
  *   • Все db-запросы на supabaseAdmin с type-safe interfaces.
- *
- * P0 (pay0-6):
- *   • eligible-заказы: payment_status='released' + escrow_released_at NOT NULL
- *     (раньше фильтр был payment_status='succeeded' — этот статус нигде
- *     не пишется, путь выплат был мёртвым).
- *   • Fail-closed: при ошибке RPC — 500 (раньше был не-атомарный fallback
- *     `balance = Math.max(0, balance − amount)` с гонкой и тихим овердрафтом).
- *   • Выплата — только на ПОЛНУЮ доступную сумму батча: раньше частичный
- *     запрос помечал ВСЕ eligible-заказы payout_transferred_at, остаток
- *     становился невыплачиваем.
- *   • Создаётся запись в payout_requests (раньше выплата была невидима админу).
- *
- * P0 (db1-2, split-brain identity):
- *   • Профиль кондитера ищется по «userId» (0017 camelCase), а не по
- *     несуществующим «user_id»/«business_name» — прежде lookup падал с
- *     PGRST204 → 500.
- *   • eligible-заказы ищутся по confectioner.userId (orders.confectioner_id —
- *     auth-UUID, миграция 0002), а не по confectioner.id (там conf_*-cuid) —
- *     прежде список eligible был всегда пуст.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { verifyForPayout } from "@/lib/organization-gate";
-import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
+import { safeJsonBody, HttpError, handleRouteError, readEnumField } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -77,11 +81,15 @@ interface PayoutBody {
   amount?: number;
   totpCode?: string;
   backupCode?: string;
+  method?: string;
+  bankDetails?: unknown;
 }
 
 const MAX_ORDERS_FOR_PAYOUT = 50;
+const MAX_BANK_DETAILS_KEYS = 20;
 const YOOKASSA_RATE = 0.025;
 const DEFAULT_COMMISSION_RATE = 0.15;
+const PAYOUT_METHODS = ["card", "sbp", "bank_account", "invoice"] as const;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -96,8 +104,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(400, "Тело запроса обязательно");
     }
 
-    if (typeof body.amount !== "number" || !Number.isFinite(body.amount) || body.amount <= 0) {
-      throw new HttpError(400, "Укажите сумму выплаты (положительное число)");
+    if (
+      typeof body.amount !== "number" ||
+      !Number.isFinite(body.amount) ||
+      !Number.isInteger(body.amount) ||
+      body.amount <= 0
+    ) {
+      throw new HttpError(400, "Укажите сумму выплаты (целое число рублей)");
+    }
+
+    // Способ выплаты (pay3: больше не хардкод «card»); способ получения
+    // денег подтверждает админ на этапе approve/complete.
+    const methodResult = readEnumField(
+      { method: body.method || "card" },
+      "method",
+      PAYOUT_METHODS
+    );
+    if (methodResult.error || !methodResult.value) {
+      throw new HttpError(422, methodResult.error || `method должен быть одним из: ${PAYOUT_METHODS.join(", ")}`);
+    }
+    const method = methodResult.value;
+
+    // bankDetails — опциональный объект (куда выводить), без инъекций
+    let bankDetails: Record<string, unknown> | null = null;
+    if (body.bankDetails !== undefined && body.bankDetails !== null) {
+      if (typeof body.bankDetails !== "object" || Array.isArray(body.bankDetails)) {
+        throw new HttpError(422, "bankDetails должен быть объектом");
+      }
+      const bd = body.bankDetails as Record<string, unknown>;
+      if (Object.keys(bd).length > MAX_BANK_DETAILS_KEYS) {
+        throw new HttpError(422, `bankDetails: слишком много полей (макс ${MAX_BANK_DETAILS_KEYS})`);
+      }
+      bankDetails = bd;
     }
 
     // Находим кондитера по «userId» (db1-2: auth-UUID; на схеме 0017
@@ -116,7 +154,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(404, "Профиль кондитера не найден");
     }
 
-    // Проверка баланса
+    // Проверка баланса (pre-check для UX; атомарный гейт — RPC deduct)
     const balance = confectioner.balance || 0;
     if (body.amount > balance) {
       throw new HttpError(400, `Недостаточно средств. Доступно: ${balance}₽`);
@@ -202,9 +240,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Находим заказы для выплаты (снапшот тарифа из заказа!)
-    // P0: 'released' — эскроу действительно релизнут (cron escrow-release);
-    // статус 'succeeded' в payment_status нигде не пишется — прежний
-    // фильтр не находил ни одного заказа.
+    // pay3: payout_reserved_at IS NULL — заказы в открытых заявках не
+    // включаются повторно (P0-1). pay0-6: 'released' — эскроу действительно
+    // релизнут; статус 'succeeded' в payment_status нигде не пишется.
     const { data: eligibleOrders, error: ordersErr } = await supabaseAdmin
       .from("orders")
       .select(`
@@ -213,12 +251,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `)
       // db1-2: orders.confectioner_id — auth-UUID (0002), поэтому фильтруем
       // по confectioner.userId, а не по confectioner.id (conf_*-cuid).
-      // Прежний фильтр по conf-PK не находил ни одного заказа.
       .eq("confectioner_id", confectioner.userId)
       .eq("payment_status", "released")
       .not("escrow_released_at", "is", null)
       .in("status", ["DELIVERED", "COMPLETED"])
       .is("payout_transferred_at", null)
+      .is("payout_reserved_at", null)
+      // pay3: детерминированный батч (прежде порядок был не определён)
+      .order("created_at", { ascending: true })
       .limit(MAX_ORDERS_FOR_PAYOUT) as { data: OrderForPayoutRow[] | null; error: SupabaseError | null };
 
     if (ordersErr) {
@@ -248,10 +288,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(400, "Нет заказов, доступных для выплаты");
     }
 
-    // P0: выплата — только на ПОЛНУЮ доступную сумму батча.
-    // Частичный запрос раньше помечал ВСЕ заказы выплаченными,
-    // и остаток становился невыплачиваем. Частичные выплаты — вместе
-    // с ledger-учётом (PAY-3).
+    // P0 (pay0-6): выплата — только на ПОЛНУЮ доступную сумму батча.
+    // Частичные выплаты — вместе с ledger-учётом (PAY-2/PAY-3+).
     if (body.amount !== totalPayout) {
       throw new HttpError(
         400,
@@ -259,14 +297,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Регистрируем выплату в payout_requests — единый журнал для админа
-    // (раньше мгновенная выплата была невидима в /api/admin/payouts)
+    // Регистрируем заявку (статус pending — деньги зарезервируются ниже,
+    // фактическая выплата произойдёт на admin complete)
     const { data: payoutRequest, error: payoutReqErr } = await supabaseAdmin
       .from("payout_requests")
       .insert({
         user_id: user.userId,
         amount: body.amount,
-        method: "card",
+        method,
+        bank_details: bankDetails,
         status: "pending",
         metadata: {
           source: "payouts/request",
@@ -281,7 +320,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(500, "Не удалось зарегистрировать выплату");
     }
 
-    // Списываем баланс кондитера атомарно через RPC
+    // Резервируем средства: атомарное списание баланса через RPC (0013)
     const { error: balanceErr } = await supabaseAdmin
       .rpc("deduct_confectioner_balance", {
         p_confectioner_id: confectioner.id,
@@ -289,8 +328,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
 
     if (balanceErr) {
-      // P0: fail-closed. Прежний fallback `balance = Math.max(0, balance − amount)`
-      // был не атомарным (гонка) и молча прощал овердрафт.
+      // P0 (pay0-6): fail-closed, никакого fallback с овердрафтом
       console.error("[payouts/request] balance RPC failed:", balanceErr.message);
       await supabaseAdmin
         .from("payout_requests")
@@ -299,30 +337,81 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(500, "Сервис баланса недоступен, попробуйте позже");
     }
 
-    // Отмечаем заказы как выплаченные — на ПОЛНУЮ сумму которых и выплатили
+    // P0-1 (pay3): CAS-резерв каждого заказа. Апдейт проходит ТОЛЬКО если
+    // заказ ещё не зарезервирован и не выплачен — конкурентная заявка не
+    // может захватить тот же заказ (в отличие от прежней безусловной
+    // маркировки без проверки ошибок).
     const nowIso = new Date().toISOString();
+    const reserved: string[] = [];
+    let reserveRace = false;
     for (const op of orderPayouts) {
-      await supabaseAdmin
+      const { data: updRows, error: updErr } = await supabaseAdmin
         .from("orders")
-        .update({ payout_transferred_at: nowIso })
-        .eq("id", op.orderId);
+        .update({ payout_reserved_at: nowIso })
+        .eq("id", op.orderId)
+        .eq("payment_status", "released")
+        .is("payout_transferred_at", null)
+        .is("payout_reserved_at", null)
+        .select("id");
+
+      if (updErr) {
+        console.error("[payouts/request] order reserve failed:", op.orderId, updErr.message);
+        reserveRace = true;
+        break;
+      }
+      if (!updRows || updRows.length === 0) {
+        // Заказ забран конкурентной заявкой / изменился статус — откатываем всё
+        console.warn("[payouts/request] order reserve CAS lost (concurrent?):", op.orderId);
+        reserveRace = true;
+        break;
+      }
+      reserved.push(op.orderId);
     }
 
-    // Закрываем запись выплаты
-    await supabaseAdmin
-      .from("payout_requests")
-      .update({ status: "paid", processed_at: nowIso })
-      .eq("id", payoutRequest.id);
+    if (reserveRace) {
+      // Полная компенсация: снимаем свой резерв, возвращаем средства, rejected
+      if (reserved.length > 0) {
+        const { error: unreserveErr } = await supabaseAdmin
+          .from("orders")
+          .update({ payout_reserved_at: null })
+          .in("id", reserved)
+          .eq("payout_reserved_at", nowIso); // снимаем только СВОЮ метку
+        if (unreserveErr) {
+          console.error("[payouts/request] unreserve failed (needs ops):", unreserveErr.message);
+        }
+      }
+      const { error: refundErr } = await supabaseAdmin.rpc("add_confectioner_balance", {
+        p_confectioner_id: confectioner.id,
+        p_amount: body.amount,
+      });
+      if (refundErr) {
+        console.error(
+          "[payouts/request] COMPENSATION FAILED — резерв не возвращён, нужна ручная сверка:",
+          refundErr.message,
+          { payoutRequestId: payoutRequest.id, confectionerId: confectioner.id, amount: body.amount }
+        );
+      }
+      await supabaseAdmin
+        .from("payout_requests")
+        .update({
+          status: "rejected",
+          rejection_reason: "reserve race: состав выплаты изменился конкурентной заявкой",
+        })
+        .eq("id", payoutRequest.id);
+      throw new HttpError(409, "Состав выплаты изменился (конкурентный запрос). Попробуйте ещё раз.");
+    }
 
-    // Уведомление (non-blocking)
+    // Уведомление о регистрации заявки (non-blocking).
+    // pay3: PAYOUT_PROCESSED («деньги поступят на карту») отправляет админ
+    // на complete — раньше он уходил здесь, до любой реальной выплаты.
     try {
       const { sendNotification } = await import("@/lib/notifications");
       await sendNotification({
         userId: confectioner.userId,
-        template: "PAYOUT_PROCESSED",
+        template: "PAYOUT_REQUEST_RECEIVED",
         vars: {
           amount: body.amount,
-          cardLast4: "••••",
+          orders: orderPayouts.length,
         },
       });
     } catch (e) {
@@ -332,9 +421,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       success: true,
+      status: "pending",
       amount: body.amount,
       orders: orderPayouts.length,
       details: orderPayouts,
+      message: "Заявка зарегистрирована, средства зарезервированы. Ожидайте подтверждения администратора.",
     });
   } catch (error) {
     return handleRouteError(error);
