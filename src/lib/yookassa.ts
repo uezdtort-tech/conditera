@@ -32,6 +32,17 @@ function getAuthHeader(): string {
 }
 
 /**
+ * PAY-1: таймаут сетевых вызовов (default 15с).
+ * Зависший запрос провайдера не должен держать роут неопределённо долго;
+ * при таймауте операция «неизвестна» — сверка выполняется по API (getPaymentStatus).
+ */
+function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 15000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+/**
  * P3: Идемпотентность YooKassa.
  *
  * Правило YooKassa: один и тот же Idempotence-Key = один и тот же результат.
@@ -75,9 +86,15 @@ export interface YooKassaPaymentResponse {
 export async function createPayment(
   data: YooKassaPaymentRequest
 ): Promise<{ success: boolean; payment?: YooKassaPaymentResponse; error?: string }> {
-  // Если YooKassa не настроена — возвращаем mock-ответ (заглушка)
+  // Если YooKassa не настроена — mock-ответ ТОЛЬКО вне production.
+  // PAY-1: в production отсутствие конфигурации — ошибка: фиктивный
+  // «успешный» платёж не должен существовать в боевом контуре.
   if (!isYookassaConfigured()) {
-    console.warn("⚠️ YooKassa не настроена. Используется mock-ответ.");
+    if (process.env.NODE_ENV === "production") {
+      console.error("[yookassa] createPayment: шлюз не настроен (production) — mock отключён");
+      return { success: false, error: "Платёжный шлюз не настроен" };
+    }
+    console.warn("⚠️ YooKassa не настроена. Используется mock-ответ (только dev).");
     console.warn("   Для активации укажите YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в .env");
     return {
       success: true,
@@ -97,7 +114,7 @@ export async function createPayment(
   }
 
   try {
-    const response = await fetch(`${YOOKASSA_API_URL}/payments`, {
+    const response = await fetchWithTimeout(`${YOOKASSA_API_URL}/payments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -142,6 +159,11 @@ export async function getPaymentStatus(
   paymentId: string
 ): Promise<{ success: boolean; payment?: YooKassaPaymentResponse; error?: string }> {
   if (paymentId.startsWith("mock_")) {
+    // PAY-1: mock-ID не может «подтверждать» оплату в production.
+    if (process.env.NODE_ENV === "production") {
+      console.error("[yookassa] getPaymentStatus: mock paymentId в production — отклонено");
+      return { success: false, error: "Mock-платежи отключены в production" };
+    }
     return {
       success: true,
       payment: {
@@ -155,7 +177,7 @@ export async function getPaymentStatus(
   }
 
   try {
-    const response = await fetch(`${YOOKASSA_API_URL}/payments/${paymentId}`, {
+    const response = await fetchWithTimeout(`${YOOKASSA_API_URL}/payments/${paymentId}`, {
       headers: { Authorization: getAuthHeader() },
     });
 
@@ -171,6 +193,40 @@ export async function getPaymentStatus(
   }
 }
 
+// Получение возврата по id — PAY-1: сверка refund.succeeded в webhook
+// с данными провайдера (тело webhook само по себе не доказательство).
+export async function getRefund(
+  refundId: string
+): Promise<{
+  success: boolean;
+  refund?: { id: string; payment_id: string; status: string; amount: { value: string; currency: string } };
+  error?: string;
+}> {
+  if (refundId.startsWith("mock_")) {
+    if (process.env.NODE_ENV === "production") {
+      return { success: false, error: "Mock-возвраты отключены в production" };
+    }
+    return {
+      success: true,
+      refund: { id: refundId, payment_id: "", status: "succeeded", amount: { value: "0.00", currency: "RUB" } },
+    };
+  }
+
+  try {
+    const response = await fetchWithTimeout(`${YOOKASSA_API_URL}/refunds/${refundId}`, {
+      headers: { Authorization: getAuthHeader() },
+    });
+    if (!response.ok) {
+      return { success: false, error: "Ошибка получения возврата" };
+    }
+    const refund = await response.json();
+    return { success: true, refund };
+  } catch (error) {
+    console.error("YooKassa getRefund exception:", error);
+    return { success: false, error: "Ошибка соединения с YooKassa" };
+  }
+}
+
 // Возврат платежа
 export async function refundPayment(
   paymentId: string,
@@ -179,12 +235,17 @@ export async function refundPayment(
   idempotencyKey?: string
 ): Promise<{ success: boolean; refund?: any; error?: string }> {
   if (paymentId.startsWith("mock_")) {
+    // PAY-1: mock-возвраты в production отклонены.
+    if (process.env.NODE_ENV === "production") {
+      console.error("[yookassa] refundPayment: mock paymentId в production — отклонено");
+      return { success: false, error: "Mock-возвраты отключены в production" };
+    }
     console.warn("⚠️ Mock refund для", paymentId);
     return { success: true, refund: { id: `mock_refund_${Date.now()}`, status: "succeeded" } };
   }
 
   try {
-    const response = await fetch(`${YOOKASSA_API_URL}/refunds`, {
+    const response = await fetchWithTimeout(`${YOOKASSA_API_URL}/refunds`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -340,10 +401,19 @@ export function verifyWebhook(request: Request): boolean {
   const isProd = process.env.NODE_ENV === "production";
 
   if (isProd) {
-    const clientIP =
-      request.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-      request.headers.get("x-real-ip") ||
-      "";
+    // PAY-1: доверенный прокси — как в anti-fraud/rate-limit. Первый элемент
+    // клиентского X-Forwarded-For подделываем; берём X-Real-IP (ставится
+    // доверенным прокси перезаписью), иначе ХВОСТ XFF с учётом TRUSTED_PROXY_HOPS.
+    let clientIP = request.headers.get("x-real-ip")?.trim() || "";
+    if (!clientIP) {
+      const forwarded = request.headers.get("x-forwarded-for");
+      if (forwarded) {
+        const hops = Math.max(1, Number(process.env.TRUSTED_PROXY_HOPS || 1) || 1);
+        const parts = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
+        const idx = parts.length - hops;
+        if (idx >= 0 && parts[idx]) clientIP = parts[idx];
+      }
+    }
 
     if (!clientIP) {
       console.warn("[yookassa] No client IP in webhook — rejecting");
