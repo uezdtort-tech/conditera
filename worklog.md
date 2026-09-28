@@ -6585,3 +6585,24 @@ Stage Summary:
 - На origin/main: chat-automation использует orders.confectioner_id как auth UUID (участники чата заказа больше не теряют кондитера); upload route восстановлен; легаси cloudflared удалено; схема — «белая IP» (DNS only).
 - Ops-долг вне репо: apply 0034 + verify-money-path на живой БД; systemctl disable --now cloudflared; Keenetic TCP 3000 → 192.168.1.52:3000; CF DNS серые облака; env (NEXT_PUBLIC_APP_URL/OAuth/webhook); UptimeRobot /api/health.
 - Напоминание: GitHub-токен светился в чате — ротация обязательна.
+
+---
+Task ID: audit-fixes-round2
+Agent: Z.ai Code (main)
+Task: Исправления по ревью round1: JSON-баг тест-скрипта v2, P0 XFF-доверие, P1 роль-валидация (400 вместо даунгрейда + нормализация), P1 атомарность антифрода, компенсация при сбое user_roles, тесты под новый контракт.
+
+Work Log:
+- register/route.ts: нормализация роли (trim+uppercase); недопустимая роль → 400 с allowedRoles (было: тихий даунгрейд в CUSTOMER); ADMIN-группа → 403 сохранена; сбой вставки user_roles → компенсация (deleteUser + delete profiles) и 500.
+- anti-fraud.ts: extractIp — доверенный прокси (X-Real-IP приоритет, затем хвост XFF с TRUSTED_PROXY_HOPS, default 1); checkFraudLimit — insert-first strict (каждая попытка = ровно одна запись, отказ тоже расходует окно), fail-open на ошибках БД сохранён.
+- rate-limit.ts: getClientIP — тот же trusted-proxy контракт.
+- Тесты: anti-fraud/rate-limit ожидания обновлены под trusted-proxy контракт; vitest 41/41, tsc PASS, lint 0 errors.
+- RATE_LIMITS.register (3/мин) — мёртвый код: пресеты нигде не подключены; реальный лимитер — антифрод 3/час (TODO: wire presets).
+- docs/DNS_SETUP.md: раздел «Доверенный прокси и X-Forwarded-For» (Caddy header_up X-Real-IP, запрет прямого :3000, TRUSTED_PROXY_HOPS).
+- .zscripts/dev.pid untracked (+.gitignore) — PID-churn порождал случайные коммиты (5f10c2d).
+- test-role-signup-v3.sh: jq-JSON (fallback python3), БЕЗ XFF-спуфинга, батчи ≤3/час, VERIFY_DB (profiles/user_roles/auth.users), LIMIT_CHECK для 429.
+- Секрет-скан: ghp_-токен ОТСУТСТВУЕТ в git-истории и дереве (утечка только в чате/командах).
+
+Stage Summary:
+- Регистрация fail-closed по ролям; антифрод устойчив к подмене XFF при корректной прокси-конфигурации (docs); частичных пользователей без роли больше не остаётся.
+- E2E-матрица v3 — на машине пользователя (в песочнице нет Supabase env); между батчами чистить order_fraud_logs.
+- Напоминание: GitHub-токен светился в чате — ротация обязательна (в истории репо токена НЕТ).
