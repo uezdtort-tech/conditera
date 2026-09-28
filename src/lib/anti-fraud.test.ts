@@ -67,11 +67,11 @@ describe('extractIp', () => {
     expect(extractIp(req)).toBe('1.2.3.4')
   })
 
-  it('extracts first IP from comma-separated x-forwarded-for', () => {
+  it('takes LAST hop from comma-separated x-forwarded-for (trusted proxy appends client)', () => {
     const req = new Request('https://example.com', {
       headers: { 'x-forwarded-for': '1.2.3.4, 5.6.7.8, 9.10.11.12' },
     })
-    expect(extractIp(req)).toBe('1.2.3.4')
+    expect(extractIp(req)).toBe('9.10.11.12')
   })
 
   it('trims whitespace from forwarded IP', () => {
@@ -81,11 +81,11 @@ describe('extractIp', () => {
     expect(extractIp(req)).toBe('1.2.3.4')
   })
 
-  it('trims whitespace in comma-separated list', () => {
+  it('trims whitespace in comma-separated list (tail is client)', () => {
     const req = new Request('https://example.com', {
       headers: { 'x-forwarded-for': ' 1.2.3.4 ,  5.6.7.8 ' },
     })
-    expect(extractIp(req)).toBe('1.2.3.4')
+    expect(extractIp(req)).toBe('5.6.7.8')
   })
 
   it('falls back to x-real-ip when x-forwarded-for missing', () => {
@@ -114,14 +114,14 @@ describe('extractIp', () => {
     expect(extractIp(req)).toBe('0.0.0.0')
   })
 
-  it('prioritizes x-forwarded-for over x-real-ip', () => {
+  it('prioritizes x-real-ip over x-forwarded-for (trusted proxy header wins)', () => {
     const req = new Request('https://example.com', {
       headers: {
         'x-forwarded-for': '1.1.1.1',
         'x-real-ip': '2.2.2.2',
       },
     })
-    expect(extractIp(req)).toBe('1.1.1.1')
+    expect(extractIp(req)).toBe('2.2.2.2')
   })
 
   it('handles IPv6 in x-forwarded-for', () => {

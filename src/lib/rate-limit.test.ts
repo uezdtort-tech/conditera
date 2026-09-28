@@ -94,11 +94,11 @@ describe('RATE_LIMITS presets', () => {
 })
 
 describe('getClientIP', () => {
-  it('extracts IP from x-forwarded-for', () => {
+  it('extracts client IP from tail of x-forwarded-for (trusted proxy appends client)', () => {
     const req = new Request('https://example.com', {
       headers: { 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
     })
-    expect(getClientIP(req)).toBe('1.2.3.4')
+    expect(getClientIP(req)).toBe('5.6.7.8')
   })
 
   it('extracts IP from x-real-ip', () => {
