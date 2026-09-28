@@ -17,6 +17,14 @@
  *  - Провайдер вызывается через lib с детерминированным ключом от
  *    refund-записи (`uezd_konditer:refund:{refundId}`) — повторный
  *    вызов не задвоит деньги, частичные возвраты не конфликтуют.
+ *
+ * PAY-1 (аудит платёжного контура @ 688afc9):
+ *  - атомарное резервирование остатка через RPC reserve_refund (миграция 0035) —
+ *    параллельные возвраты не превышают сумму платежа (fallback на read-check,
+ *    если 0035 ещё не применена на живой БД);
+ *  - двухступенчатость: после 2xx провайдера refunds.status='processing',
+ *    финальный 'processed' и payments/orders 'refunded' выставляет только
+ *    подтверждённый webhook refund.succeeded.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -127,6 +135,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // === Админ: исполняем возврат ===
+    // PAY-1: атомарное резервирование остатка ДО обращения к провайдеру —
+    // два параллельных возврата не могут совместно превысить сумму платежа.
+    let newRefunded: number;
+    const { data: reserved, error: reserveErr } = await supabaseAdmin
+      .rpc("reserve_refund", { p_payment_id: paymentId, p_amount: amount });
+
+    if (!reserveErr && typeof reserved === "number") {
+      newRefunded = reserved;
+    } else if (
+      reserveErr &&
+      (reserveErr as { code?: string }).code === "PGRST202" // функции нет — 0035 не применена
+    ) {
+      // Fallback: прежняя read-check семантика (remaining проверен выше)
+      console.warn("[payment/refund] reserve_refund RPC отсутствует — fallback на read-check");
+      newRefunded = alreadyRefunded + amount;
+    } else {
+      // REFUND_LIMIT / платёж не succeeded / прочая ошибка БД — отказ
+      console.error("[payment/refund] reserve_refund отказ:", reserveErr?.message);
+      return NextResponse.json(
+        { error: "Не удалось зарезервировать остаток возврата (недостаточно средств или платёж не в статусе succeeded)" },
+        { status: 409 }
+      );
+    }
+
     const { data: refund, error: refundErr } = await supabaseAdmin
       .from("refunds")
       .insert({
@@ -143,6 +175,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (refundErr) {
       console.error("[payment/refund] insert failed:", refundErr.message);
+      // Компенсация: снимаем резерв при невозможности создать запись
+      if (!reserveErr && typeof reserved === "number") {
+        await supabaseAdmin
+          .from("payments")
+          .update({ refund_amount: alreadyRefunded })
+          .eq("id", paymentId);
+      }
       return NextResponse.json({ error: "Не удалось создать возврат" }, { status: 500 });
     }
 
@@ -157,20 +196,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
 
       if (!result.success) {
-        // refund остаётся 'approved' — можно повторить после разбора
+        // refund остаётся 'approved', резерв снимаем — можно повторить
         console.error("[payment/refund] YooKassa refund failed:", result.error);
+        await supabaseAdmin
+          .from("payments")
+          .update({ refund_amount: alreadyRefunded })
+          .eq("id", paymentId);
         return NextResponse.json(
           { error: result.error || "Ошибка возврата у провайдера", refundId: refund.id },
           { status: 502 }
         );
       }
 
+      // PAY-1: провайдер ПРИНЯЛ возврат (pending) — финальный 'processed'
+      // выставит webhook refund.succeeded после подтверждения провайдером
+      // (сверка getRefund в webhook).
       await supabaseAdmin
         .from("refunds")
         .update({
           yookassa_refund_id: result.refund?.id ?? null,
-          status: "processed",
-          processed_at: new Date().toISOString(),
+          status: "processing",
         })
         .eq("id", refund.id);
     } else {
@@ -182,28 +227,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .eq("id", refund.id);
     }
 
-    // Обновляем суммы/статусы
-    const newRefunded = alreadyRefunded + amount;
-    const fullyRefunded = newRefunded >= Number(payment.amount);
-
-    if (fullyRefunded) {
-      await supabaseAdmin
-        .from("payments")
-        .update({ refund_amount: newRefunded, status: "refunded" })
-        .eq("id", paymentId);
-      await supabaseAdmin
-        .from("orders")
-        .update({ payment_status: "refunded" })
-        .eq("id", payment.order_id);
-    } else {
-      await supabaseAdmin
-        .from("payments")
-        .update({ refund_amount: newRefunded })
-        .eq("id", paymentId);
+    // PAY-1: финальные статусы payments/orders ('refunded') выставляет
+    // webhook refund.succeeded после подтверждения провайдера. Здесь —
+    // только fallback-режим (RPC отсутствует, подтверждения ждать неоткуда).
+    if (reserveErr) {
+      const fullyRefunded = newRefunded >= Number(payment.amount);
+      if (fullyRefunded) {
+        await supabaseAdmin
+          .from("payments")
+          .update({ status: "refunded" })
+          .eq("id", paymentId);
+        await supabaseAdmin
+          .from("orders")
+          .update({ payment_status: "refunded" })
+          .eq("id", payment.order_id);
+      }
     }
 
     return NextResponse.json(
-      { refund: { ...refund, status: "processed" } },
+      {
+        refund: {
+          ...refund,
+          status: payment.yookassa_payment_id ? "processing" : "processed",
+        },
+      },
       { status: 201 }
     );
   } catch (error) {
