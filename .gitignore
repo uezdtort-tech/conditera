@@ -68,3 +68,6 @@ playwright-report/
 /backups/
 /tool-results/
 /upload/
+
+# sandbox PID churn — не отслеживать
+.zscripts/dev.pid
