@@ -2,9 +2,9 @@
  * verify-money-path.ts — проверка целостности money-path на ЖИВОЙ БД.
  *
  * Источник: аудит «БД и целостность цепочек» @ 3f4ba40 (§8 — чеклист).
- * Дополняет миграцию 0034_money_path_identity.sql:
- *   0034 чинит схему, этот скрипт проверяет, что на конкретной БД
- *   цепочка «оплата → escrow → баланс → выплата» действительно замкнута.
+ * Дополняет миграции 0034_money_path_identity.sql и 0036_payout_integrity.sql:
+ *   0034/0036 чинят схему, этот скрипт проверяет, что на конкретной БД
+ *   цепочка «оплата → escrow → баланс → резерв → выплата» действительно замкнута.
  *
  * Запуск (read-only, без записи):
  *   DATABASE_URL=postgresql://postgres:...@db.xxx.supabase.co:5432/postgres \
@@ -189,6 +189,93 @@ async function main() {
   ok(`payouts (legacy 0019): ${po.rows[0].n ?? "таблица отсутствует"} записей`);
   if (Number(po.rows[0].n ?? 0) > 0) {
     warn("в legacy-таблице payouts есть данные — при сверки финансов учитывайте оба источника (merge — PAY-2/PAY-3)");
+  }
+
+  // ------------------------------------------------------------------
+  // 7. PAY-3: целостность контура выплат (миграция 0036)
+  // ------------------------------------------------------------------
+  console.log("\n─── 7. PAY-3: контур выплат (0036) ───");
+
+  // 7a. orders.payout_reserved_at — CAS-резерв против двойной выплаты батча
+  const reservedCol = await client.query(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='orders' AND column_name='payout_reserved_at'`
+  );
+  if (reservedCol.rowCount === 1) {
+    ok("orders.payout_reserved_at на месте (CAS-резерв payouts/request)");
+  } else {
+    fail(
+      "нет orders.payout_reserved_at — миграция 0036 не применена: payouts/request будет падать (или, без неё, возможна двойная выплата батча)"
+    );
+  }
+
+  // 7b. RPC add_confectioner_balance: существует + EXECUTE только service_role
+  const addRpc = await client.query(
+    `SELECT p.oid::regprocedure::text AS sig, p.proacl::text AS acl
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname='public' AND p.proname='add_confectioner_balance'`
+  );
+  if (addRpc.rowCount === 0) {
+    fail("RPC add_confectioner_balance отсутствует — reject/компенсации резервов будут падать (0036 не накатана?)");
+  } else {
+    const acl = String(addRpc.rows[0].acl ?? "");
+    ok(`RPC add_confectioner_balance: ${addRpc.rows[0].sig}`);
+    if (acl.includes("service_role") && !acl.includes("PUBLIC") && !acl.includes("anon") && !acl.includes("authenticated")) {
+      ok("EXECUTE только у service_role");
+    } else {
+      warn("EXECUTE шире service_role — примените миграцию 0036 (шаг 3)", acl);
+    }
+  }
+
+  // 7c. bonus-RPC: PUBLIC EXECUTE позволял anon жечь/накачивать чужие бонусы
+  for (const bonusFn of ["add_bonus_balance", "deduct_bonus_balance"]) {
+    const b = await client.query(
+      `SELECT p.proacl::text AS acl FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname='public' AND p.proname=$1`,
+      [bonusFn]
+    );
+    const acl = String(b.rows[0]?.acl ?? "");
+    if (acl.includes("PUBLIC") || acl.includes("anon") || acl.includes("authenticated")) {
+      warn(`${bonusFn}: EXECUTE шире service_role — примените 0036 (шаг 3)`, acl);
+    } else {
+      ok(`${bonusFn}: EXECUTE только service_role`);
+    }
+  }
+
+  // 7d. RLS payouts_update_admin: без INSPECTOR (разделение полномочий)
+  const pol = await client.query(
+    `SELECT qual FROM pg_policies
+      WHERE schemaname='public' AND tablename='payout_requests' AND policyname='payouts_update_admin'`
+  );
+  if (pol.rowCount === 0) {
+    warn("политика payouts_update_admin не найдена — RLS на payout_requests ослаблен (0036 шаг 4)");
+  } else if (String(pol.rows[0].qual).includes("INSPECTOR")) {
+    warn("payouts_update_admin всё ещё допускает INSPECTOR — примените 0036 (шаг 4)");
+  } else {
+    ok("RLS payouts_update_admin: только ADMIN/SUPER_ADMIN");
+  }
+
+  // 7e. Санитрия состояний: зарезервированные заказы и неизвестные статусы заявок
+  const pay3State = await client.query(
+    `SELECT
+       (SELECT count(*)::int FROM public.orders
+         WHERE payout_reserved_at IS NOT NULL AND payout_transferred_at IS NULL) AS reserved,
+       (SELECT count(*)::int FROM public.payout_requests
+         WHERE status NOT IN ('pending','approved','rejected','paid')) AS unknown_status`
+  );
+  ok(`заказов в резерве под открытые заявки: ${pay3State.rows[0].reserved}`);
+  if (Number(pay3State.rows[0].unknown_status) > 0) {
+    warn(`${pay3State.rows[0].unknown_status} заявок(+) с неизвестным статусом — сверьте со стейт-машиной 0036 (pending|approved|rejected|paid)`);
+  }
+  // Открытые (pending/approved) заявки без состава — complete для них запрещён
+  const orphanReq = await client.query(
+    `SELECT count(*)::int AS n FROM public.payout_requests
+      WHERE status IN ('pending','approved')
+        AND (metadata IS NULL OR NOT (metadata ? 'orders'))`
+  );
+  if (Number(orphanReq.rows[0].n) > 0) {
+    warn(`${orphanReq.rows[0].n} открытых заявок(+) без metadata.orders — complete для них запрещён (созданы вне /api/payouts/request)`);
   }
 
   console.log(`\n${critical === 0 ? "✅ ИТОГ: критических находок нет" : `❌ ИТОГ: критических находок — ${critical}`}`);
