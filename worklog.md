@@ -6606,3 +6606,29 @@ Stage Summary:
 - Регистрация fail-closed по ролям; антифрод устойчив к подмене XFF при корректной прокси-конфигурации (docs); частичных пользователей без роли больше не остаётся.
 - E2E-матрица v3 — на машине пользователя (в песочнице нет Supabase env); между батчами чистить order_fraud_logs.
 - Напоминание: GitHub-токен светился в чате — ротация обязательна (в истории репо токена НЕТ).
+
+---
+Task ID: pay1-yookassa-audit
+Agent: Z.ai Code (main)
+Task: PAY-раунд — сверка аудита платёжного контура (архив 24.09) с origin/main @ 688afc9, закрытие оставшихся P0 (webhook-сверка с провайдером, mock в production, XFF-доверие в verifyWebhook, гонки возвратов, частичные возвраты).
+
+Work Log:
+- Сверка-таблица по файлам @ 688afc9: P0-1 CIDR — УЖЕ закрыт pay0-6 (ipInRange: IPv4 uint32 + IPv6 8 групп, /27 и /25 точны); P0-4 webhook-матчинг — УЖЕ закрыт pay0-4 (yookassa_payment_id = object.payment_id || object.id, metadata только legacy-fallback); 4.1 лимиты суммы/валюты возврата — закрыты pay0-5 (amount>0+finite, remaining, рубли); ключ от refund-записи — закрыт pay0-6 (uezd_konditer:refund:{refundId}); уникальность payments.yookassa_payment_id — есть в 0002 (TEXT UNIQUE).
+- Остаток 1 (P0): mock в production — createPayment/getPaymentStatus/refundPayment/getRefund: NODE_ENV=production → mock отклонён (fix в yookassa.ts).
+- Остаток 2 (P0): verifyWebhook брал ПЕРВЫЙ XFF → доверенный прокси (X-Real-IP приоритет, хвост XFF с TRUSTED_PROXY_HOPS) — единый контракт с anti-fraud/rate-limit.
+- Остаток 3 (P0): сверка события с провайдером — verifyEventWithProvider: payment.* → GET /payments/{id} (статус+сумма), refund.succeeded → GET /refunds/{id} (статус/payment_id/сумма); ошибка API → fail-closed 500 (YooKassa повторит), расхождение → skip:provider_mismatch. metadata более не считается доказательством оплаты.
+- Остаток 4 (P0): таймауты всех fetch к YooKassa (fetchWithTimeout, 15с, AbortController).
+- Остаток 5 (P0): webhook refund.succeeded — refund_amount теперь СУММИРУЕТСЯ (раньше перезаписывался последним частичным), payments.status='refunded' только при полном покрытии.
+- Остаток 6 (P0): гонка webhook'ов — CAS-переход orders.payment_status → escrow (.neq + select, победитель выполняет side-effects); идемпотентность бонусов сохранена.
+- Остаток 7 (P0): гонка возвратов — RPC reserve_refund (0035): атомарный UPDATE с условием, RAISE REFUND_LIMIT; роут вызывает до провайдера, компенсация резерва при сбоях, fallback на read-check при PGRST202 (0035 не применена); REFUND_LIMIT/прочее → 409.
+- Остаток 8 (P0): двухступенчатый возврат — после 2xx провайдера refunds.status='processing' (+yookassa_refund_id), финальный 'processed' и payments/orders 'refunded' — только по webhook refund.succeeded.
+- Остаток 9: create — upsert по yookassa_payment_id (ignoreDuplicates) вместо insert (гонка без unique-violation шума) + проверка ошибки orders.update.
+- Миграция 0035_payment_integrity.sql: RPC reserve_refund (SECURITY DEFINER, service_role only, REVOKE от PUBLIC/anon/authenticated) + комментарий единиц refunds.amount (рубли).
+- Валидация 0035 на PGlite 0.5.8: 6/6 — частичный 400→400, превышение→REFUND_LIMIT, довозврат→1000, после полного→RAISE, status=pending→RAISE, NULL refund_amount→300. (FAIL в шаге 7 тест-скрипта — моя опечатка %% в RAISE, сама миграция корректна.)
+- Гейты: tsc PASS; vitest 80/80 (webhook-типизация + anti-fraud + rate-limit + finance); lint 0 errors.
+
+Stage Summary:
+- Отправная точка аудита «архив 24.09»: 4 из 4 P0-файлов аудит-архива уже содержали pay0/db1 фиксы; этот раунд закрыл 9 остаточных дыр (mock/XFF/сверка-с-API/таймауты/CAS/резерв/двухступенчатость/суммирование/upsert).
+- НЕ сделано (PAY-2, осознанно): outbox для side-effects (текущий CAS закрывает гонку, но эффекты вне транзакции), журнал финансовых событий (ledger), PaymentAttempt-модель, сверка-реконсиляция по расписанию, сужение грантов остальных RPC 0013.
+- Ops: применить 0035 на живой БД (psql/SQL-editor) — до этого refund работает в fallback read-check режиме.
+- Напоминание: GitHub-токен светился в чате — ротация обязательна.
