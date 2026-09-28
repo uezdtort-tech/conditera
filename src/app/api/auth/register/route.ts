@@ -97,23 +97,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       legalInfo,
     } = body;
 
-    // 1.5. Валидация роли — только разрешённые для саморегистрации
+    // 1.5. Валидация роли — только разрешённые для саморегистрации.
+    // Нормализация: trim + uppercase — регистр/пробелы не влияют на обработку.
+    // Недопустимое значение — явный отказ (400), а не тихий даунгрейд в CUSTOMER.
     const ALLOWED_SELF_REGISTER_ROLES = [
       "CUSTOMER", "CONFECTIONER", "STUDIO", "SUPPLIER", "WHOLESALER",
       "COURIER", "VENUE_OWNER", "ANIMATOR_AGENCY", "RECREATION_CENTER",
       "KIDS_CLUB", "FOOD_SERVICE", "EVENT_ORGANIZER", "PICKUP_POINT",
       "BLOGGER", "TASTER", "NUTRITIONIST", "COPYWRITER",
       "CORPORATE_CLIENT", "FRANCHISEE",
-    ];
+    ] as const;
     // Роли, доступные только по приглашению администратора
     const ADMIN_ASSIGNED_ROLES = ["ADMIN", "SUPER_ADMIN", "MODERATOR", "SUPPORT", "QUALITY_INSPECTOR", "CERTIFICATION_AGENT", "GUEST"];
-    const finalRole = ALLOWED_SELF_REGISTER_ROLES.includes(role) ? role : "CUSTOMER";
-    if (role && !ALLOWED_SELF_REGISTER_ROLES.includes(role) && ADMIN_ASSIGNED_ROLES.includes(role)) {
+    const roleInput = String(role ?? "CUSTOMER").trim().toUpperCase();
+    if (!(ALLOWED_SELF_REGISTER_ROLES as readonly string[]).includes(roleInput)) {
+      if (ADMIN_ASSIGNED_ROLES.includes(roleInput)) {
+        return NextResponse.json(
+          { error: `Роль "${roleInput}" назначается только администратором после регистрации` },
+          { status: 403 }
+        );
+      }
       return NextResponse.json(
-        { error: `Роль "${role}" назначается только администратором после регистрации` },
-        { status: 403 }
+        {
+          error: `Недопустимая роль "${roleInput}"`,
+          allowedRoles: ALLOWED_SELF_REGISTER_ROLES,
+        },
+        { status: 400 }
       );
     }
+    const finalRole = roleInput;
 
     // 2. Валидация
     if (!email || !password || !name || !phone) {
@@ -291,14 +303,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 9. Создание записи о ролях пользователя
-    await supabaseAdmin.from("user_roles").insert({
+    // 9. Создание записи о ролях пользователя.
+    // При сбое — полная компенсация (auth.users + profiles), чтобы не оставлять
+    // частично созданного пользователя без роли: JWT выпишется из finalRole,
+    // но user_roles — источник истины для role-guards.
+    const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({
       user_id: userId,
       role: finalRole,
       is_active: true,
       assigned_by: userId,
       assigned_at: new Date().toISOString(),
     });
+    if (roleErr) {
+      console.error("[register] user_roles insert error:", roleErr.message);
+      if (authData?.user?.id) {
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+      }
+      await supabaseAdmin.from("profiles").delete().eq("id", userId);
+      return NextResponse.json(
+        { error: "Ошибка при назначении роли", details: roleErr.message },
+        { status: 500 }
+      );
+    }
 
     // 10. Создание referral записи
     const referralCode = `${name.toUpperCase().slice(0, 4)}-${userId.slice(-6).toUpperCase()}`;
