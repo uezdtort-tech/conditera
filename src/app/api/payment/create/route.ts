@@ -101,18 +101,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!existingPayment) {
       // Только колонки, существующие в миграции 0002; ошибка ОБЯЗАТЕЛЬНО
       // проверяется (раньше insert падал молча).
-      const { error: insertErr } = await supabaseAdmin.from("payments").insert({
-        order_id: orderId,
-        yookassa_payment_id: yookassaPaymentId,
-        amount: Number(order.total), // рубли
-        currency: "RUB",
-        status: "pending",
-        method: "yookassa",
-        metadata: {
-          confirmation_url: paymentResult.payment.confirmation.confirmation_url,
-          installment_plan_id: installmentPlanId ?? null,
-        },
-      });
+      // PAY-1: upsert по yookassa_payment_id (UNIQUE, 0002) — гонка двух
+      // параллельных запросов даёт одну строку без unique-violation шума.
+      const { error: insertErr } = await supabaseAdmin
+        .from("payments")
+        .upsert(
+          {
+            order_id: orderId,
+            yookassa_payment_id: yookassaPaymentId,
+            amount: Number(order.total), // рубли
+            currency: "RUB",
+            status: "pending",
+            method: "yookassa",
+            metadata: {
+              confirmation_url: paymentResult.payment.confirmation.confirmation_url,
+              installment_plan_id: installmentPlanId ?? null,
+            },
+          },
+          { onConflict: "yookassa_payment_id", ignoreDuplicates: true }
+        );
 
       if (insertErr) {
         // Платёж у провайдера уже создан; webhook найдёт заказ по
@@ -122,10 +129,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Update order payment status
-    await supabaseAdmin
+    const { error: orderUpdErr } = await supabaseAdmin
       .from("orders")
       .update({ payment_status: "pending" })
       .eq("id", orderId);
+    if (orderUpdErr) {
+      console.error("[payment/create] orders payment_status update failed:", orderUpdErr.message);
+    }
 
     return NextResponse.json({
       paymentUrl: paymentResult.payment.confirmation.confirmation_url,
