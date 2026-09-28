@@ -6567,3 +6567,21 @@ Work Log:
 
 Stage Summary:
 Цепочка «оплата → escrow → баланс → выплата» замкнута на обеих схемах: код money-path теперь ходит по «userId»/camelCase (db1-1..3), а каноническая Supabase-схема добирает отсутствующие money-колонки orders (0034 — главный фикс,Critical вне рамок аудита). Коммиты: db1-1..db1-6 (см. git log). НЕ сделано (осознанно): вариант B identity (FK orders→confectioners(id)) — с ledger PAY-2; merge payouts/payout_requests — PAY-2/3; сужение grants остальных RPC 0013 — PAY-2; бэкфилл payment_status pending→escrow — вручную после verify-money-path + подтверждения владельца; единая таблица тарифов (0.15 vs 0.12) — бизнес-решение PAY-2. Напоминание: GitHub-токен светился в чате — ротация обязательна.
+
+---
+Task ID: restore-push-net
+Agent: Z.ai Code (main)
+Task: Восстановление рабочего состояния — push chat-фикса + NET-переключение на «белую IP» + чистка легаси + восстановление upload route (регресс 5f10c2d).
+
+Work Log:
+- State-check: origin/main был 9a5a9ab; локально обнаружен случайный коммит 5f10c2d (сообщение = UUID) = удаление src/app/api/services/upload/route.ts + мусор .zscripts/dev.pid; был запушен автоматом в этом раунде (9a5a9ab..5f10c2d) до инспекции.
+- Восстановлен upload route из 9a5a9ab (regression fix).
+- chat fix (вариант A, python exact-match): удалён interface ConfectionerRow и buggy lookup (.eq("id", order.confectioner_id) + snake_case select user_id/business_name); participants = [customer_id] + push(order.confectioner_id) — orders.confectioner_id = auth UUID = confectioners."userId" (модель A / 0034). Residue-проверка чистая.
+- tsc --noEmit гейт пройден.
+- NET: удалён .cloudflared-config.yml, удалён scripts/setup-cloudflare-tunnel.sh, dev:local → next dev -H 0.0.0.0 -p 3000, docs/DNS_SETUP.md аддендум «Вариант 3: белая IP (DNS only)», docs/MONITORING_CLOUDFLARE.md → deprecated-баннер.
+- Коммиты: fix(chat) + fix(upload restore) + chore(net) → push origin main.
+
+Stage Summary:
+- На origin/main: chat-automation использует orders.confectioner_id как auth UUID (участники чата заказа больше не теряют кондитера); upload route восстановлен; легаси cloudflared удалено; схема — «белая IP» (DNS only).
+- Ops-долг вне репо: apply 0034 + verify-money-path на живой БД; systemctl disable --now cloudflared; Keenetic TCP 3000 → 192.168.1.52:3000; CF DNS серые облака; env (NEXT_PUBLIC_APP_URL/OAuth/webhook); UptimeRobot /api/health.
+- Напоминание: GitHub-токен светился в чате — ротация обязательна.

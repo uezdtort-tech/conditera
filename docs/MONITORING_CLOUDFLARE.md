@@ -1,3 +1,5 @@
+> ⚠️ **DEPRECATED (схема «белая IP»):** документ описывает Cloudflare Proxy-режим, который больше не используется. Актуальная схема — docs/DNS_SETUP.md, «Вариант 3: белая IP (DNS only)».
+
 # 📊 Мониторинг — UptimeRobot / BetterStack + Cloudflare
 
 > Инструкция по настройке внешнего мониторинга и DDoS-защиты для `conditera.ru`.

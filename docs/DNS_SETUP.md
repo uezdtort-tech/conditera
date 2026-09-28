@@ -200,3 +200,17 @@ openssl s_client -connect conditera.ru:443 -servername conditera.ru < /dev/null 
 - [ ] `curl -sI https://conditera.ru/` возвращает 200
 - [ ] `nc -zv smp.conditera.ru 5223` → succeeded
 - [ ] www.conditera.ru редиректит на conditera.ru (301)
+
+## Вариант 3: белая IP-схема без Cloudflare Proxy (DNS only)
+
+DNS-записи A `@` и `www` → `185.218.111.176`, Proxy = **DNS only (серые облака)** — иначе Keenetic port-forward не работает.
+
+Цепочка: Интернет → 185.218.111.176 → Keenetic port-forward (TCP 3000) → 192.168.1.52:3000.
+HTTPS терминирует Caddy/Next на сервере; production `start` уже слушает `0.0.0.0`, `dev:local` теперь `-H 0.0.0.0`.
+
+Компромиссы: нет WAF/DDoS-защиты Cloudflare, IP сервера публичен.
+
+Env при схеме:
+- `NEXT_PUBLIC_APP_URL=https://conditera.ru`
+- OAuth redirect URI — на публичный домен (не localhost)
+- YooKassa webhook URL — на публичный домен
