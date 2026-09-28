@@ -22,7 +22,12 @@
 //     не подтверждались.
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { verifyWebhook } from "@/lib/yookassa";
+import {
+  verifyWebhook,
+  getPaymentStatus,
+  getRefund,
+  isYookassaConfigured,
+} from "@/lib/yookassa";
 
 export const runtime = "nodejs";
 
@@ -61,6 +66,60 @@ interface PaymentRow {
   order_id: string;
   amount: number; // рубли
   status: string;
+  refund_amount: number | null; // рубли — уже возвращённое (сумма частичных возвратов)
+}
+
+/** PAY-1: сверка события с данными провайдера — IP allowlist НЕ криптографическая
+ *  подпись, тело webhook/metadata сами по себе не доказательство оплаты.
+ *  payment.* → GET /payments/{provider_id}: статус и сумма должны соответствовать событию.
+ *  refund.succeeded → GET /refunds/{object.id}: статус succeeded, payment_id и сумма совпадают.
+ *  Ошибка API → fail-closed ({ok:false} → 500: YooKassa повторит доставку).
+ *  Расхождение данных → событие НЕ применяется (skip:provider_mismatch). */
+async function verifyEventWithProvider(
+  event: string,
+  object: YooKassaPaymentObject,
+  wireKop: number | null
+): Promise<{ ok: boolean; skip?: string }> {
+  if (!isYookassaConfigured()) return { ok: true }; // dev/mock — сверки нет
+  const providerPaymentId = object.payment_id || object.id;
+  if (providerPaymentId.startsWith("mock_") || object.id.startsWith("mock_")) return { ok: true };
+
+  if (event === "refund.succeeded") {
+    const res = await getRefund(object.id);
+    if (!res.success || !res.refund) return { ok: false };
+    if (res.refund.status !== "succeeded") return { ok: true, skip: "provider_mismatch" };
+    if (object.payment_id && res.refund.payment_id && res.refund.payment_id !== object.payment_id) {
+      return { ok: true, skip: "provider_mismatch" };
+    }
+    if (wireKop !== null) {
+      const refundKop = res.refund.amount?.value
+        ? Math.round(Number(res.refund.amount.value) * 100)
+        : null;
+      if (refundKop !== null && refundKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
+    }
+    return { ok: true };
+  }
+
+  const expectedStatus =
+    event === "payment.succeeded"
+      ? "succeeded"
+      : event === "payment.waiting_for_capture"
+        ? "waiting_for_capture"
+        : event === "payment.canceled"
+          ? "canceled"
+          : null;
+  if (!expectedStatus) return { ok: true }; // прочие события не сверяем
+
+  const res = await getPaymentStatus(providerPaymentId);
+  if (!res.success || !res.payment) return { ok: false };
+  if (res.payment.status !== expectedStatus) return { ok: true, skip: "provider_mismatch" };
+  if (wireKop !== null) {
+    const providerKop = res.payment.amount?.value
+      ? Math.round(Number(res.payment.amount.value) * 100)
+      : null;
+    if (providerKop !== null && providerKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
+  }
+  return { ok: true };
 }
 
 export async function POST(request: NextRequest) {
@@ -85,7 +144,7 @@ export async function POST(request: NextRequest) {
     const providerPaymentId = object.payment_id || object.id;
     const { data: byProvider } = await supabaseAdmin
       .from("payments")
-      .select("id, order_id, amount, status")
+      .select("id, order_id, amount, status, refund_amount")
       .eq("yookassa_payment_id", providerPaymentId)
       .maybeSingle();
     let payment = (byProvider as PaymentRow | null) ?? null;
@@ -96,7 +155,7 @@ export async function POST(request: NextRequest) {
     if (!payment && metaOrderId) {
       const { data: latest } = await supabaseAdmin
         .from("payments")
-        .select("id, order_id, amount, status")
+        .select("id, order_id, amount, status, refund_amount")
         .eq("order_id", metaOrderId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -107,6 +166,19 @@ export async function POST(request: NextRequest) {
     const orderId = payment?.order_id ?? metaOrderId;
     if (!orderId) {
       return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
+    }
+
+    // === PAY-1: СВЕРКА СОБЫТИЯ С ПРОВАЙДЕРОМ ===
+    const pv = await verifyEventWithProvider(event, object, wireKop);
+    if (!pv.ok) {
+      console.error(
+        `[webhook] provider verification failed (event=${event}, object=${object.id}) — fail-closed 500`
+      );
+      return NextResponse.json({ error: "Provider verification failed" }, { status: 500 });
+    }
+    if (pv.skip) {
+      console.warn(`[webhook] provider mismatch (event=${event}, object=${object.id}) — skipped`);
+      return NextResponse.json({ success: true, skipped: pv.skip });
     }
 
     // === IDEMPOTENCY CHECK ===
@@ -167,12 +239,6 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: true, skipped: "amount_mismatch" });
         }
 
-        // Если заказ уже в эскроу — не дублируем side-effects.
-        if (order.payment_status === "escrow") {
-          console.info(`[webhook] Order ${orderId} already in escrow, skipping side-effects.`);
-          return NextResponse.json({ success: true, idempotent: true });
-        }
-
         // Статус платежа — только после проверки суммы
         if (payment && payment.status !== dbStatus) {
           await supabaseAdmin
@@ -181,11 +247,23 @@ export async function POST(request: NextRequest) {
             .eq("id", payment.id);
         }
 
-        // Переводим заказ в эскроу
-        await supabaseAdmin
+        // PAY-1 CAS: атомарный переход заказа в escrow. Два одинаковых
+        // webhook'а не могут оба выиграть — побочные эффекты (бонусы,
+        // уведомления, письма) выполняет только победитель CAS.
+        const { data: escrowWinner, error: casErr } = await supabaseAdmin
           .from("orders")
           .update({ payment_status: "escrow" })
-          .eq("id", orderId);
+          .eq("id", orderId)
+          .neq("payment_status", "escrow")
+          .select("id");
+        if (casErr) {
+          console.error("[webhook] escrow CAS failed:", casErr.message);
+          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        }
+        if (!escrowWinner || escrowWinner.length === 0) {
+          console.info(`[webhook] Order ${orderId} already in escrow (CAS), skipping side-effects.`);
+          return NextResponse.json({ success: true, idempotent: true });
+        }
 
         // P1: Эскроу релизуется через cron /api/cron/escrow-release (каждые 30 минут)
         console.info(`[webhook] Order ${orderId} → escrow. Will be released by cron in 24h.`);
@@ -331,21 +409,32 @@ export async function POST(request: NextRequest) {
         }
 
         if (payment) {
-          await supabaseAdmin
+          // PAY-1: возвраты СУММИРУЮТСЯ (раньше refund_amount перезаписывался
+          // суммой последнего частичного возврата — учёт терялся), а
+          // payments.status='refunded' — только когда возвращено полностью.
+          const alreadyKop = Math.round(Number(payment.refund_amount) || 0) * 100;
+          const paymentKop = Number(payment.amount) * 100;
+          const newRefundedKop = alreadyKop + (wireKop ?? 0);
+          const fullyRefunded = newRefundedKop >= paymentKop;
+          const { error: payUpdErr } = await supabaseAdmin
             .from("payments")
             .update({
-              status: "refunded",
-              refund_amount: wireKop !== null ? wireKop / 100 : Number(payment.amount),
+              status: fullyRefunded ? "refunded" : payment.status,
+              refund_amount: newRefundedKop / 100,
               updated_at: new Date().toISOString(),
             })
             .eq("id", payment.id);
-        }
+          if (payUpdErr) {
+            console.error("[webhook] refund payment update failed:", payUpdErr.message);
+          }
 
-        if (order.payment_status !== "refunded") {
-          await supabaseAdmin
-            .from("orders")
-            .update({ payment_status: "refunded" })
-            .eq("id", orderId);
+          if (fullyRefunded && order.payment_status !== "refunded") {
+            const { error: ordUpdErr } = await supabaseAdmin
+              .from("orders")
+              .update({ payment_status: "refunded" })
+              .eq("id", orderId);
+            if (ordUpdErr) console.error("[webhook] refund order update failed:", ordUpdErr.message);
+          }
         }
 
         // Наш refund-рекорд (если возврат создан через /api/payment/refund)
