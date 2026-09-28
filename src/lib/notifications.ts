@@ -56,7 +56,9 @@ export type Template =
   | "ABANDONED_CART"
   | "VERIFICATION_APPROVED"
   | "VERIFICATION_REJECTED"
+  | "PAYOUT_REQUEST_RECEIVED"
   | "PAYOUT_PROCESSED"
+  | "PAYOUT_REJECTED"
   | "SUPPORT_REPLY"
   | "SIMPLEX_MESSAGE"
   | "HOLIDAY_REMINDER";
@@ -296,11 +298,25 @@ export const TEMPLATES: Record<Template, TemplateDef> = {
       `Профиль не прошёл модерацию. Причина: ${v.reason || "не указана"}. Внесите правки и отправьте на проверку снова.`,
     defaultChannels: ["in_app", "push", "email"],
   },
+  PAYOUT_REQUEST_RECEIVED: {
+    category: "paymentUpdates",
+    title: (v) => `Запрос на выплату ${v.amount} ₽ принят`,
+    body: (v) =>
+      `Заявка по ${v.orders} заказ(ам) зарегистрирована и ждёт подтверждения администратора. Сумма зарезервирована на балансе.`,
+    defaultChannels: ["in_app", "push"],
+  },
   PAYOUT_PROCESSED: {
     category: "paymentUpdates",
     title: (v) => `Выплата ${v.amount} ₽ отправлена`,
     body: (v) =>
       `Запрос на выплату обработан. ${v.method === "card" ? "Деньги поступят на карту в течение 1-2 рабочих дней." : "Проверьте способ получения."}`,
+    defaultChannels: ["in_app", "push", "email"],
+  },
+  PAYOUT_REJECTED: {
+    category: "paymentUpdates",
+    title: (v) => `Выплата ${v.amount} ₽ отклонена`,
+    body: (v) =>
+      `Заявка отклонена: ${v.reason || "причина не указана"}. Зарезервированная сумма возвращена на баланс.`,
     defaultChannels: ["in_app", "push", "email"],
   },
   SUPPORT_REPLY: {

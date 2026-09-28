@@ -438,15 +438,21 @@ export function useCreatePayoutRequest() {
   });
 }
 
-/** Одобрение выплаты (для админа/инспектора) */
+/** Действия админа по выплате (pay3): approve → complete | reject */
+export type PayoutAction = "approve" | "reject" | "complete";
+
+/** Одобрение/выплата/отклонение выплаты (для админа).
+ *  pay3: раньше било в несуществующий URL /api/admin/payouts/${payoutId}
+ *  (динамического сегмента нет) и не передавало payoutId в теле —
+ *  админский контур одобрения был сломан end-to-end. */
 export function useApprovePayout() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ payoutId, action }: { payoutId: string; action: "approve" | "reject" }) => {
-      const res = await fetch(`/api/admin/payouts/${payoutId}`, {
+    mutationFn: async ({ payoutId, action }: { payoutId: string; action: PayoutAction }) => {
+      const res = await fetch("/api/admin/payouts", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ payoutId, action }),
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
@@ -456,7 +462,8 @@ export function useApprovePayout() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
-      toast.success(`Выплата ${variables.payoutId}: ${variables.action === "approve" ? "одобрена" : "отклонена"}`);
+      const label = variables.action === "approve" ? "одобрена" : variables.action === "complete" ? "выплачена" : "отклонена";
+      toast.success(`Выплата ${variables.payoutId}: ${label}`);
     },
     onError: (error: Error) => {
       toast.error("Ошибка изменения статуса выплаты", { description: error.message });
