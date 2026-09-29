@@ -6840,3 +6840,21 @@ Stage Summary:
 - ДЕЙСТВИЕ: повторить деплой из страницы генерации. Если упадёт снова — нужен доступ к логам платформы деплоя (из песочницы их не достать: /app закрыт), т.к. следующие возможные точки — за пределами проектных скриптов.
 - Готовые артефакты: clean-история b9cd91a → 74d70b0 → ebe2dbb → c0e1ae8 + worklog (UUID-коммит снят); bundle: download/conditera-deploy-fix.bundle.
 - Ограничение честности: платформенный шаг между build и start (packaging в next-service-dist) из песочницы не наблюдаем — закрыт фолбэком на .next/standalone; если платформа пакует иначе, start.sh теперь всё равно стартует валидный production-сервер.
+
+---
+Task ID: push-deploy-fixes
+Agent: main (Super Z)
+Task: Push 5 локальных коммитов фиксов деплоя в GitHub main (пользователь предоставил PAT)
+
+Work Log:
+- Диагностика перед push: main опережал origin/main на 5 коммитов (b9cd91a, 74d70b0, ebe2dbb, c0e1ae8, e306e19), рабочее дерево чистое; повторно подтверждено отсутствие gh CLI / ~/.git-credentials / ~/.netrc / ~/.ssh / credential helper — прямой push без токена невозможен.
+- Подготовлен свежий bundle со всеми 5 коммитами: download/conditera-deploy-full-5commits.bundle (verify OK: main → e306e19, requires 8abc28c) — остался как резервный канал.
+- Пользователь выдал GitHub PAT (ghp_qCaK…, scope repo); ls-remote подтвердил доступ и что origin/main всё ещё 8abc28c → push прошёл бы fast-forward.
+- git push https://<TOKEN>@github.com/uezdtort-tech/conditera.git main → SUCCESS: 8abc28c..e306e19 main -> main (EXIT=0).
+- git fetch origin: origin/main обновлён до e306e19, ветки синхронизированы (main...origin/main, 0 ahead/behind). Токен НЕ сохранялся в .git/config / credentials — только разовый URL в команде.
+
+Stage Summary:
+- GitHub main теперь содержит ВСЕ фиксы деплоя (OOM-кап, prisma-free db:push, space-proof start.sh, мягкий packaging) — деплой-платформа при следующем запуске соберёт исправленный код.
+- ⚠️ БЕЗОПАСНОСТЬ: PAT просвечен в чате — пользователю рекомендовано отозвать токен после подтверждения деплоя (GitHub → Settings → Developer settings → Tokens).
+- Резервный bundle download/conditera-deploy-full-5commits.bundle более не актуален (содержимое уже в origin), но остаётся в download/ (папка в .gitignore).
+- Следующий шаг: перезапустить деплой из страницы генерации; при повторном падении запрашивать логи сборки платформы (из песочницы недоступны) — кандидаты: ci.yml (npx prisma generate + typo «branches: ain»), NODE_VERSION vs engines.
