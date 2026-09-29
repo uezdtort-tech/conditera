@@ -36,6 +36,7 @@ import {
   CreditCard,
   Info,
   AlertCircle,
+  Cake,
 } from "lucide-react";
 import {
   formatCurrency,
@@ -187,29 +188,8 @@ export function ProductPage() {
     });
   };
 
-  const reviews = [
-    {
-      name: "Екатерина С.",
-      avatar: "https://i.pravatar.cc/150?img=49",
-      rating: 5,
-      date: "2 недели назад",
-      text: "Заказывала торт на день рождения дочери — превзошёл все ожидания! Нежный, не приторный, украшен безупречно. Мария — настоящий мастер своего дела.",
-    },
-    {
-      name: "Андрей П.",
-      avatar: "https://i.pravatar.cc/150?img=12",
-      rating: 5,
-      date: "месяц назад",
-      text: "Брали на корпоратив на 20 человек. Все остались довольны. Доставка точно в срок, торт в идеальном состоянии. Однозначно закажем ещё.",
-    },
-    {
-      name: "Ольга В.",
-      avatar: "https://i.pravatar.cc/150?img=44",
-      rating: 4,
-      date: "2 месяца назад",
-      text: "Торт вкусный, но хотелось бы чуть больше начинки. В целом — рекомендую, особенно за такую цену.",
-    },
-  ];
+  // pay4: фейковые отзывы (pravatar + выдуманные тексты) удалены —
+  // показываем только реальные счётчики из БД и честное пустое состояние
 
   return (
     <div className="container mx-auto px-4 py-6 lg:py-10">
@@ -239,11 +219,15 @@ export function ProductPage() {
               />
             </div>
           ) : (
-            <div className="aspect-square rounded-2xl overflow-hidden bg-muted">
-              <img
-                src={product.images[0]}
-                alt={product.title}
-                className="w-full h-full object-cover" loading="lazy" decoding="async" />
+            <div className="aspect-square rounded-2xl overflow-hidden bg-muted flex items-center justify-center">
+              {product.images?.[0] ? (
+                <img
+                  src={product.images[0]}
+                  alt={product.title}
+                  className="w-full h-full object-cover" loading="lazy" decoding="async" />
+              ) : (
+                <Cake className="h-14 w-14 text-muted-foreground/30" aria-hidden />
+              )}
             </div>
           )}
           {product.images.length > 1 && (
@@ -716,8 +700,8 @@ export function ProductPage() {
         </TabsList>
 
         <TabsContent value="reviews" className="mt-6">
-          <div className="grid lg:grid-cols-[300px_1fr] gap-6">
-            <Card className="p-6 h-fit">
+          {product.reviewsCount > 0 ? (
+            <Card className="p-6 max-w-3xl">
               <div className="text-center">
                 <div className="font-display text-4xl font-bold">
                   {product.rating.toFixed(1)}
@@ -735,65 +719,30 @@ export function ProductPage() {
                   ))}
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  {product.reviewsCount} отзывов
+                  На основе {product.reviewsCount}{" "}
+                  {product.reviewsCount === 1
+                    ? "отзыва"
+                    : product.reviewsCount < 5
+                      ? "отзывов"
+                      : "отзывов"}
                 </div>
               </div>
               <Separator className="my-4" />
-              <div className="space-y-2">
-                {[5, 4, 3, 2, 1].map((star) => (
-                  <div key={star} className="flex items-center gap-2 text-xs">
-                    <span className="w-3">{star}</span>
-                    <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-amber-400"
-                        style={{
-                          width: `${star === 5 ? 78 : star === 4 ? 15 : star === 3 ? 5 : 2}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-muted-foreground w-8 text-right">
-                      {star === 5 ? 78 : star === 4 ? 15 : star === 3 ? 5 : 2}%
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {/* pay4: распределение оценок раньше было захардкожено
+                  (78/15/5/2%) — убрано до подключения реальной агрегации */}
+              <p className="text-sm text-muted-foreground">
+                Подробные отзывы покупателей появятся здесь после подключения
+                публичного отображения отзывов.
+              </p>
             </Card>
-
-            <div className="space-y-4">
-              {reviews.map((review, i) => (
-                <Card key={i} className="p-4">
-                  <div className="flex items-start gap-3">
-                    <Avatar>
-                      <AvatarImage src={review.avatar} alt={review.name} />
-                      <AvatarFallback>{review.name[0]}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium text-sm">{review.name}</div>
-                        <div className="text-xs text-muted-foreground">{review.date}</div>
-                      </div>
-                      <div className="flex gap-0.5 my-1">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <Star
-                            key={i}
-                            className={`h-3 w-3 ${
-                              i < review.rating
-                                ? "fill-amber-400 text-amber-400"
-                                : "text-border"
-                            }`}
-                          />
-                        ))}
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        {review.text}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
+          ) : (
+            <Card className="p-6 max-w-3xl text-center">
+              <Cake className="h-10 w-10 text-muted-foreground/30 mx-auto" aria-hidden />
+              <p className="text-sm text-muted-foreground mt-3">
+                У этого товара пока нет отзывов.
+              </p>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="description" className="mt-6">

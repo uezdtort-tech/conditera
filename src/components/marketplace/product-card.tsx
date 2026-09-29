@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, Check, Calendar } from "lucide-react";
+import { Heart, ShoppingCart, Star, Check, Calendar, Cake } from "lucide-react";
 import {
   formatCurrency,
   TRUST_LEVELS,
@@ -47,11 +47,17 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
     >
       {/* Image */}
       <div className="relative aspect-square overflow-hidden bg-muted">
-        <img
-          src={product.images[0]}
-          alt={product.title}
-          loading="lazy"
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" decoding="async" />
+        {product.images?.[0] ? (
+          <img
+            src={product.images[0]}
+            alt={product.title}
+            loading="lazy"
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" decoding="async" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Cake className="h-12 w-12 text-muted-foreground/30" aria-hidden />
+          </div>
+        )}
 
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1">

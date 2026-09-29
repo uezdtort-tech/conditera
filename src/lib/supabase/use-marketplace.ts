@@ -839,9 +839,13 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     reviewsCount: p.reviews_count ?? 0,
     servings: p.servings ?? undefined,
     weight: p.weight_grams ? `${p.weight_grams} г` : undefined,
-    prepTime: p.is_featured ? "1 день" : "2–5 дней",
-    isHit: Boolean(p.is_featured) || (p.reviews_count ?? 0) >= 20,
-    isPopular: (p.reviews_count ?? 0) > 0,
+    // pay4: prepTime в БД нет — раньше выдумывали «1 день / 2–5 дней» из
+    // флага is_featured. Показываем срок только из реальных данных.
+    prepTime: undefined,
+    // pay4: бейджи — только по реальным данным; синтетические
+    // isPopular (reviews>0) и порог isHit от reviews>=20 убраны
+    isHit: Boolean(p.is_featured),
+    isPopular: false,
     tags: p.tags || [],
   };
 }
