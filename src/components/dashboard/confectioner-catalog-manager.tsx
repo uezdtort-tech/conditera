@@ -51,6 +51,8 @@ import { useAppStore } from "@/lib/store";
 import type { Product } from "@/lib/types";
 import { formatCurrency } from "@/lib/finance";
 import { toast } from "sonner";
+import { AiDescriptionGenerator } from "@/components/ai/ai-description-generator";
+import { AiCardChecklist } from "@/components/ai/ai-card-checklist";
 
 const CATEGORIES = [
   { value: "cakes", label: "Торты" },
@@ -589,13 +591,33 @@ function ProductEditDialog({
 
           {/* Description */}
           <div className="space-y-2">
-            <Label>* Описание</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>* Описание</Label>
+              <AiDescriptionGenerator
+                title={form.title}
+                category={form.category}
+                fillings={form.fillings.map((f) => f.name)}
+                weight={form.weight}
+                servings={form.servings}
+                price={form.price}
+                onApply={(data) =>
+                  setForm({
+                    ...form,
+                    description: data.description,
+                    tags: data.tags && data.tags.length > 0 ? data.tags : form.tags,
+                  })
+                }
+              />
+            </div>
             <Textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="Подробное описание товара: вкус, текстура, особенности изготовления..."
               rows={4}
             />
+            <p className="text-[11px] text-muted-foreground">
+              Черновик от ИИ публикуется только после вашей проверки и правок.
+            </p>
           </div>
 
           {/* Images */}
@@ -865,6 +887,9 @@ function ProductEditDialog({
               )}
             </div>
           </div>
+
+          {/* Чек-лист качества карточки (сценарий 6) */}
+          <AiCardChecklist form={form} />
         </div>
 
         <DialogFooter>

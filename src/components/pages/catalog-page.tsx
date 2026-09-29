@@ -12,10 +12,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProductCard } from "@/components/marketplace/product-card";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { AiSmartSearch } from "@/components/ai/ai-smart-search";
+import { AiCompareDialog } from "@/components/ai/ai-compare-dialog";
+import type { AiSearchFilters } from "@/lib/ai-search-types";
 import { CATEGORIES } from "@/lib/mock-data";
 import { productMatchesPaymentFilter, PAYMENT_METHOD_INFO } from "@/lib/finance";
 import type { PaymentFilterOption } from "@/lib/types";
-import { Search, SlidersHorizontal, X, Filter, Cake, CreditCard } from "lucide-react";
+import { toast } from "sonner";
+import { Search, SlidersHorizontal, X, Filter, Cake, CreditCard, Scale } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -33,6 +37,17 @@ export function CatalogPage() {
   const initialCategory = nav.params?.category || "all";
   const initialQuery = nav.params?.q || "";
 
+  // Фильтры, пришедшие из умного поиска на главной (nav.params.ai = JSON AiSearchFilters)
+  const initialAiFilters: AiSearchFilters | null = (() => {
+    const raw = nav.params?.ai;
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as AiSearchFilters;
+    } catch {
+      return null;
+    }
+  })();
+
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 15000]);
@@ -40,10 +55,20 @@ export function CatalogPage() {
   const [onlyVeg, setOnlyVeg] = useState(false);
   const [onlyHit, setOnlyHit] = useState(false);
   const [paymentFilters, setPaymentFilters] = useState<PaymentFilterOption[]>([]);
-  const [tasteFilters, setTasteFilters] = useState<string[]>([]);
+  const [tasteFilters, setTasteFilters] = useState<string[]>(initialAiFilters?.tastes ?? []);
   const [minRating, setMinRating] = useState<number>(0);
   const [sortBy, setSortBy] = useState<string>("popular");
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // AI-фильтры умного поиска: исключения (аллергены), порции, ключевые слова
+  const [aiExclude, setAiExclude] = useState<string[]>(initialAiFilters?.exclude ?? []);
+  const [aiServings, setAiServings] = useState<number>(initialAiFilters?.guests ?? 0);
+  const [aiKeywords, setAiKeywords] = useState<string[]>(initialAiFilters?.keywords ?? []);
+
+  // Режим сравнения (сценарий №2: сравнение выбранных тортов)
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const filtered = useMemo(() => {
     let result = [...products];
@@ -85,6 +110,31 @@ export function CatalogPage() {
         return paymentFilters.every((opt) => productMatchesPaymentFilter(p, confectioner, opt));
       });
     }
+    // AI-фильтры умного поиска (сценарий №1)
+    if (aiServings > 0) {
+      // Товары без указанных порций не отбрасываем (не выдумываем данные)
+      result = result.filter(
+        (p) => !(typeof p.servings === "number" && p.servings > 0 && p.servings < aiServings)
+      );
+    }
+    if (aiKeywords.length > 0) {
+      result = result.filter((p) => {
+        const hay = [p.title, p.description, (p.tags || []).join(" ")].join(" ").toLowerCase();
+        return aiKeywords.some((kw) => hay.includes(kw));
+      });
+    }
+    if (aiExclude.length > 0) {
+      result = result.filter((p) => {
+        const hay = [
+          p.title,
+          p.description,
+          (p.tags || []).join(" "),
+          (p.composition?.ingredients || []).join(" "),
+          (p.composition?.allergens || []).join(" "),
+        ].join(" ").toLowerCase();
+        return !aiExclude.some((ex) => hay.includes(ex));
+      });
+    }
     switch (sortBy) {
       case "price-asc":
         result.sort((a, b) => a.price - b.price);
@@ -100,7 +150,32 @@ export function CatalogPage() {
         result.sort((a, b) => b.reviewsCount - a.reviewsCount);
     }
     return result;
-  }, [products, searchQuery, activeCategory, priceRange, selectedConfectioners, onlyHit, paymentFilters, tasteFilters, minRating, confectioners, sortBy]);
+  }, [products, searchQuery, activeCategory, priceRange, selectedConfectioners, onlyHit, paymentFilters, tasteFilters, minRating, confectioners, sortBy, aiServings, aiKeywords, aiExclude]);
+
+  // Применение фильтров из умного поиска (вариант="compact") к локальному состоянию каталога
+  const applyAiFilters = (f: AiSearchFilters) => {
+    if (f.category) setActiveCategory(f.category);
+    if (f.budget !== null && f.budget > 0) setPriceRange([0, Math.min(f.budget, 15000)]);
+    setAiServings(f.guests ?? 0);
+    setAiExclude(f.exclude);
+    setAiKeywords(f.keywords);
+    setTasteFilters(f.tastes);
+    setSearchQuery(f.keywords.length === 1 ? f.keywords[0] : "");
+    toast.success(f.reply || "Фильтры ИИ применены к каталогу");
+  };
+
+  const toggleCompare = (id: string) => {
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= 4) {
+        toast.error("Можно сравнить максимум 4 товара");
+        return prev;
+      }
+      return [...prev, id];
+    });
+  };
+
+  const compareProducts = products.filter((p) => compareIds.includes(p.id));
 
   const FiltersContent = (
     <div className="space-y-6">
@@ -294,6 +369,9 @@ export function CatalogPage() {
           setTasteFilters([]);
           setMinRating(0);
           setSortBy("popular");
+          setAiExclude([]);
+          setAiKeywords([]);
+          setAiServings(0);
         }}
       >
         Сбросить фильтры
@@ -360,6 +438,45 @@ export function CatalogPage() {
         </Sheet>
       </div>
 
+      {/* Уточнить поиск с ИИ (сценарий №1 в каталоге) */}
+      <Card className="p-3 mb-4 border-purple-200 dark:border-purple-900">
+        <AiSmartSearch variant="compact" onApplyFilters={applyAiFilters} />
+      </Card>
+
+      {/* Режим сравнения (сценарий №2) */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <Button
+          variant={compareMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => setCompareMode(!compareMode)}
+          className="gap-1.5"
+          aria-pressed={compareMode}
+        >
+          <Scale className="h-3.5 w-3.5" />
+          Сравнить товары
+        </Button>
+        {compareMode && (
+          <>
+            <span className="text-xs text-muted-foreground">
+              Отметьте до 4 товаров — ИИ сравнит их по данным карточек
+            </span>
+            <Button
+              size="sm"
+              disabled={compareIds.length < 2}
+              onClick={() => setCompareOpen(true)}
+              className="gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+            >
+              Сравнить ({compareIds.length})
+            </Button>
+            {compareIds.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => setCompareIds([])}>
+                Очистить
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+
       <div className="grid lg:grid-cols-[260px_1fr] gap-6">
         {/* Sidebar — desktop filters */}
         <aside className="hidden lg:block">
@@ -391,6 +508,9 @@ export function CatalogPage() {
                   setSelectedConfectioners([]);
                   setOnlyHit(false);
                   setPaymentFilters([]);
+                  setAiExclude([]);
+                  setAiKeywords([]);
+                  setAiServings(0);
                 }}
               >
                 Сбросить всё
@@ -398,13 +518,46 @@ export function CatalogPage() {
             </Card>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filtered.map((p) => (
-                <ProductCard key={p.id} product={p} />
-              ))}
+              {filtered.map((p) =>
+                compareMode ? (
+                  <div key={p.id} className="relative">
+                    <ProductCard product={p} />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleCompare(p.id);
+                      }}
+                      aria-label={
+                        compareIds.includes(p.id)
+                          ? "Убрать из сравнения"
+                          : "Добавить к сравнению"
+                      }
+                      className={`absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold shadow-sm transition-colors ${
+                        compareIds.includes(p.id)
+                          ? "bg-purple-600 text-white border-purple-600"
+                          : "bg-background/95 text-foreground border-border hover:border-purple-400"
+                      }`}
+                    >
+                      {compareIds.includes(p.id) ? "✓" : "+"}
+                    </button>
+                  </div>
+                ) : (
+                  <ProductCard key={p.id} product={p} />
+                )
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Диалог ИИ-сравнения (сценарий №2) */}
+      <AiCompareDialog
+        open={compareOpen}
+        onOpenChange={setCompareOpen}
+        products={compareProducts}
+        onRemove={(id) => setCompareIds((prev) => prev.filter((x) => x !== id))}
+      />
     </div>
   );
 }

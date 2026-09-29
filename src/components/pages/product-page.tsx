@@ -13,6 +13,7 @@ import { ProductCard } from "@/components/marketplace/product-card";
 import { CrossSellBlock } from "@/components/marketplace/cross-sell-block";
 import { VideoReviewsSection } from "@/components/dashboard/customer-features-tabs";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { AiAskProduct } from "@/components/ai/ai-ask-product";
 import { StickyAddToCart, addRecentlyViewed } from "@/components/ui/enhanced-components";
 import { ARViewer } from "@/components/marketplace/ar-viewer";
 import { ProductSliceGallery, FillingSlicePreview } from "@/components/cake-slice/cake-slice-visualizer";
@@ -347,6 +348,9 @@ export function ProductPage() {
               )}
             </div>
           )}
+
+          {/* Помочь выбрать — ИИ отвечает по данным карточки (сценарий №2) */}
+          <AiAskProduct productId={product.id} product={product} />
 
           {/* Meta */}
           <div className="grid grid-cols-3 gap-3">

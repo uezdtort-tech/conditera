@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StoriesFeed } from "@/components/stories/stories-feed";
 import { AICakeFinderButton } from "@/components/ai-cake-finder/ai-cake-finder";
+import { AiSmartSearch } from "@/components/ai/ai-smart-search";
 import { VideoFeed } from "@/components/video-feed/video-feed";
 import { HolidayCalendar } from "@/components/holidays/holiday-calendar";
 import { ProductCard } from "@/components/marketplace/product-card";
@@ -45,19 +46,8 @@ export function HomePage() {
   const products = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
 
-  const [searchValue, setSearchValue] = useState("");
-
   const popularProducts = products.filter((p) => p.isPopular || p.isHit).slice(0, 8);
   const newProducts = products.filter((p) => p.isNew).slice(0, 4);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchValue.trim()) {
-      navigate("catalog", { q: searchValue.trim() });
-    } else {
-      navigate("catalog");
-    }
-  };
 
   return (
     <div className="space-y-20 pb-12">
@@ -108,25 +98,9 @@ export function HomePage() {
                 эскроу, доставка в ваш город.
               </p>
 
-              {/* Search */}
-              <form
-                onSubmit={handleSearch}
-                className="flex gap-2 max-w-xl mx-auto lg:mx-0"
-              >
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    value={searchValue}
-                    onChange={(e) => setSearchValue(e.target.value)}
-                    placeholder="Торт на день рождения, медовик, макаронс..."
-                    className="w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                  />
-                </div>
-                <Button type="submit" size="lg" className="px-6">
-                  Найти
-                </Button>
-              </form>
+              {/* Smart search — ИИ разбирает запрос на фильтры каталога.
+                  Обычный путь без ИИ остаётся: каталог + фильтры и кнопка ниже. */}
+              <AiSmartSearch variant="hero" />
 
               <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
                 <Button
