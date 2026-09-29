@@ -82,7 +82,16 @@ async function verifyEventWithProvider(
 ): Promise<{ ok: boolean; skip?: string }> {
   if (!isYookassaConfigured()) return { ok: true }; // dev/mock — сверки нет
   const providerPaymentId = object.payment_id || object.id;
-  if (providerPaymentId.startsWith("mock_") || object.id.startsWith("mock_")) return { ok: true };
+  if (providerPaymentId.startsWith("mock_") || object.id.startsWith("mock_")) {
+    // pay4: mock_* в production — подделка (defense-in-depth поверх IP-allowlist):
+    // фальшивый refund.succeeded с metadata.orderId мог уйти в legacy-fallback
+    // и уменьшить/обнулить реальный платёж. Dev/mock — пропускаем как прежде.
+    if (process.env.NODE_ENV === "production") {
+      console.error(`[webhook] mock_* id в production — fail-closed (object=${object.id})`);
+      return { ok: false };
+    }
+    return { ok: true };
+  }
 
   if (event === "refund.succeeded") {
     const res = await getRefund(object.id);
@@ -184,7 +193,10 @@ export async function POST(request: NextRequest) {
     // === IDEMPOTENCY CHECK ===
     // Платёж уже в финальном статусе — не обрабатываем повторно
     // (защита от двойных бонусов/писем при retry со стороны YooKassa).
-    if (payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
+    // pay4: refund.succeeded НЕ гейтится этим чеком — gейт с dbStatus="succeeded"
+    // проглатывал ВСЕ refund-события по оплаченному платежу (payment.status
+    // "succeeded" === dbStatus). Дедуп возвратов — по refund id в RPC 0039.
+    if (event !== "refund.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
       const alreadyDone =
         payment.status === dbStatus ||
         (event === "refund.succeeded" && payment.status === "refunded");
@@ -409,26 +421,40 @@ export async function POST(request: NextRequest) {
         }
 
         if (payment) {
-          // PAY-1: возвраты СУММИРУЮТСЯ (раньше refund_amount перезаписывался
-          // суммой последнего частичного возврата — учёт терялся), а
-          // payments.status='refunded' — только когда возвращено полностью.
-          const alreadyKop = Math.round(Number(payment.refund_amount) || 0) * 100;
-          const paymentKop = Number(payment.amount) * 100;
-          const newRefundedKop = alreadyKop + (wireKop ?? 0);
-          const fullyRefunded = newRefundedKop >= paymentKop;
-          const { error: payUpdErr } = await supabaseAdmin
-            .from("payments")
-            .update({
-              status: fullyRefunded ? "refunded" : payment.status,
-              refund_amount: newRefundedKop / 100,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", payment.id);
-          if (payUpdErr) {
-            console.error("[webhook] refund payment update failed:", payUpdErr.message);
+          if (wireKop === null || wireKop <= 0) {
+            // Не применяем возврат с неизвестной суммой — YooKassa повторит доставку
+            console.error(`[webhook] refund без суммы — skip (payment=${payment.id}, refund=${object.id})`);
+            return NextResponse.json({ success: true, skipped: "refund_amount_missing" });
           }
 
-          if (fullyRefunded && order.payment_status !== "refunded") {
+          // pay4: идемпотентное применение через RPC 0039 — дедуп по refund id
+          // + атомарное суммирование refund_amount. Прежний read-add-write
+          // задваивал сумму частичного возврата при повторной доставке.
+          const { data: refundRes, error: refundRpcErr } = await supabaseAdmin
+            .rpc("apply_yookassa_refund", {
+              p_payment_id: payment.id,
+              p_refund_id: object.id,
+              p_amount_kopecks: wireKop,
+            })
+            .single() as {
+              data: { already_processed: boolean; total_refunded_kopecks: number; fully_refunded: boolean } | null;
+              error: (Error & { code?: string }) | null;
+            };
+
+          if (refundRpcErr && refundRpcErr.code === "PGRST202") {
+            // 0039 не применена — НЕ применяем возврат частично/небезопасно:
+            // fail-closed 500 → YooKassa повторит доставку после применения миграции
+            console.error(
+              "[webhook] apply_yookassa_refund RPC отсутствует — fail-closed 500 (примените миграцию 0039)"
+            );
+            return NextResponse.json({ error: "Refund processing unavailable" }, { status: 500 });
+          }
+          if (refundRpcErr || !refundRes) {
+            console.error("[webhook] refund RPC failed:", refundRpcErr?.message);
+            return NextResponse.json({ error: "Refund processing failed" }, { status: 500 });
+          }
+
+          if (refundRes.fully_refunded && order.payment_status !== "refunded") {
             const { error: ordUpdErr } = await supabaseAdmin
               .from("orders")
               .update({ payment_status: "refunded" })

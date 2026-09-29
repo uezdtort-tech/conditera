@@ -184,19 +184,51 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 4. Если использован backup-код — удалить его из списка
+    // 4. Если использован backup-код — атомарно списать его (RPC 0039).
+    // pay4: прежний read-filter-write пускал два параллельных логина с одним
+    // кодом (оба получали JWT). RPC с guard'ом в WHERE — выигрывает ровно один.
     let remainingBackupCodes = (user.two_factor_backup_codes as string[]) || [];
     if (usedBackupCode) {
       const usedHash = hashBackupCode(usedBackupCode);
-      remainingBackupCodes = remainingBackupCodes.filter((h) => h !== usedHash);
-
-      await supabaseAdmin
-        .from("profiles")
-        .update({
-          two_factor_backup_codes: remainingBackupCodes,
-          updated_at: new Date().toISOString(),
+      const { data: consumed, error: consumeErr } = await supabaseAdmin
+        .rpc("consume_tfa_backup_code_v2", {
+          p_user_id: user.id,
+          p_code_hash: usedHash,
         })
-        .eq("id", user.id);
+        .single() as { data: unknown; error: (Error & { code?: string }) | null };
+
+      if (consumeErr && consumeErr.code === "PGRST202") {
+        // FAIL-CLOSED: RPC отсутствует (миграция 0039 не применена) —
+        // НЕ выдаём токены небезопасным путём
+        return NextResponse.json(
+          {
+            error:
+              "2FA временно недоступна: не применена миграция БД (0039). Используйте TOTP-код или обратитесь в поддержку.",
+          },
+          { status: 503 }
+        );
+      }
+      if (consumeErr) {
+        console.error("[2fa/login-verify] backup-code consume failed:", consumeErr.message);
+        return NextResponse.json(
+          { error: "Ошибка проверки backup-кода. Попробуйте ещё раз." },
+          { status: 500 }
+        );
+      }
+      // PostgREST для scalar-RPC возвращает булево напрямую; поддерживаем
+      // и обёрнутый в объект вид на случай адаптеров
+      const consumedOk =
+        typeof consumed === "boolean"
+          ? consumed
+          : Boolean((consumed as Record<string, unknown> | null)?.consume_tfa_backup_code_v2);
+      if (!consumedOk) {
+        // Код уже списан конкурентным логином
+        return NextResponse.json(
+          { error: "Backup-код недействителен или уже использован." },
+          { status: 401 }
+        );
+      }
+      remainingBackupCodes = remainingBackupCodes.filter((h) => h !== usedHash);
 
       if (remainingBackupCodes.length <= 2) {
         console.warn(`⚠️ Пользователь ${user.email} имеет только ${remainingBackupCodes.length} backup-кодов`);

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
 
     const { data: order } = await supabaseAdmin
       .from("orders")
-      .select("id, number, status, user_id, payment_status, total")
+      .select("id, number, status, user_id, payment_status, total, payout_reserved_at, payout_request_id")
       .eq("id", orderId)
       .maybeSingle();
 
@@ -49,6 +49,25 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
 
     if (order.status === "COMPLETED" || order.status === "CANCELLED") {
       return NextResponse.json({ error: `Нельзя отменить заказ со статусом ${order.status}` }, { status: 400 });
+    }
+
+    // pay4: заказ зарезервирован под заявку на выплату — отмена создала бы
+    // рассинхрон «выплачено кондитеру ↔ отменено у клиента»
+    if (order.payout_reserved_at || order.payout_request_id) {
+      return NextResponse.json(
+        { error: "Заказ включён в заявку на выплату. Отмена невозможна — обратитесь в поддержку." },
+        { status: 409 }
+      );
+    }
+
+    // pay4: эскроу уже релизнут кондитеру — деньги вне эскроу; отмена/возврат —
+    // только ручная процедура через поддержку (прежде заказ отменялся,
+    // оставаясь payment_status='released', и попадал в состав выплаты)
+    if (order.payment_status === "released") {
+      return NextResponse.json(
+        { error: "Эскроу уже выплачен кондитеру. Отмена возможна только через поддержку." },
+        { status: 409 }
+      );
     }
 
     // Optimistic lock: обновляем только если статус не изменился конкурентно

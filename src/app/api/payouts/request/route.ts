@@ -78,6 +78,10 @@ interface ConfectionerRow {
 
 interface UserTfaRow {
   id: string;
+  two_factor_enabled: boolean | null;
+  two_factor_secret: string | null;
+  two_factor_backup_codes: string[] | null;
+  // legacy-колонки (до 0028 сплит): читаем для обратной совместимости
   tfa_enabled: boolean | null;
   tfa_secret: string | null;
   tfa_backup_codes: string[] | null;
@@ -200,9 +204,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // 2FA-проверка
+    // pay4: читаем ОБЕ системы колонок — setup/verify пишут two_factor_*,
+    // а гейт прежде смотрел только legacy tfa_* (никто их не пишет) →
+    // 2FA-защита выплат была мёртвой (fail-open by construction)
     const { data: userTfa, error: tfaErr } = await supabaseAdmin
       .from("profiles")
-      .select("id, tfa_enabled, tfa_secret, tfa_backup_codes, tfa_required_for")
+      .select("id, two_factor_enabled, two_factor_secret, two_factor_backup_codes, tfa_enabled, tfa_secret, tfa_backup_codes, tfa_required_for")
       .eq("id", user.userId)
       .maybeSingle() as { data: UserTfaRow | null; error: SupabaseError | null };
 
@@ -212,7 +219,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const tfaRequiredFor = userTfa?.tfa_required_for || [];
-    const tfaRequired = userTfa?.tfa_enabled === true && tfaRequiredFor.includes("payout");
+    // pay4: живая 2FA (two_factor_enabled) ИЛИ legacy-гейт (tfa_enabled + payout)
+    const tfaRequired =
+      userTfa?.two_factor_enabled === true ||
+      (userTfa?.tfa_enabled === true && tfaRequiredFor.includes("payout"));
     if (tfaRequired) {
       const { totpCode, backupCode } = body;
       if (!totpCode && !backupCode) {
@@ -226,52 +236,54 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
       let tfaOk = false;
-      if (totpCode && userTfa?.tfa_secret) {
+      // pay4: секрет — из живой системы (two_factor_secret), fallback на legacy
+      const tfaSecret = userTfa?.two_factor_secret || userTfa?.tfa_secret;
+      if (totpCode && tfaSecret) {
         const { verifyTotp, decryptSecret } = await import("@/lib/totp");
         try {
-          const secret = decryptSecret(userTfa.tfa_secret);
+          const secret = decryptSecret(tfaSecret);
           tfaOk = verifyTotp(totpCode, secret);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           console.error("[payouts/request] TOTP decrypt failed:", msg);
         }
-      } else if (backupCode && userTfa?.tfa_backup_codes) {
+      } else if (backupCode) {
         const { verifyBackupCode } = await import("@/lib/totp");
-        const backupCodes = userTfa.tfa_backup_codes;
-        const usedHash = backupCodes.find((h) => verifyBackupCode(backupCode, [h]));
+        // pay4: код ищем в обеих системах; списываем в той, где нашли,
+        // атомарным RPC (v2 — live two_factor_backup_codes; 0037 — legacy)
+        const liveCodes = (userTfa?.two_factor_backup_codes || []) as string[];
+        const legacyCodes = (userTfa?.tfa_backup_codes || []) as string[];
+        const usedLive = liveCodes.find((h) => verifyBackupCode(backupCode, [h]));
+        const usedHash = usedLive || legacyCodes.find((h) => verifyBackupCode(backupCode, [h]));
         if (usedHash) {
-          // pay3b P1-D: атомарное списание кода (0037). Guard "код ещё
-          // присутствует" внутри UPDATE — гонка двух параллельных запросов
-          // с одним кодом проходит ровно у одного (раньше read-filter-write
-          // пускал оба, оба получали выплату).
+          const rpcName = usedLive ? "consume_tfa_backup_code_v2" : "consume_tfa_backup_code";
           const { data: consumed, error: consumeErr } = await supabaseAdmin
-            .rpc("consume_tfa_backup_code", {
+            .rpc(rpcName, {
               p_user_id: user.userId,
               p_code_hash: usedHash,
             })
-            .single<{ consume_tfa_backup_code: boolean | null }>() as {
-              data: { consume_tfa_backup_code: boolean | null } | null;
+            .single() as {
+              data: unknown;
               error: (SupabaseError & { code?: string }) | null;
             };
 
           if (consumeErr && consumeErr.code === "PGRST202") {
-            // 0037 не применена — прежняя семантика (гонка не закрыта;
-            // гейт применения миграций 0034-0037 — ops, см. worklog)
-            console.warn(
-              "[payouts/request] consume_tfa_backup_code RPC отсутствует — fallback read-filter-write (примените 0037)"
+            // pay4 FAIL-CLOSED: RPC отсутствует — не расходуем код и НЕ пускаем
+            // выплату (прежде здесь был fail-open tfaOk=true + гонка read-filter-write)
+            throw new HttpError(
+              503,
+              "2FA временно недоступна: не применена миграция БД (0037/0039). Попробуйте позже или используйте TOTP-код."
             );
-            tfaOk = true;
-            await supabaseAdmin
-              .from("profiles")
-              .update({
-                tfa_backup_codes: backupCodes.filter((h) => h !== usedHash),
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", user.userId);
           } else if (consumeErr) {
             console.error("[payouts/request] backup-code consume failed:", consumeErr.message);
           } else {
-            tfaOk = consumed?.consume_tfa_backup_code === true;
+            // PostgREST для scalar-RPC возвращает булево напрямую;
+            // некоторые клиенты/адаптеры оборачивают в объект — поддерживаем оба вида
+            const v = consumed as unknown;
+            tfaOk =
+              typeof v === "boolean"
+                ? v
+                : Boolean((v as Record<string, unknown> | null)?.[rpcName]);
           }
         }
       }
@@ -418,37 +430,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (reserveRace) {
-      // Полная компенсация: снимаем свой резерв, возвращаем средства, rejected
-      if (reserved.length > 0) {
-        // pay3b: снимаем только СВОЮ привязку (0037 payout_request_id) —
-        // прежде метка сверялась по равенству timestamp (same-ms коллизия)
-        const { error: unreserveErr } = await supabaseAdmin
-          .from("orders")
-          .update({ payout_reserved_at: null, payout_request_id: null })
-          .in("id", reserved)
-          .eq("payout_request_id", payoutRequest.id);
-        if (unreserveErr) {
-          console.error("[payouts/request] unreserve failed (needs ops):", unreserveErr.message);
-        }
-      }
-      const { error: refundErr } = await supabaseAdmin.rpc("add_confectioner_balance", {
-        p_confectioner_id: confectioner.id,
-        p_amount: body.amount,
-      });
-      if (refundErr) {
-        console.error(
-          "[payouts/request] COMPENSATION FAILED — резерв не возвращён, нужна ручная сверка:",
-          refundErr.message,
-          { payoutRequestId: payoutRequest.id, confectionerId: confectioner.id, amount: body.amount }
-        );
-      }
-      await supabaseAdmin
+      // pay4: CAS на статус перед компенсацией — админ мог успеть reject
+      // (с возвратом средств) в гонке; прежде add_balance вызывался безусловно
+      // → двойное начисление резерва
+      const { data: compWinner, error: compCasErr } = await supabaseAdmin
         .from("payout_requests")
         .update({
           status: "rejected",
           rejection_reason: "reserve race: состав выплаты изменился конкурентной заявкой",
         })
-        .eq("id", payoutRequest.id);
+        .eq("id", payoutRequest.id)
+        .eq("status", "pending")
+        .select("id");
+
+      if (compCasErr) {
+        console.error(
+          "[payouts/request] compensation CAS failed (needs ops):",
+          compCasErr.message,
+          { payoutRequestId: payoutRequest.id }
+        );
+      } else if (compWinner && compWinner.length > 0) {
+        // Выиграли CAS — мы отвечаем за компенсацию
+        if (reserved.length > 0) {
+          // pay3b: снимаем только СВОЮ привязку (0037 payout_request_id) —
+          // прежде метка сверялась по равенству timestamp (same-ms коллизия)
+          const { error: unreserveErr } = await supabaseAdmin
+            .from("orders")
+            .update({ payout_reserved_at: null, payout_request_id: null })
+            .in("id", reserved)
+            .eq("payout_request_id", payoutRequest.id);
+          if (unreserveErr) {
+            console.error("[payouts/request] unreserve failed (needs ops):", unreserveErr.message);
+          }
+        }
+        const { error: refundErr } = await supabaseAdmin.rpc("add_confectioner_balance", {
+          p_confectioner_id: confectioner.id,
+          p_amount: body.amount,
+        });
+        if (refundErr) {
+          console.error(
+            "[payouts/request] COMPENSATION FAILED — резерв не возвращён, нужна ручная сверка:",
+            refundErr.message,
+            { payoutRequestId: payoutRequest.id, confectionerId: confectioner.id, amount: body.amount }
+          );
+        }
+      } else {
+        // Проиграли CAS — заявку обработал админ (reject уже вернул средства)
+        console.warn(
+          "[payouts/request] compensation skipped — заявку уже обработал админ (refund выполнен в reject)",
+          { payoutRequestId: payoutRequest.id }
+        );
+      }
       throw new HttpError(409, "Состав выплаты изменился (конкурентный запрос). Попробуйте ещё раз.");
     }
 
