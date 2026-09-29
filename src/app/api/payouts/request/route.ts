@@ -25,6 +25,21 @@
  *   • Детерминированный батч: ORDER BY created_at (прежде порядок был
  *     недетерминированным — два запроса могли увидеть разные наборы).
  *
+ * pay3b (payout-раунд):
+ *   • Формула выплаты — единая computeOrderPayout (src/lib/payout-math.ts),
+ *     та же, что начисляет эскроу-крон: clamp >= 0 (P1-E: прежде заявка
+ *     считала БЕЗ clamp и могла расходиться с начислением).
+ *   • Резерв заказа связан с заявкой жёстко: orders.payout_request_id
+ *     (0037). Компенсация снимает резерв только СВОЕЙ заявки — раньше
+ *     метка nowIso коллационировалась по равенству timestamp (same-ms
+ *     коллизия двух заявок теоретически снимала чужой резерв).
+ *   • 2FA backup-код списывается атомарным RPC consume_tfa_backup_code
+ *     (0037): два параллельных запроса с одним кодом — проходит ровно
+ *     один (P1-D: прежде read-verify-filter-write пускал оба). Fallback
+ *     на прежнюю семантику при отсутствии RPC (0037 не применена).
+ *   • bankDetails: суммарный размер JSON ≤ 4000 символов (прежде был
+ *     лимит только на число ключей).
+ *
  * Прежние фиксы (pay0-6, db1-2): eligible = payment_status='released' +
  * escrow_released_at NOT NULL; профиль по «userId» (0017, camelCase);
  * fail-closed вместо не-атомарного fallback; выплата только на ПОЛНУЮ
@@ -42,6 +57,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { verifyForPayout } from "@/lib/organization-gate";
+import { computeOrderPayout } from "@/lib/payout-math";
 import { safeJsonBody, HttpError, handleRouteError, readEnumField } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -87,8 +103,8 @@ interface PayoutBody {
 
 const MAX_ORDERS_FOR_PAYOUT = 50;
 const MAX_BANK_DETAILS_KEYS = 20;
-const YOOKASSA_RATE = 0.025;
-const DEFAULT_COMMISSION_RATE = 0.15;
+/** pay3b: суммарный размер сериализованного bankDetails (защита от раздувания JSONB) */
+const MAX_BANK_DETAILS_JSON = 4000;
 const PAYOUT_METHODS = ["card", "sbp", "bank_account", "invoice"] as const;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -134,6 +150,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const bd = body.bankDetails as Record<string, unknown>;
       if (Object.keys(bd).length > MAX_BANK_DETAILS_KEYS) {
         throw new HttpError(422, `bankDetails: слишком много полей (макс ${MAX_BANK_DETAILS_KEYS})`);
+      }
+      if (JSON.stringify(bd).length > MAX_BANK_DETAILS_JSON) {
+        throw new HttpError(422, `bankDetails: слишком большой (макс ${MAX_BANK_DETAILS_JSON} символов)`);
       }
       bankDetails = bd;
     }
@@ -219,11 +238,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       } else if (backupCode && userTfa?.tfa_backup_codes) {
         const { verifyBackupCode } = await import("@/lib/totp");
         const backupCodes = userTfa.tfa_backup_codes;
-        tfaOk = verifyBackupCode(backupCode, backupCodes);
-        // Списываем использованный backup-код
-        if (tfaOk) {
-          const usedHash = backupCodes.find((h) => verifyBackupCode(backupCode, [h]));
-          if (usedHash) {
+        const usedHash = backupCodes.find((h) => verifyBackupCode(backupCode, [h]));
+        if (usedHash) {
+          // pay3b P1-D: атомарное списание кода (0037). Guard "код ещё
+          // присутствует" внутри UPDATE — гонка двух параллельных запросов
+          // с одним кодом проходит ровно у одного (раньше read-filter-write
+          // пускал оба, оба получали выплату).
+          const { data: consumed, error: consumeErr } = await supabaseAdmin
+            .rpc("consume_tfa_backup_code", {
+              p_user_id: user.userId,
+              p_code_hash: usedHash,
+            })
+            .single<{ consume_tfa_backup_code: boolean | null }>() as {
+              data: { consume_tfa_backup_code: boolean | null } | null;
+              error: (SupabaseError & { code?: string }) | null;
+            };
+
+          if (consumeErr && consumeErr.code === "PGRST202") {
+            // 0037 не применена — прежняя семантика (гонка не закрыта;
+            // гейт применения миграций 0034-0037 — ops, см. worklog)
+            console.warn(
+              "[payouts/request] consume_tfa_backup_code RPC отсутствует — fallback read-filter-write (примените 0037)"
+            );
+            tfaOk = true;
             await supabaseAdmin
               .from("profiles")
               .update({
@@ -231,6 +268,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 updated_at: new Date().toISOString(),
               })
               .eq("id", user.userId);
+          } else if (consumeErr) {
+            console.error("[payouts/request] backup-code consume failed:", consumeErr.message);
+          } else {
+            tfaOk = consumed?.consume_tfa_backup_code === true;
           }
         }
       }
@@ -266,21 +307,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(500, "Не удалось загрузить заказы для выплаты");
     }
 
-    // Считаем сумму к выплате по снапшоту тарифа
+    // pay3b P1-E: считаем сумму к выплате ЕДИНОЙ формулой computeOrderPayout
+    // (та же, что начисляет эскроу-крон: clamp >= 0). Прежде здесь формула
+    // дублировалась БЕЗ clamp — расхождение «начислено ↔ запрошено».
     let totalPayout = 0;
     const orderPayouts = (eligibleOrders || []).map((o) => {
-      const commissionRate = o.commission_rate_snapshot ?? DEFAULT_COMMISSION_RATE;
-      const itemsTotal = o.total - (o.delivery_cost || 0);
-      const commission = Math.round(itemsTotal * commissionRate);
-      const yookassaFee = Math.round(o.total * YOOKASSA_RATE);
-      const payout = o.total - commission - yookassaFee;
-      totalPayout += payout;
+      const breakdown = computeOrderPayout({
+        total: o.total,
+        deliveryCost: o.delivery_cost,
+        commissionRateSnapshot: o.commission_rate_snapshot,
+      });
+      if (breakdown.clamped) {
+        console.warn(
+          `[payouts/request] order ${o.id}: payout clamped to 0 (total ${o.total}, commission ${breakdown.commission}, fee ${breakdown.yookassaFee})`
+        );
+      }
+      totalPayout += breakdown.payout;
       return {
         orderId: o.id,
         orderNumber: o.number,
-        payout,
-        commission,
-        yookassaFee,
+        payout: breakdown.payout,
+        commission: breakdown.commission,
+        yookassaFee: breakdown.yookassaFee,
       };
     });
 
@@ -345,9 +393,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const reserved: string[] = [];
     let reserveRace = false;
     for (const op of orderPayouts) {
+      // pay3b P0-B: резерв привязан к заявке жёстко (0037 payout_request_id)
       const { data: updRows, error: updErr } = await supabaseAdmin
         .from("orders")
-        .update({ payout_reserved_at: nowIso })
+        .update({ payout_reserved_at: nowIso, payout_request_id: payoutRequest.id })
         .eq("id", op.orderId)
         .eq("payment_status", "released")
         .is("payout_transferred_at", null)
@@ -371,11 +420,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (reserveRace) {
       // Полная компенсация: снимаем свой резерв, возвращаем средства, rejected
       if (reserved.length > 0) {
+        // pay3b: снимаем только СВОЮ привязку (0037 payout_request_id) —
+        // прежде метка сверялась по равенству timestamp (same-ms коллизия)
         const { error: unreserveErr } = await supabaseAdmin
           .from("orders")
-          .update({ payout_reserved_at: null })
+          .update({ payout_reserved_at: null, payout_request_id: null })
           .in("id", reserved)
-          .eq("payout_reserved_at", nowIso); // снимаем только СВОЮ метку
+          .eq("payout_request_id", payoutRequest.id);
         if (unreserveErr) {
           console.error("[payouts/request] unreserve failed (needs ops):", unreserveErr.message);
         }
