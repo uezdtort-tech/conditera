@@ -6740,3 +6740,28 @@ Work Log:
 Stage Summary:
 - Единственный жёсткий блокер деплоя payout-кода — применение 0034+0035+0036+0037 на живую БД одним окном (psql/SQL-editor на машине владельца), затем npx tsx scripts/verify-money-path.ts (§7+§8).
 - Следующий раунд по плану — PAY-2: ledger (писателей в confectioner_transactions нет), outbox для side-effects, PaymentAttempt, реконсиляция, FK orders.payout_request_id→payout_requests(id), cleanup dead-end POST admin/payouts, унификация method-enum (invoice), частичные выплаты, админ-таб «Выплаты» на реальном API.
+
+---
+Task ID: ops-apply-0034-0037
+Agent: Z.ai Code (main)
+Task: ОПС-раунд — применить 0034–0037 на живую БД одним окном + verify-money-path (§7, §8) + worklog + отчёт о готовности деплоя payout-кода. PAY-2 в этом раунде НЕ вести.
+
+Work Log:
+- ИНЦИДЕНТ №4 (важнее задачи): песочница откатилась к снапшоту 28.09 22:18 — HEAD = мусорный 4dc20a0 (тот же UUID-паттерн watcher'а), pay3b-коммиты/backup-ветки/WIP-0038 исчезли локально. GitHub цел (origin/main = b2b512c) — push-стратегия оправдала себя. Восстановление по безопасной последовательности: backup-ветка sandbox-rollback-4dc20a0 → fetch → left-right (1 мусорный / 9 pay3b) → reset --hard origin/main → verify (0037, upload route, worklog на месте). WIP pay2 (0038 ledger, полный черновик) восстановлен из контекста и запушен на ветку pay2-wip (c7377f7), main чистый.
+- Доступ к живой БД из песочницы: ОТСУТСТВУЕТ by design — .env содержит только DATABASE_URL=file:...db/custom.db (локальный SQLite), SUPABASE_* переменных нет. psql не установлен. Docker недоступен. По заданию: «не симулируй успех» → подготовлен и смок-проверен ранбук для машины владельца.
+- scripts/ops-apply-money-path.ts — строгий ранбук (в отличие от apply-migrations.ts, который тянет все 38 миграций с blanket-пропуском ошибок): только 0034→0035→0036→0037, каждая в транзакции BEGIN…COMMIT (ошибка = ROLLBACK файла + abort), БЕЗ пропуска «already exists» (миграции идемпотентны — чистый повтор даёт ноль ошибок), pre-flight (версия PG, таблицы-пререквизиты, что уже применено), маркеры после каждого файла (колонки/RPC реально существуют), флаг --verify = авто-прогон verify-money-path.
+- scripts/verify-ops-0034-0037-pglite.ts — смок ранбука на PGlite: фикстура pre-0034 (реконструирована по 0001/0002/0009/0013/0017: enum payment_status 7 значений, order_items/escrow_accounts/payouts.fee_amount для COMMENT'ов 0034, схема auth + auth.uid() для RLS 0036, deduct_conference_balance из 0013) → полный прогон → семантические пробы RPC → повторный полный прогон.
+- Смок: 100% PASS. Прогон 1: 4 файла COMMIT, все маркеры (5 колонок 0034, reserve_refund, payout_reserved_at+add RPC, payout_request_id+release+consume). Пробы: deduct 1000−300=700, add 700+50=750, release_escrow_order claim+начисление → баланс 850, повторный release → 0 (CAS без двойного начисления). Прогон 2 (идемпотентность): ноль ошибок. Сплиттер: вложенные $-теги корректны.
+- Попутная находка смока (уточнение для ранбука, не баг миграций): 0034 ожидает на живой БД колонки 0001 (orders.subtotal/number/delivery_cost/discount), таблицы order_items/escrow_accounts/payouts.fee_amount, enum payment_status с 7 значениями и схему auth — фикстура подтвердила совместимость.
+- Гейты: tsc PASS (exit 0), lint 0 errors (3 старых warning'а), src/ в этом раунде не менялся (vitest не гонялся — без изменений кода приложения; 744/744 с прошлого раунда).
+
+Stage Summary:
+- Ранбук ГОТОВ И ПРОВЕРЕН: на машине владельца выполнить
+    git pull origin main
+    pg_dump "$DATABASE_URL" --schema-only > backup-schema-$(date +%F-%H%M).sql   # рекомендовано
+    DATABASE_URL=postgresql://postgres:PASS@HOST:5432/postgres npx tsx scripts/ops-apply-money-path.ts --verify
+  (--verify прогонит verify-money-path §0–§8 автоматически; без флага — вручную той же командой из worklog)
+- DoD: миграции применяются одним окном, идемпотентны (повтор безопасен), маркеры и verify — автоматические; при ROLLBACK БД остаётся консистентной.
+- Верификатор миграций: 0036/0037 — PGlite-валидаторы (14/14, 19/19 с прошлого раунда); теперь вся четвёрка 0034–0037 покрыта сквозным смоком.
+- Вне scope (осознанно): PAY-2 (ledger/0038 — черновик на pay2-wip, ожидает раунда), cleanup POST admin/payouts, method-enum, outbox.
+- После применения миграций на живой БД payout-код (pay3b) МОЖНО деплоить — но только после PASS verify-money-path на живой БД (смок проверяет ранбук, не живую БД).
