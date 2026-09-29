@@ -30,6 +30,20 @@
  *   • Все переходы статусов — через CAS (.in("status", ...)), конкурентный
  *     PATCH даёт 409 вместо двойного исполнения side-effects.
  *   • При DB error не возвращаем детали БД клиенту.
+ *
+ * pay3b (payout-раунд):
+ *   • P0-A: reject возвращает резерв ТОЛЬКО у заявок с составом
+ *     (metadata.orders) — POST admin/payouts ничего не резервирует,
+ *     прежний безусловный add_confectioner_balance на reject печатал
+ *     деньги (POST без списания → reject → +amount на баланс).
+ *   • P0-B: снятие резерва и маркировка заказов фильтруются по
+ *     orders.payout_request_id (0037) — не задевают чужие/конкурентные
+ *     заявки (прежде reject снимал резерв blanket'ом).
+ *   • P1-C: complete помечает заказы ДО CAS-перехода в paid и
+ *     идемпотентно (ретрай считает уже помеченные); если не все заказы
+ *     батча готовы — 409, статус остаётся approved (прежде paid
+ *     ставился до маркировки — частично помеченный батч оставался paid,
+ *     непомеченные заказы оставались eligible → дрейф баланса).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -45,6 +59,8 @@ const PAYOUT_METHODS = ["card", "sbp", "bank_account"] as const;
 const PAYOUT_ACTIONS = ["approve", "reject", "complete"] as const;
 const MAX_REJECTION_REASON_LENGTH = 500;
 const MAX_BANK_DETAILS_KEYS = 20;
+/** pay3b: суммарный размер сериализованного bankDetails */
+const MAX_BANK_DETAILS_JSON = 4000;
 const MAX_AMOUNT = 10_000_000;
 
 interface CreatePayoutBody {
@@ -151,6 +167,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const bd = body.bankDetails as Record<string, unknown>;
       if (Object.keys(bd).length > MAX_BANK_DETAILS_KEYS) {
         throw new HttpError(422, `bankDetails: слишком много полей (макс ${MAX_BANK_DETAILS_KEYS})`);
+      }
+      if (JSON.stringify(bd).length > MAX_BANK_DETAILS_JSON) {
+        throw new HttpError(422, `bankDetails: слишком большой (макс ${MAX_BANK_DETAILS_JSON} символов)`);
       }
       bankDetails = bd;
     }
@@ -277,48 +296,55 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       }
 
       // Возврат зарезервированных средств + снятие резерва заказов.
-      // Резерв существует только у заявок из /api/payouts/request
-      // (metadata.orders; source=admin/payouts не резервирует).
+      // pay3b P0-A: возврат — ТОЛЬКО у заявок, которые резервили средства
+      // (созданы /api/payouts/request: metadata.orders непустой, при создании
+      // было списание RPC deduct). POST admin/payouts ничего не списывает —
+      // прежний БЕЗУСЛОВНЫЙ add_confectioner_balance на reject любой заявки
+      // печатал деньги: POST без списания → reject → +amount на баланс.
+      // Резерв существует только у заявок с непустым metadata.orders.
       const warnings: string[] = [];
       const orderIds = Array.isArray(row.metadata?.orders) ? row.metadata!.orders! : [];
       if (orderIds.length > 0) {
+        // pay3b P0-B: снятие резерва — только СВОИХ заказов (0037
+        // payout_request_id); прежде blanket .not(payout_reserved_at IS NULL)
+        // мог снять резерв конкурентной новой заявки.
         const { error: unreserveErr } = await supabaseAdmin
           .from("orders")
-          .update({ payout_reserved_at: null })
+          .update({ payout_reserved_at: null, payout_request_id: null })
           .in("id", orderIds)
-          .not("payout_reserved_at", "is", null);
+          .eq("payout_request_id", row.id);
         if (unreserveErr) {
           console.error("[admin/payouts] unreserve failed:", unreserveErr.message);
           warnings.push(`Не удалось снять резерв заказов: ${unreserveErr.message}`);
         }
-      }
 
-      // Возврат средств на баланс кондитера (атомарный RPC, 0036)
-      const { data: conf, error: confErr } = await supabaseAdmin
-        .from("confectioners")
-        .select("id")
-        .eq("userId", row.user_id)
-        .maybeSingle();
+        // Возврат средств на баланс кондитера (атомарный RPC, 0036)
+        const { data: conf, error: confErr } = await supabaseAdmin
+          .from("confectioners")
+          .select("id")
+          .eq("userId", row.user_id)
+          .maybeSingle();
 
-      if (confErr || !conf) {
-        console.error(
-          "[admin/payouts] refund target not found — РУЧНАЯ СВЕРКА:",
-          confErr?.message,
-          { payoutId: row.id, userId: row.user_id, amount: row.amount }
-        );
-        warnings.push("Профиль кондитера не найден — возврат резерва требует ручной операции");
-      } else {
-        const { error: refundErr } = await supabaseAdmin.rpc("add_confectioner_balance", {
-          p_confectioner_id: conf.id,
-          p_amount: row.amount,
-        });
-        if (refundErr) {
+        if (confErr || !conf) {
           console.error(
-            "[admin/payouts] REFUND FAILED — РУЧНАЯ СВЕРКА:",
-            refundErr.message,
-            { payoutId: row.id, confectionerId: conf.id, amount: row.amount }
+            "[admin/payouts] refund target not found — РУЧНАЯ СВЕРКА:",
+            confErr?.message,
+            { payoutId: row.id, userId: row.user_id, amount: row.amount }
           );
-          warnings.push("Не удалось вернуть резерв на баланс — требуется ручная сверка");
+          warnings.push("Профиль кондитера не найден — возврат резерва требует ручной операции");
+        } else {
+          const { error: refundErr } = await supabaseAdmin.rpc("add_confectioner_balance", {
+            p_confectioner_id: conf.id,
+            p_amount: row.amount,
+          });
+          if (refundErr) {
+            console.error(
+              "[admin/payouts] REFUND FAILED — РУЧНАЯ СВЕРКА:",
+              refundErr.message,
+              { payoutId: row.id, confectionerId: conf.id, amount: row.amount }
+            );
+            warnings.push("Не удалось вернуть резерв на баланс — требуется ручная сверка");
+          }
         }
       }
 
@@ -369,6 +395,55 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // pay3b P1-C: маркировка заказов ДО перехода статуса и идемпотентно.
+    // Прежде paid ставился ПЕРВЫМ, а маркировка шла после — при частичном
+    // сбое заявка оставалась paid с непомеченными заказами (они оставались
+    // eligible для повторных заявок — дрейф баланса). Теперь:
+    //   1) помечаем непомеченные (CAS, только свои — payout_request_id, 0037);
+    //   2) считаем уже помеченные (идемпотентный ретрай complete);
+    //   3) если не все готовы — 409, статус остаётся approved, дрейфа нет.
+    const nowIso = new Date().toISOString();
+    const { data: markedNow, error: markErr } = await supabaseAdmin
+      .from("orders")
+      .update({ payout_transferred_at: nowIso })
+      .in("id", orderIds)
+      .eq("payout_request_id", body.payoutId)
+      .eq("payment_status", "released")
+      .is("payout_transferred_at", null)
+      .not("payout_reserved_at", "is", null)
+      .select("id");
+
+    if (markErr) {
+      console.error("[admin/payouts] order payout mark failed:", markErr.message);
+      throw new HttpError(500, "Не удалось пометить заказы выплаченными");
+    }
+    const markedNowCount = Array.isArray(markedNow) ? markedNow.length : 0;
+
+    // Уже помеченные ранее (ретрай complete после частичного успеха)
+    const { data: alreadyMarked, error: alreadyErr } = await supabaseAdmin
+      .from("orders")
+      .select("id")
+      .in("id", orderIds)
+      .eq("payout_request_id", body.payoutId)
+      .not("payout_transferred_at", "is", null);
+    if (alreadyErr) {
+      console.error("[admin/payouts] already-marked read failed:", alreadyErr.message);
+      throw new HttpError(500, "Не удалось проверить состав выплаты");
+    }
+    const alreadyCount = Array.isArray(alreadyMarked) ? alreadyMarked.length : 0;
+    const totalMarked = markedNowCount + alreadyCount;
+
+    if (totalMarked < orderIds.length) {
+      console.error(
+        "[admin/payouts] complete BLOCKED — partial marking (дрейф невозможен, статус остаётся approved):",
+        { payoutId: body.payoutId, markedNow: markedNowCount, already: alreadyCount, expected: orderIds.length }
+      );
+      throw new HttpError(
+        409,
+        `Не все заказы батча готовы к выплате (${totalMarked}/${orderIds.length}). Статус заявки остаётся approved — проверьте заказы (возврат/изменение статуса/чужой резерв) и повторите complete.`
+      );
+    }
+
     const { row, error } = await casTransition(body.payoutId, ["approved"], {
       status: "paid",
       processed_by: user.id,
@@ -379,38 +454,6 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     }
     if (!row) {
       throw new HttpError(409, "Заявка не найдена или статус уже изменился (конкурентное обновление)");
-    }
-
-    // Фиксируем фактическую выплату на заказах (CAS; pay3: раньше orders
-    // маркировались в payouts/request без CAS и до реальной выплаты)
-    const nowIso = new Date().toISOString();
-    const warnings: string[] = [];
-    let marked = 0;
-    for (const orderId of orderIds) {
-      const { data: updRows, error: updErr } = await supabaseAdmin
-        .from("orders")
-        .update({ payout_transferred_at: nowIso })
-        .eq("id", orderId)
-        .eq("payment_status", "released")
-        .is("payout_transferred_at", null)
-        .not("payout_reserved_at", "is", null)
-        .select("id");
-      if (updErr) {
-        console.error("[admin/payouts] order payout mark failed:", orderId, updErr.message);
-        warnings.push(`Заказ ${orderId}: ошибка маркировки — ${updErr.message}`);
-        continue;
-      }
-      if (!updRows || updRows.length === 0) {
-        warnings.push(`Заказ ${orderId}: не помечен выплаченным (статус изменился или резерв снят)`);
-        continue;
-      }
-      marked++;
-    }
-    if (marked < orderIds.length) {
-      console.error(
-        "[admin/payouts] partial payout marking:",
-        { payoutId: row.id, marked, expected: orderIds.length }
-      );
     }
 
     // Уведомление (non-blocking) — теперь честно: деньги подтверждены админом
@@ -428,7 +471,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       console.warn("[admin/payouts] notification failed:", e instanceof Error ? e.message : e);
     }
 
-    return NextResponse.json({ payout: row, marked, warnings: warnings.length > 0 ? warnings : undefined });
+    return NextResponse.json({ payout: row, marked: totalMarked });
   } catch (error) {
     return handleRouteError(error);
   }
