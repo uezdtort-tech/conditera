@@ -71,3 +71,4 @@ playwright-report/
 
 # sandbox PID churn — не отслеживать
 .zscripts/dev.pid
+download/
