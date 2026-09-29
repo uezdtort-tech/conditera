@@ -36,6 +36,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# pay4: идентификация версии образа (передаётся из CI как GIT_SHA=${{ github.sha }})
+ARG GIT_SHA=unknown
+ENV APP_VERSION=${GIT_SHA}
+
 # Собираем Next.js со standalone-выходом (см. next.config.ts: output: "standalone")
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
@@ -60,6 +64,10 @@ ENTRYPOINT ["sh", "/docker-entrypoint-initdb.d/01-apply-migrations.sh"]
 # --- Этап 4: Production runner ---
 FROM node:20-alpine AS runner
 WORKDIR /app
+
+# Версия образа (commit SHA) — видна в /api/health
+ARG GIT_SHA=unknown
+ENV APP_VERSION=${GIT_SHA}
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

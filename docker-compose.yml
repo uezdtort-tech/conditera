@@ -47,6 +47,9 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
+    # pay4: образ по SHA-тегу из CI (immutable). WEB_IMAGE задаётся деплоем;
+    # локально (без CI) образ собирается из build: ниже
+    image: ${WEB_IMAGE:-conditera:local}
     container_name: conditera-web
     <<: *default-restart
     ports:
@@ -54,6 +57,8 @@ services:
     env_file:
       - .env.production
     environment:
+      # pay4: версия развёрнутого образа (видна в /api/health)
+      - APP_VERSION=${WEB_TAG:-dev}
       # Подключение через PgBouncer (порт 5432 внутри контейнера pgbouncer)
       # PgBouncer мультиплексирует соединения к реальной БД (db:5432)
       - DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@pgbouncer:5432/conditera?schema=public&pgbouncer=true

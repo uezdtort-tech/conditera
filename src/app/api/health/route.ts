@@ -45,7 +45,9 @@ interface HealthResponse {
   dependencies: DependencyStatus[];
 }
 
-const APP_VERSION = "2.0.0";
+// pay4: версия образа прокидывается через ARG/ENV APP_VERSION (Dockerfile);
+// вне Docker (dev) — fallback "2.0.0-dev"
+const APP_VERSION = process.env.APP_VERSION || "2.0.0-dev";
 
 /**
  * Проверить, сконфигурированы ли переменные окружения.
