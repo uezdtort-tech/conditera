@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Sparkles, Loader2, Check, RefreshCw, Tag } from "lucide-react";
 import { toast } from "sonner";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 interface AiDescriptionGeneratorProps {
   title: string;
@@ -65,7 +66,7 @@ export function AiDescriptionGenerator({
     try {
       const res = await fetch("/api/products/ai-description", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({
           title,
           category,

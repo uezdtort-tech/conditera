@@ -13,6 +13,7 @@ import {
   Cake, Upload, Edit3, Trash2, Plus, Download, Eye, X, Sparkles, Loader2, Image as ImageIcon, Boxes,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 // ===== Типы =====
 export interface SliceLayer {
@@ -410,7 +411,7 @@ export function CakeSliceVisualizer({
     try {
       const res = await fetch("/api/fillings/ai-generate-slice", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({
           name: filling.name,
           description: (filling as any).description || "",
@@ -451,7 +452,7 @@ export function CakeSliceVisualizer({
 
       const res = await fetch("/api/slice/export-png", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({
           svg: svgString,
           width: 600,

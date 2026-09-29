@@ -18,6 +18,7 @@ import type { QuickReply } from "@/lib/types";
 import { useVoiceRecorder, formatDuration } from "@/hooks/useVoiceRecorder";
 import { VoiceMessagePlayer } from "@/components/chat/voice-message-player";
 import { useEffect, useRef, useState } from "react";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 export function ChatWidget() {
   const chatOpen = useAppStore((s) => s.chatOpen);
@@ -101,7 +102,7 @@ export function ChatWidget() {
     try {
       const res = await fetch("/api/ai-dialogue/respond", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({
           message: lastCustomerMsg.text,
           customerId: lastCustomerMsg.senderId || "customer",

@@ -17,6 +17,7 @@ import { Camera, Loader2, X, Search, Sparkles, Image as ImageIcon } from "lucide
 import { useAppStore } from "@/lib/store";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/finance";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 interface SearchResult {
   id: string;
@@ -60,7 +61,7 @@ export function VisualSearchButton({ compact = false }: { compact?: boolean }) {
     try {
       const res = await fetch("/api/visual-search", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({ image: imageData, limit: 12 }),
       });
       if (res.ok) {

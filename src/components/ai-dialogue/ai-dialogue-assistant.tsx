@@ -21,6 +21,7 @@ import {
   ChevronDown, ChevronUp, TrendingUp, Copy,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 interface RelationshipContext {
   relationshipType: string;
@@ -121,7 +122,7 @@ export function AIDialogueAssistant({
     try {
       const res = await fetch("/api/ai-dialogue/respond", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({
           message: lastMessage,
           customerId,
@@ -149,7 +150,7 @@ export function AIDialogueAssistant({
     try {
       const res = await fetch("/api/ai-dialogue/learn", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({
           sourceType: "chat",
           customerId,

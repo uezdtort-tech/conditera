@@ -16,6 +16,7 @@ import {
 import { Sparkles, Send, Loader2, X, Cake, Star } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { toast } from "sonner";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 interface Message {
   role: "user" | "assistant";
@@ -94,7 +95,7 @@ function AICakeFinderDialog({
     try {
       const res = await fetch("/api/ai-cake-finder", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(),
         body: JSON.stringify({
           messages: newMessages.length > 0 ? newMessages : [{ role: "user", content: text }],
         }),
