@@ -18,12 +18,12 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:report": "playwright show-report",
-    "db:generate": "prisma generate",
+    "db:push": "bun scripts/db-push.mjs",
     "db:seed": "bun run prisma/seed.ts",
-    "db:migration:gen": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/0000_init.sql",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:generate": "echo '[db] Prisma removed (v2.0 Supabase) — generate is a no-op'",
+    "db:migration:gen": "echo '[db] Prisma removed — migrations apply via scripts/ops-apply-*.ts (Supabase)'",
+    "db:migrate": "echo '[db] Prisma removed — migrations apply via scripts/ops-apply-*.ts (Supabase)'",
+    "db:reset": "echo '[db] Prisma removed — see docs/ for Supabase ops runbooks'"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

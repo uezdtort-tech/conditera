@@ -132,7 +132,10 @@ log_step_end "bun run db:push"
 
 log_step_start "Starting Next.js dev server"
 echo "[BUN] Starting development server..."
-bun run dev &
+# OOM-fix: `bun run dev` = next build + next start — killed by OOM-killer in the 4GB sandbox
+# (build peak ~3GB; see worklog "deploy-fix-round"). The working path is dev:local
+# (this is exactly how the IDE starts the server).
+bun run dev:local &
 DEV_PID=$!
 log_step_end "Starting Next.js dev server"
 
