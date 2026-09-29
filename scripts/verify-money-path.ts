@@ -278,6 +278,76 @@ async function main() {
     warn(`${orphanReq.rows[0].n} открытых заявок(+) без metadata.orders — complete для них запрещён (созданы вне /api/payouts/request)`);
   }
 
+  // ------------------------------------------------------------------
+  // 8. PAY-3b: привязка резерва к заявке + атомарные RPC (миграция 0037)
+  // ------------------------------------------------------------------
+  console.log("\n─── 8. PAY-3b: привязка резерва / атомарные RPC (0037) ───");
+
+  // 8a. orders.payout_request_id — жёсткая связь «заказ ⇔ заявка»
+  const linkCol = await client.query(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='orders' AND column_name='payout_request_id'`
+  );
+  if (linkCol.rowCount === 1) {
+    ok("orders.payout_request_id на месте (связь резерва с заявкой)");
+  } else {
+    fail(
+      "нет orders.payout_request_id — миграция 0037 не применена: reject/complete фильтруют резерв по этой колонке (чужой резерв/дрейф)"
+    );
+  }
+
+  // 8b. Резервы без привязки (применены до 0037 / ручные операции)
+  if (linkCol.rowCount === 1) {
+    const orphanReserve = await client.query(
+      `SELECT count(*)::int AS n FROM public.orders
+        WHERE payout_reserved_at IS NOT NULL AND payout_request_id IS NULL`
+    );
+    if (Number(orphanReserve.rows[0].n) > 0) {
+      warn(
+        `${orphanReserve.rows[0].n} заказов(+) в резерве БЕЗ payout_request_id — снятие/маркировка по привязке их не заденут; разберите вручную (apply 0037 до деплоя кода)`
+      );
+    } else {
+      ok("осиротевших резервов (без привязки к заявке) нет");
+    }
+  }
+
+  // 8c. CHECK статуса payout_requests
+  const statusCheck = await client.query(
+    `SELECT 1 FROM pg_constraint
+      WHERE conname='payout_requests_status_check'
+        AND conrelid='public.payout_requests'::regclass`
+  );
+  if (statusCheck.rowCount === 1) {
+    ok("payout_requests_status_check на месте (pending|approved|paid|rejected)");
+  } else {
+    warn("нет CHECK-констрейнта payout_requests_status_check — примените 0037 (шаг 2)");
+  }
+
+  // 8d. Атомарные RPC 0037: существуют + EXECUTE только service_role
+  for (const rpcName of ["release_escrow_order", "consume_tfa_backup_code"]) {
+    const r = await client.query(
+      `SELECT p.oid::regprocedure::text AS sig, p.proacl::text AS acl
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname='public' AND p.proname=$1`,
+      [rpcName]
+    );
+    if (r.rowCount === 0) {
+      if (rpcName === "release_escrow_order") {
+        warn("RPC release_escrow_order отсутствует — эскроу работает в fallback CAS-цикле (0037 не применена)");
+      } else {
+        warn("RPC consume_tfa_backup_code отсутствует — 2FA backup-коды в fallback read-filter-write (0037 не применена)");
+      }
+      continue;
+    }
+    const acl = String(r.rows[0].acl ?? "");
+    ok(`RPC ${rpcName}: ${r.rows[0].sig}`);
+    if (acl.includes("service_role") && !acl.includes("PUBLIC") && !acl.includes("anon") && !acl.includes("authenticated")) {
+      ok(`${rpcName}: EXECUTE только у service_role`);
+    } else {
+      warn(`${rpcName}: EXECUTE шире service_role — примените 0037 (шаг 5)`, acl);
+    }
+  }
+
   console.log(`\n${critical === 0 ? "✅ ИТОГ: критических находок нет" : `❌ ИТОГ: критических находок — ${critical}`}`);
   await client.end();
   process.exit(critical === 0 ? 0 : 1);
