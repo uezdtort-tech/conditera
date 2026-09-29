@@ -6858,3 +6858,19 @@ Stage Summary:
 - ⚠️ БЕЗОПАСНОСТЬ: PAT просвечен в чате — пользователю рекомендовано отозвать токен после подтверждения деплоя (GitHub → Settings → Developer settings → Tokens).
 - Резервный bundle download/conditera-deploy-full-5commits.bundle более не актуален (содержимое уже в origin), но остаётся в download/ (папка в .gitignore).
 - Следующий шаг: перезапустить деплой из страницы генерации; при повторном падении запрашивать логи сборки платформы (из песочницы недоступны) — кандидаты: ci.yml (npx prisma generate + typo «branches: ain»), NODE_VERSION vs engines.
+
+---
+Task ID: readme-reality-sync
+Agent: main (Super Z)
+Task: Разбор «странных данных» внешнего аудита README + синхронизация README с реальной архитектурой v2.0
+
+Work Log:
+- Установлен источник странности: внешний ИИ-аудит судил о проекте по README — документу эпохи v1 (Prisma 6/«95 моделей», npm-инструкции, Docker-only, таблица демо-аккаунтов с паролями, таблица самооценок 95%/90%/10%). Фактический код — v2.0: Prisma удалена и запрещена ТЗ (src/lib/db.ts — shim над supabaseAdmin), 38 SQL-миграций в supabase/migrations/, bun-скрипты.
+- Сверка фактов: package.json (supabase-js/ssr, db:generate = no-op), src/lib/db.ts (комментарий «Prisma была полностью удалена, ЗАПРЕЩЕНО»), supabase/migrations (38 файлов), src/app/api (~68 групп, 18 cron-задач), src/lib/{totp,csrf,anti-fraud,yookassa,geocoder,auth}.ts существуют, mini-services (chat-server, simplex-bridge), docs/ (AUTH, DATABASE, DOCKER_DEPLOY, ROLE_MATRIX...), .env.local.example (DATABASE_URL, SUPABASE_*), scripts/{setup-env,env-check}.sh существуют; 71 коммит — свежий push уже был виден аудитору.
+- README.md переписан (98+/125−): стек = Supabase; bun + dev:local; миграции supabase/migrations + ops-apply; prisma/ помечен LEGACY; таблица демо-аккаунтов УДАЛЕНА (seed=dev-only предупреждение); таблица самооценок заменена честным блоком «Статус (v2.0, предрелиз)» с известными ограничениями; структура/доки указывают на реально существующие файлы.
+- Commit 5aa11f0 → push → origin/main обновлён, ветки синхронизированы.
+
+Stage Summary:
+- «Странные данные» объяснены и устранены в источнике: README больше не противоречит коду — будущие аудиты по GitHub будут видеть v2.0.
+- Безопасность: публичная таблица тестовых паролей убрана из README; в README добавлен запрет db:seed в production.
+- Остаточные блокеры до публикации (проверено, не исправлено): ci.yml `branches: ain, develop]` + prisma-шаги; robots.txt route conflict (dev 500); dual-lockfile bun.lock + package-lock.json; NODE_VERSION 20 vs engines.
