@@ -6816,3 +6816,27 @@ Stage Summary:
 - Если space деплоится из GitHub: на машине владельца git pull + push, ЛИБО git clone/pull uezdtort-tech/conditera && git pull /путь/к/conditera-deploy-fix-b9cd91a.bundle main (bundle приложен в download/).
 - Вне scope (обнаружено, не чинил): ci.yml — «npx prisma generate» упадёт на чистом раннере (Prisma удалена) + опечатка «branches: ain, develop]»; robots.txt конфликт public/page (500 в dev, в build не ломает); NODE_VERSION 20 vs engines; дубли lockfile (bun.lock + package-lock.json) — консистентны, но дублирование риска.
 - Верификация гейтов: tsc PASS, eslint 0 errors, next build PASS (standalone), standalone boot 200, agent-browser golden path PASS (главная→каталог→карточка→корзина, mobile), db:push PASS × 2 сценария (default + TARGET_DB_PATH).
+
+---
+Task ID: deploy-fix-round-2
+Agent: Z.ai Code (main)
+Task: Пользователь повторил деплой — снова «Sorry, there was a problem deploying the code». Round 1 (OOM-кап + db:push) устранил сборку, но падение ушло на шаги после build. Диагноз по доказательствам попытки 18:22, фикс packaging/start, верификация e2e.
+
+Work Log:
+- ДОКАЗАТЕЛЬСТВА попытки деплоя 18:22 (в песочнице): .next/BUILD_ID пересобран платформой (18:22:14, новый ID E2LfEIEsMc-E3Pd-YmsIu, standalone 18:22:26); npm-лог ~/.npm/_logs/2026-09-29T18_21_33_609Z-debug-0.log: `npm run build` → exit 0 «info ok», cwd=/home/z/my-project. ⇒ Деплой исполняет ПРОЕКТНЫЕ .zscripts/ скрипты в песочнице; round 1 (OOM-кап) сработал — сборка больше не блокер; падение — ПОСЛЕ build (packaging/start/healthcheck).
+- boot-timeline.log (/tmp): песочница сама бутится через start-пайплайн платформы (caddy pid 2 с /app/Caddyfile — /app недоступен из песочницы: «can not execute caddy command in bash»).
+- ВОСПРОИЗВЕДЕНО локально (file:line): ① `PORT=3000 bun .next/standalone/server.js` → EADDRINUSE (dev-сервер держит 3000) → start.sh «❌ Next.js server failed to start» → exit 1; ② root Caddyfile — конфиг для VPS Docker владельца (TLS/ACME conditera.ru, upstream web:3000, лог /data/access.log) — в space-контейнере падает, а start.sh делает `exec caddy run` → скрипт умирает; ③ database-runtime-build.sh:6 `BUILD_DIR:?` → exit 1 при вызове без переменной; ④ `which fuser` → ОТСУТСТВУЕТ в контейнере — port-free логика start.sh и watchdog молча не работала (есть только lsof/ss).
+- ФИКСЫ (commit ebe2dbb):
+  • .zscripts/start.sh — переписан (space-proof): раскладка packaged/in-place (фолбэк на .next/standalone/server.js + докопирование static/public); free_port() через lsof перед стартом; DATABASE_URL из .env проекта для in-place; БД-гигиена мягкая (создать через db:push, не exit); reverse-proxy — best-effort c .zscripts/Caddyfile.space (минимальный :80 → 127.0.0.1:$PORT, auto_https off, без файловых логов/docker-апстримов); главный процесс — Next.js (wait $NEXT_PID, trap TERM/INT), падение прокси/mini-services не фатально; маркер /tmp/.deploy-in-progress для watchdog-гейта.
+  • .zscripts/Caddyfile.space (новый) — space-safe edge-конфиг.
+  • .zscripts/database-runtime-build.sh — BUILD_DIR опционален (дефолт $PROJECT_DIR/deploy-build), db:push failure не фатален. Тест БЕЗ BUILD_DIR: PASS.
+  • scripts/dev-watchdog.sh — deploy-gate (не рестартит dev во время деплоя, TTL 20 мин), fuser → lsof.
+  • Попутно: UUID-коммит 4c4ea31 (вотчер авто-коммитил download/bundle) снят rebase --onto; download/ в .gitignore (commit c0e1ae8) — инцидент повторных UUID-коммитов закрыт системно.
+- ВЕРИФИКАЦИЯ: bash -n всех скриптов PASS; e2e-тест start.sh на PORT=3100: production standalone поднялся → GET / HTTP 200 + корректный title, edge-прокси заблокирован средой песочницы → НЕ fatal (сценарий отработан как задумано); standalone static: OK; database-runtime-build.sh без BUILD_DIR → deploy-build/db/custom.db создан; watchdog перезапущен с deploy-gate; dev:3000 → HTTP 200 (preview жив).
+- Push по-прежнему заблокирован (кредов нет — проверено в round 1); bundle обновлён: download/conditera-deploy-fix.bundle (origin/main..main, 4 коммита).
+
+Stage Summary:
+- Деплой падал ТРИЖДЫ по цепочке: ① OOM build (фикс round 1), ② db:push/prisma + BUILD_DIR:? + жёсткий контракт /app/db (фиксы round 1+2), ③ EADDRINUSE 3000 + exec edge-прокси с VPS-конфигом (фикс round 2). Все три звена устранены и покрыты локальными e2e-тестами; сборка на попытке 18:22 уже проходила (exit 0).
+- ДЕЙСТВИЕ: повторить деплой из страницы генерации. Если упадёт снова — нужен доступ к логам платформы деплоя (из песочницы их не достать: /app закрыт), т.к. следующие возможные точки — за пределами проектных скриптов.
+- Готовые артефакты: clean-история b9cd91a → 74d70b0 → ebe2dbb → c0e1ae8 + worklog (UUID-коммит снят); bundle: download/conditera-deploy-fix.bundle.
+- Ограничение честности: платформенный шаг между build и start (packaging в next-service-dist) из песочницы не наблюдаем — закрыт фолбэком на .next/standalone; если платформа пакует иначе, start.sh теперь всё равно стартует валидный production-сервер.
