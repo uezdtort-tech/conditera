@@ -6948,3 +6948,18 @@ Stage Summary:
 - P2: нет таймаутов на 8 LLM-вызовах zai.chat.completions.create (AbortSignal.timeout(30s)); нет rate-limit на ai-assistant/chat и ai-dialogue/respond (LLM за auth); updateSession редиректит API на /login (302 вместо 401, fail-open без anon key); images[0] undefined при пустых images; composition не хранится в supabase products (состав только у моков); guessCategory/синтетические isHit/isPopular; atelier/atelier отдаёт error.message в 500; manifest-дубль json vs webmanifest (sw.js кэширует не тот); мёртвые validateCsrfToken/shouldCheckCsrf (проверка продублирована в proxy.ts).
 - Рекомендуемый порядок: (1) AI-клиенты CSRF+auth — оживляет 5 виджетов без риска; (2) ai-dialogue ownership — 3 файла; (3) карточка: убрать prepTime/фейк-отзывы; (4) P2 пачкой (таймауты+RL+manifest).
 - Гипотеза прошлого аудита (AI POST без CSRF) ПОДТВЕРЖДЕНА и расширена: 10 вызовов, список выше.
+
+---
+Task ID: release-readiness
+Agent: main (Super Z)
+Task: Аудит, исправление и подготовка Conditera к публикации (полная задача)
+
+Work Log:
+- Этап 0: ветка release/readiness-fixes (main=78e4f66 чист, UUID-артефакт вотчера переименован в caa6d7a); baseline: node 24.21, bun 1.3.14.
+- Этап 1: три параллельных аудита (R-1a CI/БД, R-1b деньги/TFA, R-1c API/AI/UX) — находки с file:line, вердикт по 7 финансовым инвариантам (база CAS/RPC 0034-0037 корректна).
+- Исправления коммитами: 0039_release_readiness (RLS confectioner_transactions + RPC consume_tfa_backup_code_v2 + apply_yookassa_refund + migrator с ledger); webhook refund идемпотентен + fail-closed; mock_* в prod отвергается; cancel×payout guard 409; 2FA-гейт выплат оживлён (two_factor_*); login-verify RPC fail-closed; компенсация резерва через CAS; IDOR ai-dialogue закрыт (ai-dialogue-access.ts); 12 AI-вызовов получили CSRF+auth (getSessionAuthHeaders); карточка товара без фабрикации (prepTime/фейк-отзывы/isHit-порог/images-guard); PWA-манифест единственный; deploy.yml переработан (dispatch-only, SHA-теги, ledger-миграции, healthcheck retry, rollback без prune); Dockerfile GIT_SHA → /api/health version; docs: RELEASE_CHECKLIST, SECURITY_REVIEW, DEPLOYMENT, KNOWN_LIMITATIONS, RELEASE_NOTES.
+- Этап 2: typecheck 0, eslint 0 errors, vitest 27/744 PASS, build PASS (2560MB cap).
+- Этап 3/6: браузером проверены главная (desktop+390px), каталог → карточка (фейков нет), корзина (добавление OK), robots/sitemap 200; console errors: 0.
+
+Stage Summary:
+- Проект «технически подготовлен к публикации» по чек-листу; остаточные риски задокументированы (19 позиций KNOWN_LIMITATIONS); push в main НЕ выполнялся — ветка release/readiness-fixes ждёт PR/подтверждения владельца.
