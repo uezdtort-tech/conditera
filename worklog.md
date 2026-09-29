@@ -6708,3 +6708,22 @@ Stage Summary:
 - БЛОКЕР: push 12 коммитов ждёт токен от пользователя (значение потеряно при сжатии контекста). До push: потеря песочницы = потеря всего payout-раунда.
 - Остаточные риски (не закрыты, осознанно): ① crash-window payouts/request insert→deduct→reserve и reject CAS→refund (класс ledger, PAY-2); ② ledger confectioner_transactions НЕ пишется ни одним движением баланса (писателей нет — подтверждено grep); ③ нет FK orders.payout_request_id → payout_requests(id) (P2, возможен осиротевший id при удалении заявки); ④ legacy-fallback releaseEscrowLegacy: компенсация 3 ретрая без лога при полном фейле (только при неприменённой 0037, cron:144-161); ⑤ PAYOUT_PROCESSED шлётся дважды с разными смыслами (крон «зачислено на баланс»:286 + admin complete:464); ⑥ method-enum расходится: payouts/request допускает invoice:108, admin POST — нет:58, 0036-комментарий card|sbp|bank_account; ⑦ admin/payouts POST — dead-end заявки (complete 422, reject без возврата) — cleanup решит PAY-2; ⑧ OPS: 0034+0035+0036+0037 применить на живую БД ОДНИМ окном ДО деплоя кода (код ссылается на payout_reserved_at/payout_request_id — без 0036/0037 резерв не работает); ⑨ репозиторий публичный — решить вопрос приватности; ⑩ ротация GitHub-токена после использования (светился в чате).
 - Гейты на момент фиксации: tsc PASS, lint 0 errors, vitest 744/744, секретов в диффе нет.
+
+---
+Task ID: pay3c-push
+Agent: Z.ai Code (main)
+Task: Push 12 коммитов pay3/pay3b на origin/main после получения токена от пользователя + зачистка junk-коммита.
+
+Work Log:
+- Push выполнен одноразовым credential-helper (-c, без записи в config/remote/history): 3eb6066..8940fc8 main→main, 13 коммитов ушли.
+- ИНЦИДЕНТ №3 (паттерн 5f10c2d/c4b7258): платформенный watcher песочницы автокоммитил мой аппенд worklog с UUID-сообщением «22896910-7233-...» → 8940fc8. Источник внешней среды: git hooks отсутствуют, core.hooksPath не задан, crontab пуст.
+- Зачистка: backup-before-amend (страховка) → git commit --amend → docs(worklog): pay3c-verify round log → push --force-with-lease. 8940fc8 на GitHub заменён c551ac9, содержимое идентично (только worklog.md +21).
+- Независимая верификация после push: git fetch → origin/main = c551ac936950... = HEAD. Дерево чистое, up to date.
+- Токен НЕ сохранён нигде (не в config, не в .git-credentials, не в env-файлах); использован в 2 командах push. Ротация обязательна (светился в чате дважды).
+- Митигация повторов: worklog-аппенды теперь немедленно коммитятся с осмысленным сообщением в той же команде — окно для watcher'а закрыто.
+
+Stage Summary:
+- GitHub актуализирован: origin/main = c551ac9 = 3eb6066 + 12 коммитов pay3/pay3b (полный payout-раунд: аудит, P0-1..4, P0-A/B, P1-C/D/E, P2-G, миграции 0036/0037, тесты 744) + pay3c-verify worklog. Потеря песочницы больше не угрожает работе раунда.
+- История репо: без мусорных UUID-коммитов, без бандлов, без секретов (сканы всех диффов чистые).
+- Локальные страховки: backup-before-payout (c4b7258), backup-before-amend (8940fc8).
+- OPS-долг прежний: применить 0034+0035+0036+0037 на живую БД одним окном ДО деплоя кода; ротация GitHub-токена; вопрос публичности репо — на решение владельца.
