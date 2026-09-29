@@ -10,6 +10,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import { assertDialoguePairAccess } from "@/lib/ai-dialogue-access";
 import {
   getRelationshipContext,
   getConversationMemories,
@@ -38,6 +39,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!message || !customerId || !confectionerId) {
       return NextResponse.json({ error: "message, customerId, confectionerId обязательны" }, { status: 400 });
     }
+
+    // pay4 IDOR-guard: customerId/confectionerId из body не доверяем вслепую
+    await assertDialoguePairAccess(user, customerId, confectionerId);
 
     const [context, memories] = await Promise.all([
       getRelationshipContext(customerId, confectionerId),

@@ -13,6 +13,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
+import { assertDialoguePairAccess } from "@/lib/ai-dialogue-access";
 import { getRelationshipContext, getConversationMemories } from "@/lib/ai-dialogue/engine";
 import { HttpError, handleRouteError } from "@/lib/http-helpers";
 
@@ -98,6 +99,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!confectionerId) {
       throw new HttpError(400, "confectionerId обязательен");
     }
+
+    // pay4 IDOR-guard: чужой AI-контекст по query недоступен
+    await assertDialoguePairAccess(user, customerId, confectionerId);
 
     // Параллельная загрузка context и memories.
     // engine.ts не типизирован полностью, поэтому функции возвращают null

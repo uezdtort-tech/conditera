@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
+import { assertDialoguePairAccess } from "@/lib/ai-dialogue-access";
 import { safeJsonBody, HttpError, handleRouteError, readEnumField } from "@/lib/http-helpers";
 import {
   getRelationshipContext,
@@ -118,6 +119,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw new HttpError(422, sourceTypeResult.error || `sourceType должен быть одним из: ${SOURCE_TYPES.join(", ")}`);
     }
     const sourceType = sourceTypeResult.value;
+
+    // pay4 IDOR-guard: customerId/confectionerId из body не доверяем вслепую
+    await assertDialoguePairAccess(user, body.customerId, body.confectionerId);
 
     // engine.ts возвращает null по типу — приводим через unknown.
     const context = (await getRelationshipContext(body.customerId, body.confectionerId)) as unknown as RelationshipContextLike | null;
