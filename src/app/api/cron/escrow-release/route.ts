@@ -33,17 +33,30 @@
  * Прежний lookup .eq("id", order.confectioner_id) не находил кондитера
  * → баланс не рос, а payout падал с «недостаточно средств». Колонки
  * 0017 camelCase: «userId», «totalEarnings» (не user_id/total_earnings).
+ *
+ * P2 (pay3b): атомарный release_escrow_order (0037) — claim заказа и
+ * начисление в ОДНОЙ транзакции. Окно «начислили, но не пометили»
+ * (повторный cron давал ВТОРОЕ начисление того же заказа) и ручная
+ * компенсация исчезают. Формула — единая computeOrderPayout (payout-math),
+ * та же, что в payouts/request (P1-E: прежде формулы дублировались,
+ * в заявке был без clamp — расхождение начисления и выплаты).
+ * Fallback: если 0037 не применена (PGRST202) — прежний CAS-цикл с
+ * компенсацией (сохранён ниже как releaseEscrowLegacy).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCronSecret, cronUnauthorized } from "@/lib/cron-auth";
+import { computeOrderPayout } from "@/lib/payout-math";
 
 export const runtime = "nodejs";
 
 const ESCROW_HOLD_HOURS = 24;
-const YOOKASSA_RATE = 0.025; // 2.5%
-const DEFAULT_COMMISSION_RATE = 0.15; // 15%
 const BATCH_SIZE = 100;
+
+interface SupabaseError {
+  message: string;
+  code?: string;
+}
 
 /** Строка confectioners (0017, camelCase). */
 interface ConfectionerBalanceRow {
@@ -69,6 +82,87 @@ interface EscrowReleaseResults {
   errors: number;
   totalReleased: number;
   total: number;
+}
+
+/**
+ * Fallback (0037 не применена): прежний двухшаговый CAS-цикл с компенсацией.
+ * Возвращает 1 — релизнуто; 0 — заказ уже релизнут конкурентным запуском.
+ * Бросает при неустранимой ошибке (баланс не начислен/не возвращён).
+ */
+async function releaseEscrowLegacy(
+  order: EscrowOrder,
+  confId: string,
+  payout: number
+): Promise<number> {
+  // Шаг 1 — атомарное начисление баланса (CAS-цикл, 3 ретрая)
+  let credited = false;
+  for (let attempt = 0; attempt < 3 && !credited; attempt++) {
+    const { data: conf, error: confErr } = await supabaseAdmin
+      .from("confectioners")
+      .select("id, balance, totalEarnings")
+      .eq("id", confId)
+      .maybeSingle() as { data: ConfectionerBalanceRow | null; error: SupabaseError | null };
+
+    if (confErr || !conf) {
+      console.error(`[cron:escrow] confectioner ${confId} lookup failed for order ${order.id}${confErr ? ": " + confErr.message : ""}`);
+      throw new Error("confectioner lookup failed");
+    }
+
+    const newBalance = (Number(conf.balance) || 0) + payout;
+    const newTotalEarnings = (Number(conf.totalEarnings) || 0) + payout;
+
+    const { data: updRows, error: confUpdateErr } = await supabaseAdmin
+      .from("confectioners")
+      .update({ balance: newBalance, totalEarnings: newTotalEarnings })
+      .eq("id", conf.id)
+      .eq("balance", conf.balance ?? 0)
+      .select("id");
+
+    credited = !confUpdateErr && Array.isArray(updRows) && updRows.length > 0;
+  }
+
+  if (!credited) {
+    throw new Error("balance CAS failed after retries");
+  }
+
+  // Шаг 2 — CAS-клейм заказа; проигрыш → компенсация начисления
+  const { data: orderUpd, error: orderUpdateErr } = await supabaseAdmin
+    .from("orders")
+    .update({ escrow_released_at: new Date().toISOString(), payment_status: "released" })
+    .eq("id", order.id)
+    .eq("payment_status", "escrow")
+    .is("escrow_released_at", null)
+    .select("id");
+
+  if (orderUpdateErr) {
+    throw new Error(`order update failed: ${orderUpdateErr.message}`);
+  }
+
+  if (!orderUpd || orderUpd.length === 0) {
+    // Уже релизнуто конкурентным запуском — откатываем свой инкремент
+    console.warn(`[cron:escrow] order ${order.id} already released concurrently — compensating balance (legacy)`);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data: conf } = await supabaseAdmin
+        .from("confectioners")
+        .select("id, balance, totalEarnings")
+        .eq("id", confId)
+        .maybeSingle() as { data: ConfectionerBalanceRow | null };
+      if (!conf) break;
+      const { data: updRows, error: compErr } = await supabaseAdmin
+        .from("confectioners")
+        .update({
+          balance: (Number(conf.balance) || 0) - payout,
+          totalEarnings: Math.max(0, (Number(conf.totalEarnings) || 0) - payout),
+        })
+        .eq("id", conf.id)
+        .eq("balance", conf.balance ?? 0)
+        .select("id");
+      if (!compErr && Array.isArray(updRows) && updRows.length > 0) break;
+    }
+    return 0;
+  }
+
+  return 1;
 }
 
 /**
@@ -127,108 +221,55 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           continue;
         }
 
-        // Считаем выплату по снапшоту тарифа (суммы в рублях)
-        const commissionRate = order.commission_rate_snapshot ?? DEFAULT_COMMISSION_RATE;
-        const itemsTotal = Number(order.total) - Number(order.delivery_cost || 0);
-        const commission = Math.round(itemsTotal * commissionRate);
-        const yookassaFee = Math.round(Number(order.total) * YOOKASSA_RATE);
-        // Clamp: payout не может быть отрицательным (fee+комиссия > total —
-        // аномалия ценообразования; раньше уводил баланс в минус)
-        const payout = Math.max(
-          0,
-          Number(order.total) - commission - yookassaFee
-        );
-        if (Number(order.total) - commission - yookassaFee < 0) {
-          console.warn(`[cron:escrow] order ${order.id}: payout clamped to 0 (total ${order.total}, commission ${commission}, fee ${yookassaFee})`);
+        // pay3b P1-E: единая формула (та же, что в payouts/request), clamp >= 0
+        const breakdown = computeOrderPayout({
+          total: Number(order.total),
+          deliveryCost: Number(order.delivery_cost || 0),
+          commissionRateSnapshot:
+            order.commission_rate_snapshot === null ? null : Number(order.commission_rate_snapshot),
+        });
+        if (breakdown.clamped) {
+          console.warn(`[cron:escrow] order ${order.id}: payout clamped to 0 (total ${order.total}, commission ${breakdown.commission}, fee ${breakdown.yookassaFee})`);
         }
+        const payout = breakdown.payout;
 
-        // P0: Шаг 1 — атомарное начисление баланса (CAS-цикл).
-        // Прежний read-then-write терял апдейты при параллельных релизах
-        // одному кондитеру (два cron-запуска → credited один, второй затёрт).
-        let credited = false;
-        let confUserId: string | null = null;
-        // db1-1: ищем по «userId» (auth-UUID = orders.confectioner_id),
-        // а не по PK «id»; колонки 0017 camelCase.
-        for (let attempt = 0; attempt < 3 && !credited; attempt++) {
-          const { data: conf, error: confErr } = await supabaseAdmin
-            .from("confectioners")
-            .select("id, userId, balance, totalEarnings")
-            .eq("userId", order.confectioner_id)
-            .maybeSingle() as { data: ConfectionerBalanceRow | null; error: { message: string } | null };
+        // Кондитер по «userId» (db1-1: orders.confectioner_id — auth-UUID)
+        const { data: conf, error: confErr } = await supabaseAdmin
+          .from("confectioners")
+          .select("id, userId")
+          .eq("userId", order.confectioner_id)
+          .maybeSingle() as { data: { id: string; userId: string } | null; error: SupabaseError | null };
 
-          if (confErr || !conf) {
-            console.error(`[cron:escrow] confectioner not found (userId=${order.confectioner_id}) for order ${order.id}${confErr ? ": " + confErr.message : ""}`);
-            break;
-          }
-          confUserId = conf.userId ?? null;
-
-          const newBalance = (Number(conf.balance) || 0) + payout;
-          const newTotalEarnings = (Number(conf.totalEarnings) || 0) + payout;
-
-          // CAS: обновляем только если баланс не изменился с момента чтения
-          // (обновляем по реальному PK conf.id из прочитанной строки)
-          const { data: updRows, error: confUpdateErr } = await supabaseAdmin
-            .from("confectioners")
-            .update({
-              balance: newBalance,
-              totalEarnings: newTotalEarnings,
-            })
-            .eq("id", conf.id)
-            .eq("balance", conf.balance ?? 0)
-            .select("id");
-
-          credited = !confUpdateErr && Array.isArray(updRows) && updRows.length > 0;
+        if (confErr || !conf) {
+          console.error(`[cron:escrow] confectioner not found (userId=${order.confectioner_id}) for order ${order.id}${confErr ? ": " + confErr.message : ""}`);
+          results.errors++;
+          continue;
         }
+        const confUserId = conf.userId ?? null;
 
-        if (!credited) {
-          console.error(`[cron:escrow] balance CAS failed after retries for order ${order.id}`);
+        // Быстрый путь (pay3b): атомарный RPC release_escrow_order (0037) —
+        // claim заказа и начисление в одной транзакции. RAISE откатывает
+        // ВСЁ (клейменный заказ не останется без начисления).
+        let outcome: number;
+        const { data: rpcRes, error: rpcErr } = await supabaseAdmin.rpc(
+          "release_escrow_order",
+          { p_order_id: order.id, p_conf_id: conf.id, p_payout: payout }
+        ) as { data: number | null; error: SupabaseError | null };
+
+        if (!rpcErr) {
+          outcome = Number(rpcRes ?? 0);
+        } else if ((rpcErr as SupabaseError & { code?: string }).code === "PGRST202") {
+          // 0037 не применена — прежняя семантика (CAS-цикл + компенсация)
+          console.warn("[cron/escrow] release_escrow_order RPC отсутствует — fallback на CAS-цикл (примените 0037)");
+          outcome = await releaseEscrowLegacy(order, conf.id, payout);
+        } else {
+          console.error(`[cron:escrow] release_escrow_order failed for ${order.id}:`, rpcErr.message);
           results.errors++;
           continue;
         }
 
-        // P0: Шаг 2 — маркируем заказ как релизнутый.
-        // Баланс начисляем ДО маркировки (обратный порядок терял деньги
-        // при падении между шагами). Если конкурентный воркер релизнул
-        // заказ раньше нас — компенсируем своё начисление назад.
-        const { data: orderUpd, error: orderUpdateErr } = await supabaseAdmin
-          .from("orders")
-          .update({
-            escrow_released_at: new Date().toISOString(),
-            payment_status: "released",
-          })
-          .eq("id", order.id)
-          .eq("payment_status", "escrow")
-          .is("escrow_released_at", null)
-          .select("id");
-
-        if (orderUpdateErr) {
-          console.error(`[cron:escrow] order update error for ${order.id}:`, orderUpdateErr.message);
-          results.errors++;
-          continue;
-        }
-
-        if (!orderUpd || orderUpd.length === 0) {
-          // Уже релизнуто конкурентным запуском — откатываем свой инкремент
-          console.warn(`[cron:escrow] order ${order.id} already released concurrently — compensating balance`);
-          // db1-1: та же identity-логика, что и в основном CAS-цикле
-          for (let attempt = 0; attempt < 3; attempt++) {
-            const { data: conf } = await supabaseAdmin
-              .from("confectioners")
-              .select("id, balance, totalEarnings")
-              .eq("userId", order.confectioner_id)
-              .maybeSingle() as { data: ConfectionerBalanceRow | null };
-            if (!conf) break;
-            const { data: updRows, error: compErr } = await supabaseAdmin
-              .from("confectioners")
-              .update({
-                balance: (Number(conf.balance) || 0) - payout,
-                totalEarnings: Math.max(0, (Number(conf.totalEarnings) || 0) - payout),
-              })
-              .eq("id", conf.id)
-              .eq("balance", conf.balance ?? 0)
-              .select("id");
-            if (!compErr && Array.isArray(updRows) && updRows.length > 0) break;
-          }
+        if (outcome === 0) {
+          // Уже релизнуто конкурентным запуском — начисление не трогали
           results.skipped++;
           continue;
         }
@@ -249,13 +290,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
               },
             });
           }
-        } catch (notifErr: any) {
-          console.warn(`[cron:escrow] notification failed (non-fatal):`, notifErr?.message);
+        } catch (notifErr: unknown) {
+          const msg = notifErr instanceof Error ? notifErr.message : String(notifErr);
+          console.warn(`[cron:escrow] notification failed (non-fatal):`, msg);
         }
 
         console.info(`[cron:escrow] ✓ released ${order.number}: ${payout}₽ → confectioner ${order.confectioner_id}`);
-      } catch (e: any) {
-        console.error(`[cron:escrow] failed for ${order.id}:`, e?.message);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[cron:escrow] failed for ${order.id}:`, msg);
         results.errors++;
       }
     }
