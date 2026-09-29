@@ -21,7 +21,7 @@ const PRECACHE_URLS = [
   "/",
   "/catalog",
   "/cart",
-  "/manifest.json",
+  "/manifest.webmanifest",
   "/offline.html",
   "/logo.png",
   "/favicon.png",
