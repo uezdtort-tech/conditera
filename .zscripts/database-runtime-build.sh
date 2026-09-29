@@ -2,8 +2,11 @@
 
 set -euo pipefail
 
+# deploy-fix-round-2: BUILD_DIR больше не обязателен — при вызове без него
+# (in-place деплой в песочнице) скрипт раньше падал на этой строке с exit 1.
+# По умолчанию — deploy-build/ в корне проекта.
 PROJECT_DIR="${PROJECT_DIR:-/home/z/my-project}"
-BUILD_DIR="${BUILD_DIR:?BUILD_DIR is required}"
+BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/deploy-build}"
 SOURCE_DB_DIR="$PROJECT_DIR/db"
 SOURCE_DB_PATH="$SOURCE_DB_DIR/custom.db"
 TARGET_DB_DIR="$BUILD_DIR/db"
@@ -22,7 +25,7 @@ echo "🗄️  同步构建产物中的数据库结构..."
 (
     cd "$PROJECT_DIR"
     DATABASE_URL="file:$TARGET_DB_PATH" bun run db:push
-)
+) || echo "⚠️  db:push failed — 非 fatal（v2.0 使用 Supabase，SQLite 为 legacy 合约），继续 packaging"
 
 if [ ! -f "$TARGET_DB_PATH" ]; then
     echo "❌ 数据库初始化命令执行成功，但未生成 $TARGET_DB_PATH"

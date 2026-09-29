@@ -1,0 +1,36 @@
+# ============================================================
+# Caddyfile.space — минимальный edge для Z.ai space-контейнера
+# ============================================================
+# Root Caddyfile рассчитан на VPS Docker-стек владельца:
+#   TLS/ACME conditera.ru, upstream'ы web:3000/chat-service:3030,
+#   лог-файл /data/access.log — в space это всё недоступно и роняет caddy.
+#
+# Этот конфиг: без ACME (auto_https off), без админ-порта, без файловых логов,
+# апстрим — только локальный Next.js. Используется .zscripts/start.sh
+# как best-effort (падение caddy не убивает деплой).
+# ============================================================
+
+{
+        admin off
+        auto_https off
+}
+
+:80 {
+        reverse_proxy 127.0.0.1:{$PORT:3000} {
+                health_uri /api/health
+                health_interval 10s
+                transport http {
+                        read_timeout 60s
+                        write_timeout 60s
+                        dial_timeout 5s
+                }
+        }
+
+        encode gzip zstd
+
+        header {
+                X-Content-Type-Options nosniff
+                Referrer-Policy strict-origin-when-cross-origin
+                -Server
+        }
+}
