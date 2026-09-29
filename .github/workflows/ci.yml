@@ -1,9 +1,15 @@
 # ============================================================
-# CI/CD для «Уездный кондитер»
+# CI/CD для «Уездный кондитер» (v2.0 — Supabase, bun)
 # ============================================================
 # Запускается на каждый push в main и на каждый PR.
-# Pipeline: lint → typecheck → test → build → docker-build → security-audit.
-# Все шаги — строгие (БЕЗ continue-on-error). Любая ошибка ломает CI.
+# Pipeline: lint → typecheck → test → build → docker-build → security.
+# Все шаги — строгие (БЕЗ continue-on-error, кроме coverage). Любая ошибка ломает CI.
+#
+# v2.0 изменения:
+#   • Prisma УДАЛЕНА из проекта — шаги `npx prisma generate` убраны
+#   • Пакетный менеджер — bun (bun.lock — источник истины, package-lock.json удалён)
+#   • Playwright E2E вынесен в отдельный workflow e2e.yml (nightly + ручной запуск)
+#   • Job smoke-test-db убран: скрипт использовал Prisma-API, несовместимый с v2.0
 # ============================================================
 
 name: CI
@@ -14,9 +20,15 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: "20"
-  DATABASE_URL: "file:./db/ci-test.db"  # PGlite для тестов
 
 jobs:
   # ===== 1. Lint + Type-check =====
@@ -26,24 +38,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
+        run: bun install --frozen-lockfile
 
       - name: Type-check
-        run: npm run typecheck
+        run: bun run typecheck
         # СТРОГО: любая TS-ошибка ломает CI. Никаких continue-on-error.
 
       - name: Lint
-        run: npm run lint
+        run: bun run lint
         # СТРОГО: eslint ошибки ломают CI.
 
   # ===== 2. Unit tests (Vitest) =====
@@ -54,29 +62,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
+        run: bun install --frozen-lockfile
 
       - name: Run tests
-        run: npm run test
+        run: bun run test
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
 
       - name: Run tests with coverage
-        run: npm run test:coverage
+        run: bun run test:coverage
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
         continue-on-error: true  # coverage не должен ломать CI, но отчёт нужен
@@ -97,27 +100,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
+        run: bun install --frozen-lockfile
 
       - name: Build Next.js
         env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
-          TFA_ENCRYPTION_KEY: ${{ secrets.TFA_ENCRYPTION_KEY || 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET || 'ci_test_cron_secret' }}
+          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
+          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          CRON_SECRET: "ci_test_cron_secret"
           NEXT_PUBLIC_APP_URL: "http://localhost:3000"
           NEXT_PUBLIC_APP_NAME: "Уездный кондитер"
-          DATABASE_URL: ${{ env.DATABASE_URL }}
-        run: npm run build
+          NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
+          DATABASE_URL: "file:./db/ci-test.db"
+        run: bun run build
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -127,34 +128,7 @@ jobs:
           path: .next/
           retention-days: 3
 
-  # ===== 4. Smoke-тесты БД =====
-  smoke-test-db:
-    name: Smoke test (DB)
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Run DB smoke test
-        env:
-          DATABASE_URL: "file:./db/ci-test.db"
-          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
-          TFA_ENCRYPTION_KEY: ${{ secrets.TFA_ENCRYPTION_KEY || 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
-        run: npx bun run scripts/smoke-test-db.ts
-
-  # ===== 5. Docker build =====
+  # ===== 4. Docker build =====
   docker-build:
     name: Build Docker images
     runs-on: ubuntu-latest
@@ -196,39 +170,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Validate Dockerfile sizes
-        run: |
-          docker images conditera:${{ github.sha }} --format "{{.Size}}"
-          # Проверяем что образ не слишком большой (должен быть < 1 ГБ после multi-stage)
-          SIZE=$(docker images conditera:${{ github.sha }} --format "{{.Size}}" | head -1)
-          echo "Web image size: $SIZE"
-
-  # ===== 6. Security audit =====
-  security-audit:
-    name: Security audit
+  # ===== 5. Security checks =====
+  # npm audit убран: в репозитории bun.lock (npm audit требует package-lock).
+  # Сканирование секретов работает без установки зависимостей.
+  security-checks:
+    name: Security checks
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Run npm audit (high+critical level)
-        run: npm audit --audit-level=high --omit=dev || true
-        # Не ломаем CI на известные уязвимости в dev-зависимостях,
-        # но отчёт выводим в логи для ревью
 
       - name: Check for secrets in code
         run: |
           # Проверка на закоммиченные секреты
-          if grep -rE "(sk_live_|pk_live_|AKIA|ghp_|glpat-)" --include="*.ts" --include="*.tsx" --include="*.json" src/ 2>/dev/null; then
+          if grep -rEn "(sk_live_|pk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-)" \
+            --include="*.ts" --include="*.tsx" --include="*.json" \
+            --exclude-dir=node_modules src/ scripts/ mini-services/ 2>/dev/null; then
             echo "❌ Found potential secrets in code"
             exit 1
           fi
@@ -237,12 +193,15 @@ jobs:
       - name: Check for .env files in repo
         run: |
           # Проверка что нет закоммиченных .env файлов с секретами
-          if find . -name ".env" -not -path "./node_modules/*" -not -path "./.git/*" | grep -v ".env.example" | grep -v ".env.production.template" | head -5; then
-            echo "⚠️ Found .env files in repository (review them)"
+          FOUND=$(find . -maxdepth 2 -name ".env*" -not -path "./node_modules/*" -not -path "./.git/*" \
+            -not -name "*.example" -not -name "*.template" | head -5)
+          if [ -n "$FOUND" ]; then
+            echo "⚠️ Found .env files in repository (review them):"
+            echo "$FOUND"
           fi
           echo "✓ Secret files check complete"
 
-  # ===== 7. Validate Caddyfile =====
+  # ===== 6. Validate Caddyfile =====
   validate-caddyfile:
     name: Validate Caddyfile
     runs-on: ubuntu-latest
@@ -258,53 +217,3 @@ jobs:
           # Используем caddy image для валидации
           docker run --rm -v $(pwd)/Caddyfile:/etc/caddy/Caddyfile caddy:2.8-alpine \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-
-  # ===== 8. Playwright E2E tests =====
-  e2e:
-    name: Playwright E2E
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Run Playwright tests
-        run: npm run test:e2e
-        env:
-          DATABASE_URL: "file:./db/e2e-test.db"
-          JWT_SECRET: "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
-          CRON_SECRET: "e2e_test_cron_secret"
-          NEXT_PUBLIC_APP_URL: "http://localhost:3000"
-          NODE_ENV: test
-          CI: "true"
-
-      - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
-
-      - name: Upload Playwright test results
-        uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: playwright-test-results
-          path: test-results/
-          retention-days: 7

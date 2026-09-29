@@ -1,5 +1,6 @@
 # ============================================================
 # E2E Tests — отдельный workflow для расширенного запуска Playwright
+# (v2.0: bun, без Prisma — клиент генерируется из Supabase-типов)
 # ============================================================
 # Запускается:
 #   • По расписанию: nightly в 03:00 UTC
@@ -51,7 +52,7 @@ on:
       - "tests/e2e/**"
       - "playwright.config.ts"
       - "package.json"
-      - "package-lock.json"
+      - "bun.lock"
 
   pull_request:
     branches:
@@ -85,18 +86,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-        continue-on-error: true
+        run: bun install --frozen-lockfile
 
       - name: Cache Next.js build
         uses: actions/cache@v4
@@ -104,12 +100,12 @@ jobs:
           path: |
             .next/cache
             node_modules/.cache
-          key: ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'tsconfig.json') }}
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('bun.lock') }}-${{ hashFiles('src/**', 'tsconfig.json') }}
           restore-keys: |
             ${{ runner.os }}-nextjs-
 
       - name: Build application
-        run: npm run build
+        run: bun run build
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
@@ -140,18 +136,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-        continue-on-error: true
+        run: bun install --frozen-lockfile
 
       - name: Restore build cache
         uses: actions/cache@v4
@@ -160,11 +151,11 @@ jobs:
           key: nextjs-build-${{ github.sha }}
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: bunx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Start application
         run: |
-          npm run start &
+          bun run start &
           # Ждём пока приложение поднимется
           for i in {1..30}; do
             if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health | grep -q "200"; then
@@ -185,8 +176,11 @@ jobs:
           NODE_ENV: ${{ env.NODE_ENV }}
 
       - name: Run Playwright tests
-        run: npm run test:e2e -- --project=${{ matrix.browser }} ${{ github.event.inputs.grep && format('--grep "{0}"', github.event.inputs.grep) || '' }}
+        run: bun run test:e2e -- --project=${{ matrix.browser }} ${{ github.event.inputs.grep && format('--grep "{0}"', github.event.inputs.grep) || '' }}
         env:
+          # Сервер уже запущен предыдущим шагом — запрещаем playwright
+          # поднимать собственный webServer (иначе конфликт порта 3000)
+          E2E_BASE_URL: http://localhost:3000
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}

@@ -77,10 +77,12 @@ export default defineConfig({
   ],
 
   // Автозапуск dev-сервера перед e2e
+  // ВАЖНО: `dev` в этом репо = next build && next start (production-режим),
+  // поэтому для webServer используем dev:local (настоящий dev-сервер)
   webServer: process.env.E2E_BASE_URL
     ? undefined  // если E2E_BASE_URL задан — сервер уже запущен
     : {
-        command: 'npm run dev',
+        command: 'bun run dev:local',
         url: baseURL,
         timeout: 120_000,
         reuseExistingServer: !process.env.CI,  // в CI — новый сервер, локально — переиспользуем
