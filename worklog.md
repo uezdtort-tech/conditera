@@ -6660,3 +6660,30 @@ Stage Summary:
 - Ops-долг с прошлых раундов: 0034, 0035, 0036 — применить на живой БД одним окном.
 - Осознанно НЕ сделано (PAY-2/PAY-3+): интеграция payout-провайдера (YooKassa payouts/СБП) — complete сейчас подтверждает ручной/внешний перевод; ledger-записи ConfectionerTransaction по-прежнему не пишутся ни одним движением баланса; частичные выплаты; унификация method-enum (card|sbp|bank_account vs invoice в типе фронта); админ-таб «Выплаты» в UI — мок-данные (admin-extra-tabs.tsx), реальное API не подключено; гонка списания 2FA backup-кода (два параллельных запроса).
 - Напоминание: GitHub-токен светился в чате — ротация обязательна (в истории репо токена НЕТ).
+
+---
+Task ID: pay3b-payout-round
+Agent: Z.ai Code (main)
+Task: PAYOUT-раунд — пофайловый аудит контура выплат, money-path, гонок/CAS, прав, сумм, провайдера, БД, целостности баланса @ независимая верификация 3eb6066; фиксы + тесты. Проверка фактического кода для каждого пункта (никаких закрытий по worklog).
+
+Work Log:
+- Независимая верификация: git fetch → origin/main = 3eb606680dce... подтверждён. Обнаружено: локально 6 неспушенных pay3-коммитов + мусорный tip c4b7258 (случайный UUID-сообщение, бинарный conditera-pay3.bundle, ПОВТОРНОЕ удаление upload route — тот же паттерн, что 5f10c2d). c4b7258 снят (backup-before-payout хранит), upload route восстановлен, bundle исключён из истории.
+- Проверено и ПОДТВЕРЖДЕНО по коду pay3 (file:line): strict-валидация amount (finite/integer/>0), CAS-резерв+компенсация, ORDER BY created_at, стейт-машина approve/complete/reject, POST только для кондитеров, PATCH только ADMIN/SUPER_ADMIN, RLS 0036 без INSPECTOR (против 0009 с INSPECTOR), гранты money/bonus RPC, add/deduct RPC атомарны, фронт useApprovePayout → PATCH {payoutId, action}, шаблоны нотификаций, CAS эскроу-начисления + компенсация + clamp, webhook CAS escrow + сверка с API.
+- НОВОЕ P0-A (печатный станок): admin/payouts reject возвращал add_confectioner_balance БЕЗУСЛОВНО, а POST создаёт заявки БЕЗ списания → кондитер POST{amount≤10М} → reject → +10М на баланс. Фикс: возврат только при metadata.orders (непустой состав ⟺ был deduct).
+- НОВОЕ P0-B (чужой резерв): резерв не был связан с заявкой — reject снимал blanket .not(payout_reserved_at IS NULL) и мог снять резерв КОНКУРЕНТНОЙ новой заявки; complete маркировал по устаревшему metadata.orders. Фикс: 0037 orders.payout_request_id UUID + все снятия/маркировки по привязке.
+- НОВОЕ P1-C (дрейф): complete ставил paid ДО маркировки; при частичной маркировке заявка оставалась paid с eligible-заказами. Фикс: маркировка ДО перехода, идемпотентный ретрай (уже-помеченные считаются), при totalMarked<all → 409, статус остаётся approved.
+- НОВОЕ P1-D (гонка 2FA): backup-код read-verify-filter-write пускал два параллельных запроса. Фикс: RPC consume_tfa_backup_code (UPDATE ... WHERE codes @> ARRAY[hash]) — проходит ровно один; fallback при PGRST202.
+- НОВОЕ P1-E (расхождение формул): escrow clamp ≥0, payouts/request без clamp. Фикс: единая src/lib/payout-math.ts computeOrderPayout (clamp, NaN/Infinity → 0) в обоих контурах + 13 unit-тестов.
+- НОВОЕ P2-G (crash-window эскроу): начисление до клейма → падение между шагами = двойное начисление на ретрае. Фикс: RPC release_escrow_order — claim+начисление в ОДНОЙ транзакции (RAISE откатывает всё); fallback legacy CAS-цикла при PGRST202.
+- НОВОЕ P2-F/P2-H: bankDetails JSON ≤4000 символов (оба роута); CHECK payout_requests_status_check (NOT VALID — легаси-строки живут).
+- БАГ В СВОЕЙ ЖЕ МИГРАЦИИ пойман PGlite-валидатором: RETURNING...INTO при 0 строк присваивает NULL (не оставляет 0) — конкурентный release_escrow_order начислял бы повторно. Исправлено на IS NULL-check. Пруф работы one-shot валидаций.
+- verify-money-path.ts §8: payout_request_id, осиротевшие резервы, CHECK, ACL обоих RPC (warn при отсутствии — fallback-режим).
+- scripts/verify-payout-0037-pglite.ts: 19/19 — колонка/индекс, NOT VALID (легаси живёт, bogus отклонён), consume-семантика (повтор/неизвестный/пустой → false, остаток массива), release (повторный → 0 без начисления, negative → RAISE, атомарность RAISE-отката claim), гранты, идемпотентность. 0036-валидатор: PASS после изменений.
+- Гейты: tsc PASS; lint 0 errors (3 старых warning'а в чужих файлах); vitest 744/744 (731 + 13 payout-math).
+
+Stage Summary:
+- Контур выплат pay3b: reject не может напечатать деньги; резерв жёстко привязан к заявке; complete без дрейфа (маркировка → paid); эскроу атомарен в одной транзакции; формулы начисления и выплаты — один источник; 2FA-код списывается атомарно.
+- OPS (обязательно, одним окном, ДО деплоя кода): применить 0034, 0035, 0036, 0037 на живую БД; затем DATABASE_URL=... npx tsx scripts/verify-money-path.ts (§7+§8). До 0037 код работает: 2FA/эскроу в fallback, НО payouts/request и admin reject/complete требуют payout_request_id (0037) — деплой без неё сломает резерв.
+- Осознанно НЕ сделано (PAY-2/PAY-3+): ledger (ConfectionerTransaction не пишется ни одним движением баланса — дрейф-окна crash-класса между RPC-вызовами остаются до ledger), payout-провайдер (complete = подтверждение ручного перевода), частичные выплаты, method-enum унификация (invoice vs bank_account), админ-таб «Выплаты» (мок-данные), cleanup admin/payouts POST (dead-end: не может быть completed, reject без возврата — оставить или удалить решит PAY-2).
+- История: pay3-коммиты (8eb5437..f33a014) запушены вместе с pay3b; мусорный c4b7258 в GitHub не попал (backup-before-payout локально).
+- Напоминание: GitHub-токен светился в чате — ротация обязательна (в истории репо токена НЕТ).
