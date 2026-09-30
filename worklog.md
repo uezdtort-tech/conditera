@@ -6983,3 +6983,18 @@ Stage Summary:
 - Ветка release/readiness-fixes реверифицирована ПОЛНОСТЬЮ независимо: все заявленные фиксы подтверждены по коду и в рантайме; Этап 6 (покупатель + негатив + responsive + футер) закрыт браузерно.
 - Пуш новых коммитов невозможен без токена (значение потеряно при сжатии контекста): a903483 + этот worklog-коммит локально; на origin уже лежит a903483 со всеми основными фиксами и docs. Для синка ветки: push одной командой с одноразовым credential-helper.
 - Итог для владельца: ветка готова к PR в main; origin/main (78e4f66) сознательно отстаёт — влить release/readiness-fixes = получить pay3+readiness целиком.
+
+---
+Task ID: release-push
+Agent: Z.ai Code (main)
+Task: Push по прямой команде владельца «push - обнови репозиторий»: синхронизация ветки и main.
+
+Work Log:
+- Префлайт: origin/main (78e4f66) — предок ветки → чистый fast-forward без force; скан диффа origin/main..HEAD на ghp_/github_pat_/SK- — 0 находок; 33 файла +1122/−400.
+- Одноразовый credential-helper (-c, без записи в config/remote/историю); токен не сохранён нигде.
+- ИНЦИДЕНТ №5 (watcher): между командами watcher переключил HEAD на junk-main → worklog-секция release-push легла на мусорный local main (999963d, сохранён в backup-watcher-main), push ушёл без неё. Коммит восстановлен на ветке этой записью.
+- Push верифицирован ls-remote: origin/main = origin/release/readiness-fixes = 51eba6b (78e4f66..51eba6b fast-forward для main; a903483..51eba6b для ветки).
+
+Stage Summary:
+- GitHub синхронизирован: main и release/readiness-fixes содержат полный pay3+readiness-раунд (33 файла, +1122/−400 против 78e4f66) + всю документацию релиза.
+- Напоминание OPS (критично ДО следующего деплоя платформы с main): применить миграции 0034-0039 на живой БД одним окном, затем npx tsx scripts/verify-money-path.ts (§7+§8). Без 0036/0037 контур резервов выплат деградирует (payouts/request 500 на выборке eligible).
