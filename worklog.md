@@ -6963,3 +6963,23 @@ Work Log:
 
 Stage Summary:
 - Проект «технически подготовлен к публикации» по чек-листу; остаточные риски задокументированы (19 позиций KNOWN_LIMITATIONS); push в main НЕ выполнялся — ветка release/readiness-fixes ждёт PR/подтверждения владельца.
+
+---
+Task ID: release-readiness-verify
+Agent: Z.ai Code (main, продолжение сессии)
+Task: Реверификация ветки release/readiness-fixes после сжатия контекста; закрытие Этапа 6 (браузерные приёмочные + негативные API); финальный отчёт A-G.
+
+Work Log:
+- Топология восстановлена: origin/main внешне откачен на 78e4f66 (CI-фикс); полная работа (pay3 + release-readiness, 10 коммитов 642a6eb..a903483) живёт на origin/release/readiness-fixes = a903483; pay2-wip (черновик 0038) — архив. Локальный main = e3ed55c (мусорный UUID-коммит watcher'а, инцидент №4, оставлен как есть).
+- Инцидент №4 (watcher): в ходе проверки платформенный watcher ДВАЖДЫ сбрасывал HEAD в /home/z/my-project на main @ e3ed55c, имитируя «отсутствие фиксов» (CSRF, 0039, deploy.yml). Все последующие проверки кода переведены на объектный уровень: git grep/show против a903483 — иммунно к подменам дерева.
+- Объектная реверификация фиксов ветки (file:ref-протокол): CSRF (x-csrf-token/getSessionAuthHeaders) во всех 8 ранее сломанных виджетах (6917b30 реален); assertDialoguePairAccess в 3 роутах ai-dialogue (2 вхождения каждый); 0039 — 9 ключевых вхождений (consume_tfa_backup_code_v2, apply_yookassa_refund, RLS confectioner_transactions); deploy.yml — workflow_dispatch + sha_tag, heredoc-баг и печать секретов устранены; фабрикация карточки вычищена (use-marketplace: 0 выдуманных сроков; pravatar в product-page только в комментарии-пояснении); палитра Этапа 3 = ТЗ (bg oklch(0.985 0.012 75) тёплый белый, fg oklch(0.22 0.025 40) графит, primary oklch(0.42 0.18 25) ягодный); 2FA fallback fail-closed (tfaOk=false, PGRST202-handling).
+- Гейты на ветке (независимо): tsc --noEmit 0 ошибок; eslint 0 errors / 3 старых warning; vitest 27 файлов / 744 теста PASS (22.7s).
+- Этап 6, окружение: песочница убивает процессы между командами → git worktree /home/z/conditera-verify (a903483) + сервер `bunx next dev -p 3000` внутри каждой команды; agent-browser daemon переживает команды.
+- Этап 6, негативные API (curl): POST /api/ai/search без CSRF → 403; GET /api/admin/payouts без auth → 401; POST /api/payment/webhook bogus → 400 (не 500/не принят); robots.txt/sitemap.xml → 200.
+- Этап 6, браузер (agent-browser, скриншоты в /home/z/verify-shots/): главная 1440px+390px (палитра/типографика/hero ✓); каталог — 16 товаров, фильтры, ИИ-поиск; карточка товара (SPA-view из каталога, Shadow DOM-грид) — хлебные крошки, вес/порции/срок, начинки с доплатой, кондитер+чат, без фейк-отзывов; «В корзину» → тост «Добавлено» → дровер с составом/промокодом/итогами (2300+300=2600 ₽) → «Оформить заказ»; /contacts (длинная) — футер прижат gap=0; /login (короткая) — футер на экране gap=0; console errors = 0 на всех шагах.
+- Отмечено: pravatar-аватары встречаются только в dev-моках каталога (аватары продавцов сеяных данных, замещаются живыми из БД); «1 день» в мок-карточке — поле срока из данных сеялки, не дисплейная фабрикация.
+
+Stage Summary:
+- Ветка release/readiness-fixes реверифицирована ПОЛНОСТЬЮ независимо: все заявленные фиксы подтверждены по коду и в рантайме; Этап 6 (покупатель + негатив + responsive + футер) закрыт браузерно.
+- Пуш новых коммитов невозможен без токена (значение потеряно при сжатии контекста): a903483 + этот worklog-коммит локально; на origin уже лежит a903483 со всеми основными фиксами и docs. Для синка ветки: push одной командой с одноразовым credential-helper.
+- Итог для владельца: ветка готова к PR в main; origin/main (78e4f66) сознательно отстаёт — влить release/readiness-fixes = получить pay3+readiness целиком.
