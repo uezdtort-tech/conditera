@@ -31,7 +31,7 @@ const CSRF_COOKIE = 'csrf_token'
  * Нужно вызвать GET /api/csrf-token, получить token из JSON body
  * и cookie csrf_token (httpOnly).
  */
-async function getCsrfToken(baseURL: string): Promise<{ token: string; cookie: string }> {
+async function getCsrfToken(baseURL = E2E_BASE): Promise<{ token: string; cookie: string }> {
   const response = await fetch(`${baseURL}/api/csrf-token`)
   if (!response.ok) {
     throw new Error(`CSRF token fetch failed: ${response.status}`)
@@ -92,7 +92,7 @@ test.describe('API v2.0 — recipes marketplace', () => {
   })
 
   test('POST /api/recipes/marketplace с CSRF но без авторизации → 401 (не 403 CSRF)', async () => {
-    const csrf = await getCsrfToken('')  // передаём пустой baseURL → fetch без baseURL
+    const csrf = await getCsrfToken()
     const response = await apiFetch('/api/recipes/marketplace', {
       method: 'POST',
       headers: {
@@ -188,7 +188,7 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/chat без поля message → 422 (с CSRF)', async () => {
-    const csrf = await getCsrfToken('')
+    const csrf = await getCsrfToken()
     const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
       headers: {
@@ -202,7 +202,7 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/chat с слишком длинным message → 422', async () => {
-    const csrf = await getCsrfToken('')
+    const csrf = await getCsrfToken()
     const longMessage = 'а'.repeat(5001)  // > 5000 символов
     const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
@@ -226,7 +226,7 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/feedback с невалидным log_id → 422 (с CSRF)', async () => {
-    const csrf = await getCsrfToken('')
+    const csrf = await getCsrfToken()
     const response = await apiFetch('/api/ai-assistant/feedback', {
       method: 'POST',
       headers: {
