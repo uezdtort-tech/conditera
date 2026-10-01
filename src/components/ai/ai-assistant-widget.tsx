@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/sheet";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { user_role, AIAssistantConversation } from "@/lib/supabase/types";
-import { getSessionAuthHeaders } from "@/lib/api-client";
+import { getCsrfToken, getSessionAuthHeaders } from "@/lib/api-client";
 
 const STORAGE_OPEN_KEY = "ai-widget-open";
 
@@ -96,7 +96,7 @@ function useSendMessage() {
     }): Promise<ChatResponse> => {
       const response = await fetch("/api/ai-assistant/chat", {
         method: "POST",
-        headers: await getSessionAuthHeaders(),
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({
           message: input.message,
           conversation_id: input.conversation_id,
@@ -126,7 +126,7 @@ function useSendFeedback() {
     }) => {
       const response = await fetch("/api/ai-assistant/feedback", {
         method: "POST",
-        headers: await getSessionAuthHeaders(),
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify(input),
       });
       if (!response.ok) {
