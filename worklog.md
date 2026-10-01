@@ -7027,3 +7027,7 @@ Stage Summary:
 ### Дополнение release-audit2 (CI-прогоны PR #8)
 - CI run 36833998098 (PR): Caddyfile ✓, Security ✓, Lint&Type ✓, Vitest ✓, Next build ✓; Docker-job SKIPPED на PR (условие `if: github.ref == 'refs/heads/main'`) — CI-валидация Docker-фикса произойдёт на main после слияния PR владельцем.
 - E2E run 36833998959: FAIL — конфиг-баг спеки payment-webhook-idempotency.spec.ts:53 (test.describe.serial + test.describe.configure({mode:'serial'}) одновременно → «"serial" mode is already assigned», Playwright не загрузился, тесты НЕ выполнялись). ФИКС: удалена избыточная строка; `playwright test --list` = 149 тестов в 9 файлах без ошибок загрузки.
+
+### Финал release-audit2 (CI-валидация фиксов, коммиты 7c610c7..9afdbbd)
+- E2E-харнесс починен тремя фиксами: 7c610c7 (двойной serial-режим — Playwright вообще не загружался), 8e03e80 (49 относительных URL в Node-fetch → apiFetch-хелпер), 9afdbbd (getCsrfToken('')). Динамика по прогонам CI: 0 выполнялось → 71/134 passed → 88/134 passed, класс «Invalid URL» → 0. Остаток 46 failed — data-зависимые ассерты на stub-окружении без сидированной БД (KNOWN_LIMITATIONS №17 обновлён). CI (обязательный гейт) — success на всех трёх прогонах.
+- Итог раунда: vitest 751/751 (28 файлов), tsc 0, eslint 0 errors, PGlite-валидаторы 0034-0039 PASS, скан секретов диффа и истории — чисто. origin/release/readiness-fixes = 9afdbbd, PR #8 открыт на main (Docker-job выполняется только на main — валидация Docker-фикса произойдёт после слияния владельцем).
