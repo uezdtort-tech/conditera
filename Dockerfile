@@ -96,7 +96,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres-bytea ./nod
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres-date ./node_modules/postgres-date
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/postgres-interval ./node_modules/postgres-interval
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/pg-protocol ./node_modules/pg-protocol
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/xdg-basedir ./node_modules/xdg-basedir
 # jose — для JWT
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/jose ./node_modules/jose
 # sharp — для оптимизации изображений
