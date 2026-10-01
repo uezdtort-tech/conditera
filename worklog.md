@@ -7023,3 +7023,7 @@ Stage Summary:
 - Гейты на момент фиксации: tsc PASS, eslint 0 errors, vitest 751/751, PGlite-валидаторы 0034-0039 PASS.
 - Остаточные (не блокируют релиз): PAY-2 ledger/0038; кумулятивный refund-гвард в RPC (P3, инвариант провайдера); интеграционные route-тесты выплат; живой прогон 0039 на копии prod-БД; Docker-фикс ждёт CI-прогона PR; VPS-деплой и боевой YooKassa — только владельцем.
 - OPS по-прежнему единственный жёсткий блокер деплоя: 0034-0039 на живую БД одним окном по PRODUCTION_MIGRATION_PLAN.md, затем verify-money-path §7+§8.
+
+### Дополнение release-audit2 (CI-прогоны PR #8)
+- CI run 36833998098 (PR): Caddyfile ✓, Security ✓, Lint&Type ✓, Vitest ✓, Next build ✓; Docker-job SKIPPED на PR (условие `if: github.ref == 'refs/heads/main'`) — CI-валидация Docker-фикса произойдёт на main после слияния PR владельцем.
+- E2E run 36833998959: FAIL — конфиг-баг спеки payment-webhook-idempotency.spec.ts:53 (test.describe.serial + test.describe.configure({mode:'serial'}) одновременно → «"serial" mode is already assigned», Playwright не загрузился, тесты НЕ выполнялись). ФИКС: удалена избыточная строка; `playwright test --list` = 149 тестов в 9 файлах без ошибок загрузки.
