@@ -15,7 +15,10 @@
 ## 2. Миграции
 
 - [ ] На production-БД применены все миграции до 0039 включительно
-      (ledger `schema_migrations`: `SELECT count(*) FROM schema_migrations;`).
+      (ledger `schema_migrations`: `SELECT count(*) FROM schema_migrations;`)
+      строго по плану docs/PRODUCTION_MIGRATION_PLAN.md (последовательность,
+      pre/post-проверки, условия остановки, откат). 0038 НЕ существует на main
+      — пропуск осознанный (PAY-2), искать и применять нечего.
 - [ ] Если БД существовала до внедрения ledger — выполнен baseline
       (см. docs/DEPLOYMENT.md, раздел «База-лайн существующей БД»).
 - [ ] dry-run migrator-контейнера на копии production-БД прошёл без ошибок.
@@ -33,7 +36,12 @@
 
 ## 4. Сборка и образ
 
-- [ ] CI на коммите релиза зелёный (lint → typecheck → 744 unit-теста → build).
+- [ ] CI на коммите релиза зелёный (lint → typecheck → unit-тесты → build
+      → Docker build). 2026-09-30: починен Docker-job (мёртвый COPY
+      node_modules/xdg-basedir из Prisma-эпохи ронял сборку web-образа).
+- [ ] Unit-тесты: 751 (744 базовых + 7 негативных IDOR-тестов
+      ai-dialogue-access); миграции 0034–0039 валидированы PGlite-валидаторами
+      (включая verify-release-0039-pglite.ts: RLS, RPC, дедуп refund, 21/21).
 - [ ] Образ собран с `GIT_SHA` и тегом `sha-xxxxxxx`;
       `GET /api/health` возвращает этот SHA в поле `version`.
 
