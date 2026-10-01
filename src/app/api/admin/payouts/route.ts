@@ -49,6 +49,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
 import { safeJsonBody, HttpError, handleRouteError, readEnumField } from "@/lib/http-helpers";
+import { resolveCompleteRace } from "@/lib/payout-complete-race";
 
 export const runtime = "nodejs";
 
@@ -453,6 +454,57 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       throw new HttpError(500, "Не удалось обновить запрос на выплату");
     }
     if (!row) {
+      // F-1 (аудит 18651d4): CAS проигран — заявку из approved перевёл
+      // конкурент (reject или второй complete). Мы УЖЕ пометили заказы —
+      // разрешаем гонку по ФАКТИЧЕСКОМУ статусу заявки.
+      const statusAfter = (await casTransitionRead(body.payoutId)).row?.status ?? null;
+      const resolution = resolveCompleteRace(statusAfter);
+      if (resolution.treatAsSuccess) {
+        // Конкурентный complete выиграл: его маркировка легитимна, наш ретрай —
+        // идемпотентный успех (заказы помечены один раз).
+        const winner = await casTransitionRead(body.payoutId);
+        console.info("[admin/payouts] complete lost CAS to concurrent complete — идемпотентный успех", {
+          payoutId: body.payoutId,
+        });
+        return NextResponse.json({
+          payout: winner.row,
+          marked: totalMarked,
+          idempotent: true,
+        });
+      }
+      if (resolution.unmarkOwn) {
+        // Конкурентный reject выиграл: резерв уже возвращён, снимаем ТОЛЬКО
+        // СВОЮ маркировку (по своему timestamp — payout_request_id уже мог
+        // быть сброшен reject'ом; same-ms коллизия двух complete исключена:
+        // победитель-complete возвращает идемпотентный успех без unmark).
+        const { data: unmarked, error: unmarkErr } = await supabaseAdmin
+          .from("orders")
+          .update({ payout_transferred_at: null })
+          .in("id", orderIds)
+          .eq("payout_transferred_at", nowIso)
+          .select("id");
+        if (unmarkErr) {
+          console.error(
+            "[admin/payouts] complete/reject race: UNMARK FAILED — заказы помечены выплаченными при возвращённом резерве, РУЧНАЯ СВЕРКА:",
+            unmarkErr.message,
+            { payoutId: body.payoutId, orderIds }
+          );
+        } else {
+          console.warn(
+            "[admin/payouts] complete/reject race: собственная маркировка снята (reject вернул резерв)",
+            { payoutId: body.payoutId, unmarked: Array.isArray(unmarked) ? unmarked.length : 0 }
+          );
+        }
+        throw new HttpError(
+          409,
+          "Заявка отклонена конкурентным запросом — маркировка выплаты отменена, резерв возвращён"
+        );
+      }
+      // Неизвестное состояние (удалена/нестандартный статус) — ничего не трогаем.
+      console.error(
+        "[admin/payouts] complete lost CAS, состояние заявки неизвестно — РУЧНАЯ СВЕРКА:",
+        { payoutId: body.payoutId }
+      );
       throw new HttpError(409, "Заявка не найдена или статус уже изменился (конкурентное обновление)");
     }
 
