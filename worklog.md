@@ -6998,3 +6998,72 @@ Work Log:
 Stage Summary:
 - GitHub синхронизирован: main и release/readiness-fixes содержат полный pay3+readiness-раунд (33 файла, +1122/−400 против 78e4f66) + всю документацию релиза.
 - Напоминание OPS (критично ДО следующего деплоя платформы с main): применить миграции 0034-0039 на живой БД одним окном, затем npx tsx scripts/verify-money-path.ts (§7+§8). Без 0036/0037 контур резервов выплат деградирует (payouts/request 500 на выборке eligible).
+
+---
+Task ID: release-audit2
+Agent: Z.ai Code (main)
+Task: ЗАДАЧА ИИ-АГЕНТУ №2 — независимая проверка push/18651d4, аудит main, верификация всех заявленных исправлений, CI/тесты/секреты, план миграций, завершение подготовки к релизу.
+
+Work Log:
+- ЭТАП 1 (GitHub): ls-remote подтверждает origin/main = origin/release/readiness-fixes = 18651d4 (заявление о синхронности ПОДТВЕРЖДЕНО). 18651d4 — линейный ребёнок 51eba6b (fast-forward, переписи истории нет). Заявленный diff воспроизведён ТОЧНО: 78e4f66..51eba6b = 33 files, +1122/−400 (цифры совпали до единицы). Состав файлов соответствует заявленной работе (deploy/docs/pwa/ai-csrf/idor/money/0039/worklog); посторонних/debug/junk-файлов нет.
+- Инцидент №5 разобран по reflog: push origin/main прошёл 78e4f66→51eba6b→18651d4; watcher переключил HEAD локального main на junk e3ed55c, worklog-секция легла как 999963d на мусорную базу (никогда не пушена, сохранена в backup-watcher-main), затем пересоздана на ветке как 18651d4. Junk-контент e3ed55c (удаление upload route + 0038-черновик) В GITHUB НЕ ПОПАЛ: upload route на origin/main существует, 0038 на main отсутствует осознанно (KNOWN_LIMITATIONS п.1, SECURITY_REVIEW P2, ops-скрипт фиксирует окно 0034-0037).
+- ЭТАП 2 (фиксы по коду, file:line): pay3 CAS-резерв (payouts/request:400-430, guard .is(payout_reserved_at,null)+.is(payout_transferred_at,null)+.eq(payment_status,released)+select), компенсация с CAS на статусе (:432-485, unreserve только своей привязки по payout_request_id), 2FA-гейт fail-closed (PGRST202→503:270-276), полная сумма батча (:353-358), admin PATCH роли ADMIN/SUPER_ADMIN (:225), reject с возвратом по metadata.orders, complete только при наличии состава (:372-394). IDOR: assertDialoguePairAccess + вызовы в context:104/learn:124/respond:44. CSRF: ГЛОБАЛЬНЫЙ enforcement в src/proxy.ts:108-133 (double-submit, timing-safe, exempt-лист вебхуков) — ранний grep-промах был из-за проверки в junk-клоне; клиентские заголовки в 13 компонентах (getSessionAuthHeaders).
+- ЭТАП 2.2/4.3 (тесты): PGlite-валидаторы 0034-0037 PASS (включая повторные прогоны); НАПИСАН verify-release-0039-pglite.ts — 21/21 PASS (RLS-политика, consume_tfa_backup_code_v2 атомарность, apply_yookassa_refund: повторная доставка НЕ задваивает, копится атомарно, полный возврат → refunded, CHECK>0, RAISE на отсутствующий платёж, гранты service_role, двойной прогон миграции). НАПИСАНЫ 7 негативных IDOR-тестов ai-dialogue-access.test.ts.
+- ЭТАП 3: карточка товара — фабрикации нет (grep Math.random/fakePrep/фейк — пусто; данные из стора БД; rating/reviewsCount условны: product-page:109); PWA — один manifest.webmanifest (layout:56, sw.js:24), имя/цвета/display/start_url корректны.
+- ЭТАП 4 (CI): run 36777755363 на 18651d4: Security checks ✓, Caddyfile ✓, Lint&Type ✓, Vitest ✓, Next build ✓, **Docker build ✗** — «/app/node_modules/xdg-basedir»: not found. Корень: COPY-строка из initial commit (Prisma-эпоха), пакета нет в lockfile с bun-миграции, никто не использует. Логи получены через PAT (репо-логи требуют auth; анонимный API отдаёт только статусы). На 78e4f66/51eba6b CI не запускался вовсе — падение впервые проявилось на 18651d4. ФИКС: строка удалена (2b71027). Локальные Docker-проверки невозможны (docker в песочнице отсутствует) — верификация фикса будет CI-прогоном PR.
+- ЭТАП 4 (локально, worktree @18651d4): tsc PASS; eslint 0 errors (3 старых warning в чужих файлах); vitest 751/751 (744+7 IDOR); PGlite-валидаторы PASS. migrate-pglite.ts (legacy dev-трек 0000/0001) вне релизного пути.
+- ЭТАП 5 (секреты): remote URL без токена; .git-credentials нет; скан диффа 78e4f66..18651d4 — только ${{ secrets.* }}-ссылки; .env в репо — только .example; строгий regex ghp_[A-Za-z0-9]{36,40} по ВСЕЙ истории — 0 (в worklog только описание паттерна и маскированный префикс). Токен в истории репо никогда не существовал.
+- ЭТАП 6: docs/PRODUCTION_MIGRATION_PLAN.md — последовательность 0034→0035→0036→0037→0039 (0038 осознанно отсутствует), pre/post-SQL-контроль, бэкап с проверкой восстановления, стоп-условия, откат (аддитивность → откат кода без откатa БД), действия при частичном применении, критерии допуска, post-deploy 15-30мин/24ч + smoke.
+- ЭТАП 7: docs/SAFE_GIT_WORKFLOW.md — протокол (объектная верификация, worktree, немедленный коммит worklog, проверка SHA/parent/staged, ls-remote до/после push, одноразовый credential-helper) + таблица инцидентов №1-№5.
+- ЭТАП 8: обновлены RELEASE_CHECKLIST (ссылка на план миграций, 751 тест, Docker-фикс), KNOWN_LIMITATIONS (п.18/19 — частично закрыты), SECURITY_REVIEW (статус 0039, P3 кумулятивный refund-гвард), RELEASE_NOTES (раунд аудита №2).
+- Коммиты раунда: 2b71027 (Dockerfile), eaa3a54 (0039-валидатор), 3739f2e (IDOR-тесты), docs+worklog далее. Push в release/readiness-fixes разрешён правилом 12; main НЕ трогаем — PR на ревью владельцу (CI на PR проверит Docker-фикс).
+
+Stage Summary:
+- Все существенные заявления предыдущего отчёта ПОДТВЕРЖДЕНЫ (синхронность веток, diff 33/+1122/−400, состав, worklog, fast-forward). Опровергнуто/новое: CI Docker-job ПАДАЛ на 18651d4 (не был замечен предыдущим агентом) — исправлен; 0039 была «SQL-ревью only» — теперь рантайм-доказана.
+- Гейты на момент фиксации: tsc PASS, eslint 0 errors, vitest 751/751, PGlite-валидаторы 0034-0039 PASS.
+- Остаточные (не блокируют релиз): PAY-2 ledger/0038; кумулятивный refund-гвард в RPC (P3, инвариант провайдера); интеграционные route-тесты выплат; живой прогон 0039 на копии prod-БД; Docker-фикс ждёт CI-прогона PR; VPS-деплой и боевой YooKassa — только владельцем.
+- OPS по-прежнему единственный жёсткий блокер деплоя: 0034-0039 на живую БД одним окном по PRODUCTION_MIGRATION_PLAN.md, затем verify-money-path §7+§8.
+
+### Дополнение release-audit2 (CI-прогоны PR #8)
+- CI run 36833998098 (PR): Caddyfile ✓, Security ✓, Lint&Type ✓, Vitest ✓, Next build ✓; Docker-job SKIPPED на PR (условие `if: github.ref == 'refs/heads/main'`) — CI-валидация Docker-фикса произойдёт на main после слияния PR владельцем.
+- E2E run 36833998959: FAIL — конфиг-баг спеки payment-webhook-idempotency.spec.ts:53 (test.describe.serial + test.describe.configure({mode:'serial'}) одновременно → «"serial" mode is already assigned», Playwright не загрузился, тесты НЕ выполнялись). ФИКС: удалена избыточная строка; `playwright test --list` = 149 тестов в 9 файлах без ошибок загрузки.
+
+### Финал release-audit2 (CI-валидация фиксов, коммиты 7c610c7..9afdbbd)
+- E2E-харнесс починен тремя фиксами: 7c610c7 (двойной serial-режим — Playwright вообще не загружался), 8e03e80 (49 относительных URL в Node-fetch → apiFetch-хелпер), 9afdbbd (getCsrfToken('')). Динамика по прогонам CI: 0 выполнялось → 71/134 passed → 88/134 passed, класс «Invalid URL» → 0. Остаток 46 failed — data-зависимые ассерты на stub-окружении без сидированной БД (KNOWN_LIMITATIONS №17 обновлён). CI (обязательный гейт) — success на всех трёх прогонах.
+- Итог раунда: vitest 751/751 (28 файлов), tsc 0, eslint 0 errors, PGlite-валидаторы 0034-0039 PASS, скан секретов диффа и истории — чисто. origin/release/readiness-fixes = 9afdbbd, PR #8 открыт на main (Docker-job выполняется только на main — валидация Docker-фикса произойдёт после слияния владельцем).
+
+---
+Task ID: release-audit2-integration
+Agent: Z.ai Code (main)
+Task: Слияние двух линий релизной подготовки — cherry-pick фиксов F-1/F-2/F-3 (fix/release-audit-money-csrf, база 18651d4) на release/readiness-fixes (ef4104d), независимая реверификация состояния push и подготовка к доставке.
+
+Work Log:
+- Независимая верификация refs (ls-remote, не по отчёту): origin/main = 18651d489fafa... — подтверждён; origin/release/readiness-fixes = ef4104df6ffa... — ЗАЯВЛЕНИЕ «обе ветки на 18651d4» ЛОЖНО для release-ветки (она на 8 коммитов впереди, ef4104d — потомок 18651d4, это хорошо). backup-watcher-main на remote НЕТ (только локально, 999963d).
+- Локальный main (42ee04e) — junk-линия инцидента №5: 3 коммита (42ee04e worklog-дубль, 999963d worklog-дубль, e3ed55c UUID-мусор), нет 24 релизных коммитов, нет upload route. План: backup-local-main-audit2 → reset на origin/main (без force-push, только локальный checkout).
+- CI (badge API, т.к. REST rate-limited): release/readiness-fixes ci.yml=PASSING, e2e.yml=failing; main: ci/e2e/deploy=failing. Заявление «E2E 88/134» детально не верифицируемо без API-токена (badge подтверждает failing, число — нет).
+- Верификация фиксов по фактическому diff (не по worklog): F-3 cab6684 — CSRF (getCsrfToken) в 12 AI-вызовах 8 файлов; F-2 e878bf8 — контракт «один писатель refund_amount» (reset резерва после 2xx провайдера + CRITICAL-лог при сбое снятия) + валидатор 26 проверок; F-1 0301201 — resolveCompleteRace (paid→идемпотентный успех, rejected→unmark по своему timestamp, прочее→fail-closed + CRITICAL) + 4 регрессионных теста. Все три фикса СУЩЕСТВУЮТ и корректны.
+- Cherry-pick cab6684+e878bf8+0301201 на release/audit2-integration (от ef4104d, worktree /home/z/conditera-integration): БЕЗ конфликтов (пересечение линий — только worklog.md, фиксы его не трогают). Результат: c496840, 2d0c8e0, ecc84b6.
+- Гейты на integration: tsc PASS; lint 0 errors (3 старых warning'а); vitest 755/755 (29 файлов); PGlite-валидаторы: ops-0034-0037 PASS (последовательность+идемпотентность), 0036 PASS, 0037 PASS, release-0039 PASS, 0039-refund-contract PASS (контроль: без reset — 800₽ при возврате 400₽; с фиксом — ровно 400₽).
+- Миграции на ef4104d: 0034,0035,0036,0037,0039 присутствуют; 0038 ОТСУТСТВУЕТ СПЕЦИАЛЬНО (draft на pay2-wip, PAY-2 paused, 0039 от 0038 не зависит — проверено по ссылкам в SQL). docs/PRODUCTION_MIGRATION_PLAN.md (223 строки, 12 секций) и docs/SAFE_GIT_WORKFLOW.md (70 строк) присутствуют.
+- PUSH ЗАБЛОКИРОВАН: git push --dry-run → "could not read Username" (токена нет в окружении; значение потеряно при сжатии контекста, на диск не сохранялся). Ветка release/audit2-integration готова локально: ef4104d + 3 фикса + этот worklog.
+- Скан секретов: дифф origin/main..release/audit2-integration — ghp_/github_pat_/SK-/service_role/пароли: чисто (финальный скан в отчёте раунда).
+
+Stage Summary:
+- Интеграционная ветка release/audit2-integration = origin/release/readiness-fixes + F-1/F-2/F-3, все гейты зелёные. Для доставки: push в release/readiness-fixes после предоставления токена (fast-forward невозможен — это уже cherry-pick линия; обычный push новой линии на release-ветку = обновление указателя, обсуждение с владельцем).
+- main остаётся на 18651d4 без F-1/F-2/F-3 — обновление main и деплой требуют отдельного подтверждения владельца.
+- Блокеры: (1) токен для push; (2) применение 0034-0039 на живую БД одним окном по docs/PRODUCTION_MIGRATION_PLAN.md — только владелец; (3) E2E 46 falling-кейсов требуют разбора на среде с реальной БД.
+
+---
+Task ID: release-audit2-push
+Agent: Z.ai Code (main)
+Task: Доставка release/audit2-integration в origin/release/readiness-fixes после предоставления владельцем токена.
+
+Work Log:
+- Префлайт: deploy.yml = только workflow_dispatch (push не триггерит production-деплой — проверено перед push); ci.yml/e2e.yml push-триггеры = main/develop. Remote не сдвинулся (main=18651d4, release=ef4104d). ef4104d..93a26e0 — чистый fast-forward.
+- Push одноразовым credential-helper (-c, токен НЕ записан в config/remote/history/env-файлы): ef4104d..93a26e0 release/audit2-integration → release/readiness-fixes. Exit 0.
+- Независимая верификация ls-remote: origin/release/readiness-fixes = 93a26e0194e7e3f7465e6fdede10b81ec6f931eb = локальный tip. origin/main = 18651d4 — НЕ обновлялся (требует отдельного подтверждения владельца).
+- Токен светился в чате повторно; по решению владельца (pay3c-risk-register) ротация снята с контроля; при желании — ротация после использования.
+
+Stage Summary:
+- GitHub release/readiness-fixes = 93a26e0 = ef4104d + F-3 (c496840) + F-2 (2d0c8e0) + F-1 (ecc84b6) + worklog ×2. Все гейты раунда зелёные (tsc, lint 0 err, vitest 755/755, PGlite-валидаторы 0034-0037+0039+контракт возвратов).
+- main остаётся на 18651d4 (без F-1/F-2/F-3). Обновление main, применение миграций 0034-0039 на живую БД и деплой — отдельные решения владельца по docs/PRODUCTION_MIGRATION_PLAN.md.

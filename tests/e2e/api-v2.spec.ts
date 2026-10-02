@@ -16,6 +16,11 @@
  *   npx playwright test --grep "API v2.0 routes"
  *   npx playwright test tests/e2e/api-v2.spec.ts
  */
+const E2E_BASE = process.env.E2E_BASE_URL || `http://localhost:${process.env.PORT || 3000}`
+// Node fetch требует абсолютный URL — резолвим относительные пути к базе E2E-сервера
+const apiFetch = (path: string, init?: RequestInit): Promise<Response> =>
+  fetch(path.startsWith('http') ? path : `${E2E_BASE}${path}`, init)
+
 import { test, expect } from '@playwright/test'
 
 const CSRF_HEADER = 'x-csrf-token'
@@ -26,7 +31,7 @@ const CSRF_COOKIE = 'csrf_token'
  * Нужно вызвать GET /api/csrf-token, получить token из JSON body
  * и cookie csrf_token (httpOnly).
  */
-async function getCsrfToken(baseURL: string): Promise<{ token: string; cookie: string }> {
+async function getCsrfToken(baseURL = E2E_BASE): Promise<{ token: string; cookie: string }> {
   const response = await fetch(`${baseURL}/api/csrf-token`)
   if (!response.ok) {
     throw new Error(`CSRF token fetch failed: ${response.status}`)
@@ -43,7 +48,7 @@ async function getCsrfToken(baseURL: string): Promise<{ token: string; cookie: s
 
 test.describe('API v2.0 — recipes marketplace', () => {
   test('GET /api/recipes/marketplace — public list возвращает пустой массив или список', async () => {
-    const response = await fetch('/api/recipes/marketplace?limit=10')
+    const response = await apiFetch('/api/recipes/marketplace?limit=10')
     expect(response.status).toBe(200)
     const json = await response.json() as { data: unknown[]; meta: { limit: number; offset: number } }
     expect(json).toHaveProperty('data')
@@ -54,7 +59,7 @@ test.describe('API v2.0 — recipes marketplace', () => {
   })
 
   test('GET /api/recipes/marketplace — фильтр is_premium=true работает', async () => {
-    const response = await fetch('/api/recipes/marketplace?is_premium=true&limit=50')
+    const response = await apiFetch('/api/recipes/marketplace?is_premium=true&limit=50')
     expect(response.status).toBe(200)
     const json = await response.json() as { data: Array<{ is_premium: boolean }> }
     expect(Array.isArray(json.data)).toBe(true)
@@ -65,9 +70,9 @@ test.describe('API v2.0 — recipes marketplace', () => {
   })
 
   test('GET /api/recipes/marketplace — пагинация limit+offset работает', async () => {
-    const response1 = await fetch('/api/recipes/marketplace?limit=5&offset=0')
+    const response1 = await apiFetch('/api/recipes/marketplace?limit=5&offset=0')
     const json1 = await response1.json() as { data: unknown[] }
-    const response2 = await fetch('/api/recipes/marketplace?limit=5&offset=5')
+    const response2 = await apiFetch('/api/recipes/marketplace?limit=5&offset=5')
     const json2 = await response2.json() as { data: unknown[] }
     expect(response1.status).toBe(200)
     expect(response2.status).toBe(200)
@@ -77,7 +82,7 @@ test.describe('API v2.0 — recipes marketplace', () => {
   })
 
   test('POST /api/recipes/marketplace без авторизации → 401', async () => {
-    const response = await fetch('/api/recipes/marketplace', {
+    const response = await apiFetch('/api/recipes/marketplace', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Test recipe' }),
@@ -87,8 +92,8 @@ test.describe('API v2.0 — recipes marketplace', () => {
   })
 
   test('POST /api/recipes/marketplace с CSRF но без авторизации → 401 (не 403 CSRF)', async () => {
-    const csrf = await getCsrfToken('')  // передаём пустой baseURL → fetch без baseURL
-    const response = await fetch('/api/recipes/marketplace', {
+    const csrf = await getCsrfToken()
+    const response = await apiFetch('/api/recipes/marketplace', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -104,7 +109,7 @@ test.describe('API v2.0 — recipes marketplace', () => {
   test('POST /api/recipes/marketplace/[id]/purchase без авторизации → 401', async () => {
     // Используем любой UUID — даже несуществующий, проверяем только guard
     const fakeId = '00000000-0000-0000-0000-000000000099'
-    const response = await fetch(`/api/recipes/marketplace/${fakeId}/purchase`, {
+    const response = await apiFetch(`/api/recipes/marketplace/${fakeId}/purchase`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     })
@@ -114,7 +119,7 @@ test.describe('API v2.0 — recipes marketplace', () => {
 
 test.describe('API v2.0 — loyalty partners', () => {
   test('GET /api/loyalty/partners — public endpoint возвращает список', async () => {
-    const response = await fetch('/api/loyalty/partners?limit=10')
+    const response = await apiFetch('/api/loyalty/partners?limit=10')
     expect(response.status).toBe(200)
     const json = await response.json() as { data: unknown[]; meta: { limit: number } }
     expect(json).toHaveProperty('data')
@@ -123,7 +128,7 @@ test.describe('API v2.0 — loyalty partners', () => {
   })
 
   test('GET /api/loyalty/partners — фильтр company_type=bank работает', async () => {
-    const response = await fetch('/api/loyalty/partners?company_type=bank')
+    const response = await apiFetch('/api/loyalty/partners?company_type=bank')
     expect(response.status).toBe(200)
     const json = await response.json() as { data: Array<{ company_type: string }> }
     expect(Array.isArray(json.data)).toBe(true)
@@ -134,12 +139,12 @@ test.describe('API v2.0 — loyalty partners', () => {
   })
 
   test('GET /api/loyalty/partners — некорректный company_type игнорируется (не падает)', async () => {
-    const response = await fetch('/api/loyalty/partners?company_type=invalid_type')
+    const response = await apiFetch('/api/loyalty/partners?company_type=invalid_type')
     expect(response.status).toBe(200)
   })
 
   test('POST /api/loyalty/partners без авторизации → 401 или 403', async () => {
-    const response = await fetch('/api/loyalty/partners', {
+    const response = await apiFetch('/api/loyalty/partners', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ company_name: 'Test Co', company_type: 'bank' }),
@@ -148,14 +153,14 @@ test.describe('API v2.0 — loyalty partners', () => {
   })
 
   test('GET /api/loyalty/cross-actions — public endpoint возвращает список', async () => {
-    const response = await fetch('/api/loyalty/cross-actions?limit=10')
+    const response = await apiFetch('/api/loyalty/cross-actions?limit=10')
     expect(response.status).toBe(200)
     const json = await response.json() as { data: unknown[] }
     expect(Array.isArray(json.data)).toBe(true)
   })
 
   test('POST /api/loyalty/cross-actions без авторизации → 401 или 403', async () => {
-    const response = await fetch('/api/loyalty/cross-actions', {
+    const response = await apiFetch('/api/loyalty/cross-actions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -174,7 +179,7 @@ test.describe('API v2.0 — loyalty partners', () => {
 
 test.describe('API v2.0 — AI assistant', () => {
   test('POST /api/ai-assistant/chat без авторизации → 401', async () => {
-    const response = await fetch('/api/ai-assistant/chat', {
+    const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'Привет' }),
@@ -183,8 +188,8 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/chat без поля message → 422 (с CSRF)', async () => {
-    const csrf = await getCsrfToken('')
-    const response = await fetch('/api/ai-assistant/chat', {
+    const csrf = await getCsrfToken()
+    const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -197,9 +202,9 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/chat с слишком длинным message → 422', async () => {
-    const csrf = await getCsrfToken('')
+    const csrf = await getCsrfToken()
     const longMessage = 'а'.repeat(5001)  // > 5000 символов
-    const response = await fetch('/api/ai-assistant/chat', {
+    const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -212,7 +217,7 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/feedback без авторизации → 401', async () => {
-    const response = await fetch('/api/ai-assistant/feedback', {
+    const response = await apiFetch('/api/ai-assistant/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ log_id: 1, was_helpful: true }),
@@ -221,8 +226,8 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/feedback с невалидным log_id → 422 (с CSRF)', async () => {
-    const csrf = await getCsrfToken('')
-    const response = await fetch('/api/ai-assistant/feedback', {
+    const csrf = await getCsrfToken()
+    const response = await apiFetch('/api/ai-assistant/feedback', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -235,14 +240,14 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('GET /api/ai-assistant/conversations без авторизации → 401', async () => {
-    const response = await fetch('/api/ai-assistant/conversations')
+    const response = await apiFetch('/api/ai-assistant/conversations')
     expect(response.status).toBe(401)
   })
 })
 
 test.describe('API v2.0 — recipes marketplace contract', () => {
   test('GET /api/recipes/marketplace — структура ответа соответствует контракту', async () => {
-    const response = await fetch('/api/recipes/marketplace?limit=3')
+    const response = await apiFetch('/api/recipes/marketplace?limit=3')
     expect(response.status).toBe(200)
     const json = await response.json() as {
       data: Array<Record<string, unknown>>
@@ -269,14 +274,14 @@ test.describe('API v2.0 — recipes marketplace contract', () => {
 
   test('GET /api/recipes/marketplace/:id с несуществующим id → 404', async () => {
     const fakeId = '00000000-0000-0000-0000-000000000099'
-    const response = await fetch(`/api/recipes/marketplace/${fakeId}`)
+    const response = await apiFetch(`/api/recipes/marketplace/${fakeId}`)
     expect(response.status).toBe(404)
   })
 })
 
 test.describe('API v2.0 — venues (мигрировано с @ts-nocheck)', () => {
   test('GET /api/venues — public endpoint возвращает список', async () => {
-    const response = await fetch('/api/venues?limit=10')
+    const response = await apiFetch('/api/venues?limit=10')
     expect(response.status).toBe(200)
     const json = await response.json() as { data: unknown[]; meta: { limit: number } }
     expect(Array.isArray(json.data)).toBe(true)
@@ -284,7 +289,7 @@ test.describe('API v2.0 — venues (мигрировано с @ts-nocheck)', () 
   })
 
   test('POST /api/venues без авторизации → 401', async () => {
-    const response = await fetch('/api/venues', {
+    const response = await apiFetch('/api/venues', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -298,7 +303,7 @@ test.describe('API v2.0 — venues (мигрировано с @ts-nocheck)', () 
   })
 
   test('GET /api/venues с фильтром capacity работает', async () => {
-    const response = await fetch('/api/venues?capacity=20&limit=5')
+    const response = await apiFetch('/api/venues?capacity=20&limit=5')
     expect(response.status).toBe(200)
     const json = await response.json() as { data: Array<{ capacity: number }> }
     // Все возвращённые площадки должны иметь capacity >= 20
@@ -310,17 +315,17 @@ test.describe('API v2.0 — venues (мигрировано с @ts-nocheck)', () 
 
 test.describe('API v2.0 — b2b (мигрировано с @ts-nocheck)', () => {
   test('GET /api/b2b/catalog без авторизации → 401', async () => {
-    const response = await fetch('/api/b2b/catalog')
+    const response = await apiFetch('/api/b2b/catalog')
     expect(response.status).toBe(401)
   })
 
   test('GET /api/b2b/orders без авторизации → 401', async () => {
-    const response = await fetch('/api/b2b/orders')
+    const response = await apiFetch('/api/b2b/orders')
     expect(response.status).toBe(401)
   })
 
   test('POST /api/b2b/orders без авторизации → 401', async () => {
-    const response = await fetch('/api/b2b/orders', {
+    const response = await apiFetch('/api/b2b/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -334,33 +339,33 @@ test.describe('API v2.0 — b2b (мигрировано с @ts-nocheck)', () => 
 
 test.describe('API v2.0 — мигрированные cron routes', () => {
   test('GET /api/cron/status без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/status')
+    const response = await apiFetch('/api/cron/status')
     expect(response.status).toBe(401)
   })
 
   test('GET /api/cron/cleanup без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/cleanup')
+    const response = await apiFetch('/api/cron/cleanup')
     expect(response.status).toBe(401)
   })
 
   test('GET /api/cron/escrow-release без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/escrow-release')
+    const response = await apiFetch('/api/cron/escrow-release')
     expect(response.status).toBe(401)
   })
 
   test('GET /api/cron/expiring-bonuses без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/expiring-bonuses')
+    const response = await apiFetch('/api/cron/expiring-bonuses')
     expect(response.status).toBe(401)
   })
 
   test('GET /api/cron/subscriptions без X-Cron-Secret → 401 или 405', async () => {
     // POST endpoint — GET должен вернуть 405 (method not allowed) или 401
-    const response = await fetch('/api/cron/subscriptions')
+    const response = await apiFetch('/api/cron/subscriptions')
     expect([401, 405]).toContain(response.status)
   })
 
   test('POST /api/cron/subscriptions без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/subscriptions', {
+    const response = await apiFetch('/api/cron/subscriptions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -369,29 +374,29 @@ test.describe('API v2.0 — мигрированные cron routes', () => {
   })
 
   test('GET /api/cron/abandoned-cart без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/abandoned-cart')
+    const response = await apiFetch('/api/cron/abandoned-cart')
     expect(response.status).toBe(401)
   })
 
   test('GET /api/cron/weekly-digest без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/weekly-digest')
+    const response = await apiFetch('/api/cron/weekly-digest')
     expect(response.status).toBe(401)
   })
 
   test('GET /api/cron/backup без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/backup')
+    const response = await apiFetch('/api/cron/backup')
     expect(response.status).toBe(401)
   })
 
   test('POST /api/cron/holiday-reminders без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/holiday-reminders', {
+    const response = await apiFetch('/api/cron/holiday-reminders', {
       method: 'POST',
     })
     expect(response.status).toBe(401)
   })
 
   test('GET /api/cron/payment-reminders без X-Cron-Secret → 401', async () => {
-    const response = await fetch('/api/cron/payment-reminders')
+    const response = await apiFetch('/api/cron/payment-reminders')
     expect(response.status).toBe(401)
   })
 })

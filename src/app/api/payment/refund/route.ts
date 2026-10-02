@@ -208,6 +208,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
 
+      // Финальную сумму refund_amount пишет ОДИН писатель — webhook
+      // refund.succeeded через атомарный RPC apply_yookassa_refund (0039,
+      // дедуп по refund id). Резерв reserve_refund (0035) — ВРЕМЕННЫЙ, только
+      // на время обращения к провайдеру: снимаем его сразу после принятия
+      // возврата, иначе webhook добавит ту же сумму ПОВЕРХ резерва и
+      // refund_amount удвоится (аудит 18651d4: возврат 400₽ учитывался
+      // как 800₽; fully_refunded наступал вдвое раньше, следующие частичные
+      // возвраты блокировались завышенным остатком).
+      // Окно до доставки webhook'а, когда резерв не виден guard'у
+      // «remaining» — осознанный компромисс до ledger-учёта (PAY-2).
+      const { error: unreserveErr } = await supabaseAdmin
+        .from("payments")
+        .update({ refund_amount: alreadyRefunded })
+        .eq("id", paymentId);
+      if (unreserveErr) {
+        // Если снять резерв не удалось — webhook задвоит сумму (прежнее
+        // поведение). Кричим в лог: нужна ручная сверка refund_amount.
+        console.error(
+          "[payment/refund] FAILED to release temporary refund reservation — refund_amount будет удвоен webhook'ом, нужна ручная сверка:",
+          unreserveErr.message,
+          { paymentId, alreadyRefunded }
+        );
+      }
+
       // PAY-1: провайдер ПРИНЯЛ возврат (pending) — финальный 'processed'
       // выставит webhook refund.succeeded после подтверждения провайдером
       // (сверка getRefund в webhook).
