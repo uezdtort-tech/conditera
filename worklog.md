@@ -7052,3 +7052,18 @@ Stage Summary:
 - Интеграционная ветка release/audit2-integration = origin/release/readiness-fixes + F-1/F-2/F-3, все гейты зелёные. Для доставки: push в release/readiness-fixes после предоставления токена (fast-forward невозможен — это уже cherry-pick линия; обычный push новой линии на release-ветку = обновление указателя, обсуждение с владельцем).
 - main остаётся на 18651d4 без F-1/F-2/F-3 — обновление main и деплой требуют отдельного подтверждения владельца.
 - Блокеры: (1) токен для push; (2) применение 0034-0039 на живую БД одним окном по docs/PRODUCTION_MIGRATION_PLAN.md — только владелец; (3) E2E 46 falling-кейсов требуют разбора на среде с реальной БД.
+
+---
+Task ID: release-audit2-push
+Agent: Z.ai Code (main)
+Task: Доставка release/audit2-integration в origin/release/readiness-fixes после предоставления владельцем токена.
+
+Work Log:
+- Префлайт: deploy.yml = только workflow_dispatch (push не триггерит production-деплой — проверено перед push); ci.yml/e2e.yml push-триггеры = main/develop. Remote не сдвинулся (main=18651d4, release=ef4104d). ef4104d..93a26e0 — чистый fast-forward.
+- Push одноразовым credential-helper (-c, токен НЕ записан в config/remote/history/env-файлы): ef4104d..93a26e0 release/audit2-integration → release/readiness-fixes. Exit 0.
+- Независимая верификация ls-remote: origin/release/readiness-fixes = 93a26e0194e7e3f7465e6fdede10b81ec6f931eb = локальный tip. origin/main = 18651d4 — НЕ обновлялся (требует отдельного подтверждения владельца).
+- Токен светился в чате повторно; по решению владельца (pay3c-risk-register) ротация снята с контроля; при желании — ротация после использования.
+
+Stage Summary:
+- GitHub release/readiness-fixes = 93a26e0 = ef4104d + F-3 (c496840) + F-2 (2d0c8e0) + F-1 (ecc84b6) + worklog ×2. Все гейты раунда зелёные (tsc, lint 0 err, vitest 755/755, PGlite-валидаторы 0034-0037+0039+контракт возвратов).
+- main остаётся на 18651d4 (без F-1/F-2/F-3). Обновление main, применение миграций 0034-0039 на живую БД и деплой — отдельные решения владельца по docs/PRODUCTION_MIGRATION_PLAN.md.
