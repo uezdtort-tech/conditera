@@ -7031,3 +7031,24 @@ Stage Summary:
 ### Финал release-audit2 (CI-валидация фиксов, коммиты 7c610c7..9afdbbd)
 - E2E-харнесс починен тремя фиксами: 7c610c7 (двойной serial-режим — Playwright вообще не загружался), 8e03e80 (49 относительных URL в Node-fetch → apiFetch-хелпер), 9afdbbd (getCsrfToken('')). Динамика по прогонам CI: 0 выполнялось → 71/134 passed → 88/134 passed, класс «Invalid URL» → 0. Остаток 46 failed — data-зависимые ассерты на stub-окружении без сидированной БД (KNOWN_LIMITATIONS №17 обновлён). CI (обязательный гейт) — success на всех трёх прогонах.
 - Итог раунда: vitest 751/751 (28 файлов), tsc 0, eslint 0 errors, PGlite-валидаторы 0034-0039 PASS, скан секретов диффа и истории — чисто. origin/release/readiness-fixes = 9afdbbd, PR #8 открыт на main (Docker-job выполняется только на main — валидация Docker-фикса произойдёт после слияния владельцем).
+
+---
+Task ID: release-audit2-integration
+Agent: Z.ai Code (main)
+Task: Слияние двух линий релизной подготовки — cherry-pick фиксов F-1/F-2/F-3 (fix/release-audit-money-csrf, база 18651d4) на release/readiness-fixes (ef4104d), независимая реверификация состояния push и подготовка к доставке.
+
+Work Log:
+- Независимая верификация refs (ls-remote, не по отчёту): origin/main = 18651d489fafa... — подтверждён; origin/release/readiness-fixes = ef4104df6ffa... — ЗАЯВЛЕНИЕ «обе ветки на 18651d4» ЛОЖНО для release-ветки (она на 8 коммитов впереди, ef4104d — потомок 18651d4, это хорошо). backup-watcher-main на remote НЕТ (только локально, 999963d).
+- Локальный main (42ee04e) — junk-линия инцидента №5: 3 коммита (42ee04e worklog-дубль, 999963d worklog-дубль, e3ed55c UUID-мусор), нет 24 релизных коммитов, нет upload route. План: backup-local-main-audit2 → reset на origin/main (без force-push, только локальный checkout).
+- CI (badge API, т.к. REST rate-limited): release/readiness-fixes ci.yml=PASSING, e2e.yml=failing; main: ci/e2e/deploy=failing. Заявление «E2E 88/134» детально не верифицируемо без API-токена (badge подтверждает failing, число — нет).
+- Верификация фиксов по фактическому diff (не по worklog): F-3 cab6684 — CSRF (getCsrfToken) в 12 AI-вызовах 8 файлов; F-2 e878bf8 — контракт «один писатель refund_amount» (reset резерва после 2xx провайдера + CRITICAL-лог при сбое снятия) + валидатор 26 проверок; F-1 0301201 — resolveCompleteRace (paid→идемпотентный успех, rejected→unmark по своему timestamp, прочее→fail-closed + CRITICAL) + 4 регрессионных теста. Все три фикса СУЩЕСТВУЮТ и корректны.
+- Cherry-pick cab6684+e878bf8+0301201 на release/audit2-integration (от ef4104d, worktree /home/z/conditera-integration): БЕЗ конфликтов (пересечение линий — только worklog.md, фиксы его не трогают). Результат: c496840, 2d0c8e0, ecc84b6.
+- Гейты на integration: tsc PASS; lint 0 errors (3 старых warning'а); vitest 755/755 (29 файлов); PGlite-валидаторы: ops-0034-0037 PASS (последовательность+идемпотентность), 0036 PASS, 0037 PASS, release-0039 PASS, 0039-refund-contract PASS (контроль: без reset — 800₽ при возврате 400₽; с фиксом — ровно 400₽).
+- Миграции на ef4104d: 0034,0035,0036,0037,0039 присутствуют; 0038 ОТСУТСТВУЕТ СПЕЦИАЛЬНО (draft на pay2-wip, PAY-2 paused, 0039 от 0038 не зависит — проверено по ссылкам в SQL). docs/PRODUCTION_MIGRATION_PLAN.md (223 строки, 12 секций) и docs/SAFE_GIT_WORKFLOW.md (70 строк) присутствуют.
+- PUSH ЗАБЛОКИРОВАН: git push --dry-run → "could not read Username" (токена нет в окружении; значение потеряно при сжатии контекста, на диск не сохранялся). Ветка release/audit2-integration готова локально: ef4104d + 3 фикса + этот worklog.
+- Скан секретов: дифф origin/main..release/audit2-integration — ghp_/github_pat_/SK-/service_role/пароли: чисто (финальный скан в отчёте раунда).
+
+Stage Summary:
+- Интеграционная ветка release/audit2-integration = origin/release/readiness-fixes + F-1/F-2/F-3, все гейты зелёные. Для доставки: push в release/readiness-fixes после предоставления токена (fast-forward невозможен — это уже cherry-pick линия; обычный push новой линии на release-ветку = обновление указателя, обсуждение с владельцем).
+- main остаётся на 18651d4 без F-1/F-2/F-3 — обновление main и деплой требуют отдельного подтверждения владельца.
+- Блокеры: (1) токен для push; (2) применение 0034-0039 на живую БД одним окном по docs/PRODUCTION_MIGRATION_PLAN.md — только владелец; (3) E2E 46 falling-кейсов требуют разбора на среде с реальной БД.
