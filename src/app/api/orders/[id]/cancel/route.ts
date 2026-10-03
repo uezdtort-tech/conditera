@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
+import { emitEvent } from "@/lib/n8n";
 
 export const runtime = "nodejs";
 
@@ -87,6 +88,9 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
         { status: 409 }
       );
     }
+
+    // n8n: order.cancelled (fail-safe, после успешной CAS-отмены)
+    void emitEvent("order.cancelled", { orderId }).catch(() => {});
 
     // Status history
     await supabaseAdmin.from("order_status_history").insert({

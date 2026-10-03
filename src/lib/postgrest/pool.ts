@@ -5,18 +5,14 @@
  */
 
 import { Pool, type PoolConfig } from "pg";
+import { requireEnv } from "@/lib/env-check";
 
 const globalForPool = globalThis as unknown as { __conditeraPgPool?: Pool };
 
 export function getPool(): Pool {
   if (globalForPool.__conditeraPgPool) return globalForPool.__conditeraPgPool;
 
-  const connectionString = process.env.DATABASE_URL?.trim();
-  if (!connectionString) {
-    throw new Error(
-      "DATABASE_URL is not set — run npm run db:setup (creates .env.local with the local PostgreSQL URL)"
-    );
-  }
+  const connectionString = requireEnv("DATABASE_URL");
 
   const config: PoolConfig = {
     connectionString,

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
+import { serverLogout } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -186,6 +188,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export function Header() {
+  const router = useRouter();
   const navigate = useAppStore((s) => s.navigate);
   const nav = useAppStore((s) => s.nav);
   const user = useAppStore((s) => s.user);
@@ -212,6 +215,22 @@ export function Header() {
   const goToDashboard = () => {
     if (!activeRole) return;
     navigate(DASHBOARD_MAP[activeRole] || "home");
+  };
+
+  // Единый logout: сервер чистит httpOnly cookies (cd_session/cd_refresh) +
+  // sessionStorage cd_access_token, затем сбрасываем store и редиректим на главную.
+  const [loggingOut, setLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await serverLogout();
+    } finally {
+      logout();
+      setLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -342,7 +361,7 @@ export function Header() {
                         )}
 
                         <div className="border-t mt-2 pt-2">
-                          <button onClick={logout} className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-accent text-left text-destructive">
+                          <button onClick={handleLogout} disabled={loggingOut} className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-accent text-left text-destructive">
                             <LogOut className="h-4 w-4" /><span className="text-sm">Выйти</span>
                           </button>
                         </div>

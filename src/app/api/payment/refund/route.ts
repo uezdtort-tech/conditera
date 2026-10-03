@@ -30,6 +30,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
 import { refundPayment } from "@/lib/yookassa";
+import { emitEvent } from "@/lib/n8n";
 
 export const runtime = "nodejs";
 
@@ -124,6 +125,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         console.error("[payment/refund] insert failed:", refundErr.message);
         return NextResponse.json({ error: "Не удалось создать заявку на возврат" }, { status: 500 });
       }
+
+      // n8n: refund.created (заявка покупателя, fail-safe)
+      void emitEvent("refund.created", {
+        refundId: refund.id,
+        orderId: payment.order_id,
+        amount,
+      }).catch(() => {});
 
       return NextResponse.json(
         {
@@ -243,6 +251,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .eq("id", payment.order_id);
       }
     }
+
+    // n8n: refund.completed (исполнение админом — провайдер принял либо DB-only, fail-safe)
+    void emitEvent("refund.completed", {
+      refundId: refund.id,
+      orderId: payment.order_id,
+    }).catch(() => {});
 
     return NextResponse.json(
       {

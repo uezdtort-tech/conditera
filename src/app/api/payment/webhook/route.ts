@@ -280,6 +280,18 @@ export async function POST(request: NextRequest) {
         // P1: Эскроу релизуется через cron /api/cron/escrow-release (каждые 30 минут)
         console.info(`[webhook] Order ${orderId} → escrow. Will be released by cron in 24h.`);
 
+        // n8n: order.paid (fail-safe, после CAS-победы — только у победителя)
+        try {
+          const { emitEvent } = await import("@/lib/n8n");
+          void emitEvent("order.paid", {
+            orderId,
+            paymentId: payment?.id ?? null,
+            amount: order.total,
+          }).catch(() => {});
+        } catch (e) {
+          console.warn("[webhook] n8n emitEvent failed (non-blocking):", e);
+        }
+
         const customer = Array.isArray(order.customers) ? order.customers[0] : order.customers;
         const customerName = customer?.name || "Клиент";
         const customerEmail = customer?.email || null;

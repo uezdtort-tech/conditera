@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentUser, forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
+import { emitEvent } from "@/lib/n8n";
 
 interface OrderStatusTransition {
   from: string;
@@ -119,6 +120,13 @@ export async function PATCH(
       console.error("[orders/[id]] Update error:", updateError.message);
       return NextResponse.json({ error: "Ошибка обновления" }, { status: 500 });
     }
+
+    // n8n: order.status_changed (fail-safe, после успешного обновления)
+    void emitEvent("order.status_changed", {
+      orderId,
+      from: order.status,
+      to: newStatus,
+    }).catch(() => {});
 
     return NextResponse.json({
       order: updatedOrder,

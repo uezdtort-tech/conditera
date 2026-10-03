@@ -258,24 +258,45 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (authErr) {
       console.error("[register] supabase auth createUser error:", authErr.message);
-      // Fallback: создаём запись только в profiles (для dev без Supabase Auth)
-      // В прод нужно возвращать ошибку, т.к. без Supabase Auth пользователь не сможет войти
+      // В проде без GoTrue регистрация невозможна — явный отказ
       if (process.env.NODE_ENV !== "development") {
         return NextResponse.json(
           { error: "Не удалось создать пользователя в Auth", details: authErr.message },
           { status: 500 }
         );
       }
-      console.warn("[register] dev mode: skipping Supabase Auth creation");
+      // Local runtime (embedded PG, GoTrue = 501-заглушка): создаём строку
+      // auth.users напрямую — FK profiles.id → auth.users.id требует её
+      // существования. Триггер on_auth_user_created создаст профиль + роль
+      // CUSTOMER (см. 0001_init.sql). Пароль канонично хранит
+      // profiles.password_hash (bcrypt) — логин от GoTrue не зависит.
+      console.warn("[register] dev/local mode: GoTrue unavailable → auth.users stub row");
     }
 
     const userId = authData?.user?.id || crypto.randomUUID();
 
-    // 8. Создание записи в profiles
+    if (authErr) {
+      try {
+        const { getPool } = await import("@/lib/postgrest/pool");
+        await getPool().query(
+          `INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_user_meta_data, created_at, updated_at)
+           VALUES ($1, $2, '', now(), $3::jsonb, now(), now())
+           ON CONFLICT (id) DO NOTHING`,
+          [userId, emailLower, JSON.stringify({ name, phone, role: finalRole, accountType })]
+        );
+      } catch (stubErr: any) {
+        console.warn("[register] auth.users stub insert failed (non-fatal):", stubErr?.message);
+      }
+    }
+
+    // 8. Создание записи в profiles.
+    // UPSERT: триггер on_auth_user_created (реальный Supabase или auth.users
+    // stub выше) уже мог создать профиль — обновляем его нашим данными
+    // (password_hash, phone, account_type) вместо дублирования PK.
     const passwordHash = await hashPassword(password);
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .insert({
+      .upsert({
         id: userId,
         email: emailLower,
         password_hash: passwordHash,
@@ -287,7 +308,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         bonus_balance: 0,
         is_blocked: false,
         is_verified: false,
-      })
+      }, { onConflict: "id" })
       .select("id, email, name, phone, account_type, city, bonus_balance, loyalty_level")
       .single();
 
@@ -304,16 +325,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 9. Создание записи о ролях пользователя.
+    // UPSERT по (user_id, role): триггер мог уже создать CUSTOMER — тогда
+    // просто обновляем is_active, без уникального конфликта.
     // При сбое — полная компенсация (auth.users + profiles), чтобы не оставлять
     // частично созданного пользователя без роли: JWT выпишется из finalRole,
     // но user_roles — источник истины для role-guards.
-    const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({
-      user_id: userId,
-      role: finalRole,
-      is_active: true,
-      assigned_by: userId,
-      assigned_at: new Date().toISOString(),
-    });
+    const { error: roleErr } = await supabaseAdmin
+      .from("user_roles")
+      .upsert(
+        {
+          user_id: userId,
+          role: finalRole,
+          is_active: true,
+          assigned_by: userId,
+          assigned_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,role" }
+      );
     if (roleErr) {
       console.error("[register] user_roles insert error:", roleErr.message);
       if (authData?.user?.id) {

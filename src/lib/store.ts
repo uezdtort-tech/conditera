@@ -46,7 +46,6 @@ import type {
   FraudRule,
 } from "./types";
 import {
-  MOCK_USERS,
   MOCK_CONFECTIONERS,
   MOCK_PRODUCTS,
   MOCK_ORDERS,
@@ -666,44 +665,28 @@ export const useAppStore = create<AppState>()(
 
       // ===== Actions =====
       login: (email, password) => {
-        // Объединяем демо-пользователей + зарегистрированных юрлиц
-        const legalUsersWithPasswords = MOCK_LEGAL_USERS.map((u) => ({ ...u, password: "demo123" }));
-        const allUsers = [...MOCK_USERS, ...legalUsersWithPasswords];
-        const user = allUsers.find((u) => u.email === email && u.password === password);
-        if (user) {
-          const { password: _, ...userWithoutPassword } = user;
-          set({
-            user: userWithoutPassword,
-            activeRole: userWithoutPassword.roles[0],
-            isAuthenticated: true,
-            authModalOpen: false,
-          });
-          return { success: true };
+        // DEPRECATED (Task 3): mock-аутентификация выведена из продакшн-пути.
+        // Единый поток входа — POST /api/auth/login (bcrypt → profiles →
+        // user_roles → JWT → cookies cd_session/cd_refresh). Метод оставлен
+        // для легаси-вызовов: НИКАКИХ мутаций user-состояния.
+        if (typeof console !== "undefined") {
+          console.warn(
+            "[store] login() is deprecated — mock auth is disabled. Use POST /api/auth/login instead.",
+            { email, passwordLength: password?.length ?? 0 }
+          );
         }
-        return { success: false, error: "Неверный email или пароль" };
+        return { success: false, error: "Мок-вход отключён — используйте форму входа (реальный API)" };
       },
 
       loginAs: (role) => {
-        // Демо-вход под ролью (без пароля)
-        const roleUserMap: Record<string, string> = {
-          CUSTOMER: "customer@demo.ru",
-          CONFECTIONER: "confectioner@demo.ru",
-          SUPPLIER: "supplier@demo.ru",
-          COURIER: "courier@demo.ru",
-          ADMIN: "admin@demo.ru",
-          SUPER_ADMIN: "admin@demo.ru",
-        };
-        const email = roleUserMap[role] || "customer@demo.ru";
-        const user = MOCK_USERS.find((u) => u.email === email);
-        if (user) {
-          const { password: _, ...userWithoutPassword } = user;
-          set({
-            user: userWithoutPassword,
-            activeRole: role,
-            isAuthenticated: true,
-            authModalOpen: false,
-            nav: { view: getDashboardView(role) },
-          });
+        // DEPRECATED (Task 3): mock-вход под ролью отключён (без мутаций state).
+        // Для демо-доступа используйте кнопки демо-аккаунтов в AuthModal —
+        // они идут через POST /api/auth/login (dev-fallback на сервере).
+        if (typeof console !== "undefined") {
+          console.warn(
+            "[store] loginAs() is deprecated — mock auth is disabled. Use AuthModal (POST /api/auth/login) instead.",
+            { role }
+          );
         }
       },
 
@@ -1442,57 +1425,19 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      // ===== Register new user (с семафором) =====
+      // ===== Register new user (DEPRECATED — реальная регистрация в AuthModal → POST /api/auth/register) =====
       registerUser: (data) => {
-        // Проверка семафора — уникальность email
-        const emailCheck = get().checkSemaphore("email", data.email);
-        if (!emailCheck.available) {
-          return { success: false, error: "Email уже зарегистрирован" };
+        // DEPRECATED (Task 3): mock-регистрация выведена из продакшн-пути.
+        // Метод оставлен для легаси-вызовов: НИКАКИХ мутаций user-состояния
+        // и семафоров. Единый поток — POST /api/auth/register (+ автовход через
+        // POST /api/auth/login) в src/components/layout/auth-modal.tsx.
+        if (typeof console !== "undefined") {
+          console.warn(
+            "[store] registerUser() is deprecated — mock registration is disabled. Use POST /api/auth/register instead.",
+            { email: data.email, role: data.role }
+          );
         }
-        // Проверка семафора — уникальность телефона
-        const phoneCheck = get().checkSemaphore("phone", data.phone);
-        if (!phoneCheck.available) {
-          return { success: false, error: "Телефон уже зарегистрирован" };
-        }
-        // Проверка чёрного списка
-        const emailBlacklist = get().checkBlacklist(data.email, "email");
-        if (emailBlacklist) {
-          return { success: false, error: `Email в чёрном списке: ${emailBlacklist.reasonDetails}` };
-        }
-        const phoneBlacklist = get().checkBlacklist(data.phone, "phone");
-        if (phoneBlacklist) {
-          return { success: false, error: `Телефон в чёрном списке: ${phoneBlacklist.reasonDetails}` };
-        }
-
-        // Создаём пользователя
-        const newUserId = `u${Date.now()}`;
-        const newUser: User = {
-          id: newUserId,
-          email: data.email,
-          name: data.name,
-          phone: data.phone,
-          avatar: `https://i.pravatar.cc/150?u=${newUserId}`,
-          roles: [data.role],
-          createdAt: new Date().toISOString().slice(0, 10),
-          accountType: data.accountType,
-          legalInfo: data.legalInfo,
-          loyaltyLevel: "BRONZE",
-          bonusBalance: 0,
-        };
-
-        // Регистрируем в семафоре
-        get().registerSemaphore("email", data.email, newUserId);
-        get().registerSemaphore("phone", data.phone, newUserId);
-
-        // Логиним
-        set({
-          user: newUser,
-          activeRole: data.role,
-          isAuthenticated: true,
-          authModalOpen: false,
-        });
-
-        return { success: true };
+        return { success: false, error: "Мок-регистрация отключена — используйте форму регистрации (реальный API)" };
       },
 
       // ===== Holidays =====
@@ -2122,36 +2067,3 @@ if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
   (window as any).useAppStore = useAppStore;
 }
 
-function getDashboardView(role: Role): NavState["view"] {
-  switch (role) {
-    case "CUSTOMER":
-      return "dashboard-customer";
-    case "CONFECTIONER":
-    case "STUDIO":
-      return "dashboard-confectioner";
-    case "SUPPLIER":
-      return "dashboard-supplier";
-    case "COURIER":
-      return "dashboard-courier";
-    case "ADMIN":
-    case "SUPER_ADMIN":
-    case "MODERATOR":
-    case "SUPPORT":
-      return "dashboard-admin";
-    case "FOOD_SERVICE":
-    case "EVENT_ORGANIZER":
-    case "BLOGGER":
-    case "PICKUP_POINT":
-    case "WHOLESALER":
-    case "TASTER":
-    case "FRANCHISEE":
-    case "NUTRITIONIST":
-    case "CORPORATE_CLIENT":
-    case "QUALITY_INSPECTOR":
-    case "CERTIFICATION_AGENT":
-    case "COPYWRITER":
-      return "dashboard-extra";
-    default:
-      return "home";
-  }
-}

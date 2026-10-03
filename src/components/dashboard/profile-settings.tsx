@@ -11,7 +11,9 @@
  */
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
+import { serverLogout } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -64,13 +66,23 @@ interface ProfileSettingsProps {
 
 // ==================== Component ====================
 export function ProfileSettings({ user: userProp, onLogout, onOpenAuth }: ProfileSettingsProps): React.JSX.Element {
+  const router = useRouter();
   const storeUser = useAppStore((s) => s.user);
   const storeLogout = useAppStore((s) => s.logout);
   const storeSetAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
 
   const user = userProp || (storeUser as unknown as ProfileSettingsProps["user"]);
-  const logout = onLogout || storeLogout;
   const setAuthModalOpen = onOpenAuth || storeSetAuthModalOpen;
+
+  // Единый logout: сервер чистит httpOnly cookies (cd_session/cd_refresh) +
+  // sessionStorage cd_access_token, затем сбрасываем store и редиректим на главную.
+  const handleLogout = React.useCallback(async (): Promise<void> => {
+    await serverLogout();
+    storeLogout();
+    router.push("/");
+    router.refresh();
+  }, [storeLogout, router]);
+  const logout = onLogout || handleLogout;
 
   // Mutations
   const updateProfile = useUpdateProfile();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { getCsrfToken, setStoredAccessToken } from "@/lib/api-client";
 import {
   Cake,
   User,
@@ -32,9 +33,7 @@ import {
   ShieldCheck,
   Sparkles,
   Building2,
-  CheckCircle2,
   AlertCircle,
-  XCircle,
   MapPin,
   Users,
   Calendar,
@@ -113,6 +112,37 @@ const DEMO_ACCOUNTS: {
   },
 ];
 
+/**
+ * Маппинг API-пользователя (POST /api/auth/login | /api/auth/register)
+ * в store-модель User — единый писатель store.setSupabaseUser.
+ */
+interface ApiUser {
+  id: string;
+  email: string;
+  name: string | null;
+  phone?: string | null;
+  roles?: string[];
+  accountType?: string;
+  city?: string | null;
+  bonusBalance?: number;
+  loyaltyLevel?: string;
+}
+
+function mapApiUserToStoreUser(user: ApiUser, fallbackRole?: Role): StoreUser {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name || user.email.split("@")[0],
+    phone: user.phone || undefined,
+    roles: (user.roles?.length ? user.roles : [fallbackRole || "CUSTOMER"]) as Role[],
+    createdAt: new Date().toISOString(),
+    city: user.city || undefined,
+    bonusBalance: user.bonusBalance ?? 0,
+    loyaltyLevel: (user.loyaltyLevel as StoreUser["loyaltyLevel"]) || "BRONZE",
+    accountType: user.accountType === "legal" ? "legal" : "individual",
+  };
+}
+
 export function AuthModal() {
   const authModalOpen = useAppStore((s) => s.authModalOpen);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
@@ -129,6 +159,9 @@ export function AuthModal() {
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerRole, setRegisterRole] = useState<Role>("CUSTOMER");
   const [accountType, setAccountType] = useState<"individual" | "legal">("individual");
+  // Ошибка/загрузка реального API регистрации (inline-ошибка из {error})
+  const [registerError, setRegisterError] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
   // Юрлицо
   const [legalType, setLegalType] = useState<string>("OOO");
   const [companyName, setCompanyName] = useState("");
@@ -137,37 +170,6 @@ export function AuthModal() {
   const [ogrn, setOgrn] = useState("");
   const [legalAddress, setLegalAddress] = useState("");
   const [ceoName, setCeoName] = useState("");
-
-  // Семафор — проверка уникальности через useMemo (без effect)
-  const checkSemaphore = useAppStore((s) => s.checkSemaphore);
-  const checkBlacklist = useAppStore((s) => s.checkBlacklist);
-  const registerUser = useAppStore((s) => s.registerUser);
-
-  const emailCheck = useMemo<{ available: boolean; reason?: string } | null>(() => {
-    if (!registerEmail || !registerEmail.includes("@")) return null;
-    const semaphore = checkSemaphore("email", registerEmail);
-    if (!semaphore.available) {
-      return { available: false, reason: "Email уже зарегистрирован" };
-    }
-    const blacklist = checkBlacklist(registerEmail, "email");
-    if (blacklist) {
-      return { available: false, reason: `Email в чёрном списке: ${blacklist.reason}` };
-    }
-    return { available: true };
-  }, [registerEmail, checkSemaphore, checkBlacklist]);
-
-  const phoneCheck = useMemo<{ available: boolean; reason?: string } | null>(() => {
-    if (!registerPhone || registerPhone.length < 10) return null;
-    const semaphore = checkSemaphore("phone", registerPhone);
-    if (!semaphore.available) {
-      return { available: false, reason: "Телефон уже зарегистрирован" };
-    }
-    const blacklist = checkBlacklist(registerPhone, "phone");
-    if (blacklist) {
-      return { available: false, reason: `Телефон в чёрном списке: ${blacklist.reason}` };
-    }
-    return { available: true };
-  }, [registerPhone, checkSemaphore, checkBlacklist]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,17 +184,7 @@ export function AuthModal() {
         body: JSON.stringify({ email: loginValue, password }),
       });
       const data = (await res.json()) as {
-        user?: {
-          id: string;
-          email: string;
-          name: string | null;
-          phone: string | null;
-          roles: string[];
-          accountType: string;
-          city?: string | null;
-          bonusBalance?: number;
-          loyaltyLevel?: string;
-        };
+        user?: ApiUser;
         accessToken?: string;
         tfaRequired?: boolean;
         message?: string;
@@ -217,25 +209,12 @@ export function AuthModal() {
         return;
       }
 
-      // Токен для socket.io handshake чата (cookie остаётся каноничной для API)
-      if (data.accessToken && typeof window !== "undefined") {
-        sessionStorage.setItem("cd_access_token", data.accessToken);
-      }
+      // Токен для socket.io handshake чата и Bearer-канала api-client
+      // (cookie остаётся каноничной для API)
+      setStoredAccessToken(data.accessToken);
 
       // Маппим API-ответ в store-модель User и ставим как единого пользователя
-      const storeUser: StoreUser = {
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name || data.user.email.split("@")[0],
-        phone: data.user.phone || undefined,
-        roles: (data.user.roles || ["CUSTOMER"]) as Role[],
-        createdAt: new Date().toISOString(),
-        city: data.user.city || undefined,
-        bonusBalance: data.user.bonusBalance ?? 0,
-        loyaltyLevel: (data.user.loyaltyLevel as StoreUser["loyaltyLevel"]) || "BRONZE",
-        accountType:
-          data.user.accountType === "legal" ? "legal" : "individual",
-      };
+      const storeUser = mapApiUserToStoreUser(data.user);
       setSupabaseUser(storeUser);
 
       toast.success("Добро пожаловать!", {
@@ -270,23 +249,20 @@ export function AuthModal() {
     }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setRegisterError(null);
     if (!registerName || !registerEmail || !registerPassword || !registerPhone) {
-      toast.error("Заполните все обязательные поля");
+      setRegisterError("Заполните все обязательные поля: имя, телефон, email, пароль");
       return;
     }
-    if (emailCheck && !emailCheck.available) {
-      toast.error("Email недоступен", { description: emailCheck.reason });
-      return;
-    }
-    if (phoneCheck && !phoneCheck.available) {
-      toast.error("Телефон недоступен", { description: phoneCheck.reason });
+    if (registerPassword.length < 8) {
+      setRegisterError("Пароль должен быть не менее 8 символов");
       return;
     }
     if (accountType === "legal") {
       if (!companyName || !inn || !legalAddress) {
-        toast.error("Заполните реквизиты организации");
+        setRegisterError("Заполните реквизиты организации");
         return;
       }
     }
@@ -304,24 +280,75 @@ export function AuthModal() {
           }
         : undefined;
 
-    const result = registerUser({
-      email: registerEmail,
-      password: registerPassword,
-      name: registerName,
-      phone: registerPhone,
-      role: registerRole,
-      accountType,
-      legalInfo,
-    });
-
-    if (result.success) {
-      toast.success("Регистрация успешна!", {
-        description:
-          accountType === "legal"
-            ? `Организация ${companyName} зарегистрирована`
-            : `Добро пожаловать, ${registerName}!`,
+    setRegistering(true);
+    try {
+      // Единый поток регистрации: POST /api/auth/register (реальный API —
+      // уникальность email/телефона, чёрный список и роли проверяет сервер).
+      // CSRF — double-submit cookie (см. getCsrfToken в api-client).
+      const csrf = await getCsrfToken();
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrf ? { "x-csrf-token": csrf } : {}),
+        },
+        body: JSON.stringify({
+          name: registerName.trim(),
+          phone: registerPhone.trim(),
+          email: registerEmail.trim(),
+          password: registerPassword,
+          role: registerRole, // роль из UI уже совпадает с enum user_role (CUSTOMER, CONFECTIONER, SUPPLIER, ANIMATOR_AGENCY…)
+          accountType,
+          legalInfo,
+        }),
       });
-      // Сброс
+      const data = (await res.json().catch(() => ({}))) as {
+        user?: ApiUser;
+        accessToken?: string;
+        refreshToken?: string;
+        error?: string;
+      };
+
+      if (!res.ok || data.error) {
+        // Inline-ошибка от {error} ответа сервера (409 email/телефон занят, 403 блэклист, 400 валидация…)
+        setRegisterError(data.error || `Не удалось зарегистрироваться (HTTP ${res.status})`);
+        return;
+      }
+
+      // Автовход: register не ставит cookie-сессию — логинимся теми же
+      // креденшелами через POST /api/auth/login (он выпускает cd_session/cd_refresh).
+      const loginRes = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: registerEmail.trim(), password: registerPassword }),
+      });
+      const loginData = (await loginRes.json().catch(() => ({}))) as {
+        user?: ApiUser;
+        accessToken?: string;
+        error?: string;
+      };
+
+      if (loginRes.ok && loginData.user && !loginData.error) {
+        setStoredAccessToken(loginData.accessToken);
+        const storeUser = mapApiUserToStoreUser(loginData.user, registerRole);
+        setSupabaseUser(storeUser); // также закрывает модалку (authModalOpen → false)
+        toast.success("Регистрация успешна!", {
+          description:
+            accountType === "legal"
+              ? `Организация ${companyName} зарегистрирована. Добро пожаловать, ${storeUser.name}!`
+              : `Добро пожаловать, ${storeUser.name}!`,
+        });
+      } else {
+        // Регистрация прошла, автовход не удался — не теряем успех,
+        // закрываем модалку и просим войти вручную.
+        setAuthModalOpen(false);
+        toast.success("Регистрация успешна!", {
+          description: "Войдите под своим email и паролем.",
+        });
+      }
+
+      // Сброс формы
       setRegisterName("");
       setRegisterEmail("");
       setRegisterPhone("");
@@ -332,8 +359,10 @@ export function AuthModal() {
       setOgrn("");
       setLegalAddress("");
       setCeoName("");
-    } else {
-      toast.error("Ошибка регистрации", { description: result.error });
+    } catch {
+      setRegisterError("Сервер недоступен. Попробуйте ещё раз.");
+    } finally {
+      setRegistering(false);
     }
   };
 
@@ -347,7 +376,7 @@ export function AuthModal() {
         body: JSON.stringify({ email: account.email, password: account.password }),
       });
       const data = (await res.json()) as {
-        user?: { id: string; email: string; name: string | null; phone: string | null; roles: string[]; accountType: string; city?: string | null; bonusBalance?: number; loyaltyLevel?: string };
+        user?: ApiUser;
         accessToken?: string;
         tfaRequired?: boolean;
         error?: string;
@@ -360,21 +389,8 @@ export function AuthModal() {
         toast.info("Требуется 2FA", { description: "Введите код из приложения-аутентификатора." });
         return;
       }
-      if (data.accessToken && typeof window !== "undefined") {
-        sessionStorage.setItem("cd_access_token", data.accessToken);
-      }
-      const storeUser: StoreUser = {
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name || data.user.email.split("@")[0],
-        phone: data.user.phone || undefined,
-        roles: (data.user.roles || [account.role]) as Role[],
-        createdAt: new Date().toISOString(),
-        city: data.user.city || undefined,
-        bonusBalance: data.user.bonusBalance ?? 0,
-        loyaltyLevel: (data.user.loyaltyLevel as StoreUser["loyaltyLevel"]) || "BRONZE",
-        accountType: data.user.accountType === "legal" ? "legal" : "individual",
-      };
+      setStoredAccessToken(data.accessToken);
+      const storeUser = mapApiUserToStoreUser(data.user, account.role);
       setSupabaseUser(storeUser);
       toast.success(`Вход выполнен как ${account.label}`, {
         description: account.description,
@@ -570,69 +586,27 @@ export function AuthModal() {
                 </div>
                 <div>
                   <Label htmlFor="reg-phone">Телефон *</Label>
-                  <div className="relative">
-                    <Input
-                      id="reg-phone"
-                      type="tel"
-                      placeholder="+7 (___) ___-__-__"
-                      value={registerPhone}
-                      onChange={(e) => setRegisterPhone(e.target.value)}
-                      required
-                      className={phoneCheck?.available === false ? "border-red-500" : phoneCheck?.available === true ? "border-emerald-500" : ""}
-                    />
-                    {phoneCheck && (
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                        {phoneCheck.available ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {phoneCheck && !phoneCheck.available && (
-                    <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                      <AlertCircle className="h-3 w-3" />
-                      {phoneCheck.reason}
-                    </p>
-                  )}
-                  {phoneCheck?.available && (
-                    <p className="text-xs text-emerald-600 mt-1">Телефон свободен</p>
-                  )}
+                  <Input
+                    id="reg-phone"
+                    type="tel"
+                    placeholder="+7 (___) ___-__-__"
+                    value={registerPhone}
+                    onChange={(e) => setRegisterPhone(e.target.value)}
+                    required
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="reg-email">Email *</Label>
-                  <div className="relative">
-                    <Input
-                      id="reg-email"
-                      type="email"
-                      placeholder="your@email.ru"
-                      value={registerEmail}
-                      onChange={(e) => setRegisterEmail(e.target.value)}
-                      required
-                      className={emailCheck?.available === false ? "border-red-500" : emailCheck?.available === true ? "border-emerald-500" : ""}
-                    />
-                    {emailCheck && (
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                        {emailCheck.available ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {emailCheck && !emailCheck.available && (
-                    <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                      <AlertCircle className="h-3 w-3" />
-                      {emailCheck.reason}
-                    </p>
-                  )}
-                  {emailCheck?.available && (
-                    <p className="text-xs text-emerald-600 mt-1">Email свободен</p>
-                  )}
+                  <Input
+                    id="reg-email"
+                    type="email"
+                    placeholder="your@email.ru"
+                    value={registerEmail}
+                    onChange={(e) => setRegisterEmail(e.target.value)}
+                    required
+                  />
                 </div>
                 <div>
                   <Label htmlFor="reg-password">Пароль *</Label>
@@ -939,8 +913,21 @@ export function AuthModal() {
                 </label>
               </div>
 
-              <Button type="submit" className="w-full">
-                Зарегистрироваться{accountType === "legal" ? " как юрлицо" : ""}
+              {/* Inline-ошибка от API регистрации (сервер — источник истины) */}
+              {registerError && (
+                <p
+                  className="text-xs text-red-600 flex items-start gap-1.5 border border-red-200 bg-red-50 rounded-md p-2"
+                  role="alert"
+                >
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{registerError}</span>
+                </p>
+              )}
+
+              <Button type="submit" className="w-full" disabled={registering}>
+                {registering
+                  ? "Регистрация..."
+                  : `Зарегистрироваться${accountType === "legal" ? " как юрлицо" : ""}`}
               </Button>
               <p className="text-[10px] text-muted-foreground text-center">
                 Регистрируясь, вы подтверждаете, что предоставляете достоверную информацию.

@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
+import { emitEvent } from "@/lib/n8n";
 
 export const runtime = "nodejs";
 
@@ -389,6 +390,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     }
+
+    // n8n: order.created (fail-safe, после успешной записи заказа)
+    void emitEvent("order.created", {
+      orderId: order.id,
+      orderNumber: order.number,
+      total: finalTotal,
+      userId: user.userId as string,
+    }).catch(() => {});
 
     // Создать order_items
     const orderItemsInsert = orderItems.map((item) => ({

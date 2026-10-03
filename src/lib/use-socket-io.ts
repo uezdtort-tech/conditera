@@ -66,6 +66,12 @@ async function fetchSocketToken(): Promise<string | null> {
     const res = await fetch("/api/auth/session");
     if (!res.ok) return null;
     const data = (await res.json()) as { accessToken?: string | null };
+    // Единый контракт: accessToken из сессии кешируем в sessionStorage —
+    // его же использует getSessionAuthHeaders() (Bearer-канал api-client).
+    if (data.accessToken) {
+      const { setStoredAccessToken } = await import("@/lib/api-client");
+      setStoredAccessToken(data.accessToken);
+    }
     return data.accessToken || null;
   } catch {
     return null;

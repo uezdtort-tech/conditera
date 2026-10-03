@@ -16,13 +16,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyRefreshToken, createAccessToken } from "@/lib/auth";
+import { REFRESH_COOKIE } from "@/lib/session-cookies";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 interface RefreshRequestBody {
-  refreshToken: string;
+  refreshToken?: string;
 }
 
 /**
@@ -35,18 +36,17 @@ export async function POST(request: NextRequest): Promise<Response> {
     const blocked = await enforceRateLimit(request, `auth-refresh:${ip}`, 10, 60_000);
     if (blocked) return blocked;
 
-    const { data: refreshBody, error: parseErr } = await safeJsonBody<RefreshRequestBody>(request);
-    if (parseErr || !refreshBody) {
-      return NextResponse.json(
-        { error: "Невалидный JSON в теле запроса" },
-        { status: 400 }
-      );
-    }
-    const { refreshToken } = refreshBody;
+    // Тело может быть пустым (браузерный поток) — тогда refresh-токен
+    // берём из httpOnly cookie cd_refresh (кладут login/register-2FA).
+    const { data: refreshBody } = await safeJsonBody<RefreshRequestBody>(request);
+    const bodyToken =
+      typeof refreshBody?.refreshToken === "string" ? refreshBody.refreshToken.trim() : "";
+    const cookieToken = request.cookies.get(REFRESH_COOKIE)?.value?.trim() || "";
+    const refreshToken = bodyToken || cookieToken;
 
-    if (!refreshToken || typeof refreshToken !== "string") {
+    if (!refreshToken) {
       return NextResponse.json(
-        { error: "Refresh token обязателен" },
+        { error: "Refresh token обязателен (тело или cookie cd_refresh)" },
         { status: 400 }
       );
     }

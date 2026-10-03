@@ -38,10 +38,17 @@ const CSRF_EXEMPT_PATHS = [
   "/api/health",
   "/api/telegram/webhook", // Telegram Bot API отправляет POST без CSRF
   "/api/email/inbound",    // Mailgun/SendGrid отправляют POST без CSRF
-  "/api/search", // GET-поиск — public endpoint
 ];
 
-function isCsrfExempt(pathname: string): boolean {
+// Точное совпадение + только безопасные методы (GET/HEAD): раньше exempt
+// "/api/search" через startsWith освобождал от CSRF и POST /api/search/reindex
+// (переиндексация поискового индекса — опасная мутация).
+const CSRF_EXEMPT_EXACT_GET = new Set(["/api/search"]);
+
+function isCsrfExempt(pathname: string, method: string): boolean {
+  if (CSRF_EXEMPT_EXACT_GET.has(pathname)) {
+    return method === "GET" || method === "HEAD";
+  }
   return CSRF_EXEMPT_PATHS.some((p) => pathname.startsWith(p));
 }
 
@@ -109,7 +116,7 @@ export async function proxy(request: NextRequest) {
   if (
     pathname.startsWith("/api/") &&
     ["POST", "PUT", "PATCH", "DELETE"].includes(method) &&
-    !isCsrfExempt(pathname)
+    !isCsrfExempt(pathname, method)
   ) {
     const headerToken = request.headers.get("x-csrf-token");
     const cookieToken = request.cookies.get("csrf_token")?.value;

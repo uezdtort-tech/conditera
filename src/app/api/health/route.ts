@@ -10,13 +10,16 @@
  *  - smtp: проверяется через env vars (SMTP_HOST, SMTP_USER, SMTP_PASSWORD)
  *  - telegram: проверяется через TELEGRAM_BOT_TOKEN
  *
- * Этот endpoint не должен вызывать внешние сервисы — только проверять конфигурацию.
+ * Этап 4 (local-runtime): добавлены живые проверки database (SELECT 1 через
+ * PostgREST-пул) и n8n (HEAD/GET с таймаутом, fail-open) — ключи
+ * app/database/n8n/environment. 200 когда app+db ok, 503 если БД недоступна.
  * Используется K8s readiness probe (если зависимости не готовы → restart pod).
  */
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const dynamic = "force-static";
+// Живые проверки БД/n8n — роут больше не может быть статическим
+export const dynamic = "force-dynamic";
 
 interface DependencyStatus {
   name: string;
@@ -26,6 +29,9 @@ interface DependencyStatus {
 }
 
 interface HealthResponse {
+  app: "ok";
+  database: "ok" | "unavailable";
+  n8n: "ok" | "unavailable";
   status: "ok" | "degraded";
   service: string;
   version: string;
@@ -43,6 +49,52 @@ interface HealthResponse {
     rate_limiting: boolean;
   };
   dependencies: DependencyStatus[];
+}
+
+/**
+ * SELECT 1 через существующий пул с гардом 3s.
+ * Никогда не бросает — возвращает "ok" | "unavailable".
+ */
+async function checkDatabase(): Promise<"ok" | "unavailable"> {
+  try {
+    const { getPool } = await import("@/lib/postgrest/pool");
+    const pool = getPool();
+    const timeout = new Promise<"unavailable">((resolve) =>
+      setTimeout(() => resolve("unavailable"), 3000)
+    );
+    const query = pool
+      .query("SELECT 1")
+      .then(() => "ok" as const)
+      .catch(() => "unavailable" as const);
+    return await Promise.race([query, timeout]);
+  } catch {
+    return "unavailable";
+  }
+}
+
+/**
+ * Живая проверка n8n (N8N_BASE_URL или localhost:5678), таймаут 1.5s.
+ * Fail-open: любая ошибка → "unavailable", никогда не бросает.
+ */
+async function checkN8n(): Promise<"ok" | "unavailable"> {
+  const base = process.env.N8N_BASE_URL || "http://localhost:5678";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  try {
+    const res = await fetch(base, {
+      method: "GET",
+      signal: controller.signal,
+      headers: process.env.N8N_WEBHOOK_SECRET
+        ? { "X-N8N-Secret": process.env.N8N_WEBHOOK_SECRET }
+        : undefined,
+    });
+    // n8n отвечает на любой HTTP-код — главное, что сервис жив
+    return res.status > 0 ? "ok" : "unavailable";
+  } catch {
+    return "unavailable";
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // pay4: версия образа прокидывается через ARG/ENV APP_VERSION (Dockerfile);
@@ -67,6 +119,9 @@ export async function GET(): Promise<NextResponse> {
   const yookassaCheck = checkEnvVars(["YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY"]);
   const jwtCheck = checkEnvVars(["JWT_SECRET"]);
   const cronCheck = checkEnvVars(["CRON_SECRET"]);
+
+  // Живые проверки: БД (SELECT 1, 3s) и n8n (1.5s, fail-open)
+  const [dbStatus, n8nStatus] = await Promise.all([checkDatabase(), checkN8n()]);
 
   const dependencies: DependencyStatus[] = [
     {
@@ -113,6 +168,9 @@ export async function GET(): Promise<NextResponse> {
     .every((d) => d.configured);
 
   const response: HealthResponse = {
+    app: "ok",
+    database: dbStatus,
+    n8n: n8nStatus,
     status: allRequiredOk ? "ok" : "degraded",
     service: "conditera",
     version: APP_VERSION,
@@ -132,6 +190,7 @@ export async function GET(): Promise<NextResponse> {
     dependencies,
   };
 
-  const httpStatus = 200;  // liveness probe — всегда 200; K8s использует readiness для проверки зависимостей
+  // 200 когда приложение и БД живы; 503 когда БД недоступна (readiness-гейт)
+  const httpStatus = dbStatus === "ok" ? 200 : 503;
   return NextResponse.json(response, { status: httpStatus });
 }

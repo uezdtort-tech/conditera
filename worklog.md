@@ -7250,3 +7250,40 @@ Stage Summary:
 - КРИТИЧНЫЙ SMOKE: POST /api/auth/login customer@demo.ru/Demo123! → 200 {accessToken,user.roles:[CUSTOMER]} — bcrypt→profiles→user_roles→JWT через шим→PostgreSQL 18.4. Session-cookie тоже работает.
 - Демо-юзеры: customer/confectioner/admin/support/decor/animator @demo.ru (Demo123!). Миграции: 39/39 в ledger. lint: 0 errors. typecheck: чинится.
 - Фундамент готов для Этапов 3-12: все 202 API-роута работают без изменений через шим.
+
+---
+Task ID: 4
+Agent: fullstack-contracts
+Task: Этап 4 — schema drift (миграция 0040), /api/health, env-валидация, n8n fail-safe эмиттер, CSRF-tighten
+
+Work Log:
+- 0040_local_runtime.sql (additive, идемпотентно): orders (delivery_time/comment/payment_method/bonus_points_redeemed/legal_status_snapshot/promo_code/promo_discount/customer_id без FK/is_draft + ВЫНЕСЕНО ИЗ КОДА: bonus_discount_rub/promo_code_applied/promo_code_id, subtotal DEFAULT 0), order_items (title/image/price/customization; product_title/unit_price/total DEFAULT — роут их не пишет), chat_messages (room_id/is_bot/bot_kind/quick_replies/idempotency_key + uq_chat_messages_idem), chat_channels.order_id, chat_rooms snake_case (last_message/last_message_at/order_id), profiles (is_bot/bot_role), service_bookings (FK только на service_products.id — проверено 0029), decor_products, products.images text[], order_fraud_logs snake_case + id/"ipHash" DEFAULT (0017 camelCase NOT NULL блокировал вставки), GRANTs.
+- setup.mjs: 0040 применён (40/40 в ledger, exit 0; повторный прогон 0 newly applied). Часть дельт доприменена вручную (ledger уже записал 0040 до их добавления в файл) — файл каноничен для свежих установок.
+- /api/health: +app/database/n8n/environment; database=SELECT 1 через getPool (гард 3s), n8n=GET N8N_BASE_URL|localhost:5678 (1.5s, fail-open), 503 при БД-дауне; dynamic=force-dynamic; тест health обновлён (допускает 200|503) — иначе vitest падал без БД.
+- env-check.requireEnv (RU+EN, npm run db:setup) → wired в postgrest/pool.ts (DATABASE_URL); auth.ts не тронут.
+- n8n.ts emitEvent: no-op без N8N_WEBHOOK_BASE_URL/N8N_BASE_URL (лог 1/процесс), POST conditera-*, X-N8N-Secret, 3s Abort, ловит всё. Сайты: orders POST (created), webhook payment.succeeded после CAS-победы (paid), orders/[id] PATCH (status_changed), [id]/cancel (cancelled), refund (created + completed), services/bookings (created).
+- НОВЫЙ роут /api/services/bookings: POST (zod, getUserFromRequest, provider_id/price из service_products, status pending) + GET (mine/incoming) → 201/200 живьём.
+- proxy.ts: exempt «/api/search» заменён на точный GET/HEAD-match — POST /api/search/reindex теперь 403 без CSRF (проверено).
+- ВНЕ СКОПА найдено и чинилось: supabase/middleware.ts 307→/login на /api/orders для Bearer-клиентов (гвард hasBearer; auth-флоу не менялся, cookie-логика нетронута); products.images и order_fraud_logs (см. выше) — иначе POST /api/orders не проходил гейт верификации.
+
+Stage Summary:
+- Гейты: 0040 в ledger ✓; health 200 {app:ok,database:ok,n8n:unavailable,environment:development} (n8n недоступен ≠ 500) ✓; POST /api/orders → 201 (order id, строка+items в БД с новыми колонками, anti-fraud log пишется) ✓; POST/GET /api/services/bookings → 201/200 ✓; reindex без CSRF → 403 ✓; lint 0 errors/3 старых warning ✓; typecheck 0 ✓; vitest health+middleware 39/39 ✓.
+- ПРЕДУПРЕЖДЕНИЯ следующим агентам (не чинил — вне списка изменений): (1) GET /api/orders → 500: embed confectioner:confectioners(business_name,avatar) — нет FK orders↔confectioners и в 0017 camelCase-колонки (drift кода с prisma-схемой); (2) webhook: embed customers:customer_id(...) — таблицы customers нет вообще → order fetch 500 (orders.customer_id добавлен, но embed требует relationship); (3) PATCH orders/[id] использует getCurrentUser (cookie-only) — Bearer-клиенты получают 401, разнобой с getUserFromRequest; (4) N8N_* env не заданы — эмиттер no-op (ожидаемо).
+- Ветка: работа на main (Task 2 коммитил сюда; feature/local-runtime отстаёт от main, переключение потеряло бы этап 2). Коммиты не делались.
+---
+Task ID: 3
+Agent: fullstack-auth
+Task: Единый auth-flow end-to-end (/register → вход → dashboard) + удаление mock/legacy-аутентификации из продакшн-пути (local runtime: embedded PG + PostgREST-шим)
+
+Work Log:
+- auth-modal.tsx: register-таб переведён с zustand store.registerUser (mock, id u${Date.now()}) на POST /api/auth/register (+CSRF header из getCsrfToken) → автовход POST /api/auth/login → store.setSupabaseUser (единый писатель; закрывает модалку). Inline-ошибка из {error} (409 email/телефон, 403 блэклист). Убраны mock-пречеки checkSemaphore/checkBlacklist; роли UI уже совпадают с enum (CUSTOMER/CONFECTIONER/SUPPLIER/ANIMATOR_AGENCY/...). Extract mapApiUserToStoreUser (login/quickLogin/register).
+- /login (login-client + page.tsx): SupabaseAuthModal (GoTrue) заменён на единую AuthModal; успех → window.location /dashboard, закрытие без входа → /; server-часть редиректит по валидной cd_session (verifyAccessToken) на returnTo. dashboard/page.tsx: оба маунта SupabaseAuthModal → <AuthModal /> (файл supabase-auth-modal.tsx сохранён как dead code, usage'ов нет).
+- Logout: новый serverLogout() в api-client (POST /api/auth/logout + x-csrf-token + credentials, чистит sessionStorage cd_access_token; 403 без CSRF подтверждён). header.tsx и profile-settings.tsx: serverLogout → store.logout → router.push("/") + refresh.
+- api-client: Bearer = sessionStorage cd_access_token (fallback легаси supabase-сессия); fetchWithAuthRetry: 401 → один POST /api/auth/refresh (module-флаг refreshInFlight против петель) → один retry со свежим Bearer; fetchWithFraudHandling им пользуется. /api/auth/refresh: при пустом теле читает cookie cd_refresh (200 curl'ом). use-socket-io: accessToken из /api/auth/session сохраняется в sessionStorage.
+- store.ts: login/loginAs/registerUser = deprecated no-op (console.warn, без мутаций user-состояния, logout/setSupabaseUser нетронуты); удалены MOCK_USERS-матчинг, импорт MOCK_USERS и мёртвый getDashboardView. Grep: 0 продакшн-вызовов store.login/loginAs/registerUser.
+- Отладка found&fixed (нужно для e2e): (1) register падал FK profiles_id_fkey→auth.users (GoTrue=501) — в dev-ветке создаётся auth.users-строка через getPool() (триггер handle_new_user создаёт профиль+CUSTOMER), profiles/user_roles переведены на upsert (onConflict) — shim требует явный on_conflict; (2) legacy-гейт src/lib/supabase/middleware.ts редиректил /dashboard→/login всегда (GoTrue не отвечает) — теперь наличие cd_session считается авторизацией.
+- Верификация (curl, :3000): register e2e-reg2@test.local 200 (user+tokens) → login 200; login customer@demo.ru → jar → session {user+roles:[CUSTOMER], sessionMode:app}; refresh {} с cookie 200; logout без CSRF 403 / с CSRF 200 → session user:null; /dashboard с cd_session 200, анон 307→/login; / и /login 200. tsc 0; eslint 0 errors (3 старых warning). dev.log чист (компиляции ок).
+- Не тронуто: src/lib/auth.ts, session-cookies.ts, dev-auth.ts, src/lib/postgrest/*. Коммитов нет. NOTE: рабочее дерево /home/z/my-project на ветке main (9f95e87 = local-runtime этап 2), feature/local-runtime (216b2a5) НЕ чекаутен — не переключался, чтобы не потерять инфраструктуру этапа 2. Тест-артефакт: e2e-reg2@test.local (Demo: Test1234!).
+
+Stage Summary:
+- Единый auth-контракт заработал end-to-end: регистрация→автовход→dashboard на реальном PG; mock/GoTrue-вход удалён из всех prod-поверхностей (главная, /login, /dashboard), logout серверный, refresh по cookie, Bearer-канал синхронизирован через cd_access_token.
