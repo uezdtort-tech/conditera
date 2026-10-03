@@ -3,7 +3,7 @@
  *
  * Проблема, которую решает:
  *  - В sandbox/preview браузер пользователя НЕ может достучаться до
- *    http://localhost:8000 (это localhost самого пользователя, плюс CSP
+ *    http://localhost:3000 (это localhost самого пользователя, плюс CSP
  *    upgrade-insecure-requests превращает http в https). Поэтому браузерный
  *    клиент ходит по same-origin: /auth/v1/*, /rest/v1/*, /storage/v1/*
  *    проксируются через next.config.ts rewrites на локальный mini-kong (:8000).
@@ -25,7 +25,7 @@ export function isLocalSupabaseUrl(url: string | undefined): boolean {
 export function resolveSupabaseServerUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (envUrl && !LOCAL_PATTERN.test(envUrl)) return envUrl;
-  return envUrl || "http://127.0.0.1:8000";
+  return envUrl || "http://127.0.0.1:3000"; // локальный рантайм: /rest/v1 обслуживает сам Next.js
 }
 
 /**

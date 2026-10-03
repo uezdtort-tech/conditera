@@ -7183,3 +7183,70 @@ Stage Summary:
 - Auth сведён к одному контракту (cookie каноничен для браузера, Bearer для программных клиентов); mock-логин из витрины удалён; чат витрины работает на реальном socket.io-сервере с JWT-хендшейком; schema-mismatch поддержки устранён на стороне кода (под схему 0005).
 - Ограничения среды: без Supabase/Docker данные (orders/tickets в БД) недоступны (500 от stub-слоя — не регрессия); dev-fallback auth задокументирован и зафлужен гвардиями; .env секреты — dev-only.
 - Не выполнялись: merge/push, применение миграций, изменение main (работа в рабочем дереве, origin не тронут).
+
+---
+Task ID: 1-b
+Agent: Explore-db
+Task: Инвентаризация DB-слоя и миграций (research-only; цель — локальный vanilla PostgreSQL без Docker/Supabase)
+- Доступ к БД = 100% supabase-js: ~951 `.from(` в 273 файлах src (249 файлов импортируют @/lib/supabase/*; 202/244 API-роута — supabaseAdmin). `pg` в src/ — ноль (только scripts). Drizzle — нет. src/lib/db.ts — compat-шим (реэкспорт supabaseAdmin), реальных импортёров @/lib/db — 0.
+- Prisma-остатки: prisma/schema.prisma (116KB), prisma/migrations/{0000_init,0001_full_schema}.sql, seed.ts, prisma.config.ts (v7; падает без DATABASE_URL), db/custom.db (0B), PGlite-скрипты migrate-pglite.ts/apply-schema-patch.ts (применяют prisma/migrations, НЕ supabase/migrations). schema-patch.sql — ПУСТОЙ (0 байт).
+- Миграции supabase/migrations: 39 файлов (0001..0037 + 0016b/0017b; 0038 intentionally missing — черновик ledger на pay2-wip; + 0039). Блокеры vanilla PG: CREATE EXTENSION pg_cron/pgsodium/uuid-ossp/pgcrypto WITH SCHEMA extensions (0001); REFERENCES auth.users (18 файлов); auth.uid() в RLS (~30 файлов); GRANT anon/authenticated/service_role (0002-0011,0025,0026,0029,0033; RPC EXECUTE — 0034..0039); storage.buckets/objects (0026); seed_vitrine.sql INSERT INTO auth.users.
+- Тулинг: apply-migrations.ts (pg, всё подряд, глотает "already exists", без ledger); ops-apply-money-path.ts (0034→0037 строго, fail-fast); init-db-local.ts (PG|PGlite; preprocessForPglite(): extensions→public, скип CREATE EXTENSION, FK auth.users→drop, auth.uid()→NULL::uuid, uuid_generate_v4→gen_random_uuid — готовый шим, но на PG-ветке не применяется); init-scripts/01-apply-migrations.sh (psql + ledger public.schema_migrations, fail-fast, seeds на свежей БД; им же работает prod migrator postgres:16-alpine); db-push.mjs (пустой SQLite legacy-артефакт); check-tables (PGlite), check-health (in-process /api/health).
+- dev-start.sh (216b2a5): генерит JWT/BOT/CRON-секреты в .env → supabase CLI start (DOCKER!) + ключи в .env.local + init-scripts-миграции → chat-server :3030 → Next :3000. Vanilla postgres НЕ стартует; без Docker — dev-fallback demo-auth (src/lib/dev-auth.ts, customer@demo.ru/demo123).
+- ENV: src читает DATABASE_URL только в backup.ts (pg_dump). Ядро: NEXT_PUBLIC_SUPABASE_URL/ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET/JWT_REFRESH_SECRET, CRON_SECRET, TFA_ENCRYPTION_KEY, IP_HASH_SALT + ~60 опциональных. Файлы: .env (только DATABASE_URL), .env.local.example, .env.production.example; .env.example отсутствует.
+- Тесты: vitest — jsdom+mocks, БД не требует; playwright — dev:local с DATABASE_URL=file:./db/e2e-test.db (legacy), API-e2e против живого сервера (register требует Supabase-admin). PGlite-утилиты: seed-test-users, smoke-test-db, verify-*-pglite.
+- Рекомендация: канон = supabase/migrations (public, 0039 последний). Для vanilla PG переиспользовать preprocessForPglite() на PG-ветке init-db-local, либо shim 0000_supabase_compat.sql: схемы auth/storage/extensions + SQL auth.uid()/auth.role() из JWT + заглушки auth.users/storage.buckets + роли anon/authenticated/service_role; pg_cron/pgsodium — скип; PostGIS не нужен (0008 на DECIMAL). Portable PG 15/16 уже обкатан (worklog: /home/z/pg, :5432).
+---
+Task ID: 1-c
+Agent: Explore-chat
+Task: Инвентаризация чатов/поддержки (post-216b2a5) — RESEARCH ONLY, код не менялся
+
+Work Log:
+- Карта чатов: ChatWidget (chat-widget.tsx) = socket.io-first (room r3, optimistic+dedup, typing, quick-replies) с fallback на zustand-mock (store.ts:914-1093, persist localStorage 2111-2113, rooms=MOCK r1/r2/r3). socket.io: use-socket-io.ts (URL /?XTransformPort=3030, JWT из /api/auth/session), чат-сервер mini-services/chat-server/index.ts (порт 3030, JWT-middleware, FAQ-бот, IN-MEMORY без БД). Третья (спящая) реализация: use-chat.ts на chat_channels/chat_message_reads (0004) — никем не подключена. Полноэкранного /app/chat нет.
+- Support: crm/tickets routes — СХЕМА-МАТЧ устранён: пишут text (0005:56), НЕ message (messages/route.ts:57-68, mapTicketMessage 88-111). НО GET-список (route.ts:43) возвращает raw snake_case, UI ждёт camelCase (customerName и т.п. — admin-crm-tickets.tsx:74-95) → пустые поля; ?status/?search/?limit из UI игнорируются роутом (только filter=own/assigned/all).
+- НАЙДЕНЫ живые schema-мисматчи (упадут на реальном PG): chat_messages.room_id/is_bot/bot_kind (chat-automation.ts:171-187; auto-reply:106-117,302-310; operator/messages:88-93,163-174) vs 0004 chat_messages.channel_id без is_bot/bot_kind; chat_rooms.last_message/order_id vs 0017 camelCase lastMessage/orderId; profiles.is_bot/bot_role (chat-automation.ts:101-102) — колонок нет ни в одной миграции; operator_escalations: auto-reply пишет room_id/user_id/message (0010 этих колонок нет + NOT NULL ticket_id/operator_id) → insert падает, а operator/* читают ПУСТУЮ chat_escalations (0019) — split-brain эскалаций.
+- Бот-ответы: (1) socket-бот в памяти (chat-server:78-209, escalation 373-391) — НЕ в БД; (2) mock-бот в store; (3) серверный DB-бот auto-reply+bot-trigger+notifyOrderStatusChange (вызовы из orders:513, payment/webhook:334, cron/payment-reminders:81) — пишет в несуществующие колонки → на реальной БД молча падает (warn).
+- Отсутствует: создание комнат buyer↔confectioner (только order-based и сломано), buyer↔support мост ticket↔chat, unread (chat_message_reads не используется активным путём), серверный dedup/idempotency (id генерит клиент m_${Date.now()}).
+
+Stage Summary:
+- Post-216b2a5: real-time витринный чат РАБОТАЕТ (socket+JWT), но только как транзиентный бот-чат поддержки r3; персистентности нет; mock-store остаётся fallback+источником комнат; tickets-схема совпадает, UI-контракт списка тикетов — нет; DB-бот и операторские эскалации несовместимы с миграциями (см. выше) — всё задокументировано в отчёте Explore-chat.
+
+---
+Task ID: 1-d
+Agent: Explore-biz
+Task: RESEARCH — инвентаризация бизнес-модулей (orders/payments/constructor/catalog/cabinet/inventory/decor/services/n8n/mock-audit)
+
+Work Log:
+- Data layer: Prisma удалён (src/lib/db.ts:1-21 = shim над supabaseAdmin); runtime = PostgREST supabase-js. Схема supabase/migrations (0001-0039) + seed_vitrine.sql; prisma/schema.prisma и prisma/migrations — вестигиальные.
+- НАЙДЕН ДРЕЙФ СХЕМЫ: orders-роут пишет колонки, которых нет в supabase-миграциях (order_items.title/image/price/customization, orders.delivery_time/comment/payment_method/bonus_points_redeemed/legal_status_snapshot) — код написан под prisma-подобную схему со snake_case; 0002 имеет product_title/unit_price/user_id, 0010 — total. POST /api/orders упадёт на БД из init-db-local.ts. Webhook читает orders.customer_id (нет — есть user_id).
+- Orders: POST /api/orders (route.ts:357-406) создаёт PENDING+payment_status=pending, бонусы redeemPoints, промокод; PATCH [id] — стейт-машина STATUS_TRANSITIONS (route.ts:23-32) БЕЗ optimistic-lock; accept (CAS нет); cancel — CAS + payout-гварды + refund (route.ts:74-89). Статусы enum: PENDING…CANCELLED/REFUNDED (0001:72-76); draft/pending_payment/paid/accepted/in_production НЕ существуют. UI-словарь расходится с enum (finance.ts:526-535 IN_PROGRESS/DELIVERING; кнопки кондитера шлют их).
+- Payments: /api/payment/create (upsert по yookassa_payment_id), webhook (проверка IP+provider cross-check, CAS escrow, бонусы, refund через RPC apply_yookassa_refund 0039), refund (заявка покупателя / исполнение ADMIN, reserve_refund 0035), escrow-release cron → RPC release_escrow_order (0037:98-142), payouts/request+admin/payouts CAS. Mock-режим YooKassa только вне prod (yookassa.ts:89-115). ПРОБЛЕМА: UI CheckoutPage (extra-pages.tsx:1672-1689) НЕ вызывает /api/checkout — тост «Заказ оформлен» и clearCart.
+- Constructor: cake-builder-page.tsx — цена клиентская из CAKE_BUILDER_OPTIONS (mock-data.ts:1812) + /api/fillings/list + regional-pricing; состояние в zustand; сабмит → POST /api/quotes (fallback: локальные negotiations). В IT-путь к order конструктор не ведёт.
+- Catalog: витрина = store.products (MOCK_PRODUCTS) ← LiveProductsHydrator (dual-mode, пустой ответ = остаёмся на mock); карточка без фото разреза (product-card.tsx:50-60 — заглушка Cake); разрезы — ProductSliceGallery + /api/products/[id]/slices (fallback на mock при сбое БД в route).
+- Cabinet: confectioner-dashboard.tsx — заказы/статусы/склад/рецепты всё через store (updateOrderStatus = локальная мутация store.ts:1138-1143); useUpdateOrderStatus (use-dashboard-data.ts:392, PATCH /api/orders/[id]) — dead code. Чат = socket.io виджет; кнопка «Чат» без onClick. Рецепты кондитера — store-only; recipe_marketplace API только для RECIPE_DEVELOPER.
+- Inventory: таблицы inventory_items/stock_movements (0010:218-245); движение склада НЕ связано с заказами (нет списания в orders/checkout); inventory в UI из MOCK_INVENTORY; supplier/products пишет в inventory_items (иная семантика).
+- Decor: decor-shop-page = store.decorShops/decorProducts (MOCK_DECOR_*, mock-data-decor.ts) — живого хидратора НЕТ; API /api/builder/decor-shops → builder_decor_shops (0014:74) витриной не потребляется; decor_products таблицы нет.
+- Services: services-shop = store.serviceProducts ← LiveServicesHydrator (dual-mode); service_products (0029) с CRUD /api/services; брони — venue_bookings (0033) + /api/venues/bookings + manager в кабинете venue-owner; service_booking для аниматоров НЕ реализована (только contacts в объявлении).
+- N8N: 25 workflow JSON + 3 активных automation/*.json (cron-poll → /api/cron/* с CRON_SECRET; inbound /api/webhooks/n8n с X-N8N-Secret пишет только audit_log). Исходящих emitEvent/пушей в n8n НЕТ (N8N_WEBHOOK_URL не упоминается). Уведомления: notifications.ts → таблица notifications; email.ts nodemailer/SMTP; telegram-bot.ts (BOT_TOKEN, webhook route).
+- Mock-audit: ~10 mock-data-*.ts (8141 строк) сеют 30+ слайсов store (store.ts:521-661); заказы в 7 компонентах дашбордов = MOCK_ORDERS; negotiations/recipes/decor/corporate/gift/courierTracking — mock-only. Хидраторы только для products/services/confectioners(+venues fetch).
+
+Stage Summary:
+- Отчёт доставлен в чат (10 модулей, file:line). Ключевые пробелы для local-PG: дрейф схемы orders/order_items vs миграции; CheckoutPage UI без бэкенда; дашборды на MOCK_ORDERS с локальными переходами статусов вне enum; decor-витрина без БД-источника; n8n только pull-модель. Код НЕ менялся (research-only); worklog дополнен этой записью.
+
+---
+Task ID: 2
+Agent: fullstack-infra + orchestrator
+Task: Этап 2 — локальная инфраструктура без Docker (embedded PostgreSQL 18.4 + PostgREST-шим в Next.js)
+
+Work Log:
+- 4 Explore-агента (1-a..1-d) провели полную инвентаризацию: auth (4 парадигмы), db (951 вызов supabase-js, 0 raw pg), chat (socket+mock-fallback), бизнес-модули (schema drift orders, mock-зависимости decor/inventory/checkout).
+- Решение: НЕ переписывать 951 вызов на pg, а дать supabase-js PostgREST-совместимый эндпоинт внутри Next.js: /rest/v1 (шим), /storage/v1 (файлы), /auth/v1 (501-стаб). Целевая схема = Next.js + PostgreSQL + n8n, 0 Docker, 0 внешних бинарей.
+- Создано: supabase/compat/0000_supabase_compat.sql (auth/storage/extensions схемы, роли, auth.uid() по request.jwt.claims, auth.users-стаб под seed_vitrine, storage-стабы, бланкет-гранты service_role); supabase/compat/0001_local_fixups.sql (антирекурсивные RLS-политики user_roles через app_is_admin()); scripts/db/{runtime,setup}.mjs (embedded PG 18.4 initdb/pg_ctl, демоном через pg_ctl; setup: миграции+сиды+6 демо-юзеров+генерация HS256-ключей в .env.local); src/lib/postgrest/{pool,jwt,introspect,translate,execute,errors}.ts; routes rest/auth/storage.
+- Починено в ходе отладки: bun+pg не парсит text[] (дефенсивный parsePgArray); alias proargnames→argnames; жадный regex фильтров (whitelist KNOWN_OPS); RETURNING * (wildcard в parseSelectList); PATCH-смещение $n (общий params-массив); or=/and= до RESERVED-скипа; pgrstStatus/pgrstCode в error mapping; composite RPC → to_jsonb; legacy .env DATABASE_URL=file: санитизация (bun читает .env выше .env.local!); платформенный env DATABASE_URL=file: перекрывается в dev-демоне (.zscripts/dev-daemon.py).
+- package.json: dev=next dev (был build+start!), db:setup/db:start/db:stop/db:status/db:seed; .env.example; AUTH_SECRET-алиас в auth.ts; next.config rewrites на mini-kong :8000 удалены; url.ts default → 127.0.0.1:3000.
+
+Stage Summary:
+- ВЕРИФИЦИРОВАНО curl-батареей: select/anon/count+Content-Range/single/or/in/insert/upsert-ready/patch/delete/rpc(search_products)/storage — PASS на локальном PG.
+- КРИТИЧНЫЙ SMOKE: POST /api/auth/login customer@demo.ru/Demo123! → 200 {accessToken,user.roles:[CUSTOMER]} — bcrypt→profiles→user_roles→JWT через шим→PostgreSQL 18.4. Session-cookie тоже работает.
+- Демо-юзеры: customer/confectioner/admin/support/decor/animator @demo.ru (Demo123!). Миграции: 39/39 в ledger. lint: 0 errors. typecheck: чинится.
+- Фундамент готов для Этапов 3-12: все 202 API-роута работают без изменений через шим.

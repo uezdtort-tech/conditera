@@ -6,7 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "next build && next start -H 0.0.0.0 -p 3000",
+    "dev": "next dev -H 0.0.0.0 -p 3000",
     "dev:local": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start -p 3000 -H 0.0.0.0",
@@ -22,11 +22,15 @@
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:report": "playwright show-report",
     "db:push": "bun scripts/db-push.mjs",
-    "db:seed": "bun run prisma/seed.ts",
+    "db:seed": "node scripts/db/setup.mjs --seed-only",
     "db:generate": "echo '[db] Prisma removed (v2.0 Supabase) — generate is a no-op'",
     "db:migration:gen": "echo '[db] Prisma removed — migrations apply via scripts/ops-apply-*.ts (Supabase)'",
     "db:migrate": "echo '[db] Prisma removed — migrations apply via scripts/ops-apply-*.ts (Supabase)'",
-    "db:reset": "echo '[db] Prisma removed — see docs/ for Supabase ops runbooks'"
+    "db:reset": "echo '[db] Prisma removed — see docs/ for Supabase ops runbooks'",
+    "db:setup": "node scripts/db/setup.mjs",
+    "db:start": "node scripts/db/runtime.mjs start",
+    "db:stop": "node scripts/db/runtime.mjs stop",
+    "db:status": "node scripts/db/runtime.mjs status"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -119,6 +123,7 @@
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
     "bun-types": "^1.3.4",
+    "embedded-postgres": "^18.4.0-beta.17",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "jsdom": "^30.0.1",
@@ -129,5 +134,8 @@
   },
   "optionalDependencies": {
     "@sentry/nextjs": "^10.69.0"
-  }
+  },
+  "trustedDependencies": [
+    "@embedded-postgres/linux-x64"
+  ]
 }

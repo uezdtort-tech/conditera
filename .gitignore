@@ -72,3 +72,9 @@ playwright-report/
 # sandbox PID churn — не отслеживать
 .zscripts/dev.pid
 download/
+
+# Local embedded PostgreSQL data (npm run db:start)
+.pgdata/
+
+# Local storage shim files
+upload/storage/
