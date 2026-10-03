@@ -226,10 +226,26 @@ export function DecorShopPage() {
           return (
             <Card key={product.id} className="overflow-hidden p-0 hover:shadow-lg transition-shadow flex flex-col">
               <div className="relative aspect-square bg-muted overflow-hidden">
-                <img
-                  src={product.images[0]}
-                  alt={product.title}
-                  className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                {product.images[0] ? (
+                  <img
+                    src={product.images[0]}
+                    alt={product.title}
+                    className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                ) : (
+                  <div
+                    className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground/60"
+                    aria-label="Фото декора недоступно"
+                    role="img"
+                  >
+                    <Gift className="h-8 w-8" />
+                    <span className="text-[10px]">Декор</span>
+                  </div>
+                )}
+                {product.inStock === 0 && (
+                  <Badge variant="secondary" className="absolute top-2 left-2 bg-muted text-muted-foreground text-[10px]">
+                    Нет в наличии
+                  </Badge>
+                )}
                 {product.isPopular && (
                   <Badge className="absolute top-2 left-2 bg-amber-500 text-white text-[10px]">
                     Хит
@@ -305,7 +321,9 @@ export function DecorShopPage() {
                   <Button
                     size="icon"
                     onClick={() => handleAddToCart(product)}
+                    disabled={product.inStock === 0}
                     className="h-8 w-8 shrink-0"
+                    title={product.inStock === 0 ? "Нет в наличии" : "Добавить в корзину"}
                   >
                     <Plus className="h-4 w-4" />
                   </Button>

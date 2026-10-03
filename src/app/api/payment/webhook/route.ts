@@ -208,7 +208,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Загружаем заказ
+    // Загружаем заказ (без embed — таблицы customers не существует; email/name
+    // покупателя дозагружаются ниже отдельным запросом в profiles)
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
       .select(
@@ -220,7 +221,7 @@ export async function POST(request: NextRequest) {
         payment_status,
         status,
         customer_id,
-        customers:customer_id (email, name)
+        user_id
       `
       )
       .eq("id", orderId)
@@ -292,7 +293,18 @@ export async function POST(request: NextRequest) {
           console.warn("[webhook] n8n emitEvent failed (non-blocking):", e);
         }
 
-        const customer = Array.isArray(order.customers) ? order.customers[0] : order.customers;
+        // Покупатель: profiles по user_id (fallback — customer_id). Таблицы
+        // customers в схеме нет — embed заменён отдельным запросом.
+        let customer: { name?: string | null; email?: string | null } | null = null;
+        const customerProfileId = order.user_id || order.customer_id;
+        if (customerProfileId) {
+          const { data: profile } = await supabaseAdmin
+            .from("profiles")
+            .select("email, name")
+            .eq("id", customerProfileId)
+            .maybeSingle();
+          customer = (profile as { name?: string | null; email?: string | null } | null) ?? null;
+        }
         const customerName = customer?.name || "Клиент";
         const customerEmail = customer?.email || null;
 
@@ -327,7 +339,7 @@ export async function POST(request: NextRequest) {
             await sendTemplateEmail("payment_succeeded", {
               to: customerEmail,
               toName: customerName,
-              userId: order.customer_id,
+              userId: customerProfileId,
               orderId,
               params: {
                 orderNumber: order.number,
@@ -372,7 +384,7 @@ export async function POST(request: NextRequest) {
             const { sendNotification } = await import("@/lib/notifications");
             const result = await awardOrderPoints(order.customer_id, orderId, order.total);
             await sendNotification({
-              userId: order.customer_id,
+              userId: customerProfileId,
               template: "BONUS_EARNED",
               vars: {
                 points: result.points,
@@ -392,7 +404,7 @@ export async function POST(request: NextRequest) {
         try {
           const { sendNotification } = await import("@/lib/notifications");
           await sendNotification({
-            userId: order.customer_id,
+            userId: customerProfileId,
             template: "PAYMENT_SUCCEEDED",
             vars: {
               amount: order.total,

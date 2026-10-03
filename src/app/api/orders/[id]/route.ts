@@ -12,7 +12,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
+// Единый auth-контракт: getUserFromRequest читает Bearer И cookie cd_session —
+// раньше getCurrentUser (GoTrue getSession) не работал в локальном runtime
+// (auth/v1 — 501-стаб) и отдавал 401 всем Bearer-клиентам.
+import { getUserFromRequest } from "@/lib/auth";
+import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import { emitEvent } from "@/lib/n8n";
 
 interface OrderStatusTransition {
@@ -38,7 +42,7 @@ export async function PATCH(
 ): Promise<NextResponse> {
   try {
     const { id: orderId } = await params;
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
 
     if (!user) {
       return unauthorizedResponse();
@@ -79,7 +83,7 @@ export async function PATCH(
 
     // Проверяем роль пользователя
     const userRoles = user.roles;
-    const hasRole = transition.roles.some((r) => userRoles.includes(r as never));
+    const hasRole = transition.roles.some((r) => userRoles.includes(r));
     if (!hasRole) {
       return forbiddenResponse(`Роль ${userRoles.join(", ")} не может менять статус ${order.status} → ${newStatus}`);
     }
@@ -143,12 +147,12 @@ export async function PATCH(
 
 /** GET /api/orders/[id] — детали заказа */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { id: orderId } = await params;
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
 
     if (!user) {
       return unauthorizedResponse();

@@ -197,6 +197,9 @@ interface AppState {
   // Декор и упаковка
   decorShops: DecorShop[];
   decorProducts: DecorProduct[];
+  /** Live-гидрация витрины декора из БД (LiveDecorHydrator, dual-mode). */
+  setLiveDecorShops: (shops: DecorShop[]) => void;
+  setLiveDecorProducts: (products: DecorProduct[]) => void;
   bundles: ProductBundle[];
   // Услуги (фейерверки, шары, аниматоры)
   serviceShops: ServiceShop[];
@@ -549,6 +552,18 @@ export const useAppStore = create<AppState>()(
         // Пустой ответ из БД — витрина услуг остаётся на mock-данных (dual-mode)
         if (!liveServices || liveServices.length === 0) return;
         set({ serviceProducts: liveServices });
+      },
+
+      setLiveDecorShops: (liveShops) => {
+        // Пустой ответ из БД — витрина декора остаётся на mock-данных (dual-mode)
+        if (!liveShops || liveShops.length === 0) return;
+        set({ decorShops: liveShops });
+      },
+
+      setLiveDecorProducts: (liveDecorProducts) => {
+        // Пустой ответ из БД — витрина декора остаётся на mock-данных (dual-mode)
+        if (!liveDecorProducts || liveDecorProducts.length === 0) return;
+        set({ decorProducts: liveDecorProducts });
       },
 
       addProduct: (productData) => {

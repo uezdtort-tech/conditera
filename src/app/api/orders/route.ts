@@ -71,6 +71,11 @@ const DEFAULT_COMMISSION_RATE = 0.15;
 /**
  * GET /api/orders — список заказов текущего пользователя.
  * Поддерживает фильтр ?status=PENDING|CONFIRMED|...
+ *
+ * Локальный runtime: embed confectioner:confectioners(...) убран — между
+ * orders и confectioners нет FK (и в 0017 camelCase-колонки). Информация о
+ * кондитере дозагружается вторым простым запросом (safe enrich, см. ниже).
+ * CONFECTIONER/ADMIN видят также заказы, назначенные им (confectioner_id).
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -85,18 +90,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status");
 
+    const roles = (user.roles as string[]) || [];
+    const isPerformer =
+      roles.includes("CONFECTIONER") ||
+      roles.includes("ADMIN") ||
+      roles.includes("SUPER_ADMIN");
+
     let query = supabaseAdmin
       .from("orders")
       .select(
         `
         id, number, status, total, delivery_address, delivery_date,
         delivery_time, delivery_cost, payment_method, payment_status,
-        comment, confectioner_id, created_at,
-        confectioner:confectioners(business_name, avatar)
+        comment, confectioner_id, created_at
       `
-      )
-      .eq("user_id", user.userId)
-      .order("created_at", { ascending: false });
+      );
+
+    if (isPerformer) {
+      // Свои заказы как покупателя + назначенные как кондитеру
+      query = query.or(
+        `user_id.eq.${user.userId},confectioner_id.eq.${user.userId}`
+      );
+    } else {
+      query = query.eq("user_id", user.userId);
+    }
+
+    query = query.order("created_at", { ascending: false });
 
     if (status) {
       query = query.eq("status", status);
@@ -127,8 +146,53 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Safe enrich: инфо о кондитере вторым запросом (без FK/embed).
+    // confectioners.id — text ('c0'), orders.confectioner_id — uuid пользователя,
+    // поэтому маппинг по "userId"; фолбэк — по id. Ошибка обогащения не роняет список.
+    const confIds = Array.from(
+      new Set(
+        (orders || [])
+          .map((o: any) => o.confectioner_id)
+          .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
+      )
+    );
+    const confByKey = new Map<string, { business_name: string | null; avatar: string | null }>();
+    if (confIds.length > 0) {
+      let rows: any[] | null = null;
+      try {
+        const byUser = await supabaseAdmin
+          .from("confectioners")
+          .select("userId, businessName, avatar")
+          .in("userId", confIds);
+        if (!byUser.error) rows = (byUser.data as any[]) || null;
+      } catch {
+        rows = null;
+      }
+      if (!rows) {
+        // Фолбэк: старые сиды, где orders.confectioner_id совпадает с confectioners.id
+        try {
+          const byId = await supabaseAdmin
+            .from("confectioners")
+            .select("id, businessName, avatar")
+            .in("id", confIds);
+          if (!byId.error) rows = (byId.data as any[]) || null;
+        } catch {
+          rows = null;
+        }
+      }
+      for (const r of rows || []) {
+        const info = {
+          business_name: (r.businessName as string) || null,
+          avatar: (r.avatar as string) || null,
+        };
+        if (r.userId) confByKey.set(r.userId, info);
+        if (r.id) confByKey.set(r.id, info);
+      }
+    }
+
     const result = (orders || []).map((o: any) => ({
       ...o,
+      confectioner: o.confectioner_id ? confByKey.get(o.confectioner_id) || null : null,
       items: itemsByOrder.get(o.id) || [],
     }));
 

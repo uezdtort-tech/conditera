@@ -14,14 +14,27 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Send, MessageCircle, Phone, Video, MoreVertical, Bot, Sparkles, Mic, Square, X, Loader2, Wifi, WifiOff } from "lucide-react";
 import { formatDateTime } from "@/lib/finance";
-import type { QuickReply, ChatMessage } from "@/lib/types";
+import type { QuickReply, ChatMessage, ChatRoom } from "@/lib/types";
 import { useVoiceRecorder, formatDuration } from "@/hooks/useVoiceRecorder";
 import { VoiceMessagePlayer } from "@/components/chat/voice-message-player";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import { useSocketIO, type ChatMessage as SocketChatMessage } from "@/lib/use-socket-io";
+import {
+  ensureChatRoom,
+  fetchChatMessages,
+  fetchChatRooms,
+  mapApiMessageToChatMessage,
+  mapApiRoomToChatRoom,
+  markChatRoomRead,
+  sendChatMessage,
+} from "@/components/chat/chat-api";
 
-/** Комната поддержки по умолчанию (real-time, bot на сервере :3030). */
+/**
+ * Легаси mock-комната поддержки (r1/r2/r3 из store). Для залогиненных
+ * пользователей используется реальная комната из БД (find-or-create через
+ * POST /api/chat/rooms); «r3» остаётся только анонимным фолбэком.
+ */
 const SUPPORT_ROOM_ID = "r3";
 
 export function ChatWidget() {
@@ -62,17 +75,124 @@ export function ChatWidget() {
   const recorder = useVoiceRecorder({ maxDurationSec: 120, waveformSamples: 30 });
   const [showRecorder, setShowRecorder] = useState(false);
 
-  const activeRoom = chatRooms.find((r) => r.id === activeChatRoom);
+  // === Real-first: список комнат из БД (GET /api/chat/rooms) ===
+  // null — API ещё не отвечал / пользователь не залогинен → показываем store
+  // (mock r1/r2/r3 — фолбэк ТОЛЬКО для анонимных; при неудачном API для
+  // залогиненных остаёмся на пустом списке, без mock).
+  const [apiRooms, setApiRooms] = useState<ChatRoom[] | null>(null);
+  const rooms = apiRooms ?? chatRooms;
+
+  const supportRoomIdRef = useRef<string | null>(null);
+  const historyLoadedRef = useRef<Set<string>>(new Set());
+
+  const activeRoom = rooms.find((r) => r.id === activeChatRoom);
   const roomMessages = chatMessages.filter((m) => m.roomId === activeChatRoom);
 
   const activeTyping = typingUsers.get(activeChatRoom || "") || [];
 
-  // При открытии виджета без активной комнаты — открываем поддержку
+  // Загрузка реальных комнат при логине (real-first; mock — только анонимам)
   useEffect(() => {
-    if (chatOpen && !activeChatRoom) {
-      setActiveChatRoom(SUPPORT_ROOM_ID);
+    let cancelled = false;
+    if (!isAuthenticated || !user?.id) {
+      setApiRooms(null);
+      supportRoomIdRef.current = null;
+      historyLoadedRef.current.clear();
+      return;
     }
-  }, [chatOpen, activeChatRoom, setActiveChatRoom]);
+    (async () => {
+      const list = await fetchChatRooms();
+      if (cancelled) return;
+      const mapped = (list || []).map(mapApiRoomToChatRoom);
+      setApiRooms(mapped);
+      const support = (list || []).find((r) => r.type === "support");
+      if (support) supportRoomIdRef.current = support.id;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.id]);
+
+  // При открытии виджета: залогиненным — реальная support-комната из БД
+  // (find-or-create, идемпотентно), анонимам — легаси mock-комната r3.
+  useEffect(() => {
+    if (!chatOpen || activeChatRoom) return;
+    if (!isAuthenticated || !user?.id) {
+      setActiveChatRoom(SUPPORT_ROOM_ID);
+      return;
+    }
+    if (supportRoomIdRef.current) {
+      setActiveChatRoom(supportRoomIdRef.current);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const room = await ensureChatRoom({ type: "support" });
+      if (cancelled || !room) return;
+      supportRoomIdRef.current = room.id;
+      const mapped = mapApiRoomToChatRoom(room);
+      setApiRooms((prev) => {
+        const base = prev || [];
+        if (base.some((r) => r.id === room.id)) return base;
+        return [mapped, ...base];
+      });
+      setActiveChatRoom(room.id);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatOpen, activeChatRoom, isAuthenticated, user?.id, setActiveChatRoom]);
+
+  // История активной комнаты из БД (один раз на комнату за монтирование)
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id || !activeChatRoom) return;
+    if (activeChatRoom === SUPPORT_ROOM_ID) return; // легаси mock-комната
+    if (historyLoadedRef.current.has(activeChatRoom)) return;
+    historyLoadedRef.current.add(activeChatRoom);
+    let cancelled = false;
+    (async () => {
+      const msgs = await fetchChatMessages(activeChatRoom);
+      if (cancelled || !msgs || msgs.length === 0) return;
+      const currentUserId = user.id;
+      const mapped = msgs.map((m) => mapApiMessageToChatMessage(m, currentUserId));
+      useAppStore.setState((s) => {
+        const byId = new Set(s.chatMessages.map((m) => m.id));
+        // Мягкий дедуп: socket-доставленное (client-uuid) vs строка из БД —
+        // тот же отправитель/текст в окне 15с считается одним сообщением
+        const isDup = (fresh: ChatMessage) =>
+          s.chatMessages.some(
+            (m) =>
+              m.senderId === fresh.senderId &&
+              m.text === fresh.text &&
+              Math.abs(
+                new Date(m.createdAt).getTime() - new Date(fresh.createdAt).getTime()
+              ) < 15_000
+          );
+        const fresh = mapped.filter((m) => !byId.has(m.id) && !isDup(m));
+        if (fresh.length === 0) return s;
+        const merged = [...s.chatMessages, ...fresh].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        return { chatMessages: merged };
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChatRoom, isAuthenticated, user?.id]);
+
+  // Отметить комнату прочитанной при открытии (POST /read) + сбросить бейдж
+  useEffect(() => {
+    if (!isAuthenticated || !activeChatRoom) return;
+    if (activeChatRoom === SUPPORT_ROOM_ID) return;
+    markChatRoomRead(activeChatRoom);
+    setApiRooms((prev) =>
+      prev
+        ? prev.map((r) =>
+            r.id === activeChatRoom ? { ...r, unreadCount: 0 } : r
+          )
+        : prev
+    );
+  }, [activeChatRoom, isAuthenticated]);
 
   // Real-time: подписка на входящие сообщения → append в store (с дедупом)
   useEffect(() => {
@@ -137,6 +257,61 @@ export function ChatWidget() {
     [activeChatRoom, user?.id, user?.name, user?.avatar]
   );
 
+  /** Единая отправка: оптимистичный append + идемпотентный POST в БД +
+   *  socket-доставка другим участникам (real-time путь). */
+  const doSend = useCallback(
+    (text: string) => {
+      if (!activeChatRoom) return;
+      const clientId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      appendOwnMessage(clientId, text);
+
+      // Real-first: сообщение персистится в БД через /api/chat (idempotencyKey
+      // = клиентский uuid → повтор возвращает ту же строку, дублей нет).
+      sendChatMessage(activeChatRoom, text, clientId)
+        .then((saved) => {
+          if (!saved) return; // сеть/API недоступны — остаётся оптимистичная копия
+          const savedMsg = mapApiMessageToChatMessage(saved, user?.id);
+          useAppStore.setState((s) => ({
+            chatMessages: s.chatMessages.map((m) =>
+              m.id === clientId ? savedMsg : m
+            ),
+          }));
+        })
+        .catch(() => {
+          // доставка не состоялась — оптимистичное сообщение остаётся локально
+        });
+
+      // Socket-путь: real-time доставка другим участникам (чат-сервер сам
+      // персистит сообщение, форвардя наш JWT — история переживёт рестарт).
+      if (socketEnabled && isConnected) {
+        socketSendMessage(activeChatRoom, {
+          id: clientId,
+          text,
+          senderId: user?.id || "me",
+          senderName: user?.name || "Я",
+          senderAvatar: user?.avatar,
+          type: "text",
+        });
+        stopTyping(activeChatRoom);
+      }
+    },
+    [
+      activeChatRoom,
+      appendOwnMessage,
+      socketEnabled,
+      isConnected,
+      socketSendMessage,
+      stopTyping,
+      user?.id,
+      user?.name,
+      user?.avatar,
+    ]
+  );
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     const text = messageText.trim();
@@ -147,29 +322,18 @@ export function ChatWidget() {
       return;
     }
 
-    // Real-time путь: socket.io → чат-сервер (:3030) — сообщение получают
-    // другие участники, а бот отвечает с сервера. Fallback — mock-store.
-    if (socketEnabled && isConnected) {
-      const id = `m_${Date.now()}`;
-      appendOwnMessage(id, text);
-      socketSendMessage(activeChatRoom, {
-        id,
-        text,
-        senderId: user?.id || "me",
-        senderName: user?.name || "Я",
-        senderAvatar: user?.avatar,
-        type: "text",
-      });
-      stopTyping(activeChatRoom);
-    } else {
-      sendMessage(activeChatRoom, text);
-    }
+    doSend(text);
     setMessageText("");
   };
 
   const handleQuickReply = (reply: QuickReply) => {
     if (!activeChatRoom) return;
-    if (socketEnabled && isConnected) {
+    if (isAuthenticated) {
+      // Залогиненным quick-reply уходит как обычное сообщение: персистится в
+      // БД, а серверный FAQ-бот матчится по тексту кнопки (легаси-поведение
+      // bot:quick_reply сохранено для анонимного пути ниже).
+      doSend(reply.label);
+    } else if (socketEnabled && isConnected) {
       // Сервер сам добавит сообщение-кнопку в комнату (в т.ч. отправителю)
       sendQuickReplyAction(activeChatRoom, reply as { label: string; action: string });
     } else {
@@ -286,7 +450,7 @@ export function ChatWidget() {
               </div>
               <ScrollArea className="flex-1">
                 <div className="space-y-1 p-2">
-                  {chatRooms.map((room) => (
+                  {rooms.map((room) => (
                     <button
                       key={room.id}
                       onClick={() => setActiveChatRoom(room.id)}
@@ -309,6 +473,11 @@ export function ChatWidget() {
                             {room.lastMessage || "Нет сообщений"}
                           </div>
                         </div>
+                        {room.unreadCount > 0 && (
+                          <Badge className="shrink-0 h-4 min-w-4 px-1 text-[9px] bg-primary text-primary-foreground">
+                            {room.unreadCount > 99 ? "99+" : room.unreadCount}
+                          </Badge>
+                        )}
                         {room.id === SUPPORT_ROOM_ID && socketEnabled && (
                           <span
                             className={`h-2 w-2 shrink-0 rounded-full ${

@@ -7,6 +7,7 @@ import { Footer } from '@/components/layout/footer';
 import { AuthModal } from '@/components/layout/auth-modal';
 import { LiveProductsHydrator } from '@/components/marketplace/live-products-hydrator';
 import { LiveServicesHydrator } from '@/components/marketplace/live-services-hydrator';
+import { LiveDecorHydrator } from '@/components/marketplace/live-decor-hydrator';
 import { PromoPopup } from '@/components/layout/promo-popup';
 import { CartDrawer } from '@/components/marketplace/cart-drawer';
 import { ChatWidget } from '@/components/chat/chat-widget';
@@ -160,6 +161,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       {!isDashboard && <Footer />}
       <LiveProductsHydrator />
       <LiveServicesHydrator />
+      <LiveDecorHydrator />
       <AuthModal />
       <PromoPopup />
       <CartDrawer />

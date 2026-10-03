@@ -59,6 +59,7 @@ import {
 } from "@/lib/finance";
 import { useState } from "react";
 import { toast } from "sonner";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 
 export function ReadyMadePage() {
   const products = useAppStore((s) => s.products);
@@ -1430,13 +1431,106 @@ export function CheckoutPage() {
   const [step, setStep] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cash" | "split" | "installment">("card");
   const [selectedInstallmentPlan, setSelectedInstallmentPlan] = useState<string | null>(null);
+  // Данные доставки (controlled — уходят в POST /api/checkout)
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [notes, setNotes] = useState("");
+  // Оформление: реальный POST /api/checkout
+  const [submitting, setSubmitting] = useState(false);
+  const [orderResult, setOrderResult] = useState<{
+    orderId: string;
+    orderNumber: string;
+    paymentUrl: string;
+    total: number;
+    isStub: boolean;
+  } | null>(null);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const discount = Math.round(subtotal * promoDiscount);
   const deliveryCost = subtotal >= 3000 ? 0 : 300;
   const total = subtotal - discount + deliveryCost;
 
-  if (cart.length === 0) {
+  /** POST /api/checkout: создаёт заказ + платёж (schema: cartItems/deliveryAddress/…) */
+  async function submitCheckout() {
+    if (!user) {
+      toast.error("Войдите, чтобы оформить заказ");
+      useAppStore.getState().setAuthModalOpen(true);
+      return;
+    }
+    if (address.trim().length < 5) {
+      toast.error("Укажите адрес доставки (минимум 5 символов)");
+      setStep(1);
+      return;
+    }
+    if (!city.trim()) {
+      toast.error("Укажите город доставки");
+      setStep(1);
+      return;
+    }
+    if (paymentMethod === "installment" && !selectedInstallmentPlan) {
+      toast.error("Выберите вариант рассрочки");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const csrf = await getCsrfToken();
+      const headers = await getSessionAuthHeaders(csrf);
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({
+          cartItems: cart.map((item) => ({
+            id: item.productId,
+            product_id: item.productId,
+            quantity: item.quantity,
+          })),
+          deliveryAddress: address.trim(),
+          deliveryCity: city.trim(),
+          deliveryDate: deliveryDate || undefined,
+          deliveryType: "delivery",
+          notes: notes.trim() || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        orderId?: string;
+        orderNumber?: string;
+        paymentUrl?: string;
+        total?: number;
+        isStub?: boolean;
+        error?: string;
+      } | null;
+
+      if (!res.ok || !data?.orderId) {
+        // Ошибка валидации/бэкенда — корзину НЕ чистим, пользователь может повторить
+        toast.error("Не удалось оформить заказ", {
+          description: data?.error || `Ошибка сервера (${res.status})`,
+        });
+        return;
+      }
+
+      setOrderResult({
+        orderId: data.orderId,
+        orderNumber: data.orderNumber || "",
+        paymentUrl: data.paymentUrl || "",
+        total: data.total ?? total,
+        isStub: !!data.isStub,
+      });
+      clearCart();
+      setStep(3);
+    } catch (e) {
+      toast.error("Сеть недоступна — заказ не оформлен", {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // После успешного оформления корзина уже очищена — не показываем «Корзина пуста»
+  if (cart.length === 0 && !orderResult) {
     return (
       <div className="container mx-auto px-4 py-20 text-center">
         <h2 className="font-display text-2xl font-bold mb-2">Корзина пуста</h2>
@@ -1495,23 +1589,49 @@ export function CheckoutPage() {
               </div>
               <div>
                 <Label>Адрес доставки</Label>
-                <Input placeholder="Город, улица, дом, квартира" />
+                <Input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Улица, дом, квартира"
+                />
               </div>
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>Дата доставки</Label>
-                  <Input type="date" />
+                  <Label>Город</Label>
+                  <Input
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="Москва"
+                  />
                 </div>
                 <div>
-                  <Label>Время</Label>
-                  <Input placeholder="10:00-14:00" />
+                  <Label>Дата доставки</Label>
+                  <Input
+                    type="date"
+                    value={deliveryDate}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
+                  />
                 </div>
               </div>
               <div>
                 <Label>Комментарий курьеру</Label>
-                <Textarea rows={2} placeholder="Позвонить за час, код домофона..." />
+                <Textarea
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Позвонить за час, код домофона..."
+                />
               </div>
-              <Button onClick={() => setStep(2)} className="w-full">
+              <Button
+                onClick={() => {
+                  if (address.trim().length < 5 || !city.trim()) {
+                    toast.error("Заполните город и адрес доставки");
+                    return;
+                  }
+                  setStep(2);
+                }}
+                className="w-full"
+              >
                 Продолжить
               </Button>
             </Card>
@@ -1670,28 +1790,12 @@ export function CheckoutPage() {
                   Назад
                 </Button>
                 <Button
-                  onClick={() => {
-                    if (paymentMethod === "installment" && !selectedInstallmentPlan) {
-                      toast.error("Выберите вариант рассрочки");
-                      return;
-                    }
-                    setStep(3);
-                    toast.success("Заказ оформлен!", {
-                      description:
-                        paymentMethod === "installment"
-                          ? "Рассрочка оформлена. Первый платёж списан, далее — ежемесячно."
-                          : "Средства на эскроу-счёте. Холдирование 24 часа.",
-                    });
-                    setTimeout(() => {
-                      clearCart();
-                      navigate("dashboard-customer", { tab: "orders" });
-                    }, 2500);
-                  }}
+                  onClick={submitCheckout}
                   className="flex-1"
-                  disabled={paymentMethod === "installment" && !selectedInstallmentPlan}
+                  disabled={submitting || (paymentMethod === "installment" && !selectedInstallmentPlan)}
                 >
-                  {paymentMethod === "installment" ? "Оформить рассрочку" : "Оплатить"}{" "}
-                  {formatCurrency(total)}
+                  {submitting ? "Оформляем…" : paymentMethod === "installment" ? "Оформить рассрочку" : "Оплатить"}{" "}
+                  {!submitting && formatCurrency(total)}
                 </Button>
               </div>
             </Card>
@@ -1702,13 +1806,39 @@ export function CheckoutPage() {
               <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
                 <Award className="h-8 w-8 text-emerald-600" />
               </div>
-              <h2 className="font-display text-2xl font-bold mb-2">Заказ оформлен!</h2>
-              <p className="text-muted-foreground mb-4">
-                Спасибо за заказ. Мы отправили подтверждение на вашу почту.
-                {user?.accountType === "legal"
-                  ? " Счёт на оплату отправлен в бухгалтерию. Средства на эскроу-счёте после оплаты."
-                  : " Средства на эскроу-счёте, холдирование 24 часа."}
-              </p>
+              <h2 className="font-display text-2xl font-bold mb-2">
+                {orderResult ? "Заказ оформлен!" : "Заказ оформлен!"}
+              </h2>
+              {orderResult ? (
+                <div className="space-y-3 mb-4">
+                  <p className="text-muted-foreground">
+                    Номер заказа: <span className="font-semibold text-foreground">{orderResult.orderNumber}</span>
+                    {" "}· Сумма: <span className="font-semibold text-foreground tnum">{formatCurrency(orderResult.total)}</span>
+                  </p>
+                  {orderResult.isStub ? (
+                    <p className="text-xs text-muted-foreground">
+                      Платёж создан в демо-режиме (YooKassa не настроена в dev) — статус оплаты «ожидает оплаты».
+                      Оплатить можно позже из личного кабинета.
+                    </p>
+                  ) : (
+                    <a
+                      href={orderResult.paymentUrl}
+                      className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    >
+                      Перейти к оплате
+                    </a>
+                  )}
+                  <div>
+                    <Button onClick={() => navigate("dashboard-customer", { tab: "orders" })}>
+                      Мои заказы в личном кабинете
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground mb-4">
+                  Спасибо за заказ. Мы отправили подтверждение на вашу почту.
+                </p>
+              )}
 
               {/* Документы для юрлиц */}
               {user?.accountType === "legal" && user.legalInfo && (

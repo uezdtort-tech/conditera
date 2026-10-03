@@ -29,6 +29,7 @@ const SEED_FILES = [
   path.join(ROOT, "supabase", "seed_fillings.sql"),
   path.join(ROOT, "supabase", "seed_confectioners.sql"),
   path.join(ROOT, "supabase", "seed_vitrine.sql"),
+  path.join(ROOT, "supabase", "compat", "0002_seed_decor.sql"),
 ];
 const ENV_LOCAL = path.join(ROOT, ".env.local");
 const ENV_FILE = path.join(ROOT, ".env");

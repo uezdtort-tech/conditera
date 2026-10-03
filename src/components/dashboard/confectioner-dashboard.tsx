@@ -115,6 +115,7 @@ import { ConfectionerLessonsTab } from "@/components/dashboard/confectioner-less
 import { GamificationWidget } from "@/components/gamification/gamification-widget";
 import { AiPhotoGenerator } from "@/components/ai/ai-photo-generator";
 import { toast } from "sonner";
+import { useRealOrders, useRealUpdateOrderStatus } from "@/lib/use-real-orders";
 
 export function ConfectionerDashboard() {
   const navigate = useAppStore((s) => s.navigate);
@@ -132,7 +133,6 @@ export function ConfectionerDashboard() {
   const reminders = useAppStore((s) => s.reminders);
   const negotiations = useAppStore((s) => s.negotiations);
   const logout = useAppStore((s) => s.logout);
-  const updateOrderStatus = useAppStore((s) => s.updateOrderStatus);
   const updateTaskStatus = useAppStore((s) => s.updateTaskStatus);
   const respondToInquiry = useAppStore((s) => s.respondToInquiry);
 
@@ -142,6 +142,11 @@ export function ConfectionerDashboard() {
       : "overview"
   );
   const [showTariffDialog, setShowTariffDialog] = useState(false);
+  // Реальные заказы (GET /api/orders — скоуп кондитера решает сервер: user_id ИЛИ confectioner_id).
+  // Fallback на store-заказы (mock) только если API недоступен (isStale=true).
+  const { orders: apiOrders, isStale: ordersStale, refetch: refetchOrders } = useRealOrders();
+  // Смена статуса через PATCH /api/orders/[id] (реальная стейт-машина STATUS_TRANSITIONS)
+  const updateOrderStatusApi = useRealUpdateOrderStatus();
   const updateConfectionerTariff = useAppStore((s) => s.updateConfectionerTariff);
 
   if (!user) {
@@ -156,7 +161,9 @@ export function ConfectionerDashboard() {
   }
 
   const confectioner = confectioners.find((c) => c.userId === user.id) || confectioners[0];
-  const myOrders = orders.filter((o) => o.confectionerId === confectioner.id);
+  const storeMyOrders = orders.filter((o) => o.confectionerId === confectioner.id);
+  // API-заказы уже скоупнуты ролью на сервере; фильтр по store-id ('c0' vs uuid) не нужен
+  const myOrders = ordersStale ? storeMyOrders : apiOrders || storeMyOrders;
   const myProducts = allProducts.filter(
     (p) => p.confectionerId === confectioner.id
   );
@@ -414,7 +421,24 @@ export function ConfectionerDashboard() {
 
             {activeTab === "orders" && (
               <div className="space-y-4">
-                <h1 className="font-display text-2xl font-bold">Заказы</h1>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h1 className="font-display text-2xl font-bold">Заказы</h1>
+                  <div className="flex items-center gap-2">
+                    {ordersStale && (
+                      <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+                        Офлайн-данные
+                      </Badge>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => refetchOrders()}>
+                      Обновить
+                    </Button>
+                  </div>
+                </div>
+                {myOrders.length === 0 && (
+                  <Card className="p-8 text-center text-muted-foreground text-sm">
+                    Заказов пока нет — новые заказы появятся здесь автоматически
+                  </Card>
+                )}
                 <div className="space-y-3">
                   {myOrders.map((order) => {
                     const status = ORDER_STATUS_LABELS[order.status];
@@ -455,27 +479,39 @@ export function ConfectionerDashboard() {
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {order.status === "PENDING" && (
-                            <Button size="sm" onClick={() => updateOrderStatus(order.id, "CONFIRMED")}>
+                            <Button
+                              size="sm"
+                              disabled={updateOrderStatusApi.isPending}
+                              onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "CONFIRMED" })}
+                            >
                               <Check className="h-4 w-4 mr-1" />
                               Подтвердить
                             </Button>
                           )}
                           {order.status === "CONFIRMED" && (
-                            <Button size="sm" onClick={() => updateOrderStatus(order.id, "IN_PROGRESS")}>
+                            <Button
+                              size="sm"
+                              disabled={updateOrderStatusApi.isPending}
+                              onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "PREPARING" })}
+                            >
                               Начать готовку
                             </Button>
                           )}
-                          {order.status === "IN_PROGRESS" && (
-                            <Button size="sm" onClick={() => updateOrderStatus(order.id, "READY")}>
+                          {order.status === "PREPARING" && (
+                            <Button
+                              size="sm"
+                              disabled={updateOrderStatusApi.isPending}
+                              onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "READY" })}
+                            >
                               <Check className="h-4 w-4 mr-1" />
                               Готово
                             </Button>
                           )}
                           {order.status === "READY" && (
-                            <Button size="sm" onClick={() => updateOrderStatus(order.id, "DELIVERING")}>
-                              <Truck className="h-4 w-4 mr-1" />
-                              Передать курьеру
-                            </Button>
+                            <Badge variant="outline" className="text-[10px] bg-cyan-50 text-cyan-700 border-cyan-200 h-8 flex items-center">
+                              <Truck className="h-3 w-3 mr-1" />
+                              Готов к передаче курьеру (перевод в "В доставке" — курьер/админ)
+                            </Badge>
                           )}
                           <Button size="sm" variant="outline">
                             <MessageCircle className="h-4 w-4 mr-1" />

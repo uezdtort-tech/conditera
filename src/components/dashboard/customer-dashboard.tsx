@@ -1,7 +1,8 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import type { Order } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -54,19 +55,39 @@ import { CustomerNegotiationTab } from "@/components/dashboard/negotiation-tabs"
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
 import { toast } from "sonner";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  useRealOrders,
+  useCreateRefundRequest,
+  useRefunds,
+  type RefundRow,
+  type OrderPaymentInfo,
+} from "@/lib/use-real-orders";
+import { RotateCcw } from "lucide-react";
 
 export function CustomerDashboard() {
   const navigate = useAppStore((s) => s.navigate);
   const nav = useAppStore((s) => s.nav);
   const user = useAppStore((s) => s.user);
-  const orders = useAppStore((s) => s.orders);
+  const storeOrders = useAppStore((s) => s.orders);
   const favorites = useAppStore((s) => s.favorites);
   const negotiations = useAppStore((s) => s.negotiations);
   const products = useAppStore((s) => s.products);
   const logout = useAppStore((s) => s.logout);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
 
+  // Реальные заказы (GET /api/orders). Fallback на store-заказы только если API недоступен.
+  const { orders: realOrders, isStale: ordersStale } = useRealOrders();
+  const orders = ordersStale ? storeOrders : realOrders || storeOrders;
+
   const [activeTab, setActiveTab] = useState(nav.params?.tab || "overview");
+  // Диалог возврата (реальная заявка через POST /api/payment/refund)
+  const [refundOrder, setRefundOrder] = useState<(typeof orders)[number] | null>(null);
+  // Реальные заявки на возврат по заказам (для бейджей статуса)
+  const { data: refundsData } = useRefunds();
 
   if (!user) {
     return (
@@ -82,6 +103,12 @@ export function CustomerDashboard() {
   }
 
   const myOrders = orders.filter((o) => o.customerId === user.id);
+  const refundsByOrder = new Map<string, RefundRow[]>();
+  for (const r of refundsData?.refunds || []) {
+    const arr = refundsByOrder.get(r.order_id) || [];
+    arr.push(r);
+    refundsByOrder.set(r.order_id, arr);
+  }
   const favoriteProducts = products.filter((p) => favorites.includes(p.id));
   const negotiationsPendingCount = negotiations.filter((n) => n.status === "pending_customer").length;
 
@@ -345,7 +372,7 @@ export function CustomerDashboard() {
                           className="flex items-center gap-3 p-3 border border-border rounded-lg"
                         >
                           <img
-                            src={order.items[0].image}
+                            src={order.items[0]?.image || ""}
                             alt=""
                             className="h-12 w-12 rounded object-cover" loading="lazy" decoding="async" />
                           <div className="flex-1 min-w-0">
@@ -387,7 +414,14 @@ export function CustomerDashboard() {
 
             {activeTab === "orders" && (
               <div className="space-y-4">
-                <h1 className="font-display text-2xl font-bold">Мои заказы</h1>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h1 className="font-display text-2xl font-bold">Мои заказы</h1>
+                  {ordersStale && (
+                    <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+                      Офлайн-данные (сервер недоступен)
+                    </Badge>
+                  )}
+                </div>
                 {myOrders.length === 0 ? (
                   <Card className="p-12 text-center">
                     <Package className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
@@ -414,6 +448,11 @@ export function CustomerDashboard() {
                                 <Badge variant="secondary" className={`text-[10px] ${payment.color}`}>
                                   {payment.label}
                                 </Badge>
+                                {refundsByOrder.get(order.id)?.length ? (
+                                  <Badge variant="outline" className="text-[10px] bg-red-50 text-red-700 border-red-200">
+                                    Возврат: {REFUND_STATUS_LABELS[refundsByOrder.get(order.id)![0].status] || refundsByOrder.get(order.id)![0].status}
+                                  </Badge>
+                                ) : null}
                               </div>
                               <div className="text-xs text-muted-foreground">
                                 Создан {formatDate(order.createdAt)} • Доставка {formatDate(order.deliveryDate)}
@@ -483,6 +522,20 @@ export function CustomerDashboard() {
                               <MessageCircle className="h-4 w-4 mr-1" />
                               Чат с кондитером
                             </Button>
+                            {(order.paymentStatus === "escrow" ||
+                              order.paymentStatus === "released" ||
+                              order.status === "DELIVERED" ||
+                              order.status === "COMPLETED") &&
+                              !refundsByOrder.get(order.id)?.length && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setRefundOrder(order)}
+                                >
+                                  <RotateCcw className="h-4 w-4 mr-1" />
+                                  Возврат
+                                </Button>
+                              )}
                             {(order.status === "DELIVERING" || order.status === "COMPLETED") && (
                               <Button
                                 size="sm"
@@ -669,7 +722,157 @@ export function CustomerDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Диалог заявки на возврат (реальный POST /api/payment/refund) */}
+      <RefundRequestDialog order={refundOrder} onClose={() => setRefundOrder(null)} />
     </div>
+  );
+}
+
+const REFUND_STATUS_LABELS: Record<string, string> = {
+  requested: "На рассмотрении",
+  approved: "Одобрен",
+  processing: "В обработке у провайдера",
+  processed: "Выполнен",
+  rejected: "Отклонён",
+};
+
+/** Диалог заявки на возврат: причина + сумма (частичный возврат разрешён) */
+function RefundRequestDialog({
+  order,
+  onClose,
+}: {
+  order: Order | null;
+  onClose: () => void;
+}) {
+  const orderId = order?.id ?? null;
+  const { data, isLoading } = useRefunds(orderId);
+  const refundMutation = useCreateRefundRequest();
+  const [reason, setReason] = useState("");
+  const [amount, setAmount] = useState<string>("");
+
+  const payment: OrderPaymentInfo | null = data?.payment ?? null;
+  const refunds: RefundRow[] = data?.refunds ?? [];
+  const alreadyRefunded =
+    Number(payment?.refund_amount) ||
+    refunds
+      .filter((r) => r.status !== "rejected")
+      .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const maxRefund = payment
+    ? Math.max(0, Number(payment.amount) - alreadyRefunded)
+    : 0;
+  const refundable = !!payment && payment.status === "succeeded" && maxRefund > 0;
+
+  // Предзаполнение суммы при загрузке платежа (можно уменьшить для частичного возврата)
+  useEffect(() => {
+    if (payment && maxRefund > 0) {
+      setAmount(String(maxRefund));
+    }
+  }, [payment?.id, maxRefund, payment]);
+
+  function submit() {
+    if (!order || !payment) return;
+    const numAmount = Number(amount);
+    if (!reason.trim()) {
+      toast.error("Укажите причину возврата");
+      return;
+    }
+    if (!Number.isFinite(numAmount) || numAmount <= 0 || numAmount > maxRefund) {
+      toast.error(`Сумма возврата должна быть от 1 до ${maxRefund} ₽`);
+      return;
+    }
+    refundMutation.mutate(
+      { paymentId: payment.id, amount: numAmount, reason: reason.trim() },
+      {
+        onSuccess: (res) => {
+          toast.success(res.message || "Заявка на возврат принята", {
+            description: "Решение примет администратор",
+          });
+          setReason("");
+          onClose();
+        },
+        onError: (e: Error) => {
+          toast.error("Не удалось создать заявку на возврат", { description: e.message });
+        },
+      }
+    );
+  }
+
+  return (
+    <Dialog open={!!order} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Возврат по заказу {order?.number}</DialogTitle>
+        </DialogHeader>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground py-4">Загружаем данные платежа…</p>
+        ) : !payment ? (
+          <p className="text-sm text-muted-foreground py-4">
+            Платёж для этого заказа не найден — возврат недоступен.
+          </p>
+        ) : payment.status !== "succeeded" ? (
+          <p className="text-sm text-muted-foreground py-4">
+            Возврат возможен только по оплаченному заказу. Текущий статус платежа: «{payment.status}».
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Оплачено: <span className="font-semibold text-foreground tnum">{formatCurrency(Number(payment.amount))}</span>
+              {alreadyRefunded > 0 && (
+                <> · Уже возвращено: <span className="tnum">{formatCurrency(alreadyRefunded)}</span></>
+              )}
+              <> · Доступно к возврату: <span className="font-semibold text-foreground tnum">{formatCurrency(maxRefund)}</span></>
+            </div>
+
+            <div>
+              <Label className="mb-1.5 block">Причина возврата</Label>
+              <Textarea
+                rows={3}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Опишите причину возврата"
+              />
+            </div>
+            <div>
+              <Label className="mb-1.5 block">Сумма возврата, ₽</Label>
+              <Input
+                type="number"
+                min={1}
+                max={maxRefund}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Можно запросить частичный возврат (не больше доступной суммы).
+              </p>
+            </div>
+
+            {refunds.length > 0 && (
+              <div className="max-h-32 overflow-y-auto space-y-1.5">
+                {refunds.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between text-xs p-2 border border-border rounded">
+                    <span className="tnum">{formatCurrency(Number(r.amount))}</span>
+                    <span className="text-muted-foreground">
+                      {REFUND_STATUS_LABELS[r.status] || r.status} · {formatDate(r.created_at)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={onClose} disabled={refundMutation.isPending}>
+                Отмена
+              </Button>
+              <Button onClick={submit} disabled={refundMutation.isPending || !refundable}>
+                {refundMutation.isPending ? "Отправляем…" : "Отправить заявку"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

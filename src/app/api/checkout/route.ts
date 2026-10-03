@@ -21,7 +21,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getSession } from "@/lib/supabase/auth";
+// Единый auth-контракт (Bearer + cookie cd_session): getSession() требовал
+// GoTrue (/auth/v1 — 501-стаб в локальном runtime) и всегда отдавал 401.
+import { getUserFromRequest } from "@/lib/auth";
 import { calculateDelivery } from "@/lib/finance";
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
@@ -60,7 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
     if (blocked) return blocked as unknown as NextResponse;
 
-    const { user } = await getSession();
+    const user = await getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
     }
@@ -126,7 +128,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         quantity: item.quantity,
         selected_attributes: item.selected_attributes,
         total: product.price * item.quantity, // рубли
-        confectioner_id: product.confectioner_id,
       };
     });
 
@@ -138,12 +139,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const total = subtotal + deliveryCost - discount; // рубли
 
     // Confectioner_id — берём из первого товара (пока поддерживаем только 1 кондитера на заказ)
-    const confectionerId = orderItems[0].confectioner_id;
+    const confectionerId = (products.find(
+      (p) => p.id === cartItems[0].product_id
+    ) as { confectioner_id?: string | null } | undefined)?.confectioner_id ?? null;
 
     // 4. Создаём order (через admin client)
+    // NOTE: number генерируем в коде — триггер generate_order_number в локальном
+    // PG падает (lpad(integer,...) не существует) и валил любую вставку без number.
+    const orderNumber = `UK-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .insert({
+        number: orderNumber,
         user_id: user.id,
         confectioner_id: confectionerId,
         subtotal,

@@ -525,20 +525,29 @@ export function formatDateTime(date: string | Date): string {
 // Статусы заказов
 export const ORDER_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   PENDING: { label: "Ожидает подтверждения", color: "bg-amber-100 text-amber-800 border-amber-200" },
+  NEGOTIATING: { label: "Согласование", color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
   CONFIRMED: { label: "Подтверждён", color: "bg-blue-100 text-blue-800 border-blue-200" },
+  PREPARING: { label: "Готовится", color: "bg-purple-100 text-purple-800 border-purple-200" },
   IN_PROGRESS: { label: "В работе", color: "bg-purple-100 text-purple-800 border-purple-200" },
   READY: { label: "Готов", color: "bg-green-100 text-green-800 border-green-200" },
+  IN_DELIVERY: { label: "В доставке", color: "bg-cyan-100 text-cyan-800 border-cyan-200" },
+  DELIVERED: { label: "Доставлен", color: "bg-teal-100 text-teal-800 border-teal-200" },
   DELIVERING: { label: "Доставляется", color: "bg-cyan-100 text-cyan-800 border-cyan-200" },
   COMPLETED: { label: "Завершён", color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
   CANCELLED: { label: "Отменён", color: "bg-red-100 text-red-800 border-red-200" },
   DISPUTE: { label: "Спор", color: "bg-orange-100 text-orange-800 border-orange-200" },
+  REFUNDED: { label: "Возвращён", color: "bg-red-100 text-red-800 border-red-200" },
 };
 
 export const PAYMENT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: "Ожидает оплаты", color: "bg-amber-100 text-amber-800" },
+  waiting_for_capture: { label: "Ожидает подтверждения", color: "bg-amber-100 text-amber-800" },
+  succeeded: { label: "Оплачен", color: "bg-blue-100 text-blue-800" },
   paid: { label: "Оплачен", color: "bg-blue-100 text-blue-800" },
   escrow: { label: "Эскроу", color: "bg-purple-100 text-purple-800" },
   released: { label: "Выплачен", color: "bg-emerald-100 text-emerald-800" },
+  cancelled: { label: "Отменён", color: "bg-red-100 text-red-800" },
+  failed: { label: "Ошибка оплаты", color: "bg-red-100 text-red-800" },
   refunded: { label: "Возврат", color: "bg-red-100 text-red-800" },
 };
 

@@ -21,6 +21,129 @@ import { jwtVerify } from "jose";
 const PORT = process.env.CHAT_PORT || 3030;
 const CORS_ORIGIN = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
+// ===== Персистентность через Next API (история переживёт рестарт) =====
+// На message:send сервер после broadcast пересылает сообщение в
+// POST /api/chat/rooms/{id}/messages с JWT ОТПРАВИТЕЛЯ и тем же
+// Idempotency-Key, что у клиента → дубли исключены (23505 → существующая
+// строка). Сбой Next API не роняет сокет — broadcast уже прошёл.
+const NEXT_API_BASE = process.env.NEXT_API_URL || "http://127.0.0.1:3000";
+
+interface CsrfPair { token: string; cookie: string; ts: number }
+let csrfPair: CsrfPair | null = null;
+
+/** CSRF double-submit для server-to-server POST: GET /api/csrf-token отдаёт
+ *  токен в JSON + httpOnly cookie — пересылаем оба обратно. */
+async function fetchCsrfPair(force = false): Promise<CsrfPair | null> {
+  if (!force && csrfPair && Date.now() - csrfPair.ts < 3600_000) return csrfPair;
+  try {
+    const res = await fetch(`${NEXT_API_BASE}/api/csrf-token`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { token?: string };
+    const setCookie = res.headers.get("set-cookie") || "";
+    const m = setCookie.match(/csrf_token=([^;]+)/);
+    if (!body.token || !m) return null;
+    csrfPair = { token: body.token, cookie: m[1], ts: Date.now() };
+    return csrfPair;
+  } catch {
+    return null;
+  }
+}
+
+async function persistMessage(
+  roomId: string,
+  text: string,
+  idemKey: string,
+  token: string
+): Promise<{ ok: boolean; roomType?: string | null }> {
+  const pair = await fetchCsrfPair();
+  if (!pair || !token || !text) return { ok: false };
+  const doPost = (p: CsrfPair) =>
+    fetch(`${NEXT_API_BASE}/api/chat/rooms/${roomId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        "Idempotency-Key": idemKey,
+        "x-csrf-token": p.token,
+        Cookie: `csrf_token=${p.cookie}`,
+      },
+      body: JSON.stringify({ content: text, idempotencyKey: idemKey }),
+    });
+  try {
+    let res = await doPost(pair);
+    if (res.status === 403) {
+      // CSRF-токен ротировался — обновляем пару и пробуем ещё раз
+      const fresh = await fetchCsrfPair(true);
+      if (fresh) res = await doPost(fresh);
+    }
+    if (!res.ok) {
+      console.warn(`[persist] POST /messages ${roomId} → ${res.status}`);
+      return { ok: false };
+    }
+    const data = (await res.json().catch(() => null)) as
+      | { roomType?: string | null }
+      | null;
+    return { ok: true, roomType: data?.roomType ?? null };
+  } catch (err) {
+    // Next API недоступен — сокет-доставка уже прошла (транзиентно ок)
+    console.warn("[persist] Next API недоступен:", (err as Error).message);
+    return { ok: false };
+  }
+}
+
+/** Кеш типа комнаты (для решения «отвечает ли FAQ-бот») + легаси-маппинг. */
+const roomTypeCache = new Map<string, string>();
+const legacySupportRoom = new Map<string, string>(); // userId → реальная support-комната
+
+async function getRoomType(roomId: string, token: string): Promise<string | null> {
+  if (roomTypeCache.has(roomId)) return roomTypeCache.get(roomId) || null;
+  if (!token) return null;
+  try {
+    const res = await fetch(`${NEXT_API_BASE}/api/chat/rooms/${roomId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { room?: { type?: string } };
+    const t = data.room?.type || null;
+    if (t) roomTypeCache.set(roomId, t);
+    return t;
+  } catch {
+    return null;
+  }
+}
+
+/** Легаси-маппинг mock-комнат витрины: r3 → реальная support-комната
+ *  (find-or-create через API), r1/r2 остаются mock (не персистятся). */
+async function resolveRoomId(roomId: string, token: string, userId: string): Promise<string> {
+  if (roomId !== "r3") return roomId;
+  const cached = legacySupportRoom.get(userId);
+  if (cached) return cached;
+  try {
+    const pair = await fetchCsrfPair();
+    if (!pair) return roomId;
+    const res = await fetch(`${NEXT_API_BASE}/api/chat/rooms`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        "x-csrf-token": pair.token,
+        Cookie: `csrf_token=${pair.cookie}`,
+      },
+      body: JSON.stringify({ type: "support" }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { room?: { id?: string } };
+      if (data.room?.id) {
+        legacySupportRoom.set(userId, data.room.id);
+        return data.room.id;
+      }
+    }
+  } catch {
+    // упадём в легаси-поведение
+  }
+  return roomId;
+}
+
 // === КРИТИЧНО: JWT_SECRET без unsafe-default ===
 function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
@@ -338,18 +461,41 @@ io.on("connection", (socket) => {
 
     console.log(`💬 ${userName} → ${data.roomId}: ${message.text?.slice(0, 50)}...`);
 
-    // ===== Авточат: комнаты поддержки и заказов =====
-    //   • order:* — чаты заказов; support:* — обращения в поддержку
-    //   • r2/r3 — mock-комнаты витрины («Заказ UK-…», «Поддержка Уездного»),
-    //     к которым подключён ChatWidget на главной
-    const isAutoReplyRoom =
-      data.roomId.startsWith("order:") ||
-      data.roomId.startsWith("support:") ||
-      data.roomId === "r2" ||
-      data.roomId === "r3";
-    if (isAutoReplyRoom) {
-      handleAutoReply(data.roomId, message.text, userId);
+    // ===== Персистентность: пересылаем в Next API с JWT отправителя =====
+    // (тот же Idempotency-Key, что у клиента → при двойной записи
+    // widget-POST + socket-POST возвращается одна и та же строка).
+    const authToken = socket.handshake.auth?.token as string | undefined;
+    if (authToken && message.text && !data.roomId.startsWith("r1") && !data.roomId.startsWith("r2")) {
+      resolveRoomId(data.roomId, authToken, userId)
+        .then((realRoomId) =>
+          persistMessage(realRoomId, message.text, message.id, authToken)
+        )
+        .then((pr) => {
+          if (pr?.roomType) roomTypeCache.set(data.roomId, pr.roomType);
+        })
+        .catch(() => {
+          // персистентность не критична для real-time доставки
+        });
     }
+
+    // ===== Авточат: комнаты поддержки и заказов =====
+    //   • order:* / support:* / r2 / r3 — легаси-паттерны
+    //   • реальные UUID-комнаты: тип запрашиваем у Next API (кеш),
+    //     бот отвечает в support/order-комнатах
+    (async () => {
+      let roomType: string | null = roomTypeCache.get(data.roomId) || null;
+      if (!roomType) roomType = await getRoomType(data.roomId, authToken || "");
+      const isAutoReplyRoom =
+        data.roomId.startsWith("order:") ||
+        data.roomId.startsWith("support:") ||
+        data.roomId === "r2" ||
+        data.roomId === "r3" ||
+        roomType === "support" ||
+        roomType === "order";
+      if (isAutoReplyRoom) {
+        handleAutoReply(data.roomId, message.text, userId);
+      }
+    })();
   });
 
   // ===== Авточат: quick-reply от пользователя (нажал кнопку под bot-сообщением) =====
@@ -369,26 +515,39 @@ io.on("connection", (socket) => {
     };
     io.to(data.roomId).emit("message:receive", { roomId: data.roomId, message: userMsg });
 
-    // Если это эскалация — отвечаем как escalation
-    if (data.reply.action === "human:operator") {
-      setTimeout(() => {
-        const botMsg = {
-          id: `bot_${Date.now()}`,
-          text: "👩‍💼 Соединяю с оператором поддержки. Среднее время ожидания — 5-10 минут.",
-          senderId: "bot",
-          senderName: "Уездный помощник",
-          senderAvatar: "/logo.png",
-          timestamp: new Date().toISOString(),
-          status: "sent" as const,
-          isBot: true,
-          botKind: "escalation",
-        };
-        io.to(data.roomId).emit("message:receive", { roomId: data.roomId, message: botMsg });
-      }, 500);
-    } else {
-      // Иначе — обычный auto-reply по тексту кнопки
-      handleAutoReply(data.roomId, data.reply.label, userId);
-    }
+    (async () => {
+      const authToken = socket.handshake.auth?.token as string | undefined;
+      let roomType: string | null = roomTypeCache.get(data.roomId) || null;
+      if (!roomType) roomType = await getRoomType(data.roomId, authToken || "");
+      const isChatRoom =
+        data.roomId.startsWith("order:") ||
+        data.roomId.startsWith("support:") ||
+        data.roomId === "r2" ||
+        data.roomId === "r3" ||
+        roomType === "support" ||
+        roomType === "order";
+
+      // Если это эскалация — отвечаем как escalation
+      if (data.reply.action === "human:operator") {
+        setTimeout(() => {
+          const botMsg = {
+            id: `bot_${Date.now()}`,
+            text: "👩‍💼 Соединяю с оператором поддержки. Среднее время ожидания — 5-10 минут.",
+            senderId: "bot",
+            senderName: "Уездный помощник",
+            senderAvatar: "/logo.png",
+            timestamp: new Date().toISOString(),
+            status: "sent" as const,
+            isBot: true,
+            botKind: "escalation",
+          };
+          io.to(data.roomId).emit("message:receive", { roomId: data.roomId, message: botMsg });
+        }, 500);
+      } else if (isChatRoom) {
+        // Иначе — обычный auto-reply по тексту кнопки
+        handleAutoReply(data.roomId, data.reply.label, userId);
+      }
+    })();
   });
 
   // ===== Indicators: печатает =====

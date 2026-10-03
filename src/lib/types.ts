@@ -1083,6 +1083,8 @@ export type OrderStatus =
   | "PREPARING"
   | "IN_PROGRESS"
   | "READY"
+  | "IN_DELIVERY"
+  | "DELIVERED"
   | "DELIVERING"
   | "COMPLETED"
   | "CANCELLED"

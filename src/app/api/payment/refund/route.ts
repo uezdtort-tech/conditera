@@ -28,7 +28,10 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+// Единый auth-контракт (Bearer + cookie cd_session) вместо getCurrentUser
+// (GoTrue-зависимый, в локальном runtime всегда 401).
+import { getUserFromRequest } from "@/lib/auth";
+import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import { refundPayment } from "@/lib/yookassa";
 import { emitEvent } from "@/lib/n8n";
 
@@ -38,9 +41,82 @@ const REFUND_EXECUTOR_ROLES = ["ADMIN", "SUPER_ADMIN"];
 // Возврат возможен только по захваченному платежу (YooKassa: refund только для succeeded)
 const REFUNDABLE_PAYMENT_STATUSES = ["succeeded"];
 
+/**
+ * GET /api/payment/refund — возвраты текущего пользователя.
+ *   ?order_id=X → возвраты заказа X (+ платёж заказа для формы возврата)
+ *   без параметра → все возвраты по заказам пользователя.
+ * Возвращает: { refunds: [...], payment?: {...} }
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    const user = await getUserFromRequest(request);
+    if (!user) return unauthorizedResponse();
+
+    const isAdmin = (user.roles as string[]).some((r) => REFUND_EXECUTOR_ROLES.includes(r));
+    const orderId = new URL(request.url).searchParams.get("order_id");
+
+    if (orderId) {
+      const { data: order, error: orderErr } = await supabaseAdmin
+        .from("orders")
+        .select("id, user_id")
+        .eq("id", orderId)
+        .maybeSingle();
+      if (orderErr || !order) {
+        return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+      }
+      if (order.user_id !== user.id && !isAdmin) {
+        return forbiddenResponse("Нет доступа к возвратам этого заказа");
+      }
+
+      const { data: refunds } = await supabaseAdmin
+        .from("refunds")
+        .select(
+          "id, payment_id, order_id, amount, reason, status, initiated_by, rejection_reason, created_at, updated_at"
+        )
+        .eq("order_id", orderId)
+        .order("created_at", { ascending: false });
+
+      // Платёж заказа — для формы возврата (paymentId, доступная сумма)
+      const { data: payment } = await supabaseAdmin
+        .from("payments")
+        .select("id, amount, status, refund_amount, currency")
+        .eq("order_id", orderId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      return NextResponse.json({ refunds: refunds || [], payment: payment || null });
+    }
+
+    // Без order_id: все заказы пользователя → их возвраты
+    const { data: myOrders } = await supabaseAdmin
+      .from("orders")
+      .select("id")
+      .eq("user_id", user.id)
+      .limit(500);
+    const orderIds = (myOrders || []).map((o: { id: string }) => o.id);
+    if (orderIds.length === 0) {
+      return NextResponse.json({ refunds: [] });
+    }
+
+    const { data: refunds } = await supabaseAdmin
+      .from("refunds")
+      .select(
+        "id, payment_id, order_id, amount, reason, status, initiated_by, rejection_reason, created_at, updated_at"
+      )
+      .in("order_id", orderIds)
+      .order("created_at", { ascending: false });
+
+    return NextResponse.json({ refunds: refunds || [] });
+  } catch (error) {
+    console.error("[payment/refund] GET error:", (error as Error).message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const body = (await request.json().catch(() => null)) as {
