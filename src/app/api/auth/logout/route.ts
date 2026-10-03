@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { clearSessionCookies } from "@/lib/session-cookies";
 
 /**
  * POST /api/auth/logout — выход из системы.
@@ -20,6 +21,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const response = NextResponse.json({ ok: true });
     response.cookies.delete("sb-access-token");
     response.cookies.delete("sb-refresh-token");
+    // App-сессия (единый контракт: cd_session/cd_refresh)
+    clearSessionCookies(response);
     return response;
   }
 
@@ -45,6 +48,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Очищаем auth cookies
     response.cookies.delete("sb-access-token");
     response.cookies.delete("sb-refresh-token");
+    // App-сессия (единый контракт)
+    clearSessionCookies(response);
 
     return response;
   } catch (error) {

@@ -46,6 +46,7 @@ import {
 } from "lucide-react";
 import { LEGAL_TYPES } from "@/lib/mock-data-corporate";
 import type { Role, UserLegalInfo } from "@/lib/types";
+import type { User as StoreUser } from "@/lib/types";
 
 const DEMO_ACCOUNTS: {
   role: Role;
@@ -115,8 +116,7 @@ const DEMO_ACCOUNTS: {
 export function AuthModal() {
   const authModalOpen = useAppStore((s) => s.authModalOpen);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
-  const login = useAppStore((s) => s.login);
-  const loginAs = useAppStore((s) => s.loginAs);
+  const setSupabaseUser = useAppStore((s) => s.setSupabaseUser);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -169,20 +169,84 @@ export function AuthModal() {
     return { available: true };
   }, [registerPhone, checkSemaphore, checkBlacklist]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const loginValue = loginMethod === "email" ? email : phone;
-    const result = login(loginValue, password);
-    if (result.success) {
+    try {
+      // Единый поток входа: POST /api/auth/login — сервер проверяет пароль,
+      // выпускает JWT и ставит httpOnly cookie-сессию (cd_session), которую
+      // понимают ВСЕ API через getUserFromRequest() (единый auth-контракт).
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginValue, password }),
+      });
+      const data = (await res.json()) as {
+        user?: {
+          id: string;
+          email: string;
+          name: string | null;
+          phone: string | null;
+          roles: string[];
+          accountType: string;
+          city?: string | null;
+          bonusBalance?: number;
+          loyaltyLevel?: string;
+        };
+        accessToken?: string;
+        tfaRequired?: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!res.ok || data.error) {
+        toast.error("Ошибка входа", { description: data.error || "Неверный email или пароль" });
+        return;
+      }
+
+      // 2FA-gate: пароль верный, нужен второй шаг (код из приложения)
+      if (data.tfaRequired) {
+        toast.info("Требуется 2FA", {
+          description: data.message || "Введите код из приложения-аутентификатора.",
+        });
+        return;
+      }
+
+      if (!data.user) {
+        toast.error("Ошибка входа", { description: "Сервер не вернул пользователя" });
+        return;
+      }
+
+      // Токен для socket.io handshake чата (cookie остаётся каноничной для API)
+      if (data.accessToken && typeof window !== "undefined") {
+        sessionStorage.setItem("cd_access_token", data.accessToken);
+      }
+
+      // Маппим API-ответ в store-модель User и ставим как единого пользователя
+      const storeUser: StoreUser = {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name || data.user.email.split("@")[0],
+        phone: data.user.phone || undefined,
+        roles: (data.user.roles || ["CUSTOMER"]) as Role[],
+        createdAt: new Date().toISOString(),
+        city: data.user.city || undefined,
+        bonusBalance: data.user.bonusBalance ?? 0,
+        loyaltyLevel: (data.user.loyaltyLevel as StoreUser["loyaltyLevel"]) || "BRONZE",
+        accountType:
+          data.user.accountType === "legal" ? "legal" : "individual",
+      };
+      setSupabaseUser(storeUser);
+
       toast.success("Добро пожаловать!", {
-        description: "Вы успешно вошли в систему.",
+        description: `Вы вошли как ${storeUser.name}`,
       });
       setEmail("");
       setPhone("");
       setPassword("");
-    } else {
+    } catch {
       toast.error("Ошибка входа", {
-        description: result.error,
+        description: "Сервер недоступен. Попробуйте ещё раз.",
       });
     }
   };
@@ -273,11 +337,51 @@ export function AuthModal() {
     }
   };
 
-  const quickLogin = (account: (typeof DEMO_ACCOUNTS)[number]) => {
-    login(account.email, account.password);
-    toast.success(`Вход выполнен как ${account.label}`, {
-      description: account.description,
-    });
+  const quickLogin = async (account: (typeof DEMO_ACCOUNTS)[number]) => {
+    // Единый поток: demo-кнопка => реальный POST /api/auth/login
+    // (dev-fallback на сервере выпускает настоящую JWT-сессию)
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: account.email, password: account.password }),
+      });
+      const data = (await res.json()) as {
+        user?: { id: string; email: string; name: string | null; phone: string | null; roles: string[]; accountType: string; city?: string | null; bonusBalance?: number; loyaltyLevel?: string };
+        accessToken?: string;
+        tfaRequired?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.error || !data.user) {
+        toast.error("Ошибка входа", { description: data.error || "Сервер не вернул пользователя" });
+        return;
+      }
+      if (data.tfaRequired) {
+        toast.info("Требуется 2FA", { description: "Введите код из приложения-аутентификатора." });
+        return;
+      }
+      if (data.accessToken && typeof window !== "undefined") {
+        sessionStorage.setItem("cd_access_token", data.accessToken);
+      }
+      const storeUser: StoreUser = {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name || data.user.email.split("@")[0],
+        phone: data.user.phone || undefined,
+        roles: (data.user.roles || [account.role]) as Role[],
+        createdAt: new Date().toISOString(),
+        city: data.user.city || undefined,
+        bonusBalance: data.user.bonusBalance ?? 0,
+        loyaltyLevel: (data.user.loyaltyLevel as StoreUser["loyaltyLevel"]) || "BRONZE",
+        accountType: data.user.accountType === "legal" ? "legal" : "individual",
+      };
+      setSupabaseUser(storeUser);
+      toast.success(`Вход выполнен как ${account.label}`, {
+        description: account.description,
+      });
+    } catch {
+      toast.error("Ошибка входа", { description: "Сервер недоступен" });
+    }
   };
 
   const legalTypeNeedsKpp = LEGAL_TYPES[legalType]?.needsKpp;

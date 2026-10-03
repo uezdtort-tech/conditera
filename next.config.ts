@@ -31,6 +31,19 @@ const nextConfig: NextConfig = {
     root: process.cwd(),
   },
 
+  // ===== Dev-origin whitelist (Next 16) =====
+  // Без этого Next блокирует dev-ресурсы (/_next/hmr, dev-шрифты, сегменты)
+  // для любого origin кроме дефолтного localhost. Следствие для preview:
+  // iframe панели предпросмотра получает мёртвую страницу — HTML рендерится,
+  // но гидрация не происходит и НИ ОДНА кнопка не работает
+  // («функции вроде есть, но клик ничего не делает»).
+  allowedDevOrigins: [
+    "localhost",
+    "127.0.0.1",
+    "space-z.ai",
+    "*.space-z.ai",
+  ],
+
   // TypeScript — строгая проверка (НЕ игнорируем ошибки)
   typescript: {
     ignoreBuildErrors: false,

@@ -1,17 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { verifyAccessToken, type JwtPayload } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/session-cookies";
 
 /**
- * GET /api/auth/session — проверка текущей сессии.
+ * GET /api/auth/session — проверка текущей сессии (единый контракт).
+ *
+ * Источники (по порядку):
+ *   1. App-сессия: cookie cd_session (выпускают /api/auth/login и
+ *      /api/auth/2fa/login-verify). Возвращаем user + accessToken —
+ *      accessToken нужен клиенту для socket.io handshake чата.
+ *   2. Supabase GoTrue-сессия (sb-* cookies) — как раньше.
  *
  * Возвращает:
- *   - 200 + { user, profile, roles } если авторизован
- *   - 401 если не авторизован
- *
- * Используется в middleware и для проверки на клиенте.
+ *   - 200 + { user, accessToken? } если авторизован
+ *   - 200 + { user: null } если не авторизован
  */
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // === 1. App-сессия (cd_session) ===
+  const appToken = request.cookies.get(SESSION_COOKIE)?.value;
+  if (appToken) {
+    const payload = (await verifyAccessToken(appToken)) as JwtPayload | null;
+    const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
+    if (payload && userId) {
+      return NextResponse.json({
+        user: {
+          id: userId,
+          email: payload.email || "",
+          name: (payload as { name?: string }).name || payload.email?.split("@")[0] || "Пользователь",
+          roles: payload.roles || [],
+          accountType: payload.accountType || "",
+        },
+        accessToken: appToken,
+        sessionMode: "app",
+        expires: null,
+      });
+    }
+  }
+
+  // === 2. Supabase GoTrue-сессия ===
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 

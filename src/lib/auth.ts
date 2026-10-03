@@ -155,10 +155,86 @@ export async function verifyRefreshToken(token: string): Promise<JwtPayload | nu
 }
 
 /**
- * Получить пользователя из Authorization header.
+ * Извлечь access-токен из запроса — единый контракт (cookie + Bearer):
+ *   1. Authorization: Bearer <jwt> — программные клиенты (e2e, интеграции)
+ *   2. cookie cd_session — браузерная сессия, выпущенная /api/auth/login
+ *      (консолидация: раньше cookie-пользователь получал 401 на 163 роутах)
+ *   3. cookie sb-*-auth-token — сессия Supabase GoTrue (self-hosted секрет
+ *      совпадает с JWT_SECRET; поддержка chunked (.0/.1/...) и форматов
+ *      "base64-<b64json>" / <json>)
+ */
+function extractTokenFromRequest(request: Request): string | null {
+  const authHeader = request.headers.get("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (token) return token;
+  }
+
+  const cookieHeader = request.headers.get("cookie") || "";
+  if (!cookieHeader) return null;
+
+  // Парсер cookie-пар с аккуратным декодированием значения
+  const pairs = new Map<string, string>();
+  for (const part of cookieHeader.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const name = part.slice(0, idx).trim();
+    const rawValue = part.slice(idx + 1).trim();
+    let value = rawValue;
+    try {
+      value = decodeURIComponent(rawValue);
+    } catch {
+      // значение не URL-кодировано — используем как есть
+    }
+    pairs.set(name, value);
+  }
+
+  // 2. App-сессия
+  const appToken = pairs.get("cd_session");
+  if (appToken) return appToken;
+
+  // 3. Supabase-сессия: собрать chunks (name, name.0..name.N) и достать access_token
+  for (const [name, value] of pairs) {
+    const m = name.match(/^sb-[A-Za-z0-9_-]+-auth-token$/);
+    if (!m) continue;
+
+    let raw = value;
+    // Chunked формат: базовое имя присутствует как пустая заглушка,
+    // полезная нагрузка в name.0, name.1, ...
+    const chunks: string[] = [];
+    let chunkIdx = 0;
+    let chunkValue: string | undefined;
+    while ((chunkValue = pairs.get(`${name}.${chunkIdx}`)) !== undefined) {
+      chunks.push(chunkValue);
+      chunkIdx++;
+    }
+    if (chunks.length > 0) raw = chunks.join("");
+
+    try {
+      let jsonText = raw;
+      if (jsonText.startsWith("base64-")) {
+        jsonText = Buffer.from(jsonText.slice(7), "base64").toString("utf8");
+      }
+      const session = JSON.parse(jsonText) as { access_token?: string };
+      if (session?.access_token) return session.access_token;
+    } catch {
+      // не JSON/не session-cookie — пробуем следующее имя
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Получить пользователя из запроса — ЕДИНЫЙ auth-контракт.
+ *
+ * Порядок источников токена:
+ *   1. Authorization: Bearer <token>
+ *   2. cookie cd_session (app-сессия из /api/auth/login)
+ *   3. cookie sb-*-auth-token (Supabase GoTrue, совместимый секрет)
  *
  * Возвращает null если:
- *   • заголовок отсутствует или не в формате "Bearer <token>"
+ *   • ни один источник не дал валидный токен
  *   • токен невалиден (verifyAccessToken вернул null)
  *   • пользователь заблокирован (is_blocked=true в БД)
  *
@@ -168,9 +244,8 @@ export async function verifyRefreshToken(token: string): Promise<JwtPayload | nu
  * Fail-open: при ошибке БД лог пропускается, пользователь допускается.
  */
 export async function getUserFromRequest(request: Request): Promise<AuthenticatedUser | null> {
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7);
+  const token = extractTokenFromRequest(request);
+  if (!token) return null;
   const payload = await verifyAccessToken(token);
   // Поддержка двух форматов токена:
   //   • app-JWT (создан /api/auth/login): payload.userId

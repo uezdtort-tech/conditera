@@ -1,27 +1,27 @@
 /**
  * use-socket-io.ts — Socket.IO hook для real-time чата.
  *
- * ВАЖНО: socket.io-client — ОПЦИОНАЛЬНАЯ зависимость.
- * Если пакет не установлен (npm ls socket.io-client пуст), хук работает
- * в stub-режиме: все функции no-op, isConnected всегда false.
+ * Подключение (консолидация «настоящего чата»):
+ *   • URL по умолчанию — ОТНОСИТЕЛЬНЫЙ "/?XTransformPort=3030" (gateway
+ *     песочницы пробрасывает порт; прямой localhost:3030 запрещён и не
+ *     работает из браузера). Переопределяется NEXT_PUBLIC_CHAT_URL.
+ *   • JWT-токен для handshake берётся из /api/auth/session (единый
+ *     auth-контракт: сервер читает httpOnly cookie cd_session и возвращает
+ *     accessToken). localStorage НЕ используется.
+ *   • socket.io-client — опциональная зависимость: если пакет не установлен,
+ *     хук работает в stub-режиме (все функции no-op).
  *
- * Это позволяет использовать хук в окружениях без чат-сервера
- * (например, в CI, при unit-тестах, в preview-режиме).
- *
- * Чтобы включить real-time чат:
- *   npm install socket.io-client
- *   NEXT_PUBLIC_CHAT_URL=http://localhost:3030
- *
- * URL чат-сервера (порт 3030) — задаётся через env, по умолчанию
- * подключение не происходит (stub-режим).
+ * События: room:join/leave, message:send/sent/receive, typing:start/stop,
+ * message:read, message:react, order:notify.
  */
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useAppStore } from "@/lib/store";
 
-// URL чат-сервера. Если не задан — работаем в stub-режиме.
-const CHAT_SERVER_URL = process.env.NEXT_PUBLIC_CHAT_URL || "";
+// URL чат-сервера: относительный через gateway (порт 3030) или из env.
+const CHAT_SERVER_URL =
+  process.env.NEXT_PUBLIC_CHAT_URL || "/?XTransformPort=3030";
 const IS_ENABLED = Boolean(CHAT_SERVER_URL);
 
 // Минимальный интерфейс Socket — нужен только для типизации ref.
@@ -46,12 +46,30 @@ export interface ChatMessage {
   replyTo?: string;
   timestamp: string;
   status: "sending" | "sent" | "delivered" | "read";
+  isBot?: boolean;
+  botKind?: string;
+  quickReplies?: { label: string; action: string; payload?: unknown }[];
 }
 
 export interface TypingUser {
   roomId: string;
   userId: string;
   name: string;
+}
+
+type MessageListener = (roomId: string, message: ChatMessage) => void;
+type SentListener = (roomId: string, messageId: string) => void;
+
+/** Взять access-токен для socket-handshake из /api/auth/session. */
+async function fetchSocketToken(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/auth/session");
+    if (!res.ok) return null;
+    const data = (await res.json()) as { accessToken?: string | null };
+    return data.accessToken || null;
+  } catch {
+    return null;
+  }
 }
 
 export function useSocketIO() {
@@ -62,6 +80,10 @@ export function useSocketIO() {
 
   const user = useAppStore((s) => s.user);
 
+  // Подписчики на real-time сообщения (регистрирует ChatWidget)
+  const messageListenersRef = useRef<Set<MessageListener>>(new Set());
+  const sentListenersRef = useRef<Set<SentListener>>(new Set());
+
   // Подключение — только если IS_ENABLED и пользователь залогинен
   useEffect(() => {
     if (!IS_ENABLED || !user) return;
@@ -69,24 +91,26 @@ export function useSocketIO() {
     let socket: SocketLike | null = null;
     let disposed = false;
 
-    // Dynamic import — если socket.io-client не установлен, fallback на stub.
-    import("socket.io-client")
-      .then(({ io }) => {
+    (async () => {
+      const accessToken =
+        (typeof window !== "undefined"
+          ? sessionStorage.getItem("cd_access_token")
+          : null) || (await fetchSocketToken());
+      if (disposed) return;
+
+      // Dynamic import — если socket.io-client не установлен, fallback на stub.
+      try {
+        const { io } = await import("socket.io-client");
         if (disposed) return;
 
-        const accessToken =
-          (typeof window !== "undefined" &&
-            localStorage.getItem("accessToken")) ||
-          (user as { accessToken?: string }).accessToken ||
-          null;
-
         socket = io(CHAT_SERVER_URL, {
+          path: "/",
           auth: {
             token: accessToken,
             userName: user.name,
             userAvatar: user.avatar,
           },
-          transports: ["websocket"],
+          transports: ["websocket", "polling"],
           reconnection: true,
           reconnectionDelay: 1000,
           reconnectionAttempts: 5,
@@ -95,12 +119,10 @@ export function useSocketIO() {
         socketRef.current = socket;
 
         socket.on("connect", () => {
-          console.log("[Socket.IO] Подключено к чат-серверу");
           setIsConnected(true);
         });
 
         socket.on("disconnect", () => {
-          console.log("[Socket.IO] Отключено");
           setIsConnected(false);
         });
 
@@ -116,22 +138,40 @@ export function useSocketIO() {
 
         socket.on("message:receive", (data: unknown) => {
           const payload = data as { roomId: string; message: ChatMessage };
-          // Hook — компоненты могут подписаться через store
-          if (!useAppStore.getState().chatOpen && payload?.message) {
-            // Здесь можно показать toast уведомление
+          if (payload?.roomId && payload?.message) {
+            messageListenersRef.current.forEach((cb) => {
+              try {
+                cb(payload.roomId, payload.message);
+              } catch (e) {
+                console.error("[Socket.IO] message listener error:", e);
+              }
+            });
+          }
+        });
+
+        socket.on("message:sent", (data: unknown) => {
+          const payload = data as { roomId: string; messageId: string; status: string };
+          if (payload?.roomId && payload?.messageId) {
+            sentListenersRef.current.forEach((cb) => {
+              try {
+                cb(payload.roomId, payload.messageId);
+              } catch (e) {
+                console.error("[Socket.IO] sent listener error:", e);
+              }
+            });
           }
         });
 
         socket.on("user:online", (data: unknown) => {
-          const { userId } = data as { userId: string };
-          setOnlineUsers((prev) => new Set(prev).add(userId));
+          const { userId: uid } = data as { userId: string };
+          setOnlineUsers((prev) => new Set(prev).add(uid));
         });
 
         socket.on("user:offline", (data: unknown) => {
-          const { userId } = data as { userId: string };
+          const { userId: uid } = data as { userId: string };
           setOnlineUsers((prev) => {
             const next = new Set(prev);
-            next.delete(userId);
+            next.delete(uid);
             return next;
           });
         });
@@ -149,11 +189,11 @@ export function useSocketIO() {
         });
 
         socket.on("typing:stop", (data: unknown) => {
-          const { roomId, userId } = data as { roomId: string; userId: string };
+          const { roomId, userId: uid } = data as { roomId: string; userId: string };
           setTypingUsers((prev) => {
             const next = new Map(prev);
             const arr = next.get(roomId) || [];
-            next.set(roomId, arr.filter((t) => t.userId !== userId));
+            next.set(roomId, arr.filter((t) => t.userId !== uid));
             return next;
           });
         });
@@ -166,15 +206,15 @@ export function useSocketIO() {
             });
           });
         });
-      })
-      .catch((err) => {
+      } catch (err) {
         if (!disposed) {
           console.warn(
             "[Socket.IO] socket.io-client не установлен — чат работает в stub-режиме.",
             err instanceof Error ? err.message : err
           );
         }
-      });
+      }
+    })();
 
     return () => {
       disposed = true;
@@ -206,6 +246,13 @@ export function useSocketIO() {
       };
       socketRef.current?.emit("message:send", { roomId, message: fullMessage });
       return fullMessage;
+    },
+    []
+  );
+
+  const sendQuickReplyAction = useCallback(
+    (roomId: string, reply: { label: string; action: string; payload?: unknown }) => {
+      socketRef.current?.emit("bot:quick_reply", { roomId, reply });
     },
     []
   );
@@ -256,6 +303,22 @@ export function useSocketIO() {
     [onlineUsers]
   );
 
+  /** Подписка на входящие real-time сообщения. Возвращает unsubscribe. */
+  const onMessageReceive = useCallback((cb: MessageListener) => {
+    messageListenersRef.current.add(cb);
+    return () => {
+      messageListenersRef.current.delete(cb);
+    };
+  }, []);
+
+  /** Подписка на ack-подтверждения отправки. Возвращает unsubscribe. */
+  const onMessageSent = useCallback((cb: SentListener) => {
+    sentListenersRef.current.add(cb);
+    return () => {
+      sentListenersRef.current.delete(cb);
+    };
+  }, []);
+
   return {
     socket: socketRef.current,
     isConnected,
@@ -265,6 +328,7 @@ export function useSocketIO() {
     joinRoom,
     leaveRoom,
     sendMessage,
+    sendQuickReplyAction,
     startTyping,
     stopTyping,
     markAsRead,
@@ -272,5 +336,7 @@ export function useSocketIO() {
     sendOrderNotification,
     checkUserStatus,
     isUserOnline,
+    onMessageReceive,
+    onMessageSent,
   };
 }

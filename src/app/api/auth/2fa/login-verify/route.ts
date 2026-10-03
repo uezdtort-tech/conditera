@@ -26,6 +26,7 @@ import {
   createRefreshToken,
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
+import { setSessionCookies } from "@/lib/session-cookies";
 import {
   verifyTotp,
   decryptSecret,
@@ -261,7 +262,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       loyaltyLevel: user.loyalty_level,
     };
 
-    return NextResponse.json({
+    const verifyResponse = NextResponse.json({
       user: safeUser,
       accessToken,
       refreshToken,
@@ -269,6 +270,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         warning: `Backup-код ${usedBackupCode} использован и удалён. Осталось backup-кодов: ${remainingBackupCodes.length}`,
       }),
     });
+    // Cookie-сессия — единый контракт с /api/auth/login
+    return setSessionCookies(verifyResponse, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("POST /api/auth/2fa/login-verify error:", error?.message);
     return NextResponse.json(

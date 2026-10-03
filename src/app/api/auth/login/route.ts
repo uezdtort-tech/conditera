@@ -26,6 +26,9 @@ import {
   createTfaLoginToken,
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
+import { setSessionCookies } from "@/lib/session-cookies";
+import { findDevFallbackUser } from "@/lib/dev-auth";
+import { isAdminConfigured } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -118,6 +121,51 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
       .eq("email", emailLower)
       .maybeSingle();
+
+    // 3.a DEV-FALLBACK: Supabase не настроен (isAdminConfigured() === false)
+    // — например, локальная dev-среда/preview без запущенного стека.
+    // Аутентифицируем по demo-списку и выпускаем НАСТОЯЩИЙ JWT (тот же
+    // механизм, тот же секрет, те же роли). В production с настроенным
+    // Supabase эта ветка недостижима (см. src/lib/dev-auth.ts).
+    if ((error || !user) && !isAdminConfigured()) {
+      const devUser = findDevFallbackUser(emailLower, password);
+      if (devUser) {
+        console.warn(
+          `[login] DEV-FALLBACK: вход ${devUser.email} без Supabase (dev-сессия).`
+        );
+        const devPayload = {
+          userId: devUser.id,
+          email: devUser.email,
+          roles: devUser.roles,
+          accountType: devUser.accountType,
+        };
+        const devAccessToken = await createAccessToken(devPayload);
+        const devRefreshToken = await createRefreshToken({ userId: devUser.id });
+        const devSafeUser = {
+          id: devUser.id,
+          email: devUser.email,
+          name: devUser.name,
+          phone: devUser.phone,
+          roles: devUser.roles,
+          accountType: devUser.accountType,
+          city: devUser.city,
+          bonusBalance: devUser.bonusBalance,
+          loyaltyLevel: devUser.loyaltyLevel,
+          isVerified: devUser.isVerified,
+        };
+        const devResponse = NextResponse.json({
+          user: devSafeUser,
+          accessToken: devAccessToken,
+          refreshToken: devRefreshToken,
+          sessionMode: "dev-fallback",
+        });
+        // Cookie-сессия — каноничный канал для браузера (см. session-cookies.ts)
+        return setSessionCookies(devResponse, {
+          accessToken: devAccessToken,
+          refreshToken: devRefreshToken,
+        });
+      }
+    }
 
     if (error || !user) {
       return NextResponse.json(
@@ -254,11 +302,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       isVerified: Boolean(user.is_verified),
     };
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       user: safeUser,
       accessToken,
       refreshToken,
     });
+    // Cookie-сессия — каноничный канал для браузера: после этого все API,
+    // читающие getUserFromRequest(), работают без ручного Bearer-заголовка.
+    return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("Login error:", error?.message);
     return NextResponse.json(

@@ -5,6 +5,7 @@
  * Заменяет mock-данные в AdminTicketsTab.
  */
 import { useState, useEffect, useCallback } from "react";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -137,7 +138,7 @@ export function AdminTicketsTab() {
     try {
       const res = await fetch(`/api/crm/tickets/${ticketId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({ status }),
       });
       if (res.ok) {
@@ -344,7 +345,7 @@ function TicketDetailsDialog({
     try {
       const res = await fetch(`/api/crm/tickets/${ticket.id}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({
           message: newMessage,
           isInternal,
@@ -356,6 +357,9 @@ function TicketDetailsDialog({
         setNewMessage("");
         toast.success("Сообщение отправлено");
         onUpdate();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error("Ошибка отправки", { description: err.error });
       }
     } catch {
       toast.error("Ошибка отправки");
@@ -494,7 +498,7 @@ function CreateTicketDialog({
     try {
       const res = await fetch("/api/crm/tickets", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({
           ...form,
           orderNumber: form.orderNumber || undefined,

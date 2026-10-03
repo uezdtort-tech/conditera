@@ -338,9 +338,16 @@ io.on("connection", (socket) => {
 
     console.log(`💬 ${userName} → ${data.roomId}: ${message.text?.slice(0, 50)}...`);
 
-    // ===== Авточат: если комната имеет prefix "order:" или type=order,
-    //       запускаем FAQ-matcher и отвечаем через 800мс =====
-    if (data.roomId.startsWith("order:") || data.roomId === "r2") {
+    // ===== Авточат: комнаты поддержки и заказов =====
+    //   • order:* — чаты заказов; support:* — обращения в поддержку
+    //   • r2/r3 — mock-комнаты витрины («Заказ UK-…», «Поддержка Уездного»),
+    //     к которым подключён ChatWidget на главной
+    const isAutoReplyRoom =
+      data.roomId.startsWith("order:") ||
+      data.roomId.startsWith("support:") ||
+      data.roomId === "r2" ||
+      data.roomId === "r3";
+    if (isAutoReplyRoom) {
       handleAutoReply(data.roomId, message.text, userId);
     }
   });

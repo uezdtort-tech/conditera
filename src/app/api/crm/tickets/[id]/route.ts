@@ -8,7 +8,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { mapTicketMessage } from "./messages/route";
 
 export async function GET(
   request: NextRequest,
@@ -16,7 +18,7 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const { data: ticket, error } = await supabaseAdmin
@@ -47,6 +49,11 @@ export async function GET(
       ticket.messages = (ticket.messages || []).filter((m: { is_internal: boolean }) => !m.is_internal);
     }
 
+    // Маппинг сообщений в UI-контракт (author*/message — см. mapTicketMessage)
+    ticket.messages = (ticket.messages || []).map((m: Record<string, unknown>) =>
+      mapTicketMessage(m as Parameters<typeof mapTicketMessage>[0], ticket.user_id)
+    );
+
     return NextResponse.json({ ticket });
   } catch (error) {
     return NextResponse.json(
@@ -62,7 +69,7 @@ export async function PATCH(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const body = await request.json();

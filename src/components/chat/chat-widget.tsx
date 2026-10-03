@@ -12,13 +12,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { Send, MessageCircle, Phone, Video, MoreVertical, Bot, Sparkles, Mic, Square, X, Loader2 } from "lucide-react";
+import { Send, MessageCircle, Phone, Video, MoreVertical, Bot, Sparkles, Mic, Square, X, Loader2, Wifi, WifiOff } from "lucide-react";
 import { formatDateTime } from "@/lib/finance";
-import type { QuickReply } from "@/lib/types";
+import type { QuickReply, ChatMessage } from "@/lib/types";
 import { useVoiceRecorder, formatDuration } from "@/hooks/useVoiceRecorder";
 import { VoiceMessagePlayer } from "@/components/chat/voice-message-player";
-import { useEffect, useRef, useState } from "react";
-import { getSessionAuthHeaders } from "@/lib/api-client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
+import { useSocketIO, type ChatMessage as SocketChatMessage } from "@/lib/use-socket-io";
+
+/** Комната поддержки по умолчанию (real-time, bot на сервере :3030). */
+const SUPPORT_ROOM_ID = "r3";
 
 export function ChatWidget() {
   const chatOpen = useAppStore((s) => s.chatOpen);
@@ -33,11 +37,26 @@ export function ChatWidget() {
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
 
+  // === Real-time канал (socket.io, порт 3030 через gateway) ===
+  const {
+    isConnected,
+    isEnabled: socketEnabled,
+    typingUsers,
+    joinRoom,
+    leaveRoom,
+    sendMessage: socketSendMessage,
+    sendQuickReplyAction,
+    startTyping,
+    stopTyping,
+    onMessageReceive,
+  } = useSocketIO();
+
   const [messageText, setMessageText] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastTypingSentRef = useRef(0);
 
   // Voice recorder
   const recorder = useVoiceRecorder({ maxDurationSec: 120, waveformSamples: 30 });
@@ -46,49 +65,131 @@ export function ChatWidget() {
   const activeRoom = chatRooms.find((r) => r.id === activeChatRoom);
   const roomMessages = chatMessages.filter((m) => m.roomId === activeChatRoom);
 
-  // Сохраняем идентификаторы показанных сообщений, чтобы дедуплицировать одинаковые id
-  const seenMsgIdsRef = useRef<Set<string>>(new Set());
+  const activeTyping = typingUsers.get(activeChatRoom || "") || [];
 
-  // Последнее bot-сообщение с quick-replies (для отображения кнопок)
-  const lastBotWithQuickReplies = [...roomMessages]
-    .reverse()
-    .find((m) => m.isBot && m.quickReplies && m.quickReplies.length > 0);
+  // При открытии виджета без активной комнаты — открываем поддержку
+  useEffect(() => {
+    if (chatOpen && !activeChatRoom) {
+      setActiveChatRoom(SUPPORT_ROOM_ID);
+    }
+  }, [chatOpen, activeChatRoom, setActiveChatRoom]);
+
+  // Real-time: подписка на входящие сообщения → append в store (с дедупом)
+  useEffect(() => {
+    if (!onMessageReceive) return;
+    const unsubscribe = onMessageReceive((roomId, incoming: SocketChatMessage) => {
+      const mapped: ChatMessage = {
+        id: incoming.id,
+        roomId,
+        senderId: incoming.senderId,
+        senderName: incoming.senderName,
+        senderAvatar: incoming.senderAvatar,
+        text: incoming.text,
+        createdAt: incoming.timestamp || new Date().toISOString(),
+        isOwn: incoming.senderId === user?.id,
+        isBot: incoming.isBot,
+        botKind: incoming.botKind as ChatMessage["botKind"],
+        quickReplies: incoming.quickReplies as ChatMessage["quickReplies"],
+      };
+      useAppStore.setState((s) => {
+        // Дедуп: сервер может переслать сообщение, добавленное оптимистично
+        if (s.chatMessages.some((m) => m.id === mapped.id)) return s;
+        return { chatMessages: [...s.chatMessages, mapped] };
+      });
+    });
+    return unsubscribe;
+  }, [onMessageReceive, user?.id]);
+
+  // Socket: вход в активную комнату (получать real-time сообщения)
+  useEffect(() => {
+    if (!isConnected || !activeChatRoom) return;
+    joinRoom(activeChatRoom);
+    return () => leaveRoom(activeChatRoom);
+  }, [isConnected, activeChatRoom, joinRoom, leaveRoom]);
 
   // Скроллинг вниз при появлении новых сообщений И при переключении комнаты
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "auto", block: "end" });
     }
-  }, [roomMessages.length, activeChatRoom]);
+  }, [roomMessages.length, activeChatRoom, activeTyping.length]);
 
-  // Дедуплицируем сообщения по id, чтобы избежать одинаковых React-ключей
-  const dedupedRoomMessages = (() => {
-    const seen = new Set<string>();
-    const out: typeof roomMessages = [];
-    for (const m of roomMessages) {
-      if (!seen.has(m.id)) {
-        seen.add(m.id);
-        out.push(m);
-      }
-    }
-    return out;
-  })();
+  // Последнее bot-сообщение с quick-replies (для отображения кнопок)
+  const lastBotWithQuickReplies = [...roomMessages]
+    .reverse()
+    .find((m) => m.isBot && m.quickReplies && m.quickReplies.length > 0);
+
+  // Скелет сообщения отправителя через real-time канал
+  const appendOwnMessage = useCallback(
+    (id: string, text: string) => {
+      const msg: ChatMessage = {
+        id,
+        roomId: activeChatRoom || SUPPORT_ROOM_ID,
+        senderId: user?.id || "me",
+        senderName: user?.name || "Я",
+        senderAvatar: user?.avatar,
+        text,
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+      };
+      useAppStore.setState((s) => ({ chatMessages: [...s.chatMessages, msg] }));
+    },
+    [activeChatRoom, user?.id, user?.name, user?.avatar]
+  );
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageText.trim() || !activeChatRoom) return;
+    const text = messageText.trim();
+    if (!text || !activeChatRoom) return;
     if (!isAuthenticated) {
       setChatOpen(false);
       setAuthModalOpen(true);
       return;
     }
-    sendMessage(activeChatRoom, messageText.trim());
+
+    // Real-time путь: socket.io → чат-сервер (:3030) — сообщение получают
+    // другие участники, а бот отвечает с сервера. Fallback — mock-store.
+    if (socketEnabled && isConnected) {
+      const id = `m_${Date.now()}`;
+      appendOwnMessage(id, text);
+      socketSendMessage(activeChatRoom, {
+        id,
+        text,
+        senderId: user?.id || "me",
+        senderName: user?.name || "Я",
+        senderAvatar: user?.avatar,
+        type: "text",
+      });
+      stopTyping(activeChatRoom);
+    } else {
+      sendMessage(activeChatRoom, text);
+    }
     setMessageText("");
   };
 
   const handleQuickReply = (reply: QuickReply) => {
     if (!activeChatRoom) return;
-    sendQuickReply(activeChatRoom, reply);
+    if (socketEnabled && isConnected) {
+      // Сервер сам добавит сообщение-кнопку в комнату (в т.ч. отправителю)
+      sendQuickReplyAction(activeChatRoom, reply as { label: string; action: string });
+    } else {
+      sendQuickReply(activeChatRoom, reply);
+    }
+  };
+
+  // Typing: throttled индикатор «печатает…» в real-time комнату
+  const handleInputChange = (value: string) => {
+    setMessageText(value);
+    if (socketEnabled && isConnected && activeChatRoom) {
+      const now = Date.now();
+      if (value && now - lastTypingSentRef.current > 2000) {
+        lastTypingSentRef.current = now;
+        startTyping(activeChatRoom);
+      }
+      if (!value) {
+        stopTyping(activeChatRoom);
+      }
+    }
   };
 
   // AI-подсказка ответа (для кондитеров)
@@ -102,7 +203,7 @@ export function ChatWidget() {
     try {
       const res = await fetch("/api/ai-dialogue/respond", {
         method: "POST",
-        headers: await getSessionAuthHeaders(),
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({
           message: lastCustomerMsg.text,
           customerId: lastCustomerMsg.senderId || "customer",
@@ -208,6 +309,14 @@ export function ChatWidget() {
                             {room.lastMessage || "Нет сообщений"}
                           </div>
                         </div>
+                        {room.id === SUPPORT_ROOM_ID && socketEnabled && (
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              isConnected ? "bg-emerald-500" : "bg-muted-foreground/40"
+                            }`}
+                            title={isConnected ? "Real-time подключён" : "Real-time офлайн"}
+                          />
+                        )}
                       </div>
                     </button>
                   ))}
@@ -230,18 +339,48 @@ export function ChatWidget() {
                       </Avatar>
                       <div>
                         <div className="text-sm font-medium">{activeRoom.name}</div>
-                        <div className="text-[10px] text-emerald-600 flex items-center gap-1">
-                          ● онлайн
-                          {activeRoom.type === "order" && (
-                            <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 h-3.5">
-                              <Bot className="h-2.5 w-2.5 mr-0.5" />
-                              авточат
-                            </Badge>
+                        <div
+                          className={`text-[10px] flex items-center gap-1 ${
+                            activeTyping.length > 0
+                              ? "text-primary"
+                              : socketEnabled && isConnected
+                                ? "text-emerald-600"
+                                : "text-muted-foreground"
+                          }`}
+                        >
+                          {activeTyping.length > 0 ? (
+                            <>
+                              <span className="inline-flex gap-0.5">
+                                <span className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:0ms]" />
+                                <span className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:120ms]" />
+                                <span className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:240ms]" />
+                              </span>
+                              {activeTyping[0]?.name || "Кто-то"} печатает…
+                            </>
+                          ) : socketEnabled && isConnected ? (
+                            <>
+                              ● онлайн (real-time)
+                              {(activeRoom.type === "order" || activeRoom.type === "support" || activeRoom.id === SUPPORT_ROOM_ID) && (
+                                <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 h-3.5">
+                                  <Bot className="h-2.5 w-2.5 mr-0.5" />
+                                  авточат
+                                </Badge>
+                              )}
+                            </>
+                          ) : (
+                            "● офлайн — сообщения локальные"
                           )}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
+                      <span className="mr-1 text-muted-foreground/60" title={socketEnabled ? (isConnected ? "Чат-сервер подключён" : "Нет связи с чат-сервером") : "Чат-сервер не настроен"}>
+                        {socketEnabled && isConnected ? (
+                          <Wifi className="h-3.5 w-3.5 text-emerald-600" />
+                        ) : (
+                          <WifiOff className="h-3.5 w-3.5" />
+                        )}
+                      </span>
                       <Button variant="ghost" size="icon" className="h-8 w-8">
                         <Phone className="h-4 w-4" />
                       </Button>
@@ -257,7 +396,7 @@ export function ChatWidget() {
                   {/* Messages */}
                   <ScrollArea className="flex-1 bg-muted/30 min-h-0 overflow-y-auto" ref={scrollContainerRef}>
                     <div className="p-3 space-y-2">
-                      {dedupedRoomMessages.map((msg, idx) => {
+                      {dedupeMessages(roomMessages).map((msg, idx) => {
                         // Уникальный ключ: id + индекс + первые 20 символов текста для гарантии уникальности
                         const uniqueKey = `${msg.id}-${idx}-${(msg.text || "").slice(0, 20).replace(/\s/g, "_")}`;
                         return (
@@ -409,7 +548,8 @@ export function ChatWidget() {
                       </Button>
                       <Input
                         value={messageText}
-                        onChange={(e) => setMessageText(e.target.value)}
+                        onChange={(e) => handleInputChange(e.target.value)}
+                        onBlur={() => activeChatRoom && stopTyping(activeChatRoom)}
                         placeholder="Сообщение..."
                         className="flex-1"
                       />
@@ -458,4 +598,20 @@ export function ChatWidget() {
       </SheetContent>
     </Sheet>
   );
+}
+
+/**
+ * Дедупликация сообщений по id внутри одного рендера (гарантия
+ * уникальных React-ключей: socket-сообщения + mock + голосовые).
+ */
+function dedupeMessages(messages: ChatMessage[]): ChatMessage[] {
+  const seen = new Set<string>();
+  const out: ChatMessage[] = [];
+  for (const m of messages) {
+    if (!seen.has(m.id)) {
+      seen.add(m.id);
+      out.push(m);
+    }
+  }
+  return out;
 }

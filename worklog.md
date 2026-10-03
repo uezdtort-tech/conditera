@@ -7160,3 +7160,26 @@ Stage Summary:
 - Preview восстановлен и верифицирован браузерно; стабилизация через double-fork daemon + dev-watchdog (протокол занесён: только double-fork демоны переживают границы tool-call).
 - Оба запрошенных аудитором артефакта доставлены в полном объёме; все git-проверки зелёные, SQL 0034–0039 соответствует базе, 0038 задокументированно отсутствует.
 - Merge/push/миграции НЕ выполнялись — только read-only операции + пересоздание worktree.
+
+---
+Task ID: auth-chat-unification
+Agent: Z.ai Code (main)
+Task: Консолидация архитектуры: единый auth-контракт (cookie+Bearer), настоящий real-time чат вместо mock-store, schema-match поддержки, единый dev-старт, современная типографика
+
+Work Log:
+- Картирование (Explore): 163 роута на Bearer-only getUserFromRequest; канонический UI-логин кладёт только sb-* cookie → тотальная 401-стена; ChatWidget = чистый Zustand-mock (sendMessage без сети); 4 реальных чат-канала не подключены; crm/tickets/[id]/messages пишет message+sender_name при схеме text NOT NULL (0005:52-63); .env без JWT_SECRET/Supabase-ключей; Supabase CLI/Docker в песочнице отсутствуют.
+- Root-cause найден и закрыт (архитектурно значимо): Next 16 без allowedDevOrigins блокирует dev-ресурсы (/_next/hmr, dev-шрифты, сегменты) для origin ≠ localhost — в preview (iframe *.space-z.ai) страница рендерилась, но НЕ гидрировалась → «кнопка ничего не делает». Фикс: allowedDevOrigins [localhost, 127.0.0.1, space-z.ai, *.space-z.ai] в next.config.ts. Верифицировано: 127.0.0.1 и через Caddy:81 hydrated=true.
+- Единый auth-контракт: src/lib/session-cookies.ts (cd_session/cd_refresh httpOnly); getUserFromRequest читает Bearer → cd_session → sb-*-auth-token (chunked/base64); login/2fa-login-verify ставят cookie; session-роут отдаёт user+accessToken (app-режим); logout чистит обе пары; crm/tickets* переведены с getCurrentUser на getUserFromRequest.
+- Dev-fallback авторизация (src/lib/dev-auth.ts): при !isAdminConfigured() и NODE_ENV≠production — demo-пользователи (customer/confectioner/supplier/courier/admin@demo.ru, пароль demo123, timing-safe) с НАСТОЯЩИМ JWT; в проде ветка недостижима.
+- Единая точка входа UI: auth-modal (главная) — handleLogin/quickLogin ходят в POST /api/auth/login (реальный API, cookie+sessionStorage cd_access_token), store.setSupabaseUser — единый user для 45 компонентов; мок store.login из модалки убран.
+- Real-time чат: socket.io-client@4.8.4 установлен; use-socket-io переписан (URL /?XTransformPort=3030, path=/, токен из /api/auth/session, подписки onMessageReceive/onMessageSent); ChatWidget переписан: socket-отправка с optimistic append, приём message:receive с дедупом в store, typing-индикаторы, quick-replies через bot:quick_reply, статус подключения (онлайн real-time/офлайн-фолбэк на mock); чат-сервер: автоответ расширен на support:* и r3; секрет консолидирован (chat-server перезапущен с JWT_SECRET из .env).
+- Поддержка: messages-роут пишет строго в схему (text, без sender_name) + mapTicketMessage (UI-контракт author*/message); GET [id] маппит сообщения; admin-crm-tickets: все мутации через getSessionAuthHeaders(getCsrfToken()).
+- Типографика: type scale (--text-xs…7xl с line-height парами, 6xl/7xl fluid clamp) в @theme inline; body: line-height 1.6, optimizeLegibility, font-synthesis-weight:none, kerning; утилита .tnum (tabular-nums для цен).
+- scripts/dev-start.sh: единый старт (генерация секретов → supabase start+миграции при наличии Docker/CLI → chat-server с общим JWT_SECRET → dev:local → healthcheck).
+- Гейты: tsc 0; eslint 0 errors/3 старых warning; vitest 744/744 (27 файлов); браузерно (agent-browser через гейтвей :81): гидрация, модалка входа, реальный логин (cookie+store+токен), чат: «онлайн (real-time)», отправка → ответ серверного бота «Уездный помощник 📅 Сроки доставки…» + quick-replies.
+
+Stage Summary:
+- Ключевое открытие: «мёртвые кнопки» в preview были системным отсутствием гидрации из-за allowedDevOrigins — исправлено в конфиге, а не точечно.
+- Auth сведён к одному контракту (cookie каноничен для браузера, Bearer для программных клиентов); mock-логин из витрины удалён; чат витрины работает на реальном socket.io-сервере с JWT-хендшейком; schema-mismatch поддержки устранён на стороне кода (под схему 0005).
+- Ограничения среды: без Supabase/Docker данные (orders/tickets в БД) недоступны (500 от stub-слоя — не регрессия); dev-fallback auth задокументирован и зафлужен гвардиями; .env секреты — dev-only.
+- Не выполнялись: merge/push, применение миграций, изменение main (работа в рабочем дереве, origin не тронут).
