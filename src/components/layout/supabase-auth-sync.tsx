@@ -63,9 +63,42 @@ export function SupabaseAuthSync() {
   useEffect(() => {
     let cancelled = false;
 
-    // 1. Начальная сессия
+    // 0. Локальный рантайм: каноническая сессия — /api/auth/session
+    // (кастомный JWT в cookie cd_session). GoTrue локально отключён (501),
+    // поэтому hydrate store из app-сессии; GoTrue-подписка ниже остаётся
+    // только для обратной совместимости облачного деплоя.
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/session", { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const u = data?.user;
+        if (u && u.email) {
+          if (data?.accessToken && typeof window !== "undefined") {
+            try { sessionStorage.setItem("cd_access_token", data.accessToken); } catch { /* noop */ }
+          }
+          setSupabaseUser({
+            id: String(u.id ?? ""),
+            email: String(u.email ?? ""),
+            name: String(u.name ?? u.email.split("@")[0] ?? "Пользователь"),
+            phone: u.phone ?? undefined,
+            avatar: u.avatar ?? undefined,
+            roles: (Array.isArray(u.roles) && u.roles.length ? u.roles : ["CUSTOMER"]) as never,
+            createdAt: String(u.createdAt ?? new Date().toISOString()),
+            city: u.city ?? undefined,
+          } as never);
+        } else {
+          setSupabaseUser(null);
+        }
+      } catch {
+        // API недоступен — оставляем store как есть (offline fallback)
+      }
+    })();
+
+    // 1. Начальная сессия (legacy GoTrue — облачный режим)
     fetchStoreUser().then((user) => {
-      if (!cancelled) setSupabaseUser(user);
+      if (!cancelled && !useAppStore.getState().user) setSupabaseUser(user);
     });
 
     // 2. Подписка на изменения сессии

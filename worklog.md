@@ -7317,3 +7317,17 @@ Work Log:
 - E: /api/payment/refund — POST переведён на getUserFromRequest; добавлен GET (?order_id → refunds+payment заказа, без → все возвраты юзера; 403 на чужой заказ). customer-dashboard: заказы из useRealOrders (fallback store при сбое, бейдж «Офлайн-данные»), кнопка «Возврат» на escrow/released/DELIVERED/COMPLETED → диалог (причина + сумма, префилл остаток, частичный разрешён, список существующих заявок) → POST /api/payment/refund → toast; бейдж статуса возврата на карточке заказа.
 - F: Новый src/lib/use-real-orders.ts: useRealOrders (GET /api/orders + маппер snake_case→UI Order), useRealUpdateOrderStatus (PATCH + CSRF + invalidate), useCreateRefundRequest, useRefunds. confectioner-dashboard: заказы из API (fallback mock), кнопки шлют enum-переходы CONFIRMED/PREPARING/READY через PATCH /api/orders/[id], READY→«Готов к передаче курьеру» (badge; READY→IN_DELIVERY по стейт-машине только COURIER/ADMIN — кнопка-имитация убрана), «Обновить»+isStale. store.updateOrderStatus из кондитерского дашборда выпилен. finance.ts: ORDER_STATUS_LABELS +NEGOTIATING/PREPARING/IN_DELIVERY/DELIVERED/REFUNDED, PAYMENT_STATUS_LABELS +succeeded/waiting_for_capture/cancelled/failed; types.ts OrderStatus +IN_DELIVERY/DELIVERED.
 - Верификация (curl, Bearer+CSRF): GET orders customer 200 (3 заказа, confectioner обогащён, items) ✓; confectioner 200 (3 назначенных) ✓; PATCH PENDING→CONFIRMED 200, CONFIRMED→PREPARING 200 (Bearer И cookie-каналы), PREPARING→DELIVERED 400 «Запрещённый переход» ✓; POST /api/checkout 200 {orderId, orderNumber UK-2026-386068, total 2700, isStub} ✓; webhook payment.succeeded → payment succeeded + order escrow ✓; POST refund 201 (requested) ×2 — идемпотентности НЕТ (каждая заявка = новая строка, лимит суммы гвардится только при исполнении админом через reserve_refund) — зафиксировано честно; GET refund?order_id 200 (+payment), чужой заказ 403 ✓; POST /api/orders регрессия 201 ✓; anon API → 307 (легаси-middleware, не трогал auth-домен); lint 0 errors (3 старых warning), tsc 0. Не чинил (вне скоупа, non-blocking): profiles.notify_prefs/notify chat-бот колонки (warn в логах уведомлений).
+
+---
+Task ID: 5-6-verify
+Agent: orchestrator
+Task: Этапы 5-11 реализованы агентами (orders journey, chat, decor/services) + браузерная верификация оркестратором
+
+Work Log:
+- Task 5 (fullstack-orders): GET /api/orders fix (embed→enrich), webhook customers-fix, PATCH auth, CheckoutPage→POST /api/checkout, refund UI+GET, confectioner buttons→enum PATCH. Все проверки PASS (включая 400 на запрещённый переход).
+- Task 6 (fullstack-chat): /api/chat/rooms (find-or-create direct/support/order), messages (idempotency_key, 23505→dedup), read; ChatWidget real-first; chat-server персистит через API; ticket↔chat мост; decor_products+сид 0002_seed_decor.sql+гидратор; services из БД. PASS.
+- Orchestrator: supabase-auth-sync.tsx → hydrate store из /api/auth/session (GoTrue мёртв локально — дашборд-гейт «Войдите в кабинет» не снимался). После фикса: браузер-логин customer@demo.ru → /dashboard «Мои заказы», вкладки, лояльность, реальный каталог.
+
+Stage Summary:
+- Золотой путь браузерно: / → каталог → /login → login 200 → /dashboard (Мои заказы) — PASS.
+- Осталось честно незакрытым: E2E-сьют (этап 14) не расширен под новый стек; типографика (этап 13) — базовая (globals.css от 216b2a5); n8n локально не запускался (эмиттер fail-safe, health честно пишет unavailable); POST /api/orders регрессия 201; refund без идемпотентности на заявке (задокументировано).

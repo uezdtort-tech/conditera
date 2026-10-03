@@ -1,3 +1,51 @@
+# Уездный кондитер / Conditera — локальный запуск БЕЗ Docker
+
+## Быстрый старт (Windows / macOS / Linux)
+
+```text
+1. Установите Node.js 20+            → https://nodejs.org
+2. Установите PostgreSQL              → https://www.postgresql.org/download/windows/
+   (или пропустите — встроенный dev-PostgreSQL поставится через npm, см. шаг 5)
+3. Создайте базу:  CREATE DATABASE conditera;
+4. Скопируйте .env.example → .env.local и укажите DATABASE_URL
+5. npm install
+6. npm run db:setup        → миграции + сиды + демо-юзеры + ключи (.env.local)
+   Своя PostgreSQL недоступна?  npm run db:start  — встроенный PostgreSQL на :54329
+7. npm run dev             → http://localhost:3000
+8. Опционально: npx n8n (порт 5678) — автоматизации; приложение работает и без него
+```
+
+Демо-аккаунты (создаёт db:setup, пароль у всех `Demo123!`):
+customer@demo.ru · confectioner@demo.ru · admin@demo.ru · support@demo.ru · decor@demo.ru · animator@demo.ru
+
+## Архитектура локального рантайма
+
+```text
+Windows ── PostgreSQL (локально) ── Next.js (npm run dev, :3000) ── браузер
+                                       │
+                                       ├── /api/**        — REST API приложения
+                                       ├── /rest/v1/**    — PostgREST-шим (supabase-js → SQL)
+                                       ├── /storage/v1/** — файловое хранилище (upload/storage)
+                                       └── /api/health    — {app, database, n8n, environment}
+n8n (localhost:5678) ← webhook-события (fail-safe, необязателен)
+```
+
+- **Docker не требуется.** Прежние docker-compose файлы оставлены как legacy deployment-тулинг.
+- Данные БД встроенного PostgreSQL лежат в `.pgdata/` (команды: `npm run db:start|stop|status`).
+- Секреты не хранятся в Git: `.env*` игнорируется, `.env.example` — шаблон.
+
+## Команды
+
+| Команда | Что делает |
+|---|---|
+| `npm run dev` | dev-сервер Next.js на :3000 |
+| `npm run db:setup` | проверить PG → миграции → сиды → демо-юзеры → ключи |
+| `npm run db:start / db:stop / db:status` | встроенный PostgreSQL (без Docker) |
+| `npm run db:seed` | повторно применить сиды и демо-юзеров |
+| `npm run lint / typecheck / test` | качество кода |
+
+---
+
 # Уездный кондитер (Conditera)
 
 > Маркетплейс кондитерских изделий от частных кондитеров России.
