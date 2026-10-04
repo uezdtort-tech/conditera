@@ -63,7 +63,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // 2. Найти пользователя
     const { data: user, error } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, is_blocked, account_type")
+      .select("id, email, name, is_blocked, account_type")
       .eq("id", payload.userId)
       .maybeSingle();
 
@@ -93,6 +93,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const newAccessToken = await createAccessToken({
       userId: user.id,
       email: user.email,
+      name: user.name || user.email?.split("@")[0] || "Пользователь",
       roles,
       accountType: user.account_type,
     });

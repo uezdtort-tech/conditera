@@ -225,7 +225,11 @@ const httpServer = createServer((req, res) => {
 io = new Server(httpServer, {
   path: "/",
   cors: {
-    origin: [CORS_ORIGIN, "http://localhost:3000", "http://127.0.0.1:3000"],
+    // Origin отражаем (любой источник): auth-граница сокета — JWT в
+    // handshake.auth.token, а НЕ origin/cookies. Строгий origin-лист ломал
+    // доступ с preview-домена (gateway проксирует с другим Origin), при этом
+    // JWT всё равно требуется.
+    origin: true,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -242,6 +246,15 @@ interface QuickReply { label: string; action: string; payload?: any }
 interface FaqTopic { keywords: string[]; answer: string; quickReplies?: QuickReply[] }
 
 const FAQ_TOPICS: FaqTopic[] = [
+  {
+    keywords: ["заказ", "оформ", "сделать заказ", "купить", "покупк"],
+    answer:
+      "🛒 Как сделать заказ:\n  1. Выберите товар в каталоге или соберите торт в конструкторе\n  2. Нажмите «В корзину» → «Оформить заказ»\n  3. Укажите адрес и дату доставки\n  4. Оплатите — деньги будут на эскроу до получения",
+    quickReplies: [
+      { label: "Способы оплаты", action: "faq:payment" },
+      { label: "Сроки доставки", action: "faq:delivery" },
+    ],
+  },
   {
     keywords: ["когда", "доставка", "привезут", "срок"],
     answer:

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { verifyAccessToken, type JwtPayload } from "@/lib/auth";
 import { SESSION_COOKIE } from "@/lib/session-cookies";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /**
  * GET /api/auth/session — проверка текущей сессии (единый контракт).
@@ -24,11 +25,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const payload = (await verifyAccessToken(appToken)) as JwtPayload | null;
     const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
     if (payload && userId) {
+      // display-name: старые JWT могли не содержать name-claim — догружаем
+      // из profiles (источник истины), фолбэк — claim/префикс email
+      let displayName =
+        (payload as { name?: string }).name ||
+        payload.email?.split("@")[0] ||
+        "Пользователь";
+      try {
+        const { data: profileName } = await supabaseAdmin
+          .from("profiles")
+          .select("name")
+          .eq("id", userId)
+          .maybeSingle() as { data: { name: string | null } | null; error: unknown };
+        if (profileName?.name) displayName = profileName.name;
+      } catch {
+        // профиль недоступен — используем claim/префикс
+      }
       return NextResponse.json({
         user: {
           id: userId,
           email: payload.email || "",
-          name: (payload as { name?: string }).name || payload.email?.split("@")[0] || "Пользователь",
+          name: displayName,
           roles: payload.roles || [],
           accountType: payload.accountType || "",
         },

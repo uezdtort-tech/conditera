@@ -91,6 +91,8 @@ export interface JwtPayload extends JWTPayload {
   // содержать только userId (минимальный payload).
   // Полные access/refresh tokens включают все поля.
   email?: string;
+  // name — display-name профиля (использует /api/auth/session для UI)
+  name?: string;
   roles?: string[];
   accountType?: string;
 }

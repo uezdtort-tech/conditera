@@ -1946,7 +1946,10 @@ export function CheckoutPage() {
           )}
         </div>
 
-        {/* Summary */}
+        {/* Summary — на шаге «Готово» корзина уже очищена, пустая сводка
+            вводит в заблуждение (Итого 0 ₽): показываем только на шагах 1-2;
+            сумма заказа отображается в карточке успеха (orderResult.total) */}
+        {step !== 3 && (
         <Card className="p-4 h-fit sticky top-20">
           <h3 className="font-display font-semibold mb-3">Ваш заказ</h3>
           <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
@@ -1986,6 +1989,7 @@ export function CheckoutPage() {
             </div>
           </div>
         </Card>
+        )}
       </div>
     </div>
   );

@@ -274,6 +274,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const tokenPayload = {
       userId: user.id,
       email: user.email,
+      // name — для /api/auth/session (приветствие в дашборде), чтобы не
+      // фолбэчиться на email-префикс до загрузки профиля
+      name: user.name || user.email?.split("@")[0] || "Пользователь",
       roles: userRoles,
       accountType: user.account_type,
     };

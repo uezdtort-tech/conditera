@@ -116,7 +116,10 @@ export function useSocketIO() {
             userName: user.name,
             userAvatar: user.avatar,
           },
-          transports: ["websocket", "polling"],
+          // polling-first: за gateway/прокси WebSocket-апгрейд не всегда
+          // проходит с первого раза; engine.io стартует polling-хендшейком
+          // (sid через HTTP) и поднимает websocket при возможности.
+          transports: ["polling", "websocket"],
           reconnection: true,
           reconnectionDelay: 1000,
           reconnectionAttempts: 5,

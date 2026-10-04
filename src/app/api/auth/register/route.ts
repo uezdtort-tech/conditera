@@ -383,6 +383,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const tokenPayload = {
       userId,
       email: emailLower,
+      name: name || emailLower.split("@")[0] || "Пользователь",
       roles: [finalRole],
       accountType,
     };
