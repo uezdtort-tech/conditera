@@ -20,7 +20,7 @@ import {
   Sparkles, Loader2, Download, RefreshCw, Check, ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getSessionAuthHeaders } from "@/lib/api-client";
+import { getCsrfToken, getSessionAuthHeaders } from "@/lib/api-client";
 
 interface AiPhotoStyle {
   id: string;
@@ -78,7 +78,7 @@ export function AiPhotoGenerator({
     try {
       const res = await fetch("/api/products/ai-photo", {
         method: "POST",
-        headers: await getSessionAuthHeaders(),
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({
           description,
           style,
@@ -118,7 +118,7 @@ export function AiPhotoGenerator({
       // Повторно вызываем с теми же параметрами — сервер прикрепит к товару
       const res = await fetch("/api/products/ai-photo", {
         method: "POST",
-        headers: await getSessionAuthHeaders(),
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
         body: JSON.stringify({
           description,
           style,

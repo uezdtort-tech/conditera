@@ -119,12 +119,13 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
           // amount в рублях — как хранится payments.amount
           const result = await refundPayment(payment.yookassa_payment_id, Number(payment.amount));
           if (result.success) {
+            // refund_amount здесь НЕ пишем (аудит 18651d4): финальную сумму
+            // пишет один писатель — webhook refund.succeeded через
+            // apply_yookassa_refund (0039). Прежняя прямая запись
+            // refund_amount=amount складывалась с webhook'ом → двойной учёт.
             await supabaseAdmin
               .from("payments")
-              .update({
-                status: "refunded",
-                refund_amount: payment.amount,
-              })
+              .update({ status: "refunded" })
               .eq("id", payment.id);
             // refunded — только после фактического успеха возврата
             await supabaseAdmin

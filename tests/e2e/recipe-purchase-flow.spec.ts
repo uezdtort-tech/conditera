@@ -14,6 +14,11 @@
  * Запуск:
  *   npx playwright test tests/e2e/recipe-purchase-flow.spec.ts
  */
+const E2E_BASE = process.env.E2E_BASE_URL || `http://localhost:${process.env.PORT || 3000}`
+// Node fetch требует абсолютный URL — резолвим относительные пути к базе E2E-сервера
+const apiFetch = (path: string, init?: RequestInit): Promise<Response> =>
+  fetch(path.startsWith('http') ? path : `${E2E_BASE}${path}`, init)
+
 import { test, expect } from '@playwright/test'
 
 interface Recipe {
@@ -47,7 +52,7 @@ interface RecipeCardResponse {
 
 test.describe('Recipe purchase flow — проверка контракта данных', () => {
   test('GET /api/recipes/marketplace возвращает валидные рецепты', async () => {
-    const response = await fetch('/api/recipes/marketplace?limit=20')
+    const response = await apiFetch('/api/recipes/marketplace?limit=20')
     expect(response.status).toBe(200)
 
     const json = (await response.json()) as RecipeListResponse
@@ -103,7 +108,7 @@ test.describe('Recipe purchase flow — проверка контракта да
   })
 
   test('GET /api/recipes/marketplace — премиум-рецепт имеет premium_price', async () => {
-    const response = await fetch('/api/recipes/marketplace?is_premium=true&limit=50')
+    const response = await apiFetch('/api/recipes/marketplace?is_premium=true&limit=50')
     expect(response.status).toBe(200)
     const json = (await response.json()) as RecipeListResponse
 
@@ -111,7 +116,7 @@ test.describe('Recipe purchase flow — проверка контракта да
     // проверим через отдельный GET /:id
     if (json.data.length > 0) {
       for (const recipe of json.data.slice(0, 3)) {
-        const cardResponse = await fetch(`/api/recipes/marketplace/${recipe.id}`)
+        const cardResponse = await apiFetch(`/api/recipes/marketplace/${recipe.id}`)
         expect(cardResponse.status).toBe(200)
         const cardJson = (await cardResponse.json()) as RecipeCardResponse
 
@@ -124,7 +129,7 @@ test.describe('Recipe purchase flow — проверка контракта да
 
   test('GET /api/recipes/marketplace — поиск по tag работает', async () => {
     // Сначала получить все рецепты и найти первый с тегами
-    const allResponse = await fetch('/api/recipes/marketplace?limit=50')
+    const allResponse = await apiFetch('/api/recipes/marketplace?limit=50')
     const allJson = (await allResponse.json()) as RecipeListResponse
 
     if (allJson.data.length === 0) {
@@ -140,7 +145,7 @@ test.describe('Recipe purchase flow — проверка контракта да
     }
 
     const tagToSearch = recipeWithTags.tags[0]
-    const filteredResponse = await fetch(`/api/recipes/marketplace?tag=${encodeURIComponent(tagToSearch)}`)
+    const filteredResponse = await apiFetch(`/api/recipes/marketplace?tag=${encodeURIComponent(tagToSearch)}`)
     expect(filteredResponse.status).toBe(200)
     const filteredJson = (await filteredResponse.json()) as RecipeListResponse
 
@@ -152,7 +157,7 @@ test.describe('Recipe purchase flow — проверка контракта да
 
   test('GET /api/recipes/marketplace/:id — карточка с полными данными', async () => {
     // Найти любой опубликованный рецепт
-    const listResponse = await fetch('/api/recipes/marketplace?limit=1')
+    const listResponse = await apiFetch('/api/recipes/marketplace?limit=1')
     const listJson = (await listResponse.json()) as RecipeListResponse
 
     if (listJson.data.length === 0) {
@@ -161,7 +166,7 @@ test.describe('Recipe purchase flow — проверка контракта да
     }
 
     const recipeId = listJson.data[0].id
-    const cardResponse = await fetch(`/api/recipes/marketplace/${recipeId}`)
+    const cardResponse = await apiFetch(`/api/recipes/marketplace/${recipeId}`)
     expect(cardResponse.status).toBe(200)
 
     const card = (await cardResponse.json()) as RecipeCardResponse
@@ -181,7 +186,7 @@ test.describe('Recipe purchase flow — проверка контракта да
   test('Расчёт роялти проверяется в seed-данных', async () => {
     // Из seed.sql: 3 рецепта с разными royalty_rate (0.05, 0.07, 0.10)
     // Проверим что эти ставки действительно применяются
-    const response = await fetch('/api/recipes/marketplace?limit=50')
+    const response = await apiFetch('/api/recipes/marketplace?limit=50')
     const json = (await response.json()) as RecipeListResponse
 
     if (json.data.length === 0) {
@@ -212,7 +217,7 @@ test.describe('Recipe purchase — проверка покупки (контра
     // Реальная покупка требует авторизованного пользователя.
 
     // Найти рецепт
-    const listResponse = await fetch('/api/recipes/marketplace?limit=1')
+    const listResponse = await apiFetch('/api/recipes/marketplace?limit=1')
     const listJson = (await listResponse.json()) as RecipeListResponse
 
     if (listJson.data.length === 0) {
@@ -234,7 +239,7 @@ test.describe('Recipe purchase — проверка покупки (контра
 
   test('POST /api/recipes/marketplace/:id/purchase — без авторизации → 401', async () => {
     const fakeId = '00000000-0000-0000-0000-000000000099'
-    const response = await fetch(`/api/recipes/marketplace/${fakeId}/purchase`, {
+    const response = await apiFetch(`/api/recipes/marketplace/${fakeId}/purchase`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),

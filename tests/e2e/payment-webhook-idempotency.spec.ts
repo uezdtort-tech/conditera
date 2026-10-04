@@ -50,7 +50,6 @@ function makeWebhook(
 }
 
 test.describe.serial('Payment webhook idempotency', () => {
-  test.describe.configure({ mode: 'serial' });
 
   test('1. Первый webhook payment.succeeded → 200, заказ в эскроу', async ({ request }: { request: APIRequestContext }) => {
     const body = makeWebhook('payment.succeeded', TEST_ORDER_ID, TEST_PAYMENT_ID);
