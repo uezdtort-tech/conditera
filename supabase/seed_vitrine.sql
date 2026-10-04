@@ -15,13 +15,20 @@ VALUES
   ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111102', 'authenticated', 'authenticated', 'seed-c1@conditera.local', '', now(), '{"provider":"email","providers":["email"]}', '{"name":"Seed Кондитер C1"}', now(), now()),
   ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111103', 'authenticated', 'authenticated', 'seed-c2@conditera.local', '', now(), '{"provider":"email","providers":["email"]}', '{"name":"Seed Кондитер C2"}', now(), now()),
   ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111104', 'authenticated', 'authenticated', 'seed-venue@conditera.local', '', now(), '{"provider":"email","providers":["email"]}', '{"name":"Seed Владелец площадки"}', now(), now()),
-  ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111105', 'authenticated', 'authenticated', 'seed-service@conditera.local', '', now(), '{"provider":"email","providers":["email"]}', '{"name":"Seed Провайдер услуг"}', now(), now())
+  ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111105', 'authenticated', 'authenticated', 'seed-service@conditera.local', '', now(), '{"provider":"email","providers":["email"]}', '{"name":"Seed Провайдер услуг"}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111111', 'authenticated', 'authenticated', 'seed-c3@conditera.local', '', now(), '{"provider":"email","providers":["email"]}', '{"name":"Seed Кондитер C3"}', now(), now()),
+  ('00000000-0000-0000-0000-000000000000', '11111111-1111-4111-8111-111111111112', 'authenticated', 'authenticated', 'seed-c4@conditera.local', '', now(), '{"provider":"email","providers":["email"]}', '{"name":"Seed Кондитер C4"}', now(), now())
 ON CONFLICT (id) DO NOTHING;
 
 -- ===== 2. Привязка seed-кондитеров к auth-UUID =====
+-- Все 5 кондитеров витрины (c0..c4) привязаны к реальным auth-UUID —
+-- легаси-стабы 'u0'..'u8' больше не используются (раньше c3/c4 висели
+-- с userId 'u7'/'u8', которые не ссылались ни на один профиль).
 UPDATE public.confectioners SET "userId" = '11111111-1111-4111-8111-111111111101' WHERE id = 'c0' AND "userId" <> '11111111-1111-4111-8111-111111111101';
 UPDATE public.confectioners SET "userId" = '11111111-1111-4111-8111-111111111102' WHERE id = 'c1' AND "userId" <> '11111111-1111-4111-8111-111111111102';
 UPDATE public.confectioners SET "userId" = '11111111-1111-4111-8111-111111111103' WHERE id = 'c2' AND "userId" <> '11111111-1111-4111-8111-111111111103';
+UPDATE public.confectioners SET "userId" = '11111111-1111-4111-8111-111111111111' WHERE id = 'c3' AND "userId" <> '11111111-1111-4111-8111-111111111111';
+UPDATE public.confectioners SET "userId" = '11111111-1111-4111-8111-111111111112' WHERE id = 'c4' AND "userId" <> '11111111-1111-4111-8111-111111111112';
 
 -- ===== 3. Товары (12 шт., витрина /catalog) =====
 INSERT INTO public.products (id, confectioner_id, category_id, slug, title, description, long_description, price, old_price, weight_grams, servings, tags, dietary_features, status, is_featured, views_count, sales_count, rating_average, reviews_count, published_at)

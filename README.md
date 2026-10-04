@@ -89,8 +89,8 @@ n8n (localhost:5678) ← webhook-события (fail-safe, необязател
 ## Архитектура
 
 - **Backend:** Next.js 16 (App Router), ~68 групп API-роутов, 18 cron-задач (`src/app/api/cron/`)
-- **Database:** self-hosted Supabase — PostgreSQL 15 + Kong + GoTrue + Storage + Studio (`docker-compose.supabase.yml`)
-- **Migrations:** SQL-файлы `supabase/migrations/0001..0038`, применяются скриптами `scripts/ops-apply-*.ts`
+- **Database:** PostgreSQL 15+ (локально или embedded через `npm run db:start` — без Docker). Доступ через `supabase-js` поверх PostgREST-шима (`/rest/v1` обслуживает сам Next.js)
+- **Migrations:** SQL-файлы `supabase/migrations/0001..0047`, применяются командой `npm run db:setup`
 - **Realtime:** Socket.IO (chat, typing, online, order-tracking) — `mini-services/chat-server`
 - **Payments:** YooKassa (mock/real, идемпотентность, IP whitelist, эскроу через cron)
 - **Auth:** JWT (jose) + bcrypt + 2FA TOTP + OAuth (Telegram/Google/Yandex/VK)
@@ -102,45 +102,22 @@ n8n (localhost:5678) ← webhook-события (fail-safe, необязател
 
 ## Быстрый старт
 
-### Требования
-- Node.js 20+ / Bun 1.x
-- Docker 24+ (для self-hosted Supabase)
-
-### Установка
+Актуальная инструкция — в начале этого файла (секция «Быстрый старт (Windows / macOS / Linux)»).
+Коротко:
 
 ```bash
-git clone https://github.com/uezdtort-tech/conditera.git
-cd conditera
-bun install
-
-# Настроить окружение (интерактивный мастер)
-bash scripts/setup-env.sh dev
-# ИЛИ вручную:
-#   cp .env.local.example .env.local
-#   задать DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL,
-#   SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET и т.д.
-
-# Проверить готовность окружения
-bash scripts/env-check.sh
-
-# Запустить Supabase (PostgreSQL + Kong + GoTrue + Storage + Studio)
-docker-compose -f docker-compose.supabase.yml up -d
-
-# Применить миграции (SQL: supabase/migrations/0001..0038)
-# — через ops-скрипты последовательности или psql, см. docs/DATABASE.md
-
-# Заполнить тестовые данные (ТОЛЬКО для dev-окружения!)
-bun run db:seed
-
-# Запуск dev-сервера
-bun run dev:local
-# → http://localhost:3000
+npm install
+npm run db:setup    # миграции + сиды + демо-аккаунты + .env.local (PostgreSQL без Docker)
+npm run dev         # http://localhost:3000
 ```
 
-> ⚠️ `bun run dev` в этом репозитории — production-режим (`next build && next start`).
-> Для разработки используйте `bun run dev:local`.
+> Примечание: `npm run dev` запускает настоящий dev-сервер (`next dev`).
+> Production-сборка — отдельная команда `npm run build && npm run start`.
 
-### Production (Docker)
+### Production (Docker, legacy deployment-тулинг)
+
+Самохостинг Supabase/Docker-файлы сохранены как legacy deployment-вариант и
+локальному запуску не требуются:
 
 ```bash
 cp .env.production.example .env.production
@@ -154,26 +131,27 @@ docker-compose ps
 docker-compose logs -f web
 ```
 
-> ⚠️ **Никогда не запускайте `db:seed` в production** — seed создаёт
-> демонстрационные аккаунты с публично известными паролями (см. `prisma/seed.ts`).
+> ⚠️ **Никогда не запускайте `npm run db:seed` / `db:setup` в production** —
+> сиды создают демонстрационные аккаунты с публично известными паролями (`Demo123!`).
 
 ## Структура проекта
 
 ```
-├── supabase/                  # Самохостинг Supabase: миграции (0001..0038), config, seed
-├── prisma/                    # LEGACY (Prisma удалена): используется только seed.ts
+├── supabase/                  # миграции (0001..0047), compat-сиды, seed-данные витрины
 ├── src/
 │   ├── app/
 │   │   ├── api/               # ~68 групп роутов: auth, orders, payment, chat,
 │   │   │                      #   cron (18 задач), simplex, admin, ai, ...
+│   │   ├── rest/v1/           # PostgREST-шим (supabase-js → SQL) — локальный рантайм
+│   │   ├── storage/v1/        # файловое хранилище — локальный рантайм
 │   │   └── ...                # страницы маркетплейса
 │   ├── components/
 │   │   ├── dashboard/         # дашборд кондитера
 │   │   ├── marketplace/       # карточки, фильтры, карты
 │   │   └── ui/                # shadcn/ui
 │   └── lib/
-│       ├── supabase/          # admin.ts, browser.ts — доступ к БД (v2.0)
-│       ├── auth.ts            # JWT + 2FA temp token
+│       ├── supabase/          # admin.ts, browser.ts, auth.ts — доступ к БД (v2.0)
+│       ├── auth.ts            # JWT + bcrypt + 2FA temp token
 │       ├── totp.ts            # RFC 6233 (нативный crypto)
 │       ├── yookassa.ts        # платежи + эскроу
 │       ├── anti-fraud.ts      # rate limiting (SHA-256 IP)
@@ -181,14 +159,14 @@ docker-compose logs -f web
 │       └── geocoder.ts        # 180+ городов + DaData + Yandex
 ├── mini-services/
 │   ├── chat-server/           # Socket.IO (порт 3030)
-│   └── simplex-bridge/        # SimpleX bot-мост (порт 5226)
+│   ├── n8n-receiver/          # приёмник webhook-событий (:5678, dev-эмуляция n8n)
+│   └── simplex-bridge/        # SimpleX bot-мост
+├── n8n-workflows/             # 25 workflow JSON + 26-conditera-event-bus (9/9 событий)
 ├── mobile-app/                # Expo React Native
-├── scripts/                   # ops-apply-*.ts, db-push.mjs, setup-env.sh, env-check.sh
-├── docs/                      # AUTH, DATABASE, DOCKER_DEPLOY, ROLE_MATRIX, DNS_SETUP...
-├── docker-compose.supabase.yml  # Supabase-стек (Postgres, Kong, GoTrue, Storage, Studio)
-├── docker-compose.yml         # production: web, db, redis, chat, n8n, caddy, ...
-├── Dockerfile                 # multi-stage, standalone, healthcheck
-└── Caddyfile                  # reverse-proxy + auto-HTTPS + security headers
+├── scripts/                   # db/setup.mjs (db:setup), db/runtime.mjs (embedded PG), db-push.mjs (legacy deploy-контракт)
+├── docs/                      # AUTH, DATABASE, ROLE_MATRIX, API_AUTH_MATRIX...
+├── docker-compose*.yml        # LEGACY deployment-тулинг (локальному запуску не нужен)
+└── Caddyfile                  # reverse-proxy (legacy deploy)
 ```
 
 ## Безопасность
@@ -222,12 +200,15 @@ bun run lint          # ESLint
 
 ## Статус (v2.0, предрелиз)
 
-Проверено и работает: production-сборка (`next build`), typecheck, lint, e2e
-золотой путь (главная → каталог → карточка → корзина), деплой-пайплайн платформы.
+Локальный рантайм без Docker проверен end-to-end: `npm install && npm run db:setup && npm run dev`,
+регистрация/вход/выход, каталог + карточка товара (deep link), конструктор, корзина →
+заказ → оплата (webhook, идемпотентность, эскроу, бонусы), возврат (идемпотентность),
+чат покупатель↔кондитер + поддержка (персистентность, unread, идемпотентность),
+склад кондитера (движения, списание, inventory.low), декор/услуги из БД,
+n8n event bus (9/9 событий) + health-check `{app, database, n8n}`.
 
 Известные ограничения перед публичным production-релизом:
-- CI-workflows (`.github/workflows/`) требуют чистки: сломанные `branches`, упоминания удалённого Prisma
-- Покрытие автотестами минимальное; критичные пути проверены вручную
+- E2E-сьют (Playwright) не расширен под новый локальный стек; критичные пути проверены вручную/HTTP-пробами
 - Локализация: только русский язык
 - Dual-lockfile: `bun.lock` + `package-lock.json` (см. issues)
 

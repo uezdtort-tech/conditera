@@ -873,6 +873,32 @@ export function useLiveProducts(limit = 60) {
   });
 }
 
+/**
+ * useLiveProductDetail — карточка товара по id/slug (публичный GET /api/products/[id]).
+ *
+ * Зачем: ProductPage берёт товар из store.products, который гидрируется
+ * списком /api/products асинхронно. При прямом переходе по ссылке
+ * (/product?id=...) в store товара ещё нет — страница мгновенно показывала
+ * «Товар не найден». Хук догружает карточку напрямую; null + loading=false
+ * = товара нет в БД (честная 404-ветка).
+ */
+export function useLiveProductDetail(id: string | null | undefined) {
+  return useQuery<{ product: StoreProduct | null }>({
+    queryKey: ["live-product-detail", id],
+    queryFn: async () => {
+      const res = await fetch(`/api/products/${id}`);
+      if (res.status === 404) return { product: null };
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { product?: ApiProduct };
+      return { product: json.product ? mapApiProductToProduct(json.product) : null };
+    },
+    enabled: Boolean(id),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+}
+
 // ==================== Live-услуги (/api/services) ====================
 
 /** Сырая строка service_products из GET /api/services (snake_case, копейки). */

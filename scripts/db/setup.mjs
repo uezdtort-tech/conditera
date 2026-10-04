@@ -650,6 +650,14 @@ async function main() {
       }
     }
 
+// 7. Демо-пользователи — ДО сидов: seed_vitrine/0003_seed_inventory
+//    джойнят profiles по email (confectioner@demo.ru и др.), поэтому на
+//    ЧИСТОЙ БД без этой перестановки склад/витрина оставались пустыми
+//    (сид молча вставлял 0 строк — JOIN не находил профиль).
+//    Безопасно: ON CONFLICT (id) DO UPDATE у seed_confectioners.sql
+//    не перезаписывает "userId" — линк демо-кондитера на c0 сохраняется.
+await upsertDemoUsers(client);
+
 console.log("\n─── Seeds ───");
     for (const seedFile of SEED_FILES) {
       if (!existsSync(seedFile)) {
@@ -667,9 +675,6 @@ console.log("\n─── Seeds ───");
         console.warn(`  ⚠ ${path.basename(seedFile)} aborted: ${String(err.message).slice(0, 140)}`);
       }
     }
-
-    // 7. Демо-пользователи
-    await upsertDemoUsers(client);
 
     // 8. env-ключи
     ensureEnvKeys();

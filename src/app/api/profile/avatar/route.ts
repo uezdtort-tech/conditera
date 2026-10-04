@@ -13,7 +13,8 @@
  * что пользователь может писать только в папку с собственным user_id.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -27,8 +28,9 @@ const EXT_BY_MIME: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+  // Auth: единый контракт (Bearer + cookie cd_session)
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
@@ -59,8 +61,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const timestamp = Date.now();
     const filePath = `${user.id}/${timestamp}.${ext}`;
 
-    // Загружаем в bucket "avatars" (RLS: владелец может писать в свою папку)
-    const { error: uploadError } = await supabase.storage
+    // Загружаем в bucket "avatars" (локальный storage-шим /storage/v1)
+    const { error: uploadError } = await supabaseAdmin.storage
       .from("avatars")
       .upload(filePath, file, {
         cacheControl: "3600",
@@ -77,12 +79,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Получаем публичный URL (bucket "avatars" — public)
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = supabaseAdmin.storage
       .from("avatars")
       .getPublicUrl(filePath);
 
     // Обновляем profiles.avatar_url
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from("profiles")
       .update({ avatar_url: publicUrl })
       .eq("id", user.id);

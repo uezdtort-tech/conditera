@@ -48,6 +48,7 @@ import {
 } from "@/lib/finance";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { useLiveProductDetail } from "@/lib/supabase/use-marketplace";
 
 export function ProductPage() {
   const nav = useAppStore((s) => s.nav);
@@ -59,7 +60,13 @@ export function ProductPage() {
   const navigate = useAppStore((s) => s.navigate);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
 
-  const product = products.find((p) => p.id === nav.params?.id);
+  const productId = nav.params?.id;
+  const storeProduct = products.find((p) => p.id === productId);
+
+  // Deep-link (/product?id=...) — store ещё не гидрирован → догружаем карточку
+  // напрямую через GET /api/products/[id] (см. useLiveProductDetail).
+  const detail = useLiveProductDetail(storeProduct ? null : productId);
+  const product = storeProduct || (detail.data?.product ?? undefined);
 
   const [quantity, setQuantity] = useState(1);
   const [selectedFilling, setSelectedFilling] = useState(0);
@@ -146,6 +153,19 @@ export function ProductPage() {
       script2.remove();
     };
   }, [product?.id, product?.price, selectedFilling, selectedCoating, selectedDecoration]);
+
+  if (!product && detail.isFetching) {
+    // Гидрация/догрузка карточки — скелет вместо ложного «Товар не найден»
+    return (
+      <div className="container mx-auto px-4 py-12">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 w-80 bg-muted rounded" />
+          <div className="h-64 w-full bg-muted rounded" />
+          <div className="h-4 w-96 bg-muted/70 rounded" />
+        </div>
+      </div>
+    );
+  }
 
   if (!product) {
     return (

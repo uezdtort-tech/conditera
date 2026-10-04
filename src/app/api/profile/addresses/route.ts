@@ -8,13 +8,15 @@
  * Если is_default=true — все остальные адреса пользователя сбрасываются в is_default=false.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+  // Auth: единый контракт (Bearer + cookie cd_session)
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
@@ -40,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Если is_default=true — снимаем флаг с остальных адресов.
     if (is_default) {
-      const { error: resetError } = await supabase
+      const { error: resetError } = await supabaseAdmin
         .from("addresses")
         .update({ is_default: false })
         .eq("user_id", user.id)
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("addresses")
       .insert({
         user_id: user.id,
@@ -76,8 +78,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
@@ -88,8 +90,8 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Не указан id адреса" }, { status: 400 });
     }
 
-    // Удаляем адрес (RLS гарантирует что можно удалить только свой)
-    const { error } = await supabase
+    // Удаляем адрес (только свой — .eq("user_id", user.id))
+    const { error } = await supabaseAdmin
       .from("addresses")
       .delete()
       .eq("id", addressId)

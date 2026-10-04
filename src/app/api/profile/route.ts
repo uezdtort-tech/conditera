@@ -6,7 +6,8 @@
  * Schema: public.addresses (0001_init.sql) — RLS: владелец может читать/писать свои адреса.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -18,15 +19,17 @@ function isValidField(field: string): field is ProfileField {
   return (ALLOWED_FIELDS as readonly string[]).includes(field);
 }
 
-export async function GET(): Promise<NextResponse> {
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  // Auth: единый контракт (Bearer + cookie cd_session) — не GoTrue getSession,
+  // который мёртв в локальном рантайме без Docker-стека.
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
   try {
-    // Загружаем профиль (RLS пропускает только собственную строку)
-    const { data: profile, error } = await supabase
+    // Загружаем профиль (владение через .eq("id", user.id) — эквивалент RLS)
+    const { data: profile, error } = await supabaseAdmin
       .from("profiles")
       .select("id, email, name, phone, bio, avatar_url, city, default_delivery_address, two_factor_enabled")
       .eq("id", user.id)
@@ -37,7 +40,7 @@ export async function GET(): Promise<NextResponse> {
     }
 
     // Загружаем адреса доставки
-    const { data: addresses } = await supabase
+    const { data: addresses } = await supabaseAdmin
       .from("addresses")
       .select("id, label, text, lat, lng, is_default, created_at")
       .eq("user_id", user.id)
@@ -57,8 +60,8 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
@@ -90,8 +93,8 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Нет полей для обновления" }, { status: 400 });
     }
 
-    // Обновляем профиль (RLS пропускает только владельца)
-    const { data, error } = await supabase
+    // Обновляем профиль (только владелец — .eq("id", user.id))
+    const { data, error } = await supabaseAdmin
       .from("profiles")
       .update(updates)
       .eq("id", user.id)

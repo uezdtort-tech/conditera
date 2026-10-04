@@ -29,7 +29,7 @@
  *         storage.buckets: avatars, covers, portfolio (migration 0026)
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -138,9 +138,9 @@ async function generateUniqueSlug(businessName: string): Promise<string> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // ===== Auth: требует CONFECTIONER =====
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+  // ===== Auth: единый контракт (Bearer + cookie cd_session) =====
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 

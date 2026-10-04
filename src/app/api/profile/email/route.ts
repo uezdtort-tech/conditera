@@ -1,27 +1,26 @@
 /**
- * POST /api/profile/email — смена email с подтверждением нового адреса.
+ * POST /api/profile/email — смена email с подтверждением пароля.
  *
  * Тело: { newEmail: string, password: string }
  *
- * Шаги:
- *   1. Проверяем что password валиден (переавторизация).
- *   2. Вызываем supabase.auth.updateUser({ email: newEmail }) — Supabase GoTrue
- *      автоматически отправит verification email на новый адрес.
- *   3. Обновляем profiles.email только после подтверждения (через колбэк
- *      /api/auth/callback) — но Supabase уже делает это сам через auth.users.
- *   4. profiles.email синхронизируем сразу для удобной работы оффлайн-форм.
- *      После отклонения подтверждения email нужно вручную откатить.
+ * Локальный рантайм (без Docker/GoTrue/SMTP): пароль проверяется против
+ * profiles.password_hash (bcrypt), email обновляется в profiles сразу.
+ * Письмо-подтверждение не отправляется (SMTP не настроен) — сообщение
+ * честно об этом информирует. Уникальность email гарантируется проверкой
+ * перед обновлением (в БД — UNIQUE constraint как страховка).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/supabase/auth";
+import { getUserFromRequest, verifyPassword } from "@/lib/auth";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+  // Auth: единый контракт (Bearer + cookie cd_session)
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
@@ -39,38 +38,53 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Новый email совпадает с текущим" }, { status: 400 });
     }
 
-    // Шаг 1. Проверяем пароль переавторизацией.
-    const { error: verifyError } = await supabase.auth.signInWithPassword({
-      email: user.email ?? "",
-      password,
-    });
-    if (verifyError) {
+    // Шаг 1. Проверяем пароль против profiles.password_hash (bcrypt).
+    const { data: row, error: fetchError } = await supabaseAdmin
+      .from("profiles")
+      .select("email, password_hash")
+      .eq("id", user.id)
+      .single();
+
+    if (fetchError || !row) {
+      return NextResponse.json({ error: "Профиль не найден" }, { status: 404 });
+    }
+    if (!row.password_hash) {
+      return NextResponse.json(
+        { error: "Пароль для аккаунта не задан. Используйте вход через провайдера." },
+        { status: 409 }
+      );
+    }
+    const passwordOk = await verifyPassword(password, row.password_hash);
+    if (!passwordOk) {
       return NextResponse.json({ error: "Пароль неверен" }, { status: 403 });
     }
 
-    // Шаг 2. Просим Supabase обновить email. GoTrue сам отправит письмо
-    // подтверждения на новый адрес — пока пользователь не кликнет, старый
-    // email остаётся активным.
-    const { error: updateError } = await supabase.auth.updateUser({ email: newEmail });
-    if (updateError) {
-      console.error("[profile/email] update error:", updateError.message);
-      return NextResponse.json({ error: "Не удалось сменить email", detail: updateError.message }, { status: 500 });
+    // Шаг 2. Проверяем уникальность нового email.
+    const { data: existing } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("email", newEmail.toLowerCase())
+      .neq("id", user.id)
+      .maybeSingle();
+    if (existing) {
+      return NextResponse.json({ error: "Этот email уже используется другим аккаунтом" }, { status: 409 });
     }
 
-    // Шаг 3. Обновляем profiles.email (для UI). Auth.users обновится
-    // автоматически только после подтверждения пользователем.
-    const { error: profileError } = await supabase
+    // Шаг 3. Обновляем profiles.email. В локальном рантайме (без SMTP)
+    // письмо-подтверждение не отправляется — смена применяется сразу.
+    const { error: profileError } = await supabaseAdmin
       .from("profiles")
-      .update({ email: newEmail })
+      .update({ email: newEmail.toLowerCase() })
       .eq("id", user.id);
 
     if (profileError) {
-      console.warn("[profile/email] profile update warning:", profileError.message);
+      console.error("[profile/email] profile update error:", profileError.message);
+      return NextResponse.json({ error: "Не удалось сменить email", detail: profileError.message }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      message: "Письмо подтверждения отправлено на новый email. Email сменится после подтверждения.",
+      message: "Email обновлён. Подтверждающее письмо не отправляется в локальном режиме (SMTP не настроен).",
     });
   } catch (error: any) {
     console.error("[profile/email] exception:", error?.message);

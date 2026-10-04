@@ -4,22 +4,22 @@
  * Тело: { oldPassword: string, newPassword: string }
  * newPassword: мин. 8 символов, макс. 128.
  *
- * Под капотом: supabase.auth.updateUser({ password }) — Supabase GoTrue
- * сам проверяет текущий пароль (требует свежей сессии) и хеширует новый
- * через Argon2id. Мы НЕ используем кастомный Argon2 в profiles.password_hash
- * здесь — пусть GoTrue будет source-of-truth для паролей.
- *
- * После смены пароля все сессии пользователя аннулируются (Supabase делает
- * это автоматически через refresh token revocation).
+ * Локальный рантайм (без Docker/GoTrue): пароль хранится в
+ * profiles.password_hash (bcrypt, см. src/lib/auth.ts hashPassword).
+ * Проверяем старый пароль bcrypt.compare, новый — bcrypt.hash(10).
+ * GoTrue-путь (supabase.auth.updateUser) удалён — он недоступен без
+ * Docker-стека и ломал бы единый auth-контракт.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/supabase/auth";
+import { getUserFromRequest, hashPassword, verifyPassword } from "@/lib/auth";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
-  const { user, supabase } = await getSession();
-  if (!user || !supabase) {
+  // Auth: единый контракт (Bearer + cookie cd_session)
+  const user = await getUserFromRequest(request);
+  if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
@@ -41,17 +41,34 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Новый пароль должен отличаться от старого" }, { status: 400 });
     }
 
-    // Шаг 1. Проверяем старый пароль, переавторизовываясь.
-    const { error: verifyError } = await supabase.auth.signInWithPassword({
-      email: user.email ?? "",
-      password: oldPassword,
-    });
-    if (verifyError) {
+    // Шаг 1. Проверяем старый пароль против profiles.password_hash (bcrypt).
+    const { data: row, error: fetchError } = await supabaseAdmin
+      .from("profiles")
+      .select("password_hash")
+      .eq("id", user.id)
+      .single();
+
+    if (fetchError || !row) {
+      return NextResponse.json({ error: "Профиль не найден" }, { status: 404 });
+    }
+    if (!row.password_hash) {
+      // Аккаунт создан через внешний провайдер без локального пароля.
+      return NextResponse.json(
+        { error: "Пароль для аккаунта не задан. Используйте вход через провайдера." },
+        { status: 409 }
+      );
+    }
+    const oldOk = await verifyPassword(oldPassword, row.password_hash);
+    if (!oldOk) {
       return NextResponse.json({ error: "Старый пароль неверен" }, { status: 403 });
     }
 
-    // Шаг 2. Меняем пароль.
-    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+    // Шаг 2. Хешируем и сохраняем новый пароль.
+    const newHash = await hashPassword(newPassword);
+    const { error: updateError } = await supabaseAdmin
+      .from("profiles")
+      .update({ password_hash: newHash })
+      .eq("id", user.id);
     if (updateError) {
       console.error("[profile/password] update error:", updateError.message);
       return NextResponse.json({ error: "Не удалось сменить пароль", detail: updateError.message }, { status: 500 });
