@@ -7376,3 +7376,30 @@ Stage Summary:
 - PASS: health (app/db/n8n), register/login/logout, orders journey, payment webhook (escrow+бонусы+уведомления), refund UI+идемпотентность, чат персистентный + n8n, инвентарь реальный + low-stock event, decor/services из БД.
 - Артефакты: миграции 0041–0046, seed 0003, mini-services/n8n-receiver, ~55 исправленных файлов.
 - Известные ограничения (честно): нет кросс-табличной транзакции в movements (журнал при падении UPDATE остаётся), batch write-off не идемпотентен, recipe→order автолинковки нет, bot-сообщения chat-server не персистятся, E2E-сьют не расширен под новый стек.
+
+---
+Task ID: 8-finalize
+Agent: orchestrator (session continuation — улучшение проекта + push)
+Task: Аудит кодовой базы, устранение проблем, UI/контент, оптимизация БД, n8n, готовность, push
+
+Work Log:
+- Восстановление после сброса песочницы: embedded PG (.pgdata создан заново), db:setup (46 миграций+сиды). Найдена причина «database unavailable»: платформенная оболочка экспортирует DATABASE_URL=file:...custom.db → dev стартует с явным перекрытием DATABASE_URL. health: app ok / db ok / n8n ok.
+- Git: работа велась на локальном main (8 коммитов local-runtime, дивергировал от 402fbc5). Выполнен merge 402fbc5 → main (2 конфликта: chat-widget — оставлен main real-first; worklog — объединён). Теперь main содержит ОБЕ линии → push на release/readiness-fixes fast-forward.
+- Бот-персистенция чата: новый POST /api/chat/rooms/[id]/bot-message (x-bot-secret timing-safe, fail-closed 503/403) + системный бот-пользователь (seed 0004, UUID aaaaaaaa-...0b07) + chat-server persistBotMessage (faq/escalation, после real-time доставки). E2E PASS: socket→persist→history GET.
+- staff-unread: support-оператор без membership видит счётчик (сообщения после его последнего ответа, bot исключены). Браузерно: unread=2 у оператора. PASS.
+- shim jsonb: node-postgres сериализует массивы как PG-массивы → 22P02 на ::jsonb. pgParamValue канонизирует объекты/массивы в JSON-строку (insert+update). Было: bot quick_replies ломали insert.
+- env: setup.mjs генерирует CRON_SECRET/BOT_SECRET/N8N_BASE_URL/N8N_WEBHOOK_BASE_URL; создан .env.example (92 переменных из кода, обязательные/опциональные группы). health status: ok (было degraded из-за CRON_SECRET).
+- БД: миграция 0047 — idx_channels_type_last_message (частичный, deleted_at IS NULL) + idx_channels_support_ticket; ANALYZE горячих таблиц. Полный аудит FK-индексов: все горячие пути покрыты (orders/orders_items/chat/products/inventory).
+- n8n: приёмник принимает /webhook/conditera-* (канон n8n — был разрыв: эмиттер шлёт на /webhook/..., приёмник слушал /conditera-...); живой проброс chat.message.created и order.paid подтверждён (payload {type,payload,occurredAt,source}); новый workflow 26-conditera-event-bus покрывает 9/9 событий контракта (9 webhook-нод → Normalize → NoOp); 25/25 workflow JSON структурно валидны; 9/9 событий эмитируются из кода.
+- UI/контент: 12 AI-фото товаров (public/uploads/products/, сид 0005 по slug); products.images (text[]) объединяется с product_images в /api/products; ИСПРАВЛЕН БАГ ЦЕН: mapApiProductToProduct делил на 100 («копейки») — витрина показывала 7 ₽ вместо 690 ₽; отзывы из БД: публичный GET /api/reviews + сид 0006 (6 отзывов, 2 новых демо-покупателя customer2/3) + секция «Отзывы» на главной (скелетоны при загрузке, честный фолбэк при пустой БД); статсы главной из реальных данных (5 кондитеров/12 товаров/4 города/4.7) вместо выдуманных «2 400+/18 000+/120 000+/50 000 клиентов»; CTA без фейковых цифр.
+- auth UX: name в JWT (login/register/refresh) + session-роут тянет name из profiles → «Здравствуйте, Демо!» вместо «customer».
+- checkout: пустая сводка корзины (Итого 0 ₽) скрыта на шаге успеха.
+- chat real-time за gateway: CORS origin:true (auth=JWT, не origin) — чат заработал с preview-домена; transports polling-first (WS-апгрейд за прокси). Браузерно: бейдж «онлайн (real-time)», FAQ-ответ «Как сделать заказ» (новая тема в FAQ_TOPICS), персистенция.
+- Браузерная верификация золотого пути (агент-браузер, через gateway :81): логин → каталог (фото+цены 690/1500/1200/2600 ₽) → карточка Наполеона (5.0, 1 отзыв) → корзина 2400+300=2700 ₽ → checkout (имя/телефон/адрес/город/дата) → Оплатить 2700 ₽ → «Заказ оформлен» UK-2026-822889 → webhook payment.succeeded → payment succeeded + order escrow → n8n order.paid → чат real-time → кондитер: Склад 12 позиций (39 065 ₽, алерт «Шоколад белый 1.2 кг мин 2», «Пополнить»).
+- Гейты: tsc 0, eslint 0, health ok. Коммиты: merge f4659d8, 1bc5e84, c5c14db.
+
+Stage Summary:
+- PUSH выполнен: main (c5c14db) → origin/release/readiness-fixes (fast-forward от 402fbc5, без force). main не обновлялся на origin.
+- Готовность (честно): npm run dev/setup — PASS; register/login/logout/session — PASS; каталог/товар — PASS (фото, цены); конструктор — PASS (ранее, 0043-наборы); корзина/заказ/оплата/escrow — PASS; возврат (идемпотентность 0041) — PASS (ранее); чат real-time+FAQ+персист+unread — PASS; поддержка (мост ticket↔chat) — PASS (ранее); склад/движения/low-stock — PASS; decor/services из БД — PASS (ранее); n8n 9/9 событий + приёмник + event-bus workflow — PASS.
+- Известные ограничения: bot-сообщения FAQ-бота эмитят chat.message.created только для сообщений пользователей (бот-ответы не эмитят — приемлемо); batch write-off не идемпотентен; нет кросс-табличной транзакции movement+update (CRITICAL-лог при расхождении); E2E-сьют не расширен (правило: тесты не писать); refresh-token не включает name при первичном логине (догружается session-роутом из profiles).
+- ТОКЕН РЕКОМЕНДОВАНО РОТИРОВАТЬ (передавался в чате открыто).
