@@ -27,6 +27,10 @@ const CORS_ORIGIN = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 // Idempotency-Key, что у клиента → дубли исключены (23505 → существующая
 // строка). Сбой Next API не роняет сокет — broadcast уже прошёл.
 const NEXT_API_BASE = process.env.NEXT_API_URL || "http://127.0.0.1:3000";
+// Секрет server-to-server канала персистенции bot-сообщений
+// (POST /api/chat/rooms/{id}/bot-message, заголовок x-bot-secret).
+// Если не задан — bot-сообщения работают как раньше (real-time only, без истории).
+const BOT_SECRET = process.env.BOT_SECRET || "";
 
 interface CsrfPair { token: string; cookie: string; ts: number }
 let csrfPair: CsrfPair | null = null;
@@ -88,6 +92,45 @@ async function persistMessage(
     // Next API недоступен — сокет-доставка уже прошла (транзиентно ок)
     console.warn("[persist] Next API недоступен:", (err as Error).message);
     return { ok: false };
+  }
+}
+
+/** Персистенция bot-сообщения (server-to-server, x-bot-secret).
+ *  sender_id = системный бот-пользователь (seed 0004_seed_bot_user.sql).
+ *  Сбой не критичен: real-time доставка уже прошла. */
+async function persistBotMessage(
+  roomId: string,
+  text: string,
+  botKind: "faq" | "escalation",
+  quickReplies?: QuickReply[]
+): Promise<void> {
+  if (!BOT_SECRET || !text) return;
+  try {
+    const pair = await fetchCsrfPair();
+    if (!pair) return;
+    const idemKey = `bot-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const doPost = (p: CsrfPair) =>
+      fetch(`${NEXT_API_BASE}/api/chat/rooms/${roomId}/bot-message`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bot-secret": BOT_SECRET,
+          "Idempotency-Key": idemKey,
+          "x-csrf-token": p.token,
+          Cookie: `csrf_token=${p.cookie}`,
+        },
+        body: JSON.stringify({ text, botKind, quickReplies, idempotencyKey: idemKey }),
+      });
+    let res = await doPost(pair);
+    if (res.status === 403) {
+      const fresh = await fetchCsrfPair(true);
+      if (fresh) res = await doPost(fresh);
+    }
+    if (!res.ok) {
+      console.warn(`[bot-persist] POST bot-message ${roomId} → ${res.status}`);
+    }
+  } catch (err) {
+    console.warn("[bot-persist] Next API недоступен:", (err as Error).message);
   }
 }
 
@@ -291,9 +334,10 @@ function matchFaq(message: string): FaqTopic | null {
 
 /**
  * Авточат: matчит FAQ и отправляет bot-сообщение в комнату через 800мс.
- * Эмулирует real-time ответ бота.
+ * Эмулирует real-time ответ бота. После доставки — персистенция через
+ * bot-message API (история переживает рестарт).
  */
-function handleAutoReply(roomId: string, userMessage: string, _userId: string) {
+function handleAutoReply(roomId: string, userMessage: string, _userId: string, authToken?: string) {
   setTimeout(() => {
     let botText: string;
     let botKind: "faq" | "escalation" = "faq";
@@ -328,6 +372,13 @@ function handleAutoReply(roomId: string, userMessage: string, _userId: string) {
     };
     io.to(roomId).emit("message:receive", { roomId, message: botMsg });
     console.log(`🤖 bot → ${roomId}: ${botText.slice(0, 50)}...`);
+
+    // Персистенция: легаси-комнату (r3) маппим в реальную, реальные пишем как есть
+    if (authToken) {
+      resolveRoomId(roomId, authToken, _userId)
+        .then((realRoomId) => persistBotMessage(realRoomId, botText, botKind, quickReplies))
+        .catch(() => {});
+    }
   }, 800);
 }
 
@@ -493,7 +544,7 @@ io.on("connection", (socket) => {
         roomType === "support" ||
         roomType === "order";
       if (isAutoReplyRoom) {
-        handleAutoReply(data.roomId, message.text, userId);
+        handleAutoReply(data.roomId, message.text, userId, authToken);
       }
     })();
   });
@@ -542,10 +593,16 @@ io.on("connection", (socket) => {
             botKind: "escalation",
           };
           io.to(data.roomId).emit("message:receive", { roomId: data.roomId, message: botMsg });
+          // Персистенция escalation-ответа бота
+          if (authToken) {
+            resolveRoomId(data.roomId, authToken, userId)
+              .then((realRoomId) => persistBotMessage(realRoomId, botMsg.text, "escalation"))
+              .catch(() => {});
+          }
         }, 500);
       } else if (isChatRoom) {
         // Иначе — обычный auto-reply по тексту кнопки
-        handleAutoReply(data.roomId, data.reply.label, userId);
+        handleAutoReply(data.roomId, data.reply.label, userId, authToken);
       }
     })();
   });

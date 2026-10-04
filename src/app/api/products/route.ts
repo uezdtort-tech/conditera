@@ -79,7 +79,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         id, title, slug, description, price, old_price,
         category_id, weight_grams, servings, tags,
         rating_average, reviews_count, confectioner_id,
-        status, is_featured, created_at
+        status, is_featured, created_at, images
       `)
       .eq("status", "published");
 
@@ -161,13 +161,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // Merge products with confectioner and images
+    // Merge products with confectioner and images.
+    // Источник фото: products.images (text[], сид 0005) + product_images
+    // (отдельная таблица, загрузки кондитеров) — объединяем с дедупликацией.
     const enrichedProducts = (products || []).map((p: Record<string, unknown>) => {
       const confId = p.confectioner_id as string;
       const conf = confId ? confectionerMap[confId] : null;
+      const colImages = Array.isArray(p.images) ? (p.images as string[]) : [];
+      const tableImages = imageMap[(p.id as string)] || [];
+      const mergedImages = [...new Set([...colImages, ...tableImages])];
       return {
         ...p,
-        images: imageMap[(p.id as string)] || [],
+        images: mergedImages,
         confectioner: conf ? {
           id: conf.id,
           businessName: conf.businessName,

@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
+import { BOT_USER_ID } from "@/lib/chat-rooms";
 
 export const runtime = "nodejs";
 
@@ -137,6 +138,34 @@ async function fetchUnreadCount(
   return count || 0;
 }
 
+/**
+ * Непрочитанные для staff БЕЗ membership в support-комнате (last_read_at
+ * негде хранить): сообщения от клиентов/бота ПОСЛЕ последнего ответа самого
+ * оператора в этой комнате (а если оператор ещё не отвечал — все).
+ * Самоочищается: ответил оператор → счётчик обнуляется.
+ */
+async function fetchStaffUnreadCount(channelId: string, staffId: string): Promise<number> {
+  const { data: lastOwn } = await supabaseAdmin
+    .from("chat_messages")
+    .select("created_at")
+    .eq("channel_id", channelId)
+    .eq("sender_id", staffId)
+    .order("created_at", { ascending: false })
+    .limit(1) as { data: { created_at: string }[] | null };
+  let q = supabaseAdmin
+    .from("chat_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("channel_id", channelId)
+    .neq("sender_id", staffId)
+    // bot-сообщения не требуют внимания оператора
+    .neq("sender_id", BOT_USER_ID);
+  const after = (lastOwn || [])[0]?.created_at;
+  if (after) q = q.gt("created_at", after);
+  const { count, error } = await q as { count: number | null; error: SupabaseError | null };
+  if (error) return 0;
+  return count || 0;
+}
+
 /** Имена/аватарки участников (для direct-комнат). */
 async function fetchProfiles(userIds: string[]): Promise<Map<string, ProfileRow>> {
   const map = new Map<string, ProfileRow>();
@@ -154,7 +183,8 @@ async function fetchProfiles(userIds: string[]): Promise<Map<string, ProfileRow>
 async function buildRooms(
   channels: ChannelRow[],
   memberByChannel: Map<string, MemberRow>,
-  userId: string
+  userId: string,
+  staffSupportUnread = false
 ): Promise<ApiChatRoom[]> {
   const memberRows = await fetchMembers(channels.map((c) => c.id));
   const allMemberUserIds = [...new Set(memberRows.map((m) => m.user_id))];
@@ -184,9 +214,13 @@ async function buildRooms(
     }
 
     const last = myMember ? await fetchLastMessage(ch.id) : null;
-    const unread = myMember
-      ? await fetchUnreadCount(ch.id, userId, myMember.last_read_at)
-      : 0;
+    let unread = 0;
+    if (myMember) {
+      unread = await fetchUnreadCount(ch.id, userId, myMember.last_read_at);
+    } else if (staffSupportUnread && ch.type === "support") {
+      // Оператор без membership: приближённый счётчик очереди
+      unread = await fetchStaffUnreadCount(ch.id, userId);
+    }
 
     rooms.push({
       id: ch.id,
@@ -250,7 +284,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     channels = channels.slice(0, MAX_ROOMS);
-    const rooms = await buildRooms(channels, memberByChannel, user.id);
+    const rooms = await buildRooms(channels, memberByChannel, user.id, isStaff);
     return NextResponse.json({ rooms, total: rooms.length });
   } catch (error) {
     return handleRouteError(error);

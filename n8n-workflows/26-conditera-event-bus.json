@@ -1,0 +1,109 @@
+{
+  "name": "26-conditera-event-bus",
+  "active": false,
+  "nodes": [
+    {
+      "name": "WH: order.created",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 100],
+      "parameters": { "httpMethod": "POST", "path": "conditera-order.created", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: order.paid",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 220],
+      "parameters": { "httpMethod": "POST", "path": "conditera-order.paid", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: order.status_changed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 340],
+      "parameters": { "httpMethod": "POST", "path": "conditera-order.status_changed", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: order.cancelled",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 460],
+      "parameters": { "httpMethod": "POST", "path": "conditera-order.cancelled", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: refund.created",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 580],
+      "parameters": { "httpMethod": "POST", "path": "conditera-refund.created", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: refund.completed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 700],
+      "parameters": { "httpMethod": "POST", "path": "conditera-refund.completed", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: chat.message.created",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 820],
+      "parameters": { "httpMethod": "POST", "path": "conditera-chat.message.created", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: inventory.low",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 940],
+      "parameters": { "httpMethod": "POST", "path": "conditera-inventory.low", "responseMode": "onReceived" }
+    },
+    {
+      "name": "WH: service.booking.created",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 1060],
+      "parameters": { "httpMethod": "POST", "path": "conditera-service.booking.created", "responseMode": "onReceived" }
+    },
+    {
+      "name": "Normalize Event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [560, 560],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            { "id": "type", "name": "eventType", "type": "string", "value": "={{ $json.body?.type || $json.type }}" },
+            { "id": "occurredAt", "name": "occurredAt", "type": "string", "value": "={{ $json.body?.occurredAt || $json.occurredAt }}" },
+            { "id": "payload", "name": "payload", "type": "object", "value": "={{ $json.body?.payload || $json.payload }}" },
+            { "id": "source", "name": "source", "type": "string", "value": "={{ $json.body?.source || $json.source }}" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Route to Actions (подключите Telegram/Email/БД)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [880, 560],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "WH: order.created": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: order.paid": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: order.status_changed": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: order.cancelled": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: refund.created": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: refund.completed": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: chat.message.created": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: inventory.low": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "WH: service.booking.created": { "main": [[{ "node": "Normalize Event", "type": "main", "index": 0 }]] },
+    "Normalize Event": { "main": [[{ "node": "Route to Actions (подключите Telegram/Email/БД)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": ["conditera", "event-bus"],
+  "id": "26-conditera-event-bus"
+}

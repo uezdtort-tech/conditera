@@ -38,13 +38,67 @@ import {
   Check,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useConfectioners } from "@/lib/supabase/use-marketplace";
+
+/** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
+interface ApiReview {
+  id: string;
+  rating: number;
+  text: string;
+  pros?: string;
+  cons?: string;
+  helpfulCount: number;
+  createdAt: string;
+  author: { name: string; avatarUrl?: string };
+  product?: { title: string; slug: string };
+}
+
+function useRealReviews(limit = 6) {
+  const [reviews, setReviews] = useState<ApiReview[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/reviews?limit=${limit}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((j: { reviews?: ApiReview[] }) => {
+        if (alive) setReviews(j.reviews || []);
+      })
+      .catch(() => {
+        if (alive) setReviews([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [limit]);
+  return reviews;
+}
 
 export function HomePage() {
   const navigate = useAppStore((s) => s.navigate);
   const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
   const products = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
+
+  // Реальные данные платформы для честных счётчиков (не выдуманные цифры):
+  // кондитеры — из публичного API, товары — hydrated store (live-источник).
+  const { data: liveConfectioners, isSuccess: confectionersLoaded } = useConfectioners({ limit: 50 });
+  const realReviews = useRealReviews(6);
+
+  const verifiedCount = confectionersLoaded
+    ? (liveConfectioners || []).filter((c) => c.verified).length
+    : 0;
+  const productCount = products.length;
+  const avgRating =
+    productCount > 0
+      ? Number(
+          (
+            products.reduce((acc, p) => acc + (p.rating || 0), 0) / productCount
+          ).toFixed(1)
+        )
+      : 0;
+  const cityCount = confectionersLoaded
+    ? new Set((liveConfectioners || []).map((c) => c.city).filter(Boolean)).size
+    : 0;
 
   const popularProducts = products.filter((p) => p.isPopular || p.isHit).slice(0, 8);
   const newProducts = products.filter((p) => p.isNew).slice(0, 4);
@@ -123,18 +177,24 @@ export function HomePage() {
                 </Button>
               </div>
 
-              {/* Trust stats */}
+              {/* Trust stats — реальные счётчики платформы (без выдуманных цифр) */}
               <div className="flex flex-wrap gap-6 justify-center lg:justify-start pt-4 text-sm">
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-primary" />
                   <span>
-                    <strong className="font-semibold">2 400+</strong> кондитеров, все проверены
+                    <strong className="font-semibold">
+                      {verifiedCount > 0 ? `${verifiedCount} ` : ""}
+                    </strong>
+                    {verifiedCount > 0 ? "кондитеров, все проверены" : "Проверенные кондитеры"}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Store className="h-4 w-4 text-primary" />
                   <span>
-                    <strong className="font-semibold">18 000+</strong> товаров
+                    <strong className="font-semibold">
+                      {productCount > 0 ? `${productCount} ` : ""}
+                    </strong>
+                    {productCount > 0 ? "товаров в каталоге" : "Каталог товаров"}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -718,10 +778,11 @@ export function HomePage() {
           <div className="absolute inset-0 bg-pattern opacity-10" />
           <div className="relative p-8 lg:p-12 grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
             {[
-              { value: 2400, suffix: "+", label: "Активных кондитеров", icon: Users },
-              { value: 18000, suffix: "+", label: "Товаров в каталоге", icon: Cake },
-              { value: 120000, suffix: "+", label: "Доставленных заказов", icon: Truck },
-              { value: 4.9, suffix: " / 5", label: "Средний рейтинг", icon: Star, isFloat: true },
+              // Реальные счётчики платформы (БД/API), а не выдуманные цифры
+              { value: verifiedCount, suffix: "", label: "Проверенных кондитеров", icon: Users },
+              { value: productCount, suffix: "", label: "Товаров в каталоге", icon: Cake },
+              { value: cityCount, suffix: "", label: "Городов России", icon: Truck },
+              { value: avgRating, suffix: " / 5", label: "Средний рейтинг товаров", icon: Star, isFloat: true },
             ].map((stat, i) => {
               const Icon = stat.icon;
               return (
@@ -729,7 +790,7 @@ export function HomePage() {
                   <Icon className="h-6 w-6 mx-auto opacity-80" />
                   <div className="font-display text-3xl lg:text-4xl font-bold">
                     {stat.isFloat ? (
-                      <span>4.9 / 5</span>
+                      <span>{stat.value > 0 ? `${stat.value} / 5` : "—"}</span>
                     ) : (
                       <AnimatedCounter value={stat.value} suffix={stat.suffix} />
                     )}
@@ -742,75 +803,91 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* ===== TESTIMONIALS ===== */}
+      {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
       <section className="container mx-auto px-4">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
             Отзывы покупателей
           </h2>
           <p className="text-muted-foreground mt-2">
-            Более 50 000 довольных клиентов по всей России
+            Проверенные отзывы о заказах на платформе
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            {
-              name: "Екатерина",
-              city: "Москва",
-              avatar: "https://i.pravatar.cc/150?img=49",
-              rating: 5,
-              text: "Заказывала торт на день рождения дочери через конструктор. Мария из Тулы предложила лучшую цену и невероятно красивый торт. Дети были в восторге!",
-            },
-            {
-              name: "Дмитрий",
-              city: "Санкт-Петербург",
-              avatar: "https://i.pravatar.cc/150?img=51",
-              rating: 5,
-              text: "Заказывал свадебный торт на 80 человек. Понравилось, что деньги на эскроу — это гарантия. Торт «Сахарный Лебедь» превзошёл все ожидания.",
-            },
-            {
-              name: "Ольга",
-              city: "Тула",
-              avatar: "https://i.pravatar.cc/150?img=44",
-              rating: 5,
-              text: "Купила набор капкейков на корпоратив. Все остались довольны, оформили повторный заказ. Удобно, что можно напрямую общаться с кондитером.",
-            },
-          ].map((review, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.1 }}
-            >
-              <Card className="p-6 h-full">
-                <div className="flex items-center gap-3 mb-4">
-                  <Avatar>
-                    <AvatarImage src={review.avatar} alt={review.name} />
-                    <AvatarFallback>{review.name[0]}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <div className="font-semibold text-sm">{review.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {review.city}
+          {realReviews === null
+            ? // Загрузка: скелетоны в той же сетке
+              [0, 1, 2].map((i) => (
+                <Card key={`sk-${i}`} className="p-6 h-full animate-pulse">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-10 w-10 rounded-full bg-muted" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-28 bg-muted rounded" />
+                      <div className="h-2 w-16 bg-muted rounded" />
                     </div>
                   </div>
-                </div>
-                <div className="flex gap-0.5 mb-3">
-                  {Array.from({ length: review.rating }).map((_, i) => (
-                    <Star
-                      key={i}
-                      className="h-4 w-4 fill-amber-400 text-amber-400"
-                    />
-                  ))}
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  &laquo;{review.text}&raquo;
-                </p>
-              </Card>
-            </motion.div>
-          ))}
+                  <div className="h-3 w-full bg-muted rounded mb-2" />
+                  <div className="h-3 w-4/5 bg-muted rounded" />
+                </Card>
+              ))
+            : (realReviews.length > 0
+                ? realReviews.slice(0, 6)
+                : [
+                    // Фолбэк при пустой БД — честная заглушка без выдуманных
+                    // цифр (в БД ещё нет отзывов)
+                    {
+                      id: "fallback-1",
+                      rating: 5,
+                      text: "Здесь появятся отзывы покупателей о заказах на платформе.",
+                      author: { name: "Команда Уездного кондитера" },
+                      helpfulCount: 0,
+                      createdAt: "",
+                    },
+                  ]
+              ).map((review, i) => (
+                <motion.div
+                  key={review.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <Card className="p-6 h-full">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Avatar>
+                        <AvatarImage
+                          src={review.author?.avatarUrl}
+                          alt={review.author?.name || "Покупатель"}
+                        />
+                        <AvatarFallback>
+                          {(review.author?.name || "П")[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="font-semibold text-sm">
+                          {review.author?.name || "Покупатель"}
+                        </div>
+                        {review.product?.title && (
+                          <div className="text-xs text-muted-foreground">
+                            {review.product.title}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-0.5 mb-3">
+                      {Array.from({ length: review.rating }).map((_, si) => (
+                        <Star
+                          key={si}
+                          className="h-4 w-4 fill-amber-400 text-amber-400"
+                        />
+                      ))}
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      &laquo;{review.text}&raquo;
+                    </p>
+                  </Card>
+                </motion.div>
+              ))}
         </div>
       </section>
 
@@ -844,7 +921,7 @@ export function HomePage() {
                 по всей России
               </h2>
               <p className="text-muted-foreground max-w-lg">
-                Присоединяйтесь к 2 400+ кондитерам на платформе. Витрина,
+                Присоединяйтесь к кондитерам платформы. Витрина,
                 CRM, финансовая аналитика, социальный канал, помощь с налогами
                 (НПД). Тарифы от 5% комиссии.
               </p>

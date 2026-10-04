@@ -550,6 +550,25 @@ function resolveRowColumns(table: IntrospectedTable, rows: Record<string, unknow
   return rows.map((row) => cols.map((c) => ({ col: c, value: row[c.name] !== undefined ? row[c.name] : row[c.name.toLowerCase()] !== undefined ? row[c.name.toLowerCase()] : null })));
 }
 
+/**
+ * Значение параметра для запроса. json/jsonb-колонки: node-postgres
+ * сериализует МАССИВЫ как PG-массивы ({...}) — для ::jsonb каста это даёт
+ * 22P02 (invalid input syntax for type json). PostgREST принимает любые
+ * JSON-значения (объекты И массивы) → канонизируем в JSON-строку сами.
+ */
+function pgParamValue(col: IntrospectedColumn, value: unknown): unknown {
+  if (
+    value !== null &&
+    value !== undefined &&
+    typeof value === "object" &&
+    !Buffer.isBuffer(value) &&
+    (col.dataType === "json" || col.dataType === "jsonb")
+  ) {
+    return JSON.stringify(value);
+  }
+  return value === undefined ? null : value;
+}
+
 export async function handleInsert(ctx: PgrstContext, tableName: string): Promise<PgrstResult> {
   const table = resolveTable(ctx.intro, tableName);
   const prefer = (ctx.headers.get("prefer") || "").toLowerCase();
@@ -576,7 +595,7 @@ export async function handleInsert(ctx: PgrstContext, tableName: string): Promis
   const params: unknown[] = [];
   for (const row of rowsCols) {
     const placeholders = row.map(({ col, value }) => {
-      params.push(value === undefined ? null : value);
+      params.push(pgParamValue(col, value));
       const cast = pgCastTarget(col);
       return cast ? `$${params.length}::${cast}` : `$${params.length}`;
     });
@@ -636,7 +655,7 @@ export async function handleUpdate(ctx: PgrstContext, tableName: string): Promis
   const params: unknown[] = [];
   const setSql = setEntries
     .map(({ col, v }) => {
-      params.push(v);
+      params.push(pgParamValue(col, v));
       const cast = pgCastTarget(col);
       return `${quoteIdent(col.name)} = ${cast ? `$${params.length}::${cast}` : `$${params.length}`}`;
     })

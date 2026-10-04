@@ -797,7 +797,7 @@ interface ApiProduct {
   title: string;
   slug: string;
   description: string | null;
-  price: number; // копейки
+  price: number; // рубли (seed 2400 = 2400 ₽; checkout/orders тоже считают в рублях)
   old_price: number | null;
   weight_grams: number | null;
   servings: number | null;
@@ -827,9 +827,11 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     title: p.title,
     slug: p.slug,
     description: p.description || "",
-    // price в БД — копейки; в store/mock — рубли
-    price: Math.round(p.price / 100),
-    oldPrice: p.old_price ? Math.round(p.old_price / 100) : undefined,
+    // price в БД — РУБЛИ (seed_vitrine: 690 ₽ пастила, 18500 ₽ свадебный торт;
+    // /api/checkout и заказы тоже в рублях). Раньше делили на 100 как
+    // «копейки» — витрина показывала 7 ₽ вместо 690 ₽.
+    price: Math.round(p.price),
+    oldPrice: p.old_price ? Math.round(p.old_price) : undefined,
     category: guessCategory(p.title, p.tags),
     images: p.images || [],
     confectionerId: p.confectioner?.id || "",

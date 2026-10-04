@@ -31,6 +31,8 @@ const SEED_FILES = [
   path.join(ROOT, "supabase", "seed_vitrine.sql"),
   path.join(ROOT, "supabase", "compat", "0002_seed_decor.sql"),
   path.join(ROOT, "supabase", "compat", "0003_seed_inventory.sql"),
+  path.join(ROOT, "supabase", "compat", "0004_seed_bot_user.sql"),
+  path.join(ROOT, "supabase", "compat", "0005_seed_product_images.sql"),
 ];
 const ENV_LOCAL = path.join(ROOT, ".env.local");
 const ENV_FILE = path.join(ROOT, ".env");
@@ -432,6 +434,10 @@ function ensureEnvKeys() {
   add("DATABASE_URL", DATABASE_URL);
   add("JWT_SECRET", jwtSecret);
   add("JWT_REFRESH_SECRET", jwtRefresh);
+  add("CRON_SECRET", crypto.randomBytes(32).toString("hex"));
+  add("BOT_SECRET", crypto.randomBytes(32).toString("hex"));
+  add("N8N_BASE_URL", "http://127.0.0.1:5678");
+  add("N8N_WEBHOOK_BASE_URL", "http://127.0.0.1:5678/webhook");
   add("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
   add("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:3000");
   const effectiveSecret = present.has("JWT_SECRET")

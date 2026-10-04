@@ -52,6 +52,20 @@ export interface MessageRow {
 
 export const STAFF_ROLES = ["SUPPORT", "ADMIN", "SUPER_ADMIN"];
 
+/**
+ * Системный пользователь FAQ-бота (seed 0004_seed_bot_user.sql, фиксированный
+ * UUID). Все bot-сообщения персистятся от его имени (is_bot=true).
+ */
+export const BOT_USER_ID = "aaaaaaaa-0000-4000-8000-000000000b07";
+
+/** Тип комнаты для ответа bot-message роута (как в messages/route.ts). */
+export function mapChannelTypeForBot(ch: { order_id: string | null; type: string }): string {
+  if (ch.order_id) return "order";
+  if (ch.type === "support") return "support";
+  if (ch.type === "group") return "group";
+  return "direct";
+}
+
 export function isStaffUser(user: AuthenticatedUser): boolean {
   return (user.roles || []).some((r) => STAFF_ROLES.includes(r));
 }
