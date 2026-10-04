@@ -37,7 +37,7 @@ interface ProductRow {
   price: number;
   old_price: number | null;
   images: string[] | null;
-  rating: number | null;
+  rating_average: number | null;
   reviews_count: number | null;
   servings: number | null;
   category: string | null;
@@ -45,11 +45,11 @@ interface ProductRow {
 
 interface ConfectionerRow {
   id: string;
-  business_name: string;
+  businessName: string;
   avatar: string | null;
   city: string | null;
   rating: number | null;
-  reviews_count: number | null;
+  reviewsCount: number | null;
   specialization: string[] | null;
 }
 
@@ -77,9 +77,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     try {
       const { data, error } = await supabaseAdmin
         .from("products")
-        .select("id, title, price, old_price, images, rating, reviews_count, servings, category")
-        .eq("published", true)
-        .order("rating", { ascending: false })
+        .select("id, title, price, old_price, images, rating_average, reviews_count, servings, category")
+        .eq("status", "published")
+        .order("rating_average", { ascending: false })
         .limit(20) as { data: ProductRow[] | null; error: SupabaseError | null };
 
       if (error) {
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     try {
       const { data, error } = await supabaseAdmin
         .from("confectioners")
-        .select("id, business_name, avatar, city, rating, reviews_count, specialization")
+        .select("id, businessName, avatar, city, rating, reviewsCount, specialization")
         .eq("verified", true)
         .order("rating", { ascending: false })
         .limit(10) as { data: ConfectionerRow[] | null; error: SupabaseError | null };

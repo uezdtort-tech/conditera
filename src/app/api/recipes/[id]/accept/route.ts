@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
       .select("id")
-      .eq("user_id", user.userId)
+      .eq("userId", user.userId)
       .maybeSingle();
 
     if (confErr) {

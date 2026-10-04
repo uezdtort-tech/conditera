@@ -27,12 +27,12 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     // Check confectioner is verified
     const { data: conf } = await supabaseAdmin
       .from("confectioners")
-      .select("id, verification_status")
-      .eq("user_id", user.id)
+      .select("id, verificationStatus")
+      .eq("userId", user.id)
       .maybeSingle();
 
     if (!conf) return NextResponse.json({ error: "Профиль кондитера не найден" }, { status: 404 });
-    if (conf.verification_status !== "approved") {
+    if (conf.verificationStatus !== "approved") {
       return NextResponse.json({ error: "Профиль не подтверждён админом" }, { status: 403 });
     }
 

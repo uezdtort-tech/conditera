@@ -64,12 +64,10 @@ interface LoyaltyTxRow {
   id: string;
   user_id: string;
   type: string;
-  points: number;
-  balance_after: number;
+  // Реальная схема: amount INTEGER NOT NULL — дельта баллов
+  amount: number;
   description: string | null;
   order_id: string | null;
-  amount: number | null;
-  multiplier: number | null;
   expires_at: string | null;
   created_at: string;
 }
@@ -143,12 +141,10 @@ export async function recordLoyaltyTx(input: RecordTxInput): Promise<RecordTxRes
     .insert({
       user_id: input.userId,
       type: input.type,
-      points: input.points,
-      balance_after: newBalance,
+      // Реальная схема loyalty_transactions: amount INTEGER NOT NULL — это дельта баллов
+      amount: input.points,
       description: input.description,
       order_id: input.orderId || null,
-      amount: input.amount || null,
-      multiplier: input.multiplier || null,
       expires_at: input.expiresAt ? input.expiresAt.toISOString() : null,
       created_at: new Date().toISOString(),
     })
@@ -298,11 +294,10 @@ export async function redeemPoints(
     .insert({
       user_id: userId,
       type: "REDEEM",
-      points: -requestedPoints,
-      balance_after: newBalance,
+      // Реальная схема: amount = дельта баллов (negative для списания)
+      amount: -requestedPoints,
       description: `Списание для заказа #${orderId.slice(-6)}`,
       order_id: orderId,
-      amount: orderAmount,
       created_at: new Date().toISOString(),
     });
 
@@ -437,9 +432,9 @@ export async function findUsersWithExpiringPoints(): Promise<
   // TODO: для масштаба — добавить RPC для агрегации по userId.
   const { data: expiring, error } = await supabaseAdmin
     .from("loyalty_transactions")
-    .select("user_id, points, expires_at")
+    .select("user_id, amount, expires_at")
     .eq("type", "EARN")
-    .gt("points", 0)
+    .gt("amount", 0)
     .lte("expires_at", cutoff.toISOString())
     .gt("expires_at", nowIso)
     .order("expires_at", { ascending: true })
@@ -452,7 +447,7 @@ export async function findUsersWithExpiringPoints(): Promise<
 
   const byUser = new Map<string, number>();
   for (const tx of expiring || []) {
-    byUser.set(tx.user_id, (byUser.get(tx.user_id) || 0) + tx.points);
+    byUser.set(tx.user_id, (byUser.get(tx.user_id) || 0) + tx.amount);
   }
 
   return Array.from(byUser.entries()).map(([userId, points]) => ({

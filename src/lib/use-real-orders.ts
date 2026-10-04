@@ -185,6 +185,8 @@ export function useCreateRefundRequest() {
   return useMutation({
     mutationFn: async (input: { paymentId: string; amount: number; reason: string }) => {
       const headers = await getSessionAuthHeaders(await getCsrfToken());
+      // Идемпотентность (0041): один клик = одна заявка, ретраи не дублируют.
+      headers["Idempotency-Key"] = crypto.randomUUID();
       const res = await fetch("/api/payment/refund", {
         method: "POST",
         headers,

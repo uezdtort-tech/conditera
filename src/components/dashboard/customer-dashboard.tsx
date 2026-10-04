@@ -371,10 +371,16 @@ export function CustomerDashboard() {
                           key={order.id}
                           className="flex items-center gap-3 p-3 border border-border rounded-lg"
                         >
-                          <img
-                            src={order.items[0]?.image || ""}
-                            alt=""
-                            className="h-12 w-12 rounded object-cover" loading="lazy" decoding="async" />
+                          {order.items[0]?.image ? (
+                            <img
+                              src={order.items[0].image}
+                              alt=""
+                              className="h-12 w-12 rounded object-cover" loading="lazy" decoding="async" />
+                          ) : (
+                            <div className="h-12 w-12 rounded bg-muted flex items-center justify-center text-muted-foreground" aria-hidden>
+                              <Package className="h-5 w-5" />
+                            </div>
+                          )}
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-sm truncate">
                               {order.number}

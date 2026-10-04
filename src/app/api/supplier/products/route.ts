@@ -5,14 +5,14 @@
  * POST — создать новый товар.
  *
  * Товары поставщика хранятся в таблице inventory_items (модель InventoryItem).
- * Поле confectioner_id в этой таблице не имеет FK-ограничения, поэтому мы
+ * Поле owner_id в этой таблице не имеет FK-ограничения, поэтому мы
  * используем его как «ownerId» — туда пишем userId поставщика.
  *
  * Auth: SUPPLIER role.
- * Gate: профиль поставщика должен быть активен (supplier_profiles.is_active = true).
+ * Gate: профиль поставщика должен быть активен (supplier_profiles.isActive = true).
  *
  * Безопасность:
- *   • GET: требует роль SUPPLIER + ownership через .eq("confectioner_id", userId).
+ *   • GET: требует роль SUPPLIER + ownership через .eq("owner_id", userId).
  *   • POST: safeJsonBody + валидация полей (name, category обязательны).
  *   • POST: проверка supplier_profile.is_active перед insert.
  *   • При DB error не возвращаем детали БД клиенту.
@@ -30,30 +30,28 @@ interface SupabaseError {
 
 interface SupplierProfileRow {
   id: string;
-  user_id: string;
-  company_name: string;
-  is_active: boolean | null;
+  userId: string;
+  companyName: string;
+  isActive: boolean | null;
 }
 
 interface InventoryItemRow {
   id: string;
-  confectioner_id: string;
+  owner_id: string;
   name: string;
   category: string;
   unit: string;
   quantity: number;
   min_quantity: number;
   cost_per_unit: number;
-  supplier_id: string | null;
-  supplier_name: string | null;
-  expiry_date: string | null;
-  storage_location: string | null;
+  supplier: string | null;
+  is_active: boolean | null;
   created_at: string;
+  updated_at: string;
 }
 
 const UNITS = ["kg", "g", "l", "ml", "pcs", "pack", "box"] as const;
 const MAX_NAME_LENGTH = 200;
-const MAX_STORAGE_LENGTH = 200;
 const MAX_QUANTITY = 1_000_000;
 const MAX_COST = 1_000_000;
 
@@ -71,8 +69,8 @@ interface CreateProductBody {
 async function getActiveSupplier(userId: string): Promise<SupplierProfileRow | null> {
   const { data, error } = await supabaseAdmin
     .from("supplier_profiles")
-    .select("id, user_id, company_name, is_active")
-    .eq("user_id", userId)
+    .select("id, userId, companyName, isActive")
+    .eq("userId", userId)
     .maybeSingle() as { data: SupplierProfileRow | null; error: SupabaseError | null };
 
   if (error) {
@@ -94,7 +92,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { data: products, error } = await supabaseAdmin
       .from("inventory_items")
       .select("*")
-      .eq("confectioner_id", user.userId)
+      .eq("owner_id", user.userId)
       .order("created_at", { ascending: false }) as { data: InventoryItemRow[] | null; error: SupabaseError | null };
 
     if (error) {
@@ -122,7 +120,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!supplier) {
       throw new HttpError(404, "Профиль поставщика не найден");
     }
-    if (supplier.is_active !== true) {
+    if (supplier.isActive !== true) {
       return NextResponse.json(
         {
           error: "Профиль поставщика не активирован. Ожидайте проверки администратором.",
@@ -173,35 +171,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? Math.max(0, Math.min(body.costPerUnit, MAX_COST))
       : 0;
 
-    // Валидация storageLocation
-    const storageLocation =
-      typeof body.storageLocation === "string" && body.storageLocation.length <= MAX_STORAGE_LENGTH
-        ? body.storageLocation
-        : null;
-
-    // Валидация expiryDate (ISO string)
-    let expiryDate: string | null = null;
-    if (typeof body.expiryDate === "string" && body.expiryDate.length > 0) {
-      const parsed = new Date(body.expiryDate);
-      if (!isNaN(parsed.getTime())) {
-        expiryDate = parsed.toISOString();
-      }
-    }
+    // Примечание: expiry_date/storage_location в inventory_items нет (реальная схема:
+    // id, owner_id, name, category, quantity, unit, min_quantity, cost_per_unit,
+    // supplier, is_active, created_at, updated_at) — поля тела игнорируются.
 
     const { data: product, error: insertErr } = await supabaseAdmin
       .from("inventory_items")
       .insert({
-        confectioner_id: user.userId, // ownerId — поставщик
+        owner_id: user.userId, // ownerId — поставщик
         name: body.name,
         category: body.category,
         unit,
         quantity,
         min_quantity: minQuantity,
         cost_per_unit: costPerUnit,
-        supplier_id: user.userId,
-        supplier_name: supplier.company_name,
-        expiry_date: expiryDate,
-        storage_location: storageLocation,
+        supplier: supplier.companyName,
         created_at: new Date().toISOString(),
       })
       .select()
@@ -220,8 +204,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 /**
  * PATCH — обновление товара поставщика.
- * Body: { id, name?, category?, unit?, quantity?, minQuantity?, costPerUnit?, expiryDate?, storageLocation? }
- * Ownership: inventory_items.confectioner_id === userId.
+ * Body: { id, name?, category?, unit?, quantity?, minQuantity?, costPerUnit? }
+ * Ownership: inventory_items.owner_id === userId.
  */
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
@@ -238,13 +222,13 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     // Существование + ownership
     const { data: existing, error: fetchErr } = await supabaseAdmin
       .from("inventory_items")
-      .select("id, confectioner_id")
+      .select("id, owner_id")
       .eq("id", body.id)
-      .maybeSingle() as { data: { id: string; confectioner_id: string } | null; error: SupabaseError | null };
+      .maybeSingle() as { data: { id: string; owner_id: string } | null; error: SupabaseError | null };
 
     if (fetchErr) throw new HttpError(500, "Не удалось проверить товар");
     if (!existing) throw new HttpError(404, "Товар не найден");
-    if (existing.confectioner_id !== user.userId) throw new HttpError(403, "Нет доступа к этому товару");
+    if (existing.owner_id !== user.userId) throw new HttpError(403, "Нет доступа к этому товару");
 
     const updates: Record<string, unknown> = {};
 
@@ -294,27 +278,6 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       updates.cost_per_unit = Math.min(body.costPerUnit, MAX_COST);
     }
 
-    if (body.expiryDate !== undefined) {
-      if (body.expiryDate === null || body.expiryDate === "") {
-        updates.expiry_date = null;
-      } else if (typeof body.expiryDate === "string") {
-        const parsed = new Date(body.expiryDate);
-        if (isNaN(parsed.getTime())) throw new HttpError(422, "expiryDate — некорректная дата");
-        updates.expiry_date = parsed.toISOString();
-      }
-    }
-
-    if (body.storageLocation !== undefined) {
-      if (body.storageLocation === null || body.storageLocation === "") {
-        updates.storage_location = null;
-      } else if (typeof body.storageLocation === "string") {
-        if (body.storageLocation.length > MAX_STORAGE_LENGTH) {
-          throw new HttpError(422, `storageLocation слишком длинный (макс ${MAX_STORAGE_LENGTH})`);
-        }
-        updates.storage_location = body.storageLocation;
-      }
-    }
-
     if (Object.keys(updates).length === 0) {
       throw new HttpError(400, "Нет полей для обновления");
     }
@@ -340,7 +303,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 /**
  * DELETE — удаление товара поставщика.
  * Query: ?id=<uuid>
- * Ownership: inventory_items.confectioner_id === userId.
+ * Ownership: inventory_items.owner_id === userId.
  */
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
@@ -354,13 +317,13 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     // Существование + ownership
     const { data: existing, error: fetchErr } = await supabaseAdmin
       .from("inventory_items")
-      .select("id, confectioner_id")
+      .select("id, owner_id")
       .eq("id", id)
-      .maybeSingle() as { data: { id: string; confectioner_id: string } | null; error: SupabaseError | null };
+      .maybeSingle() as { data: { id: string; owner_id: string } | null; error: SupabaseError | null };
 
     if (fetchErr) throw new HttpError(500, "Не удалось проверить товар");
     if (!existing) throw new HttpError(404, "Товар не найден");
-    if (existing.confectioner_id !== user.userId) throw new HttpError(403, "Нет доступа к этому товару");
+    if (existing.owner_id !== user.userId) throw new HttpError(403, "Нет доступа к этому товару");
 
     const { error: deleteErr } = await supabaseAdmin
       .from("inventory_items")

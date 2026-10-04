@@ -27,9 +27,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const { data } = await supabaseAdmin
         .from("simplex_contacts")
         .select("*")
-        .eq("user_id", user.id)
-        .eq("profile_type", "confectioner")
-        .order("created_at", { ascending: false })
+        .eq("userId", user.id)
+        .eq("profileType", "confectioner")
+        .order("createdAt", { ascending: false })
         .maybeSingle();
       contact = data as Record<string, any> | null;
     } catch (e: any) {
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const { data: conf } = await supabaseAdmin
         .from("confectioners")
         .select("tariff")
-        .eq("user_id", user.id)
+        .eq("userId", user.id)
         .maybeSingle();
       if (conf) {
         tariffInfo = {
@@ -62,22 +62,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const { data: msgs } = await supabaseAdmin
           .from("simplex_messages")
           .select("*")
-          .eq("simplex_contact_id", contact.id)
-          .order("received_at", { ascending: false })
+          .eq("simplexContactId", contact.id)
+          .order("receivedAt", { ascending: false })
           .limit(50);
         recentMessages = (msgs || []).reverse();
 
         const { count: unread } = await supabaseAdmin
           .from("simplex_messages")
           .select("*", { count: "exact", head: true })
-          .eq("simplex_contact_id", contact.id)
-          .eq("read_by_operator", false);
+          .eq("simplexContactId", contact.id)
+          .eq("readByOperator", false);
         unreadCount = unread || 0;
 
         const { count: total } = await supabaseAdmin
           .from("simplex_messages")
           .select("*", { count: "exact", head: true })
-          .eq("simplex_contact_id", contact.id);
+          .eq("simplexContactId", contact.id);
         totalCount = total || 0;
       } catch {}
     }
@@ -87,13 +87,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       recentMessages,
       stats: { total: totalCount, unread: unreadCount },
       tariff: tariffInfo,
-      connectInstructions: contact?.simplex_address
+      connectInstructions: contact?.simplexAddress
         ? {
-            address: contact.simplex_address,
-            qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(contact.simplex_address)}`,
-            deepLink: String(contact.simplex_address).startsWith("smp://")
-              ? contact.simplex_address
-              : `smp:${contact.simplex_address}`,
+            address: contact.simplexAddress,
+            qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(contact.simplexAddress)}`,
+            deepLink: String(contact.simplexAddress).startsWith("smp://")
+              ? contact.simplexAddress
+              : `smp:${contact.simplexAddress}`,
           }
         : null,
     });
@@ -114,8 +114,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       const { data: conf } = await supabaseAdmin
         .from("confectioners")
-        .select("tariff, business_name")
-        .eq("user_id", user.id)
+        .select("tariff, businessName")
+        .eq("userId", user.id)
         .maybeSingle();
       if (conf && !ALLOWED_TARIFFS.includes(conf.tariff)) {
         return NextResponse.json({
@@ -136,8 +136,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const { data } = await supabaseAdmin
         .from("simplex_contacts")
         .select("*")
-        .eq("user_id", user.id)
-        .eq("profile_type", "confectioner")
+        .eq("userId", user.id)
+        .eq("profileType", "confectioner")
         .eq("active", true)
         .maybeSingle();
       existing = data as Record<string, any> | null;
@@ -189,13 +189,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const { data, error } = await supabaseAdmin
         .from("simplex_contacts")
         .insert({
-          user_id: user.id,
-          simplex_conn_id: simplexConnId,
-          simplex_address: simplexAddress,
-          simplex_name: simplexName,
-          profile_type: "confectioner",
+          userId: user.id,
+          simplexConnId: simplexConnId,
+          simplexAddress: simplexAddress,
+          simplexName: simplexName,
+          profileType: "confectioner",
           active: true,
-          created_at: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
         })
         .select()
         .single();
@@ -205,14 +205,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.error("[simplex/contacts] Failed to save contact:", e?.message);
       contact = {
         id: `temp-${Date.now()}`,
-        user_id: user.id,
-        simplex_conn_id: simplexConnId,
-        simplex_address: simplexAddress,
-        simplex_name: simplexName,
-        profile_type: "confectioner",
+        userId: user.id,
+        simplexConnId: simplexConnId,
+        simplexAddress: simplexAddress,
+        simplexName: simplexName,
+        profileType: "confectioner",
         active: true,
-        connections_count: 0,
-        created_at: new Date().toISOString(),
+        connectionsCount: 0,
+        createdAt: new Date().toISOString(),
       };
     }
 
@@ -239,7 +239,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       await supabaseAdmin
         .from("simplex_contacts")
         .update({ active: false })
-        .eq("user_id", user.id)
+        .eq("userId", user.id)
         .eq("active", true);
     } catch (e: any) {
       console.warn("[simplex/contacts] DELETE failed:", e?.message);

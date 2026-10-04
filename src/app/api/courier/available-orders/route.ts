@@ -83,7 +83,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .in("id", orders.map((o: any) => o.user_id).filter(Boolean)),
       supabaseAdmin
         .from("confectioners")
-        .select("id, business_name, city")
+        .select("id, businessName, city")
         .in("id", orders.map((o: any) => o.confectioner_id).filter(Boolean)),
     ]);
 

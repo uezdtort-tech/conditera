@@ -74,9 +74,9 @@ async function handleMessageReceived(payload: SimplexPayload): Promise<NextRespo
     const { data } = await supabaseAdmin
       .from("simplex_contacts")
       .select("*")
-      .eq("profile_type", "confectioner")
+      .eq("profileType", "confectioner")
       .eq("active", true)
-      .order("created_at", { ascending: true })
+      .order("createdAt", { ascending: true })
       .limit(1)
       .maybeSingle();
     contact = data as Record<string, any> | null;
@@ -91,23 +91,22 @@ async function handleMessageReceived(payload: SimplexPayload): Promise<NextRespo
       const { data: existing } = await supabaseAdmin
         .from("simplex_messages")
         .select("id")
-        .eq("simplex_msg_id", simplexMsgId)
+        .eq("simplexMsgId", simplexMsgId)
         .maybeSingle();
       if (existing) {
         return NextResponse.json({ ok: true, duplicate: true });
       }
 
       await supabaseAdmin.from("simplex_messages").insert({
-        simplex_contact_id: contact.id,
-        simplex_chat_id: simplexChatId,
-        simplex_msg_id: simplexMsgId,
-        from_name: fromName || null,
+        simplexContactId: contact.id,
+        simplexChatId: simplexChatId,
+        simplexMsgId: simplexMsgId,
+        fromName: fromName || null,
         text: text || null,
         metadata: { messageType, files: files || [], rawTimestamp: timestamp },
         direction: "incoming",
-        read_by_operator: false,
-        received_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
+        readByOperator: false,
+        receivedAt: new Date().toISOString(),
       });
 
       console.log(`[simplex/incoming] Saved message from ${fromName}: ${text?.slice(0, 50) || `[${messageType}]`}`);
@@ -116,7 +115,7 @@ async function handleMessageReceived(payload: SimplexPayload): Promise<NextRespo
       try {
         const { sendNotification } = await import("@/lib/notifications");
         await sendNotification({
-          userId: contact.user_id,
+          userId: contact.userId,
           template: "SIMPLEX_MESSAGE",
           vars: { fromName: fromName || "клиента", text: text || "" },
           data: { simplexChatId, simplexContactId: contact.id, type: "simplex_message" },
@@ -139,15 +138,15 @@ async function handleContactConnected(payload: SimplexPayload): Promise<NextResp
   try {
     const { data: contact } = await supabaseAdmin
       .from("simplex_contacts")
-      .select("id, connections_count")
-      .eq("profile_type", "confectioner")
+      .select("id, connectionsCount")
+      .eq("profileType", "confectioner")
       .eq("active", true)
       .maybeSingle();
 
     if (contact) {
       await supabaseAdmin
         .from("simplex_contacts")
-        .update({ connections_count: (contact.connections_count || 0) + 1 })
+        .update({ connectionsCount: (contact.connectionsCount || 0) + 1 })
         .eq("id", contact.id);
     }
   } catch (e: any) {

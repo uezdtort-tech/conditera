@@ -51,7 +51,7 @@ interface ProductRow {
   title: string;
   price: number;
   images: string[] | null;
-  rating: number | null;
+  rating_average: number | null;
   reviews_count: number | null;
   category: string | null;
   tags: string[] | null;
@@ -182,8 +182,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       // для первого ключевого слова, потом фильтруем на клиенте
       let query = supabaseAdmin
         .from("products")
-        .select("id, title, price, images, rating, reviews_count, category, tags, confectioner_id")
-        .order("rating", { ascending: false })
+        .select("id, title, price, images, rating_average, reviews_count, category, tags, confectioner_id")
+        .order("rating_average", { ascending: false })
         .limit(limit * 3); // берём в 3 раза больше для последующего скоринга
 
       if (searchKeywords.length > 0) {
@@ -204,8 +204,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       try {
         const { data, error } = await supabaseAdmin
           .from("products")
-          .select("id, title, price, images, rating, reviews_count, category, tags, confectioner_id")
-          .order("rating", { ascending: false })
+          .select("id, title, price, images, rating_average, reviews_count, category, tags, confectioner_id")
+          .order("rating_average", { ascending: false })
           .limit(limit) as { data: ProductRow[] | null; error: SupabaseError | null };
 
         if (error) throw error;

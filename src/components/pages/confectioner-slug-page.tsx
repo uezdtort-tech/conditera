@@ -26,7 +26,6 @@ export function ConfectionerSlugPage({ confectioner }: { confectioner: Confectio
       setConfectioners([confectioner, ...store.confectioners]);
     }
     store.navigate("confectioner-profile", { id: confectioner.id });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confectioner.id]);
 
   return <ConfectionerProfilePage />;

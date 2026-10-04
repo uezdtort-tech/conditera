@@ -125,12 +125,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           content_type: data.contentType,
           content_id: data.contentId,
           author_id: "reported",
-          content: `Жалоба: ${data.description || data.reason}`,
-          images: [],
+          // Реальная схема moderation_queue: content/images/auto_score/violations —
+          // не существуют; текст жалобы храним в jsonb content_snapshot + auto_reason.
+          content_snapshot: { description: data.description || null },
           auto_status: "flagged",
           auto_reason: `Критическая жалоба: ${data.reason}`,
-          auto_score: 0.8,
-          violations: [data.reason],
           manual_status: "pending",
         });
       } catch (queueErr: any) {

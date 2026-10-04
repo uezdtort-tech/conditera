@@ -586,7 +586,6 @@ export function ServicesManager() {
                 <div className="flex flex-wrap gap-2 mb-2">
                   {form.images.map((url, idx) => (
                     <div key={`${url}-${idx}`} className="relative group">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={url}
                         alt={`Фото ${idx + 1}`}

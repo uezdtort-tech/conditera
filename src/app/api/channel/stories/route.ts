@@ -42,11 +42,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let query = supabaseAdmin
       .from("channel_stories")
       .select("*")
-      .gt("expires_at", nowIso)
-      .order("sort_order", { ascending: true })
+      .gt("expiresAt", nowIso)
+      .order("sortOrder", { ascending: true })
       .limit(50);
 
-    if (confectionerId) query = query.eq("confectioner_id", confectionerId);
+    if (confectionerId) query = query.eq("confectionerId", confectionerId);
 
     const { data, error } = await query;
     if (error) {
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("userId", user.id)
       .maybeSingle();
     if (confErr) {
       console.error("[channel/stories] confectioner lookup failed:", confErr.message);
@@ -134,18 +134,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: story, error } = await supabaseAdmin
       .from("channel_stories")
       .insert({
-        confectioner_id: conf.id,
+        confectionerId: conf.id,
         image,
         video,
         type,
         caption,
         duration,
-        product_id: productId,
-        expires_at: expiresAt,
-        views_count: 0,
-        likes_count: 0,
-        replies_count: 0,
-        sort_order: 0,
+        productId: productId,
+        expiresAt: expiresAt,
+        viewsCount: 0,
+        likesCount: 0,
+        repliesCount: 0,
+        sortOrder: 0,
       })
       .select()
       .single();

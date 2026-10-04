@@ -382,7 +382,11 @@ export async function POST(request: NextRequest) {
           if (!existingBonus) {
             const { awardOrderPoints } = await import("@/lib/loyalty");
             const { sendNotification } = await import("@/lib/notifications");
-            const result = await awardOrderPoints(order.customer_id, orderId, order.total);
+            // user_id — владелец заказа (checkout не заполняет customer_id);
+            // раньше передавался customer_id (null) → bonus award всегда падал.
+            const bonusUserId = order.user_id || order.customer_id;
+            if (!bonusUserId) throw new Error("Заказ без владельца — бонусы не начисляются");
+            const result = await awardOrderPoints(bonusUserId, orderId, order.total);
             await sendNotification({
               userId: customerProfileId,
               template: "BONUS_EARNED",
@@ -392,7 +396,7 @@ export async function POST(request: NextRequest) {
                 balance: result.points,
               },
             });
-            console.info(`[webhook] Awarded ${result.points} points to ${order.customer_id}`);
+            console.info(`[webhook] Awarded ${result.points} points to ${bonusUserId}`);
           } else {
             console.info(`[webhook] Bonus for order ${orderId} already awarded, skipping.`);
           }

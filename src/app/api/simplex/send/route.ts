@@ -42,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const { data } = await supabaseAdmin
         .from("simplex_contacts")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("userId", user.id)
         .eq("active", true)
         .maybeSingle();
       contact = data as { id: string } | null;
@@ -77,15 +77,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       if (contact) {
         await supabaseAdmin.from("simplex_messages").insert({
-          simplex_contact_id: contact.id,
-          simplex_chat_id: chatId || `outgoing-${Date.now()}`,
-          simplex_msg_id: bridgeResult?.result?.chatItemId || `out-${Date.now()}`,
-          from_name: "operator",
+          simplexContactId: contact.id,
+          simplexChatId: chatId || `outgoing-${Date.now()}`,
+          simplexMsgId: bridgeResult?.result?.chatItemId || `out-${Date.now()}`,
+          fromName: "operator",
           text,
           metadata: { messageType: "text", bridgeResult },
           direction: "outgoing",
-          read_by_operator: true,
-          created_at: new Date().toISOString(),
+          readByOperator: true,
+          receivedAt: new Date().toISOString(),
         });
       }
     } catch (e: any) {

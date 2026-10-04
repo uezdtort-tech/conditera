@@ -35,11 +35,24 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       return NextResponse.json({ error: "Награда уже получена" }, { status: 400 });
     }
 
-    // Mark as claimed
-    await supabaseAdmin
+    // Награда живёт в challenges.reward_value (user_challenges.reward_points не существует)
+    const { data: challenge } = await supabaseAdmin
+      .from("challenges")
+      .select("reward_value, reward_type")
+      .eq("id", challengeId)
+      .maybeSingle();
+    const rewardPoints = challenge?.reward_value ?? 100;
+
+    // Mark as claimed (идемпотентность: условный update — гонка двух claim даёт 0 строк)
+    const { data: claimedRows } = await supabaseAdmin
       .from("user_challenges")
       .update({ claimed: true, claimed_at: new Date().toISOString() })
-      .eq("id", userChallenge.id);
+      .eq("id", userChallenge.id)
+      .eq("claimed", false)
+      .select("id");
+    if (!claimedRows || claimedRows.length === 0) {
+      return NextResponse.json({ error: "Награда уже получена" }, { status: 400 });
+    }
 
     // Award points (non-blocking)
     try {
@@ -51,7 +64,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       if (profile) {
         await supabaseAdmin
           .from("profiles")
-          .update({ bonus_balance: (profile.bonus_balance || 0) + (userChallenge.reward_points || 100) })
+          .update({ bonus_balance: (profile.bonus_balance || 0) + rewardPoints })
           .eq("id", user.id);
       }
     } catch {}
@@ -59,7 +72,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     return NextResponse.json({
       success: true,
       challengeId,
-      reward: { points: userChallenge.reward_points || 100 },
+      reward: { points: rewardPoints },
     });
   } catch (error: any) {
     return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });

@@ -31,16 +31,16 @@ const MODERATION_ACTIONS = ["approve", "reject"] as const;
 
 interface PostRow {
   id: string;
-  confectioner_id: string;
+  confectionerId: string;
   content: string;
   images: string[] | null;
-  is_published: boolean | null;
+  isPublished: boolean | null;
   moderation_status: string | null;
   telegram_message_id: number | null;
 }
 
 interface ConfectionerRow {
-  business_name: string;
+  businessName: string;
   avatar: string | null;
 }
 
@@ -92,11 +92,11 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
         .from("channel_posts")
         .update({
           moderation_status: "rejected",
-          is_published: false,
+          isPublished: false,
           moderated_by: user.userId,
           moderated_at: new Date().toISOString(),
           rejection_reason: body.rejectionReason || "Отклонено администратором",
-          updated_at: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         })
         .eq("id", postId);
 
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       try {
         const { sendNotification } = await import("@/lib/notifications");
         await sendNotification({
-          userId: post.confectioner_id,
+          userId: post.confectionerId,
           template: "VERIFICATION_REJECTED",
           vars: {
             reason: body.rejectionReason || "Публикация не соответствует правилам платформы",
@@ -132,11 +132,11 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       // Загружаем кондитера для имени
       const { data: conf } = await supabaseAdmin
         .from("confectioners")
-        .select("business_name, avatar")
-        .eq("id", post.confectioner_id)
+        .select("businessName, avatar")
+        .eq("id", post.confectionerId)
         .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
 
-      const businessName = conf?.business_name || "Кондитер";
+      const businessName = conf?.businessName || "Кондитер";
       const images = post.images || [];
 
       // Формируем текст для Telegram
@@ -168,15 +168,15 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       .from("channel_posts")
       .update({
         moderation_status: "approved",
-        is_published: true,
+        isPublished: true,
         moderated_by: user.userId,
         moderated_at: new Date().toISOString(),
         rejection_reason: null,
         telegram_message_id: telegramMessageId,
         telegram_posted_at: telegramMessageId ? new Date().toISOString() : null,
         telegram_post_error: telegramError,
-        published_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        publishedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       })
       .eq("id", postId);
 
@@ -189,7 +189,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     try {
       const { sendNotification } = await import("@/lib/notifications");
       await sendNotification({
-        userId: post.confectioner_id,
+        userId: post.confectionerId,
         template: "VERIFICATION_APPROVED",
         vars: {},
         data: { postId, type: "post_approved", telegramPosted: Boolean(telegramMessageId) },

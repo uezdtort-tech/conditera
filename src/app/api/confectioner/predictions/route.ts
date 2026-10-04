@@ -113,7 +113,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
       .select("id")
-      .eq("user_id", user.userId)
+      .eq("userId", user.userId)
       .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
 
     if (confErr) {

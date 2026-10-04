@@ -102,7 +102,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         `
         id, number, status, total, delivery_address, delivery_date,
         delivery_time, delivery_cost, payment_method, payment_status,
-        comment, confectioner_id, created_at
+        comment, confectioner_id, user_id, created_at
       `
       );
 
@@ -135,11 +135,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const orderIds = (orders || []).map((o: any) => o.id);
     let itemsByOrder = new Map<string, any[]>();
     if (orderIds.length > 0) {
+      // checkout пишет product_title/product_image/unit_price, /api/orders POST —
+      // title/image/price; берём оба набора и сводим (колонки-дубли в 0017).
       const { data: items } = await supabaseAdmin
         .from("order_items")
-        .select("id, order_id, product_id, title, image, price, quantity, customization")
+        .select(
+          "id, order_id, product_id, title, image, price, product_title, product_image, unit_price, quantity, customization"
+        )
         .in("order_id", orderIds);
-      for (const item of items || []) {
+      for (const raw of items || []) {
+        const item = {
+          ...raw,
+          title: raw.title || raw.product_title || null,
+          image: raw.image || raw.product_image || null,
+          price:
+            Number(raw.price) > 0
+              ? Number(raw.price)
+              : Number(raw.unit_price ?? 0),
+        };
         const arr = itemsByOrder.get(item.order_id) || [];
         arr.push(item);
         itemsByOrder.set(item.order_id, arr);
@@ -353,14 +366,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (confectionerId) {
         const { data: conf } = await supabaseAdmin
           .from("confectioners")
-          .select("tariff, legal_info")
+          .select("tariff, legalInfo")
           .eq("id", confectionerId)
           .maybeSingle();
 
         if (conf) {
           tariffSnapshot = String(conf.tariff || "BASIC");
           commissionRateSnapshot = TARIFF_RATES[tariffSnapshot] ?? DEFAULT_COMMISSION_RATE;
-          const legalInfo = (conf.legal_info as { status?: string } | null) || null;
+          const legalInfo = (conf.legalInfo as { status?: string } | null) || null;
           legalStatusSnapshot = legalInfo?.status || null;
         }
       }
@@ -562,12 +575,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (confectionerId) {
         const { data: confUser } = await supabaseAdmin
           .from("confectioners")
-          .select("user_id")
+          .select("userId")
           .eq("id", confectionerId)
           .maybeSingle();
         if (confUser) {
           await sendNotification({
-            userId: confUser.user_id,
+            userId: confUser.userId,
             template: "NEW_MESSAGE",
             vars: {
               senderName: "Новый заказ",

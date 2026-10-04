@@ -24,18 +24,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const { data: contact } = await supabaseAdmin
           .from("simplex_contacts")
           .select("id")
-          .eq("user_id", user.id)
+          .eq("userId", user.id)
           .maybeSingle();
 
         if (contact) {
           let query = supabaseAdmin
             .from("simplex_messages")
-            .update({ read_by_operator: true })
-            .eq("simplex_contact_id", contact.id)
-            .eq("read_by_operator", false);
+            .update({ readByOperator: true })
+            .eq("simplexContactId", contact.id)
+            .eq("readByOperator", false);
 
           if (chatId) {
-            query = query.eq("simplex_chat_id", chatId);
+            query = query.eq("simplexChatId", chatId);
           }
 
           await query;
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       } else if (Array.isArray(messageIds) && messageIds.length > 0) {
         await supabaseAdmin
           .from("simplex_messages")
-          .update({ read_by_operator: true })
+          .update({ readByOperator: true })
           .in("id", messageIds);
       }
     } catch (e: any) {

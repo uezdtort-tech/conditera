@@ -49,9 +49,8 @@ interface ProductRow {
   title: string;
   price: number;
   images: string[] | null;
-  rating: number | null;
+  rating_average: number | null;
   servings: number | null;
-  category: string | null;
 }
 
 interface Recommendation {
@@ -60,8 +59,7 @@ interface Recommendation {
   reason: string;
   priceFrom: number;
   image?: string | null;
-  rating: number | null;
-}
+  rating: number | null;}
 
 const SYSTEM_PROMPT = `Ты — AI-консультант по подбору торта на маркетплейсе «Уездный кондитер».
 Помоги покупателю выбрать идеальный торт за 3-5 вопросов.
@@ -116,7 +114,7 @@ export async function POST(request: NextRequest): Promise<Response> {
           reason: `${p.servings || servings} порций, от ${p.price}₽`,
           priceFrom: p.price,
           image: p.images?.[0] || null,
-          rating: p.rating,
+          rating: p.rating_average,
         }));
 
         return NextResponse.json({
@@ -191,18 +189,31 @@ async function findProducts(
   city?: string
 ): Promise<ProductRow[]> {
   try {
+    // products.city не существует — регион живёт у кондитера (confectioners.city).
+    // Фильтр по городу: сначала подходящие кондитеры, затем их товары.
+    let confectionerIds: string[] | null = null;
+    if (city) {
+      const { data: confs } = await supabaseAdmin
+        .from("confectioners")
+        .select("id")
+        .ilike("city", `%${city}%`)
+        .limit(200);
+      confectionerIds = (confs || []).map((c: { id: string }) => c.id);
+      if (confectionerIds.length === 0) return [];
+    }
+
     let query = supabaseAdmin
       .from("products")
-      .select("id, title, price, images, rating, servings, category")
+      .select("id, title, price, images, rating_average, servings")
       .lte("price", budget)
-      .order("rating", { ascending: false })
+      .order("rating_average", { ascending: false })
       .limit(5);
 
     if (servings > 0) {
       query = query.gte("servings", servings);
     }
-    if (city) {
-      query = query.ilike("city", `%${city}%`);
+    if (confectionerIds) {
+      query = query.in("confectioner_id", confectionerIds);
     }
 
     const { data, error } = await query as { data: ProductRow[] | null; error: SupabaseError | null };

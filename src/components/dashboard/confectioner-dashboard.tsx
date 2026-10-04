@@ -116,6 +116,7 @@ import { GamificationWidget } from "@/components/gamification/gamification-widge
 import { AiPhotoGenerator } from "@/components/ai/ai-photo-generator";
 import { toast } from "sonner";
 import { useRealOrders, useRealUpdateOrderStatus } from "@/lib/use-real-orders";
+import { useRealInventory } from "@/lib/use-real-inventory";
 
 export function ConfectionerDashboard() {
   const navigate = useAppStore((s) => s.navigate);
@@ -145,6 +146,9 @@ export function ConfectionerDashboard() {
   // Реальные заказы (GET /api/orders — скоуп кондитера решает сервер: user_id ИЛИ confectioner_id).
   // Fallback на store-заказы (mock) только если API недоступен (isStale=true).
   const { orders: apiOrders, isStale: ordersStale, refetch: refetchOrders } = useRealOrders();
+  // Реальный склад (GET /api/inventory/items) — бейдж «Склад» считает низкие остатки
+  // из БД; store-инвентарь (mock) остаётся только офлайн-фолбэком при сбое API.
+  const { realItems, isStale: inventoryStale } = useRealInventory();
   // Смена статуса через PATCH /api/orders/[id] (реальная стейт-машина STATUS_TRANSITIONS)
   const updateOrderStatusApi = useRealUpdateOrderStatus();
   const updateConfectionerTariff = useAppStore((s) => s.updateConfectionerTariff);
@@ -177,9 +181,12 @@ export function ConfectionerDashboard() {
     (p) => p.confectionerId === confectioner.id && p.status === "active"
   ).length;
   const recipesCount = recipes.filter((r) => r.confectionerId === confectioner.id).length;
-  const lowStockCount = inventory.filter(
-    (i) => i.confectionerId === confectioner.id && i.quantity <= i.minQuantity
-  ).length;
+  // Низкие остатки: из реального API; при сбое — фолбэк на store (mock, честно помечен в UI вкладки)
+  const lowStockCount = inventoryStale
+    ? inventory.filter(
+        (i) => i.confectionerId === confectioner.id && i.quantity <= i.minQuantity
+      ).length
+    : (realItems ?? []).filter((i) => i.quantity <= i.minQuantity).length;
   const activeOrdersCount = ganttTasks.filter(
     (t) => t.status === "in_progress" || t.status === "pending"
   ).length;

@@ -88,10 +88,10 @@ async function attachImageToProduct(
     // Проверить владение: получить кондитера по confectioner_id и сравнить user_id
     const { data: conf } = await supabaseAdmin
       .from("confectioners")
-      .select("user_id")
+      .select("userId")
       .eq("id", product.confectioner_id)
       .maybeSingle();
-    if (!conf || conf.user_id !== userId) return false;
+    if (!conf || conf.userId !== userId) return false;
 
     const currentImages = (product.images as string[]) || [];
     if (currentImages.includes(imageUrl)) return true;

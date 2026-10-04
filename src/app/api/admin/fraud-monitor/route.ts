@@ -27,10 +27,10 @@ const MAX_EVENTS_RETURN = 50;
 
 interface FraudLogEntry {
   id: string;
-  ip_hash: string;
+  ip_address: string;
   user_id: string | null;
-  action: string;
-  device_fp: string | null;
+  event_type: string;
+  fingerprint: string | null;
   created_at: string;
 }
 
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 2. Получить все fraud_log события за 24 часа
     const { data: fraudLogs, error: logsErr } = await supabaseAdmin
       .from("fraud_log")
-      .select("id, ip_hash, user_id, action, device_fp, created_at")
+      .select("id, ip_address, user_id, event_type, fingerprint, created_at")
       .gte("created_at", dayAgoIso)
       .order("created_at", { ascending: false })
       .limit(MAX_EVENTS_RETURN * 5);  // больше данных для агрегации
@@ -82,8 +82,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Агрегация по IP (top-30)
     const ipCountMap = new Map<string, number>();
     for (const log of logs) {
-      if (!log.ip_hash) continue;
-      ipCountMap.set(log.ip_hash, (ipCountMap.get(log.ip_hash) || 0) + 1);
+      if (!log.ip_address) continue;
+      ipCountMap.set(log.ip_address, (ipCountMap.get(log.ip_address) || 0) + 1);
     }
     const topIps = Array.from(ipCountMap.entries())
       .sort((a, b) => b[1] - a[1])
@@ -96,8 +96,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Агрегация по action
     const actionCountMap = new Map<string, number>();
     for (const log of logs) {
-      if (!log.action) continue;
-      actionCountMap.set(log.action, (actionCountMap.get(log.action) || 0) + 1);
+      if (!log.event_type) continue;
+      actionCountMap.set(log.event_type, (actionCountMap.get(log.event_type) || 0) + 1);
     }
     const actionsStats = Array.from(actionCountMap.entries())
       .sort((a, b) => b[1] - a[1])
@@ -106,10 +106,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Последние 50 events
     const recentEvents = logs.slice(0, MAX_EVENTS_RETURN).map((e) => ({
       id: e.id,
-      ip_hash: (e.ip_hash || "").slice(0, 12) + "…",
+      ip_hash: (e.ip_address || "").slice(0, 12) + "…",
       user_id: e.user_id,
-      action: e.action,
-      device_fp: e.device_fp,
+      action: e.event_type,
+      device_fp: e.fingerprint,
       created_at: e.created_at,
     }));
 

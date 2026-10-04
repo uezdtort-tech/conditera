@@ -398,8 +398,8 @@ async function suspendUserOrConfectioner(
       .from("confectioners")
       .update({
         verified: false,
-        trust_level: "NEW",
-        updated_at: new Date().toISOString(),
+        trustLevel: "NEW",
+        updatedAt: new Date().toISOString(),
       })
       .eq("id", confectionerId);
 
@@ -428,15 +428,15 @@ export async function findOrganizationsNeedingRecheck(daysInterval = 30): Promis
   try {
     const { data: confectioners, error } = await supabaseAdmin
       .from("confectioners")
-      .select("id, user_id, legal_info")
-      .not("legal_info", "is", null) as { data: Array<{ id: string; user_id: string; legal_info: unknown }> | null; error: SupabaseError | null };
+      .select("id, userId, legalInfo")
+      .not("legalInfo", "is", null) as { data: Array<{ id: string; userId: string; legalInfo: unknown }> | null; error: SupabaseError | null };
 
     if (error) {
       console.warn("[dadata] confectioners lookup failed:", error.message);
     }
 
     for (const c of confectioners || []) {
-      const legalInfo = c.legal_info as { inn?: string } | null;
+      const legalInfo = c.legalInfo as { inn?: string } | null;
       if (!legalInfo?.inn) continue;
 
       // Get last verification for this confectioner
@@ -452,7 +452,7 @@ export async function findOrganizationsNeedingRecheck(daysInterval = 30): Promis
       if (lastDate && lastDate > cutoff) continue;
 
       result.push({
-        userId: c.user_id,
+        userId: c.userId,
         confectionerId: c.id,
         inn: legalInfo.inn,
         lastVerifiedAt: lastDate,

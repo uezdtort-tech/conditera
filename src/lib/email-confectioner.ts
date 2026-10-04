@@ -30,8 +30,8 @@ interface SupabaseError {
 }
 
 interface ConfectionerRow {
-  business_name: string;
-  user_id: string;
+  businessName: string;
+  userId: string;
 }
 
 interface UserEmailRow {
@@ -174,10 +174,10 @@ export async function sendConfectionerVerificationEmail(
   reason?: string | null
 ): Promise<void> {
   try {
-    // Загружаем кондитера для получения business_name и user_id
+    // Загружаем кондитера для получения businessName и userId
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
-      .select("business_name, user_id")
+      .select("businessName, userId")
       .eq("id", confectionerId)
       .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
 
@@ -194,7 +194,7 @@ export async function sendConfectionerVerificationEmail(
     const { data: userRow, error: userErr } = await supabaseAdmin
       .from("profiles")
       .select("email")
-      .eq("id", conf.user_id)
+      .eq("id", conf.userId)
       .maybeSingle() as { data: UserEmailRow | null; error: SupabaseError | null };
 
     if (userErr) {
@@ -202,12 +202,12 @@ export async function sendConfectionerVerificationEmail(
       return;
     }
     if (!userRow?.email) {
-      console.warn("[email:confectioner] user has no email:", conf.user_id);
+      console.warn("[email:confectioner] user has no email:", conf.userId);
       return;
     }
 
     const userEmail = userRow.email;
-    const businessName = conf.business_name || "Кондитер";
+    const businessName = conf.businessName || "Кондитер";
 
     let template: EmailTemplate;
     if (newStatus === "approved") {

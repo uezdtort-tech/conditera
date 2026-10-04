@@ -25,6 +25,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus,
   Edit,
@@ -66,6 +67,15 @@ import {
   formatDate,
   formatDateTime,
 } from "@/lib/finance";
+import {
+  useRealInventory,
+  useCreateInventoryItem,
+  useUpdateInventoryItem,
+  useDeleteInventoryItem,
+  useInventoryMovements,
+  useCreateMovement,
+  type RealInventoryItem,
+} from "@/lib/use-real-inventory";
 import type {
   Promotion,
   PromotionType,
@@ -74,8 +84,6 @@ import type {
   RecipeType,
   RecipeDifficulty,
   RecipeAccess,
-  InventoryItem,
-  InventoryUnit,
   GanttTask,
   ProductionStage,
   Reminder,
@@ -998,42 +1006,132 @@ function CreateRecipeDialog({
 }
 
 // ==================== ВКЛАДКА СКЛАД ====================
+/**
+ * Складской учёт — реальные данные из /api/inventory/* (use-real-inventory).
+ * БД-модель: inventory_items (колонок expiry_date/storage_location НЕТ —
+ * не показываем) + журнал inventory_movements (IN/OUT/ADJUST).
+ * Низкий остаток: quantity <= min_quantity. Скоуп данных решает API
+ * (owner_id = текущий пользователь), confectionerId не используется.
+ */
+type MovementType = "IN" | "OUT" | "ADJUST";
+
+const MOVEMENT_TYPE_LABEL: Record<MovementType, string> = {
+  IN: "Поступление",
+  OUT: "Списание",
+  ADJUST: "Корректировка",
+};
+
+const MOVEMENT_TYPE_BADGE: Record<MovementType, string> = {
+  IN: "bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]",
+  OUT: "bg-red-50 text-red-700 border-red-200 text-[10px]",
+  ADJUST: "bg-slate-50 text-slate-700 border-slate-200 text-[10px]",
+};
+
 export function ConfectionerInventoryTab({
   confectionerId,
 }: {
   confectionerId: string;
 }) {
-  const inventory = useAppStore((s) => s.inventory);
-  const stockMovements = useAppStore((s) => s.stockMovements);
-  const updateInventoryItem = useAppStore((s) => s.updateInventoryItem);
-  const deleteInventoryItem = useAppStore((s) => s.deleteInventoryItem);
-  const addStockMovement = useAppStore((s) => s.addStockMovement);
-  const suppliers = useAppStore((s) => s.confectioners); // для простоты
-  const [showAddMovement, setShowAddMovement] = useState<string | null>(null);
+  void confectionerId;
+  const { items, isStale, isLoading, error, refetch } = useRealInventory();
+  const movementsQuery = useInventoryMovements(null);
+  const deleteItem = useDeleteInventoryItem();
 
-  const myItems = inventory.filter((i) => i.confectionerId === confectionerId);
-  const myMovements = stockMovements.filter((m) =>
-    myItems.some((i) => i.id === m.itemId)
-  );
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [editItem, setEditItem] = useState<RealInventoryItem | null>(null);
+  const [movementTarget, setMovementTarget] = useState<{
+    item: RealInventoryItem;
+    type: MovementType;
+  } | null>(null);
+
+  const myItems = items;
+  const myMovements = (movementsQuery.data ?? []).slice(0, 8);
 
   const totalValue = myItems.reduce((s, i) => s + i.quantity * i.costPerUnit, 0);
   const lowStockItems = myItems.filter((i) => i.quantity <= i.minQuantity);
-  const expiringItems = myItems.filter((i) => {
-    if (!i.expiryDate) return false;
-    const days = Math.ceil((new Date(i.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    return days <= 7 && days >= 0;
-  });
+  const suppliersCount = new Set(myItems.map((i) => i.supplier).filter(Boolean)).size;
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+  const handleDelete = (item: RealInventoryItem) => {
+    if (typeof window !== "undefined" && !window.confirm(`Удалить «${item.name}» со склада?`)) {
+      return;
+    }
+    deleteItem.mutate(item.id);
+  };
+
+  // === Состояние загрузки ===
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
         <div>
           <h1 className="font-display text-2xl font-bold">Складской учёт</h1>
           <p className="text-sm text-muted-foreground">
-            Управление ингредиентами и материалами. Контроль остатков и сроков годности.
+            Управление ингредиентами и материалами. Контроль остатков и движений.
           </p>
         </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map((i) => (
+            <Card key={i} className="p-3">
+              <Skeleton className="h-5 w-5 mb-2" />
+              <Skeleton className="h-6 w-20 mb-1" />
+              <Skeleton className="h-3 w-24" />
+            </Card>
+          ))}
+        </div>
+        <Card className="p-4 space-y-3">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-8 w-full" />
+          ))}
+        </Card>
       </div>
+    );
+  }
+
+  // === Состояние ошибки (с ретраем) ===
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold">Складской учёт</h1>
+          <p className="text-sm text-muted-foreground">
+            Управление ингредиентами и материалами. Контроль остатков и движений.
+          </p>
+        </div>
+        <Card className="p-6 text-center">
+          <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+          <div className="font-medium mb-1">Не удалось загрузить склад</div>
+          <div className="text-sm text-muted-foreground mb-4">{error.message}</div>
+          <Button onClick={refetch} variant="outline" size="sm">
+            Повторить
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold">Складской учёт</h1>
+          <p className="text-sm text-muted-foreground">
+            Управление ингредиентами и материалами. Контроль остатков и движений.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowAddItem(true)}>
+          <Plus className="h-4 w-4 mr-1" />
+          Добавить позицию
+        </Button>
+      </div>
+
+      {/* Offline-фолбэк на mock-данные store */}
+      {isStale && (
+        <Card className="p-3 bg-amber-50 border-amber-200 text-sm text-amber-800">
+          Офлайн-данные: сервер недоступен, показан устаревший кэш.
+          <Button variant="outline" size="sm" className="ml-2 h-6 text-[10px]" onClick={refetch}>
+            Обновить
+          </Button>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1053,14 +1151,14 @@ export function ConfectionerInventoryTab({
           <div className="text-xs text-muted-foreground">заканчивается</div>
         </Card>
         <Card className="p-3">
-          <Clock className="h-5 w-5 text-red-600 mb-1" />
-          <div className="font-display text-xl font-bold">{expiringItems.length}</div>
-          <div className="text-xs text-muted-foreground">истекает срок</div>
+          <CheckCircle2 className="h-5 w-5 text-slate-600 mb-1" />
+          <div className="font-display text-xl font-bold">{suppliersCount}</div>
+          <div className="text-xs text-muted-foreground">поставщиков</div>
         </Card>
       </div>
 
-      {/* Alerts */}
-      {(lowStockItems.length > 0 || expiringItems.length > 0) && (
+      {/* Alerts: низкий остаток (колонки expiry_date в БД нет — блок срока годности убран) */}
+      {lowStockItems.length > 0 && (
         <Card className="p-4 bg-amber-50 border-amber-200">
           <div className="flex items-start gap-2">
             <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
@@ -1076,20 +1174,12 @@ export function ConfectionerInventoryTab({
                       size="sm"
                       variant="outline"
                       className="h-6 text-[10px]"
-                      onClick={() => setShowAddMovement(item.id)}
+                      onClick={() => setMovementTarget({ item, type: "IN" })}
                     >
                       Пополнить
                     </Button>
                   </div>
                 ))}
-                {expiringItems.map((item) => {
-                  const days = Math.ceil((new Date(item.expiryDate!).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                  return (
-                    <div key={item.id} className="text-red-800 text-xs">
-                      • <strong>{item.name}</strong>: срок годности истекает через {days} дн. ({formatDate(item.expiryDate!)})
-                    </div>
-                  );
-                })}
               </div>
             </div>
           </div>
@@ -1099,152 +1189,326 @@ export function ConfectionerInventoryTab({
       {/* Inventory table */}
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Остатки на складе</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="pb-2 pr-3">Наименование</th>
-                <th className="pb-2 pr-3">Категория</th>
-                <th className="pb-2 pr-3 text-right">Кол-во</th>
-                <th className="pb-2 pr-3 text-right">Мин.</th>
-                <th className="pb-2 pr-3 text-right">Цена/ед</th>
-                <th className="pb-2 pr-3 text-right">Сумма</th>
-                <th className="pb-2 pr-3">Срок</th>
-                <th className="pb-2 pr-3">Стеллаж</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {myItems.map((item) => {
-                const isLow = item.quantity <= item.minQuantity;
-                const daysToExpiry = item.expiryDate
-                  ? Math.ceil((new Date(item.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                  : null;
-                const isExpiringSoon = daysToExpiry !== null && daysToExpiry <= 7 && daysToExpiry >= 0;
-                const isExpired = daysToExpiry !== null && daysToExpiry < 0;
-                return (
-                  <tr key={item.id} className="border-b last:border-0">
-                    <td className="py-2 pr-3 font-medium">{item.name}</td>
-                    <td className="py-2 pr-3 text-muted-foreground text-xs">{item.category}</td>
-                    <td className={`py-2 pr-3 text-right font-medium ${isLow ? "text-amber-600" : ""}`}>
-                      {item.quantity} {item.unit}
-                    </td>
-                    <td className="py-2 pr-3 text-right text-muted-foreground text-xs">
-                      {item.minQuantity}
-                    </td>
-                    <td className="py-2 pr-3 text-right text-xs">
-                      {formatCurrency(item.costPerUnit)}
-                    </td>
-                    <td className="py-2 pr-3 text-right font-medium">
-                      {formatCurrency(item.quantity * item.costPerUnit)}
-                    </td>
-                    <td className="py-2 pr-3 text-xs">
-                      {item.expiryDate ? (
-                        <span className={isExpired ? "text-red-600" : isExpiringSoon ? "text-amber-600" : "text-muted-foreground"}>
-                          {formatDate(item.expiryDate)}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="py-2 pr-3 text-xs text-muted-foreground">
-                      {item.storageLocation || "—"}
-                    </td>
-                    <td className="py-2">
-                      <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={() => setShowAddMovement(item.id)}
-                        >
-                          <ArrowDownUp className="h-3 w-3 mr-1" />
-                          Движение
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {myItems.length === 0 ? (
+          <div className="text-center py-8 text-sm text-muted-foreground">
+            На складе пока нет позиций.
+            <Button variant="outline" size="sm" className="ml-2" onClick={() => setShowAddItem(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Добавить первую позицию
+            </Button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="pb-2 pr-3">Наименование</th>
+                  <th className="pb-2 pr-3">Категория</th>
+                  <th className="pb-2 pr-3 text-right">Кол-во</th>
+                  <th className="pb-2 pr-3 text-right">Мин.</th>
+                  <th className="pb-2 pr-3 text-right">Цена/ед</th>
+                  <th className="pb-2 pr-3 text-right">Сумма</th>
+                  <th className="pb-2 pr-3">Поставщик</th>
+                  <th className="pb-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {myItems.map((item) => {
+                  const isLow = item.quantity <= item.minQuantity;
+                  return (
+                    <tr key={item.id} className="border-b last:border-0">
+                      <td className="py-2 pr-3 font-medium">{item.name}</td>
+                      <td className="py-2 pr-3 text-muted-foreground text-xs">{item.category || "—"}</td>
+                      <td className={`py-2 pr-3 text-right font-medium ${isLow ? "text-amber-600" : ""}`}>
+                        {item.quantity} {item.unit}
+                      </td>
+                      <td className="py-2 pr-3 text-right text-muted-foreground text-xs">
+                        {item.minQuantity}
+                      </td>
+                      <td className="py-2 pr-3 text-right text-xs">
+                        {formatCurrency(item.costPerUnit)}
+                      </td>
+                      <td className="py-2 pr-3 text-right font-medium">
+                        {formatCurrency(item.quantity * item.costPerUnit)}
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-muted-foreground">
+                        {item.supplier || "—"}
+                      </td>
+                      <td className="py-2">
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => setMovementTarget({ item, type: "OUT" })}
+                          >
+                            <ArrowDownUp className="h-3 w-3 mr-1" />
+                            Движение
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            aria-label={`Изменить ${item.name}`}
+                            onClick={() => setEditItem(item)}
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                            aria-label={`Удалить ${item.name}`}
+                            onClick={() => handleDelete(item)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Stock movements */}
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">Последние движения</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold">Последние движения</h3>
+          {movementsQuery.error && (
+            <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => movementsQuery.refetch()}>
+              Повторить
+            </Button>
+          )}
+        </div>
         <div className="space-y-2">
-          {myMovements.slice(0, 8).map((m) => (
+          {movementsQuery.error && (
+            <div className="text-xs text-muted-foreground">
+              Журнал движений недоступен: {movementsQuery.error.message}
+            </div>
+          )}
+          {movementsQuery.isLoading && (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          )}
+          {!movementsQuery.error && !movementsQuery.isLoading && myMovements.length === 0 && (
+            <div className="text-sm text-muted-foreground">Движений пока не было.</div>
+          )}
+          {myMovements.map((m) => (
             <div key={m.id} className="flex items-center justify-between p-2 border border-border rounded text-sm">
               <div className="flex items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className={
-                    m.type === "incoming"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]"
-                      : m.type === "outgoing"
-                      ? "bg-blue-50 text-blue-700 border-blue-200 text-[10px]"
-                      : m.type === "waste"
-                      ? "bg-red-50 text-red-700 border-red-200 text-[10px]"
-                      : "bg-slate-50 text-slate-700 border-slate-200 text-[10px]"
-                  }
-                >
-                  {m.type === "incoming" ? "Поступление" : m.type === "outgoing" ? "Списание" : m.type === "waste" ? "Брак" : "Корректировка"}
+                <Badge variant="outline" className={MOVEMENT_TYPE_BADGE[m.type]}>
+                  {MOVEMENT_TYPE_LABEL[m.type]}
                 </Badge>
                 <div>
-                  <div className="font-medium text-xs">{m.itemName}</div>
+                  <div className="font-medium text-xs">{m.itemName || "Позиция склада"}</div>
                   <div className="text-[10px] text-muted-foreground">
-                    {m.reason} • {formatDateTime(m.date)}
+                    {m.reason || "—"} • {formatDateTime(m.createdAt)}
                   </div>
                 </div>
               </div>
               <div className="text-right">
-                <div className={`font-medium ${m.type === "incoming" ? "text-emerald-600" : "text-red-600"}`}>
-                  {m.type === "incoming" ? "+" : "−"}{m.quantity} {m.unit}
+                <div
+                  className={`font-medium ${
+                    m.type === "IN" ? "text-emerald-600" : m.type === "OUT" ? "text-red-600" : "text-slate-600"
+                  }`}
+                >
+                  {m.type === "IN" ? "+" : m.type === "OUT" ? "−" : "="}
+                  {m.quantity}
                 </div>
-                {m.totalCost && (
-                  <div className="text-[10px] text-muted-foreground">
-                    {formatCurrency(m.totalCost)}
-                  </div>
-                )}
               </div>
             </div>
           ))}
         </div>
       </Card>
 
+      {/* Add item dialog */}
+      {showAddItem && <ItemFormDialog onClose={() => setShowAddItem(false)} />}
+
+      {/* Edit item dialog */}
+      {editItem && <ItemFormDialog item={editItem} onClose={() => setEditItem(null)} />}
+
       {/* Add movement dialog */}
-      {showAddMovement && (
-        <AddMovementDialog
-          item={myItems.find((i) => i.id === showAddMovement)!}
-          onClose={() => setShowAddMovement(null)}
-          onAdd={(movement) => {
-            addStockMovement(movement);
-            toast.success("Движение добавлено");
-            setShowAddMovement(null);
-          }}
+      {movementTarget && (
+        <MovementDialog
+          item={movementTarget.item}
+          initialType={movementTarget.type}
+          onClose={() => setMovementTarget(null)}
         />
       )}
     </div>
   );
 }
 
-function AddMovementDialog({
+/** Диалог создания/редактирования позиции склада (whitelist-поля API) */
+function ItemFormDialog({
   item,
   onClose,
-  onAdd,
 }: {
-  item: InventoryItem;
+  item?: RealInventoryItem;
   onClose: () => void;
-  onAdd: (movement: Omit<import("@/lib/types").StockMovement, "id" | "date">) => void;
 }) {
-  const [type, setType] = useState<"incoming" | "outgoing" | "waste" | "adjustment">("incoming");
+  const createItem = useCreateInventoryItem();
+  const updateItem = useUpdateInventoryItem();
+  const isEdit = !!item;
+
+  const [name, setName] = useState(item?.name ?? "");
+  const [category, setCategory] = useState(item?.category ?? "");
+  const [quantity, setQuantity] = useState(item?.quantity ?? 0);
+  const [unit, setUnit] = useState(item?.unit ?? "шт");
+  const [minQuantity, setMinQuantity] = useState(item?.minQuantity ?? 0);
+  const [costPerUnit, setCostPerUnit] = useState(item?.costPerUnit ?? 0);
+  const [supplier, setSupplier] = useState(item?.supplier ?? "");
+
+  const pending = createItem.isPending || updateItem.isPending;
+
+  const handleSubmit = () => {
+    if (!name.trim()) {
+      toast.error("Укажите название позиции");
+      return;
+    }
+    if (isEdit && item) {
+      updateItem.mutate({
+        id: item.id,
+        name: name.trim(),
+        category: category.trim(),
+        quantity,
+        unit: unit.trim() || "шт",
+        minQuantity,
+        costPerUnit,
+        supplier: supplier.trim(),
+      });
+    } else {
+      createItem.mutate({
+        name: name.trim(),
+        category: category.trim(),
+        quantity,
+        unit: unit.trim() || "шт",
+        minQuantity,
+        costPerUnit,
+        supplier: supplier.trim(),
+      });
+    }
+    onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Изменить позицию" : "Новая позиция склада"}</DialogTitle>
+          <DialogDescription>
+            {isEdit ? item!.name : "Ингредиент, упаковка или материал"}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Название *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Мука пшеничная" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Категория</Label>
+              <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="мука" />
+            </div>
+            <div>
+              <Label>Единица</Label>
+              <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="шт" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Количество</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.1"
+                value={quantity}
+                onChange={(e) => setQuantity(Math.max(0, +e.target.value))}
+              />
+            </div>
+            <div>
+              <Label>Мин. остаток</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.1"
+                value={minQuantity}
+                onChange={(e) => setMinQuantity(Math.max(0, +e.target.value))}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Цена/ед (₽)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={costPerUnit}
+                onChange={(e) => setCostPerUnit(Math.max(0, +e.target.value))}
+              />
+            </div>
+            <div>
+              <Label>Поставщик</Label>
+              <Input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="ООО «Сахар»" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button onClick={handleSubmit} disabled={pending}>
+            {pending ? "Сохранение…" : isEdit ? "Сохранить" : "Добавить"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Диалог движения по складу: IN (приход) / OUT (списание) / ADJUST (корректировка) */
+function MovementDialog({
+  item,
+  initialType,
+  onClose,
+}: {
+  item: RealInventoryItem;
+  initialType: MovementType;
+  onClose: () => void;
+}) {
+  const createMovement = useCreateMovement();
+  const [type, setType] = useState<MovementType>(initialType);
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState("");
 
+  const handleSubmit = () => {
+    if (quantity <= 0) {
+      toast.error("Количество должно быть больше нуля");
+      return;
+    }
+    if (type === "OUT" && !reason.trim()) {
+      toast.error("Для списания укажите причину");
+      return;
+    }
+    createMovement.mutate({
+      itemId: item.id,
+      type,
+      quantity,
+      reason: reason.trim(),
+    });
+    onClose();
+  };
+
   return (
-    <Dialog open onOpenChange={onClose}>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Движение по складу</DialogTitle>
@@ -1255,33 +1519,41 @@ function AddMovementDialog({
         <div className="space-y-3">
           <div>
             <Label>Тип операции</Label>
-            <Select value={type} onValueChange={(v) => setType(v as any)}>
+            <Select value={type} onValueChange={(v) => setType(v as MovementType)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="incoming">Поступление</SelectItem>
-                <SelectItem value="outgoing">Списание на заказ</SelectItem>
-                <SelectItem value="waste">Списание (брак)</SelectItem>
-                <SelectItem value="adjustment">Корректировка</SelectItem>
+                <SelectItem value="IN">Поступление</SelectItem>
+                <SelectItem value="OUT">Списание на заказ</SelectItem>
+                <SelectItem value="ADJUST">Корректировка</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div>
-            <Label>Количество ({item.unit})</Label>
+            <Label>
+              {type === "ADJUST" ? `Новое количество (${item.unit})` : `Количество (${item.unit})`}
+            </Label>
             <Input
               type="number"
+              min="0.1"
               step="0.1"
               value={quantity}
               onChange={(e) => setQuantity(+e.target.value)}
             />
           </div>
           <div>
-            <Label>Причина</Label>
+            <Label>Причина{type === "OUT" ? " *" : ""}</Label>
             <Input
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder={type === "incoming" ? "Поставка от поставщика" : type === "waste" ? "Истёк срок / брак" : "Заказ UK-XXXX"}
+              placeholder={
+                type === "IN"
+                  ? "Поставка от поставщика"
+                  : type === "OUT"
+                  ? "Заказ UK-XXXX"
+                  : "Инвентаризация"
+              }
             />
           </div>
         </div>
@@ -1289,29 +1561,14 @@ function AddMovementDialog({
           <Button variant="outline" onClick={onClose}>
             Отмена
           </Button>
-          <Button
-            onClick={() =>
-              onAdd({
-                itemId: item.id,
-                itemName: item.name,
-                type,
-                quantity,
-                unit: item.unit,
-                reason,
-                costPerUnit: item.costPerUnit,
-                totalCost: quantity * item.costPerUnit,
-                createdBy: "Мария Уездная",
-              })
-            }
-          >
-            Добавить
+          <Button onClick={handleSubmit} disabled={createMovement.isPending}>
+            {createMovement.isPending ? "Запись…" : "Добавить"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-
 // ==================== ВКЛАДКА ПРОИЗВОДСТВО (ГАНТ) ====================
 export function ConfectionerGanttTab() {
   const ganttTasks = useAppStore((s) => s.ganttTasks);

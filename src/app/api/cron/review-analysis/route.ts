@@ -40,11 +40,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         negativeCount++;
         // Create alert for admin
         await supabaseAdmin.from("moderation_queue").insert({
-          item_id: (review as { id: string }).id,
-          item_type: "review",
-          reason: "negative_sentiment",
-          reporter_name: "AI Sentiment Analysis",
-          status: "pending",
+          // Реальная схема: content_type/content_id/auto_reason/manual_status
+          content_id: (review as { id: string }).id,
+          content_type: "review",
+          auto_reason: "negative_sentiment",
+          manual_status: "pending",
         });
       }
       analyzed++;

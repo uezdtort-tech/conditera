@@ -23,7 +23,7 @@ export const USER_PUBLIC_FIELDS = [
   "email",
   "name",
   "phone",
-  "avatar",
+  "avatar_url",
   "account_type",
   "legal_info",
   "city",

@@ -101,10 +101,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (confectionerIds.length > 0) {
       const { data: confs } = await supabaseAdmin
         .from("confectioners")
-        .select("id, business_name")
+        .select("id, businessName")
         .in("id", confectionerIds);
       for (const c of confs || []) {
-        confMap.set(c.id, c.business_name);
+        confMap.set(c.id, c.businessName);
       }
     }
 
@@ -215,11 +215,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Найти оптовую цену, подходящую под количество
       const { data: wholesalePrices } = await supabaseAdmin
         .from("wholesale_prices")
-        .select("id, min_quantity, price")
-        .eq("product_id", item.productId)
-        .eq("is_active", true)
-        .lte("min_quantity", qty)
-        .order("min_quantity", { ascending: false })
+        .select("id, minQuantity, price")
+        .eq("productId", item.productId)
+        .eq("isActive", true)
+        .lte("minQuantity", qty)
+        .order("minQuantity", { ascending: false })
         .limit(1);
 
       const wholesale = (wholesalePrices || [])[0];

@@ -18,7 +18,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const { data, error } = await supabaseAdmin
       .from("confectioners")
-      .select("id, business_name, city, rating, orders_count, verified, trust_level")
+      .select("id, businessName, city, rating, ordersCount, verified, trustLevel")
       .limit(100);
 
     if (error) console.warn("[franchisee/confectioners] GET error:", error.message);

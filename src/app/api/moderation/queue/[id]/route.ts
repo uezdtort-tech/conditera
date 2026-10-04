@@ -70,10 +70,11 @@ export async function PATCH(
       );
     }
 
-    // Найти элемент
+    // Найти элемент. ВАЖНО: колонки title в moderation_queue нет —
+    // заголовок живёт в jsonb content_snapshot->>'title'.
     const { data: item, error: fetchErr } = await supabaseAdmin
       .from("moderation_queue")
-      .select("id, title, content_type, author_id")
+      .select("id, content_type, author_id, content_snapshot")
       .eq("id", id)
       .maybeSingle();
 
@@ -84,15 +85,17 @@ export async function PATCH(
       );
     }
 
+    const itemTitle =
+      (item.content_snapshot as { title?: string } | null)?.title || item.content_type || "";
+
     // Обновить элемент
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from("moderation_queue")
       .update({
         manual_status: manualStatus,
-        moderator_id: user.id,
-        moderator_name: user.name,
-        moderator_comment: moderatorComment || null,
-        reviewed_at: new Date().toISOString(),
+        moderated_by: user.id,
+        moderation_comment: moderatorComment || null,
+        moderated_at: new Date().toISOString(),
       })
       .eq("id", id)
       .select()
@@ -123,7 +126,7 @@ export async function PATCH(
             params: {
               ticketNumber: "MOD-" + id.slice(-6),
               customerName: author.name,
-              subject: `Контент отклонён модератором: ${item.title || item.content_type}`,
+              subject: `Контент отклонён модератором: ${itemTitle || item.content_type}`,
               replyText:
                 `Ваш контент (${item.content_type}) отклонён модератором.\n\n` +
                 `Причина: ${moderatorComment || "нарушение правил платформы"}\n\n` +

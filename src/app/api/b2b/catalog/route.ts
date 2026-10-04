@@ -28,8 +28,8 @@ const DEFAULT_LIMIT = 100;
 
 interface WholesalePrice {
   id: string;
-  product_id: string;
-  min_quantity: number;
+  productId: string;
+  minQuantity: number;
   price: number;
   currency: string;
 }
@@ -80,9 +80,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 1) Получить все активные оптовые цены
     const { data: wholesalePrices, error: wpErr } = await supabaseAdmin
       .from("wholesale_prices")
-      .select("id, product_id, min_quantity, price, currency")
-      .eq("is_active", true)
-      .order("min_quantity", { ascending: true });
+      .select("id, productId, minQuantity, price, currency")
+      .eq("isActive", true)
+      .order("minQuantity", { ascending: true });
 
     if (wpErr) {
       console.error("[b2b/catalog] wholesale_prices query error:", wpErr.message);
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Уникальные product_ids
     const productIds = Array.from(
-      new Set(wholesalePrices.map((wp) => (wp as WholesalePrice).product_id))
+      new Set(wholesalePrices.map((wp) => (wp as WholesalePrice).productId))
     );
 
     // 2) Получить товары по этим id
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .from("products")
       .select(
         `
-        id, title, slug, description, price, category, images, weight,
+        id, title, slug, description, price, category, images, weight_grams,
         confectioner_id
       `
       )
@@ -131,9 +131,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // 3) Склеить оптовые цены по product_id
     const wpByProduct = new Map<string, WholesalePrice[]>();
     for (const wp of wholesalePrices as WholesalePrice[]) {
-      const arr = wpByProduct.get(wp.product_id) || [];
+      const arr = wpByProduct.get(wp.productId) || [];
       arr.push(wp);
-      wpByProduct.set(wp.product_id, arr);
+      wpByProduct.set(wp.productId, arr);
     }
 
     const result: B2BProduct[] = (products || []).map((p: any) => ({
@@ -144,7 +144,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       price: Number(p.price),
       category: p.category,
       images: p.images || [],
-      weight: p.weight,
+      weight: p.weight_grams,
       confectioner_id: p.confectioner_id,
       wholesale_prices: wpByProduct.get(p.id) || [],
     }));

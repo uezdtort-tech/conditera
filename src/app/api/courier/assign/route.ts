@@ -100,16 +100,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Получить текущее значение
       const { data: profile } = await supabaseAdmin
         .from("courier_profiles")
-        .select("id, deliveries_count")
-        .eq("user_id", courierId)
+        .select("id, deliveriesCount")
+        .eq("userId", courierId)
         .maybeSingle();
 
       if (profile) {
         await supabaseAdmin
           .from("courier_profiles")
           .update({
-            deliveries_count: (profile.deliveries_count || 0) + 1,
-            updated_at: new Date().toISOString(),
+            deliveriesCount: (profile.deliveriesCount || 0) + 1,
+            updatedAt: new Date().toISOString(),
           })
           .eq("id", profile.id);
       }

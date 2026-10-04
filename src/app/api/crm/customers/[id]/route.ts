@@ -28,7 +28,6 @@ interface OrderRow {
   status: string;
   payment_status: string;
   created_at: string;
-  confectioner_name: string | null;
 }
 
 interface TicketRow {
@@ -45,8 +44,8 @@ interface ReviewRow {
   id: string;
   rating: number;
   text: string | null;
-  created_at: string;
-  product_id: string | null;
+  createdAt: string;
+  productId: string | null;
 }
 
 interface LeadRow {
@@ -63,7 +62,7 @@ interface CustomerRow {
   name: string | null;
   email: string | null;
   phone: string | null;
-  avatar: string | null;
+  avatar_url: string | null;
   city: string | null;
   account_type: string | null;
   loyalty_level: string | null;
@@ -72,7 +71,7 @@ interface CustomerRow {
 }
 
 const STAFF_ROLES = ["ADMIN", "SUPPORT", "MODERATOR"] as const;
-const PUBLIC_FIELDS = "id, name, email, phone, avatar, city, account_type, loyalty_level, bonus_balance, created_at";
+const PUBLIC_FIELDS = "id, name, email, phone, avatar_url, city, account_type, loyalty_level, bonus_balance, created_at";
 
 export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   try {
@@ -104,7 +103,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     const [ordersResult, ticketsResult, interactionsResult, reviewsResult, leadsResult] = await Promise.all([
       supabaseAdmin
         .from("orders")
-        .select("id, number, total, status, payment_status, created_at, confectioner_name")
+        .select("id, number, total, status, payment_status, created_at")
         .eq("customer_id", customerId)
         .order("created_at", { ascending: false })
         .limit(20),
@@ -122,9 +121,9 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
         .limit(50),
       supabaseAdmin
         .from("reviews")
-        .select("id, rating, text, created_at, product_id")
-        .eq("author_id", customerId)
-        .order("created_at", { ascending: false })
+        .select("id, rating, text, createdAt, productId")
+        .eq("userId", customerId)
+        .order("createdAt", { ascending: false })
         .limit(10),
       supabaseAdmin
         .from("leads")
@@ -162,7 +161,11 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     };
 
     return NextResponse.json({
-      customer,
+      customer: {
+        ...customer,
+        // aliases для UI-контракта (в БД колонка avatar_url)
+        avatar: customer.avatar_url,
+      },
       stats,
       timeline: {
         orders,

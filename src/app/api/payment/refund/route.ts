@@ -123,7 +123,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       paymentId?: unknown;
       amount?: unknown;
       reason?: unknown;
+      idempotencyKey?: unknown;
     } | null;
+
+    // Идемпотентность (миграция 0041): клиент шлёт Idempotency-Key —
+    // повторный запрос возвращает ТУ ЖЕ заявку, а не новую.
+    const idempotencyKey =
+      request.headers.get("idempotency-key")?.trim() ||
+      (typeof body?.idempotencyKey === "string" ? body.idempotencyKey.trim() : "") ||
+      "";
+    if (idempotencyKey.length > 200) {
+      return NextResponse.json({ error: "Idempotency-Key слишком длинный" }, { status: 422 });
+    }
 
     const paymentId = typeof body?.paymentId === "string" ? body.paymentId : "";
     const amount = typeof body?.amount === "number" && Number.isFinite(body.amount) ? body.amount : 0;
@@ -137,6 +148,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (reason.length > 1000) {
       return NextResponse.json({ error: "reason слишком длинный (макс 1000)" }, { status: 422 });
+    }
+
+    // Идемпотентный повтор: та же заявка от этого пользователя — вернуть её (200)
+    if (idempotencyKey) {
+      const { data: existing } = await supabaseAdmin
+        .from("refunds")
+        .select(
+          "id, payment_id, order_id, amount, reason, status, initiated_by, rejection_reason, created_at, updated_at"
+        )
+        .eq("initiated_by", user.id)
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (existing) {
+        return NextResponse.json(
+          { refund: existing, duplicate: true, message: "Заявка уже была принята ранее" },
+          { status: 200 }
+        );
+      }
     }
 
     // Загрузить платёж
@@ -184,6 +213,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // === Покупатель: только заявка, деньги не двигаются ===
     if (!isAdmin) {
+      // Защита от двойного клика (uq_refunds_one_requested_per_payment, 0041):
+      // если открытая заявка уже есть — возвращаем её вместо ошибки/дубликата.
+      const { data: openRequest } = await supabaseAdmin
+        .from("refunds")
+        .select(
+          "id, payment_id, order_id, amount, reason, status, initiated_by, rejection_reason, created_at, updated_at"
+        )
+        .eq("payment_id", paymentId)
+        .eq("status", "requested")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (openRequest) {
+        return NextResponse.json(
+          {
+            refund: openRequest,
+            duplicate: true,
+            message: "Заявка на возврат по этому платежу уже открыта",
+          },
+          { status: 200 }
+        );
+      }
+
       const { data: refund, error: refundErr } = await supabaseAdmin
         .from("refunds")
         .insert({
@@ -193,9 +245,40 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           reason,
           initiated_by: user.id,
           status: "requested",
+          ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
         })
         .select()
         .single();
+
+      // 23505: гонка двух параллельных POST с одним ключом/платежом —
+      // вернуть уже созданную заявку вместо 500.
+      if (refundErr && (refundErr as { code?: string }).code === "23505") {
+        const { data: raced } = idempotencyKey
+          ? await supabaseAdmin
+              .from("refunds")
+              .select(
+                "id, payment_id, order_id, amount, reason, status, initiated_by, rejection_reason, created_at, updated_at"
+              )
+              .eq("initiated_by", user.id)
+              .eq("idempotency_key", idempotencyKey)
+              .maybeSingle()
+          : await supabaseAdmin
+              .from("refunds")
+              .select(
+                "id, payment_id, order_id, amount, reason, status, initiated_by, rejection_reason, created_at, updated_at"
+              )
+              .eq("payment_id", paymentId)
+              .eq("status", "requested")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+        if (raced) {
+          return NextResponse.json(
+            { refund: raced, duplicate: true, message: "Заявка уже была принята ранее" },
+            { status: 200 }
+          );
+        }
+      }
 
       if (refundErr) {
         console.error("[payment/refund] insert failed:", refundErr.message);

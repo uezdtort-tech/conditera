@@ -48,10 +48,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const cutoff = new Date(Date.now() - ABANDONED_HOURS * 60 * 60 * 1000);
     const recentOrderCutoff = new Date(Date.now() - RECENT_ORDER_HOURS * 60 * 60 * 1000);
 
-    // 1. Найти все cart_items старше 2 часов
+    // 1. Найти все cart_items старше 2 часов.
+    // ВАЖНО: у cart_items нет колонки price — цену берём из products вторым запросом.
     const { data: cartItems, error: cartErr } = await supabaseAdmin
       .from("cart_items")
-      .select("user_id, price, created_at")
+      .select("user_id, product_id, quantity, created_at")
       .lt("created_at", cutoff.toISOString())
       .order("created_at", { ascending: false });
 
@@ -67,11 +68,26 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ carts: [], total: 0, cutoff: cutoff.toISOString() });
     }
 
+    // 1a. Обогащаем ценами из products (id, price)
+    const productIds = [...new Set(cartItems.map((i: any) => i.product_id).filter(Boolean))];
+    const priceByProduct = new Map<string, number>();
+    if (productIds.length > 0) {
+      const { data: products } = await supabaseAdmin
+        .from("products")
+        .select("id, price")
+        .in("id", productIds);
+      for (const p of products || []) {
+        priceByProduct.set((p as { id: string }).id, Number((p as { price: number | null }).price) || 0);
+      }
+    }
+
     // 2. Агрегировать по user_id
     const byUser = new Map<string, { count: number; total: number; lastActivity: Date }>();
     for (const item of cartItems) {
       const userId = item.user_id as string;
-      const price = Number(item.price || 0);
+      const unitPrice = priceByProduct.get(item.product_id as string) || 0;
+      const quantity = Number(item.quantity) || 1;
+      const price = unitPrice * quantity;
       const createdAt = new Date(item.created_at);
       const existing = byUser.get(userId);
       if (existing) {

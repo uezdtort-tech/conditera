@@ -35,9 +35,9 @@ interface ReviewRow {
   rating: number;
   text: string | null;
   status: string;
-  created_at: string;
-  user_id: string | null;
-  product_id: string | null;
+  createdAt: string;
+  userId: string | null;
+  productId: string | null;
 }
 
 interface FillingRow {
@@ -55,21 +55,22 @@ interface RecipeRow {
   id: string;
   title: string;
   description: string | null;
-  published: boolean | null;
+  status: string | null;
+  published_at: string | null;
   created_at: string;
-  confectioner_id: string | null;
+  author_id: string | null;
   difficulty: string | null;
 }
 
 interface ConfectionerRow {
   id: string;
-  business_name: string;
+  businessName: string;
   city: string | null;
-  verification_status: string | null;
-  created_at: string;
-  user_id: string;
+  verificationStatus: string | null;
+  createdAt: string;
+  userId: string;
   tariff: string | null;
-  trust_level: string | null;
+  trustLevel: string | null;
 }
 
 interface OrgVerificationRow {
@@ -87,8 +88,8 @@ interface BannerRow {
   title: string;
   subtitle: string | null;
   image: string | null;
-  is_active: boolean | null;
-  created_at: string;
+  isActive: boolean | null;
+  createdAt: string;
 }
 
 interface ModerationItem {
@@ -112,8 +113,8 @@ interface ModerationStats {
 async function loadReviews(statusFilter: string): Promise<ModerationItem[]> {
   let query = supabaseAdmin
     .from("reviews")
-    .select("id, rating, text, status, created_at, user_id, product_id")
-    .order("created_at", { ascending: false })
+    .select("id, rating, text, status, createdAt, userId, productId")
+    .order("createdAt", { ascending: false })
     .limit(50);
   if (statusFilter === "pending") {
     query = query.eq("status", "pending");
@@ -125,11 +126,11 @@ async function loadReviews(statusFilter: string): Promise<ModerationItem[]> {
     id: r.id,
     type: "review" as const,
     title: `Отзыв ${r.rating}★ на товар`,
-    author: r.user_id || "Аноним",
+    author: r.userId || "Аноним",
     status: r.status,
-    createdAt: r.created_at,
+    createdAt: r.createdAt,
     preview: (r.text || "").slice(0, 200),
-    meta: { rating: r.rating, productId: r.product_id },
+    meta: { rating: r.rating, productId: r.productId },
     actions: r.status === "pending" ? ["approve", "reject"] : [],
   }));
 }
@@ -162,39 +163,42 @@ async function loadFillings(statusFilter: string): Promise<ModerationItem[]> {
 async function loadRecipes(statusFilter: string): Promise<ModerationItem[]> {
   let query = supabaseAdmin
     .from("recipes")
-    .select("id, title, description, published, created_at, confectioner_id, difficulty")
+    .select("id, title, description, status, published_at, created_at, author_id, difficulty")
     .order("created_at", { ascending: false })
     .limit(50);
   if (statusFilter === "pending") {
-    query = query.eq("published", false);
+    query = query.neq("status", "published");
   }
   const { data, error } = await query as { data: RecipeRow[] | null; error: SupabaseError | null };
   if (error || !data) return [];
 
-  return data.map((r) => ({
-    id: r.id,
-    type: "recipe" as const,
-    title: `Рецепт: ${r.title}`,
-    author: r.confectioner_id || "—",
-    status: r.published ? "published" : "pending",
-    createdAt: r.created_at,
-    preview: (r.description || "").slice(0, 200),
-    meta: { difficulty: r.difficulty },
-    actions: !r.published ? ["approve", "reject"] : [],
-  }));
+  return data.map((r) => {
+    const isPublished = r.status === "published" || !!r.published_at;
+    return {
+      id: r.id,
+      type: "recipe" as const,
+      title: `Рецепт: ${r.title}`,
+      author: r.author_id || "—",
+      status: isPublished ? "published" : (r.status || "pending"),
+      createdAt: r.created_at,
+      preview: (r.description || "").slice(0, 200),
+      meta: { difficulty: r.difficulty },
+      actions: !isPublished ? ["approve", "reject"] : [],
+    };
+  });
 }
 
 async function loadConfectioners(statusFilter: string): Promise<ModerationItem[]> {
   let query = supabaseAdmin
     .from("confectioners")
-    .select("id, business_name, city, verification_status, created_at, user_id, tariff, trust_level")
-    .order("created_at", { ascending: false })
+    .select("id, businessName, city, verificationStatus, createdAt, userId, tariff, trustLevel")
+    .order("createdAt", { ascending: false })
     .limit(50);
 
   if (statusFilter === "pending") {
-    query = query.eq("verification_status", "pending");
+    query = query.eq("verificationStatus", "pending");
   } else {
-    query = query.in("verification_status", ["pending", "approved", "rejected", "needs_revision"]);
+    query = query.in("verificationStatus", ["pending", "approved", "rejected", "needs_revision"]);
   }
 
   const { data, error } = await query as { data: ConfectionerRow[] | null; error: SupabaseError | null };
@@ -203,13 +207,13 @@ async function loadConfectioners(statusFilter: string): Promise<ModerationItem[]
   return data.map((c) => ({
     id: c.id,
     type: "confectioner" as const,
-    title: `Верификация: ${c.business_name}`,
-    author: c.user_id,
-    status: c.verification_status || "pending",
-    createdAt: c.created_at,
-    preview: `Кондитер из г. ${c.city || "—"}, тариф: ${c.tariff || "—"}, уровень: ${c.trust_level || "—"}`,
+    title: `Верификация: ${c.businessName}`,
+    author: c.userId,
+    status: c.verificationStatus || "pending",
+    createdAt: c.createdAt,
+    preview: `Кондитер из г. ${c.city || "—"}, тариф: ${c.tariff || "—"}, уровень: ${c.trustLevel || "—"}`,
     meta: { city: c.city, tariff: c.tariff },
-    actions: c.verification_status === "pending" ? ["approve", "reject", "request_revision"] : [],
+    actions: c.verificationStatus === "pending" ? ["approve", "reject", "request_revision"] : [],
   }));
 }
 
@@ -241,11 +245,11 @@ async function loadOrganizations(statusFilter: string): Promise<ModerationItem[]
 async function loadBanners(statusFilter: string): Promise<ModerationItem[]> {
   let query = supabaseAdmin
     .from("banners")
-    .select("id, title, subtitle, image, is_active, created_at")
-    .order("created_at", { ascending: false })
+    .select("id, title, subtitle, image, isActive, createdAt")
+    .order("createdAt", { ascending: false })
     .limit(20);
   if (statusFilter === "pending") {
-    query = query.eq("is_active", true);
+    query = query.eq("isActive", true);
   }
   const { data, error } = await query as { data: BannerRow[] | null; error: SupabaseError | null };
   if (error || !data) return [];
@@ -255,11 +259,11 @@ async function loadBanners(statusFilter: string): Promise<ModerationItem[]> {
     type: "banner" as const,
     title: `Баннер: ${b.title}`,
     author: "Система",
-    status: b.is_active ? "active" : "inactive",
-    createdAt: b.created_at,
+    status: b.isActive ? "active" : "inactive",
+    createdAt: b.createdAt,
     preview: b.subtitle || "",
     meta: { image: b.image },
-    actions: b.is_active ? ["deactivate"] : ["activate"],
+    actions: b.isActive ? ["deactivate"] : ["activate"],
   }));
 }
 

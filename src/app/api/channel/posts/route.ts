@@ -47,12 +47,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let query = supabaseAdmin
       .from("channel_posts")
       .select("*", { count: "exact" })
-      .eq("is_published", true)
-      .order("is_pinned", { ascending: false })
-      .order("published_at", { ascending: false })
+      .eq("isPublished", true)
+      .order("isPinned", { ascending: false })
+      .order("publishedAt", { ascending: false })
       .range(offset, offset + limit - 1);
 
-    if (confectionerId) query = query.eq("confectioner_id", confectionerId);
+    if (confectionerId) query = query.eq("confectionerId", confectionerId);
 
     const { data: posts, count, error } = await query;
     if (error) {
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("userId", user.id)
       .maybeSingle();
     if (confErr) {
       console.error("[channel/posts] confectioner lookup failed:", confErr.message);
@@ -126,16 +126,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: post, error } = await supabaseAdmin
       .from("channel_posts")
       .insert({
-        confectioner_id: conf.id,
+        confectionerId: conf.id,
         content,
         images: normalizedImages,
-        is_pinned: Boolean(isPinned),
-        is_published: false, // Скрыт до модерации
+        isPinned: Boolean(isPinned),
+        isPublished: false, // Скрыт до модерации
         moderation_status: "pending", // Ожидает модерации администратора
-        published_at: new Date().toISOString(),
-        views_count: 0,
-        likes_count: 0,
-        comments_count: 0,
+        publishedAt: new Date().toISOString(),
+        likesCount: 0,
+        commentsCount: 0,
       })
       .select()
       .single();

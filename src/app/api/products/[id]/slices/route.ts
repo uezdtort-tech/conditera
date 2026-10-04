@@ -31,13 +31,13 @@ interface SupabaseError {
 
 interface ProductSliceRow {
   id: string;
-  product_id: string;
-  filling_name: string;
+  productId: string;
+  fillingName: string;
   image: string | null;
   config: unknown;
   caption: string | null;
-  sort_order: number;
-  created_at: string;
+  sortOrder: number;
+  createdAt: string;
 }
 
 interface ProductRow {
@@ -67,9 +67,9 @@ export async function GET(
       const { data, error } = await supabaseAdmin
         .from("product_slices")
         .select("*")
-        .eq("product_id", productId)
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true }) as { data: ProductSliceRow[] | null; error: SupabaseError | null };
+        .eq("productId", productId)
+        .order("sortOrder", { ascending: true })
+        .order("createdAt", { ascending: true }) as { data: ProductSliceRow[] | null; error: SupabaseError | null };
 
       if (error) throw error;
       slices = data || [];
@@ -140,13 +140,13 @@ export async function POST(
       const { data, error: insertErr } = await supabaseAdmin
         .from("product_slices")
         .insert({
-          product_id: productId,
-          filling_name: body.fillingName,
+          productId: productId,
+          fillingName: body.fillingName,
           image: body.image || null,
           config: body.config || null,
           caption: body.caption || null,
-          sort_order: sortOrder,
-          created_at: new Date().toISOString(),
+          sortOrder: sortOrder,
+          createdAt: new Date().toISOString(),
         })
         .select("*")
         .single() as { data: ProductSliceRow | null; error: SupabaseError | null };
@@ -159,13 +159,13 @@ export async function POST(
       // Возвращаем mock-ответ для dev
       slice = {
         id: `temp-${Date.now()}`,
-        product_id: productId,
-        filling_name: body.fillingName,
+        productId: productId,
+        fillingName: body.fillingName,
         image: body.image || null,
         config: body.config || null,
         caption: body.caption || null,
-        sort_order: sortOrder,
-        created_at: new Date().toISOString(),
+        sortOrder: sortOrder,
+        createdAt: new Date().toISOString(),
       };
     }
 
@@ -196,7 +196,7 @@ export async function DELETE(
         .from("product_slices")
         .delete()
         .eq("id", sliceId)
-        .eq("product_id", productId);
+        .eq("productId", productId);
 
       if (error) {
         console.warn("[slices] delete failed:", error.message);

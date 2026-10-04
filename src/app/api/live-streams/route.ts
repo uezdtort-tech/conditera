@@ -94,7 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("userId", user.id)
       .maybeSingle();
 
     if (confErr) {

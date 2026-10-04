@@ -61,7 +61,7 @@ interface OrderRow {
   total: number;
   payment_status: string;
   delivery_date: string | null;
-  confectioner_name: string | null;
+  confectioner_id: string | null;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -180,7 +180,7 @@ async function handleCommand(
       try {
         const { data: order, error } = await supabaseAdmin
           .from("orders")
-          .select("number, status, total, payment_status, delivery_date, confectioner_name")
+          .select("number, status, total, payment_status, delivery_date, confectioner_id")
           .ilike("number", args.toUpperCase())
           .maybeSingle() as { data: OrderRow | null; error: SupabaseError | null };
 
@@ -192,6 +192,17 @@ async function handleCommand(
           return;
         }
 
+        // orders.confectioner_name не существует — имя кондитера берём из confectioners.businessName
+        let confectionerName: string | null = null;
+        if (order.confectioner_id) {
+          const { data: conf } = await supabaseAdmin
+            .from("confectioners")
+            .select("businessName")
+            .eq("id", order.confectioner_id)
+            .maybeSingle();
+          confectionerName = conf?.businessName || null;
+        }
+
         await sendTelegramMessage({
           chatId,
           text: [
@@ -200,7 +211,7 @@ async function handleCommand(
             `Статус: ${STATUS_LABELS[order.status] || order.status}`,
             `Сумма: ${order.total.toLocaleString("ru-RU")} ₽`,
             `Оплата: ${order.payment_status}`,
-            order.confectioner_name ? `Кондитер: ${order.confectioner_name}` : "",
+            confectionerName ? `Кондитер: ${confectionerName}` : "",
             order.delivery_date
               ? `Доставка: ${new Date(order.delivery_date).toLocaleDateString("ru-RU")}`
               : "",

@@ -381,22 +381,21 @@ interface UserProfileRow {
 interface NotificationRow {
   id: string;
   user_id: string;
-  template: string;
+  type: string;
   channel: string;
   status: string;
   title: string;
   body: string;
-  data: unknown;
-  scheduled_for: string | null;
-  sent_at: string | null;
-  error_message: string | null;
+  metadata: unknown;
+  read_at: string | null;
+  created_at: string | null;
 }
 
 interface PushSubscriptionRow {
   id: string;
   endpoint: string;
-  p256dh: string;
-  auth: string;
+  // Реальная схема: keys jsonb вида { p256dh, auth }
+  keys: { p256dh?: string; auth?: string } | null;
 }
 
 interface SupabaseError {
@@ -503,7 +502,7 @@ export async function sendNotification(input: SendInput): Promise<{
     .select("id", { count: "exact", head: true })
     .eq("user_id", input.userId)
     .in("status", ["sent", "delivered", "read"])
-    .gte("sent_at", todayStart.toISOString());
+    .gte("created_at", todayStart.toISOString());
 
   if (!cntErr && (sentToday || 0) >= prefs.maxPerDay) {
     // Skip non-critical notifications
@@ -516,17 +515,21 @@ export async function sendNotification(input: SendInput): Promise<{
   const notificationIds: string[] = [];
 
   for (const channel of channels) {
+    // Схема notifications (0010): type/title/body/channel/status/metadata/read_at.
+    // template → type, data → metadata, scheduled_for — внутрь metadata.
     const { data: notif, error: insertErr } = await supabaseAdmin
       .from("notifications")
       .insert({
         user_id: input.userId,
-        template: input.template,
+        type: input.template,
         channel,
         status: "queued",
         title,
         body,
-        data: input.data || null,
-        scheduled_for: input.scheduledFor ? input.scheduledFor.toISOString() : null,
+        metadata: {
+          ...(input.data || {}),
+          ...(input.scheduledFor ? { scheduled_for: input.scheduledFor.toISOString() } : {}),
+        },
       })
       .select("id")
       .single() as { data: { id: string } | null; error: SupabaseError | null };
@@ -591,7 +594,6 @@ export async function deliverNotification(
       .from("notifications")
       .update({
         status: "sent",
-        sent_at: new Date().toISOString(),
       })
       .eq("id", notificationId);
   } catch (err) {
@@ -600,7 +602,7 @@ export async function deliverNotification(
       .from("notifications")
       .update({
         status: "failed",
-        error_message: errMsg.slice(0, 500),
+        metadata: { error: errMsg.slice(0, 500) },
       })
       .eq("id", notificationId);
     console.error(`[notify] delivery failed for ${notificationId} via ${channel}:`, errMsg);
@@ -626,7 +628,7 @@ async function deliverPush(
   // Query push subscriptions from DB
   const { data: subscriptions, error } = await supabaseAdmin
     .from("push_subscriptions")
-    .select("id, endpoint, p256dh, auth")
+    .select("id, endpoint, keys")
     .eq("user_id", userId) as { data: PushSubscriptionRow[] | null; error: SupabaseError | null };
 
   if (error) {
@@ -660,13 +662,15 @@ async function deliverPush(
     });
 
     for (const sub of subscriptions) {
+      const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
+      if (!keys.p256dh || !keys.auth) continue;
       try {
         await webpush.sendNotification(
           {
             endpoint: sub.endpoint,
             keys: {
-              p256dh: sub.p256dh,
-              auth: sub.auth,
+              p256dh: keys.p256dh,
+              auth: keys.auth,
             },
           },
           payload

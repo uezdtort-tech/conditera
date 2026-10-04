@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
+import { emitEvent } from "@/lib/n8n";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
 import {
   canAccessRoom,
@@ -152,6 +153,14 @@ export async function POST(
         })
         .eq("id", id);
       if (updErr) console.warn("[chat/messages] channel update:", updErr.message);
+
+      // n8n: chat.message.created (fail-safe — не роняет отправку)
+      void emitEvent("chat.message.created", {
+        roomId: id,
+        messageId,
+        senderId: user.id,
+        roomType: mapChannelType(channel),
+      }).catch(() => {});
     }
 
     const message: ApiChatMessage = {

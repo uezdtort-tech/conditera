@@ -18,7 +18,7 @@ export async function GET(): Promise<NextResponse> {
       const { data } = await supabaseAdmin
         .from("simplex_contacts")
         .select("*")
-        .eq("profile_type", "support")
+        .eq("profileType", "support")
         .eq("active", true)
         .maybeSingle();
       supportContact = data as Record<string, any> | null;
@@ -34,11 +34,11 @@ export async function GET(): Promise<NextResponse> {
       });
     }
 
-    const address = supportContact.simplex_address || "";
+    const address = supportContact.simplexAddress || "";
     return NextResponse.json({
       available: true,
       address,
-      displayName: supportContact.simplex_name || "Уездный кондитер — поддержка",
+      displayName: supportContact.simplexName || "Уездный кондитер — поддержка",
       qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(address)}`,
       deepLink: address.startsWith("smp://") ? address : `smp:${address}`,
       instructions: {

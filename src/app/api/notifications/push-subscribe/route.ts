@@ -59,10 +59,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         {
           user_id: user.id,
           endpoint,
-          p256dh_key: keys.p256dh,
-          auth_key: keys.auth,
-          user_agent: req.headers.get("user-agent") || null,
-          updated_at: new Date().toISOString(),
+          // Реальная схема: keys jsonb вида { p256dh, auth }; колонок user_agent/updated_at нет
+          keys: { p256dh: keys.p256dh, auth: keys.auth },
         },
         { onConflict: "endpoint" }
       )

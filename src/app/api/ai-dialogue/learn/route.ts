@@ -80,9 +80,9 @@ interface SupabaseError {
 }
 
 interface AiLearningProfileRow {
-  user_id: string;
-  suggestion_stats: unknown;
-  last_learned_at: string | null;
+  userId: string;
+  suggestionStats: unknown;
+  lastLearnedAt: string | null;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -220,20 +220,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       const { data: profile } = await supabaseAdmin
         .from("ai_learning_profiles")
-        .select("user_id, suggestion_stats, last_learned_at")
-        .eq("user_id", body.customerId)
+        .select("userId, suggestionStats, lastLearnedAt")
+        .eq("userId", body.customerId)
         .maybeSingle() as { data: AiLearningProfileRow | null; error: SupabaseError | null };
 
-      const stats = (profile?.suggestion_stats as Record<string, unknown>) || { totalSuggestions: 0, accepted: 0, rejected: 0 };
+      const stats = (profile?.suggestionStats as Record<string, unknown>) || { totalSuggestions: 0, accepted: 0, rejected: 0 };
 
       const { error: upsertErr } = await supabaseAdmin
         .from("ai_learning_profiles")
         .upsert({
-          user_id: body.customerId,
-          global_preferences: { extractedFacts: allFacts.length },
-          last_learned_at: new Date().toISOString(),
-          suggestion_stats: stats,
-        }, { onConflict: "user_id" });
+          userId: body.customerId,
+          globalPreferences: { extractedFacts: allFacts.length },
+          lastLearnedAt: new Date().toISOString(),
+          suggestionStats: stats,
+        }, { onConflict: "userId" });
 
       if (upsertErr) {
         console.warn("[ai-dialogue/learn] upsert profile failed:", upsertErr.message);
@@ -248,13 +248,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const { error: logErr } = await supabaseAdmin
         .from("ai_learning_logs")
         .insert({
-          user_id: body.customerId,
-          confectioner_id: body.confectionerId,
-          source_type: sourceType,
-          source_id: body.sourceId,
-          extracted_facts: allFacts,
-          memories_created: memoriesCreated,
-          created_at: new Date().toISOString(),
+          userId: body.customerId,
+          confectionerId: body.confectionerId,
+          sourceType: sourceType,
+          sourceId: body.sourceId,
+          extractedFacts: allFacts,
+          memoriesCreated: memoriesCreated,
+          createdAt: new Date().toISOString(),
         });
 
       if (logErr) {

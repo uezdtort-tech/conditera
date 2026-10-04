@@ -56,16 +56,18 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
       );
     }
 
-    // Создаём запись
+    // Создаём запись. Реальная схема lesson_enrollments: status (text) + payment_id,
+    // колонки paid нет — демо-запись бесплатная: status='confirmed', payment_id=null.
     const { data: enrollment, error: enrollErr } = await supabaseAdmin
       .from("lesson_enrollments")
       .insert({
         lesson_id: lessonId,
         user_id: user.userId,
-        paid: true, // В демо — бесплатно
+        status: "confirmed",
+        payment_id: null,
         created_at: new Date().toISOString(),
       })
-      .select("id, lesson_id, user_id, paid, created_at")
+      .select("id, lesson_id, user_id, status, payment_id, created_at")
       .single() as { data: { id: string } | null; error: SupabaseError | null };
 
     if (enrollErr || !enrollment) {

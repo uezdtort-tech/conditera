@@ -50,11 +50,11 @@ interface SliceConfig {
 
 interface ProductSliceRow {
   id: string;
-  filling_name: string;
+  fillingName: string;
   image: string | null;
   config: unknown;
-  sort_order: number;
-  created_at: string;
+  sortOrder: number;
+  createdAt: string;
 }
 
 interface ProductRow {
@@ -125,10 +125,10 @@ export async function GET(
           .maybeSingle() as unknown as Promise<{ data: ProductRow | null; error: SupabaseError | null }>,
         supabaseAdmin
           .from("product_slices")
-          .select("id, filling_name, image, config, sort_order, created_at")
-          .eq("product_id", productId)
-          .order("sort_order", { ascending: true })
-          .order("created_at", { ascending: true }) as unknown as Promise<{ data: ProductSliceRow[] | null; error: SupabaseError | null }>,
+          .select("id, fillingName, image, config, sortOrder, createdAt")
+          .eq("productId", productId)
+          .order("sortOrder", { ascending: true })
+          .order("createdAt", { ascending: true }) as unknown as Promise<{ data: ProductSliceRow[] | null; error: SupabaseError | null }>,
       ]);
 
       if (productResult.error) throw productResult.error;
@@ -162,7 +162,7 @@ export async function GET(
       const sliceWithConfig = slices.find((s) => s.config);
       if (sliceWithConfig) {
         sliceConfig = sliceWithConfig.config as SliceConfig;
-        fillingName = sliceWithConfig.filling_name;
+        fillingName = sliceWithConfig.fillingName;
       } else if (slices[0]?.image) {
         // Если есть только фото — используем как текстуру
         return NextResponse.json({

@@ -42,15 +42,15 @@ interface SupabaseError {
 
 interface TenderRow {
   id: string;
-  user_id: string;
+  userId: string;
   status: string | null;
-  confectioner_ids: string[] | null;
-  responses_count: number | null;
+  confectionerIds: string[] | null;
+  responsesCount: number | null;
 }
 
 interface ConfectionerRow {
   id: string;
-  business_name: string | null;
+  businessName: string | null;
 }
 
 export async function POST(req: NextRequest, { params }: RouteParams): Promise<NextResponse> {
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
 
     const { data: tender, error: tenderErr } = await supabaseAdmin
       .from("price_inquiries")
-      .select("id, user_id, status, confectioner_ids, responses_count")
+      .select("id, userId, status, confectionerIds, responsesCount")
       .eq("id", tenderId)
       .maybeSingle() as { data: TenderRow | null; error: SupabaseError | null };
 
@@ -122,8 +122,8 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     // Find confectioner profile (нельзя использовать user.id как confectioner_id)
     const { data: confectioner, error: confErr } = await supabaseAdmin
       .from("confectioners")
-      .select("id, business_name")
-      .eq("user_id", user.userId)
+      .select("id, businessName")
+      .eq("userId", user.userId)
       .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
 
     if (confErr) {
@@ -133,19 +133,19 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     if (!confectioner) throw new HttpError(404, "Профиль кондитера не найден");
 
     // Добавляем кондитера в список откликнувшихся, если ещё нет.
-    const existingIds = tender.confectioner_ids || [];
+    const existingIds = tender.confectionerIds || [];
     const isNewBid = !existingIds.includes(confectioner.id);
     const updatedConfectionerIds = isNewBid
       ? [...existingIds, confectioner.id]
       : existingIds;
 
-    // Атомарный increment responses_count через SQL UPDATE expression — нет race condition.
+    // Атомарный increment responsesCount через SQL UPDATE expression — нет race condition.
     // Используем только isNewBid для условного increment.
     const { error: updateErr } = await supabaseAdmin
       .from("price_inquiries")
       .update({
-        confectioner_ids: updatedConfectionerIds,
-        responses_count: isNewBid ? (tender.responses_count || 0) + 1 : (tender.responses_count || 0),
+        confectionerIds: updatedConfectionerIds,
+        responsesCount: isNewBid ? (tender.responsesCount || 0) + 1 : (tender.responsesCount || 0),
         status: "responded",
       })
       .eq("id", tenderId);
@@ -159,16 +159,16 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     const { error: auditErr } = await supabaseAdmin
       .from("audit_logs")
       .insert({
-        user_id: user.userId,
+        userId: user.userId,
         action: "tender_bid",
         metadata: {
           tenderId,
           confectionerId: confectioner.id,
-          businessName: confectioner.business_name || "",
+          businessName: confectioner.businessName || "",
           price: body.price,
           message: message || null,
         },
-        created_at: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       });
 
     if (auditErr) {
@@ -179,10 +179,10 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     try {
       const { sendNotification } = await import("@/lib/notifications");
       await sendNotification({
-        userId: tender.user_id,
+        userId: tender.userId,
         template: "NEW_MESSAGE",
         vars: {
-          senderName: confectioner.business_name || "Кондитер",
+          senderName: confectioner.businessName || "Кондитер",
           messagePreview: `Новая ставка на тендер: ${body.price} ₽`,
         },
         data: { tenderId, type: "tender_bid", price: body.price },

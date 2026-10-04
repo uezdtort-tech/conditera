@@ -120,7 +120,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const { data: profile } = await supabaseAdmin
           .from("courier_profiles")
           .select("rating")
-          .eq("user_id", courierId)
+          .eq("userId", courierId)
           .maybeSingle();
         if (profile?.rating) {
           rating = Number(profile.rating);

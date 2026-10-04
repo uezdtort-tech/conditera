@@ -21,15 +21,15 @@ interface SupabaseError { message: string }
 
 interface PostRow {
   id: string;
-  confectioner_id: string;
+  confectionerId: string;
   content: string;
   images: string[] | null;
-  is_pinned: boolean | null;
+  isPinned: boolean | null;
 }
 
 interface ConfectionerRow {
   id: string;
-  business_name: string;
+  businessName: string;
   city: string | null;
 }
 
@@ -49,11 +49,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Находим одобренные посты без telegram_message_id
     const { data: posts, error } = await supabaseAdmin
       .from("channel_posts")
-      .select("id, confectioner_id, content, images, is_pinned")
+      .select("id, confectionerId, content, images, isPinned")
       .eq("moderation_status", "approved")
       .is("telegram_message_id", null)
-      .eq("is_published", true)
-      .order("published_at", { ascending: true })
+      .eq("isPublished", true)
+      .order("publishedAt", { ascending: true })
       .limit(MAX_POSTS_PER_RUN) as { data: PostRow[] | null; error: SupabaseError | null };
 
     if (error) {
@@ -66,10 +66,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Загружаем кондитеров сразу
-    const confectionerIds = [...new Set(posts.map((p) => p.confectioner_id))];
+    const confectionerIds = [...new Set(posts.map((p) => p.confectionerId))];
     const { data: confectioners } = await supabaseAdmin
       .from("confectioners")
-      .select("id, business_name, city")
+      .select("id, businessName, city")
       .in("id", confectionerIds) as { data: ConfectionerRow[] | null; error: SupabaseError | null };
 
     const confMap = new Map<string, ConfectionerRow>();
@@ -85,8 +85,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const results: Array<{ postId: string; success: boolean; error?: string }> = [];
 
     for (const post of posts) {
-      const conf = confMap.get(post.confectioner_id);
-      const businessName = conf?.business_name || "Кондитер";
+      const conf = confMap.get(post.confectionerId);
+      const businessName = conf?.businessName || "Кондитер";
       const city = conf?.city ? ` (${conf.city})` : "";
       const images = post.images || [];
 
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             .update({
               telegram_posted_at: new Date().toISOString(),
               telegram_post_error: null,
-              updated_at: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             })
             .eq("id", post.id);
 
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             .from("channel_posts")
             .update({
               telegram_post_error: "sendToChannel returned false",
-              updated_at: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             })
             .eq("id", post.id);
 
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .from("channel_posts")
           .update({
             telegram_post_error: msg.slice(0, 500),
-            updated_at: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           })
           .eq("id", post.id);
 

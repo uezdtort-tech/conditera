@@ -31,9 +31,9 @@ interface SupabaseError {
 
 interface SupplierProfileRow {
   id: string;
-  user_id: string;
-  company_name: string;
-  is_active: boolean | null;
+  userId: string;
+  companyName: string;
+  isActive: boolean | null;
   rating: number | null;
 }
 
@@ -46,7 +46,7 @@ interface InventoryItemRow {
 interface RecurringOrderRow {
   id: string;
   status: string;
-  next_run_at: string | null;
+  nextRunAt: string | null;
 }
 
 const STUB_DATA = {
@@ -119,17 +119,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const [supplierResult, productsResult, recurringOrdersResult] = await Promise.all([
       supabaseAdmin
         .from("supplier_profiles")
-        .select("id, user_id, company_name, is_active, rating")
-        .eq("user_id", user.userId)
+        .select("id, userId, companyName, isActive, rating")
+        .eq("userId", user.userId)
         .maybeSingle() as unknown as Promise<{ data: SupplierProfileRow | null; error: SupabaseError | null }>,
       supabaseAdmin
         .from("inventory_items")
         .select("quantity, cost_per_unit, min_quantity")
-        .eq("confectioner_id", user.userId) as unknown as Promise<{ data: InventoryItemRow[] | null; error: SupabaseError | null }>,
+        .eq("owner_id", user.userId) as unknown as Promise<{ data: InventoryItemRow[] | null; error: SupabaseError | null }>,
       supabaseAdmin
         .from("recurring_orders")
-        .select("id, status, next_run_at")
-        .eq("supplier_id", user.userId) as unknown as Promise<{ data: RecurringOrderRow[] | null; error: SupabaseError | null }>,
+        .select("id, status, nextRunAt")
+        .eq("supplierId", user.userId) as unknown as Promise<{ data: RecurringOrderRow[] | null; error: SupabaseError | null }>,
     ]);
 
     // Если любая ошибка БД — fallback на stub
@@ -167,9 +167,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         totalOrders: recurringOrders.length,
         activeOrders,
         revenue: totalStockValue,
-        companyName: supplier?.company_name || null,
+        companyName: supplier?.companyName || null,
         rating: supplier?.rating || 0,
-        isActive: supplier?.is_active ?? false,
+        isActive: supplier?.isActive ?? false,
       },
       stub: false,
     });

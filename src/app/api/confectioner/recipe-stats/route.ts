@@ -41,18 +41,18 @@ interface RecipeAcceptanceRow {
 
 interface AuditLogRow {
   id: string;
-  entity_id: string | null;
+  entityId: string | null;
   metadata: unknown;
-  created_at: string;
+  createdAt: string;
 }
 
 interface RecipeRow {
   id: string;
   title: string;
-  cover_image: string | null;
+  image_url: string | null;
   difficulty: string | null;
-  prep_time: number | null;
-  cook_time: number | null;
+  prep_time_minutes: number | null;
+  cook_time_minutes: number | null;
   category: string | null;
 }
 
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
       .select("id")
-      .eq("user_id", user.userId)
+      .eq("userId", user.userId)
       .maybeSingle() as { data: ConfectionerRow | null; error: SupabaseError | null };
 
     if (confErr) {
@@ -135,20 +135,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           .from("audit_logs")
           .select("*")
           .eq("action", "recipe_acceptance")
-          .eq("user_id", user.userId)
-          .order("created_at", { ascending: false }) as { data: AuditLogRow[] | null; error: SupabaseError | null };
+          .eq("userId", user.userId)
+          .order("createdAt", { ascending: false }) as { data: AuditLogRow[] | null; error: SupabaseError | null };
 
         if (logErr) throw logErr;
         acceptances = (logs || []).map((l) => {
           const meta = (l.metadata || {}) as Record<string, unknown>;
           return {
             id: l.id,
-            recipe_id: (l.entity_id as string) || "",
+            recipe_id: (l.entityId as string) || "",
             price_from: (meta.priceFrom as number) || 1500,
             price_to: (meta.priceTo as number) || null,
             prep_days: (meta.prepDays as number) || 3,
             status: (meta.status as string) || "active",
-            created_at: l.created_at,
+            created_at: l.createdAt,
           };
         });
       } catch {
@@ -163,7 +163,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       try {
         const { data, error } = await supabaseAdmin
           .from("recipes")
-          .select("id, title, cover_image, difficulty, prep_time, cook_time, category")
+          .select("id, title, image_url, difficulty, prep_time_minutes, cook_time_minutes, category")
           .in("id", recipeIds) as { data: RecipeRow[] | null; error: SupabaseError | null };
 
         if (error) throw error;
@@ -226,7 +226,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         return {
           recipeId,
           title: r?.title || "Рецепт удалён",
-          coverImage: r?.cover_image || null,
+          coverImage: r?.image_url || null,
           difficulty: r?.difficulty || "easy",
           category: r?.category || "",
           ordersCount: count,
@@ -265,11 +265,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         acceptanceId: a.id,
         recipeId: a.recipe_id,
         recipeTitle: r?.title || "Рецепт удалён",
-        recipeCover: r?.cover_image || null,
+        recipeCover: r?.image_url || null,
         recipeDifficulty: r?.difficulty || "easy",
         recipeCategory: r?.category || "",
-        prepTime: r?.prep_time || 0,
-        cookTime: r?.cook_time || 0,
+        prepTime: r?.prep_time_minutes || 0,
+        cookTime: r?.cook_time_minutes || 0,
         priceFrom: a.price_from,
         priceTo: a.price_to,
         prepDays: a.prep_days,

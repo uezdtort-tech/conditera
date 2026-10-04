@@ -260,19 +260,19 @@ interface ProductRow {
   old_price: number | null;
   images: string[] | null;
   confectioner_id: string;
-  rating: number | null;
+  rating_average: number | null;
   reviews_count: number | null;
   is_popular: boolean | null;
   is_new: boolean | null;
   is_hit: boolean | null;
   tags: string[] | null;
-  weight: string | null;
+  weight_grams: number | null;
   servings: number | null;
   created_at: string;
 }
 
 interface ConfectionerForProductRow {
-  business_name: string | null;
+  businessName: string | null;
   city: string | null;
 }
 
@@ -295,8 +295,8 @@ export async function reindexAllProducts(): Promise<number> {
     .from("products")
     .select(`
       id, title, description, category, price, old_price, images,
-      confectioner_id, rating, reviews_count, is_popular, is_new, is_hit,
-      tags, weight, servings, created_at
+      confectioner_id, rating_average, reviews_count, is_popular, is_new, is_hit,
+      tags, weight_grams, servings, created_at
     `) as { data: ProductRow[] | null; error: SupabaseError | null };
 
   if (error) {
@@ -308,11 +308,11 @@ export async function reindexAllProducts(): Promise<number> {
     return 0;
   }
 
-  // Загружаем confectioners для business_name и city
+  // Загружаем confectioners для businessName и city
   const confectionerIds = [...new Set(products.map((p) => p.confectioner_id))];
   const { data: confectioners, error: confErr } = await supabaseAdmin
     .from("confectioners")
-    .select("id, business_name, city")
+    .select("id, businessName, city")
     .in("id", confectionerIds) as { data: Array<{ id: string } & ConfectionerForProductRow> | null; error: SupabaseError | null };
 
   if (confErr) {
@@ -320,17 +320,17 @@ export async function reindexAllProducts(): Promise<number> {
   }
 
   // Мапа confectioner_id → { businessName, city }
-  const confMap = new Map<string, { business_name: string; city: string }>();
+  const confMap = new Map<string, { businessName: string; city: string }>();
   for (const c of confectioners || []) {
     confMap.set(c.id, {
-      business_name: c.business_name || "",
+      businessName: c.businessName || "",
       city: c.city || "",
     });
   }
 
   // Мапим в формат Meilisearch
   const docs: ProductSearchDocument[] = products.map((p) => {
-    const conf = confMap.get(p.confectioner_id) || { business_name: "", city: "" };
+    const conf = confMap.get(p.confectioner_id) || { businessName: "", city: "" };
     return {
       id: p.id,
       title: p.title,
@@ -340,15 +340,15 @@ export async function reindexAllProducts(): Promise<number> {
       oldPrice: p.old_price || undefined,
       images: p.images || [],
       confectionerId: p.confectioner_id,
-      confectionerName: conf.business_name,
+      confectionerName: conf.businessName,
       city: conf.city,
-      rating: p.rating || 0,
+      rating: p.rating_average || 0,
       reviewsCount: p.reviews_count || 0,
       isPopular: p.is_popular || false,
       isNew: p.is_new || false,
       isHit: p.is_hit || false,
       tags: p.tags || [],
-      weight: p.weight || undefined,
+      weight: p.weight_grams ? String(p.weight_grams) : undefined,
       servings: p.servings || undefined,
       createdAt: new Date(p.created_at).toISOString(),
     };

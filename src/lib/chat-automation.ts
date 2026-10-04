@@ -40,7 +40,7 @@ interface SupabaseError {
 interface UserRow {
   id: string;
   name: string | null;
-  avatar: string | null;
+  avatar_url: string | null;
   email: string | null;
 }
 
@@ -73,7 +73,7 @@ export async function getBotUser(): Promise<{ id: string; name: string; avatar: 
   // Try to find existing bot user
   const { data: bot, error: findErr } = await supabaseAdmin
     .from("profiles")
-    .select("id, name, avatar, email")
+    .select("id, name, avatar_url, email")
     .eq("email", BOT_EMAIL)
     .maybeSingle() as { data: UserRow | null; error: SupabaseError | null };
 
@@ -86,7 +86,7 @@ export async function getBotUser(): Promise<{ id: string; name: string; avatar: 
     return {
       id: bot.id,
       name: bot.name || BOT_NAME,
-      avatar: bot.avatar || BOT_AVATAR,
+      avatar: bot.avatar_url || BOT_AVATAR,
     };
   }
 
@@ -97,13 +97,13 @@ export async function getBotUser(): Promise<{ id: string; name: string; avatar: 
       email: BOT_EMAIL,
       password_hash: `bot-no-login-${Math.random().toString(36)}`,
       name: BOT_NAME,
-      avatar: BOT_AVATAR,
+      avatar_url: BOT_AVATAR,
       is_bot: true,
       bot_role: "order_assistant",
       created_at: new Date().toISOString(),
     })
-    .select("id, name, avatar")
-    .single() as { data: { id: string; name: string | null; avatar: string | null } | null; error: SupabaseError | null };
+    .select("id, name, avatar_url")
+    .single() as { data: { id: string; name: string | null; avatar_url: string | null } | null; error: SupabaseError | null };
 
   if (createErr || !newBot) {
     console.error("[chat-bot] create failed:", createErr?.message);
@@ -117,14 +117,14 @@ export async function getBotUser(): Promise<{ id: string; name: string; avatar: 
       user_id: newBot.id,
       role: "CUSTOMER",
       is_active: true,
-      created_at: new Date().toISOString(),
+      assigned_at: new Date().toISOString(),
     });
 
   console.info(`[chat-bot] Created system bot user: ${newBot.id}`);
   return {
     id: newBot.id,
     name: newBot.name || BOT_NAME,
-    avatar: newBot.avatar || BOT_AVATAR,
+    avatar: newBot.avatar_url || BOT_AVATAR,
   };
 }
 

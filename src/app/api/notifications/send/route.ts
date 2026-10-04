@@ -144,7 +144,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    // Сохранить уведомление в БД
+    // Сохранить уведомление в БД (схема 0010: metadata вместо data)
     const { data: notif, error: notifErr } = await supabaseAdmin
       .from("notifications")
       .insert({
@@ -152,10 +152,9 @@ export async function POST(req: Request): Promise<NextResponse> {
         type: finalType || "info",
         title: finalTitle,
         body: finalBody,
-        data: data || {},
+        metadata: data || {},
         channel: finalChannel,
         status: "sent",
-        created_at: new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -184,17 +183,20 @@ export async function POST(req: Request): Promise<NextResponse> {
         // Получить подписки пользователя
         const { data: subscriptions } = await supabaseAdmin
           .from("push_subscriptions")
-          .select("endpoint, p256dh_key, auth_key")
+          .select("endpoint, keys")
           .eq("user_id", userId);
 
         for (const sub of subscriptions || []) {
+          // Реальная схема: keys jsonb вида { p256dh, auth }
+          const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
+          if (!keys.p256dh || !keys.auth) continue;
           try {
             await webpush.sendNotification(
               {
                 endpoint: sub.endpoint,
                 keys: {
-                  p256dh: sub.p256dh_key,
-                  auth: sub.auth_key,
+                  p256dh: keys.p256dh,
+                  auth: keys.auth,
                 },
               },
               JSON.stringify({ title: finalTitle, body: finalBody, data })

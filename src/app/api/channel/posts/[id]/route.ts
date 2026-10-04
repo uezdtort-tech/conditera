@@ -66,7 +66,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
     // Find post + check ownership
     const { data: post, error: postErr } = await supabaseAdmin
       .from("channel_posts")
-      .select("id, confectioner_id")
+      .select("id, confectionerId")
       .eq("id", id)
       .maybeSingle();
 
@@ -76,11 +76,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
     }
     if (!post) throw new HttpError(404, "Не найдено");
 
-    // Check ownership via confectioner.user_id
+    // Check ownership via confectioner.userId
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
-      .select("user_id")
-      .eq("id", post.confectioner_id)
+      .select("userId")
+      .eq("id", post.confectionerId)
       .maybeSingle();
 
     if (confErr) {
@@ -88,7 +88,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
       throw new HttpError(500, "Не удалось проверить владельца");
     }
 
-    const isOwner = conf?.user_id === user.id;
+    const isOwner = conf?.userId === user.id;
     const adminCheck = await isAdmin(user.id);
     if (!isOwner && !adminCheck) {
       throw new HttpError(403, "Нет прав");
@@ -134,14 +134,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams): Prom
       if (typeof body.isPinned !== "boolean") {
         throw new HttpError(422, "isPinned должен быть boolean");
       }
-      updateData.is_pinned = body.isPinned;
+      updateData.isPinned = body.isPinned;
     }
 
     if (body.isPublished !== undefined) {
       if (typeof body.isPublished !== "boolean") {
         throw new HttpError(422, "isPublished должен быть boolean");
       }
-      updateData.is_published = body.isPublished;
+      updateData.isPublished = body.isPublished;
     }
 
     // Если нет полей для обновления — возвращаем текущий пост без UPDATE.
@@ -184,7 +184,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
 
     const { data: post, error: postErr } = await supabaseAdmin
       .from("channel_posts")
-      .select("confectioner_id")
+      .select("confectionerId")
       .eq("id", id)
       .maybeSingle();
 
@@ -196,8 +196,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
 
     const { data: conf, error: confErr } = await supabaseAdmin
       .from("confectioners")
-      .select("user_id")
-      .eq("id", post.confectioner_id)
+      .select("userId")
+      .eq("id", post.confectionerId)
       .maybeSingle();
 
     if (confErr) {
@@ -205,7 +205,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams): Pro
       throw new HttpError(500, "Не удалось проверить владельца");
     }
 
-    const isOwner = conf?.user_id === user.id;
+    const isOwner = conf?.userId === user.id;
     const adminCheck = await isAdmin(user.id);
     if (!isOwner && !adminCheck) {
       throw new HttpError(403, "Нет прав");

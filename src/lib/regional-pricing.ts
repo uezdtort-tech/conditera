@@ -127,9 +127,8 @@ export interface RegionalPricingResult {
 
 interface ProductRow {
   price: number;
-  weight?: string | null;
+  weight_grams?: number | null;
   servings?: number | null;
-  city: string | null;
 }
 
 interface SupabaseError {
@@ -212,12 +211,12 @@ async function getCityMedianPricePerKg(
   if (!normalizedCity) return { median: 0, count: 0 };
 
   try {
-    // Загружаем продукты с ценой в указанном городе.
-    // Используем ilike для матчинга города (нечувствительно к регистру).
+    // Загружаем продукты с ценой. ВАЖНО: у products нет колонки city (город живёт
+    // в confectioners), поэтому фильтр по городу к таблице products не применяется —
+    // город остаётся параметром сигнатуры для будущего enrichment.
     const { data: products, error } = await supabaseAdmin
       .from("products")
-      .select("price, weight, servings, city")
-      .ilike("city", `%${normalizedCity}%`)
+      .select("price, weight_grams, servings")
       .order("price", { ascending: true })
       .limit(200) as { data: ProductRow[] | null; error: SupabaseError | null };
 
@@ -230,7 +229,11 @@ async function getCityMedianPricePerKg(
     for (const p of products) {
       if (typeof p.price !== "number" || p.price <= 0) continue;
 
-      const weightKg = parseWeightKg(p.weight);
+      // weight_grams — числовые граммы (NULL-safe); раньше weight был строкой
+      let weightKg = 0;
+      if (typeof p.weight_grams === "number" && p.weight_grams > 0) {
+        weightKg = p.weight_grams / 1000;
+      }
       if (weightKg > 0 && weightKg < 50) {
         // Защита от нереалистичных весов (≥50 кг — явно ошибка)
         pricesPerKg.push(p.price / weightKg);

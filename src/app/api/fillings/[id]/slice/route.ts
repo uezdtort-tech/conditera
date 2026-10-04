@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
     const { id: fillingId } = await params;
     const { data: filling, error } = await supabaseAdmin
       .from("fillings")
-      .select("id, name, color, slice_image, slice_config, consistency, category")
+      .select("id, name, color_code, slice_image, slice_config, consistency, category")
       .eq("id", fillingId)
       .maybeSingle();
 

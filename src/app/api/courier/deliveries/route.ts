@@ -107,7 +107,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       confIds.length > 0
         ? supabaseAdmin
             .from("confectioners")
-            .select("id, business_name, city")
+            .select("id, businessName, city")
             .in("id", confIds)
         : Promise.resolve({ data: [], error: null }),
     ]);

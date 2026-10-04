@@ -43,23 +43,23 @@ interface RecipeAcceptanceRow {
 
 interface ConfectionerRow {
   id: string;
-  user_id: string;
-  business_name: string;
+  userId: string;
+  businessName: string;
   avatar: string | null;
   city: string | null;
   rating: number | null;
-  reviews_count: number | null;
+  reviewsCount: number | null;
   verified: boolean | null;
-  trust_level: string | null;
+  trustLevel: string | null;
   location: unknown;
 }
 
 interface AuditLogRow {
   id: string;
-  user_id: string | null;
-  entity_id: string | null;
+  userId: string | null;
+  entityId: string | null;
   metadata: unknown;
-  created_at: string;
+  createdAt: string;
 }
 
 interface AcceptanceWithConfectioner {
@@ -102,14 +102,14 @@ const MOCK_ACCEPTANCES: AcceptanceWithDistance[] = [
     status: "active",
     confectioner: {
       id: "u0",
-      user_id: "u0",
-      business_name: "Торты на заказ | Сахарная печать",
+      userId: "u0",
+      businessName: "Торты на заказ | Сахарная печать",
       avatar: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400",
       city: "Волоколамск",
       rating: 5.0,
-      reviews_count: 1,
+      reviewsCount: 1,
       verified: true,
-      trust_level: "TRUSTED",
+      trustLevel: "TRUSTED",
       location: { lat: 56.9555, lng: 35.9567, serviceRadiusKm: 50 },
     },
     distanceKm: null,
@@ -127,14 +127,14 @@ const MOCK_ACCEPTANCES: AcceptanceWithDistance[] = [
     status: "active",
     confectioner: {
       id: "u2",
-      user_id: "u2",
-      business_name: "Сладкая уездная",
+      userId: "u2",
+      businessName: "Сладкая уездная",
       avatar: "https://i.pravatar.cc/150?img=32",
       city: "Тула",
       rating: 4.9,
-      reviews_count: 87,
+      reviewsCount: 87,
       verified: true,
-      trust_level: "TRUSTED",
+      trustLevel: "TRUSTED",
       location: { lat: 54.1961, lng: 37.6182, serviceRadiusKm: 25 },
     },
     distanceKm: null,
@@ -152,14 +152,14 @@ const MOCK_ACCEPTANCES: AcceptanceWithDistance[] = [
     status: "active",
     confectioner: {
       id: "u6",
-      user_id: "u6",
-      business_name: "Мастерская сладких искусств",
+      userId: "u6",
+      businessName: "Мастерская сладких искусств",
       avatar: "https://i.pravatar.cc/150?img=45",
       city: "Москва",
       rating: 4.95,
-      reviews_count: 156,
+      reviewsCount: 156,
       verified: true,
-      trust_level: "MASTER",
+      trustLevel: "MASTER",
       location: { lat: 55.7558, lng: 37.6173, serviceRadiusKm: 30 },
     },
     distanceKm: null,
@@ -221,8 +221,8 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
         const { data: confectioners, error: confErr } = await supabaseAdmin
           .from("confectioners")
           .select(`
-            id, user_id, business_name, avatar, city, rating,
-            reviews_count, verified, trust_level, location
+            id, userId, businessName, avatar, city, rating,
+            reviewsCount, verified, trustLevel, location
           `)
           .in("id", confectionerIds) as { data: ConfectionerRow[] | null; error: SupabaseError | null };
 
@@ -254,17 +254,17 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       try {
         const { data: logs, error: logErr } = await supabaseAdmin
           .from("audit_logs")
-          .select("id, user_id, entity_id, metadata, created_at")
+          .select("id, userId, entityId, metadata, createdAt")
           .eq("action", "recipe_acceptance")
-          .eq("entity_id", recipeId)
-          .order("created_at", { ascending: false }) as { data: AuditLogRow[] | null; error: SupabaseError | null };
+          .eq("entityId", recipeId)
+          .order("createdAt", { ascending: false }) as { data: AuditLogRow[] | null; error: SupabaseError | null };
 
         if (logErr) throw logErr;
         rawAcceptances = (logs || []).map((l) => {
           const meta = (l.metadata || {}) as Record<string, unknown>;
           return {
             acceptanceId: l.id,
-            confectionerId: l.user_id || "",
+            confectionerId: l.userId || "",
             priceFrom: (meta.priceFrom as number) || 1500,
             priceTo: (meta.priceTo as number) || null,
             prepDays: (meta.prepDays as number) || 3,
