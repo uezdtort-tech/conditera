@@ -10,10 +10,13 @@
  *  - OUT:    new_qty = quantity - q (результат < 0 → отказ 409)
  *  - ADJUST: new_qty = q (абсолютная установка, q > 0)
  *
- * АТОМАРНОСТЬ: supabase-js (PostgREST-шим) не даёт кросс-табличных транзакций.
- * Порядок записи: сначала INSERT движения, затем UPDATE остатка. Если UPDATE
- * упал — строка журнала остаётся (движение зафиксировано, остаток не изменён).
- * Это осознанный компромисс, задокументирован в worklog.
+ * АТОМАРНОСТЬ (миграция 0048): движение применяется через RPC
+ * apply_inventory_movement_atomic — одна SQL-функция = одна транзакция:
+ * SELECT ... FOR UPDATE → guard «OUT не ниже 0» → UPDATE остатка →
+ * INSERT журнала. Параллельные OUT сериализуются блокировкой строки,
+ * отрицательный остаток и lost update невозможны.
+ * Если RPC отсутствует (миграция 0048 не применена) — fail-closed 500
+ * (тот же паттерн, что у apply_yookassa_refund в payment/webhook).
  *
  * n8n: после УСПЕШНОЙ записи обоих документов, если new_qty <= min_quantity,
  * отправляется событие "inventory.low" (fail-safe, ошибки игнорируются).
@@ -118,59 +121,66 @@ export async function applyInventoryMovement(
     return { ok: false, error: { kind: "forbidden" } };
   }
 
-  // 2. Новый остаток
-  const current = Number(row.quantity) || 0;
+  // 2+3. Атомарное применение через RPC (миграция 0048): блокировка строки,
+  // guard «OUT не ниже 0», UPDATE остатка и INSERT журнала в одной транзакции.
   const q = Number(input.quantity);
-  let newQty: number;
-  if (input.type === "IN") {
-    newQty = current + q;
-  } else if (input.type === "OUT") {
-    newQty = current - q;
-    if (newQty < 0) {
-      return { ok: false, error: { kind: "insufficient", available: current } };
-    }
-  } else {
-    // ADJUST — абсолютная установка
-    newQty = q;
-  }
-
-  // 3. Сначала журнал, затем остаток (см. шапку про атомарность)
-  const { data: movement, error: movErr } = await supabaseAdmin
-    .from("inventory_movements")
-    .insert({
-      item_id: input.item_id,
-      user_id: actor.id,
-      type: input.type,
-      quantity: q,
-      reason: input.reason?.trim() || null,
-      order_id: input.order_id || null,
+  const { data: rpcRes, error: rpcErr } = await supabaseAdmin
+    .rpc("apply_inventory_movement_atomic", {
+      p_item_id: input.item_id,
+      p_type: input.type,
+      p_quantity: q,
+      p_actor: actor.id,
+      p_reason: input.reason?.trim() || null,
+      p_order_id: input.order_id || null,
     })
-    .select("*")
-    .single();
+    .single() as {
+      data: {
+        ok: boolean;
+        code: string;
+        available: number | string | null;
+        new_qty: number | string | null;
+        movement: InventoryMovementRow | null;
+        item: InventoryItemRow | null;
+      } | null;
+      error: (Error & { code?: string }) | null;
+    };
 
-  if (movErr || !movement) {
-    console.error("[inventory] movement insert failed:", movErr?.message);
-    return { ok: false, error: { kind: "db", message: movErr?.message || "insert movement failed" } };
-  }
-
-  const { data: updated, error: updErr } = await supabaseAdmin
-    .from("inventory_items")
-    .update({ quantity: newQty, updated_at: new Date().toISOString() })
-    .eq("id", input.item_id)
-    .select("*")
-    .single();
-
-  if (updErr || !updated) {
-    // Журнал записан, остаток не обновлён — движение останется в истории
-    // (ручная сверка по inventory_movements). Не молчим: лог + ошибка 500.
+  if (rpcErr && rpcErr.code === "PGRST202") {
+    // 0048 не применена — НЕ применяем движение небезопасным read-check-write:
+    // fail-closed, уведомляем оператора применить миграцию.
     console.error(
-      `[inventory] CRITICAL: движение ${movement.id} записано, но остаток item ${input.item_id} не обновлён:`,
-      updErr?.message
+      "[inventory] apply_inventory_movement_atomic RPC отсутствует — fail-closed (примените миграцию 0048)"
     );
-    return { ok: false, error: { kind: "db", message: updErr?.message || "update quantity failed" } };
+    return {
+      ok: false,
+      error: { kind: "db", message: "Inventory processing unavailable (apply migration 0048)" },
+    };
+  }
+  if (rpcErr || !rpcRes) {
+    console.error("[inventory] atomic movement RPC failed:", rpcErr?.message);
+    return { ok: false, error: { kind: "db", message: rpcErr?.message || "movement RPC failed" } };
   }
 
-  const updatedRow = updated as InventoryItemRow;
+  if (!rpcRes.ok) {
+    if (rpcRes.code === "insufficient") {
+      return {
+        ok: false,
+        error: { kind: "insufficient", available: Number(rpcRes.available) || 0 },
+      };
+    }
+    if (rpcRes.code === "not_found") {
+      return { ok: false, error: { kind: "not_found" } };
+    }
+    return { ok: false, error: { kind: "db", message: `movement rejected: ${rpcRes.code}` } };
+  }
+
+  if (!rpcRes.movement || !rpcRes.item) {
+    return { ok: false, error: { kind: "db", message: "movement RPC returned incomplete data" } };
+  }
+
+  const movement = rpcRes.movement;
+  const updatedRow = rpcRes.item;
+  const newQty = Number(rpcRes.new_qty);
 
   // 4. Низкий остаток → n8n (fail-safe, ПОСЛЕ успешной записи)
   const minQty = Number(updatedRow.min_quantity) || 0;
@@ -186,7 +196,7 @@ export async function applyInventoryMovement(
 
   return {
     ok: true,
-    movement: movement as InventoryMovementRow,
+    movement,
     item: updatedRow,
   };
 }
