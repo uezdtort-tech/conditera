@@ -9,7 +9,7 @@
  *   - Background sync для отправки заказов в офлайне
  *   - Offline-fallback страница с заглушкой
  */
-const CACHE_VERSION = "v4.0";
+const CACHE_VERSION = "v4.1";
 const STATIC_CACHE = `uk-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `uk-runtime-${CACHE_VERSION}`;
 const IMAGE_CACHE = `uk-images-${CACHE_VERSION}`;
@@ -183,8 +183,12 @@ async function handleApiCacheable(request) {
 async function handlePage(request) {
   try {
     const r = await fetch(request);
-    const cache = await caches.open(RUNTIME_CACHE);
-    cache.put(request, r.clone());
+    // Кэшируем только успешные basic-ответы (не редиректы/opaquе/ошибки),
+    // чтобы устаревший HTML не вытеснял свежий при повторных визитах
+    if (r.ok && r.type === "basic") {
+      const cache = await caches.open(RUNTIME_CACHE);
+      cache.put(request, r.clone());
+    }
     return r;
   } catch {
     // Offline — пытаемся кэш, затем /offline.html
