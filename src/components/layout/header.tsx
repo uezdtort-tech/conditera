@@ -313,10 +313,12 @@ export function Header() {
               {/* Auth */}
               {isAuthenticated && user ? (
                 <>
-                  <ThemeToggle />
+                  <div className="hidden sm:block">
+                    <ThemeToggle />
+                  </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors">
+                      <button className="flex items-center gap-1 px-1 py-1.5 rounded-md hover:bg-accent transition-colors sm:gap-2 sm:px-2">
                         <Avatar className="h-8 w-8 border border-border">
                           <AvatarImage src={user.avatar} alt={user.name} />
                           <AvatarFallback className="bg-primary/10 text-primary text-xs">{user.name.slice(0, 2).toUpperCase()}</AvatarFallback>
@@ -371,7 +373,9 @@ export function Header() {
                 </>
               ) : (
                 <>
-                  <ThemeToggle />
+                  <div className="hidden sm:block">
+                    <ThemeToggle />
+                  </div>
                   <Button size="sm" onClick={() => setAuthModalOpen(true)} className="hidden sm:flex">
                     <UserIcon className="h-4 w-4 mr-1.5" />Войти
                   </Button>
