@@ -7434,3 +7434,29 @@ Stage Summary:
 - UNVERIFIED на момент снятия: socket real-time вне preview-гейтвея (деградация к HTTP — задокументировано, не блокер), SMS/email-каналы (SMTP не настроен — честные заглушки сообщений).
 - Артефакты: 15 файлов изменено, 2 новых (api/products/[id]/route.ts, app/product/page.tsx); push eb6f93d в release/readiness-fixes.
 - ТОКЕН: использован только для push, в файлах/коммитах не сохранён; рекомендовано ротировать.
+
+---
+Task ID: production-audit-final
+Agent: orchestrator (session continuation — финальный production-аудит по директиве владельца)
+Task: Финальный production-аудит фактического HEAD (d4bb70f поверх eb6f93d); найти и исправить ТОЛЬКО production-blockers; чистая git-история; вердикт GO/NO-GO; push в release-ветку
+
+Work Log:
+- Форензика Git (правило №0): HEAD=d4bb70f — watcher-автокоммит (worklog +31 строка), кодовое состояние идентично eb6f93d; eb6f93d подтверждён в origin/release/readiness-fixes (ls-remote); ветка main не тронута. Создана release/production-audit от d4bb70f.
+- Clean install: восстановлена инфраструктура после сброса песочницы (npm install присутствовал; db:start → чистый initdb; db:setup: 47 миграций, demo-users ДО сидов — порядок фикса держится; .env.local сгенерирован). Проверка «setup again»: идемпотентно, данные не разрушаются.
+- Runtime: dev :3000 (next dev, DATABASE_URL перекрыт поверх платформенного file:), chat-server :3030 (JWT_SECRET из .env.local), n8n-receiver :5678, gateway :81. Health: app ok / database ok / n8n ok.
+- E2E-атакующая сюита (46 проверок, /home/z/audit-tmp/audit-e2e.mjs, финал 46/46 PASS): auth-негативы; concurrent webhook ×10 → ровно один бизнес-эффект (EARN=1, бонус ×1, escrow); amount-mismatch webhook → skip; concurrent refund ×10 с одним Idempotency-Key → 1 строка; refund > остатка → 400; чужой заказ (refund GET/POST, orders GET/PATCH, inventory, chat) → 403/404/400 без данных; state machine (запрещённые переходы → 400); concurrent inventory OUT ×10 при остатке 1.0 → ровно 2 успеха, остаток ровно 0.2 (отрицательный остаток невозможен); чат-идемпотентность сообщений → 1 строка; rate limiting (register 3/ч, login 5/мин + anti-fraud 20/ч — реальные 429); финальные инварианты денег/складов/лояльности.
+- НАЙДЕНЫ И ИСПРАВЛЕНЫ 5 production-дефектов (по одному коммиту):
+  1) 976719f fix(seed): 0006_seed_reviews отсутствовал в SEED_FILES → чистая установка без отзывов; добавлен, проверено product_reviews=6, повтор идемпотентен.
+  2) 6dd1b37 fix(inventory): applyInventoryMovement был read-check-write → отрицательный остаток/lost update при конкурентных OUT; миграция 0048 apply_inventory_movement_atomic (SELECT FOR UPDATE → guard → UPDATE → INSERT журнала в одной транзакции), inventory.ts → RPC fail-closed (PGRST202).
+  3) a2d9538 fix(seed): customer2/3@demo.ru без password_hash (триггер auth.users создаёт профиль раньше INSERT → ON CONFLICT DO NOTHING съедал хеш); идемпотентный UPDATE backfill; login customer2 → 200.
+  4) 3a3b958 fix(postgrest): шим ломал RPC-контракт PostgREST — числовые скаляры строками (reserve_refund → админ-исполнение возврата всегда 409; revenue_today), RETURNS TABLE ('p'+retSet) не оборачивался в JSON, Accept vnd.pgrst.object+json игнорировался (.single() получал массив; apply_yookassa_refund молча деградировал). После фикса: админ-возврат 2xx, атомарный склад работает, 46/46.
+  5) 2d3ac60 fix(ui): горизонтальный overflow 45px на 375px (ThemeToggle+аватар в шапке) — скрытие темы <sm + сжатие аватар-паддингов; 375px: home/catalog/cake-builder/decor-shop/services-shop/checkout/confectioners/product = 0px overflow.
+- Gates: tsc 0, eslint 0, health ok, clean DB 48 миграций, seed-повтор идемпотентен.
+- Прочее: security headers полный набор (CSP/nosniff/XFO/referrer/permissions-policy; HSTS на TLS-слое); secrets-скан: точный токен отсутствует в дереве и во всей истории (git log -S), ghp_ упоминания только в CI-regex и маскированные в worklog; .env* в .gitignore; RLS ON на всех чувствительных таблицах (event-журналы без anon-грантов — доступ только service-role); n8n fail-safe: приёмник убит → checkout 200, после рестарта события доходят; браузерный golden path: логин (имя сессии) → каталог (фото/цены) → карточка с отзывом из БД → корзина 2700 ₽ → checkout (доставка → оплата) → «Заказ оформлен» UK-2026-609053 → заказ+платёж в БД; real-time транспорт через gateway доказан (Engine.IO handshake), чат честно деградирует в HTTP вне единого origin (артефакт теста, не production-топология); production build (next build exit 0) + next start: health/products/detail/deep-link/reviews — 200.
+- Ограничение среды: песочница 4GB OOM-убивает dev-server при компиляции страниц при открытом Chrome (dmesg: kills next-server 2.8GB RSS) — учтено (замеры по одному, финальный прогон с закрытым Chrome). Это ограничение песочницы, не дефект проекта.
+
+Stage Summary:
+- ВЕРДИКТ: GO WITH CONDITIONS — 0 CRITICAL/HIGH после 5 фиксов; условия: SMTP/SMS не подключены (UNVERIFIED, не блокер для первых пользователей), realtime-socket в split-origin тесте деградирует честно (в единой production-топологии транспорт доказан), повторная ротация GitHub PAT по-прежнему рекомендована (передавался в чате).
+- 5 fix-коммитов поверх d4bb70f: 976719f, 6dd1b37, a2d9538, 3a3b958, 2d3ac60; main не изменён; force-push не использовался.
+- Финальные проверки: 46/46 PASS (E2E-атака), tsc 0, eslint 0, build 0, health ok, clean install ok.
+- PUSH: выполнен fast-forward в origin/release/readiness-fixes.
