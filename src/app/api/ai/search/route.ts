@@ -133,19 +133,14 @@ function ruleBasedParse(query: string) {
 }
 
 async function llmParse(query: string) {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
+  const { chatComplete } = await import("@/lib/llm");
+  const result = await chatComplete([
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: query },
+  ]);
+  if (!result) throw new Error("LLM недоступен (Ollama/z-ai)");
 
-  const response = await zai.chat.completions.create({
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: query },
-    ],
-    stream: false,
-    thinking: { type: "disabled" },
-  });
-
-  const reply = (response.choices?.[0]?.message?.content as string) || "";
+  const reply = result.text;
   const jsonMatch = reply.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("LLM вернула невалидный JSON");
   const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;

@@ -74,7 +74,7 @@
 
 /* Уездный кондитер — тёплая палитра русской кондитерской */
 :root {
-  --radius: 0.75rem;
+  --radius: 0.875rem;
   --background: oklch(0.985 0.012 75);
   --foreground: oklch(0.22 0.025 40);
   --card: oklch(1 0 0);
@@ -169,9 +169,9 @@
 }
 
 .dark {
-  --background: oklch(0.18 0.015 40);
+  --background: oklch(0.16 0.014 40);
   --foreground: oklch(0.96 0.012 75);
-  --card: oklch(0.22 0.02 40);
+  --card: oklch(0.21 0.02 40);
   --card-foreground: oklch(0.96 0.012 75);
   --popover: oklch(0.22 0.02 40);
   --popover-foreground: oklch(0.96 0.012 75);
@@ -343,6 +343,104 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.65 0.12 30);
+}
+
+/* Скроллбар в тёмной теме */
+.dark ::-webkit-scrollbar-track {
+  background: oklch(0.21 0.02 40);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.34 0.03 45);
+  border-color: oklch(0.21 0.02 40);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.45 0.06 35);
+}
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.80 0.06 60) transparent;
+}
+.dark * {
+  scrollbar-color: oklch(0.34 0.03 45) transparent;
+}
+
+/* Плавный скролл к якорям (не мешает мгновенным переходам) */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Фирменное выделение текста */
+::selection {
+  background: oklch(0.42 0.18 25 / 0.22);
+}
+.dark ::selection {
+  background: oklch(0.65 0.18 25 / 0.35);
+}
+
+/* ============================================================================
+     DESIGN REFRESH 2025 — трендовые поверхности и движение
+     ============================================================================ */
+
+/* Слоистые мягкие тени (тёплый оттенок вместо нейтрального чёрного) */
+:root {
+  --shadow-soft: 0 1px 2px oklch(0.30 0.06 40 / 0.06), 0 4px 12px oklch(0.30 0.06 40 / 0.05);
+  --shadow-lift: 0 2px 4px oklch(0.30 0.06 40 / 0.07), 0 12px 28px oklch(0.30 0.06 40 / 0.10);
+  --shadow-pop: 0 4px 8px oklch(0.30 0.06 40 / 0.08), 0 20px 44px oklch(0.30 0.06 40 / 0.14);
+}
+.dark {
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.30), 0 4px 12px oklch(0 0 0 / 0.25);
+  --shadow-lift: 0 2px 4px oklch(0 0 0 / 0.35), 0 12px 28px oklch(0 0 0 / 0.40);
+  --shadow-pop: 0 4px 8px oklch(0 0 0 / 0.40), 0 20px 44px oklch(0 0 0 / 0.50);
+}
+
+/* Hover-lift для интерактивных карточек: приподнять + тень + подсветить рамку */
+.card-hover {
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.35s;
+  box-shadow: var(--shadow-soft);
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lift);
+  border-color: oklch(0.42 0.18 25 / 0.35);
+}
+.dark .card-hover:hover {
+  border-color: oklch(0.65 0.18 25 / 0.45);
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-hover:hover {
+    transform: none;
+  }
+}
+
+/* Градиентная кнопка — главный CTA */
+.btn-primary-gradient {
+  background-image: linear-gradient(135deg, oklch(0.45 0.19 25) 0%, oklch(0.38 0.16 25) 100%);
+  box-shadow: 0 1px 2px oklch(0.30 0.06 40 / 0.15), inset 0 1px 0 oklch(1 0 0 / 0.12);
+  transition: filter 0.25s, transform 0.25s, box-shadow 0.25s;
+}
+.btn-primary-gradient:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 6px oklch(0.30 0.06 40 / 0.2), 0 10px 24px oklch(0.42 0.18 25 / 0.25), inset 0 1px 0 oklch(1 0 0 / 0.12);
+}
+.btn-primary-gradient:active {
+  transform: translateY(1px);
+}
+
+/* Появление контента при скролле (подключается вручную) */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up {
+  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-up {
+    animation: none;
+  }
 }
 
 /* Анимации для hero и карточек */

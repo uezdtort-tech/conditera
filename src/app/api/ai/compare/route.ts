@@ -194,23 +194,19 @@ function ruleBasedComparison(products: DbProduct[]): ComparisonResult {
 }
 
 async function llmCompare(products: DbProduct[]): Promise<ComparisonResult> {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
+  const { chatComplete } = await import("@/lib/llm");
 
   const userPrompt = `Сравни эти товары (данные из карточек):\n\n${products
     .map((p, i) => `Товар ${i + 1}:\n${formatProductForLlm(p)}`)
     .join("\n\n")}`;
 
-  const response = await zai.chat.completions.create({
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    stream: false,
-    thinking: { type: "disabled" },
-  });
+  const result = await chatComplete([
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userPrompt },
+  ]);
+  if (!result) throw new Error("LLM недоступен (Ollama/z-ai)");
 
-  const reply = (response.choices?.[0]?.message?.content as string) || "";
+  const reply = result.text;
   const jsonMatch = reply.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("LLM вернула невалидный JSON");
   const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;

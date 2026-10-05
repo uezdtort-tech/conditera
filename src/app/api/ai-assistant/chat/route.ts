@@ -254,8 +254,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 /**
- * Вызвать AI-провайдер (z-ai-web-dev-sdk LLM).
- * Если SDK недоступен — fallback на заглушку.
+ * Вызвать AI-провайдер.
+ * Порядок: Ollama (self-hosted, OLLAMA_BASE_URL) → z-ai-web-dev-sdk.
+ * Оба недоступны — fallback на заглушку.
  */
 async function callAiProvider(
   message: string,
@@ -271,37 +272,22 @@ async function callAiProvider(
   errorMessage?: string;
 }> {
   try {
-    // Динамический импорт SDK — не ломает build если SDK не установлен
-    const ZAIModule = await import("z-ai-web-dev-sdk").catch(() => null);
-    if (!ZaiModuleOk(ZAIModule)) {
-      return fallbackResponse(message, roleContext);
+    const { chatComplete } = await import("@/lib/llm");
+    const result = await chatComplete([
+      { role: "system", content: buildSystemPrompt(roleContext) },
+      { role: "user", content: message },
+    ]);
+    if (result) {
+      return {
+        text: result.text,
+        model: result.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+      };
     }
-
-    // Используем SDK для генерации
-    const ZAI = ZAIModule as any;
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        {
-          role: "system",
-          content: buildSystemPrompt(roleContext),
-        },
-        {
-          role: "user",
-          content: message,
-        },
-      ],
-      metadata: metadata as any,
-    });
-
-    return {
-      text: completion?.choices?.[0]?.message?.content || "Извините, не удалось сгенерировать ответ.",
-      model: "glm-4",
-      inputTokens: completion?.usage?.prompt_tokens ?? null,
-      outputTokens: completion?.usage?.completion_tokens ?? null,
-    };
+    return fallbackResponse(message, roleContext);
   } catch (err: any) {
-    console.warn("[ai-assistant/chat] SDK error:", err?.message);
+    console.warn("[ai-assistant/chat] LLM error:", err?.message);
     return {
       text: "",
       model: "fallback",
@@ -311,10 +297,6 @@ async function callAiProvider(
       errorMessage: err?.message || "Неизвестная ошибка AI-провайдера",
     };
   }
-}
-
-function ZaiModuleOk(m: any): boolean {
-  return m !== null && typeof m === "object" && (m.create || m.default?.create);
 }
 
 /**

@@ -43,7 +43,7 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
     <TiltCard className="h-full">
     <Card
       onClick={() => navigate("product", { id: product.id })}
-      className="group relative overflow-hidden cursor-pointer border-border hover:border-primary/40 hover:shadow-xl transition-all duration-300 p-0 h-full"
+      className="card-hover group relative overflow-hidden cursor-pointer border-border p-0 h-full"
     >
       {/* Image */}
       <div className="relative aspect-square overflow-hidden bg-muted">

@@ -130,9 +130,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     let stage: "questioning" | "recommending" | "done" = "questioning";
 
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default;
-      const zai = await ZAI.create();
-
       const context: string[] = [];
       if (budget) context.push(`Бюджет: ${budget}₽`);
       if (servings) context.push(`Порций: ${servings}`);
@@ -143,16 +140,14 @@ export async function POST(request: NextRequest): Promise<Response> {
         ? `Контекст: ${context.join(", ")}\n\nДиалог:\n${messages.map((m) => `${m.role}: ${m.content}`).join("\n")}\n\nОтветь:`
         : `${messages.map((m) => `${m.role}: ${m.content}`).join("\n")}\n\nОтветь:`;
 
-      const response = await zai.chat.completions.create({
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        stream: false,
-        thinking: { type: "disabled" },
-      });
+      const { chatComplete } = await import("@/lib/llm");
+      const result = await chatComplete([
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ]);
+      if (!result) throw new Error("LLM недоступен (Ollama/z-ai)");
 
-      const reply = (response.choices?.[0]?.message?.content as string) || "";
+      const reply = result.text;
       const jsonMatch = reply.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         try {

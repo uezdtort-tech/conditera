@@ -231,9 +231,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default;
-      const zai = await ZAI.create();
-
+            const { chatComplete } = await import("@/lib/llm");
       const contextMsg = `ДАННЫЕ КАРТОЧКИ ТОВАРА:\n${formatProduct(p, confectioner)}`;
 
       const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
@@ -246,13 +244,10 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
       messages.push({ role: "user", content: `Вопрос покупателя: ${question}` });
 
-      const response = await zai.chat.completions.create({
-        messages,
-        stream: false,
-        thinking: { type: "disabled" },
-      });
+      const result = await chatComplete(messages);
+      if (!result) throw new Error("LLM недоступен (Ollama/z-ai)");
 
-      const reply = (response.choices?.[0]?.message?.content as string) || "";
+      const reply = result.text;
       const jsonMatch = reply.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("LLM вернула невалидный JSON");
       const parsed = JSON.parse(jsonMatch[0]) as { answer?: unknown; missingInfo?: unknown };

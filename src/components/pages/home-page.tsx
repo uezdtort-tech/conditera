@@ -124,9 +124,11 @@ export function HomePage() {
           quality={80}
           className="object-cover -z-10"
         />
-        {/* Затемнение для читаемости текста */}
-        <div className="absolute inset-0 bg-gradient-to-r from-background/90 via-background/70 to-background/40" />
-        <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent" />
+        {/* Затемнение для читаемости текста — мягче, чтобы фото дышало */}
+        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-background/55 to-background/20" />
+        <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-background/10 to-transparent" />
+        {/* Трендовый mesh-акцент поверх фото — глубина без шума */}
+        <div className="absolute inset-0 mesh-gradient opacity-60 pointer-events-none" />
         <div className="container mx-auto px-4 py-12 sm:py-16 lg:py-24 relative">
           <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             <motion.div
@@ -160,7 +162,7 @@ export function HomePage() {
                 <Button
                   size="lg"
                   onClick={() => setCakeBuilderOpen(true)}
-                  className="bg-primary glow-primary"
+                  className="btn-primary-gradient"
                 >
                   <Cake className="h-4 w-4 mr-2" />
                   Собрать торт в конструкторе

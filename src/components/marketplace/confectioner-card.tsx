@@ -42,7 +42,7 @@ export function ConfectionerCard({ confectioner }: { confectioner: Confectioner 
   return (
     <Card
       onClick={() => navigate("confectioner-profile", { id: confectioner.id })}
-      className="group cursor-pointer overflow-hidden hover:shadow-lg hover:border-primary/40 transition-all p-0"
+      className="card-hover group cursor-pointer overflow-hidden p-0"
     >
       {/* Cover */}
       <div className="relative h-24 bg-gradient-to-br from-primary/10 via-accent to-primary/5 overflow-hidden">

@@ -439,6 +439,11 @@ function ensureEnvKeys() {
   add("BOT_SECRET", crypto.randomBytes(32).toString("hex"));
   add("N8N_BASE_URL", "http://127.0.0.1:5678");
   add("N8N_WEBHOOK_BASE_URL", "http://127.0.0.1:5678/webhook");
+  // Self-hosted LLM (Ollama в той же Docker-сети, что Supabase/n8n).
+  // Если Ollama недоступна — AI-роуты автоматически падают на платформенный
+  // провайдер/fallback (fail-safe, см. src/lib/llm.ts).
+  add("OLLAMA_BASE_URL", "http://127.0.0.1:11434");
+  add("OLLAMA_MODEL", "llama3.2");
   add("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
   add("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:3000");
   const effectiveSecret = present.has("JWT_SECRET")

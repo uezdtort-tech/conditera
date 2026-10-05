@@ -7479,3 +7479,22 @@ Stage Summary:
 - Ограничение «batch write-off не идемпотентен» снято из known-limitations.
 - n8n-контракт: полная зелёная линия (валидность, покрытие, эмиттеры, живой приём).
 - main не тронут; push fast-forward в origin/release/readiness-fixes.
+
+---
+Task ID: design-refresh-2025-ollama
+Agent: orchestrator (session continuation — редизайн + self-hosted топология по директиве владельца)
+Task: Современный дизайн (2025-тренды, адаптив всех устройств); интеграция под инфраструктуру Supabase + n8n + Ollama в Docker
+
+Work Log:
+- Дизайн-ревизия (globals.css): радиус 0.75→0.875rem (крупнее, тренд скруглённых поверхностей); тёмная тема глубже (bg 0.16, card 0.21 — контраст поверхностей); слоистые тени с тёплым оттенком (--shadow-soft/lift/pop, светлые и тёмные); скроллбар тёмной темы + Firefox scrollbar-width; фирменное ::selection; scroll-behavior:smooth c prefers-reduced-motion guard; утилиты .card-hover (hover-lift: translateY-3px + слоистая тень + подсветка рамки, reduced-motion safe), .btn-primary-gradient (градиентный CTA с inset-бликом), .fade-up.
+- Поверхности: ProductCard и ConfectionerCard → .card-hover (lift на всех карточках витрины); hero: mesh-gradient слой для глубины + ослаблены затемнения (фото «дышит»), главный CTA → .btn-primary-gradient.
+- Браузерная верификация: светлая тема (hero: дисплейная антиква с градиентом, mesh), тёмная тема (глубокий тёплый шоколад, премиально), каталог 11 card-hover карточек, 375px: home/catalog overflow=0; консоль чистая (hydration-warning был разовым HMR-артефактом, после reload — чисто).
+- Ollama-провайдер (src/lib/llm.ts): единая точка chatComplete — Ollama (OLLAMA_BASE_URL/OLLAMA_MODEL/OLLAMA_TIMEOUT_MS, /api/chat, счётчики prompt_eval/eval) → z-ai-web-dev-sdk → null (fallback роута). Fail-safe: таймаут/сетевые ошибки проглатываются с логом.
+- Интегрированы 5 текстовых AI-роутов: ai-assistant/chat, ai/search, ai/ask, ai/compare, ai-cake-finder (мёртвые LLM_*-переменные из example заменены на реальный контракт OLLAMA_*; products/ai-photo остался на z-ai — Ollama не генерирует изображения).
+- Документация README: раздел «Self-hosted инфраструктура: Supabase + n8n + Ollama в Docker» — таблица сервисов/портов, подключение .env.local (DATABASE_URL из docker-сети, N8N_* на настоящий n8n, OLLAMA_* включая http://ollama:11434), импорт 26 workflow, note о dev-режиме без Docker. setup.mjs теперь пишет OLLAMA_BASE_URL/OLLAMA_MODEL в .env.local.
+- Гейты: tsc 0, eslint 0; health app/db/n8n ok; products 200; ai/search 200 (fallback rule-based разобрал запрос: occasion/guests/exclude — провайдер-цепочка валидирована end-to-end при недоступном Ollama); адаптив 375/1440 — 0 overflow.
+
+Stage Summary:
+- Дизайн: тренд-ревизия 2025 выполнена поверх зрелой системы (токены, тени, карточки, hero, тёмная тема) — без ломки 500+ файлов.
+- Инфраструктура: проект готов к вашей топологии (Supabase + n8n + Ollama в Docker) — env-контракт OLLAMA_* задокументирован и реализован с fail-safe.
+- main не тронут; push в origin/release/readiness-fixes.

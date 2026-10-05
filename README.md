@@ -134,6 +134,42 @@ docker-compose logs -f web
 > ⚠️ **Никогда не запускайте `npm run db:seed` / `db:setup` в production** —
 > сиды создают демонстрационные аккаунты с публично известными паролями (`Demo123!`).
 
+### Self-hosted инфраструктура: Supabase + n8n + Ollama в Docker
+
+Целевая топология проекта — всё самохостинг в одной Docker-сети:
+
+| Сервис | Порт | Роль |
+|---|---|---|
+| **Supabase** (PostgreSQL) | 5432 | основная БД (схема `supabase/migrations`, 0001–0050) |
+| **n8n** | 5678 | автоматизации и event-bus (`n8n-workflows/`, 9 событий контракта) |
+| **Ollama** | 11434 | локальный LLM для AI-фич (помощник, умный поиск, «спросить о товаре», сравнение) |
+| Next.js (приложение) | 3000 | клиент Supabase через PostgREST-шим |
+
+Подключение приложения к этой топологии (`.env.local`):
+
+```bash
+# БД — PostgreSQL из docker-сети Supabase
+DATABASE_URL=postgresql://postgres:<пароль>@<host>:5432/conditera
+# n8n — настоящий, а не dev-приёмник
+N8N_BASE_URL=http://127.0.0.1:5678
+N8N_WEBHOOK_BASE_URL=http://127.0.0.1:5678/webhook
+# Ollama — локальный LLM (AI-роуты: /api/ai-assistant/chat, /api/ai/search,
+# /api/ai/ask, /api/ai/compare, /api/ai-cake-finder)
+OLLAMA_BASE_URL=http://127.0.0.1:11434   # в docker-сети: http://ollama:11434
+OLLAMA_MODEL=llama3.2
+```
+
+Провайдер LLM — единая точка `src/lib/llm.ts`: **Ollama → z-ai → fallback**.
+Если Ollama не поднята, AI-фичи честно деградируют в fallback-режим
+(приложение работает, `fail-safe`). Импорт workflows в n8n:
+`n8n-workflows/*.json` (26 файлов, event-bus покрывает все 9 событий:
+order.created/paid/status_changed/cancelled, refund.created/completed,
+chat.message.created, inventory.low, service.booking.created).
+
+Для локальной разработки без Docker остаётся встроенный PostgreSQL
+(`npm run db:start`, порт 54329) и dev-приёмник n8n
+(`mini-services/n8n-receiver`, тот же порт 5678).
+
 ## Структура проекта
 
 ```
