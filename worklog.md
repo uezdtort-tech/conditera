@@ -7460,3 +7460,22 @@ Stage Summary:
 - 5 fix-коммитов поверх d4bb70f: 976719f, 6dd1b37, a2d9538, 3a3b958, 2d3ac60; main не изменён; force-push не использовался.
 - Финальные проверки: 46/46 PASS (E2E-атака), tsc 0, eslint 0, build 0, health ok, clean install ok.
 - PUSH: выполнен fast-forward в origin/release/readiness-fixes.
+
+---
+Task ID: improvement-pass-50
+Agent: orchestrator (session continuation — цикл улучшений по директиве владельца)
+Task: Устранение известных ограничений (идемпотентность batch write-off), оптимизация БД Supabase, проверка n8n-автоматизации, UI-контроль, гейты, push
+
+Work Log:
+- Baseline: песочница сброшена (checkout на main, PG обнулена) → переключён release/production-audit (ff-only на 4c465b6), восстановлен runtime (db:start → initdb, db:setup 48 миграций — фиксы сидов держатся: reviews=6, inventory=12), dev :3000 + мини-сервисы, health app/db/n8n ok.
+- Идемпотентность batch write-off (закрыто известное ограничение): миграция 0049 — реестр inventory_write_offs с UNIQUE (owner_id, order_id, signature), signature=sha256(sorted item_id:quantity). Роут write-off: повторная/параллельная отправка того же батча → 200 idempotent:true (движения не пишутся второй раз), другой состав по тому же заказу — легитимный новый батч. Живой тест: call1 201 (2.0→1.5), retry 200I (остаток неизменен), concurrent ×5 — ровно 1 движение, чужой состав 201.
+- БД Supabase: полный аудит 52 FK-колонок без ведущих индексов → отфильтровано по фактическим запросам кода (grep .eq) — индексируются только горячие пути. Миграция 0050: loyalty_transactions(order_id,type) — дедуп бонусов на каждый payment.succeeded; lesson_enrollments(lesson_id,user_id) — enroll-гейт; chat_messages(reply_to_id) partial; ANALYZE 13 горячих таблиц.
+- n8n: 25/25 workflow JSON валидны; 26-conditera-event-bus — ровно 9 webhook-нод (9/9 событий контракта); эмиттеры 9/9 по одному call-site в коде; живой прогон всех 9 событий в приёмник → 200 ×9 (порядок события, payload {type,payload,occurredAt,source}).
+- UI/контент: браузерный контроль /catalog (18 карточек, цены/фото из БД, 0 console errors, overflow 0) — контентные дефектов не выявлено (правки прошлой сессии стабильны).
+- Гейты: tsc 0, eslint 0; регресс-сюита 25/26 PASS (1 FAIL — flaky харнесса: общий cookie-jar дал CSRF-гонку на «foreign post»; прицельный тест подтвердил 403 «Нет доступа к комнате»; полный 46/46 прогон валиден на предыдущем пушe 4c465b6, с тех пор изменены только write-off и индексы).
+
+Stage Summary:
+- Коммиты: 66ab2ad fix(inventory): batch write-off idempotent (0049); [0050] perf(db): hot-path indexes + ANALYZE; docs(worklog).
+- Ограничение «batch write-off не идемпотентен» снято из known-limitations.
+- n8n-контракт: полная зелёная линия (валидность, покрытие, эмиттеры, живой приём).
+- main не тронут; push fast-forward в origin/release/readiness-fixes.
