@@ -39,6 +39,15 @@ FROM auth.users u
 WHERE u.id IN ('aaaaaaaa-0000-4000-8000-000000000c02', 'aaaaaaaa-0000-4000-8000-000000000c03')
 ON CONFLICT (user_id, role) DO NOTHING;
 
+-- 3b. Пароль демо-рецензентам: триггер auth.users может создать профиль РАНЬШЕ
+-- этого INSERT (тогда INSERT ниже упирается в ON CONFLICT DO NOTHING и хеш из
+-- customer@demo.ru не копируется — login для customer2/3 невозможен, найдено
+-- production-аудитом). Идемпотентный UPDATE закрывает оба порядка создания.
+UPDATE public.profiles
+SET password_hash = (SELECT password_hash FROM public.profiles WHERE email = 'customer@demo.ru' LIMIT 1)
+WHERE email IN ('customer2@demo.ru', 'customer3@demo.ru')
+  AND password_hash IS NULL;
+
 -- 4. Отзывы (approved → попадают в витрину)
 INSERT INTO public.product_reviews (product_id, user_id, rating, text, pros, cons, status, helpful_count, created_at)
 SELECT p.id, u.id, v.rating, v.txt, v.pros, v.cons, 'approved', v.helpful, v.at
