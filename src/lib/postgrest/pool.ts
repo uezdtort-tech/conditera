@@ -1,18 +1,41 @@
 /**
  * pool.ts — единственный pg.Pool для PostgREST-шима (глобальный, переиспользуется
- * между запросами Next.js). DATABASE_URL обязателен — иначе падаем сразу
- * с понятным сообщением (fail-fast, а не каскад 500-х).
+ * между запросами Next.js). DATABASE_URL резолвится с учётом платформенного
+ * плейсхолдера file: (см. resolveDatabaseUrl) — без fail-fast каскада 500-х.
  */
 
 import { Pool, type PoolConfig } from "pg";
-import { requireEnv } from "@/lib/env-check";
 
 const globalForPool = globalThis as unknown as { __conditeraPgPool?: Pool };
+
+/**
+ * Резолв строки подключения к PostgreSQL.
+ *
+ * Платформа песочницы инжектит в окружение DATABASE_URL=file:... (SQLite-плейсхолдер),
+ * который перекрывает .env/.env.local. pg-драйвер со схемой file: работать не умеет
+ * (ECONNREFUSED/500 на каждом запросе), поэтому такой значение считается
+ * «плейсхолдером» и заменяется на встроенный локальный PostgreSQL
+ * (см. scripts/db/runtime.mjs: EMBEDDED_URL, CONDITERA_PG_PORT).
+ */
+function resolveDatabaseUrl(): string {
+  const raw = (process.env.DATABASE_URL || "").trim();
+  if (!raw || raw.startsWith("file:")) {
+    const port = process.env.CONDITERA_PG_PORT || "54329";
+    const fallback = `postgresql://postgres@127.0.0.1:${port}/conditera`;
+    if (raw) {
+      console.warn(
+        `[pgrst/pool] DATABASE_URL=${raw.slice(0, 40)}… — платформенный плейсхолдер, использую встроенный PG: ${fallback.replace(/:[^:@/]+@/, ":***@")}`
+      );
+    }
+    return fallback;
+  }
+  return raw;
+}
 
 export function getPool(): Pool {
   if (globalForPool.__conditeraPgPool) return globalForPool.__conditeraPgPool;
 
-  const connectionString = requireEnv("DATABASE_URL");
+  const connectionString = resolveDatabaseUrl();
 
   const config: PoolConfig = {
     connectionString,
