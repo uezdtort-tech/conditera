@@ -38,6 +38,46 @@ interface VideoFeedItemRow {
   created_at: string;
 }
 
+/** Форма строки в БД — схема Prisma-стиля с camelCase-колонками (см. 0001_full_schema.sql). */
+interface VideoFeedItemDbRow {
+  id: string;
+  confectionerId: string;
+  videoUrl: string;
+  posterUrl: string | null;
+  title: string;
+  description: string | null;
+  viewsCount: number | null;
+  likesCount: number | null;
+  commentsCount: number | null;
+  sharesCount: number | null;
+  productId: string | null;
+  audioTitle: string | null;
+  rating: number | null;
+  status: string;
+  createdAt: string;
+}
+
+/** Маппинг строки БД (camelCase) → стабильный snake_case-контракт API. */
+function toApiRow(r: VideoFeedItemDbRow): VideoFeedItemRow {
+  return {
+    id: r.id,
+    confectioner_id: r.confectionerId,
+    video_url: r.videoUrl,
+    poster_url: r.posterUrl,
+    title: r.title,
+    description: r.description,
+    views_count: r.viewsCount,
+    likes_count: r.likesCount,
+    comments_count: r.commentsCount,
+    shares_count: r.sharesCount,
+    product_id: r.productId,
+    audio_title: r.audioTitle,
+    rating: r.rating,
+    status: r.status,
+    created_at: r.createdAt,
+  };
+}
+
 interface UploadVideoBody {
   videoUrl?: string;
   posterUrl?: string;
@@ -126,11 +166,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .select("*")
         .eq("status", "active")
         .order("rating", { ascending: false })
-        .order("created_at", { ascending: false })
-        .range(offset, offset + limit - 1) as { data: VideoFeedItemRow[] | null; error: SupabaseError | null };
+        .order("createdAt", { ascending: false })
+        .range(offset, offset + limit - 1) as { data: VideoFeedItemDbRow[] | null; error: SupabaseError | null };
 
       if (error) throw error;
-      videos = data || [];
+      videos = (data || []).map(toApiRow);
     } catch (e) {
       // Mock-данные
       const msg = e instanceof Error ? e.message : String(e);
@@ -188,30 +228,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: video, error: insertErr } = await supabaseAdmin
       .from("video_feed_items")
       .insert({
-        confectioner_id: user.userId,
-        video_url: body.videoUrl,
-        poster_url: posterUrl,
+        confectionerId: user.userId,
+        videoUrl: body.videoUrl,
+        posterUrl: posterUrl,
         title: body.title,
         description,
-        product_id: productId,
-        audio_title: audioTitle,
+        productId: productId,
+        audioTitle: audioTitle,
         status: "active",
         rating: INITIAL_RATING,
-        views_count: 0,
-        likes_count: 0,
-        comments_count: 0,
-        shares_count: 0,
-        created_at: new Date().toISOString(),
+        viewsCount: 0,
+        likesCount: 0,
+        commentsCount: 0,
+        sharesCount: 0,
+        createdAt: new Date().toISOString(),
       })
       .select()
-      .single() as { data: VideoFeedItemRow | null; error: SupabaseError | null };
+      .single() as { data: VideoFeedItemDbRow | null; error: SupabaseError | null };
 
     if (insertErr || !video) {
       console.error("[video-feed] insert failed:", insertErr?.message);
       throw new HttpError(500, "Не удалось загрузить видео");
     }
 
-    return NextResponse.json({ video }, { status: 201 });
+    return NextResponse.json({ video: video ? toApiRow(video) : null }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);
   }
