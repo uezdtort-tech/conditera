@@ -712,6 +712,20 @@ function castForTypname(t: string): string {
   return TYPE_CAST_MAP[t] ?? t;
 }
 
+// Скалярные RETURN-типы, которые PostgREST отдаёт в JSON как число.
+// pg-драйвер возвращает numeric/int как строку — приводим к числу,
+// чтобы контракт rpc совпадал с настоящим PostgREST (иначе потребители,
+// ожидающие number (reserve_refund, revenue_today, ...), ломаются).
+const NUMERIC_RETYPES = new Set(["int2", "int4", "int8", "float4", "float8", "numeric"]);
+
+function toPostgrestScalar(retType: string, val: unknown): unknown {
+  if (typeof val === "string" && val !== "" && NUMERIC_RETYPES.has(retType)) {
+    const n = Number(val);
+    if (Number.isFinite(n)) return n;
+  }
+  return val;
+}
+
 function pickFunction(intro: SchemaIntrospection, fnName: string, providedKeys: string[]) {
   const candidates = intro.funcs.get(fnName.toLowerCase());
   if (!candidates?.length) {
@@ -734,6 +748,10 @@ function pickFunction(intro: SchemaIntrospection, fnName: string, providedKeys: 
 }
 
 export async function handleRpc(ctx: PgrstContext, fnName: string): Promise<PgrstResult> {
+  // .single() в supabase-js шлёт Accept: application/vnd.pgrst.object+json и ждёт
+  // ОТ СЕРВЕРА объект (PostgREST-контракт). Без этого data оставался массивом
+  // и потребители (rpcRes.ok и т.п.) молча ломались.
+  const wantsObject = (ctx.headers.get("accept") || "").includes("vnd.pgrst.object");
   let args: Record<string, unknown> = {};
   if (ctx.method === "GET") {
     for (const [k, v] of ctx.searchParams.entries()) {
@@ -774,16 +792,35 @@ export async function handleRpc(ctx: PgrstContext, fnName: string): Promise<Pgrs
   });
 
   const callSql = `SELECT public.${quoteIdent(fn.name)}(${callParts.join(", ")})`;
-  // Composite-результаты (SETOF table / table) оборачиваем в JSON, как делает
-  // PostgREST: скаляры возвращаются как есть, записи — объектами.
+  // Composite-результаты (SETOF table / table / RETURNS TABLE) оборачиваем в JSON,
+  // как делает PostgREST: скаляры возвращаются как есть, записи — объектами.
+  // ВАЖНО: RETURNS TABLE даёт prorettype = record (pg_type.typtype 'p', pseudo),
+  // а не именованный composite 'c' — без ветки 'p'+retSet такие функции
+  // возвращались строкой-записью и потребители не могли распарсить поля.
   let res;
-  if (fn.retTypeKind === "c") {
+  if (fn.retTypeKind === "c" || (fn.retTypeKind === "p" && fn.retSet)) {
     const wrapSql = fn.retSet
       ? `SELECT coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb) AS out FROM (${callSql}) t`
       : `SELECT to_jsonb(t) AS out FROM (${callSql}) t`;
     res = await ctx.pool.query(wrapSql, params);
     const out = (res.rows[0] as { out: unknown } | undefined)?.out ?? (fn.retSet ? [] : null);
-    return { status: 200, json: out, headers: {} };
+    // Подзапрос даёт строку с ОДНОЙ колонкой — именем функции; разворачиваем
+    // конверт {fnName: <json записи>}, чтобы потребитель получил объект записи
+    // (контракт PostgREST: поля RETURNS TABLE доступны по именам колонок).
+    if (Array.isArray(out)) {
+      const unwrapped = out.map((el) =>
+        el && typeof el === "object" && !Array.isArray(el) && fn.name in el
+          ? (el as Record<string, unknown>)[fn.name]
+          : el
+      );
+      const single = wantsObject ? (unwrapped.length ? unwrapped[0] : null) : unwrapped;
+      return { status: 200, json: single, headers: {} };
+    }
+    if (out && typeof out === "object" && !Array.isArray(out) && fn.name in out) {
+      return { status: 200, json: (out as Record<string, unknown>)[fn.name], headers: {} };
+    }
+    const objJson = wantsObject && Array.isArray(out) ? (out.length ? out[0] : null) : out;
+    return { status: 200, json: objJson, headers: {} };
   }
   res = await ctx.pool.query(callSql, params);
   const rows = res.rows as Record<string, unknown>[];
@@ -792,14 +829,21 @@ export async function handleRpc(ctx: PgrstContext, fnName: string): Promise<Pgrs
 
   const firstKey = rows[0] ? Object.keys(rows[0])[0] : null;
   if (fn.retSet) {
-    if (fn.retTypeKind === "b" || fn.retTypeKind === "e") {
+    if (fn.retTypeKind === "b" || fn.retTypeKind === "e" || fn.retTypeKind === "d") {
       // SETOF scalar
-      return { status: 200, json: rows.map((r) => Object.values(r)[0]), headers: {} };
+      const scalars = rows.map((r) => toPostgrestScalar(fn.retType, Object.values(r)[0]));
+      return { status: 200, json: wantsObject ? (scalars.length ? scalars[0] : null) : scalars, headers: {} };
     }
-    return { status: 200, json: rows, headers: {} };
+    return { status: 200, json: wantsObject ? (rows.length ? rows[0] : null) : rows, headers: {} };
   }
-  if (fn.retTypeKind === "b" || fn.retTypeKind === "e") {
-    return { status: 200, json: rows[0] ? rows[0][firstKey as string] : null, headers: {} };
+  if (fn.retTypeKind === "b" || fn.retTypeKind === "e" || fn.retTypeKind === "d") {
+    return {
+      status: 200,
+      json: rows[0]
+        ? toPostgrestScalar(fn.retType, (rows[0] as Record<string, unknown>)[firstKey as string])
+        : null,
+      headers: {},
+    };
   }
   return { status: 200, json: rows[0] ?? null, headers: {} };
 }
