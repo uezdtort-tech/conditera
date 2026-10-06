@@ -21,7 +21,7 @@
  */
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppStore } from "@/lib/store";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,19 +46,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
   Pencil, Eye, Search, Plus, Check, AlertCircle, EyeOff, Star, Package,
-  Archive, Loader2, X, Globe,
+  Archive, Loader2, X, Globe, ListChecks,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/finance";
 import { toast } from "sonner";
 import { csrfFetch } from "@/lib/api-client";
 import { ProductMediaManager } from "@/components/dashboard/product-media-manager";
 import type { Product, ProductCategory } from "@/lib/types";
+import type { ProductCompletenessResponse } from "@/lib/ops-client-types";
 
 const PRODUCT_CATEGORIES: { value: ProductCategory; label: string }[] = [
   { value: "cakes", label: "Торты" },
@@ -630,6 +633,30 @@ function ProductEditAdminDialog({
 
   const status: ProductStatus = serverStatus ?? (product.isHidden ? "archived" : "published");
 
+  // ==================== Готовность карточки (completeness, Task 3-F) ====================
+  const queryClient = useQueryClient();
+  const completenessQuery = useQuery<ProductCompletenessResponse>({
+    queryKey: ["product-completeness", product.id],
+    enabled: !!product.id,
+    queryFn: async () => {
+      const res = await csrfFetch(`/api/products/${product.id}/completeness`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as ProductCompletenessResponse;
+    },
+  });
+  const completeness = completenessQuery.data;
+  const completenessScore = completeness?.score ?? null;
+  const missingRequired = (completeness?.checks ?? [])
+    .filter((c) => !c.done && c.required)
+    .map((c) => c.label);
+  // Блокируем кнопку публикации ТОЛЬКО когда чек-лист реально получен и
+  // ready_to_publish=false (требуемые поля совпадают с серверным гейтом
+  // PUBLISH_VALIDATION_FAILED: title/description/price). Если API недоступен —
+  // кнопка остаётся активной, решения принимает сервер.
+  const publishBlocked = !!completeness && !completeness.ready_to_publish;
+  const refreshCompleteness = () =>
+    void queryClient.invalidateQueries({ queryKey: ["product-completeness", product.id] });
+
   // ==================== Сохранение (PATCH только изменённых полей) ====================
 
   const buildPatchBody = useCallback((): Record<string, unknown> | null => {
@@ -736,6 +763,7 @@ function ProductEditAdminDialog({
         // Нечего отправлять на сервер — только локальные поля
         updateProduct(product.id, legacyPatch);
         toast.success("Товар обновлён", { description: form.title });
+        refreshCompleteness();
         onClose();
         return;
       }
@@ -788,6 +816,7 @@ function ProductEditAdminDialog({
       if (data.product?.status) setServerStatus(data.product.status as ProductStatus);
       setInitial({ ...form });
       toast.success("Товар обновлён", { description: "Изменения сохранены на сервере" });
+      refreshCompleteness();
       onClose();
     } catch (e) {
       toast.error("Не удалось сохранить товар", {
@@ -883,6 +912,50 @@ function ProductEditAdminDialog({
             <Badge variant="outline" className={`text-[10px] ${STATUS_BADGE[status]}`}>
               {STATUS_LABELS[status]}
             </Badge>
+            {completenessScore != null && (
+              <span className="flex items-center gap-2 ml-1">
+                <span className="text-[11px] text-muted-foreground">Готовность карточки</span>
+                <Progress value={completenessScore} className="w-24 h-2" />
+                <span className={`text-[11px] font-medium ${publishBlocked ? "text-amber-700" : "text-emerald-700"}`}>
+                  {completenessScore}%
+                </span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      aria-label="Чек-лист готовности карточки"
+                    >
+                      <ListChecks className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-72" align="start">
+                    <div className="text-xs font-semibold mb-2">Готовность карточки</div>
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                      {(completeness?.checks ?? []).map((c) => (
+                        <div key={c.key} className="flex items-start gap-2 text-xs">
+                          {c.done ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-600 mt-0.5 shrink-0" />
+                          ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-600 mt-0.5 shrink-0" />
+                          )}
+                          <span className={c.done ? "text-muted-foreground line-through" : ""}>{c.label}</span>
+                          {c.required && !c.done && (
+                            <Badge variant="outline" className="text-[9px] border-red-200 text-red-700 ml-auto shrink-0">
+                              обязательно
+                            </Badge>
+                          )}
+                        </div>
+                      ))}
+                      {(completeness?.checks ?? []).length === 0 && (
+                        <p className="text-xs text-muted-foreground">Чек-лист недоступен</p>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </span>
+            )}
           </DialogTitle>
           <DialogDescription className="flex flex-wrap items-center gap-x-3">
             <span>{product.confectionerName || product.confectionerId}</span>
@@ -1291,22 +1364,35 @@ function ProductEditAdminDialog({
 
         <DialogFooter className="flex-col sm:flex-row gap-2 pt-2 border-t">
           <div className="flex-1 text-left">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={publishing}
-              onClick={() => void togglePublish()}
+            <span
+              title={
+                publishBlocked
+                  ? `Заполните обязательные поля: ${missingRequired.join(", ")}`
+                  : undefined
+              }
             >
-              {publishing ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : status === "published" ? (
-                <EyeOff className="h-4 w-4 mr-1" />
-              ) : (
-                <Globe className="h-4 w-4 mr-1" />
-              )}
-              {status === "published" ? "Снять с публикации" : "Опубликовать"}
-            </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={publishing || publishBlocked}
+                onClick={() => void togglePublish()}
+              >
+                {publishing ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : status === "published" ? (
+                  <EyeOff className="h-4 w-4 mr-1" />
+                ) : (
+                  <Globe className="h-4 w-4 mr-1" />
+                )}
+                {status === "published" ? "Снять с публикации" : "Опубликовать"}
+              </Button>
+            </span>
+            {publishBlocked && missingRequired.length > 0 && (
+              <p className="text-[11px] text-amber-700 mt-1">
+                Не хватает: {missingRequired.join(", ")}
+              </p>
+            )}
           </div>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
           <Button onClick={() => void handleSave()} disabled={saving}>

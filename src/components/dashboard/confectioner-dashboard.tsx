@@ -38,6 +38,8 @@ import {
   Star,
   MessageCircle,
   LayoutDashboard,
+  Sunrise,
+  ClipboardList,
   Users,
   Calendar,
   Image as ImageIcon,
@@ -117,6 +119,8 @@ import { AiPhotoGenerator } from "@/components/ai/ai-photo-generator";
 import { toast } from "sonner";
 import { useRealOrders, useRealUpdateOrderStatus } from "@/lib/use-real-orders";
 import { useRealInventory } from "@/lib/use-real-inventory";
+import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
+import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
 
 export function ConfectionerDashboard() {
   const navigate = useAppStore((s) => s.navigate);
@@ -143,6 +147,8 @@ export function ConfectionerDashboard() {
       : "overview"
   );
   const [showTariffDialog, setShowTariffDialog] = useState(false);
+  // Разбор заказа (OrderBreakdownDialog): id заказа или null
+  const [breakdownOrderId, setBreakdownOrderId] = useState<string | null>(null);
   // Реальные заказы (GET /api/orders — скоуп кондитера решает сервер: user_id ИЛИ confectioner_id).
   // Fallback на store-заказы (mock) только если API недоступен (isStale=true).
   const { orders: apiOrders, isStale: ordersStale, refetch: refetchOrders } = useRealOrders();
@@ -232,6 +238,7 @@ export function ConfectionerDashboard() {
               </div>
 
               <div className="space-y-1">
+                <SidebarTab icon={Sunrise} label="Сегодня" active={activeTab === "today"} onClick={() => setActiveTab("today")} />
                 <SidebarTab icon={LayoutDashboard} label="Обзор" active={activeTab === "overview"} onClick={() => setActiveTab("overview")} />
                 <SidebarTab icon={ShoppingBag} label="Заказы" badge={String(myOrders.length)} active={activeTab === "orders"} onClick={() => setActiveTab("orders")} />
                 <SidebarTab icon={Package} label="Каталог" badge={String(myProducts.length)} active={activeTab === "products"} onClick={() => setActiveTab("products")} />
@@ -277,6 +284,13 @@ export function ConfectionerDashboard() {
 
           {/* Main */}
           <div>
+            {activeTab === "today" && (
+              <ConfectionerTodayTab
+                onNavigateTab={setActiveTab}
+                onOpenBreakdown={(id) => setBreakdownOrderId(id)}
+              />
+            )}
+
             {activeTab === "overview" && (
               <BentoDashboard
                 confectioner={confectioner}
@@ -520,6 +534,15 @@ export function ConfectionerDashboard() {
                               Готов к передаче курьеру (перевод в "В доставке" — курьер/админ)
                             </Badge>
                           )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Разбор заказа по ингредиентам"
+                            onClick={() => setBreakdownOrderId(order.id)}
+                          >
+                            <ClipboardList className="h-4 w-4 mr-1" />
+                            Состав
+                          </Button>
                           <Button size="sm" variant="outline">
                             <MessageCircle className="h-4 w-4 mr-1" />
                             Чат
@@ -1117,6 +1140,15 @@ export function ConfectionerDashboard() {
               <ConfectionerPaymentTab confectionerId={confectioner.id} />
             )}
           </div>
+
+          {/* Разбор заказа по ингредиентам (общий диалог: таб «Сегодня» + кнопка «Состав» в заказах) */}
+          <OrderBreakdownDialog
+            orderId={breakdownOrderId}
+            open={!!breakdownOrderId}
+            onOpenChange={(o) => {
+              if (!o) setBreakdownOrderId(null);
+            }}
+          />
 
           {/* Диалог смены тарифа */}
           {showTariffDialog && (

@@ -11,7 +11,8 @@
  * The original (other-dashboards.tsx) is preserved for backward compatibility.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,8 +27,8 @@ import {
   LayoutDashboard, MessageSquare, Edit, Image as ImageIcon,
   Mail, ShieldCheck, FileText, CalendarDays, Tags, Globe,
   Zap, Database, Cake, Building2, Navigation,
-  Utensils, MapPin, Star, Store, UserCheck, UserX,
-  Check, Pencil, Trash2, UserCog, Images,
+  Utensils, MapPin, Star, Store, UserX,
+  Check, Pencil, Trash2, UserCog, Images, Gauge, BellRing,
 } from "lucide-react";
 import { formatCurrency, ORDER_STATUS_LABELS } from "@/lib/finance";
 import { BlacklistTab } from "@/components/dashboard/blacklist-tab";
@@ -62,6 +63,10 @@ import {
 } from "@/components/dashboard/_shared";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
 import { useAdminDashboard } from "@/lib/supabase/use-dashboards";
+import {
+  AdminOpsCenter, fetchOpsSummary, fetchOpsTasks,
+} from "@/components/dashboard/admin-ops-center";
+import { SEVERITY_UI, type OpsSeverity } from "@/lib/ops-client-types";
 
 // Group sections for sidebar
 const TAB_GROUPS = [
@@ -69,6 +74,7 @@ const TAB_GROUPS = [
     title: null,
     tabs: [
       { id: "overview", label: "Обзор", icon: LayoutDashboard },
+      { id: "ops-center", label: "Операционный центр", icon: Gauge },
       { id: "users", label: "Пользователи", icon: Users },
       { id: "orders", label: "Заказы", icon: ShoppingCart },
       { id: "products", label: "Товары", icon: Package },
@@ -118,8 +124,8 @@ const TAB_GROUPS = [
   },
 ];
 
-// Flatten tabs for the sidebar (preserving group dividers)
-const ALL_TABS = TAB_GROUPS.flatMap(g => g.tabs);
+// Бейдж «Операционного центра» динамический (критические задачи) —
+// подставляется в компоненте, поэтому ALL_TABS собирается в рендере.
 
 export function AdminDashboard() {
   const navigate = useAppStore((s) => s.navigate);
@@ -129,6 +135,29 @@ export function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
 
   const { data, isLoading, error, refetch } = useAdminDashboard();
+
+  // Операционный центр: те же query-ключи, что и внутри AdminOpsCenter —
+  // кэш общий (бейдж обновляется вместе с очередью, refetch 60с).
+  const opsTasksQuery = useQuery({
+    queryKey: ["ops-tasks"],
+    queryFn: fetchOpsTasks,
+    refetchInterval: 60_000,
+  });
+  const opsSummaryQuery = useQuery({
+    queryKey: ["ops-summary"],
+    queryFn: fetchOpsSummary,
+    refetchInterval: 60_000,
+  });
+  const opsCritical = opsSummaryQuery.data?.attention?.critical ?? 0;
+  const opsBadge = opsCritical > 0 ? String(opsCritical) : undefined;
+
+  const allTabs = useMemo(
+    () =>
+      TAB_GROUPS.flatMap((g) =>
+        g.tabs.map((t) => (t.id === "ops-center" ? { ...t, badge: opsBadge } : t))
+      ),
+    [opsBadge]
+  );
 
   if (!user) {
     return (
@@ -205,41 +234,44 @@ export function AdminDashboard() {
               </Card>
 
               <Card className="p-4">
-                <h3 className="font-semibold mb-3">Активность</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <UserCheck className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <div>Новый кондитер зарегистрирован</div>
-                      <div className="text-xs text-muted-foreground">2 минуты назад</div>
-                    </div>
+                <h3 className="font-semibold mb-3 flex items-center gap-1.5">
+                  <BellRing className="h-4 w-4 text-primary" />
+                  Требуют внимания
+                </h3>
+                {opsTasksQuery.data?.tasks?.length ? (
+                  <div className="space-y-2 text-sm">
+                    {opsTasksQuery.data.tasks.slice(0, 3).map((t) => {
+                      const sev = SEVERITY_UI[(t.severity as OpsSeverity) ?? "info"] ?? SEVERITY_UI.info;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => setActiveTab("ops-center")}
+                          className="w-full flex items-start gap-2 text-left p-2 border border-border rounded hover:bg-accent transition min-h-[44px]"
+                        >
+                          <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${sev.dot}`} aria-hidden />
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{t.title}</div>
+                            <div className="text-xs text-muted-foreground truncate">{t.description || t.type}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    <Button variant="ghost" size="sm" className="w-full" onClick={() => setActiveTab("ops-center")}>
+                      Все задачи ({opsTasksQuery.data.tasks.length})
+                    </Button>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <ShoppingCart className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                    <div>
-                      <div>Новый заказ UK-2025-0234</div>
-                      <div className="text-xs text-muted-foreground">5 минут назад</div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Flag className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <div>Жалоба на отзыв #4521</div>
-                      <div className="text-xs text-muted-foreground">15 минут назад</div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <UserX className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
-                    <div>
-                      <div>Пользователь заблокирован</div>
-                      <div className="text-xs text-muted-foreground">1 час назад</div>
-                    </div>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Все задачи обработаны — операционная очередь пуста.
+                  </p>
+                )}
               </Card>
             </div>
           </div>
         );
+
+      case "ops-center":
+        return <AdminOpsCenter onNavigateTab={setActiveTab} />;
 
       case "users":
         return (
@@ -354,7 +386,7 @@ export function AdminDashboard() {
       avatar={user.avatar}
       businessName={user.name}
       navigate={navigate as unknown as (view: string) => void}
-      tabs={ALL_TABS}
+      tabs={allTabs}
       activeTab={activeTab}
       onTab={setActiveTab}
     >
