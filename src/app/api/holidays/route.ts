@@ -1,9 +1,10 @@
 /**
- * GET    /api/holidays — список праздников пользователя + системные
+ * GET    /api/holidays — системные праздники (публично) + личные (только auth)
  * POST   /api/holidays — добавить праздник
  * DELETE /api/holidays?id=... — удалить
  *
- * Auth: AUTHENTICATED
+ * Auth: GET — публичный (гостям системные праздники, user: []),
+ *       POST/DELETE — AUTHENTICATED.
  *
  * Безопасность:
  *   • POST: парсинг JSON безопасен (safeJsonBody).
@@ -50,8 +51,14 @@ interface CreateHolidayBody {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    // GET публичный: системные праздники — маркетинговый контент для гостей
+    // (виджет календаря на главной); личные праздники — только для владельца.
+    // Раньше GET требовал auth → каждый гость получал 401 в логах на каждый заход.
     const user = await getUserFromRequest(request);
-    if (!user) throw new HttpError(401, "Не авторизован");
+
+    if (!user) {
+      return NextResponse.json({ system: SYSTEM_HOLIDAYS, user: [] });
+    }
 
     const { data: userHolidays, error } = await supabaseAdmin
       .from("user_holidays")
