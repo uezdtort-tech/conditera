@@ -31,8 +31,11 @@
  *   import { calculateRegionalPrice, getCityPriceMultiplier } from "@/lib/regional-pricing";
  *   const multiplier = await getCityPriceMultiplier("Москва", "cake");
  *   const price = basePrice * multiplier;
+ *
+ * Изоморфный модуль: БД недоступна напрямую — медианы загружаются через
+ * GET /api/pricing/regional (сервер считает агрегат, см. pricing-stats.ts).
+ * При недоступности API — автоматический fallback на базовый множитель.
  */
-import { supabaseAdmin } from "./supabase/admin";
 
 // ============================================================================
 // Константы и типы
@@ -125,14 +128,9 @@ export interface RegionalPricingResult {
   city: string;
 }
 
-interface ProductRow {
-  price: number;
-  weight_grams?: number | null;
-  servings?: number | null;
-}
-
-interface SupabaseError {
-  message: string;
+interface PricingStatsResponse {
+  median: number;
+  count: number;
 }
 
 // ============================================================================
@@ -195,11 +193,10 @@ export function clampMultiplier(mult: number): number {
 /**
  * Загрузить медианную цену за 1 кг продукта в указанном городе.
  *
- * Алгоритм:
- *   1. Загружаем продукты в городе с указанной ценой и весом
- *   2. Парсим вес (например, "1.5 кг", "1500 г", "2 кг") в кг
- *   3. Считаем price_per_kg = price / weight_kg
- *   4. Возвращаем медиану price_per_kg
+ * Алгоритм (серверная часть — /api/pricing/regional):
+ *   1. Загружаем продукты каталога с ценой и весом
+ *   2. Считаем price_per_kg = price / weight_kg
+ *   3. Возвращаем медиану price_per_kg
  *
  * @returns { median, count } — медианная цена за кг и количество образцов
  */
@@ -211,54 +208,24 @@ async function getCityMedianPricePerKg(
   if (!normalizedCity) return { median: 0, count: 0 };
 
   try {
-    // Загружаем продукты с ценой. ВАЖНО: у products нет колонки city (город живёт
-    // в confectioners), поэтому фильтр по городу к таблице products не применяется —
-    // город остаётся параметром сигнатуры для будущего enrichment.
-    const { data: products, error } = await supabaseAdmin
-      .from("products")
-      .select("price, weight_grams, servings")
-      .order("price", { ascending: true })
-      .limit(200) as { data: ProductRow[] | null; error: SupabaseError | null };
+    const res = await fetch(
+      `/api/pricing/regional?city=${encodeURIComponent(normalizedCity)}&type=${encodeURIComponent(productType)}`,
+      { headers: { accept: "application/json" } }
+    );
 
-    if (error || !products || products.length === 0) {
+    if (!res.ok) return { median: 0, count: 0 };
+
+    const stats = (await res.json()) as Partial<PricingStatsResponse> | null;
+    if (
+      !stats ||
+      typeof stats.median !== "number" ||
+      !Number.isFinite(stats.median) ||
+      typeof stats.count !== "number"
+    ) {
       return { median: 0, count: 0 };
     }
 
-    // Парсим вес и считаем price_per_kg
-    const pricesPerKg: number[] = [];
-    for (const p of products) {
-      if (typeof p.price !== "number" || p.price <= 0) continue;
-
-      // weight_grams — числовые граммы (NULL-safe); раньше weight был строкой
-      let weightKg = 0;
-      if (typeof p.weight_grams === "number" && p.weight_grams > 0) {
-        weightKg = p.weight_grams / 1000;
-      }
-      if (weightKg > 0 && weightKg < 50) {
-        // Защита от нереалистичных весов (≥50 кг — явно ошибка)
-        pricesPerKg.push(p.price / weightKg);
-      } else if (p.servings && p.servings > 0) {
-        // Fallback: если нет веса, используем servings (1 порция ≈ 150 г)
-        const estimatedWeightKg = p.servings * 0.15;
-        if (estimatedWeightKg > 0 && estimatedWeightKg < 50) {
-          pricesPerKg.push(p.price / estimatedWeightKg);
-        }
-      }
-    }
-
-    if (pricesPerKg.length === 0) {
-      return { median: 0, count: 0 };
-    }
-
-    // Сортируем и берём медиану
-    pricesPerKg.sort((a, b) => a - b);
-    const mid = Math.floor(pricesPerKg.length / 2);
-    const median =
-      pricesPerKg.length % 2 === 0
-        ? (pricesPerKg[mid - 1] + pricesPerKg[mid]) / 2
-        : pricesPerKg[mid];
-
-    return { median, count: pricesPerKg.length };
+    return { median: stats.median, count: stats.count };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn("[regional-pricing] dynamic median failed:", msg);
