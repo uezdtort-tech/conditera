@@ -27,7 +27,7 @@ import {
   Mail, ShieldCheck, FileText, CalendarDays, Tags, Globe,
   Zap, Database, Cake, Building2, Navigation,
   Utensils, MapPin, Star, Store, UserCheck, UserX,
-  Check, Pencil, Trash2, UserCog,
+  Check, Pencil, Trash2, UserCog, Images,
 } from "lucide-react";
 import { formatCurrency, ORDER_STATUS_LABELS } from "@/lib/finance";
 import { BlacklistTab } from "@/components/dashboard/blacklist-tab";
@@ -46,6 +46,7 @@ import { AdminFillingsTab } from "@/components/dashboard/admin-fillings-tab";
 import { AdminFraudMonitor } from "@/components/dashboard/admin-fraud-monitor";
 import { AdminConfectionerVerification } from "@/components/dashboard/admin-confectioner-verification";
 import { AdminProductsManager } from "@/components/dashboard/admin-products-manager";
+import { AdminMediaModerationTab } from "@/components/dashboard/admin-media-moderation-tab";
 import { AdminOrdersManager } from "@/components/dashboard/admin-orders-manager";
 import { AdminEventsManager } from "@/components/dashboard/admin-events-manager";
 import { AdminTicketsTab } from "@/components/dashboard/admin-crm-tickets";
@@ -72,6 +73,7 @@ const TAB_GROUPS = [
       { id: "orders", label: "Заказы", icon: ShoppingCart },
       { id: "products", label: "Товары", icon: Package },
       { id: "moderation", label: "Модерация", icon: Flag, badge: "2" },
+      { id: "media-moderation", label: "Медиа-модерация", icon: Images },
       { id: "blacklist", label: "Чёрный список", icon: ShieldAlert },
       { id: "audit", label: "Аудит", icon: ScrollText },
     ],
@@ -283,6 +285,7 @@ export function AdminDashboard() {
       case "orders": return <AdminOrdersManager />;
       case "products": return <AdminProductsManager />;
       case "moderation": return <AdminReviewsModerationTab />;
+      case "media-moderation": return <AdminMediaModerationTab />;
       case "blacklist": return <BlacklistTab />;
       case "cms-home": return <AdminCmsHomeTab />;
       case "cms-banners": return <AdminBannersTab />;

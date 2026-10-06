@@ -1,6 +1,27 @@
 "use client";
 
-import { useState, useMemo } from "react";
+/**
+ * AdminProductsManager — управление каталогом товаров (Task 4-a, персистентный).
+ *
+ * Изменения Task 4-a:
+ *   • редактор карточки — Tabs «Основное / Характеристики / Состав / Медиа»;
+ *   • «Сохранить» → PATCH /api/products/{id} (camelCase, только изменённые поля),
+ *     ответ маппится snake→camel и мерджится в zustand store;
+ *   • «Опубликовать / Снять с публикации» → PATCH status published/archived
+ *     (422 PUBLISH_VALIDATION_FAILED → список missing);
+ *   • «Создать товар» → POST /api/products {confectionerId, title, description,
+ *     price, status: "draft"} (+ категория slug'ом);
+ *   • «Скрыть/Показать» → PATCH archived/published вместо клиентского toggle;
+ *   • кнопка «Удалить» заменена на «Архивировать» (PATCH archived) —
+ *     DELETE-эндпоинта товара нет;
+ *   • таб «Медиа» — ProductMediaManager (реальные медиа-API).
+ *
+ * Легаси-поля без серверного контракта (isPopular/isNew/isHit/arEnabled,
+ * images по URL, prepTime, confectioner) продолжают работать локально в store.
+ */
+
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/lib/store";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -23,12 +45,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Pencil, UserX, Eye, Trash2, Search, Filter, Download, Plus,
-  Check, AlertCircle, EyeOff, Star, Package,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Pencil, Eye, Search, Plus, Check, AlertCircle, EyeOff, Star, Package,
+  Archive, Loader2, X, Globe,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/finance";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
+import { ProductMediaManager } from "@/components/dashboard/product-media-manager";
 import type { Product, ProductCategory } from "@/lib/types";
 
 const PRODUCT_CATEGORIES: { value: ProductCategory; label: string }[] = [
@@ -48,12 +77,62 @@ const PRODUCT_CATEGORIES: { value: ProductCategory; label: string }[] = [
   { value: "oriental_sweets", label: "Восточные сладости" },
 ];
 
+// Стандартный список аллергенов (тогглы в табе «Состав»)
+const COMMON_ALLERGENS = [
+  "Глютен",
+  "Молоко",
+  "Яйца",
+  "Орехи",
+  "Арахис",
+  "Соя",
+  "Рыба",
+  "Морепродукты",
+  "Кунжут",
+];
+
+type ProductStatus = "draft" | "published" | "archived";
+
+const STATUS_LABELS: Record<ProductStatus, string> = {
+  draft: "Черновик",
+  published: "Опубликован",
+  archived: "Архив",
+};
+
+const STATUS_BADGE: Record<ProductStatus, string> = {
+  draft: "bg-amber-100 text-amber-800 border-amber-300",
+  published: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  archived: "bg-red-100 text-red-800 border-red-300",
+};
+
+// Человекочитаемые имена полей для PUBLISH_VALIDATION_FAILED.missing
+const MISSING_FIELD_LABELS: Record<string, string> = {
+  title: "название (мин. 3 символа)",
+  description: "описание (мин. 10 символов)",
+  price: "цена (минимум 1 ₽)",
+};
+
+/** Числовой input-хелпер: "" → null */
+function numOrNull(v: string): number | null {
+  const t = v.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+function mapMissingToLabels(missing: string[]): string {
+  if (missing.length === 0) return "";
+  return missing
+    .map((m) => MISSING_FIELD_LABELS[m] || m)
+    .join("; ");
+}
+
+// ==================== Основной компонент ====================
+
 export function AdminProductsManager() {
   const products = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
   const updateProduct = useAppStore((s) => s.updateProduct);
-  const deleteProduct = useAppStore((s) => s.deleteProduct);
-  const toggleProductVisibility = useAppStore((s) => s.toggleProductVisibility);
+  const user = useAppStore((s) => s.user);
 
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState<string>("all");
@@ -62,10 +141,21 @@ export function AdminProductsManager() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [hideDialogProduct, setHideDialogProduct] = useState<Product | null>(null);
-  const [hideReason, setHideReason] = useState("");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [busyActionId, setBusyActionId] = useState<string | null>(null);
+
+  const canModerate = useMemo(() => {
+    const roles = user?.roles || [];
+    return roles.includes("ADMIN") || roles.includes("SUPER_ADMIN") || roles.includes("MODERATOR");
+  }, [user]);
+
+  const canPublish = useMemo(() => {
+    const roles = user?.roles || [];
+    return roles.includes("ADMIN") || roles.includes("SUPER_ADMIN");
+  }, [user]);
 
   const filtered = useMemo(() => {
-    return products.filter((p: any) => {
+    return products.filter((p: Product) => {
       if (search) {
         const q = search.toLowerCase();
         if (!p.title.toLowerCase().includes(q) && !p.confectionerName?.toLowerCase().includes(q)) return false;
@@ -80,31 +170,66 @@ export function AdminProductsManager() {
 
   const stats = {
     total: products.length,
-    visible: products.filter((p: any) => !p.isHidden).length,
-    hidden: products.filter((p: any) => p.isHidden).length,
-    popular: products.filter((p: any) => p.isPopular).length,
+    visible: products.filter((p: Product) => !p.isHidden).length,
+    hidden: products.filter((p: Product) => p.isHidden).length,
+    popular: products.filter((p: Product) => p.isPopular).length,
   };
 
-  const handleSaveEdit = (updated: Product) => {
-    updateProduct(updated.id, updated);
-    setEditingProduct(null);
-    toast.success("Товар обновлён", { description: updated.title });
-  };
+  /** PATCH статуса товара (published | archived | draft) + merge в store. */
+  const patchStatus = useCallback(
+    async (p: Product, status: ProductStatus, successLabel: string) => {
+      setBusyActionId(p.id);
+      try {
+        const res = await csrfFetch(`/api/products/${p.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as
+            | { error?: string; missing?: string[] }
+            | null;
+          if (res.status === 422 && body?.error === "PUBLISH_VALIDATION_FAILED") {
+            toast.error("Публикация невозможна — заполните обязательные поля", {
+              description: mapMissingToLabels(body?.missing || []),
+            });
+            return;
+          }
+          throw new Error(body?.error || `HTTP ${res.status}`);
+        }
+        const data = (await res.json()) as { product?: Record<string, unknown> };
+        const merged = mapServerRowToProductPatch(data.product);
+        updateProduct(p.id, {
+          ...merged,
+          isHidden: status !== "published",
+          hiddenReason: status === "archived" ? `Статус: ${STATUS_LABELS[status]}` : undefined,
+        });
+        toast.success(successLabel, { description: p.title });
+      } catch (e) {
+        toast.error("Действие не выполнено", {
+          description: e instanceof Error ? e.message : undefined,
+        });
+      } finally {
+        setBusyActionId(null);
+      }
+    },
+    [updateProduct],
+  );
 
   const handleConfirmHide = () => {
     if (!hideDialogProduct) return;
-    toggleProductVisibility(hideDialogProduct.id, hideReason || "Скрыт администратором");
-    toast.success(hideDialogProduct.isHidden ? "Товар восстановлен" : "Товар скрыт", {
-      description: hideDialogProduct.title,
-    });
+    const target = hideDialogProduct;
     setHideDialogProduct(null);
-    setHideReason("");
+    void patchStatus(
+      target,
+      target.isHidden ? "published" : "archived",
+      target.isHidden ? "Товар снова опубликован" : "Товар скрыт из каталога",
+    );
   };
 
-  const handleDelete = (p: Product) => {
-    if (confirm(`Удалить «${p.title}» безвозвратно?`)) {
-      deleteProduct(p.id);
-      toast.success("Товар удалён", { description: p.title });
+  const handleArchive = (p: Product) => {
+    if (confirm(`Архивировать «${p.title}»? Товар исчезнет из публичного каталога (восстановимо).`)) {
+      void patchStatus(p, "archived", "Товар архивирован");
     }
   };
 
@@ -117,12 +242,15 @@ export function AdminProductsManager() {
             Товары платформы
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Управление всем каталогом товаров: редактирование, скрытие, удаление
+            Управление каталогом: карточки, медиа, публикация и архивирование
           </p>
         </div>
-        <Button variant="outline" size="sm">
-          <Download className="h-3.5 w-3.5 mr-1" />Экспорт
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)} disabled={!canPublish}>
+            <Plus className="h-4 w-4 mr-1" />
+            Создать товар
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -181,7 +309,7 @@ export function AdminProductsManager() {
           <Card className="p-8 text-center text-sm text-muted-foreground sm:col-span-2 lg:col-span-3">
             Товары не найдены. Измените фильтры.
           </Card>
-        ) : filtered.map((p: any) => (
+        ) : filtered.map((p: Product) => (
           <Card key={p.id} className={`p-3 ${p.isHidden ? "opacity-60 border-amber-300 bg-amber-50/30" : ""}`}>
             <div className="flex gap-3">
               <div className="w-20 h-20 rounded bg-muted overflow-hidden flex-shrink-0 relative">
@@ -232,19 +360,27 @@ export function AdminProductsManager() {
                 size="sm"
                 variant="ghost"
                 className={`h-7 text-xs ${p.isHidden ? "text-emerald-600" : "text-amber-600"}`}
+                disabled={busyActionId === p.id || !canPublish}
                 onClick={() => setHideDialogProduct(p)}
-                title={p.isHidden ? "Показать" : "Скрыть"}
+                title={p.isHidden ? "Показать (PATCH published)" : "Скрыть (PATCH archived)"}
               >
-                {p.isHidden ? <><Eye className="h-3 w-3 mr-1" />Показать</> : <><UserX className="h-3 w-3 mr-1" />Скрыть</>}
+                {busyActionId === p.id ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : p.isHidden ? (
+                  <><Eye className="h-3 w-3 mr-1" />Показать</>
+                ) : (
+                  <><EyeOff className="h-3 w-3 mr-1" />Скрыть</>
+                )}
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 text-xs text-destructive"
-                onClick={() => handleDelete(p)}
-                title="Удалить"
+                className="h-7 text-xs text-red-600"
+                disabled={busyActionId === p.id || !canPublish || p.isHidden}
+                onClick={() => handleArchive(p)}
+                title="Архивировать (PATCH archived)"
               >
-                <Trash2 className="h-3 w-3" />
+                <Archive className="h-3 w-3" />
               </Button>
             </div>
           </Card>
@@ -255,9 +391,10 @@ export function AdminProductsManager() {
       {editingProduct && (
         <ProductEditAdminDialog
           product={editingProduct}
-          onSave={handleSaveEdit}
-          onClose={() => setEditingProduct(null)}
+          canModerate={canModerate}
+          canSetCover={canPublish}
           confectioners={confectioners}
+          onClose={() => setEditingProduct(null)}
         />
       )}
 
@@ -270,246 +407,1108 @@ export function AdminProductsManager() {
         />
       )}
 
-      {/* Hide/Show Dialog */}
-      <Dialog open={!!hideDialogProduct} onOpenChange={(o) => !o && setHideDialogProduct(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{hideDialogProduct?.isHidden ? "Показать товар" : "Скрыть товар"}</DialogTitle>
-            <DialogDescription>
+      {/* Create Dialog */}
+      {createDialogOpen && (
+        <CreateProductDialog
+          onClose={() => setCreateDialogOpen(false)}
+        />
+      )}
+
+      {/* Hide/Show confirm (PATCH archived / published) */}
+      <AlertDialog open={!!hideDialogProduct} onOpenChange={(o) => !o && setHideDialogProduct(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {hideDialogProduct?.isHidden ? "Показать товар?" : "Скрыть товар?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
               {hideDialogProduct?.isHidden
-                ? "Товар вернётся в публичный каталог."
-                : "Товар будет скрыт из публичного каталога. Покупатели не смогут его видеть и заказывать."}
-            </DialogDescription>
-          </DialogHeader>
-          {!hideDialogProduct?.isHidden && (
-            <div className="space-y-2">
-              <Label>Причина скрытия (видит только админ и кондитер)</Label>
-              <Textarea
-                value={hideReason}
-                onChange={(e) => setHideReason(e.target.value)}
-                placeholder="Например: нарушение правил площадки, жалобы покупателей, устаревшая цена..."
-                rows={3}
-              />
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setHideDialogProduct(null)}>Отмена</Button>
-            <Button onClick={handleConfirmHide}>
+                ? "Товар будет снова опубликован (PATCH status: published) и вернётся в публичный каталог."
+                : "Товар будет скрыт из публичного каталога (PATCH status: archived). Покупатели не смогут его видеть и заказывать."}
+              {" "}Статус сохраняется на сервере.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmHide}>
               <Check className="h-4 w-4 mr-1" />
               {hideDialogProduct?.isHidden ? "Показать" : "Скрыть"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-// =================== Product Edit Dialog (admin) ===================
+// ==================== snake → camel маппинг ответа PATCH/POST ====================
+
+/**
+ * Маппинг серверной строки products (snake_case) в патч для store (camelCase).
+ * Используется после PATCH и POST — «маппинг сделан руками», numeric поля
+ * приходят строками ("18.50") → Number().
+ */
+function mapServerRowToProductPatch(row: Record<string, unknown> | undefined | null): Partial<Product> {
+  if (!row) return {};
+  const out: Partial<Product> = {};
+  const n = (v: unknown): number | null => (v == null ? null : Number(v));
+  const s = (v: unknown): string | null => (v == null ? null : String(v));
+
+  if (row.title !== undefined) out.title = String(row.title);
+  if (row.description !== undefined) out.description = String(row.description ?? "");
+  if (row.price !== undefined && row.price !== null) out.price = Math.round(Number(row.price));
+  if (row.old_price !== undefined) {
+    out.oldPrice = row.old_price != null ? Math.round(Number(row.old_price)) : undefined;
+  }
+  if (row.weight_grams !== undefined) {
+    out.weight = row.weight_grams != null ? `${Number(row.weight_grams)} г` : undefined;
+  }
+  if (row.servings !== undefined) out.servings = row.servings != null ? Number(row.servings) : undefined;
+  if (row.short_description !== undefined) out.shortDescription = s(row.short_description) ?? undefined;
+  if (row.diameter_cm !== undefined) out.diameterCm = n(row.diameter_cm);
+  if (row.height_cm !== undefined) out.heightCm = n(row.height_cm);
+  if (row.size_text !== undefined) out.sizeText = s(row.size_text);
+  if (row.shape !== undefined) out.shape = s(row.shape);
+  if (row.product_type !== undefined) out.productType = s(row.product_type);
+  if (row.filling_description !== undefined) out.fillingDescription = s(row.filling_description);
+  if (row.layers_count !== undefined) out.layersCount = n(row.layers_count);
+  if (row.min_order_qty !== undefined) out.minOrderQty = row.min_order_qty != null ? Number(row.min_order_qty) : undefined;
+  if (row.custom_order_available !== undefined) out.customOrderAvailable = Boolean(row.custom_order_available);
+  if (row.is_available !== undefined) out.isAvailable = Boolean(row.is_available);
+  if (row.production_time_hours !== undefined) out.productionTimeHours = n(row.production_time_hours);
+  if (row.composition !== undefined && row.composition && typeof row.composition === "object") {
+    out.composition = row.composition as Product["composition"];
+  }
+  return out;
+}
+
+// =================== Product Edit Dialog (admin, персистентный) ===================
+
+/** Локальная форма карточки — camelCase (как Product) + composition-поля. */
+interface EditFormState {
+  title: string;
+  shortDescription: string;
+  description: string;
+  price: number;
+  oldPrice: number | null;
+  category: ProductCategory;
+  weightGrams: number | null;
+  servings: number | null;
+  diameterCm: number | null;
+  heightCm: number | null;
+  sizeText: string;
+  shape: string;
+  productType: string;
+  fillingDescription: string;
+  layersCount: number | null;
+  minOrderQty: number;
+  customOrderAvailable: boolean;
+  isAvailable: boolean;
+  productionTimeHours: number | null;
+  ingredients: string[];
+  allergens: string[];
+  calories: number | null;
+  protein: number | null;
+  fat: number | null;
+  carbs: number | null;
+  storageConditions: string;
+  shelfLife: string;
+}
+
+function formFromProduct(p: Product): EditFormState {
+  const c = p.composition || {
+    ingredients: [],
+    allergens: [],
+    nutritionalValue: {},
+    storageConditions: "",
+    shelfLife: "",
+  };
+  return {
+    title: p.title || "",
+    shortDescription: p.shortDescription || "",
+    description: p.description || "",
+    price: p.price || 0,
+    oldPrice: p.oldPrice ?? null,
+    category: p.category,
+    weightGrams: p.weight ? Number(String(p.weight).replace(/[^\d.,]/g, "").replace(",", ".")) || null : null,
+    servings: p.servings ?? null,
+    diameterCm: p.diameterCm ?? null,
+    heightCm: p.heightCm ?? null,
+    sizeText: p.sizeText || "",
+    shape: p.shape || "",
+    productType: p.productType || "",
+    fillingDescription: p.fillingDescription || "",
+    layersCount: p.layersCount ?? null,
+    minOrderQty: p.minOrderQty ?? 1,
+    customOrderAvailable: p.customOrderAvailable ?? true,
+    isAvailable: p.isAvailable ?? true,
+    productionTimeHours: p.productionTimeHours ?? null,
+    ingredients: c.ingredients || [],
+    allergens: c.allergens || [],
+    calories: c.nutritionalValue?.calories ?? null,
+    protein: c.nutritionalValue?.protein ?? null,
+    fat: c.nutritionalValue?.fat ?? null,
+    carbs: c.nutritionalValue?.carbs ?? null,
+    storageConditions: c.storageConditions || "",
+    shelfLife: c.shelfLife || "",
+  };
+}
+
 function ProductEditAdminDialog({
   product,
-  onSave,
-  onClose,
+  canModerate,
+  canSetCover,
   confectioners,
+  onClose,
 }: {
   product: Product;
-  onSave: (p: Product) => void;
+  canModerate: boolean;
+  canSetCover: boolean;
+  confectioners: { id: string; businessName?: string; name?: string }[];
   onClose: () => void;
-  confectioners: any[];
 }) {
-  const [form, setForm] = useState<Product>({ ...product });
+  const updateProduct = useAppStore((s) => s.updateProduct);
+
+  const [form, setForm] = useState<EditFormState>(() => formFromProduct(product));
+  const [initial, setInitial] = useState<EditFormState>(() => formFromProduct(product));
+  // Легаси-поля (только store, не API)
   const [imageUrl, setImageUrl] = useState("");
+  const [images, setImages] = useState<string[]>(product.images || []);
+  const [isPopular, setIsPopular] = useState(!!product.isPopular);
+  const [isNew, setIsNew] = useState(!!product.isNew);
+  const [isHit, setIsHit] = useState(!!product.isHit);
+  const [arEnabled, setArEnabled] = useState(!!product.arEnabled);
+  const [prepTime, setPrepTime] = useState(product.prepTime || "");
+  const [confectionerId, setConfectionerId] = useState(product.confectionerId || "");
+  // Серверные метаданные
+  const [serverStatus, setServerStatus] = useState<ProductStatus | null>(null);
+  const [publishedAt, setPublishedAt] = useState<string | null>(null);
+  const [serverCategoryId, setServerCategoryId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
-  const addImage = () => {
-    if (imageUrl.trim()) {
-      setForm({ ...form, images: [...(form.images || []), imageUrl.trim()] });
-      setImageUrl("");
+  // Реальные категории (slug → UUID) для PATCH categoryId
+  const categoriesQuery = useQuery<{ id: string; slug: string; name: string }[]>({
+    queryKey: ["categories"],
+    staleTime: 10 * 60 * 1000,
+  });
+  const categories = categoriesQuery.data || [];
+  const effectiveCategorySlug = useMemo(() => {
+    // Реальная категория с сервера точнее клиентской догадки (guessCategory)
+    const fromServer = serverCategoryId
+      ? categories.find((c) => c.id === serverCategoryId)?.slug
+      : undefined;
+    return (fromServer as ProductCategory | undefined) ?? form.category;
+  }, [serverCategoryId, categories, form.category]);
+
+  const set = <K extends keyof EditFormState>(key: K, value: EditFormState[K]) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+  // Обогащение формы полными данными карточки (GET /api/products/{id}).
+  // Для draft/archived публичный GET отдаёт 404 — тогда работаем с копией из store.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await csrfFetch(`/api/products/${product.id}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { product?: Record<string, unknown> };
+        if (cancelled || !data.product) return;
+        const row = data.product;
+        const patch = mapServerRowToProductPatch(row);
+        setForm((prev) => ({ ...prev, ...formFromProduct({ ...product, ...patch }) }));
+        setInitial((prev) => ({ ...prev, ...formFromProduct({ ...product, ...patch }) }));
+        setServerStatus((row.status as ProductStatus) ?? null);
+        setPublishedAt((row.published_at as string | null) ?? null);
+        setServerCategoryId((row.category_id as string | null) ?? null);
+      } catch {
+        // 404 draft / сеть — остаёмся на данных store
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [product.id]);
+
+  const status: ProductStatus = serverStatus ?? (product.isHidden ? "archived" : "published");
+
+  // ==================== Сохранение (PATCH только изменённых полей) ====================
+
+  const buildPatchBody = useCallback((): Record<string, unknown> | null => {
+    const body: Record<string, unknown> = {};
+
+    if (form.title.trim() !== initial.title.trim()) body.title = form.title.trim();
+    if (form.shortDescription.trim() !== initial.shortDescription.trim()) {
+      body.shortDescription = form.shortDescription.trim() || null;
     }
-  };
+    if (form.description.trim() !== initial.description.trim()) {
+      body.description = form.description.trim();
+    }
+    if (Math.round(form.price) !== Math.round(initial.price)) body.price = Math.round(form.price);
+    if ((form.oldPrice ?? null) !== (initial.oldPrice ?? null)) body.oldPrice = form.oldPrice;
 
-  const removeImage = (idx: number) => {
-    setForm({ ...form, images: form.images.filter((_, i) => i !== idx) });
-  };
+    // Категория: slug → UUID (только если реально изменена)
+    if (form.category !== effectiveCategorySlug) {
+      const uuid = categories.find((c) => c.slug === form.category)?.id;
+      if (uuid) body.categoryId = uuid;
+    }
 
-  const handleSave = () => {
-    if (!form.title.trim()) {
-      toast.error("Укажите название товара");
+    if ((form.weightGrams ?? null) !== (initial.weightGrams ?? null)) body.weightGrams = form.weightGrams;
+    if ((form.servings ?? null) !== (initial.servings ?? null)) body.servings = form.servings;
+    if ((form.diameterCm ?? null) !== (initial.diameterCm ?? null)) body.diameterCm = form.diameterCm;
+    if ((form.heightCm ?? null) !== (initial.heightCm ?? null)) body.heightCm = form.heightCm;
+    if (form.sizeText.trim() !== initial.sizeText.trim()) body.sizeText = form.sizeText.trim() || null;
+    if (form.shape.trim() !== initial.shape.trim()) body.shape = form.shape.trim() || null;
+    if (form.productType.trim() !== initial.productType.trim()) body.productType = form.productType.trim() || null;
+    if (form.fillingDescription.trim() !== initial.fillingDescription.trim()) {
+      body.fillingDescription = form.fillingDescription.trim() || null;
+    }
+    if ((form.layersCount ?? null) !== (initial.layersCount ?? null)) body.layersCount = form.layersCount;
+    if (form.minOrderQty !== initial.minOrderQty) body.minOrderQty = form.minOrderQty;
+    if (form.customOrderAvailable !== initial.customOrderAvailable) body.customOrderAvailable = form.customOrderAvailable;
+    if (form.isAvailable !== initial.isAvailable) body.isAvailable = form.isAvailable;
+    if ((form.productionTimeHours ?? null) !== (initial.productionTimeHours ?? null)) {
+      body.productionTimeHours = form.productionTimeHours;
+    }
+
+    // Состав — сравниваем как объект целиком
+    const currentComposition = {
+      ingredients: form.ingredients,
+      allergens: form.allergens,
+      nutritionalValue: {
+        ...(form.calories != null ? { calories: form.calories } : {}),
+        ...(form.protein != null ? { protein: form.protein } : {}),
+        ...(form.fat != null ? { fat: form.fat } : {}),
+        ...(form.carbs != null ? { carbs: form.carbs } : {}),
+      },
+      storageConditions: form.storageConditions.trim(),
+      shelfLife: form.shelfLife.trim(),
+    };
+    const initialComposition = {
+      ingredients: initial.ingredients,
+      allergens: initial.allergens,
+      nutritionalValue: {
+        ...(initial.calories != null ? { calories: initial.calories } : {}),
+        ...(initial.protein != null ? { protein: initial.protein } : {}),
+        ...(initial.fat != null ? { fat: initial.fat } : {}),
+        ...(initial.carbs != null ? { carbs: initial.carbs } : {}),
+      },
+      storageConditions: initial.storageConditions.trim(),
+      shelfLife: initial.shelfLife.trim(),
+    };
+    if (JSON.stringify(currentComposition) !== JSON.stringify(initialComposition)) {
+      body.composition = currentComposition;
+    }
+
+    return Object.keys(body).length > 0 ? body : null;
+  }, [form, initial, effectiveCategorySlug, categories]);
+
+  const handleSave = async () => {
+    // Клиентская предвалидация ключевых полей (контракт PATCH: title≥3, description≥10, price≥1)
+    if (form.title.trim().length < 3) {
+      toast.error("Название слишком короткое", { description: "Минимум 3 символа" });
       return;
     }
     if (!form.price || form.price <= 0) {
       toast.error("Укажите корректную цену");
       return;
     }
-    onSave(form);
+    if (form.description.trim().length < 10) {
+      toast.error("Описание слишком короткое", { description: "Минимум 10 символов (требование публикации)" });
+      return;
+    }
+
+    const body = buildPatchBody();
+    setSaving(true);
+    try {
+      // Легаси-поля применяются к store независимо от PATCH
+      const legacyPatch: Partial<Product> = {
+        images,
+        isPopular,
+        isNew,
+        isHit,
+        arEnabled,
+        prepTime: prepTime || undefined,
+        confectionerId,
+        confectionerName: confectioners.find((c) => c.id === confectionerId)?.businessName || product.confectionerName,
+        category: form.category,
+      };
+
+      if (!body) {
+        // Нечего отправлять на сервер — только локальные поля
+        updateProduct(product.id, legacyPatch);
+        toast.success("Товар обновлён", { description: form.title });
+        onClose();
+        return;
+      }
+
+      const res = await csrfFetch(`/api/products/${product.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 422) {
+        const err = (await res.json().catch(() => null)) as
+          | { error?: string; missing?: string[]; issues?: { formErrors?: string[]; fieldErrors?: Record<string, string[]> } }
+          | null;
+        if (err?.error === "PUBLISH_VALIDATION_FAILED") {
+          toast.error("Публикация невозможна", { description: mapMissingToLabels(err?.missing || []) });
+          return;
+        }
+        const parts: string[] = [];
+        if (err?.issues?.formErrors?.length) parts.push(...err.issues.formErrors);
+        if (err?.issues?.fieldErrors) {
+          for (const [field, messages] of Object.entries(err.issues.fieldErrors)) {
+            if (messages?.length) parts.push(`${field}: ${messages[0]}`);
+          }
+        }
+        toast.error("Проверьте правильность полей", {
+          description: parts.slice(0, 3).join(" • ") || "Некоторые поля не прошли валидацию",
+        });
+        return;
+      }
+      if (res.status === 401) {
+        toast.error("Требуется вход в систему");
+        return;
+      }
+      if (res.status === 403) {
+        toast.error("Недостаточно прав для редактирования этого товара");
+        return;
+      }
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+
+      const data = (await res.json()) as { product?: Record<string, unknown> };
+      const serverPatch = mapServerRowToProductPatch(data.product);
+      updateProduct(product.id, { ...serverPatch, ...legacyPatch });
+      if (data.product?.published_at !== undefined) {
+        setPublishedAt((data.product.published_at as string | null) ?? null);
+      }
+      if (data.product?.status) setServerStatus(data.product.status as ProductStatus);
+      setInitial({ ...form });
+      toast.success("Товар обновлён", { description: "Изменения сохранены на сервере" });
+      onClose();
+    } catch (e) {
+      toast.error("Не удалось сохранить товар", {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ==================== Публикация / снятие с публикации ====================
+
+  const togglePublish = async () => {
+    const nextStatus: ProductStatus = status === "published" ? "archived" : "published";
+    setPublishing(true);
+    try {
+      const res = await csrfFetch(`/api/products/${product.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as
+          | { error?: string; missing?: string[] }
+          | null;
+        if (res.status === 422 && err?.error === "PUBLISH_VALIDATION_FAILED") {
+          toast.error("Публикация невозможна — заполните обязательные поля", {
+            description: mapMissingToLabels(err?.missing || []),
+          });
+          return;
+        }
+        if (res.status === 403) {
+          toast.error("Недостаточно прав для изменения статуса публикации");
+          return;
+        }
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { product?: Record<string, unknown> };
+      const serverPatch = mapServerRowToProductPatch(data.product);
+      updateProduct(product.id, {
+        ...serverPatch,
+        isHidden: nextStatus !== "published",
+        hiddenReason: nextStatus === "archived" ? "Снят с публикации" : undefined,
+      });
+      setServerStatus(nextStatus);
+      if (data.product?.published_at !== undefined) {
+        setPublishedAt((data.product.published_at as string | null) ?? null);
+      }
+      toast.success(
+        nextStatus === "published" ? "Товар опубликован" : "Товар снят с публикации",
+        { description: form.title },
+      );
+    } catch (e) {
+      toast.error("Действие не выполнено", {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // ==================== Легаси-изображения (URL) ====================
+
+  const addImage = () => {
+    if (imageUrl.trim()) {
+      setImages((prev) => [...prev, imageUrl.trim()]);
+      setImageUrl("");
+    }
+  };
+  const removeImage = (idx: number) => setImages((prev) => prev.filter((_, i) => i !== idx));
+
+  // ==================== Чип-инпут ингредиентов ====================
+
+  const [ingredientDraft, setIngredientDraft] = useState("");
+  const addIngredient = () => {
+    const v = ingredientDraft.trim();
+    if (v && !form.ingredients.includes(v)) set("ingredients", [...form.ingredients, v]);
+    setIngredientDraft("");
+  };
+  const removeIngredient = (name: string) =>
+    set("ingredients", form.ingredients.filter((i) => i !== name));
+  const toggleAllergen = (name: string) =>
+    set("allergens", form.allergens.includes(name)
+      ? form.allergens.filter((a) => a !== name)
+      : [...form.allergens, name]);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap pr-6">
+            Редактирование товара
+            <Badge variant="outline" className={`text-[10px] ${STATUS_BADGE[status]}`}>
+              {STATUS_LABELS[status]}
+            </Badge>
+          </DialogTitle>
+          <DialogDescription className="flex flex-wrap items-center gap-x-3">
+            <span>{product.confectionerName || product.confectionerId}</span>
+            {publishedAt && (
+              <span className="text-emerald-700">
+                Опубликован: {new Date(publishedAt).toLocaleString("ru-RU")}
+              </span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Tabs defaultValue="basic">
+          <TabsList className="w-full justify-start flex-wrap h-auto">
+            <TabsTrigger value="basic">Основное</TabsTrigger>
+            <TabsTrigger value="specs">Характеристики</TabsTrigger>
+            <TabsTrigger value="composition">Состав</TabsTrigger>
+            <TabsTrigger value="media">Медиа</TabsTrigger>
+          </TabsList>
+
+          {/* ==================== ОСНОВНОЕ ==================== */}
+          <TabsContent value="basic" className="space-y-3 mt-3">
+            <div>
+              <Label>Название</Label>
+              <Input value={form.title} onChange={(e) => set("title", e.target.value)} />
+            </div>
+
+            <div>
+              <Label>Краткое описание (витрина)</Label>
+              <Input
+                value={form.shortDescription}
+                onChange={(e) => set("shortDescription", e.target.value)}
+                placeholder="Одна строка для карточек каталога"
+              />
+            </div>
+
+            <div>
+              <Label>Описание</Label>
+              <Textarea
+                value={form.description}
+                onChange={(e) => set("description", e.target.value)}
+                rows={4}
+                placeholder="Полное описание товара (минимум 10 символов для публикации)"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Цена, ₽</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.price}
+                  onChange={(e) => set("price", Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label>Старая цена, ₽ (опционально)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.oldPrice ?? ""}
+                  onChange={(e) => set("oldPrice", e.target.value ? Number(e.target.value) : null)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Категория</Label>
+                <Select value={form.category} onValueChange={(v) => set("category", v as ProductCategory)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PRODUCT_CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Кондитер</Label>
+                <Select
+                  value={confectionerId}
+                  onValueChange={(v) => {
+                    const c = confectioners.find((x) => x.id === v);
+                    updateProduct(product.id, {
+                      confectionerId: v,
+                      confectionerName: c?.businessName || c?.name || product.confectionerName,
+                    });
+                    setConfectionerId(v);
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Кондитер" /></SelectTrigger>
+                  <SelectContent>
+                    {confectioners.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.businessName || c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label>Срок изготовления (текст)</Label>
+              <Input value={prepTime} onChange={(e) => setPrepTime(e.target.value)} placeholder="2 дня" />
+            </div>
+
+            <div>
+              <Label>Изображения (URL)</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://..."
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImage(); } }}
+                />
+                <Button type="button" onClick={addImage}><Plus className="h-4 w-4" /></Button>
+              </div>
+              <div className="flex gap-2 mt-2 flex-wrap">
+                {images.map((img, i) => (
+                  <div key={i} className="relative w-16 h-16 rounded overflow-hidden border">
+                    <img src={img} alt="" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeImage(i)}
+                      className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-bl"
+                      type="button"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Загружайте настоящие фото и видео на вкладке «Медиа» — они попадут в карточку после модерации.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-4 pt-1">
+              {([
+                ["Популярный", isPopular, setIsPopular],
+                ["Новинка", isNew, setIsNew],
+                ["Хит", isHit, setIsHit],
+                ["AR-просмотр", arEnabled, setArEnabled],
+              ] as [string, boolean, (v: boolean) => void][]).map(([label, value, setter]) => (
+                <div key={label} className="flex items-center gap-2">
+                  <Switch checked={value} onCheckedChange={setter} id={`flag-${label}`} />
+                  <Label htmlFor={`flag-${label}`} className="text-sm cursor-pointer">{label}</Label>
+                </div>
+              ))}
+            </div>
+          </TabsContent>
+
+          {/* ==================== ХАРАКТЕРИСТИКИ ==================== */}
+          <TabsContent value="specs" className="space-y-3 mt-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div>
+                <Label>Вес, г</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.weightGrams ?? ""}
+                  onChange={(e) => set("weightGrams", numOrNull(e.target.value))}
+                  placeholder="1200"
+                />
+              </div>
+              <div>
+                <Label>Порций</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.servings ?? ""}
+                  onChange={(e) => set("servings", numOrNull(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label>Срок изготовления, часов</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.productionTimeHours ?? ""}
+                  onChange={(e) => set("productionTimeHours", numOrNull(e.target.value))}
+                  placeholder="48"
+                />
+              </div>
+              <div>
+                <Label>Диаметр, см</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  value={form.diameterCm ?? ""}
+                  onChange={(e) => set("diameterCm", numOrNull(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label>Высота, см</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  value={form.heightCm ?? ""}
+                  onChange={(e) => set("heightCm", numOrNull(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label>Размер (текст)</Label>
+                <Input
+                  value={form.sizeText}
+                  onChange={(e) => set("sizeText", e.target.value)}
+                  placeholder="16 × 12 см"
+                />
+              </div>
+              <div>
+                <Label>Форма</Label>
+                <Input
+                  value={form.shape}
+                  onChange={(e) => set("shape", e.target.value)}
+                  placeholder="Круг, сердце..."
+                />
+              </div>
+              <div>
+                <Label>Тип изделия</Label>
+                <Input
+                  value={form.productType}
+                  onChange={(e) => set("productType", e.target.value)}
+                  placeholder="Ярусный торт"
+                />
+              </div>
+              <div>
+                <Label>Количество ярусов</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={form.layersCount ?? ""}
+                  onChange={(e) => set("layersCount", numOrNull(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label>Мин. количество для заказа</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.minOrderQty}
+                  onChange={(e) => set("minOrderQty", Math.max(1, Number(e.target.value) || 1))}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Описание начинки</Label>
+              <Textarea
+                value={form.fillingDescription}
+                onChange={(e) => set("fillingDescription", e.target.value)}
+                rows={2}
+                placeholder="Шоколадный бисквит, вишнёвое конфи, мусс на белом шоколаде..."
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-6 pt-2 border-t">
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.isAvailable}
+                  onCheckedChange={(v) => set("isAvailable", v)}
+                  id="spec-available"
+                />
+                <Label htmlFor="spec-available" className="text-sm cursor-pointer">
+                  Доступен к заказу
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.customOrderAvailable}
+                  onCheckedChange={(v) => set("customOrderAvailable", v)}
+                  id="spec-custom"
+                />
+                <Label htmlFor="spec-custom" className="text-sm cursor-pointer">
+                  Изготовление на заказ
+                </Label>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* ==================== СОСТАВ ==================== */}
+          <TabsContent value="composition" className="space-y-4 mt-3">
+            <div>
+              <Label>Ингредиенты</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={ingredientDraft}
+                  onChange={(e) => setIngredientDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addIngredient(); } }}
+                  placeholder="Мука пшеничная, введите и нажмите Enter"
+                />
+                <Button type="button" variant="outline" onClick={addIngredient}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              {form.ingredients.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {form.ingredients.map((ing) => (
+                    <Badge key={ing} variant="secondary" className="gap-1 pr-1">
+                      {ing}
+                      <button
+                        type="button"
+                        onClick={() => removeIngredient(ing)}
+                        className="rounded-full hover:bg-destructive/20 p-0.5"
+                        aria-label={`Удалить ${ing}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label>Аллергены</Label>
+              <div className="flex flex-wrap gap-3 pt-1">
+                {COMMON_ALLERGENS.map((a) => (
+                  <div key={a} className="flex items-center gap-1.5">
+                    <Switch
+                      checked={form.allergens.includes(a)}
+                      onCheckedChange={() => toggleAllergen(a)}
+                      id={`allergen-${a}`}
+                    />
+                    <Label htmlFor={`allergen-${a}`} className="text-sm cursor-pointer">{a}</Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Label>КБЖУ на 100 г</Label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-1">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Калории, ккал</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.calories ?? ""}
+                    onChange={(e) => set("calories", numOrNull(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Белки, г</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    value={form.protein ?? ""}
+                    onChange={(e) => set("protein", numOrNull(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Жиры, г</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    value={form.fat ?? ""}
+                    onChange={(e) => set("fat", numOrNull(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Углеводы, г</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    value={form.carbs ?? ""}
+                    onChange={(e) => set("carbs", numOrNull(e.target.value))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Label>Условия хранения</Label>
+              <Textarea
+                value={form.storageConditions}
+                onChange={(e) => set("storageConditions", e.target.value)}
+                rows={2}
+                placeholder="Хранить при температуре 2-6°C не более 48 часов"
+              />
+            </div>
+            <div>
+              <Label>Срок годности</Label>
+              <Input
+                value={form.shelfLife}
+                onChange={(e) => set("shelfLife", e.target.value)}
+                placeholder="48 часов с момента изготовления"
+              />
+            </div>
+          </TabsContent>
+
+          {/* ==================== МЕДИА ==================== */}
+          <TabsContent value="media" className="mt-3">
+            <ProductMediaManager
+              productId={product.id}
+              canModerate={canModerate}
+              canSetCover={canSetCover}
+            />
+          </TabsContent>
+        </Tabs>
+
+        <DialogFooter className="flex-col sm:flex-row gap-2 pt-2 border-t">
+          <div className="flex-1 text-left">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={publishing}
+              onClick={() => void togglePublish()}
+            >
+              {publishing ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : status === "published" ? (
+                <EyeOff className="h-4 w-4 mr-1" />
+              ) : (
+                <Globe className="h-4 w-4 mr-1" />
+              )}
+              {status === "published" ? "Снять с публикации" : "Опубликовать"}
+            </Button>
+          </div>
+          <Button variant="outline" onClick={onClose}>Отмена</Button>
+          <Button onClick={() => void handleSave()} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />}
+            Сохранить
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =================== Create Product Dialog ===================
+
+interface ConfectionerOption {
+  id: string;
+  userId: string | null;
+  businessName: string;
+  city?: string | null;
+}
+
+function CreateProductDialog({ onClose }: { onClose: () => void }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [price, setPrice] = useState("");
+  const [confectionerId, setConfectionerId] = useState("");
+  const [category, setCategory] = useState<string>("none");
+  const [saving, setSaving] = useState(false);
+
+  // Реальный список кондитеров (GET /api/confectioners)
+  const confQuery = useQuery<ConfectionerOption[]>({
+    queryKey: ["admin-confectioners-options"],
+    queryFn: async () => {
+      const res = await csrfFetch("/api/confectioners?verified_only=false&limit=100");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { confectioners?: ConfectionerOption[] };
+      return data.confectioners || [];
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const handleCreate = async () => {
+    if (title.trim().length < 3) {
+      toast.error("Укажите название товара", { description: "Минимум 3 символа" });
+      return;
+    }
+    if (!description.trim()) {
+      toast.error("Укажите описание товара");
+      return;
+    }
+    const priceNum = Math.round(Number(price));
+    if (!priceNum || priceNum < 1) {
+      toast.error("Укажите корректную цену");
+      return;
+    }
+    if (!confectionerId) {
+      toast.error("Выберите кондитера");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        confectionerId,
+        title: title.trim(),
+        description: description.trim(),
+        price: priceNum,
+        status: "draft",
+      };
+      if (category !== "none") body.category = category;
+
+      const res = await csrfFetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 422) {
+        const err = (await res.json().catch(() => null)) as
+          | { error?: string; missing?: string[]; issues?: { formErrors?: string[] } }
+          | null;
+        toast.error("Товар не создан — проверьте поля", {
+          description:
+            (err?.missing && mapMissingToLabels(err.missing)) ||
+            err?.issues?.formErrors?.[0] ||
+            err?.error ||
+            "Некоторые поля не прошли валидацию",
+        });
+        return;
+      }
+      if (res.status === 403) {
+        toast.error("Недостаточно прав для создания товаров");
+        return;
+      }
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+
+      const data = (await res.json()) as { product?: Record<string, unknown> };
+      const row = data.product || {};
+
+      // Добавляем товар в store с РЕАЛЬНЫМ id с сервера (не через addProduct —
+      // он перегенерирует id, что сломало бы последующие PATCH и медиа-API)
+      const newProduct: Product = {
+        id: String(row.id || `tmp_${Date.now()}`),
+        title: String(row.title || title),
+        slug: String(row.slug || ""),
+        description: String(row.description || description),
+        price: Math.round(Number(row.price ?? priceNum)),
+        category: (category !== "none" ? category : "cakes") as ProductCategory,
+        images: [],
+        confectionerId: confectionerId,
+        confectionerName: confQuery.data?.find((c) => c.userId === confectionerId)?.businessName,
+        rating: 0,
+        reviewsCount: 0,
+        isHidden: true, // черновик — скрыт до публикации
+        hiddenReason: "Черновик (создан админом)",
+        minOrderQty: 1,
+        customOrderAvailable: true,
+        isAvailable: true,
+      };
+      useAppStore.setState((state) => ({ products: [newProduct, ...state.products] }));
+
+      toast.success("Товар создан", { description: `${newProduct.title} — черновик, опубликуйте из редактора` });
+      onClose();
+    } catch (e) {
+      toast.error("Не удалось создать товар", {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Редактирование товара</DialogTitle>
-          <DialogDescription>Изменение карточки товара платформы</DialogDescription>
+          <DialogTitle>Создать товар</DialogTitle>
+          <DialogDescription>
+            Черновик от имени кондитера. Заполните карточку и опубликуйте через редактор.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <div>
             <Label>Название</Label>
-            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Торт «Красный бархат»" />
           </div>
-
           <div>
             <Label>Описание</Label>
             <Textarea
-              value={form.description || ""}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               rows={3}
+              placeholder="Краткое описание товара..."
             />
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Цена, ₽</Label>
-              <Input
-                type="number"
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
-              />
+              <Input type="number" min={1} value={price} onChange={(e) => setPrice(e.target.value)} />
             </div>
             <div>
-              <Label>Старая цена, ₽ (опционально)</Label>
-              <Input
-                type="number"
-                value={form.oldPrice || ""}
-                onChange={(e) => setForm({ ...form, oldPrice: e.target.value ? Number(e.target.value) : undefined })}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Категория</Label>
-              <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v as ProductCategory })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>Категория (опционально)</Label>
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger><SelectValue placeholder="Не выбрана" /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">Не выбрана</SelectItem>
                   {PRODUCT_CATEGORIES.map((c) => (
                     <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Кондитер</Label>
-              <Select
-                value={form.confectionerId}
-                onValueChange={(v) => {
-                  const c = confectioners.find((x) => x.id === v);
-                  setForm({
-                    ...form,
-                    confectionerId: v,
-                    confectionerName: c?.businessName || c?.name || form.confectionerName,
-                  });
-                }}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {confectioners.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.businessName || c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label>Вес</Label>
-              <Input value={form.weight || ""} onChange={(e) => setForm({ ...form, weight: e.target.value })} placeholder="1.2 кг" />
-            </div>
-            <div>
-              <Label>Порций</Label>
-              <Input
-                type="number"
-                value={form.servings || ""}
-                onChange={(e) => setForm({ ...form, servings: e.target.value ? Number(e.target.value) : undefined })}
-              />
-            </div>
-            <div>
-              <Label>Срок изготовления</Label>
-              <Input value={form.prepTime || ""} onChange={(e) => setForm({ ...form, prepTime: e.target.value })} placeholder="2 дня" />
-            </div>
-          </div>
-
           <div>
-            <Label>Изображения (URL)</Label>
-            <div className="flex gap-2">
-              <Input
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://..."
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImage(); } }}
-              />
-              <Button type="button" onClick={addImage}><Plus className="h-4 w-4" /></Button>
-            </div>
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {(form.images || []).map((img, i) => (
-                <div key={i} className="relative w-16 h-16 rounded overflow-hidden border">
-                  <img src={img} alt="" className="w-full h-full object-cover" />
-                  <button
-                    onClick={() => removeImage(i)}
-                    className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-bl"
-                    type="button"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!form.isPopular}
-                onChange={(e) => setForm({ ...form, isPopular: e.target.checked })}
-                className="w-4 h-4 accent-primary"
-              />
-              Популярный
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!form.isNew}
-                onChange={(e) => setForm({ ...form, isNew: e.target.checked })}
-                className="w-4 h-4 accent-primary"
-              />
-              Новинка
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!form.isHit}
-                onChange={(e) => setForm({ ...form, isHit: e.target.checked })}
-                className="w-4 h-4 accent-primary"
-              />
-              Хит
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!form.arEnabled}
-                onChange={(e) => setForm({ ...form, arEnabled: e.target.checked })}
-                className="w-4 h-4 accent-primary"
-              />
-              AR-просмотр
-            </label>
+            <Label>Кондитер</Label>
+            <Select value={confectionerId} onValueChange={setConfectionerId}>
+              <SelectTrigger><SelectValue placeholder={confQuery.isLoading ? "Загружаем..." : "Выберите кондитера"} /></SelectTrigger>
+              <SelectContent>
+                {(confQuery.data || []).map((c) => (
+                  <SelectItem key={c.id} value={c.userId || c.id}>
+                    {c.businessName}{c.city ? ` — ${c.city}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {confQuery.isError && (
+              <p className="text-xs text-destructive mt-1">
+                Не удалось загрузить список кондитеров. <AlertCircle className="h-3 w-3 inline" />
+              </p>
+            )}
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
-          <Button onClick={handleSave}>
-            <Check className="h-4 w-4 mr-1" />Сохранить
+          <Button onClick={() => void handleCreate()} disabled={saving || confQuery.isLoading}>
+            {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+            Создать черновик
           </Button>
         </DialogFooter>
       </DialogContent>
