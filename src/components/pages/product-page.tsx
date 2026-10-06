@@ -109,8 +109,10 @@ export function ProductPage() {
 
   // Deep-link (/product?id=...) — store ещё не гидрирован → догружаем карточку
   // напрямую через GET /api/products/[id] (см. useLiveProductDetail).
-  const detail = useLiveProductDetail(storeProduct ? null : productId);
-  const product = storeProduct || (detail.data?.product ?? undefined);
+  // Detail всегда догружается: только он содержит approved-медиа (media[]) и
+  // актуальные поля карточки — store-версия (список) служит мгновенным каркасом.
+  const detail = useLiveProductDetail(productId);
+  const product = detail.data?.product || storeProduct || undefined;
 
   const [quantity, setQuantity] = useState(1);
   const [selectedFilling, setSelectedFilling] = useState(0);
@@ -329,7 +331,7 @@ export function ProductPage() {
 
       <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
         {/* Галерея (approved-медиа 0052 + legacy-фото) / 3D-AR превью */}
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           {product.modelUrl && product.arEnabled ? (
             <>
               <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-amber-50 dark:from-purple-950/40 dark:via-pink-950/40 dark:to-amber-950/40">
@@ -371,7 +373,7 @@ export function ProductPage() {
         </div>
 
         {/* Info */}
-        <div className="space-y-5">
+        <div className="space-y-5 min-w-0">
           <div className="flex flex-wrap gap-2">
             {product.isHit && (
               <Badge className="bg-primary text-primary-foreground">Хит продаж</Badge>
@@ -414,7 +416,7 @@ export function ProductPage() {
           <p className="text-muted-foreground leading-relaxed">{product.description}</p>
 
           {/* Состав продукта */}
-          {product.composition && (product.composition.ingredients.length > 0 || product.composition.allergens.length > 0) && (
+          {product.composition && ((product.composition.ingredients?.length ?? 0) > 0 || (product.composition.allergens?.length ?? 0) > 0) && (
             <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
               {product.composition.ingredients.length > 0 && (
                 <div>

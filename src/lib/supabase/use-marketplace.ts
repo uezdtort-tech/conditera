@@ -880,9 +880,19 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     productType: p.product_type ?? null,
     fillingDescription: p.filling_description ?? null,
     layersCount: p.layers_count ?? null,
-    // composition — как есть (структура совпадает с клиентским Product.composition)
+    // composition — нормализуем: БД-дефолт '{}' не должен ломать клиентов
     composition:
-      p.composition && typeof p.composition === "object" ? p.composition : undefined,
+      p.composition && typeof p.composition === "object"
+        ? {
+            ...p.composition,
+            ingredients: Array.isArray(p.composition.ingredients)
+              ? p.composition.ingredients
+              : [],
+            allergens: Array.isArray(p.composition.allergens)
+              ? p.composition.allergens
+              : [],
+          }
+        : undefined,
     recipeId: p.recipe_id ?? null,
     minOrderQty: p.min_order_qty ?? undefined,
     customOrderAvailable: p.custom_order_available ?? undefined,
