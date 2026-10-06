@@ -40,6 +40,7 @@ import {
   type MediaRow,
   type ProductRef,
 } from "@/lib/product-media/http";
+import { recordEvent } from "@/lib/ops/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,6 +135,14 @@ export async function PATCH(
           return jsonError(404, "NOT_FOUND", "Медиа не найдено");
         }
 
+        // ops: event log (append-only, fail-safe)
+        void recordEvent("media.approved", {
+          entityType: "product_media",
+          entityId: approved.id,
+          actorId: user.id,
+          payload: { productId: product.id },
+        });
+
         // pending → published; при падении — откат статуса (компенсация)
         const toRel = switchStageInPath(approved.storage_path, "published");
         if (toRel && toRel !== approved.storage_path) {
@@ -185,6 +194,15 @@ export async function PATCH(
       if (!rejected) {
         return jsonError(404, "NOT_FOUND", "Медиа не найдено");
       }
+
+      // ops: event log (append-only, fail-safe)
+      void recordEvent("media.rejected", {
+        entityType: "product_media",
+        entityId: rejected.id,
+        actorId: user.id,
+        payload: { productId: product.id, comment },
+      });
+
       // Файл остаётся в pending/ — не удаляем
       return NextResponse.json(withUrl(rejected));
     }

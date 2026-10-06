@@ -40,6 +40,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
 import { emitEvent } from "@/lib/n8n";
+import { recordEvent } from "@/lib/ops/events";
 
 export const runtime = "nodejs";
 
@@ -475,6 +476,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       total: finalTotal,
       userId: user.userId as string,
     }).catch(() => {});
+
+    // ops: event log (append-only, fail-safe)
+    void recordEvent("order.created", {
+      entityType: "order",
+      entityId: order.id,
+      actorId: user.userId as string,
+      payload: { number: order.number, total: finalTotal },
+    });
 
     // Создать order_items
     const orderItemsInsert = orderItems.map((item) => ({

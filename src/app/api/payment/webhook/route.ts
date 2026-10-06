@@ -293,6 +293,18 @@ export async function POST(request: NextRequest) {
           console.warn("[webhook] n8n emitEvent failed (non-blocking):", e);
         }
 
+        // ops: event log (append-only, fail-safe)
+        try {
+          const { recordEvent } = await import("@/lib/ops/events");
+          void recordEvent("order.paid", {
+            entityType: "order",
+            entityId: orderId,
+            payload: { provider: "yookassa" },
+          });
+        } catch (e) {
+          console.warn("[webhook] ops recordEvent failed (non-blocking):", e);
+        }
+
         // Покупатель: profiles по user_id (fallback — customer_id). Таблицы
         // customers в схеме нет — embed заменён отдельным запросом.
         let customer: { name?: string | null; email?: string | null } | null = null;

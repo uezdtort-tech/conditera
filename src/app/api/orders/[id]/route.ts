@@ -18,6 +18,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import { emitEvent } from "@/lib/n8n";
+import { recordEvent } from "@/lib/ops/events";
 
 interface OrderStatusTransition {
   from: string;
@@ -131,6 +132,14 @@ export async function PATCH(
       from: order.status,
       to: newStatus,
     }).catch(() => {});
+
+    // ops: event log (append-only, fail-safe)
+    void recordEvent("order.status_changed", {
+      entityType: "order",
+      entityId: orderId,
+      actorId: user.id,
+      payload: { from: order.status, to: newStatus },
+    });
 
     return NextResponse.json({
       order: updatedOrder,

@@ -23,6 +23,7 @@
  */
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { emitEvent } from "@/lib/n8n";
+import { recordEvent } from "@/lib/ops/events";
 
 export type InventoryMovementType = "IN" | "OUT" | "ADJUST";
 
@@ -192,6 +193,13 @@ export async function applyInventoryMovement(
       minQuantity: minQty,
       ownerId: updatedRow.owner_id,
     }).catch(() => {});
+
+    // ops: event log (append-only, fail-safe)
+    void recordEvent("inventory.low_stock", {
+      entityType: "inventory_item",
+      entityId: updatedRow.id,
+      payload: { quantity: newQty, minQuantity: minQty },
+    });
   }
 
   return {

@@ -37,6 +37,7 @@ const SEED_FILES = [
   path.join(ROOT, "supabase", "compat", "0006_seed_reviews.sql"),
   path.join(ROOT, "supabase", "compat", "0007_seed_video_feed.sql"),
   path.join(ROOT, "scripts", "db", "seed-product-media.mjs"),
+  path.join(ROOT, "scripts", "db", "seed-ops-center.mjs"),
 ];
 const ENV_LOCAL = path.join(ROOT, ".env.local");
 const ENV_FILE = path.join(ROOT, ".env");
