@@ -1,6 +1,7 @@
 /**
  * GET  /api/products — список товаров с фильтрами (public)
- * POST /api/products — создать товар (только CONFECTIONER, подтверждённый админом)
+ * POST /api/products — создать товар (CONFECTIONER — свой; ADMIN/SUPER_ADMIN —
+ *                      от имени любого кондитера через body.confectionerId)
  *
  * GET Query параметры:
  *  - category:       slug категории (или "all")
@@ -10,44 +11,66 @@
  *  - limit:          1-100 (по умолчанию 20)
  *  - offset:         по умолчанию 0
  *
+ * GET enrichment (Task 3-a): обложки product_media (approved, is_cover, photo)
+ *   добавляются В НАЧАЛО images как /api/product-media/<id> (dedupe).
+ *
  * POST логика:
  *   1. Проверка аутентификации
- *   2. Проверка роли CONFECTIONER
- *   3. Gate: кондитер должен быть подтверждён (checkConfectionerGate)
- *   4. Найти профиль кондитера (по user_id)
- *   5. Создать товар в products
- *   6. Авто-модерация контента (moderateContent):
+ *   2. Роль: ADMIN/SUPER_ADMIN → adminCreateProductSchema (confectionerId обязателен,
+ *      проверка существования пользователя в auth.users); CONFECTIONER → легаси-ветка
+ *      (свой id, gate подтверждения); остальные → 403
+ *   3. Создать товар в products (новые поля карточки 0052 мапятся в snake_case)
+ *   4. Авто-модерация контента (moderateContent):
  *      - если rejected → удалить товар, вернуть 403 с violations
  *      - если flagged → оставить, но залогировать
  *
- * Соответствует таблицам: products, confectioners, moderation_queue
+ * Соответствует таблицам: products, confectioners, moderation_queue, product_media
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getPool } from "@/lib/postgrest/pool";
 import { getUserFromRequest } from "@/lib/auth";
-import { requireRole } from "@/lib/role-guards";
+import { requireRole, isAdmin } from "@/lib/role-guards";
+import {
+  adminCreateProductSchema,
+  confectionerCreateProductSchema,
+} from "@/lib/validations/product";
 
 export const runtime = "nodejs";
 
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
 
-interface CreateProductBody {
-  title: string;
-  slug?: string;
-  description?: string;
-  price: number;
-  oldPrice?: number;
-  category?: string;
-  images?: string[];
-  weight?: number;
-  servings?: number;
-  prepTime?: number;
-  tags?: string[];
-  fillings?: string[];
-  coatings?: string[];
-  decorations?: string[];
-  paymentOptions?: string[];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** camel→snake маппинг полей карточки 0052 для INSERT (только переданные поля). */
+function mapCardFieldsToSnake(v: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const map: Array<[string, string]> = [
+    ["shortDescription", "short_description"],
+    ["longDescription", "long_description"],
+    ["oldPrice", "old_price"],
+    ["categoryId", "category_id"],
+    ["weightGrams", "weight_grams"],
+    ["diameterCm", "diameter_cm"],
+    ["heightCm", "height_cm"],
+    ["sizeText", "size_text"],
+    ["shape", "shape"],
+    ["productType", "product_type"],
+    ["fillingDescription", "filling_description"],
+    ["layersCount", "layers_count"],
+    ["recipeId", "recipe_id"],
+    ["minOrderQty", "min_order_qty"],
+    ["customOrderAvailable", "custom_order_available"],
+    ["isAvailable", "is_available"],
+    ["productionTimeHours", "production_time_hours"],
+  ];
+  for (const [camel, snake] of map) {
+    if (v[camel] !== undefined) out[snake] = v[camel];
+  }
+  if (v.composition !== undefined) out.composition = v.composition ?? {};
+  if (v.tags !== undefined) out.tags = v.tags;
+  return out;
 }
 
 /**
@@ -161,15 +184,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // Обложки product_media (Task 3-a): approved + is_cover + photo,
+    // одним запросом по всем товарам выборки. URL /api/product-media/<id>
+    // добавляется В НАЧАЛО images (dedupe).
+    const coverMap: Record<string, string> = {};
+    if (productIds.length > 0) {
+      const { data: coverData } = await supabaseAdmin
+        .from("product_media")
+        .select("id, product_id")
+        .in("product_id", productIds)
+        .eq("status", "approved")
+        .eq("is_cover", true)
+        .eq("media_type", "photo");
+      (coverData || []).forEach((c: { id: string; product_id: string }) => {
+        coverMap[c.product_id] = `/api/product-media/${c.id}`;
+      });
+    }
+
     // Merge products with confectioner and images.
-    // Источник фото: products.images (text[], сид 0005) + product_images
-    // (отдельная таблица, загрузки кондитеров) — объединяем с дедупликацией.
+    // Источник фото: product_media обложка (В НАЧАЛЕ) + products.images (text[],
+    // сид 0005) + product_images (отдельная таблица загрузок) — с дедупликацией.
     const enrichedProducts = (products || []).map((p: Record<string, unknown>) => {
       const confId = p.confectioner_id as string;
       const conf = confId ? confectionerMap[confId] : null;
       const colImages = Array.isArray(p.images) ? (p.images as string[]) : [];
       const tableImages = imageMap[(p.id as string)] || [];
-      const mergedImages = [...new Set([...colImages, ...tableImages])];
+      const coverUrl = coverMap[p.id as string];
+      const mergedImages = [
+        ...new Set([...(coverUrl ? [coverUrl] : []), ...colImages, ...tableImages]),
+      ];
       return {
         ...p,
         images: mergedImages,
@@ -199,7 +242,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 /**
- * POST /api/products — создать товар (только CONFECTIONER, подтверждённый).
+ * POST /api/products — создать товар.
+ * ADMIN/SUPER_ADMIN: body.confectionerId (camel) обязателен (422 без него),
+ *   пользователь должен существовать в auth.users (иначе 422 UNKNOWN_CONFECTIONER).
+ * CONFECTIONER: как раньше (свой id, gate подтверждения).
+ * Остальные роли: 403.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -208,6 +255,127 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
     }
 
+    let rawBody: unknown;
+    try {
+      rawBody = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Некорректный JSON" }, { status: 400 });
+    }
+    const body = (rawBody ?? {}) as Record<string, unknown>;
+
+    const admin = await isAdmin(user.id);
+
+    // ==================== Ветка ADMIN/SUPER_ADMIN ====================
+    if (admin) {
+      const parsed = adminCreateProductSchema.safeParse(body);
+      if (!parsed.success) {
+        // confectionerId без него → 422 (zod: Invalid input … required)
+        return NextResponse.json(
+          { error: "VALIDATION_FAILED", issues: parsed.error.flatten() },
+          { status: 422 }
+        );
+      }
+      const input = parsed.data;
+
+      // Целевой кондитер должен существовать в auth.users
+      const pool = getPool();
+      const exists = await pool.query(
+        "SELECT 1 FROM auth.users WHERE id = $1 LIMIT 1",
+        [input.confectionerId]
+      );
+      if (exists.rows.length === 0) {
+        return NextResponse.json(
+          { error: "UNKNOWN_CONFECTIONER", message: "Пользователь confectionerId не найден" },
+          { status: 422 }
+        );
+      }
+
+      // Имя автора для авто-модерации — профиль целевого кондитера (fallback: админ)
+      const authorNameRes = await pool.query(
+        "SELECT coalesce(name, email, 'Кондитер') AS name FROM public.profiles WHERE id = $1",
+        [input.confectionerId]
+      );
+      const authorName: string = String(
+        authorNameRes.rows[0]?.name || user.email || "Админ"
+      );
+
+      const slug =
+        (typeof body.slug === "string" && body.slug) ||
+        input.title.toLowerCase().replace(/\s+/g, "-").slice(0, 100);
+
+      // Резолв категории: categoryId (uuid) ИЛИ category (slug, легаси)
+      let categoryId: string | null = null;
+      if (input.categoryId) {
+        categoryId = input.categoryId;
+      } else if (typeof body.category === "string" && body.category) {
+        const { data: cat } = await supabaseAdmin
+          .from("product_categories")
+          .select("id")
+          .eq("slug", body.category)
+          .maybeSingle();
+        categoryId = cat?.id ?? null;
+      }
+
+      // Статус: draft → без публикации; published (по умолчанию) → валидация контента
+      const status = input.status ?? "published";
+      if (status === "published") {
+        const missing: string[] = [];
+        if (input.title.trim().length < 3) missing.push("title");
+        if ((input.description ?? "").trim().length < 10) missing.push("description");
+        if (typeof input.price !== "number" || input.price < 1) missing.push("price");
+        if (missing.length > 0) {
+          return NextResponse.json(
+            { error: "PUBLISH_VALIDATION_FAILED", missing },
+            { status: 422 }
+          );
+        }
+      }
+
+      const insertPayload: Record<string, unknown> = {
+        title: input.title,
+        slug,
+        description: input.description || null,
+        price: input.price,
+        category_id: categoryId,
+        confectioner_id: input.confectionerId,
+        status,
+        published_at: status === "published" ? new Date().toISOString() : null,
+        ...mapCardFieldsToSnake(input as unknown as Record<string, unknown>),
+      };
+      // old_price: null если не передан (карточный маппинг кладёт значение только
+      // при наличии oldPrice в body)
+      insertPayload.old_price = input.oldPrice !== undefined ? input.oldPrice : null;
+      // category_id: резолв выше (categoryId uuid ИЛИ category slug) приоритетнее
+      // карточного маппинга (который может принести явный null из body.categoryId)
+      insertPayload.category_id = categoryId;
+
+      const { data: product, error } = await supabaseAdmin
+        .from("products")
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (error || !product) {
+        console.error("[products] POST admin create error:", error?.message);
+        return NextResponse.json(
+          { error: "Database insert failed", details: error?.message },
+          { status: 500 }
+        );
+      }
+
+      // Авто-модерация контента (не отключаем ни для одной роли)
+      const moderation = await runModeration({
+        product,
+        authorId: input.confectionerId,
+        authorName,
+        images: (body.images as string[] | undefined) || [],
+      });
+      if (moderation) return moderation;
+
+      return NextResponse.json({ product }, { status: 201 });
+    }
+
+    // ==================== Ветка CONFECTIONER (легаси) ====================
     // Проверка роли — только CONFECTIONER
     const guard = await requireRole(user.id, "CONFECTIONER");
     if (guard) {
@@ -231,16 +399,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const body = (await request.json()) as CreateProductBody;
+    // Валидация НОВЫХ полей карточки (title/price — легаси-ручные проверки ниже)
+    const cardParsed = confectionerCreateProductSchema.safeParse(body);
+    if (!cardParsed.success) {
+      return NextResponse.json(
+        { error: "VALIDATION_FAILED", issues: cardParsed.error.flatten() },
+        { status: 422 }
+      );
+    }
 
-    // Валидация
-    if (!body.title || typeof body.title !== "string" || body.title.length < 3) {
+    // Легаси-валидация (обратная совместимость контракта)
+    const title = body.title;
+    const price = body.price;
+    if (!title || typeof title !== "string" || title.length < 3) {
       return NextResponse.json(
         { error: "title обязателен и должен быть не менее 3 символов" },
         { status: 422 }
       );
     }
-    if (typeof body.price !== "number" || body.price < 0) {
+    if (typeof price !== "number" || price < 0) {
       return NextResponse.json(
         { error: "price обязателен и должен быть неотрицательным числом" },
         { status: 422 }
@@ -264,11 +441,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Генерировать slug если не передан
-    const slug = body.slug || body.title.toLowerCase().replace(/\s+/g, "-").slice(0, 100);
+    const legacySlug =
+      (typeof body.slug === "string" && body.slug) ||
+      title.toLowerCase().replace(/\s+/g, "-").slice(0, 100);
 
-    // Резолв категории: body.category — slug из product_categories
+    // Резолв категории: body.category — slug из product_categories (легаси);
+    // body.categoryId (uuid) — новое поле карточки, тоже принимаем
     let categoryId: string | null = null;
-    if (body.category) {
+    if (typeof body.categoryId === "string" && UUID_RE.test(body.categoryId)) {
+      categoryId = body.categoryId;
+    } else if (typeof body.category === "string" && body.category) {
       const { data: cat } = await supabaseAdmin
         .from("product_categories")
         .select("id")
@@ -278,21 +460,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Создать товар
-    // Схема products (миграция 0002): price в КОПЕЙКАХ, category_id (FK),
-    // weight_grams, rating_average; images/состав живут в отдельных таблицах.
+    // Схема products (миграция 0002): price в РУБЛЯХ, category_id (FK),
+    // weight_grams, rating_average; + новые поля карточки 0052.
+    // Легаси-ключи идут ПОСЛЕ spread карточных — их приоритет сохранён.
+    const cardSnake = mapCardFieldsToSnake(
+      cardParsed.data as unknown as Record<string, unknown>
+    );
     const { data: product, error } = await supabaseAdmin
       .from("products")
       .insert({
-        title: body.title,
-        slug,
-        description: body.description || null,
-        price: body.price,
-        old_price: body.oldPrice || null,
+        ...cardSnake,
+        title,
+        slug: legacySlug,
+        description:
+          typeof body.description === "string" && body.description
+            ? body.description
+            : null,
+        price,
+        old_price: typeof body.oldPrice === "number" ? body.oldPrice : null,
         category_id: categoryId,
         confectioner_id: confectioner.userId,
-        weight_grams: body.weight || null,
-        servings: body.servings || null,
-        tags: body.tags || [],
+        weight_grams:
+          typeof body.weight === "number"
+            ? body.weight
+            : typeof body.weightGrams === "number"
+              ? body.weightGrams
+              : null,
+        servings: typeof body.servings === "number" ? body.servings : null,
+        tags: Array.isArray(body.tags) ? body.tags : [],
         status: "published",
         published_at: new Date().toISOString(),
       })
@@ -308,40 +503,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Авто-модерация контента (non-blocking, но при rejected — удалить товар)
-    try {
-      const { moderateContent } = await import("@/lib/content-moderation");
-      const moderationResult = await moderateContent({
-        contentType: "product",
-        contentId: product.id,
-        authorId: user.id,
-        authorName: confectioner.businessName,
-        title: product.title,
-        content: product.description || "",
-        images: body.images || [],
-      });
-
-      if (moderationResult.status === "rejected") {
-        // Удалить товар — нарушает правила
-        await supabaseAdmin.from("products").delete().eq("id", product.id);
-        return NextResponse.json(
-          {
-            error: "Контент отклонён автоматической модерацией",
-            violations: moderationResult.violations,
-            reasons: moderationResult.reasons,
-            moderationId: moderationResult.queueId,
-          },
-          { status: 403 }
-        );
-      }
-
-      if (moderationResult.status === "flagged") {
-        console.warn(
-          `[products] Content flagged: ${product.id}, violations: ${(moderationResult.violations || []).join(", ")}`
-        );
-      }
-    } catch (modErr: any) {
-      console.warn("[products] Moderation check failed (non-blocking):", modErr?.message);
-    }
+    const moderation = await runModeration({
+      product,
+      authorId: user.id,
+      authorName: confectioner.businessName,
+      images: (body.images as string[] | undefined) || [],
+    });
+    if (moderation) return moderation;
 
     return NextResponse.json({ product }, { status: 201 });
   } catch (error: any) {
@@ -351,4 +519,52 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Авто-модерация контента (общая для обеих веток POST).
+ * При rejected — удалить товар и вернуть 403-ответ; при flagged — warn в лог.
+ * Возвращает NextResponse | null (null — продолжаем).
+ */
+async function runModeration(args: {
+  product: { id: string; title: string; description: string | null };
+  authorId: string;
+  authorName: string;
+  images: string[];
+}): Promise<NextResponse | null> {
+  try {
+    const { moderateContent } = await import("@/lib/content-moderation");
+    const moderationResult = await moderateContent({
+      contentType: "product",
+      contentId: args.product.id,
+      authorId: args.authorId,
+      authorName: args.authorName,
+      title: args.product.title,
+      content: args.product.description || "",
+      images: args.images,
+    });
+
+    if (moderationResult.status === "rejected") {
+      // Удалить товар — нарушает правила
+      await supabaseAdmin.from("products").delete().eq("id", args.product.id);
+      return NextResponse.json(
+        {
+          error: "Контент отклонён автоматической модерацией",
+          violations: moderationResult.violations,
+          reasons: moderationResult.reasons,
+          moderationId: moderationResult.queueId,
+        },
+        { status: 403 }
+      );
+    }
+
+    if (moderationResult.status === "flagged") {
+      console.warn(
+        `[products] Content flagged: ${args.product.id}, violations: ${(moderationResult.violations || []).join(", ")}`
+      );
+    }
+  } catch (modErr: any) {
+    console.warn("[products] Moderation check failed (non-blocking):", modErr?.message);
+  }
+  return null;
 }

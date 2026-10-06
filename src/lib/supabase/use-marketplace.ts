@@ -27,7 +27,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import type { Product as StoreProduct, ProductCategory } from "@/lib/types";
+import type {
+  Product as StoreProduct,
+  ProductCategory,
+  ProductMediaItem,
+} from "@/lib/types";
 
 // ==================== Types ====================
 export interface Category {
@@ -797,6 +801,8 @@ interface ApiProduct {
   title: string;
   slug: string;
   description: string | null;
+  short_description?: string | null;
+  long_description?: string | null;
   price: number; // рубли (seed 2400 = 2400 ₽; checkout/orders тоже считают в рублях)
   old_price: number | null;
   weight_grams: number | null;
@@ -806,6 +812,22 @@ interface ApiProduct {
   reviews_count: number | null;
   is_featured: boolean | null;
   images: string[];
+  // Карточка товара (миграция 0052). numeric(6,2) из pg может приходить строкой
+  // ("25.50") — маппер приводит к number.
+  diameter_cm?: number | string | null;
+  height_cm?: number | string | null;
+  size_text?: string | null;
+  shape?: string | null;
+  product_type?: string | null;
+  filling_description?: string | null;
+  layers_count?: number | null;
+  composition?: StoreProduct["composition"] | null;
+  recipe_id?: string | null;
+  min_order_qty?: number | null;
+  custom_order_available?: boolean | null;
+  is_available?: boolean | null;
+  production_time_hours?: number | null;
+  media?: ProductMediaItem[];
   confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
 }
 
@@ -849,6 +871,25 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     isHit: Boolean(p.is_featured),
     isPopular: false,
     tags: p.tags || [],
+    // ==== Карточка товара (миграция 0052): snake → camel ====
+    shortDescription: p.short_description ?? undefined,
+    diameterCm: p.diameter_cm != null ? Number(p.diameter_cm) : null,
+    heightCm: p.height_cm != null ? Number(p.height_cm) : null,
+    sizeText: p.size_text ?? null,
+    shape: p.shape ?? null,
+    productType: p.product_type ?? null,
+    fillingDescription: p.filling_description ?? null,
+    layersCount: p.layers_count ?? null,
+    // composition — как есть (структура совпадает с клиентским Product.composition)
+    composition:
+      p.composition && typeof p.composition === "object" ? p.composition : undefined,
+    recipeId: p.recipe_id ?? null,
+    minOrderQty: p.min_order_qty ?? undefined,
+    customOrderAvailable: p.custom_order_available ?? undefined,
+    isAvailable: p.is_available ?? undefined,
+    productionTimeHours: p.production_time_hours ?? null,
+    // media приходит из API уже в camelCase (ProductMediaItem[])
+    media: Array.isArray(p.media) ? p.media : undefined,
   };
 }
 

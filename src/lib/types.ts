@@ -528,6 +528,20 @@ export type ProductCategory =
   | "gingerbread"        // Пряники
   | "realistic_cakes";   // Реалистичные пирожные
 
+// Медиа карточки товара (product_media, миграция 0052) — элемент GET-ответа
+export interface ProductMediaItem {
+  id: string;
+  mediaType: "photo" | "video";
+  url: string; // /api/product-media/<id>
+  mimeType: string;
+  width?: number | null;
+  height?: number | null;
+  durationSeconds?: number | null;
+  isCover?: boolean;
+  sortOrder?: number;
+  status?: "pending" | "approved" | "rejected";
+}
+
 export interface Product {
   id: string;
   title: string;
@@ -589,6 +603,22 @@ export interface Product {
   hiddenAt?: string;
   // Наличие на складе (для готовых изделий)
   inStock?: number | boolean;
+  // ==== Карточка товара (миграция 0052: PATCH/POST/GET /api/products) ====
+  shortDescription?: string;
+  diameterCm?: number | null;
+  heightCm?: number | null;
+  sizeText?: string | null;
+  shape?: string | null;
+  productType?: string | null;
+  fillingDescription?: string | null;
+  layersCount?: number | null;
+  minOrderQty?: number;
+  customOrderAvailable?: boolean;
+  isAvailable?: boolean;
+  productionTimeHours?: number | null;
+  recipeId?: string | null;
+  // Approved-медиа карточки (фото+видео, обложка первая) из GET /api/products/[id]
+  media?: ProductMediaItem[];
 }
 
 // ===== СПОСОБЫ ОПЛАТЫ И РАССРОЧКА =====
