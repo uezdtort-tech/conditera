@@ -78,3 +78,6 @@ download/
 
 # Local storage shim files
 upload/storage/
+
+# Товарные медиа (storage каталог сидов/uploads продуктовых медиа)
+/storage/

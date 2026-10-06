@@ -13,6 +13,7 @@
 
 import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import path from "node:path";
 
@@ -35,6 +36,7 @@ const SEED_FILES = [
   path.join(ROOT, "supabase", "compat", "0005_seed_product_images.sql"),
   path.join(ROOT, "supabase", "compat", "0006_seed_reviews.sql"),
   path.join(ROOT, "supabase", "compat", "0007_seed_video_feed.sql"),
+  path.join(ROOT, "scripts", "db", "seed-product-media.mjs"),
 ];
 const ENV_LOCAL = path.join(ROOT, ".env.local");
 const ENV_FILE = path.join(ROOT, ".env");
@@ -669,6 +671,25 @@ console.log("\n─── Seeds ───");
     for (const seedFile of SEED_FILES) {
       if (!existsSync(seedFile)) {
         console.log(`  (missing: ${path.basename(seedFile)})`);
+        continue;
+      }
+      // .mjs-сид: JS-модуль с export default async ({ client, ROOT }).
+      // Модуль сам делает client.query; здесь — только обёртка BEGIN/COMMIT
+      // и отлов ошибок (модуль НЕ должен открывать свою транзакцию).
+      if (path.basename(seedFile).endsWith(".mjs")) {
+        await client.query("BEGIN");
+        try {
+          const mod = await import(pathToFileURL(seedFile).href);
+          if (typeof mod.default !== "function") {
+            throw new Error("mjs seed must export default async function");
+          }
+          await mod.default({ client, ROOT });
+          await client.query("COMMIT");
+          console.log(`  ✔ ${path.basename(seedFile)}: mjs seed ok`);
+        } catch (err) {
+          try { await client.query("ROLLBACK"); } catch { /* noop */ }
+          console.warn(`  ⚠ ${path.basename(seedFile)} aborted: ${String(err.message).slice(0, 140)}`);
+        }
         continue;
       }
       const sql = readFileSync(seedFile, "utf8");
