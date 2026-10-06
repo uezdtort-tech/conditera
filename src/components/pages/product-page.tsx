@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductCard } from "@/components/marketplace/product-card";
 import { CrossSellBlock } from "@/components/marketplace/cross-sell-block";
+import { ProductMediaGallery } from "@/components/products/product-media-gallery";
 import { VideoReviewsSection } from "@/components/dashboard/customer-features-tabs";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { AiAskProduct } from "@/components/ai/ai-ask-product";
@@ -37,7 +38,16 @@ import {
   Info,
   AlertCircle,
   Cake,
+  CakeSlice,
+  Scale,
+  Ruler,
+  MoveVertical,
+  Maximize2,
+  Shapes,
+  Layers,
+  ClipboardList,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import {
   formatCurrency,
   calculateDelivery,
@@ -49,6 +59,40 @@ import {
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useLiveProductDetail } from "@/lib/supabase/use-marketplace";
+
+// ==== Хелперы структурированных полей карточки (миграция 0052) ====
+
+// product.weight приходит строкой («2200 г» с маппера API) — достаём граммы
+function parseWeightGrams(weight?: string): number | null {
+  if (!weight) return null;
+  const s = weight.replace(",", ".").toLowerCase();
+  const m = s.match(/(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n)) return null;
+  return s.includes("кг") ? Math.round(n * 1000) : Math.round(n);
+}
+
+function formatWeightLabel(grams: number): string {
+  if (grams >= 1000) {
+    const kg = Math.round((grams / 1000) * 10) / 10;
+    return `${kg.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} кг`;
+  }
+  return `${grams} г`;
+}
+
+function formatCmValue(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(Number(value))) return null;
+  const cm = Math.round(Number(value) * 10) / 10;
+  return `${cm.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} см`;
+}
+
+function formatProductionTime(hours: number): string {
+  if (hours >= 24 && hours % 24 === 0) return `от ${hours / 24} дн.`;
+  return hours >= 24
+    ? `от ${hours} ч (≈ ${Math.round(hours / 24)} дн.)`
+    : `от ${hours} ч`;
+}
 
 export function ProductPage() {
   const nav = useAppStore((s) => s.nav);
@@ -78,6 +122,13 @@ export function ProductPage() {
     if (product) {
       addRecentlyViewed(product.id);
     }
+  }, [product?.id]);
+
+  // Минимальный заказ (0052) — держим количество в рамках правила товара
+  useEffect(() => {
+    const min =
+      product?.minOrderQty && product.minOrderQty > 1 ? product.minOrderQty : 1;
+    setQuantity(min);
   }, [product?.id]);
 
   // П.24: Schema.org Product — для попадания в Google Shopping и рейтинга в сниппете
@@ -192,7 +243,58 @@ export function ProductPage() {
     (decoration?.priceModifier || 0);
   const deliveryCost = calculateDelivery(finalPrice).cost;
 
+  // ==== Структурированные секции карточки (миграция 0052) ====
+  const unavailable = product.isAvailable === false;
+  const minOrderQty =
+    product.minOrderQty && product.minOrderQty > 1 ? product.minOrderQty : 1;
+
+  // Характеристики: только заполненные поля
+  const weightGrams = parseWeightGrams(product.weight);
+  const diameterLabel = formatCmValue(product.diameterCm);
+  const heightLabel = formatCmValue(product.heightCm);
+  const specs: { icon: LucideIcon; label: string; value: string }[] = [];
+  if (weightGrams != null)
+    specs.push({ icon: Scale, label: "Вес", value: formatWeightLabel(weightGrams) });
+  if (diameterLabel)
+    specs.push({ icon: Ruler, label: "Диаметр", value: diameterLabel });
+  if (heightLabel)
+    specs.push({ icon: MoveVertical, label: "Высота", value: heightLabel });
+  if (product.sizeText)
+    specs.push({ icon: Maximize2, label: "Размер", value: product.sizeText });
+  if (product.shape)
+    specs.push({ icon: Shapes, label: "Форма", value: product.shape });
+  if (product.productType)
+    specs.push({ icon: CakeSlice, label: "Тип изделия", value: product.productType });
+  if (product.servings != null)
+    specs.push({ icon: Users, label: "Порции", value: `${product.servings} шт.` });
+
+  // Начинка: описание + слои + названия начинок из product.fillings
+  const hasFillingInfo = Boolean(
+    product.fillingDescription ||
+      product.layersCount != null ||
+      (product.fillings && product.fillings.length > 0)
+  );
+
+  // Заказ и производство
+  const productionTime =
+    product.productionTimeHours != null && product.productionTimeHours > 0
+      ? product.productionTimeHours
+      : null;
+  const hasOrderInfo = Boolean(
+    (product.minOrderQty != null && product.minOrderQty > 1) ||
+      productionTime != null ||
+      product.customOrderAvailable === true ||
+      unavailable
+  );
+
   const handleAddToCart = () => {
+    if (product.isAvailable === false) {
+      toast.error("Товар временно недоступен", {
+        description:
+          "Добавление в корзину недоступно — напишите кондитеру, чтобы уточнить сроки.",
+      });
+      return;
+    }
     addToCart(
       product,
       {
@@ -226,41 +328,38 @@ export function ProductPage() {
       <StickyAddToCart product={product} finalPrice={finalPrice} onAddToCart={handleAddToCart} />
 
       <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
-        {/* Images + 3D/AR preview */}
+        {/* Галерея (approved-медиа 0052 + legacy-фото) / 3D-AR превью */}
         <div className="space-y-3">
           {product.modelUrl && product.arEnabled ? (
-            <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-amber-50 dark:from-purple-950/40 dark:via-pink-950/40 dark:to-amber-950/40">
-              <ARViewer
-                modelUrl={product.modelUrl}
-                modelUsdzUrl={product.modelUsdzUrl}
-                posterImage={product.images[0]}
-                productName={product.title}
-                arEnabled={product.arEnabled}
-              />
-            </div>
-          ) : (
-            <div className="aspect-square rounded-2xl overflow-hidden bg-muted flex items-center justify-center">
-              {product.images?.[0] ? (
-                <img
-                  src={product.images[0]}
-                  alt={product.title}
-                  className="w-full h-full object-cover" loading="lazy" decoding="async" />
-              ) : (
-                <Cake className="h-14 w-14 text-muted-foreground/30" aria-hidden />
-              )}
-            </div>
-          )}
-          {product.images.length > 1 && (
-            <div className="grid grid-cols-4 gap-2">
-              {product.images.map((img, i) => (
-                <div
-                  key={i}
-                  className="aspect-square rounded-lg overflow-hidden bg-muted cursor-pointer border-2 border-transparent hover:border-primary"
-                >
-                  <img src={img} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+            <>
+              <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-purple-50 via-pink-50 to-amber-50 dark:from-purple-950/40 dark:via-pink-950/40 dark:to-amber-950/40">
+                <ARViewer
+                  modelUrl={product.modelUrl}
+                  modelUsdzUrl={product.modelUsdzUrl}
+                  posterImage={product.images[0]}
+                  productName={product.title}
+                  arEnabled={product.arEnabled}
+                />
+              </div>
+              {product.images.length > 1 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {product.images.map((img, i) => (
+                    <div
+                      key={i}
+                      className="aspect-square rounded-lg overflow-hidden bg-muted cursor-pointer border-2 border-transparent hover:border-primary"
+                    >
+                      <img src={img} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
+          ) : (
+            <ProductMediaGallery
+              media={product.media}
+              images={product.images}
+              title={product.title}
+            />
           )}
           {product.modelUrl && product.arEnabled && (
             <div className="text-center text-xs text-muted-foreground bg-purple-50 dark:bg-purple-950/30 rounded-lg py-2 px-3">
@@ -286,6 +385,11 @@ export function ProductPage() {
             {product.oldPrice && (
               <Badge className="bg-red-500 text-white">
                 -{Math.round((1 - product.price / product.oldPrice) * 100)}%
+              </Badge>
+            )}
+            {unavailable && (
+              <Badge className="bg-amber-500 text-white">
+                Временно недоступен
               </Badge>
             )}
           </div>
@@ -351,6 +455,64 @@ export function ProductPage() {
                 <div className="text-xs text-muted-foreground">⏰ Срок годности: {product.composition.shelfLife}</div>
               )}
             </div>
+          )}
+
+          {/* Характеристики (0052) — только заполненные поля */}
+          {specs.length > 0 && (
+            <Card className="card-hover p-4">
+              <h3 className="font-display text-sm font-semibold mb-3 flex items-center gap-2">
+                <Ruler className="h-4 w-4 text-primary" />
+                Характеристики
+              </h3>
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
+                {specs.map((spec) => (
+                  <div
+                    key={spec.label}
+                    className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-1.5"
+                  >
+                    <dt className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <spec.icon className="h-3.5 w-3.5" aria-hidden />
+                      {spec.label}
+                    </dt>
+                    <dd className="text-right font-medium">{spec.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </Card>
+          )}
+
+          {/* Начинка (0052): описание, слои, названия начинок */}
+          {hasFillingInfo && (
+            <Card className="card-hover p-4">
+              <h3 className="font-display text-sm font-semibold mb-3 flex items-center gap-2">
+                <Layers className="h-4 w-4 text-primary" />
+                Начинка
+              </h3>
+              <div className="space-y-2.5 text-sm">
+                {product.fillingDescription && (
+                  <p className="text-muted-foreground leading-relaxed">
+                    {product.fillingDescription}
+                  </p>
+                )}
+                {product.layersCount != null && (
+                  <div className="flex items-center gap-1.5">
+                    <CakeSlice className="h-4 w-4 text-primary/70" aria-hidden />
+                    <span>
+                      Количество слоёв: <span className="font-medium">{product.layersCount}</span>
+                    </span>
+                  </div>
+                )}
+                {product.fillings && product.fillings.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {product.fillings.map((f, i) => (
+                      <Badge key={`${f.name}-${i}`} variant="outline" className="text-xs">
+                        {f.name}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
           )}
 
           {/* Помочь выбрать — ИИ отвечает по данным карточки (сценарий №2) */}
@@ -525,14 +687,57 @@ export function ProductPage() {
             </div>
           )}
 
+          {/* Заказ и производство (0052) */}
+          {hasOrderInfo && (
+            <Card className="card-hover p-4">
+              <h3 className="font-display text-sm font-semibold mb-3 flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-primary" />
+                Заказ и производство
+              </h3>
+              <div className="space-y-2.5 text-sm">
+                {product.minOrderQty != null && product.minOrderQty > 1 && (
+                  <div className="flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4 text-primary/70" aria-hidden />
+                    <span>
+                      Минимальный заказ — <span className="font-medium">от {product.minOrderQty} шт.</span>
+                    </span>
+                  </div>
+                )}
+                {productionTime != null && (
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-primary/70" aria-hidden />
+                    <span>
+                      Изготовление — <span className="font-medium">{formatProductionTime(productionTime)}</span>
+                    </span>
+                  </div>
+                )}
+                {(product.customOrderAvailable === true || unavailable) && (
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {product.customOrderAvailable === true && (
+                      <Badge variant="outline" className="border-primary/30 bg-primary/5 text-primary">
+                        Индивидуальный заказ
+                      </Badge>
+                    )}
+                    {unavailable && (
+                      <Badge className="border border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                        Временно недоступен
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* Quantity & price */}
           <Card className="p-4 bg-primary/5 border-primary/20">
             <div className="flex items-center justify-between mb-3">
               <Label className="font-medium">Количество</Label>
               <div className="flex items-center gap-2 border border-border rounded-md bg-background">
                 <button
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  onClick={() => setQuantity(Math.max(minOrderQty, quantity - 1))}
                   className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-l-md"
+                  aria-label="Уменьшить количество"
                 >
                   <Minus className="h-4 w-4" />
                 </button>
@@ -540,6 +745,7 @@ export function ProductPage() {
                 <button
                   onClick={() => setQuantity(quantity + 1)}
                   className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-r-md"
+                  aria-label="Увеличить количество"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -568,22 +774,37 @@ export function ProductPage() {
           </Card>
 
           {/* Actions */}
-          <div className="flex gap-2">
-            <Button size="lg" onClick={handleAddToCart} className="flex-1 bg-primary">
-              <ShoppingCart className="h-5 w-5 mr-2" />
-              В корзину
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => toggleFavorite(product.id)}
-              className={isFavorite ? "border-primary text-primary" : ""}
-            >
-              <Heart className={`h-5 w-5 ${isFavorite ? "fill-primary" : ""}`} />
-            </Button>
-            <Button size="lg" variant="outline">
-              <Share2 className="h-5 w-5" />
-            </Button>
+          <div className="space-y-1.5">
+            <div className="flex gap-2">
+              <Button
+                size="lg"
+                onClick={handleAddToCart}
+                disabled={unavailable}
+                aria-disabled={unavailable}
+                className="flex-1 bg-primary"
+              >
+                <ShoppingCart className="h-5 w-5 mr-2" />
+                В корзину
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={() => toggleFavorite(product.id)}
+                className={isFavorite ? "border-primary text-primary" : ""}
+                aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
+              >
+                <Heart className={`h-5 w-5 ${isFavorite ? "fill-primary" : ""}`} />
+              </Button>
+              <Button size="lg" variant="outline" aria-label="Поделиться">
+                <Share2 className="h-5 w-5" />
+              </Button>
+            </div>
+            {unavailable && (
+              <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                <AlertCircle className="h-3.5 w-3.5" aria-hidden />
+                Товар временно недоступен для заказа — напишите кондитеру, чтобы уточнить сроки.
+              </p>
+            )}
           </div>
 
           {/* Trust */}
