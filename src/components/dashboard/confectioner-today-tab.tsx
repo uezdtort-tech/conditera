@@ -268,7 +268,7 @@ export function ConfectionerTodayTab({
             <StatCard icon={MessageSquare} label="Сообщения" value={String(data.messagesUnread ?? 0)} color="text-purple-600 bg-purple-100" />
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 min-w-0 lg:grid-cols-3 gap-4">
             {/* Требуют действия */}
             <SectionCard
               emoji="🔴"

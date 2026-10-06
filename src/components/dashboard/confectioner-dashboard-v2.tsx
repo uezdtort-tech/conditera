@@ -18,15 +18,18 @@ import {
 } from "recharts";
 import {
   Package, Coins, TrendingUp, Settings, LogOut,
-  MessageSquare, ShoppingBag, Star, Plus, Calendar, Cake,
+  MessageSquare, ShoppingBag, Star, Plus, Calendar, Cake, Sunrise, ClipboardList,
 } from "lucide-react";
 import { formatCurrency, formatDate, ORDER_STATUS_LABELS } from "@/lib/finance";
 import {
   DashboardSidebarLayout, SidebarStat, LoadingState, ErrorState,
 } from "@/components/dashboard/_shared";
 import { useConfectionerDashboard } from "@/lib/supabase/use-dashboards";
+import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
+import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
 
 const TABS = [
+  { id: "today", label: "Сегодня", icon: Sunrise },
   { id: "overview", label: "Обзор", icon: TrendingUp },
   { id: "inquiries", label: "Запросы", icon: MessageSquare },
   { id: "orders", label: "Заказы", icon: ShoppingBag },
@@ -39,7 +42,8 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
   const navigate = useAppStore((s) => s.navigate);
   const user = useAppStore((s) => s.user);
   const logout = useAppStore((s) => s.logout);
-  const [activeTab, setActiveTab] = React.useState("overview");
+  const [activeTab, setActiveTab] = React.useState("today");
+  const [breakdownOrderId, setBreakdownOrderId] = React.useState<string | null>(null);
 
   const { data, isLoading, error, refetch } = useConfectionerDashboard();
 
@@ -52,6 +56,16 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
   }
 
   const content = (): React.JSX.Element => {
+    // «Сегодня» (производственный центр) имеет собственный источник данных —
+    // не ждём скелет общего дашборда
+    if (activeTab === "today") {
+      return (
+        <ConfectionerTodayTab
+          onNavigateTab={setActiveTab}
+          onOpenBreakdown={(orderId) => setBreakdownOrderId(orderId)}
+        />
+      );
+    }
     if (isLoading) return <LoadingState message="Загружаем данные кондитера..." />;
     if (error) return <ErrorState error={error as Error} onRetry={() => refetch()} />;
 
@@ -201,11 +215,19 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
                         </div>
                       )}
                     </div>
-                    <div className="text-right">
+                      <div className="text-right">
                       <div className="font-display font-bold">{formatCurrency(order.total)}</div>
                       <Badge variant="outline" className="text-[10px]">
                         {ORDER_STATUS_LABELS[order.status as keyof typeof ORDER_STATUS_LABELS]?.label || order.status}
                       </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2 w-full"
+                        onClick={() => setBreakdownOrderId(order.id)}
+                      >
+                        <ClipboardList className="h-4 w-4 mr-1" /> Состав
+                      </Button>
                     </div>
                   </div>
                 </Card>
@@ -295,6 +317,7 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
   };
 
   return (
+    <>
     <DashboardSidebarLayout
       user={user}
       logout={logout}
@@ -308,6 +331,14 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
     >
       {content()}
     </DashboardSidebarLayout>
+    <OrderBreakdownDialog
+      orderId={breakdownOrderId}
+      open={Boolean(breakdownOrderId)}
+      onOpenChange={(open) => {
+        if (!open) setBreakdownOrderId(null);
+      }}
+    />
+    </>
   );
 }
 

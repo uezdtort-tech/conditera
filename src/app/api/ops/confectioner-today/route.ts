@@ -29,9 +29,9 @@ export const dynamic = "force-dynamic";
 const SEVERITY_RANK = `CASE t.severity WHEN 'critical' THEN 0 WHEN 'important' THEN 1 ELSE 2 END`;
 
 const ORDER_SHAPE = `o.id::text AS id, o.number, o.status::text AS status,
-  o.delivery_time AS "deliveryTime", o.total,
-  COALESCE(oi.items_count, 0) AS "itemsCount",
-  COALESCE(oi.titles, '{}') AS "productTitles"`;
+  o.delivery_time, o.total,
+  COALESCE(oi.items_count, 0) AS items_count,
+  COALESCE(oi.titles, '{}') AS product_titles`;
 
 const ORDER_ITEMS_LATERAL = `LEFT JOIN LATERAL (
     SELECT count(*)::int AS items_count,
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
   let inProduction: unknown[] = [];
   try {
     const { rows } = await pool.query(
-      `SELECT ${ORDER_SHAPE}, o.delivery_date AS "deliveryDate"
+      `SELECT ${ORDER_SHAPE}, o.delivery_date AS delivery_date
        FROM public.orders o ${ORDER_ITEMS_LATERAL}
        WHERE o.confectioner_id = $1::uuid
          AND o.status IN ('CONFIRMED', 'PREPARING')
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
       id: r.id,
       name: r.name,
       quantity: Number(r.quantity),
-      minQuantity: Number(r.min_quantity),
+      min_quantity: Number(r.min_quantity),
       unit: r.unit,
     }));
   } catch (err) {
@@ -171,8 +171,8 @@ export async function GET(request: NextRequest) {
   try {
     const { rows } = await pool.query(
       `SELECT d.id::text AS id, d.status, d.source,
-              count(i.id)::int AS "itemsCount",
-              COALESCE(sum(i.estimated_cost), 0)::int AS "totalEstimated"
+              count(i.id)::int AS items_count,
+              COALESCE(sum(i.estimated_cost), 0)::int AS total_estimated
        FROM public.purchase_drafts d
        LEFT JOIN public.purchase_draft_items i ON i.draft_id = d.id
        WHERE d.owner_id = $1::uuid AND d.created_at > now() - interval '7 days'

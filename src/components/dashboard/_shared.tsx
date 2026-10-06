@@ -258,9 +258,9 @@ export function DashboardSidebarLayout({
           <ChevronLeft className="h-4 w-4" /> На главную
         </button>
 
-        <div className="grid lg:grid-cols-[260px_1fr] gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 min-w-0 lg:grid-cols-[260px_1fr] gap-4 lg:gap-6">
           {/* Sidebar */}
-          <aside>
+          <aside className="min-w-0">
             <Card className="p-3 lg:p-4 lg:sticky lg:top-20 lg:self-start">
               <div className="flex items-center gap-3 mb-3 lg:mb-4">
                 <Avatar className="h-10 w-10 lg:h-12 lg:w-12 shrink-0">
@@ -293,7 +293,7 @@ export function DashboardSidebarLayout({
           </aside>
 
           {/* Content */}
-          <div>{children}</div>
+          <div className="min-w-0">{children}</div>
         </div>
       </div>
     </div>
