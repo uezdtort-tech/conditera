@@ -29,6 +29,7 @@ import {
   Clock, Shield, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 interface ModerationItem {
   id: string;
@@ -82,7 +83,7 @@ export function ModeratorDashboardFull() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/moderator/queue?status=pending");
+      const res = await csrfFetch("/api/moderator/queue?status=pending");
       if (res.ok) {
         const data = await res.json();
         setItems(data.items || []);
@@ -102,7 +103,7 @@ export function ModeratorDashboardFull() {
   const handleAction = async (item: ModerationItem, action: string, reason?: string) => {
     setProcessing(`${item.id}-${action}`);
     try {
-      const res = await fetch("/api/moderator/action", {
+      const res = await csrfFetch("/api/moderator/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: item.type, id: item.id, action, reason }),

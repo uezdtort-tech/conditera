@@ -47,6 +47,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import type {
   LoyaltyPartner, LoyaltyCrossAction, LoyaltyPointExchange,
 } from "@/lib/supabase/types";
+import { csrfFetch } from "@/lib/api-client";
 
 const TABS = [
   { id: "overview", label: "Обзор", icon: TrendingUp },
@@ -181,7 +182,7 @@ function useCreateAction() {
       end_at: string;
       usage_limit?: number | null;
     }) => {
-      const response = await fetch("/api/loyalty/cross-actions", {
+      const response = await csrfFetch("/api/loyalty/cross-actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),

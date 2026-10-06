@@ -12,6 +12,7 @@ import {
 import { useAppStore } from "@/lib/store";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/finance";
+import { csrfFetch } from "@/lib/api-client";
 
 interface SimpleXContact {
   id: string;
@@ -62,7 +63,7 @@ export function ConfectionerSimpleXTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/simplex/contacts");
+      const res = await csrfFetch("/api/simplex/contacts");
       if (res.ok) {
         const data: SimpleXState = await res.json();
         setState(data);
@@ -81,7 +82,7 @@ export function ConfectionerSimpleXTab() {
   useEffect(() => {
     if (!state?.contact?.active) return;
     const interval = window.setInterval(() => {
-      fetch("/api/simplex/contacts")
+      csrfFetch("/api/simplex/contacts")
         .then((res) => (res.ok ? res.json() : null))
         .then((data: SimpleXState | null) => {
           if (!data) return;
@@ -109,7 +110,7 @@ export function ConfectionerSimpleXTab() {
   const handleCreateProfile = async () => {
     setCreating(true);
     try {
-      const res = await fetch("/api/simplex/contacts", { method: "POST" });
+      const res = await csrfFetch("/api/simplex/contacts", { method: "POST" });
       if (res.ok) {
         toast.success("SimpleX-профиль создан!");
         await load();
@@ -139,7 +140,7 @@ export function ConfectionerSimpleXTab() {
       return;
     }
     try {
-      const res = await fetch("/api/simplex/contacts", { method: "DELETE" });
+      const res = await csrfFetch("/api/simplex/contacts", { method: "DELETE" });
       if (res.ok) {
         toast.success("Профиль деактивирован");
         await load();
@@ -153,7 +154,7 @@ export function ConfectionerSimpleXTab() {
     if (!replyTo || !replyText.trim()) return;
     setSending(true);
     try {
-      const res = await fetch("/api/simplex/send", {
+      const res = await csrfFetch("/api/simplex/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -180,7 +181,7 @@ export function ConfectionerSimpleXTab() {
 
   const handleMarkAllRead = async () => {
     try {
-      await fetch("/api/simplex/read", {
+      await csrfFetch("/api/simplex/read", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ all: true }),

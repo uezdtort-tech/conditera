@@ -31,6 +31,7 @@ import {
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/finance";
+import { csrfFetch } from "@/lib/api-client";
 
 const RECIPE_DIFFICULTY = {
   easy: { label: "Легко", color: "bg-emerald-100 text-emerald-800", stars: "★☆☆" },
@@ -81,7 +82,7 @@ export function RecipeDetailPage() {
       params.set("city", userCity.trim());
     }
     const qs = params.toString() ? `?${params.toString()}` : "";
-    fetch(`/api/recipes/${recipe.id}/acceptances${qs}`)
+    csrfFetch(`/api/recipes/${recipe.id}/acceptances${qs}`)
       .then(res => res.ok ? res.json() : { acceptances: [] })
       .then(data => {
         setAcceptances(data.acceptances || []);
@@ -128,7 +129,7 @@ export function RecipeDetailPage() {
     setLoadingAcceptances(true);
     const params = new URLSearchParams();
     params.set("q", userCity.trim());
-    fetch(`/api/recipes/${recipe?.id}/acceptances?${params.toString()}`)
+    csrfFetch(`/api/recipes/${recipe?.id}/acceptances?${params.toString()}`)
       .then(res => res.ok ? res.json() : { acceptances: [] })
       .then(data => {
         setAcceptances(data.acceptances || []);
@@ -157,7 +158,7 @@ export function RecipeDetailPage() {
       return;
     }
     try {
-      const res = await fetch(`/api/recipes/${recipe.id}/accept`, {
+      const res = await csrfFetch(`/api/recipes/${recipe.id}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

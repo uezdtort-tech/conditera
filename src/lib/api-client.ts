@@ -259,6 +259,65 @@ export async function getCsrfToken(): Promise<string> {
   }
 }
 
+// Кэш CSRF-токена: один GET /api/csrf-token на 10 минут вместо кэша на каждую мутацию
+let csrfCache: { token: string; at: number } | null = null;
+const CSRF_CACHE_TTL_MS = 10 * 60 * 1000;
+
+async function getCsrfTokenCached(): Promise<string> {
+  if (csrfCache && Date.now() - csrfCache.at < CSRF_CACHE_TTL_MS) return csrfCache.token;
+  const token = await getCsrfToken();
+  if (token) csrfCache = { token, at: Date.now() };
+  return token;
+}
+
+/**
+ * csrfFetch — drop-in замена fetch для запросов к /api/*:
+ *   • GET/HEAD — проходит как обычный fetch (credentials: include);
+ *   • мутации (POST/PUT/PATCH/DELETE) — автоматически добавляют
+ *     x-csrf-token (double-submit cookie) и повторяют запрос один раз,
+ *     если сервер ответил 403 «CSRF» (протухший токен — новый round-trip).
+ *
+ * Зачем: proxy.ts требует CSRF на всех небезопасных методах; сырые fetch()
+ * в компонентах получали 403 (добавление праздников, лайки, админ-табы).
+ *
+ * Использование:
+ *   import { csrfFetch } from "@/lib/api-client";
+ *   await csrfFetch("/api/...", { method: "POST", body: ... });
+ */
+export async function csrfFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const method = (options.method || "GET").toUpperCase();
+  const isMutation = !["GET", "HEAD", "OPTIONS"].includes(method);
+
+  if (!isMutation) {
+    return fetch(url, { credentials: options.credentials ?? "include", ...options });
+  }
+
+  const headers = new Headers(options.headers || undefined);
+  const token = await getCsrfTokenCached();
+  if (token && !headers.has("x-csrf-token")) headers.set("x-csrf-token", token);
+
+  const res = await fetch(url, {
+    ...options,
+    headers,
+    credentials: options.credentials ?? "include",
+  });
+
+  if (res.status === 403 && token) {
+    // Отличаем CSRF-отказ (текст ошибки) от RBAC-403, чтобы не гонять лишние retry
+    const body = await res.clone().text().catch(() => "");
+    if (body.includes("CSRF")) {
+      const fresh = await getCsrfToken();
+      if (fresh && fresh !== token) {
+        csrfCache = { token: fresh, at: Date.now() };
+        headers.set("x-csrf-token", fresh);
+        return fetch(url, { ...options, headers, credentials: options.credentials ?? "include" });
+      }
+    }
+  }
+
+  return res;
+}
+
 /**
  * Полный серверный logout (единый контракт):
  *   1. POST /api/auth/logout (CSRF header + credentials) — сервер чистит

@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/finance";
+import { csrfFetch } from "@/lib/api-client";
 
 const STATUS_INFO: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: "В очереди", color: "bg-slate-100 text-slate-700", icon: Clock },
@@ -78,7 +79,7 @@ export function AdminEmailTab() {
       const params = new URLSearchParams();
       if (filter !== "all") params.set("direction", filter);
       if (search) params.set("search", search);
-      const res = await fetch(`/api/email/list?${params}`);
+      const res = await csrfFetch(`/api/email/list?${params}`);
       if (res.ok) {
         const data = await res.json();
         setEmails(data.emails || []);
@@ -345,7 +346,7 @@ function ComposeDialog({ onClose, onSent }: { onClose: () => void; onSent: () =>
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/email/list", {
+      const res = await csrfFetch("/api/email/list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

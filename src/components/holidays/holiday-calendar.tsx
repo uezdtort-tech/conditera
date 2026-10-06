@@ -18,6 +18,7 @@ import {
   Calendar, Plus, Trash2, Gift, Bell, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getCsrfToken } from "@/lib/api-client";
 
 const MONTHS = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
 
@@ -102,9 +103,14 @@ export function HolidayCalendar() {
       return;
     }
     try {
+      const csrf = await getCsrfToken();
       const res = await fetch("/api/holidays", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrf ? { "x-csrf-token": csrf } : {}),
+        },
         body: JSON.stringify({
           name,
           month: parseInt(month),
@@ -119,18 +125,33 @@ export function HolidayCalendar() {
         setDay("");
         setShowForm(false);
         await load();
+      } else if (res.status === 401) {
+        toast.error("Войдите в аккаунт, чтобы добавлять свои праздники");
+      } else {
+        toast.error("Не удалось добавить праздник. Попробуйте позже");
       }
     } catch {
-      toast.error("Ошибка");
+      toast.error("Ошибка сети. Проверьте подключение");
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`/api/holidays?id=${id}`, { method: "DELETE" });
-      setHolidays(holidays.filter((h) => h.id !== id));
-      toast.success("Удалено");
-    } catch {}
+      const csrf = await getCsrfToken();
+      const res = await fetch(`/api/holidays?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: csrf ? { "x-csrf-token": csrf } : undefined,
+      });
+      if (res.ok) {
+        setHolidays(holidays.filter((h) => h.id !== id));
+        toast.success("Удалено");
+      } else if (res.status === 401) {
+        toast.error("Войдите в аккаунт");
+      }
+    } catch {
+      // молча: элемент останется до следующей загрузки
+    }
   };
 
   if (loading) {

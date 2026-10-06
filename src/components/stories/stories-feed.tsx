@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 interface Story {
   id: string;
@@ -68,7 +69,7 @@ export function StoriesFeed({
       const url = confectionerId
         ? `/api/stories?confectionerId=${confectionerId}`
         : "/api/stories";
-      const res = await fetch(url);
+      const res = await csrfFetch(url);
       if (res.ok) {
         const data = await res.json();
         const stories: Story[] = data.stories || [];
@@ -215,7 +216,7 @@ function StoriesViewer({
     setPaused(false);
 
     // Отмечаем просмотр
-    fetch(`/api/stories/${story.id}/view`, { method: "POST" }).catch(() => {});
+    csrfFetch(`/api/stories/${story.id}/view`, { method: "POST" }).catch(() => {});
 
     const startTime = Date.now();
     const tick = () => {
@@ -253,7 +254,7 @@ function StoriesViewer({
     if (!story) return;
     setLiked(!liked);
     try {
-      await fetch(`/api/stories/${story.id}/like`, { method: "POST" });
+      await csrfFetch(`/api/stories/${story.id}/like`, { method: "POST" });
     } catch {}
   };
 
@@ -261,7 +262,7 @@ function StoriesViewer({
     if (!story || !replyText.trim()) return;
     setSendingReply(true);
     try {
-      const res = await fetch(`/api/stories/${story.id}/reply`, {
+      const res = await csrfFetch(`/api/stories/${story.id}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: replyText.trim() }),

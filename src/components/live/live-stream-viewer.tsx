@@ -23,6 +23,7 @@ import {
 import { useAppStore } from "@/lib/store";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/finance";
+import { csrfFetch } from "@/lib/api-client";
 
 interface LiveStream {
   id: string;
@@ -71,7 +72,7 @@ export function LiveStreamViewer({
 
   // === Присоединиться к стриму ===
   useEffect(() => {
-    fetch(`/api/live-streams/${stream.id}/join`, { method: "POST" })
+    csrfFetch(`/api/live-streams/${stream.id}/join`, { method: "POST" })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.sessionId) setSessionId(data.sessionId);
@@ -95,7 +96,7 @@ export function LiveStreamViewer({
 
   const loadMessages = async () => {
     try {
-      const res = await fetch(`/api/live-streams/${stream.id}/chat?limit=50`);
+      const res = await csrfFetch(`/api/live-streams/${stream.id}/chat?limit=50`);
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages || []);
@@ -112,7 +113,7 @@ export function LiveStreamViewer({
     if (!newMessage.trim()) return;
     setSending(true);
     try {
-      const res = await fetch(`/api/live-streams/${stream.id}/chat`, {
+      const res = await csrfFetch(`/api/live-streams/${stream.id}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -137,7 +138,7 @@ export function LiveStreamViewer({
     setLiked(true);
     setLikes(l => l + 1);
     try {
-      await fetch(`/api/live-streams/${stream.id}/like`, { method: "POST" });
+      await csrfFetch(`/api/live-streams/${stream.id}/like`, { method: "POST" });
     } catch {}
   };
 

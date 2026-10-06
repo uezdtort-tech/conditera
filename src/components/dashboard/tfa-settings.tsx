@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Shield, ShieldCheck, ShieldAlert, Copy, Check, AlertTriangle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 type Step = "idle" | "setup" | "verify" | "backup" | "disable";
 
@@ -52,7 +53,7 @@ export function TfaSettings() {
   async function handleSetup() {
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/2fa/setup", { method: "POST" });
+      const res = await csrfFetch("/api/auth/2fa/setup", { method: "POST" });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Ошибка инициализации 2FA");
@@ -76,7 +77,7 @@ export function TfaSettings() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/2fa/verify", {
+      const res = await csrfFetch("/api/auth/2fa/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: verifyCode }),
@@ -105,7 +106,7 @@ export function TfaSettings() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/2fa/disable", {
+      const res = await csrfFetch("/api/auth/2fa/disable", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: disableCode || undefined, backupCode: disableBackup || undefined }),

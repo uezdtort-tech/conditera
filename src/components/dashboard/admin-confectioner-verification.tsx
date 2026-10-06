@@ -36,6 +36,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 interface Confectioner {
   id: string;
@@ -96,7 +97,7 @@ export function AdminConfectionerVerification() {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const res = await fetch(`/api/admin/confectioners/pending?status=${filter}`);
+      const res = await csrfFetch(`/api/admin/confectioners/pending?status=${filter}`);
       if (res.ok) {
         const data = await res.json();
         setConfectioners(data.confectioners || []);
@@ -119,7 +120,7 @@ export function AdminConfectionerVerification() {
   async function handleApprove(id: string) {
     setActionLoading(true);
     try {
-      const res = await fetch("/api/admin/confectioners/approve", {
+      const res = await csrfFetch("/api/admin/confectioners/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confectionerId: id }),
@@ -146,7 +147,7 @@ export function AdminConfectionerVerification() {
     }
     setActionLoading(true);
     try {
-      const res = await fetch("/api/admin/confectioners/reject", {
+      const res = await csrfFetch("/api/admin/confectioners/reject", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

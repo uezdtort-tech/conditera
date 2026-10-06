@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { validateFile, type UploadCategory } from "@/lib/upload-config";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 interface ImageUploaderProps {
   category: UploadCategory;
@@ -64,7 +65,7 @@ export function ImageUploader({
         // const formData = new FormData();
         // formData.append("file", file);
         // formData.append("category", category);
-        // const res = await fetch("/api/upload", { method: "POST", body: formData });
+        // const res = await csrfFetch("/api/upload", { method: "POST", body: formData });
         // const data = await res.json();
         // if (!data.success) throw new Error(data.error);
         // uploadedUrls.push(data.url);

@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/finance";
+import { csrfFetch } from "@/lib/api-client";
 
 const VIOLATION_LABELS: Record<string, { label: string; color: string }> = {
   "18+": { label: "18+", color: "bg-red-500 text-white" },
@@ -123,8 +124,8 @@ function ModerationQueuePanel() {
     setLoading(true);
     try {
       const [statsRes, queueRes] = await Promise.all([
-        fetch("/api/moderation/stats"),
-        fetch(`/api/moderation/queue?status=${filter}${search ? `&search=${search}` : ""}`),
+        csrfFetch("/api/moderation/stats"),
+        csrfFetch(`/api/moderation/queue?status=${filter}${search ? `&search=${search}` : ""}`),
       ]);
       if (statsRes.ok) setStats(await statsRes.json());
       if (queueRes.ok) {
@@ -144,7 +145,7 @@ function ModerationQueuePanel() {
 
   const handleAction = async (id: string, action: string, comment?: string) => {
     try {
-      const res = await fetch(`/api/moderation/queue/${id}`, {
+      const res = await csrfFetch(`/api/moderation/queue/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ manualStatus: action, moderatorComment: comment }),
@@ -391,7 +392,7 @@ function ModerationRulesPanel() {
   const loadRules = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/moderation/rules");
+      const res = await csrfFetch("/api/moderation/rules");
       if (res.ok) {
         const d = await res.json();
         setRules(d.rules || []);
@@ -405,7 +406,7 @@ function ModerationRulesPanel() {
   }, [loadRules]);
 
   const handleToggle = async (id: string, isActive: boolean) => {
-    await fetch(`/api/moderation/rules/${id}`, {
+    await csrfFetch(`/api/moderation/rules/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ isActive: !isActive }),
@@ -415,7 +416,7 @@ function ModerationRulesPanel() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Удалить правило?")) return;
-    await fetch(`/api/moderation/rules/${id}`, { method: "DELETE" });
+    await csrfFetch(`/api/moderation/rules/${id}`, { method: "DELETE" });
     toast.success("Правило удалено");
     loadRules();
   };
@@ -510,7 +511,7 @@ function CreateRuleDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/moderation/rules", {
+      const res = await csrfFetch("/api/moderation/rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

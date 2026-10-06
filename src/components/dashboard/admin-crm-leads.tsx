@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDate } from "@/lib/finance";
+import { csrfFetch } from "@/lib/api-client";
 
 // Стадии pipeline (kanban columns)
 const STAGES = [
@@ -107,7 +108,7 @@ export function AdminLeadsTab() {
     try {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
-      const res = await fetch(`/api/crm/leads?${params}`);
+      const res = await csrfFetch(`/api/crm/leads?${params}`);
       if (res.ok) {
         const data = await res.json();
         setLeads(data.leads || []);
@@ -144,7 +145,7 @@ export function AdminLeadsTab() {
     );
 
     try {
-      const res = await fetch(`/api/crm/leads/${draggedLead.id}`, {
+      const res = await csrfFetch(`/api/crm/leads/${draggedLead.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage: stageId }),
@@ -362,7 +363,7 @@ function LeadEditDialog({
   const handleSave = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/crm/leads/${lead.id}`, {
+      const res = await csrfFetch(`/api/crm/leads/${lead.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -393,7 +394,7 @@ function LeadEditDialog({
   const handleDelete = async () => {
     if (!confirm(`Удалить лид «${lead.name}»?`)) return;
     try {
-      const res = await fetch(`/api/crm/leads/${lead.id}`, { method: "DELETE" });
+      const res = await csrfFetch(`/api/crm/leads/${lead.id}`, { method: "DELETE" });
       if (res.ok) {
         toast.success("Лид удалён");
         onUpdate();
@@ -523,7 +524,7 @@ function CreateLeadDialog({
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/crm/leads", {
+      const res = await csrfFetch("/api/crm/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -34,6 +34,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 interface Escalation {
   id: string;
@@ -103,7 +104,7 @@ export function OperatorDashboard() {
     setChatDialog(esc);
     setChatLoading(true);
     try {
-      const res = await fetch(`/api/operator/messages?escalationId=${esc.id}`);
+      const res = await csrfFetch(`/api/operator/messages?escalationId=${esc.id}`);
       if (res.ok) {
         const data = await res.json();
         setChatMessages(data.messages || []);
@@ -132,7 +133,7 @@ export function OperatorDashboard() {
       },
     ]);
     try {
-      const res = await fetch("/api/operator/messages", {
+      const res = await csrfFetch("/api/operator/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ escalationId: chatDialog.id, text }),
@@ -171,7 +172,7 @@ export function OperatorDashboard() {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const res = await fetch(`/api/operator/escalations?status=${filter}`);
+      const res = await csrfFetch(`/api/operator/escalations?status=${filter}`);
       if (res.ok) {
         const data = await res.json();
         setEscalations(data.escalations || []);
@@ -194,7 +195,7 @@ export function OperatorDashboard() {
 
   async function handleAssign(id: string) {
     try {
-      const res = await fetch("/api/operator/assign", {
+      const res = await csrfFetch("/api/operator/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ escalationId: id }),
@@ -213,7 +214,7 @@ export function OperatorDashboard() {
 
   async function handleResolve(id: string, resolution: string) {
     try {
-      const res = await fetch("/api/operator/resolve", {
+      const res = await csrfFetch("/api/operator/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ escalationId: id, resolution }),

@@ -49,6 +49,7 @@ import {
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 // ==================== CMS: РЕДАКТОР ГЛАВНОЙ СТРАНИЦЫ ====================
 export function AdminCmsHomeTab() {
@@ -485,7 +486,7 @@ export function AdminSettingsTab() {
 
   // Загружаем статус промо-попапа
   useEffect(() => {
-    fetch("/api/admin/promo-popup")
+    csrfFetch("/api/admin/promo-popup")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setPromoEnabled(data.enabled); })
       .catch(() => {});
@@ -494,7 +495,7 @@ export function AdminSettingsTab() {
   const handleTogglePromo = async () => {
     setPromoLoading(true);
     try {
-      const res = await fetch("/api/admin/promo-popup", {
+      const res = await csrfFetch("/api/admin/promo-popup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !promoEnabled }),

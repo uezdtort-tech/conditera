@@ -56,6 +56,7 @@ import {
 import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
 import type { CakeBuilderState } from "@/lib/types";
+import { csrfFetch } from "@/lib/api-client";
 
 // Тип для начинки из БД (40+ начинок, добавляются кондитерами, модерация админом)
 interface DbFilling {
@@ -142,7 +143,7 @@ export function CakeBuilderPage() {
   const loadFillings = async () => {
     setFillingsLoading(true);
     try {
-      const res = await fetch("/api/fillings/list?status=APPROVED&limit=200");
+      const res = await csrfFetch("/api/fillings/list?status=APPROVED&limit=200");
       if (res.ok) {
         const data = await res.json();
         setDbFillings(data.fillings || []);
@@ -299,7 +300,7 @@ export function CakeBuilderPage() {
       };
 
       try {
-        const res = await fetch("/api/quotes", {
+        const res = await csrfFetch("/api/quotes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(quoteBody),

@@ -15,6 +15,7 @@ import {
   ChevronUp, ChevronDown, ShoppingBag, Loader2,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
+import { getCsrfToken } from "@/lib/api-client";
 import { toast } from "sonner";
 
 interface VideoItem {
@@ -82,8 +83,19 @@ export function VideoFeed() {
         next.delete(videoId);
       } else {
         next.add(videoId);
-        // Отправляем лайк на сервер
-        fetch(`/api/video-feed/${videoId}/like`, { method: "POST" }).catch(() => {});
+        // Отправляем лайк на сервер (CSRF double-submit cookie — обязателен для мутаций)
+        void (async () => {
+          try {
+            const csrf = await getCsrfToken();
+            await fetch(`/api/video-feed/${videoId}/like`, {
+              method: "POST",
+              credentials: "include",
+              headers: csrf ? { "x-csrf-token": csrf } : undefined,
+            });
+          } catch {
+            // fire-and-forget: ошибки лайка не ломают UX
+          }
+        })();
       }
       return next;
     });

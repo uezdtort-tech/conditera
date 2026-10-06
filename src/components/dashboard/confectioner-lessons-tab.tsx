@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Edit3, Trash2, Eye, Loader2, School, Video, FileText, Users, Star, Clock, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 const LESSON_TYPES = [
   { value: "video_lesson", label: "Видеоурок" },
@@ -37,7 +38,7 @@ export function ConfectionerLessonsTab({ userId }: { userId: string }) {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/lessons?confectionerId=${userId}`);
+      const res = await csrfFetch(`/api/lessons?confectionerId=${userId}`);
       if (res.ok) { const data = await res.json(); setLessons(data.lessons || []); }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -46,7 +47,7 @@ export function ConfectionerLessonsTab({ userId }: { userId: string }) {
   const handleSave = async (lesson: any) => {
     try {
       const isEdit = !!lesson.id;
-      const res = await fetch("/api/lessons", {
+      const res = await csrfFetch("/api/lessons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(lesson),
@@ -119,7 +120,7 @@ function LessonEditDialog({ lesson, onClose, onSave }: { lesson: any; onClose: (
     setUploading(true);
     const fd = new FormData(); fd.append("file", file); fd.append("ownerType", "confectioner"); fd.append("category", "recipe");
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await csrfFetch("/api/upload", { method: "POST", body: fd });
       if (res.ok) { const data = await res.json(); setForm({ ...form, [field]: data.url }); toast.success("Загружено"); }
     } catch { toast.error("Ошибка"); }
     finally { setUploading(false); }

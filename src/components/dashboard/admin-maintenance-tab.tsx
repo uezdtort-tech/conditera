@@ -31,6 +31,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { formatDistanceToNow } from "@/lib/utils";
+import { csrfFetch } from "@/lib/api-client";
 
 interface MaintenanceLog {
   id: string;
@@ -100,7 +101,7 @@ export function AdminMaintenanceTab() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const resp = await fetch("/api/maintenance/history?limit=50");
+      const resp = await csrfFetch("/api/maintenance/history?limit=50");
       if (!resp.ok) throw new Error("Failed to load");
       const data = await resp.json();
       setLogs(data.logs || []);
@@ -120,7 +121,7 @@ export function AdminMaintenanceTab() {
   const handleBackup = async () => {
     setRunning("backup");
     try {
-      const resp = await fetch("/api/maintenance/history", {
+      const resp = await csrfFetch("/api/maintenance/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "backup" }),
@@ -138,7 +139,7 @@ export function AdminMaintenanceTab() {
   const handleCleanup = async () => {
     setRunning("cleanup");
     try {
-      const resp = await fetch("/api/maintenance/history", {
+      const resp = await csrfFetch("/api/maintenance/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "cleanup" }),

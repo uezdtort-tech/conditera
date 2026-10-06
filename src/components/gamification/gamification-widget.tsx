@@ -15,6 +15,7 @@ import {
   Trophy, Gift, Sparkles, Loader2, Check, Lock, Flame,
 } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 interface BadgeData {
   id: string;
@@ -87,8 +88,8 @@ export function GamificationWidget() {
     setLoading(true);
     try {
       const [badgesRes, challengesRes] = await Promise.all([
-        fetch("/api/gamification/badges"),
-        fetch("/api/gamification/challenges"),
+        csrfFetch("/api/gamification/badges"),
+        csrfFetch("/api/gamification/challenges"),
       ]);
 
       if (badgesRes.ok) {
@@ -115,7 +116,7 @@ export function GamificationWidget() {
   const handleClaim = async (challengeId: string) => {
     setClaiming(challengeId);
     try {
-      const res = await fetch(`/api/gamification/challenges/${challengeId}/claim`, {
+      const res = await csrfFetch(`/api/gamification/challenges/${challengeId}/claim`, {
         method: "POST",
       });
       if (res.ok) {

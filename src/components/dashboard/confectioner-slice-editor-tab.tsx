@@ -13,6 +13,7 @@ import {
 import { useAppStore } from "@/lib/store";
 import { toast } from "sonner";
 import { CakeSliceVisualizer, type SliceConfig } from "@/components/cake-slice/cake-slice-visualizer";
+import { csrfFetch } from "@/lib/api-client";
 
 interface Filling {
   id: string;
@@ -52,7 +53,7 @@ export function ConfectionerSliceEditorTab() {
   const loadFillings = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/fillings?status=APPROVED");
+      const res = await csrfFetch("/api/fillings?status=APPROVED");
       if (res.ok) {
         const data = await res.json();
         setFillings(data.fillings || []);
@@ -75,7 +76,7 @@ export function ConfectionerSliceEditorTab() {
     }
     setSavingId(filling.id);
     try {
-      const res = await fetch(`/api/fillings/${filling.id}/slice`, {
+      const res = await csrfFetch(`/api/fillings/${filling.id}/slice`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

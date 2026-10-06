@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppStore } from "@/lib/store";
+import { csrfFetch } from "@/lib/api-client";
 
 interface Filling {
   id: string;
@@ -118,7 +119,7 @@ export function AdminFillingsTab() {
         if (filterStatus !== "all") params.set("status", filterStatus);
         if (filterCategory !== "all") params.set("category", filterCategory);
         if (search) params.set("q", search);
-        const resp = await fetch(`/api/fillings/list?${params.toString()}`);
+        const resp = await csrfFetch(`/api/fillings/list?${params.toString()}`);
         if (resp.ok) {
           const data = await resp.json();
           if (data.fillings && data.fillings.length > 0) {
@@ -155,7 +156,7 @@ export function AdminFillingsTab() {
   const handleModerate = async (fillingId: string, action: "approve" | "reject") => {
     const reason = action === "reject" ? prompt("Причина отклонения:") : undefined;
     try {
-      const resp = await fetch("/api/fillings/moderate", {
+      const resp = await csrfFetch("/api/fillings/moderate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fillingId, action, rejectionReason: reason }),
@@ -201,7 +202,7 @@ export function AdminFillingsTab() {
 
     // Try API first
     try {
-      const resp = await fetch("/api/fillings/create", {
+      const resp = await csrfFetch("/api/fillings/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

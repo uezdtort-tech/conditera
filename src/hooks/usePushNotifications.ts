@@ -13,6 +13,7 @@
  *   if (isSupported && permission === "default") subscribe();
  */
 import { useState, useEffect, useCallback } from "react";
+import { csrfFetch } from "@/lib/api-client";
 
 export function usePushNotifications() {
   const [isSupported, setIsSupported] = useState(false);
@@ -46,7 +47,7 @@ export function usePushNotifications() {
       }
 
       // Get VAPID public key from backend
-      const resp = await fetch("/api/notifications/vapid-key");
+      const resp = await csrfFetch("/api/notifications/vapid-key");
       if (!resp.ok) {
         console.warn("[push] VAPID key not configured");
         return;
@@ -65,7 +66,7 @@ export function usePushNotifications() {
 
       // Send subscription to backend
       const sub = subscription.toJSON();
-      await fetch("/api/notifications/push-subscribe", {
+      await csrfFetch("/api/notifications/push-subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -90,7 +91,7 @@ export function usePushNotifications() {
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
         await sub.unsubscribe();
-        await fetch(`/api/notifications/push-subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, {
+        await csrfFetch(`/api/notifications/push-subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, {
           method: "DELETE",
         });
       }

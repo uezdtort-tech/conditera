@@ -25,6 +25,7 @@ import { CAKE_BUILDER_OPTIONS } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/finance";
 import { toast } from "sonner";
 import { Check, Save, Loader2, Truck, User, Calendar } from "lucide-react";
+import { csrfFetch } from "@/lib/api-client";
 
 interface Capabilities {
   id?: string;
@@ -81,7 +82,7 @@ export function ConfectionerCapabilitiesPanel() {
     setLoading(true);
     try {
       // Загрузить способности кондитера
-      const capsRes = await fetch("/api/confectioner/capabilities");
+      const capsRes = await csrfFetch("/api/confectioner/capabilities");
       if (capsRes.ok) {
         const capsData = await capsRes.json();
         if (capsData.capabilities) {
@@ -110,7 +111,7 @@ export function ConfectionerCapabilitiesPanel() {
       }
 
       // Загрузить начинки из БД
-      const fillingsRes = await fetch("/api/fillings/list?status=APPROVED&limit=200");
+      const fillingsRes = await csrfFetch("/api/fillings/list?status=APPROVED&limit=200");
       if (fillingsRes.ok) {
         const fillingsData = await fillingsRes.json();
         setFillings((fillingsData.fillings || []).map((f: { id: string; name: string; flavor_group: string }) => ({
@@ -130,7 +131,7 @@ export function ConfectionerCapabilitiesPanel() {
     if (!caps) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/confectioner/capabilities", {
+      const res = await csrfFetch("/api/confectioner/capabilities", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(caps),

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Save, Loader2, GraduationCap, Award, Wrench, Clock, Users, Link2 } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 const DAYS = [{ key: "mon", label: "Пн" }, { key: "tue", label: "Вт" }, { key: "wed", label: "Ср" }, { key: "thu", label: "Чт" }, { key: "fri", label: "Пт" }, { key: "sat", label: "Сб" }, { key: "sun", label: "Вс" }];
 const TECHNIQUES = ["аэрограф", "сахарная флористика", "изомальт", "шоколадные формы", "3D-печать", "ручная роспись", "темперирование шоколада", "молекулярная кухня"];
@@ -23,7 +24,7 @@ export function ConfectionerAtelierTab({ userId }: { userId: string }) {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/confectioner/atelier?userId=${userId}`);
+      const res = await csrfFetch(`/api/confectioner/atelier?userId=${userId}`);
       if (res.ok) { const data = await res.json(); setAtelier(data.atelier); }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -32,7 +33,7 @@ export function ConfectionerAtelierTab({ userId }: { userId: string }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/confectioner/atelier", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(atelier) });
+      const res = await csrfFetch("/api/confectioner/atelier", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(atelier) });
       if (res.ok) toast.success("Информация об ателье сохранена");
       else toast.error("Ошибка сохранения");
     } catch { toast.error("Ошибка сети"); }
@@ -45,7 +46,7 @@ export function ConfectionerAtelierTab({ userId }: { userId: string }) {
     const file = e.target.files?.[0]; if (!file) return;
     const fd = new FormData(); fd.append("file", file); fd.append("ownerType", "confectioner"); fd.append("category", "portfolio");
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const res = await csrfFetch("/api/upload", { method: "POST", body: fd });
       if (res.ok) { const data = await res.json(); update("workshopPhotos", [...(atelier.workshopPhotos || []), data.url]); toast.success("Фото загружено"); }
     } catch { toast.error("Ошибка загрузки"); }
   };

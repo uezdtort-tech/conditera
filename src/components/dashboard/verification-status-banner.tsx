@@ -25,6 +25,7 @@ import {
   Info,
 } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 
 interface VerificationInfo {
   status: "pending" | "approved" | "rejected" | "needs_revision";
@@ -40,7 +41,7 @@ export function VerificationStatusBanner() {
   async function loadStatus() {
     try {
       // Используем gate endpoint
-      const res = await fetch("/api/confectioner/status");
+      const res = await csrfFetch("/api/confectioner/status");
       if (res.ok) {
         const data = await res.json();
         setInfo(data);
@@ -59,7 +60,7 @@ export function VerificationStatusBanner() {
   async function handleResubmit() {
     setSubmitting(true);
     try {
-      const res = await fetch("/api/confectioner/resubmit", {
+      const res = await csrfFetch("/api/confectioner/resubmit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });

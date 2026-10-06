@@ -46,6 +46,7 @@ import {
 } from "@/components/dashboard/_shared";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { RecipeMarketplace, RecipePurchase } from "@/lib/supabase/types";
+import { csrfFetch } from "@/lib/api-client";
 
 const TABS = [
   { id: "overview", label: "Обзор", icon: TrendingUp },
@@ -146,7 +147,7 @@ function useCreateRecipe() {
       ingredients_json: Array<{ name: string; qty: string; unit: string }>;
       is_published: boolean;
     }) => {
-      const response = await fetch("/api/recipes/marketplace", {
+      const response = await csrfFetch("/api/recipes/marketplace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
@@ -174,7 +175,7 @@ function useDeleteRecipe() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (recipeId: string) => {
-      const response = await fetch(`/api/recipes/marketplace/${recipeId}`, {
+      const response = await csrfFetch(`/api/recipes/marketplace/${recipeId}`, {
         method: "DELETE",
       });
       if (!response.ok) {
