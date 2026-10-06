@@ -7518,3 +7518,25 @@ Stage Summary:
 - Hydration-ошибка устранена (причина: стейл-компиляция Turbopack + платформенный kill потомков shell между вызовами)
 - DB-слой снова полностью работает на встроенном PG; video-feed отдаёт реальные данные вместо мока
 - Незакрытое (заметено, не чинено): предупреждение "[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set" в браузерной консоли — admin-модуль затягивается в клиентский бандл (кандидат на вынос server-only); POST /api/video-feed/[videoId]/like не существует (фронт стучится в 404, молча)
+
+---
+Task ID: improvement-round-2
+Agent: main (Super Z)
+Task: Улучшение проекта — CSRF-свип, n8n-аудит, БД-оптимизация, UI/контент, push
+
+Work Log:
+- Push: 7 накопленных коммитов отправлены в origin/main (32dc45b..22974b3)
+- [client-bundle] Устранена утечка supabase/admin в app-client (cake-builder → regional-pricing → admin): чистый helper pricing-stats.ts + публичный GET /api/pricing/regional (s-maxage=300); региональный прайсинг теперь изоморфный с fallback на базовый множитель. Предупреждение из консоли браузера исчезло
+- [video-feed] Добавлен отсутствующий POST /api/video-feed/[videoId]/like: атомарный SQL-инкремент likesCount, троттлинг 1/IP/видео/час (429 + Retry-After), только active. Верифицировано: 342→343, повтор 429
+- [CSRF-свип] Системный баг: 25 клиентских компонентов делали мутации сырым fetch() → 403 от proxy (админ-табы, AI, геймификация, сторис, live, 2FA). Добавлен csrfFetch() в api-client (кэш токена 10 мин, smart-retry при CSRF-403), кодемод 77 вызовов в 25 файлах; GET — passthrough. Один файл после кодемода починен руками (import внутрь import type)
+- [holidays] GET /api/holidays стал публичным (гостям системные праздники — контент; user: []), POST/DELETE остались auth. Виджет «Календарь праздников» работает для гостей (11 праздников), 401-шум из логов исчез
+- [n8n] Аудит: 25/25 JSON валидны, 9/9 событий эмитятся и покрыты event-bus (ложная тревога из-за regex [a-z.] без _). AI-модели: Ollama qwen2.5:7b (LLM_MODEL/OLLAMA_HOST), JSON-режим, temp 0.3 — конфиг корректный; Ollama в sandbox отсутствует (prod-топология). Добавлены retryOnFail(3×5s) на идемпотентные GET-httpRequest в 15 cron-воркфлоу; POST не тронуты. emitEvent получил dead-letter в audit_log (n8n.dead-letter, double fail-safe)
+- [БД] Миграция 0051: составные индексы products(status,reviews_count DESC)/product_reviews(helpful_count,created_at)/video_feed_items(rating,createdAt)/service_products(created_at) по партиалам фильтров + DROP дубля idx_orders_created_at + ANALYZE. RLS: 125 таблиц с RLS, 311 политик; confectioner_transactions — fail-closed (осознанно); anon-доступ к PII-таблицам через шим → 403 (проверено curl)
+- [Инцидент] В середине сессии упал встроенный PG + dev.log исчез (сандинг-событие); initdb пересоздал кластер пустым → полная реинициализация db:setup (218 таблиц, 12 продуктов, демо-юзеры), сервер перезапущен
+- Верификация: tsc 0 / eslint 0; браузер: консоль чистая (нет hydration, нет admin-warning), SPA-навигация ок, holidays-виджет для гостей, mobile 375px overflowX=0, футер на месте
+
+Stage Summary:
+- Класс багов «мутации без CSRF» (25 файлов, 77 вызовов) закрыт централизованно через csrfFetch
+- n8n: наблюдаемость (dead-letter) + устойчивость (ретраи); модели — Ollama qwen2.5:7b, env-overridable
+- БД: горячие сортировки покрыты индексами; RLS-постура fail-closed подтверждена
+- Открытое: RLS-ревизия 90 no-RLS таблиц (доступ контролируется на уровне роутов — проверено e2e 46/46); merge видео-фид в SPA-вид главной (компонент монтируется, фид не виден)
