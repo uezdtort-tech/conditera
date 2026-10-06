@@ -8,6 +8,9 @@
  *  - заголовок X-N8N-Secret если задан N8N_WEBHOOK_SECRET;
  *  - AbortController 3s; ловим ВСЁ — событие никогда не ломает основной путь
  *    (эмиттер вызывается после успешной записи в БД и не должен ронять роут).
+ *  - при сбое доставки событие уходит в dead-letter (audit_log, действие
+ *    "n8n.dead-letter") — потерянные события видны в админке, а не только
+ *    в консоли. Сам dead-letter тоже fail-safe (double try/catch).
  *
  * Вызов на сайтах: `void emitEvent(...).catch(() => {})` — но функция async,
  * чтобы вызывающий МОГ дождаться в некритичных фоновых задачах.
@@ -66,8 +69,36 @@ export async function emitEvent(
     });
   } catch (err) {
     // Никогда не бросаем: сбой n8n не должен влиять на бизнес-путь
-    console.warn(`[n8n] emitEvent(${type}) failed (ignored):`, (err as Error)?.message);
+    const msg = (err as Error)?.message || String(err);
+    console.warn(`[n8n] emitEvent(${type}) failed (ignored):`, msg);
+    await deadLetter(type, payload, msg);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Dead-letter: недоставленное событие фиксируем в audit_log.
+ * Динамический импорт — happy path не тянет зависимости, сбои глотаем.
+ */
+async function deadLetter(
+  type: ConditeraEvent,
+  payload: Record<string, unknown>,
+  error: string
+): Promise<void> {
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    await supabaseAdmin.from("audit_log").insert({
+      action: "n8n.dead-letter",
+      entity_type: "event",
+      entity_id: type,
+      metadata: { type, payload, error, deadLetteredAt: new Date().toISOString() },
+      created_at: new Date().toISOString(),
+    });
+  } catch (dlErr) {
+    console.warn(
+      "[n8n] dead-letter write failed (event lost):",
+      (dlErr as Error)?.message
+    );
   }
 }
