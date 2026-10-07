@@ -7985,3 +7985,20 @@ Work Log:
 Stage Summary:
 - Цепочка ТЗ §10 замкнута: событие → уведомление (metadata.orderId) → переход к заказу из колокола; настройки реальны (0059 применена setup.mjs).
 - tsc 0 / lint 0; финальная регрессия — оркестратор.
+
+---
+Task ID: p1-orchestrator
+Agent: Z.ai Code (orchestrator P1 — продажа, заказ и повторная покупка)
+Task: ТЗ P1 — клиентский golden path (аудит → фиксы → недостающие фичи → браузерная верификация)
+
+Work Log:
+- Phase 0 аудит: 3 explore-агента (каталог/карточка/медиа; конструктор/корзина/checkout/оплата; кабинет/чат/уведомления/отзывы/повтор). Таблица работает/частично/сломано/отсутствует собрана.
+- Волна 1 параллельно: p1-a (путь покупки) + p1-c (кабинет клиента). Волна 2: p1-b (чат по заказу) + p1-d (каталог) + p1-e (уведомления); p1-b/e упали по таймауту после завершения кода — worklog дописан оркестратором, p1-d возобновлён и завершён.
+- Верификация браузером: логин customer@demo.ru → кабинет (кнопки отзыв/повтор/проблема/отмена/чат на правильных статусах) → диалог отзыва (звёзды+текст; 409-кейс корректен) → повтор заказа (diff «цена изменилась» → корзина) → checkout 2 шага (получатель/получение/адрес/дата/комментарий → подтверждение с составом и способами оплаты) → availability-гейт 422 с тостом → оплата stub → /checkout/success («Заказ принят», состав, повторная оплата) → deep-link /dashboard?tab=orders&orderId=X (ring-2) → metadata.orderId в notifications (БД) → HOME «Сегодня» ↔ BUSINESS «Производственный центр» переключатель → 375px: / /catalog /product /checkout /dashboard /cake-builder /reviews — h-scroll 0.
+- Найдено и исправлено оркестратором: (1) reviews-mine кнопка не учитывала товар-уровень дедупа (1045 vs 1048 один товар → 409 из UI); (2) payment/create 503 в dev при незарегистрированном шлюзе — stub-редирект вне production (production прежний 503); (3) p1-d демо-данные production_time_hours=48/72 ломали golden path (CAPACITY_EXCEEDED: 2880мин > окно 540) и acceptance (MISSING_PRODUCT_DATA при NULL) — сброс verify-товара в NULL, bento/cupcakes=6, korovka=12; (4) 375px: customer-dashboard grid без grid-cols-1 (implicit track auto → 726px aside), cake-builder header min-w-0/truncate, breadcrumbs max-w-full, product confectioner row truncate.
+- Регрессия: vitest 839/839 (33 файла; +27 pricing), tsc 0, lint 0; verify-скрипты упираются в OOM-киллы песочницы 4GB (next-server RSS 3.2GB): lifecycle-verify 29✔ до OOM на транспорте (весь сценарий №1 E2E зелёный), все ключевые роуты прогреты и проверены вручную curl (assign/accept/breakdown/purchase-draft/acceptance-check/media/checkout 200/201/422-ожидаемо); product-media-verify прошёл 40+ чеков до OOM.
+
+Stage Summary:
+- Golden path замкнут: Каталог → товар (отзывы/срок/бейдж наличия) → конструктор → корзина (snapshot) → checkout (серверная истина: цена/промокод/доставка, idempotency-key, availability-гейт) → оплата → /checkout/success → чат по заказу → готово/передача (P0.5) → отзыв → повторный заказ. HOME/BUSINESS переключаются, ENTERPRISE не развивался (арх. точки сохранены).
+- Артефакты: 50 файлов, +5209/-778; миграции 0057/0058/0059; новые API /api/wishlist, POST /api/reviews, GET /api/orders/[id]; коммит c01ecda.
+- Вне P1 (бэклог): ops-center-verify fixture drift (DEMO-1048 из удалённого временного скрипта — сид-ops-center заказы не создаёт); multi-day production planning (товары с production_time_hours > рабочего окна всегда 422); дубли ORDER_CREATED в notifications (n8n scheduled_for ×3) — дедуп-ключи; v2-кабинеты дрейфуют от v1; polling статуса на success; PRISMA-схема дрейфует от SQL-миграций (runtime на Supabase REST).
