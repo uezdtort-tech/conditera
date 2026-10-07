@@ -25,6 +25,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 // GoTrue (/auth/v1 — 501-стаб в локальном runtime) и всегда отдавал 401.
 import { getUserFromRequest } from "@/lib/auth";
 import { calculateDelivery } from "@/lib/finance";
+import { checkAcceptance } from "@/lib/ops/acceptance"; // P0.5 §29: capacity/inventory/deadline gate
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 
@@ -142,6 +143,51 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const confectionerId = (products.find(
       (p) => p.id === cartItems[0].product_id
     ) as { confectioner_id?: string | null } | undefined)?.confectioner_id ?? null;
+
+    // 3.5 P0.5 §29: Acceptance Engine — проверка выполнимости ДО создания заказа.
+    // Блокируем ТОЛЬКО недоступность (capacity/deadline/закупка после срока);
+    // предупреждения (available_with_warning) не блокируют оплату.
+    try {
+      const loadedItems = cartItems.map((c) => ({
+        productId: c.product_id,
+        quantity: c.quantity,
+      }));
+      const itemsData = await (async () => {
+        const { loadProductItemsData } = await import("@/lib/ops/acceptance");
+        return loadProductItemsData(loadedItems);
+      })();
+      const acceptance = await checkAcceptance({
+        items: itemsData,
+        assignedConfectionerId: confectionerId,
+        deliveryDate: deliveryDate ?? null,
+        deliveryTimeWindow: null,
+        deliveryTime: null,
+      });
+      if (!acceptance.canAccept) {
+        const nextWindow = acceptance.alternativeWindows[0];
+        return NextResponse.json(
+          {
+            error:
+              "На выбранное время заказ выполнить не получится. " +
+              (nextWindow
+                ? `Ближайшее доступное время — ${nextWindow.date} ${nextWindow.start}.`
+                : "Попробуйте другую дату."),
+            availability: acceptance.availability,
+            reasons: acceptance.reasons,
+            suggestions: acceptance.suggestions,
+            alternativeWindows: acceptance.alternativeWindows,
+          },
+          { status: 422 }
+        );
+      }
+    } catch (accErr) {
+      // Движок недоступен/ошибка — НЕ блокируем checkout (fail-open,
+      // документировано): заказ создаётся, риск пересчитается при назначении.
+      console.warn(
+        "[checkout] acceptance check failed (fail-open):",
+        accErr instanceof Error ? accErr.message : accErr
+      );
+    }
 
     // 4. Создаём order (через admin client)
     // NOTE: number генерируем в коде — триггер generate_order_number в локальном

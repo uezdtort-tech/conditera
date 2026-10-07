@@ -44,7 +44,10 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       .maybeSingle();
 
     if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
-    if (order.confectioner_id !== conf.id) {
+    // orders.confectioner_id — UUID пользователя (products.confectioner_id →
+    // auth.users), а НЕ confectioners.id (cuid). Сравнение с conf.id было
+    // ошибкой — ни один кондитер не мог принять заказ (всегда 403).
+    if (order.confectioner_id !== user.id) {
       return NextResponse.json({ error: "Заказ назначен другому кондитеру" }, { status: 403 });
     }
     if (order.status !== "PENDING") {

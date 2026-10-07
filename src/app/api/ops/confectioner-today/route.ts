@@ -22,6 +22,8 @@ import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
 import { getPool } from "@/lib/postgrest/pool";
 import { materializeOpsTasks, type OpsScanStats } from "@/lib/ops/rules";
+import { getCapacityDay } from "@/lib/ops/capacity";
+import { layoutPlanTimeline, type PlannedStage } from "@/lib/ops/production";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -217,6 +219,156 @@ export async function GET(request: NextRequest) {
     orderShapeError("messagesUnread", err);
   }
 
+  // ========================================================================
+  // P0.5: Production schedule + capacity + next action (ТЗ §31)
+  // ========================================================================
+
+  // Локальная дата (совпадает с CURRENT_DATE сервера БД), не UTC
+  const _now = new Date();
+  const todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, "0")}-${String(_now.getDate()).padStart(2, "0")}`;
+
+  // Ёмкость на сегодня (окна, загрузка, доступно)
+  let capacity: {
+    utilizationPercent: number;
+    freeMinutes: number;
+    busyMinutes: number;
+    workdayStartMinute: number;
+    workdayEndMinute: number;
+    isDefault: boolean;
+  } | null = null;
+  try {
+    const view = await getCapacityDay(ownerId, todayStr);
+    capacity = {
+      utilizationPercent: view.utilizationPercent,
+      freeMinutes: view.freeMinutes,
+      busyMinutes: view.busyMinutes,
+      workdayStartMinute: view.config.workdayStartMinute,
+      workdayEndMinute: view.config.workdayEndMinute,
+      isDefault: view.config.isDefault,
+    };
+  } catch (err) {
+    orderShapeError("capacity", err);
+  }
+
+  // Производственный план сегодня: заказы с резервами на сегодня + их чеклисты
+  interface PlanEntry {
+    orderId: string;
+    orderNumber: string;
+    status: string;
+    startMinute: number;
+    endMinute: number;
+    startTime: string;
+    endTime: string;
+    estimatedMinutes: number;
+    stages: PlannedStage[];
+    nextStage: string | null;
+    riskLevel: string | null;
+  }
+  let productionPlan: PlanEntry[] = [];
+  try {
+    const { rows } = await pool.query<{
+      order_id: string;
+      number: string;
+      status: string;
+      start_minute: number;
+      end_minute: number;
+      estimated_minutes: number | null;
+      risk_level: string | null;
+    }>(
+      `SELECT cr.order_id::text, o.number, o.status::text,
+              cr.start_minute, cr.end_minute, cr.estimated_minutes,
+              p.risk_level
+       FROM public.capacity_reservations cr
+       JOIN public.orders o ON o.id = cr.order_id
+       LEFT JOIN public.order_production p ON p.order_id = o.id
+       WHERE cr.confectioner_id = $1::uuid
+         AND cr.reserved_date = CURRENT_DATE
+         AND cr.status IN ('reserved','confirmed')
+         AND o.status NOT IN ('CANCELLED','REFUNDED')
+       ORDER BY cr.start_minute`,
+      [ownerId]
+    );
+
+    // Чеклисты всех заказов плана одним SQL (без N+1, ТЗ §52)
+    const ids = rows.map((r) => r.order_id);
+    const stagesByOrder = new Map<string, Array<{ stage_key: string; label: string; sort_order: number; is_done: boolean }>>();
+    if (ids.length > 0) {
+      const st = await pool.query<{
+        order_id: string;
+        stage_key: string;
+        label: string;
+        sort_order: number;
+        is_done: boolean;
+      }>(
+        `SELECT order_id::text, stage_key, label, sort_order, is_done
+         FROM public.order_production_checklist
+         WHERE order_id = ANY($1::uuid[])
+         ORDER BY sort_order`,
+        [ids]
+      );
+      for (const s of st.rows) {
+        const list = stagesByOrder.get(s.order_id) ?? [];
+        list.push(s);
+        stagesByOrder.set(s.order_id, list);
+      }
+    }
+
+    productionPlan = rows.map((r) => {
+      const stages = stagesByOrder.get(r.order_id) ?? [];
+      const est = r.estimated_minutes ?? Math.max(60, r.end_minute - r.start_minute);
+      const laid = layoutPlanTimeline({
+        estimatedMinutes: est,
+        startMinute: r.start_minute,
+        stages: stages.map((s) => ({
+          id: "",
+          order_id: r.order_id,
+          stage_key: s.stage_key,
+          label: s.label,
+          sort_order: s.sort_order,
+          is_done: s.is_done,
+          done_at: null,
+          done_by: null,
+        })),
+      });
+      const nextStage = laid.find((s) => !s.isDone) ?? null;
+      return {
+        orderId: r.order_id,
+        orderNumber: r.number,
+        status: r.status,
+        startMinute: r.start_minute,
+        endMinute: r.end_minute,
+        startTime: `${String(Math.floor(r.start_minute / 60)).padStart(2, "0")}:${String(r.start_minute % 60).padStart(2, "0")}`,
+        endTime: `${String(Math.floor(r.end_minute / 60)).padStart(2, "0")}:${String(r.end_minute % 60).padStart(2, "0")}`,
+        estimatedMinutes: est,
+        stages: laid,
+        nextStage: nextStage ? nextStage.label : null,
+        riskLevel: r.risk_level,
+      };
+    });
+  } catch (err) {
+    orderShapeError("productionPlan", err);
+  }
+
+  // Next action (ТЗ §31): самый ранний незавершённый шаг плана сегодня
+  let nextAction: { orderId: string; orderNumber: string; action: string } | null = null;
+  if (productionPlan.length > 0) {
+    const first = productionPlan[0];
+    nextAction = {
+      orderId: first.orderId,
+      orderNumber: first.orderNumber,
+      action: first.nextStage
+        ? `Начать «${first.nextStage}» по заказу №${first.orderNumber}`
+        : `Передать заказ №${first.orderNumber}`,
+    };
+  }
+
+  // Attention (ТЗ §31): риск-заказы, дефициты, неотвеченные чаты
+  const attention = {
+    atRiskOrders: productionPlan.filter((p) => p.riskLevel === "ORANGE" || p.riskLevel === "RED").length,
+    lowStockItems: lowStock.length,
+    unansweredChats: messagesUnread,
+  };
+
   return NextResponse.json({
     scannedAt: stats?.scannedAt ?? null,
     tasks,
@@ -226,5 +378,10 @@ export async function GET(request: NextRequest) {
     purchaseDrafts,
     revenueToday,
     messagesUnread,
+    // P0.5:
+    capacity,
+    productionPlan,
+    nextAction,
+    attention,
   });
 }
