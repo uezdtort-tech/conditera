@@ -59,6 +59,7 @@ import {
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useLiveProductDetail } from "@/lib/supabase/use-marketplace";
+import type { Review } from "@/lib/types";
 
 // ==== Хелперы структурированных полей карточки (миграция 0052) ====
 
@@ -94,6 +95,94 @@ function formatProductionTime(hours: number): string {
     : `от ${hours} ч`;
 }
 
+// ==== Отзывы карточки (live-данные GET /api/products/[id]) ====
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "П";
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function formatReviewDate(iso: string): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/**
+ * ProductReviewsList — список реальных отзывов товара (approved, из БД).
+ * Маппер отзыва защищает от отсутствующих полей, здесь — только рендер.
+ */
+function ProductReviewsList({ reviews }: { reviews: Review[] }) {
+  return (
+    <div className="space-y-5">
+      {reviews.map((review, i) => {
+        const dateLabel = formatReviewDate(review.date);
+        return (
+          <div key={review.id || `review-${i}`} className="flex gap-3">
+            <Avatar className="h-10 w-10 shrink-0">
+              {review.avatar && (
+                <AvatarImage src={review.avatar} alt={review.author} />
+              )}
+              <AvatarFallback>{initialsOf(review.author)}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-sm font-medium">{review.author}</span>
+                <span
+                  className="flex items-center gap-0.5"
+                  aria-label={`Оценка ${review.rating} из 5`}
+                >
+                  {Array.from({ length: 5 }).map((_, s) => (
+                    <Star
+                      key={s}
+                      className={`h-3.5 w-3.5 ${
+                        s < review.rating
+                          ? "fill-amber-400 text-amber-400"
+                          : "text-border"
+                      }`}
+                    />
+                  ))}
+                </span>
+                {dateLabel && (
+                  <span className="text-xs text-muted-foreground">{dateLabel}</span>
+                )}
+              </div>
+              {review.text && (
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  {review.text}
+                </p>
+              )}
+              {(review.photos?.length ?? 0) > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {review.photos!.map((src) => (
+                    <img
+                      key={src}
+                      src={src}
+                      alt={`Фото покупателя: ${review.author}`}
+                      className="h-16 w-16 rounded-md border object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ProductPage() {
   const nav = useAppStore((s) => s.nav);
   const products = useAppStore((s) => s.products);
@@ -113,6 +202,10 @@ export function ProductPage() {
   // актуальные поля карточки — store-версия (список) служит мгновенным каркасом.
   const detail = useLiveProductDetail(productId);
   const product = detail.data?.product || storeProduct || undefined;
+  // Отзывы только из live-детализации (approved + имена авторов из БД);
+  // store-версия отзывов не содержит — при недогрузке показываем прежнюю
+  // заглушку/пустое состояние.
+  const liveReviews = detail.data?.reviews ?? [];
 
   const [quantity, setQuantity] = useState(1);
   const [selectedFilling, setSelectedFilling] = useState(0);
@@ -408,8 +501,14 @@ export function ProductPage() {
                   ({product.reviewsCount} отзывов)
                 </span>
               </div>
-              <span className="text-muted-foreground">•</span>
-              <span className="text-muted-foreground">{product.prepTime} готовка</span>
+              {product.prepTime && (
+                <>
+                  <span className="text-muted-foreground">•</span>
+                  <span className="text-muted-foreground">
+                    {product.prepTime} готовка
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -556,15 +655,15 @@ export function ProductPage() {
                   <AvatarImage src={confectioner.avatar} alt={confectioner.businessName} />
                   <AvatarFallback>{confectioner.businessName.slice(0, 2)}</AvatarFallback>
                 </Avatar>
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold">{confectioner.businessName}</span>
+                    <span className="font-semibold truncate">{confectioner.businessName}</span>
                     {confectioner.verified && (
                       <Check className="h-4 w-4 text-primary fill-primary/20" />
                     )}
                   </div>
-                  <div className="text-xs text-muted-foreground flex items-center gap-2">
-                    <span>{confectioner.city}</span>
+                  <div className="text-xs text-muted-foreground flex items-center gap-2 min-w-0">
+                    <span className="truncate">{confectioner.city}</span>
                     <span>•</span>
                     <span>⭐ {confectioner.rating.toFixed(1)}</span>
                     <span>•</span>
@@ -943,7 +1042,7 @@ export function ProductPage() {
         </TabsList>
 
         <TabsContent value="reviews" className="mt-6">
-          {product.reviewsCount > 0 ? (
+          {product.reviewsCount > 0 || liveReviews.length > 0 ? (
             <Card className="p-6 max-w-3xl">
               <div className="text-center">
                 <div className="font-display text-4xl font-bold">
@@ -973,10 +1072,15 @@ export function ProductPage() {
               <Separator className="my-4" />
               {/* pay4: распределение оценок раньше было захардкожено
                   (78/15/5/2%) — убрано до подключения реальной агрегации */}
-              <p className="text-sm text-muted-foreground">
-                Подробные отзывы покупателей появятся здесь после подключения
-                публичного отображения отзывов.
-              </p>
+              {liveReviews.length > 0 ? (
+                // live-отзывы из GET /api/products/[id] (approved + профили)
+                <ProductReviewsList reviews={liveReviews} />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Подробные отзывы покупателей появятся здесь после подключения
+                  публичного отображения отзывов.
+                </p>
+              )}
             </Card>
           ) : (
             <Card className="p-6 max-w-3xl text-center">

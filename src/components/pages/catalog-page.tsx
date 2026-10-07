@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,6 +60,26 @@ export function CatalogPage() {
   const [sortBy, setSortBy] = useState<string>("popular");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
+  // Реальный потолок цен каталога: сид содержит товары дороже 15000 ₽
+  // (свадебный торт 18500 ₽) — жёсткий max прятал их из выдачи.
+  const maxPrice = useMemo(
+    () => Math.max(15000, ...products.map((p) => p.price || 0)),
+    [products]
+  );
+
+  // Синхронизация верхней границы фильтра с реальным max: если пользователь
+  // ещё не трогал цену (значение равно прежнему потолку) — поднимаем до нового.
+  const lastMaxPriceRef = useRef(15000);
+  useEffect(() => {
+    const prevMax = lastMaxPriceRef.current;
+    if (maxPrice !== prevMax) {
+      // prevMax фиксируем в локальной переменной: updater React вызовется
+      // позже, когда ref уже будет перезаписан
+      setPriceRange(([lo, hi]) => (hi === prevMax ? [lo, maxPrice] : [lo, hi]));
+      lastMaxPriceRef.current = maxPrice;
+    }
+  }, [maxPrice]);
+
   // AI-фильтры умного поиска: исключения (аллергены), порции, ключевые слова
   const [aiExclude, setAiExclude] = useState<string[]>(initialAiFilters?.exclude ?? []);
   const [aiServings, setAiServings] = useState<number>(initialAiFilters?.guests ?? 0);
@@ -85,7 +105,11 @@ export function CatalogPage() {
       result = result.filter((p) => p.category === activeCategory);
     }
     result = result.filter(
-      (p) => p.price >= priceRange[0] && p.price <= priceRange[1]
+      (p) =>
+        p.price >= priceRange[0] &&
+        // при верхней границе = max все товары видимы (слайдер с шагом 100
+        // не всегда может точно встать на maxPrice)
+        (priceRange[1] >= maxPrice || p.price <= priceRange[1])
     );
     if (selectedConfectioners.length > 0) {
       result = result.filter((p) =>
@@ -150,12 +174,12 @@ export function CatalogPage() {
         result.sort((a, b) => b.reviewsCount - a.reviewsCount);
     }
     return result;
-  }, [products, searchQuery, activeCategory, priceRange, selectedConfectioners, onlyHit, paymentFilters, tasteFilters, minRating, confectioners, sortBy, aiServings, aiKeywords, aiExclude]);
+  }, [products, searchQuery, activeCategory, priceRange, selectedConfectioners, onlyHit, paymentFilters, tasteFilters, minRating, confectioners, sortBy, aiServings, aiKeywords, aiExclude, maxPrice]);
 
   // Применение фильтров из умного поиска (вариант="compact") к локальному состоянию каталога
   const applyAiFilters = (f: AiSearchFilters) => {
     if (f.category) setActiveCategory(f.category);
-    if (f.budget !== null && f.budget > 0) setPriceRange([0, Math.min(f.budget, 15000)]);
+    if (f.budget !== null && f.budget > 0) setPriceRange([0, Math.min(f.budget, maxPrice)]);
     setAiServings(f.guests ?? 0);
     setAiExclude(f.exclude);
     setAiKeywords(f.keywords);
@@ -222,7 +246,7 @@ export function CatalogPage() {
             value={priceRange}
             onValueChange={(v) => setPriceRange(v as [number, number])}
             min={0}
-            max={15000}
+            max={maxPrice}
             step={100}
             className="mb-3"
           />
@@ -362,7 +386,7 @@ export function CatalogPage() {
         className="w-full"
         onClick={() => {
           setActiveCategory("all");
-          setPriceRange([0, 15000]);
+          setPriceRange([0, maxPrice]);
           setSelectedConfectioners([]);
           setOnlyHit(false);
           setPaymentFilters([]);
@@ -504,7 +528,7 @@ export function CatalogPage() {
                 onClick={() => {
                   setSearchQuery("");
                   setActiveCategory("all");
-                  setPriceRange([0, 15000]);
+                  setPriceRange([0, maxPrice]);
                   setSelectedConfectioners([]);
                   setOnlyHit(false);
                   setPaymentFilters([]);

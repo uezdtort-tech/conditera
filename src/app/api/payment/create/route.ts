@@ -73,6 +73,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
     if (!isYookassaConfigured()) {
+      // P1: повторная оплата из кабинета/success. Вне production, как и
+      // /api/checkout (STUB_PAYMENT_URL), отдаём stub-редирект на success,
+      // а не 503 — иначе «оплатить позже» из кабинета в dev невозможна.
+      // В production жёсткий 503: без шлюза деньги не имитируем.
+      if (process.env.NODE_ENV !== "production") {
+        return NextResponse.json({
+          paymentUrl: `/checkout/success?orderId=${orderId}&demo=true`,
+          paymentId: `stub_${Date.now()}`,
+          isStub: true,
+        });
+      }
       return NextResponse.json({ error: "Платёжный шлюз не настроен" }, { status: 503 });
     }
 

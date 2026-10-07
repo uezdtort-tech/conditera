@@ -351,6 +351,7 @@ export async function POST(
         orderNumber: order.number,
         statusLabel: "назначен на вас",
       },
+      metadata: { orderId: id },
     }).catch(() => {});
 
     // --- Авто-resolve ORDER_UNASSIGNED + пересчёт риска (ТЗ §25) ---

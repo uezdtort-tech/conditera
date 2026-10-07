@@ -64,7 +64,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const list = notifications || [];
+    const list = (notifications || []).map((n) => ({
+      ...n,
+      // read-флаг для удобства клиентов (сырой read_at тоже остаётся в ответе,
+      // как и metadata — нужна для перехода к заказу из колокола, ТЗ §10)
+      read: (n as { read_at?: string | null }).read_at != null,
+    }));
     const lastItem = list.length > 0 ? list[list.length - 1] : null;
     const nextCursor = lastItem ? (lastItem as any).created_at : null;
 

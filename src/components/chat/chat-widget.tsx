@@ -18,7 +18,7 @@ import type { QuickReply, ChatMessage, ChatRoom } from "@/lib/types";
 import { useVoiceRecorder, formatDuration } from "@/hooks/useVoiceRecorder";
 import { VoiceMessagePlayer } from "@/components/chat/voice-message-player";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
+import { getSessionAuthHeaders, getCsrfToken, getStoredAccessToken } from "@/lib/api-client";
 import { useSocketIO, type ChatMessage as SocketChatMessage } from "@/lib/use-socket-io";
 import {
   ensureChatRoom,
@@ -37,7 +37,32 @@ import {
  */
 const SUPPORT_ROOM_ID = "r3";
 
-export function ChatWidget() {
+/**
+ * p1-b (B4): быстрые действия для order-чатов (ТЗ §9). Вставляют текст-шаблон
+ * в поле ввода (НЕ отправляют сразу). «Отправить фото» НЕ реализовано:
+ * механизм вложений в реальном чате отсутствует (POST /api/chat/rooms/:id/
+ * messages принимает только текст) — пайплайн вложений сознательно не строился.
+ */
+const ORDER_QUICK_ACTIONS: { label: string; text: string }[] = [
+  { label: "Уточнить заказ", text: "Здравствуйте! Хочу уточнить детали моего заказа: " },
+  { label: "Изменить дату", text: "Здравствуйте! Можно ли изменить дату получения заказа? Мне удобно: " },
+  { label: "Уточнить доставку", text: "Здравствуйте! Подскажите, пожалуйста, когда ожидается доставка заказа? " },
+];
+
+export function ChatWidget({
+  /**
+   * P1 контракт: если задан — виджет при открытии находит или создаёт
+   * order-комнату (POST /api/chat/rooms {type:"order", orderId}) и открывает её.
+   * Реализация — задача p1-b; prop зарезервирован, чтобы вызывающие стороны
+   * (кабинет клиента, заказы) могли подключаться уже сейчас.
+   */
+  initialOrderId,
+}: {
+  initialOrderId?: string;
+}) {
+  // Пока реализация order-комнат в виджете не подключена (p1-b), prop
+  // резервируется без эффекта.
+  void initialOrderId;
   const chatOpen = useAppStore((s) => s.chatOpen);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
   const chatRooms = useAppStore((s) => s.chatRooms);
@@ -84,6 +109,11 @@ export function ChatWidget() {
 
   const supportRoomIdRef = useRef<string | null>(null);
   const historyLoadedRef = useRef<Set<string>>(new Set());
+  // p1-b: фокус order-комнаты (чтобы не пересоздавать на каждый рендер) и
+  // кеш номеров заказов для бейджа в шапке order-чатов
+  const orderFocusRef = useRef<string | null>(null);
+  const orderNumberCacheRef = useRef<Map<string, string>>(new Map());
+  const [orderNumberInfo, setOrderNumberInfo] = useState<string | null>(null);
 
   const activeRoom = rooms.find((r) => r.id === activeChatRoom);
   const roomMessages = chatMessages.filter((m) => m.roomId === activeChatRoom);
@@ -114,8 +144,11 @@ export function ChatWidget() {
 
   // При открытии виджета: залогиненным — реальная support-комната из БД
   // (find-or-create, идемпотентно), анонимам — легаси mock-комната r3.
+  // p1-b: при заданном initialOrderId у залогиненного приоритет у order-комнаты
+  // (эффект ниже), чтобы не мигать support-комнатой перед фокусом на заказе.
   useEffect(() => {
     if (!chatOpen || activeChatRoom) return;
+    if (initialOrderId && isAuthenticated && user?.id) return;
     if (!isAuthenticated || !user?.id) {
       setActiveChatRoom(SUPPORT_ROOM_ID);
       return;
@@ -140,7 +173,71 @@ export function ChatWidget() {
     return () => {
       cancelled = true;
     };
-  }, [chatOpen, activeChatRoom, isAuthenticated, user?.id, setActiveChatRoom]);
+  }, [chatOpen, activeChatRoom, isAuthenticated, user?.id, initialOrderId, setActiveChatRoom]);
+
+  // p1-b (B2): initialOrderId — при открытии виджета / смене orderId
+  // find-or-create order-комнаты (POST /api/chat/rooms {type:"order"}) и
+  // фокус на ней: комната появляется/выделяется в списке. Support-ветка
+  // не затронута (эффект выше пропускается при заданном initialOrderId).
+  useEffect(() => {
+    if (!chatOpen || !initialOrderId || !isAuthenticated || !user?.id) return;
+    if (orderFocusRef.current === initialOrderId && activeChatRoom) return;
+    let cancelled = false;
+    (async () => {
+      const room = await ensureChatRoom({ type: "order", orderId: initialOrderId });
+      if (cancelled || !room) return;
+      orderFocusRef.current = initialOrderId;
+      const mapped = mapApiRoomToChatRoom(room);
+      setApiRooms((prev) => {
+        const base = prev || [];
+        if (base.some((r) => r.id === room.id)) {
+          return base.map((r) => (r.id === room.id ? mapped : r));
+        }
+        return [mapped, ...base];
+      });
+      setActiveChatRoom(room.id);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatOpen, initialOrderId, isAuthenticated, user?.id, activeChatRoom, setActiveChatRoom]);
+
+  // p1-b (B2): лениво достаём № заказа (GET /api/orders/[id]) для бейджа
+  // «Заказ №…» в шапке order-комнаты (кеш на сессию — один запрос на заказ).
+  useEffect(() => {
+    const orderId = activeRoom?.orderId;
+    if (activeRoom?.type !== "order" || !orderId) {
+      setOrderNumberInfo(null);
+      return;
+    }
+    const cached = orderNumberCacheRef.current.get(orderId);
+    if (cached) {
+      setOrderNumberInfo(cached);
+      return;
+    }
+    setOrderNumberInfo(null);
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = getStoredAccessToken();
+        const res = await fetch(`/api/orders/${orderId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { order?: { number?: string } };
+        const num = data?.order?.number;
+        if (!cancelled && num) {
+          orderNumberCacheRef.current.set(orderId, num);
+          setOrderNumberInfo(num);
+        }
+      } catch {
+        // бейдж не критичен: остаётся имя комнаты из списка
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRoom?.orderId, activeRoom?.type]);
 
   // История активной комнаты из БД (один раз на комнату за монтирование)
   useEffect(() => {
@@ -507,7 +604,16 @@ export function ChatWidget() {
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <div className="text-sm font-medium">{activeRoom.name}</div>
+                        <div className="text-sm font-medium flex items-center gap-1.5">
+                          {activeRoom.type === "order" && orderNumberInfo ? (
+                            <>
+                              <Badge className="text-[9px] px-1.5 py-0 h-4 shrink-0">Заказ</Badge>
+                              <span>№{orderNumberInfo}</span>
+                            </>
+                          ) : (
+                            activeRoom.name
+                          )}
+                        </div>
                         <div
                           className={`text-[10px] flex items-center gap-1 ${
                             activeTyping.length > 0
@@ -665,6 +771,25 @@ export function ChatWidget() {
                             <button onClick={() => setAiSuggestion(null)} className="text-[10px] text-muted-foreground hover:underline">Отклонить</button>
                           </div>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* p1-b (B4): быстрые действия для order-чатов — вставка шаблона в инпут */}
+                  {activeRoom?.type === "order" && !showRecorder && !recorder.isRecording && (
+                    <div className="px-3 border-t bg-background/50">
+                      <div className="flex flex-wrap gap-1.5 py-2">
+                        {ORDER_QUICK_ACTIONS.map((action) => (
+                          <button
+                            key={action.label}
+                            type="button"
+                            onClick={() => setMessageText(action.text)}
+                            title="Вставить шаблон в поле ввода"
+                            className="px-2.5 py-1 text-[11px] rounded-full border border-border bg-muted/40 hover:bg-primary/10 hover:border-primary/40 transition-colors"
+                          >
+                            {action.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}

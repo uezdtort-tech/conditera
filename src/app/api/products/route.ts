@@ -43,6 +43,21 @@ const DEFAULT_LIMIT = 20;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Поисковая строка → безопасный ILIKE-паттерн для PostgREST or().
+ *
+ * or() парсит значение по разделителям `,` `(` `)` `"` — ввод пользователя с
+ * такими символами («торт,тест») ломал синтаксис и давал 400. Спецсимволы
+ * заменяются на пробел, пробелы внутри — на `%` (мягкое AND: "торт тест"
+ * → %торт%тест%). Возвращаемый паттерн гарантированно не содержит
+ * разделителей or() и не может сломать запрос.
+ */
+function toSafeIlikePattern(raw: string): string | null {
+  const cleaned = raw.replace(/[(),"\\]/g, " ").trim();
+  if (!cleaned) return null;
+  return `%${cleaned.replace(/\s+/g, "%")}%`;
+}
+
 /** camel→snake маппинг полей карточки 0052 для INSERT (только переданные поля). */
 function mapCardFieldsToSnake(v: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -102,23 +117,75 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         id, title, slug, description, price, old_price,
         category_id, weight_grams, servings, tags,
         rating_average, reviews_count, confectioner_id,
-        status, is_featured, created_at, images
+        status, is_featured, created_at, images,
+        short_description, long_description,
+        diameter_cm, height_cm, size_text, shape, product_type,
+        filling_description, layers_count, composition, recipe_id,
+        min_order_qty, custom_order_available, is_available, production_time_hours
       `)
       .eq("status", "published");
 
-    // Фильтр по категории (category_id is UUID, but we accept slug too)
+    // Фильтр по категории: products.category_id — UUID FK на product_categories.id,
+    // витрина шлёт slug («cakes») → резолвим slug в id. Если передали UUID —
+    // используем напрямую. Неизвестный slug → честная пустая выдача (товаров
+    // такой категории не существует), а не отсутствие фильтра.
+    let categoryIds: string[] | null = null;
     if (category && category !== "all") {
-      query = query.eq("category_id", category);
+      if (UUID_RE.test(category)) {
+        categoryIds = [category];
+      } else {
+        const { data: catRows, error: catError } = await supabaseAdmin
+          .from("product_categories")
+          .select("id")
+          .eq("slug", category);
+        if (catError) {
+          console.error("[products] GET categories lookup error:", catError.message);
+          return NextResponse.json(
+            { error: "Database query failed", details: catError.message },
+            { status: 500 }
+          );
+        }
+        categoryIds = (catRows || []).map((c: { id: string }) => c.id);
+        if (categoryIds.length === 0) {
+          // Категории с таким slug нет в БД — товаров по ней не может быть
+          return NextResponse.json({ products: [], total: 0, limit, offset });
+        }
+      }
+    }
+
+    // Поиск по title/description (ILIKE): паттерн уже безопасен для or()
+    const searchPattern = search ? toSafeIlikePattern(search) : null;
+
+    // total — ОБЩЕЕ число товаров с теми же фильтрами (не размер страницы).
+    // head:true + count:exact — один COUNT без передачи строк.
+    let countQuery = supabaseAdmin
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "published");
+    if (categoryIds) countQuery = countQuery.in("category_id", categoryIds);
+    if (confectionerId) countQuery = countQuery.eq("confectioner_id", confectionerId);
+    if (searchPattern) {
+      countQuery = countQuery.or(
+        `title.ilike.${searchPattern},description.ilike.${searchPattern}`
+      );
+    }
+    const { count: totalCount, error: countError } = await countQuery;
+    if (countError) {
+      console.error("[products] GET count error:", countError.message);
+      // не роняем выдачу — fallback на размер страницы
     }
 
     // Фильтр по кондитеру
     if (confectionerId) {
       query = query.eq("confectioner_id", confectionerId);
     }
-
-    // Поиск по title/description (ILIKE)
-    if (search) {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+    if (categoryIds) {
+      query = query.in("category_id", categoryIds);
+    }
+    if (searchPattern) {
+      query = query.or(
+        `title.ilike.${searchPattern},description.ilike.${searchPattern}`
+      );
     }
 
     // Сортировка
@@ -228,7 +295,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       products: enrichedProducts,
-      total: enrichedProducts.length,
+      total: countError ? enrichedProducts.length : (totalCount ?? 0),
       limit,
       offset,
     });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Order } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -54,11 +54,24 @@ import {
 import { CustomerNegotiationTab } from "@/components/dashboard/negotiation-tabs";
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
 import { toast } from "sonner";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   useRealOrders,
   useCreateRefundRequest,
@@ -66,7 +79,11 @@ import {
   type RefundRow,
   type OrderPaymentInfo,
 } from "@/lib/use-real-orders";
-import { RotateCcw } from "lucide-react";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
+import { ensureChatRoom } from "@/components/chat/chat-api";
+import { openChatForOrder } from "@/components/chat/chat-order-bridge";
+import { RotateCcw, AlertTriangle, ShoppingCart, X, Loader2, ImagePlus, Clock } from "lucide-react";
+import type { Product } from "@/lib/types";
 
 export function CustomerDashboard() {
   const navigate = useAppStore((s) => s.navigate);
@@ -83,11 +100,152 @@ export function CustomerDashboard() {
   const { orders: realOrders, isStale: ordersStale } = useRealOrders();
   const orders = ordersStale ? storeOrders : realOrders || storeOrders;
 
-  const [activeTab, setActiveTab] = useState(nav.params?.tab || "overview");
+  // Вкладка: nav.params (SPA-навигация) → URL (?tab= из колокола уведомлений) → overview
+  const [activeTab, setActiveTab] = useState(
+    nav.params?.tab ||
+      (typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("tab")
+        : null) ||
+      "overview"
+  );
+  // Переход из колокола (?tab=orders&orderId=X): подсветка/скролл к заказу (ТЗ §10)
+  const [highlightOrderId] = useState(
+    () =>
+      nav.params?.orderId ||
+      (typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("orderId")
+        : null) ||
+      null
+  );
   // Диалог возврата (реальная заявка через POST /api/payment/refund)
   const [refundOrder, setRefundOrder] = useState<(typeof orders)[number] | null>(null);
   // Реальные заявки на возврат по заказам (для бейджей статуса)
   const { data: refundsData } = useRefunds();
+
+  // ===== P1: отзыв / проблема / повтор / отмена / чат / избранное =====
+  const queryClient = useQueryClient();
+  const [reviewOrder, setReviewOrder] = useState<Order | null>(null);
+  const [problemOrder, setProblemOrder] = useState<Order | null>(null);
+  const [repeatData, setRepeatData] = useState<RepeatResponse | null>(null);
+  const [openingChatOrderId, setOpeningChatOrderId] = useState<string | null>(null);
+
+  // Мои отзывы — состояние «Отзыв отправлен» (переживает перезагрузку)
+  const { data: myReviews } = useQuery({
+    queryKey: ["reviews-mine", user?.id ?? null],
+    queryFn: async () => {
+      const headers = await getSessionAuthHeaders();
+      const res = await fetch("/api/reviews?mine=1", { headers, credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as { reviews: { id: string; orderId: string | null; productId?: string | null }[] };
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  // Скролл к заказу, открытому из колокола уведомлений (когда заказы загрузятся)
+  useEffect(() => {
+    if (!highlightOrderId || activeTab !== "orders") return;
+    const el = document.getElementById(`order-card-${highlightOrderId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightOrderId, activeTab, orders.length]);
+
+  // Мои обращения в поддержку (бейдж «Есть проблема» по order_id)
+  const { data: myTickets } = useQuery({
+    queryKey: ["tickets-own", user?.id ?? null],
+    queryFn: async () => {
+      const headers = await getSessionAuthHeaders();
+      const res = await fetch("/api/crm/tickets?filter=own", { headers, credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as {
+        tickets: { id: string; number?: string | null; order_id: string | null; status: string }[];
+      };
+    },
+    enabled: !!user,
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  // Избранное с сервера (product_favorites); localStorage — фолбэк для анонима
+  const { data: wishlistData, isError: wishlistError } = useQuery({
+    queryKey: ["wishlist", user?.id ?? null],
+    queryFn: async () => {
+      const headers = await getSessionAuthHeaders();
+      const res = await fetch("/api/wishlist", { headers, credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as { items: WishlistItem[]; total: number };
+    },
+    enabled: !!user,
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  // Отмена заказа (POST /api/orders/[id]/cancel — с возвратом денег, если оплачен)
+  const cancelOrderMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await fetch(`/api/orders/${orderId}/cancel`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders-real"] });
+      toast.success("Заказ отменён", {
+        description: "Если заказ был оплачен — деньги вернутся автоматически",
+      });
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось отменить заказ", { description: error.message });
+    },
+  });
+
+  // Повтор заказа: сервер возвращает позиции с АКТУАЛЬНЫМИ ценами и
+  // доступностью — заказ НЕ создаётся молча (ТЗ §13)
+  const repeatOrderMutation = useMutation({
+    mutationFn: async (orderId: string): Promise<RepeatResponse> => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await fetch(`/api/orders/${orderId}/repeat`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | (RepeatResponse & { error?: string; message?: string })
+        | null;
+      if (!res.ok) {
+        throw new Error(body?.message || body?.error || `HTTP ${res.status}`);
+      }
+      return body as RepeatResponse;
+    },
+    onSuccess: (data) => {
+      const items = data.items || [];
+      if (items.length === 0) {
+        toast.error("В заказе нет позиций, которые можно повторить");
+        return;
+      }
+      const available = items.filter((i) => i.available);
+      const hasPriceChange = items.some((i) => i.available && i.unitPrice !== i.oldPrice);
+      const hasUnavailable = available.length < items.length;
+      if (available.length > 0 && !hasUnavailable && !hasPriceChange) {
+        // Всё доступно и цены не изменились — сразу в корзину
+        addRepeatItemsToCart(data.orderNumber, available);
+        toast.success("Товары добавлены в корзину");
+      } else {
+        // Есть изменения цен или недоступные позиции — показываем диалог
+        setRepeatData(data);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось повторить заказ", { description: error.message });
+    },
+  });
 
   if (!user) {
     return (
@@ -108,6 +266,78 @@ export function CustomerDashboard() {
     const arr = refundsByOrder.get(r.order_id) || [];
     arr.push(r);
     refundsByOrder.set(r.order_id, arr);
+  }
+
+  // Отзывы по заказам (order_id → отправлен?) и открытые обращения (order_id → тикет)
+  const reviewedOrderIds = new Set(
+    (myReviews?.reviews || []).map((r) => r.orderId).filter(Boolean) as string[]
+  );
+  // Товары, на которые отзыв уже есть: повторная покупка не запрашивает отзыв
+  // повторно (ТЗ §15 «Повторно отправлять запрос не нужно» + UNIQUE product+user)
+  const reviewedProductIds = new Set(
+    (myReviews?.reviews || []).map((r) => r.productId).filter(Boolean) as string[]
+  );
+  const TICKET_BADGES: Record<string, string> = {
+    open: "Обращение открыто",
+    in_progress: "Обращение в работе",
+    waiting: "Ожидает ответа поддержки",
+  };
+  const openTicketsByOrder = new Map<string, string>();
+  for (const t of myTickets?.tickets || []) {
+    if (t.order_id && TICKET_BADGES[t.status] && !openTicketsByOrder.has(t.order_id)) {
+      openTicketsByOrder.set(t.order_id, TICKET_BADGES[t.status]);
+    }
+  }
+
+  // Избранное: серверные карточки, при ошибке/анониме — localStorage-фолбэк
+  const serverWishlist = !wishlistError ? wishlistData?.items || null : null;
+  const favoritesCount = serverWishlist ? serverWishlist.length : favorites.length;
+
+  /** Чат по заказу: find-or-create order-комната → ChatWidget (initialOrderId) */
+  async function openOrderChat(orderId: string) {
+    setOpeningChatOrderId(orderId);
+    try {
+      const room = await ensureChatRoom({ type: "order", orderId });
+      if (!room) {
+        toast.error("Чат временно недоступен");
+        return;
+      }
+      openChatForOrder(orderId);
+      useAppStore.getState().setChatOpen(true);
+    } finally {
+      setOpeningChatOrderId(null);
+    }
+  }
+
+  /** Добавить доступные позиции повтора в корзину (с кастомизацией из заказа) */
+  function addRepeatItemsToCart(orderNumber: string, items: RepeatItem[]) {
+    const addToCart = useAppStore.getState().addToCart;
+    const original = orders.find((o) => o.number === orderNumber);
+    for (const it of items) {
+      const origItem = original?.items.find((o) => o.productId === it.productId);
+      const customization = origItem?.customization
+        ? {
+            filling: origItem.customization.filling || undefined,
+            coating: origItem.customization.coating || undefined,
+            decoration: origItem.customization.decoration || undefined,
+            inscription: origItem.customization.inscription || undefined,
+          }
+        : undefined;
+      const product = {
+        id: it.productId,
+        title: it.title,
+        slug: it.productId,
+        description: "",
+        price: it.unitPrice,
+        category: "cakes",
+        images: it.image ? [it.image] : [],
+        confectionerId: original?.confectionerId || "",
+        rating: 0,
+        reviewsCount: 0,
+      } as Product;
+      addToCart(product, customization, it.quantity);
+    }
+    setRepeatData(null);
   }
   const favoriteProducts = products.filter((p) => favorites.includes(p.id));
   const negotiationsPendingCount = negotiations.filter((n) => n.status === "pending_customer").length;
@@ -131,9 +361,9 @@ export function CustomerDashboard() {
           На главную
         </button>
 
-        <div className="grid lg:grid-cols-[280px_1fr] gap-6">
+        <div className="grid grid-cols-1 min-w-0 lg:grid-cols-[280px_1fr] gap-6">
           {/* Sidebar */}
-          <aside>
+          <aside className="min-w-0">
             <Card className="p-4 sticky top-20">
               <div className="flex items-center gap-3 mb-4">
                 <Avatar className="h-12 w-12">
@@ -165,7 +395,7 @@ export function CustomerDashboard() {
                 <SidebarTab
                   icon={Heart}
                   label="Избранное"
-                  badge={String(favorites.length)}
+                  badge={String(favoritesCount)}
                   active={activeTab === "favorites"}
                   onClick={() => setActiveTab("favorites")}
                 />
@@ -443,7 +673,11 @@ export function CustomerDashboard() {
                       const status = ORDER_STATUS_LABELS[order.status];
                       const payment = PAYMENT_STATUS_LABELS[order.paymentStatus];
                       return (
-                        <Card key={order.id} className="p-4">
+                        <Card
+                          key={order.id}
+                          id={`order-card-${order.id}`}
+                          className={`p-4 ${highlightOrderId === order.id ? "ring-2 ring-primary" : ""}`}
+                        >
                           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
@@ -459,6 +693,12 @@ export function CustomerDashboard() {
                                     Возврат: {REFUND_STATUS_LABELS[refundsByOrder.get(order.id)![0].status] || refundsByOrder.get(order.id)![0].status}
                                   </Badge>
                                 ) : null}
+                                {openTicketsByOrder.has(order.id) && (
+                                  <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-800 border-amber-200">
+                                    <AlertTriangle className="h-3 w-3 mr-0.5" aria-hidden />
+                                    {openTicketsByOrder.get(order.id)}
+                                  </Badge>
+                                )}
                               </div>
                               <div className="text-xs text-muted-foreground">
                                 Создан {formatDate(order.createdAt)} • Доставка {formatDate(order.deliveryDate)}
@@ -519,15 +759,60 @@ export function CustomerDashboard() {
                               small
                             />
                           </div>
-                          <div className="mt-3 flex gap-2">
+                          <div className="mt-3 flex gap-2 flex-wrap">
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => setChatOpen(true)}
+                              onClick={() => openOrderChat(order.id)}
+                              disabled={openingChatOrderId === order.id}
                             >
-                              <MessageCircle className="h-4 w-4 mr-1" />
-                              Чат с кондитером
+                              {openingChatOrderId === order.id ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden />
+                              ) : (
+                                <MessageCircle className="h-4 w-4 mr-1" aria-hidden />
+                              )}
+                              Сообщение кондитеру
                             </Button>
+                            {(order.status === "PENDING" || order.status === "CONFIRMED") && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    disabled={
+                                      cancelOrderMutation.isPending &&
+                                      cancelOrderMutation.variables === order.id
+                                    }
+                                  >
+                                    {cancelOrderMutation.isPending &&
+                                    cancelOrderMutation.variables === order.id ? (
+                                      <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden />
+                                    ) : (
+                                      <X className="h-4 w-4 mr-1" aria-hidden />
+                                    )}
+                                    Отменить заказ
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Отменить заказ {order.number}?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Заказ будет отменён, кондитер получит уведомление. Если заказ уже оплачен — деньги вернутся автоматически (срок зачисления зависит от банка).
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Вернуться</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-red-600 text-white hover:bg-red-700"
+                                      onClick={() => cancelOrderMutation.mutate(order.id)}
+                                    >
+                                      Да, отменить
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
                             {(order.paymentStatus === "escrow" ||
                               order.paymentStatus === "released" ||
                               order.status === "DELIVERED" ||
@@ -538,19 +823,54 @@ export function CustomerDashboard() {
                                   variant="outline"
                                   onClick={() => setRefundOrder(order)}
                                 >
-                                  <RotateCcw className="h-4 w-4 mr-1" />
+                                  <RotateCcw className="h-4 w-4 mr-1" aria-hidden />
                                   Возврат
                                 </Button>
                               )}
-                            {(order.status === "DELIVERING" || order.status === "COMPLETED") && (
+                            {order.status !== "CANCELLED" && order.status !== "REFUNDED" && (
                               <Button
                                 size="sm"
-                                onClick={() => toast.success("Спасибо за отзыв!")}
+                                variant="outline"
+                                onClick={() => setProblemOrder(order)}
                               >
-                                <Star className="h-4 w-4 mr-1" />
-                                Оставить отзыв
+                                <AlertTriangle className="h-4 w-4 mr-1 text-amber-600" aria-hidden />
+                                Есть проблема
                               </Button>
                             )}
+                            {(order.status === "DELIVERED" || order.status === "COMPLETED") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => repeatOrderMutation.mutate(order.id)}
+                                disabled={
+                                  repeatOrderMutation.isPending &&
+                                  repeatOrderMutation.variables === order.id
+                                }
+                              >
+                                {repeatOrderMutation.isPending &&
+                                repeatOrderMutation.variables === order.id ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden />
+                                ) : (
+                                  <ShoppingCart className="h-4 w-4 mr-1" aria-hidden />
+                                )}
+                                Повторить заказ
+                              </Button>
+                            )}
+                            {(order.status === "DELIVERED" || order.status === "COMPLETED") &&
+                              (reviewedOrderIds.has(order.id) ||
+                                (order.items?.length &&
+                                  order.items[0]?.productId &&
+                                  reviewedProductIds.has(order.items[0].productId)) ? (
+                                <Button size="sm" variant="outline" disabled>
+                                  <Star className="h-4 w-4 mr-1 fill-amber-400 text-amber-400" aria-hidden />
+                                  Отзыв отправлен
+                                </Button>
+                              ) : (
+                                <Button size="sm" onClick={() => setReviewOrder(order)}>
+                                  <Star className="h-4 w-4 mr-1" aria-hidden />
+                                  Оставить отзыв
+                                </Button>
+                              ))}
                           </div>
                         </Card>
                       );
@@ -563,7 +883,14 @@ export function CustomerDashboard() {
             {activeTab === "favorites" && (
               <div className="space-y-4">
                 <h1 className="font-display text-2xl font-bold">Избранное</h1>
-                {favoriteProducts.length === 0 ? (
+                {serverWishlist && serverWishlist.length > 0 ? (
+                  <WishlistGrid
+                    items={serverWishlist}
+                    onChanged={() =>
+                      queryClient.invalidateQueries({ queryKey: ["wishlist", user.id] })
+                    }
+                  />
+                ) : favoriteProducts.length === 0 ? (
                   <Card className="p-12 text-center">
                     <Heart className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
                     <h3 className="font-semibold mb-1">Список пуст</h3>
@@ -731,6 +1058,19 @@ export function CustomerDashboard() {
 
       {/* Диалог заявки на возврат (реальный POST /api/payment/refund) */}
       <RefundRequestDialog order={refundOrder} onClose={() => setRefundOrder(null)} />
+      {/* Отзыв по заказу (POST /api/reviews, ТЗ §15) */}
+      <ReviewOrderDialog order={reviewOrder} onClose={() => setReviewOrder(null)} />
+      {/* «Есть проблема» (POST /api/crm/tickets, ТЗ §16) */}
+      <ProblemOrderDialog order={problemOrder} onClose={() => setProblemOrder(null)} />
+      {/* Повтор заказа: цены/доступность изменились → подтверждение (ТЗ §13) */}
+      <RepeatOrderDialog
+        data={repeatData}
+        onAdd={(items) => {
+          addRepeatItemsToCart(repeatData?.orderNumber || "", items);
+          toast.success("Товары добавлены в корзину");
+        }}
+        onClose={() => setRepeatData(null)}
+      />
     </div>
   );
 }
@@ -942,6 +1282,617 @@ function Requisite({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between items-center gap-2 py-1.5 border-b border-border last:border-0">
       <span className="text-muted-foreground text-xs">{label}:</span>
       <span className="font-mono text-xs font-medium text-right">{value}</span>
+    </div>
+  );
+}
+
+// ===== P1: типы контрактов клиентских API =====
+
+/** Позиция повторного заказа (POST /api/orders/[id]/repeat) */
+interface RepeatItem {
+  productId: string;
+  title: string;
+  image: string;
+  quantity: number;
+  /** Актуальная серверная цена */
+  unitPrice: number;
+  /** Цена из старого заказа (snapshot) */
+  oldPrice: number;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+/** Ответ POST /api/orders/[id]/repeat — заказ НЕ создаётся (ТЗ §13) */
+interface RepeatResponse {
+  orderNumber: string;
+  currency: string;
+  items: RepeatItem[];
+  message?: string;
+}
+
+/** Карточка избранного (GET /api/wishlist) */
+interface WishlistItem {
+  productId: string;
+  id: string;
+  title: string;
+  price: number;
+  images: string[];
+  slug: string;
+  available: boolean;
+  addedAt: string;
+}
+
+const PROBLEM_REASONS: { value: string; label: string }[] = [
+  { value: "product_quality", label: "Товар повреждён" },
+  { value: "order_issue", label: "Заказ не соответствует" },
+  { value: "delivery", label: "Проблема с доставкой" },
+  { value: "other", label: "Другой вопрос" },
+];
+
+/** Загрузка ≤3 фото через существующий POST /api/upload (≤5 МБ на файл) */
+function PhotoUploader({
+  photos,
+  onAdd,
+  onRemove,
+  category,
+}: {
+  photos: string[];
+  onAdd: (url: string) => void;
+  onRemove: (url: string) => void;
+  category: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const max = 3;
+
+  async function handleFiles(files: FileList | null) {
+    if (!files?.length || photos.length >= max) return;
+    const slots = max - photos.length;
+    const chosen = Array.from(files).slice(0, slots);
+    setUploading(true);
+    try {
+      for (const file of chosen) {
+        if (file.size > 5 * 1024 * 1024) {
+          toast.error(`${file.name}: файл больше 5 МБ`);
+          continue;
+        }
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("category", category);
+        fd.append("ownerType", "customer");
+        const headers = await getSessionAuthHeaders(await getCsrfToken(), { json: false });
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: fd,
+        });
+        const data = (await res.json().catch(() => null)) as { url?: string; message?: string } | null;
+        if (!res.ok || !data?.url) {
+          throw new Error(data?.message || `HTTP ${res.status}`);
+        }
+        onAdd(data.url);
+      }
+    } catch (error) {
+      toast.error("Не удалось загрузить фото", { description: (error as Error).message });
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {photos.map((url) => (
+          <div key={url} className="relative h-16 w-16 rounded border border-border overflow-hidden">
+            { }
+            <img src={url} alt="Приложенное фото" className="h-full w-full object-cover" />
+            <button
+              type="button"
+              onClick={() => onRemove(url)}
+              className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-background/90 flex items-center justify-center hover:bg-background"
+              aria-label="Удалить фото"
+            >
+              <X className="h-3 w-3" aria-hidden />
+            </button>
+          </div>
+        ))}
+        {photos.length < max && (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="h-16 w-16 rounded border border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
+            aria-label="Добавить фото"
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <>
+                <ImagePlus className="h-4 w-4" aria-hidden />
+                <span className="text-[10px] mt-0.5">Фото</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        className="sr-only"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+      <p className="text-[11px] text-muted-foreground mt-1">
+        До {max} фото, JPEG/PNG/WebP, по 5 МБ (необязательно)
+      </p>
+    </div>
+  );
+}
+
+/** Отзыв по завершённому заказу (ТЗ §15): звёзды, текст, ≤3 фото */
+function ReviewOrderDialog({
+  order,
+  onClose,
+}: {
+  order: Order | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [text, setText] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
+
+  // Сброс формы при открытии диалога с новым заказом
+  useEffect(() => {
+    if (order) {
+      setRating(0);
+      setHoverRating(0);
+      setText("");
+      setPhotos([]);
+    }
+  }, [order]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({
+          orderId: order!.id,
+          rating,
+          text: text.trim(),
+          photos,
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { message?: string; error?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(body?.message || body?.error || `HTTP ${res.status}`);
+      }
+      return body as { message?: string };
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || "Спасибо за отзыв!", {
+        description: "Он появится в карточке товара",
+      });
+      queryClient.invalidateQueries({ queryKey: ["reviews-mine"] });
+      onClose();
+    },
+    onError: (error: Error) => {
+      // 409 «уже оставляли» — синхронизируем состояние кнопки
+      queryClient.invalidateQueries({ queryKey: ["reviews-mine"] });
+      toast.error("Не удалось отправить отзыв", { description: error.message });
+    },
+  });
+
+  return (
+    <Dialog open={!!order} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Как вам заказ {order?.number}?</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div
+            className="flex items-center gap-1"
+            role="radiogroup"
+            aria-label="Оценка от 1 до 5 звёзд"
+          >
+            {[1, 2, 3, 4, 5].map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={rating === value}
+                aria-label={`${value} ${value === 1 ? "звезда" : "звёзд"}`}
+                onClick={() => setRating(value)}
+                onMouseEnter={() => setHoverRating(value)}
+                onMouseLeave={() => setHoverRating(0)}
+                className="p-1 rounded hover:bg-accent transition-colors"
+              >
+                <Star
+                  className={`h-7 w-7 transition-colors ${
+                    value <= (hoverRating || rating)
+                      ? "fill-amber-400 text-amber-400"
+                      : "text-muted-foreground/40"
+                  }`}
+                  aria-hidden
+                />
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <Label htmlFor="review-text" className="mb-1.5 block">
+              Комментарий (необязательно)
+            </Label>
+            <Textarea
+              id="review-text"
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={2000}
+              placeholder="Расскажите, что понравилось или что можно улучшить"
+            />
+          </div>
+
+          <div>
+            <Label className="mb-1.5 block">Фото</Label>
+            <PhotoUploader
+              photos={photos}
+              onAdd={(url) => setPhotos((prev) => [...prev, url])}
+              onRemove={(url) => setPhotos((prev) => prev.filter((p) => p !== url))}
+              category="reviews"
+            />
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+              Позже
+            </Button>
+            <Button
+              onClick={() => mutation.mutate()}
+              disabled={rating === 0 || mutation.isPending}
+            >
+              {mutation.isPending ? "Отправляем…" : "Отправить отзыв"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** «Есть проблема» (ТЗ §16): причина → тикет поддержки по заказу */
+function ProblemOrderDialog({
+  order,
+  onClose,
+}: {
+  order: Order | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [reason, setReason] = useState("product_quality");
+  const [description, setDescription] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (order) {
+      setReason("product_quality");
+      setDescription("");
+      setPhotos([]);
+    }
+  }, [order]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await fetch("/api/crm/tickets", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({
+          subject: `Проблема по заказу №${order!.number}`,
+          category: reason,
+          orderId: order!.id,
+          message: description.trim(),
+          metadata: { description: description.trim(), photos },
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { ticket?: { number?: string | null }; error?: string }
+        | null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      return body!;
+    },
+    onSuccess: (data) => {
+      toast.success("Обращение создано", {
+        description: data.ticket?.number
+          ? `Номер обращения: ${data.ticket.number}. Поддержка ответит в чате.`
+          : "Поддержка свяжется с вами в чате",
+      });
+      queryClient.invalidateQueries({ queryKey: ["tickets-own"] });
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось создать обращение", { description: error.message });
+    },
+  });
+
+  return (
+    <Dialog open={!!order} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Есть проблема по заказу {order?.number}?</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <RadioGroup value={reason} onValueChange={setReason} className="gap-2">
+            {PROBLEM_REASONS.map((r) => (
+              <Label
+                key={r.value}
+                htmlFor={`problem-${r.value}`}
+                className="flex items-center gap-2 p-2.5 rounded-md border border-border cursor-pointer hover:bg-accent has-[[data-state=checked]]:border-primary"
+              >
+                <RadioGroupItem id={`problem-${r.value}`} value={r.value} />
+                <span className="text-sm font-normal">{r.label}</span>
+              </Label>
+            ))}
+          </RadioGroup>
+
+          <div>
+            <Label htmlFor="problem-description" className="mb-1.5 block">
+              Опишите проблему
+            </Label>
+            <Textarea
+              id="problem-description"
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Что случилось? Минимум 10 символов"
+            />
+            {description.trim().length > 0 && description.trim().length < 10 && (
+              <p className="text-xs text-amber-700 mt-1">
+                Ещё {10 - description.trim().length} симв.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <Label className="mb-1.5 block">Фото</Label>
+            <PhotoUploader
+              photos={photos}
+              onAdd={(url) => setPhotos((prev) => [...prev, url])}
+              onRemove={(url) => setPhotos((prev) => prev.filter((p) => p !== url))}
+              category="tickets"
+            />
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => mutation.mutate()}
+              disabled={description.trim().length < 10 || mutation.isPending}
+            >
+              {mutation.isPending ? "Отправляем…" : "Отправить обращение"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Повтор заказа: подтверждение при изменившихся ценах / недоступных позициях */
+function RepeatOrderDialog({
+  data,
+  onAdd,
+  onClose,
+}: {
+  data: RepeatResponse | null;
+  onAdd: (items: RepeatItem[]) => void;
+  onClose: () => void;
+}) {
+  const items = data?.items || [];
+  const available = items.filter((i) => i.available);
+  const unavailable = items.filter((i) => !i.available);
+  const hasPriceChange = items.some((i) => i.available && i.unitPrice !== i.oldPrice);
+
+  return (
+    <Dialog open={!!data} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Повтор заказа №{data?.orderNumber}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+          {items.map((it) => (
+            <div
+              key={it.productId}
+              className={`flex items-center gap-3 p-2 rounded-lg border ${
+                it.available ? "border-border" : "border-amber-200 bg-amber-50/60"
+              }`}
+            >
+              {it.image ? (
+                 
+                <img
+                  src={it.image}
+                  alt=""
+                  className="h-12 w-12 rounded object-cover shrink-0" loading="lazy" decoding="async" />
+              ) : (
+                <div className="h-12 w-12 rounded bg-muted shrink-0" aria-hidden />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{it.title}</div>
+                <div className="text-xs text-muted-foreground">
+                  {it.quantity} шт.
+                  {it.available ? (
+                    it.unitPrice !== it.oldPrice ? (
+                      <span className="text-amber-700">
+                        {" "}
+                        · цена изменилась: <s>{formatCurrency(it.oldPrice)}</s>{" "}
+                        <span className="font-medium">{formatCurrency(it.unitPrice)}</span>
+                      </span>
+                    ) : (
+                      <> · {formatCurrency(it.unitPrice)}</>
+                    )
+                  ) : (
+                    <span className="text-amber-700"> · {it.unavailableReason}</span>
+                  )}
+                </div>
+              </div>
+              {!it.available && (
+                <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-800 border-amber-200 shrink-0">
+                  <Clock className="h-3 w-3 mr-0.5" aria-hidden />
+                  Недоступно
+                </Badge>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {hasPriceChange && (
+          <p className="text-xs text-amber-700">
+            Цены обновлены по актуальному каталогу кондитера.
+          </p>
+        )}
+        {unavailable.length > 0 && (
+          <p className="text-xs text-amber-700">
+            Недоступные позиции не будут добавлены в корзину
+            {available.length === 0 ? " — в заказе нет доступных позиций" : ""}.
+          </p>
+        )}
+
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" onClick={onClose}>
+            Закрыть
+          </Button>
+          <Button
+            disabled={available.length === 0}
+            onClick={() => onAdd(available)}
+          >
+            <ShoppingCart className="h-4 w-4 mr-1" aria-hidden />
+            Добавить в корзину ({available.length})
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Сетка избранного из /api/wishlist (готовые карточки с сервера) */
+function WishlistGrid({
+  items,
+  onChanged,
+}: {
+  items: WishlistItem[];
+  onChanged: () => void;
+}) {
+  const addToCart = useAppStore((s) => s.addToCart);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  async function removeFromWishlist(productId: string) {
+    setPendingId(productId);
+    try {
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await fetch("/api/wishlist", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ productId }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      onChanged();
+      toast.success("Удалено из избранного");
+    } catch (error) {
+      toast.error("Не удалось обновить избранное", { description: (error as Error).message });
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  function addAllToCart(item: WishlistItem) {
+    const product = {
+      id: item.id,
+      title: item.title,
+      slug: item.slug,
+      description: "",
+      price: item.price,
+      category: "cakes",
+      images: item.images,
+      confectionerId: "",
+      rating: 0,
+      reviewsCount: 0,
+    } as Product;
+    addToCart(product, undefined, 1);
+    toast.success("Добавлено в корзину");
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {items.map((item) => (
+        <Card key={item.productId} className="p-3 flex gap-3">
+          <div className="h-20 w-20 rounded-lg bg-muted overflow-hidden shrink-0">
+            {item.images[0] ? (
+               
+              <img
+                src={item.images[0]}
+                alt={item.title}
+                className="h-full w-full object-cover" loading="lazy" decoding="async" />
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-muted-foreground" aria-hidden>
+                <Heart className="h-6 w-6" />
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className="font-medium text-sm line-clamp-2">{item.title}</div>
+            <div className="font-display font-bold text-base mt-0.5">
+              {formatCurrency(item.price)}
+            </div>
+            {!item.available && (
+              <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-800 border-amber-200 w-fit mt-1">
+                Недоступен
+              </Badge>
+            )}
+            <div className="flex gap-2 mt-auto pt-2">
+              <Button
+                size="sm"
+                className="h-8 flex-1"
+                disabled={!item.available}
+                onClick={() => addAllToCart(item)}
+              >
+                <ShoppingCart className="h-3.5 w-3.5 mr-1" aria-hidden />
+                В корзину
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 w-8 p-0"
+                disabled={pendingId === item.productId}
+                onClick={() => removeFromWishlist(item.productId)}
+                aria-label={`Убрать «${item.title}» из избранного`}
+              >
+                {pendingId === item.productId ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Heart className="h-3.5 w-3.5 fill-primary text-primary" aria-hidden />
+                )}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ))}
     </div>
   );
 }

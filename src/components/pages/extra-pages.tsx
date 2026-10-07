@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Cake,
   Clock,
@@ -46,18 +47,17 @@ import {
   Search,
   FileText,
   Receipt,
-  Calendar,
   Star,
   Store,
 } from "lucide-react";
 import {
   TARIFFS,
   formatCurrency,
-  getProductPaymentOptions,
-  calculateInstallmentPayment,
-  INSTALLMENT_PROVIDERS,
+  calculateDelivery,
 } from "@/lib/finance";
-import { useState } from "react";
+import { builderConfigParams } from "@/lib/cake-builder-pricing";
+import type { CartItem } from "@/lib/types";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import {
@@ -1430,12 +1430,16 @@ export function CheckoutPage() {
   const navigate = useAppStore((s) => s.navigate);
   const cart = useAppStore((s) => s.cart);
   const clearCart = useAppStore((s) => s.clearCart);
+  const promoCode = useAppStore((s) => s.promoCode);
   const promoDiscount = useAppStore((s) => s.promoDiscount);
   const user = useAppStore((s) => s.user);
   const [step, setStep] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState<"card" | "cash" | "split" | "installment">("card");
-  const [selectedInstallmentPlan, setSelectedInstallmentPlan] = useState<string | null>(null);
-  // Данные доставки (controlled — уходят в POST /api/checkout)
+  const [paymentMethod, setPaymentMethod] = useState<"card" | "cash" | "split">("card");
+  // Получение: доставка / самовывоз (уходит в POST /api/checkout как deliveryType)
+  const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery");
+  // Данные получателя (controlled — уходят в POST /api/checkout как customerName/customerPhone)
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
@@ -1444,6 +1448,13 @@ export function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   // 422 от движка выполнимости: постоянный баннер над кнопкой оплаты (ТЗ P0.5 §29)
   const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
+  // Идемпотентность checkout (P1-A6): ОДИН ключ на монтирование страницы —
+  // двойной клик / повторный POST возвращает существующий заказ, а не новый.
+  const [idempotencyKey] = useState(() =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `co_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  );
   const [orderResult, setOrderResult] = useState<{
     orderId: string;
     orderNumber: string;
@@ -1452,30 +1463,65 @@ export function CheckoutPage() {
     isStub: boolean;
   } | null>(null);
 
+  // Получатель: префилл из профиля (controlled)
+  useEffect(() => {
+    if (user) {
+      setRecipientName((v) => v || user.name || "");
+      setRecipientPhone((v) => v || user.phone || "");
+    }
+  }, [user]);
+
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const discount = Math.round(subtotal * promoDiscount);
-  const deliveryCost = subtotal >= 3000 ? 0 : 300;
+  // Единая формула доставки с сервером (lib/finance.calculateDelivery); самовывоз — 0 ₽
+  const deliveryCost = deliveryType === "delivery" ? calculateDelivery(subtotal).cost : 0;
   const total = subtotal - discount + deliveryCost;
 
-  /** POST /api/checkout: создаёт заказ + платёж (schema: cartItems/deliveryAddress/…) */
+  /** Телефон РФ (зеркало серверной isValidRuPhone): 11 цифр с 7/8 или 10 с 9. */
+  const isPhoneValid = (raw: string): boolean => {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length === 11 && (digits.startsWith("7") || digits.startsWith("8"))) return true;
+    if (digits.length === 10 && digits.startsWith("9")) return true;
+    return false;
+  };
+
+  /** Параметры товарной позиции для сводки подтверждения. */
+  const productParams = (item: CartItem): Array<{ label: string; value: string }> => {
+    const c = item.customization;
+    if (!c) return [];
+    const out: Array<{ label: string; value: string }> = [];
+    if (c.filling) out.push({ label: "Начинка", value: c.filling });
+    if (c.coating) out.push({ label: "Покрытие", value: c.coating });
+    if (c.decoration) out.push({ label: "Декор", value: c.decoration });
+    if (c.inscription) out.push({ label: "Надпись", value: c.inscription });
+    return out;
+  };
+
+  /** POST /api/checkout: создаёт заказ + платёж (schema: cartItems/customerName/…) */
   async function submitCheckout() {
     if (!user) {
       toast.error("Войдите, чтобы оформить заказ");
       useAppStore.getState().setAuthModalOpen(true);
       return;
     }
-    if (address.trim().length < 5) {
-      toast.error("Укажите адрес доставки (минимум 5 символов)");
+    if (recipientName.trim().length < 2) {
+      toast.error("Укажите имя получателя (минимум 2 символа)");
+      setStep(1);
+      return;
+    }
+    if (!isPhoneValid(recipientPhone)) {
+      toast.error("Укажите телефон получателя (например +7 999 123-45-67)");
       setStep(1);
       return;
     }
     if (!city.trim()) {
-      toast.error("Укажите город доставки");
+      toast.error("Укажите город получения");
       setStep(1);
       return;
     }
-    if (paymentMethod === "installment" && !selectedInstallmentPlan) {
-      toast.error("Выберите вариант рассрочки");
+    if (deliveryType === "delivery" && address.trim().length < 5) {
+      toast.error("Укажите адрес доставки (минимум 5 символов)");
+      setStep(1);
       return;
     }
 
@@ -1483,21 +1529,43 @@ export function CheckoutPage() {
     try {
       const csrf = await getCsrfToken();
       const headers = await getSessionAuthHeaders(csrf);
+      // Товарные позиции: снапшот кастомизации (selected_attributes),
+      // custom-позиции конструктора: снимок конфига (custom.config) —
+      // цену сервер пересчитает сам (НЕ доверяем клиенту).
+      const cartItemsPayload = cart.map((item) =>
+        item.custom
+          ? {
+              id: item.itemId,
+              quantity: item.quantity,
+              custom: item.custom.config,
+            }
+          : {
+              id: item.itemId,
+              product_id: item.productId,
+              quantity: item.quantity,
+              selected_attributes:
+                item.customization && Object.values(item.customization).some(Boolean)
+                  ? Object.fromEntries(
+                      Object.entries(item.customization).filter(([, v]) => !!v)
+                    )
+                  : undefined,
+            }
+      );
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers,
+        headers: { ...headers, "Idempotency-Key": idempotencyKey },
         credentials: "include",
         body: JSON.stringify({
-          cartItems: cart.map((item) => ({
-            id: item.productId,
-            product_id: item.productId,
-            quantity: item.quantity,
-          })),
-          deliveryAddress: address.trim(),
+          cartItems: cartItemsPayload,
+          customerName: recipientName.trim(),
+          customerPhone: recipientPhone.trim(),
+          deliveryType,
+          deliveryAddress: deliveryType === "delivery" ? address.trim() : undefined,
           deliveryCity: city.trim(),
           deliveryDate: deliveryDate || undefined,
-          deliveryType: "delivery",
           notes: notes.trim() || undefined,
+          promoCode: promoCode || undefined,
+          paymentMethod,
         }),
       });
       const data = (await res.json().catch(() => null)) as {
@@ -1572,7 +1640,7 @@ export function CheckoutPage() {
 
       {/* Steps */}
       <div className="flex items-center gap-2 mb-8">
-        {["Доставка", "Оплата", "Готово"].map((s, i) => (
+        {["Доставка", "Подтверждение", "Готово"].map((s, i) => (
           <div key={s} className="flex items-center gap-2 flex-1">
             <div
               className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-medium ${
@@ -1598,28 +1666,62 @@ export function CheckoutPage() {
         <div>
           {step === 1 && (
             <Card className="p-6 space-y-4">
-              <h3 className="font-display font-semibold">Доставка</h3>
+              <h3 className="font-display font-semibold">Получение</h3>
+              {/* Способ получения: доставка / самовывоз */}
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: "delivery" as const, label: "Доставка", desc: "Курьером к указанному времени" },
+                  { id: "pickup" as const, label: "Самовывоз", desc: "Из кондитерской — бесплатно" },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setDeliveryType(t.id)}
+                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                      deliveryType === t.id
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/40"
+                    }`}
+                  >
+                    <div className="font-medium text-sm">{t.label}</div>
+                    <div className="text-xs text-muted-foreground">{t.desc}</div>
+                  </button>
+                ))}
+              </div>
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>Имя</Label>
-                  <Input defaultValue={user?.name} placeholder="Ваше имя" />
+                  <Label>Имя получателя *</Label>
+                  <Input
+                    value={recipientName}
+                    onChange={(e) => setRecipientName(e.target.value)}
+                    placeholder="Ваше имя"
+                    autoComplete="name"
+                  />
                 </div>
                 <div>
-                  <Label>Телефон</Label>
-                  <Input defaultValue={user?.phone} placeholder="+7 (___) ___-__-__" />
+                  <Label>Телефон получателя *</Label>
+                  <Input
+                    value={recipientPhone}
+                    onChange={(e) => setRecipientPhone(e.target.value)}
+                    placeholder="+7 (999) 123-45-67"
+                    autoComplete="tel"
+                    inputMode="tel"
+                  />
                 </div>
               </div>
-              <div>
-                <Label>Адрес доставки</Label>
-                <Input
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="Улица, дом, квартира"
-                />
-              </div>
+              {deliveryType === "delivery" && (
+                <div>
+                  <Label>Адрес доставки *</Label>
+                  <Input
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Улица, дом, квартира"
+                    autoComplete="street-address"
+                  />
+                </div>
+              )}
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>Город</Label>
+                  <Label>Город *</Label>
                   <Input
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
@@ -1627,7 +1729,7 @@ export function CheckoutPage() {
                   />
                 </div>
                 <div>
-                  <Label>Дата доставки</Label>
+                  <Label>Дата получения</Label>
                   <Input
                     type="date"
                     value={deliveryDate}
@@ -1638,9 +1740,11 @@ export function CheckoutPage() {
                   />
                 </div>
               </div>
-              {/* Живая проверка выполнимости заказа (ТЗ P0.5 §29) */}
+              {/* Живая проверка выполнимости заказа (ТЗ P0.5 §29) — только товарные позиции */}
               <CheckoutAvailabilityBanner
-                cart={cart}
+                cart={cart
+                  .filter((item) => item.productId)
+                  .map((item) => ({ productId: item.productId, quantity: item.quantity }))}
                 deliveryDate={deliveryDate}
                 enabled={Boolean(user)}
               />
@@ -1655,8 +1759,16 @@ export function CheckoutPage() {
               </div>
               <Button
                 onClick={() => {
-                  if (address.trim().length < 5 || !city.trim()) {
-                    toast.error("Заполните город и адрес доставки");
+                  if (recipientName.trim().length < 2 || !isPhoneValid(recipientPhone)) {
+                    toast.error("Заполните имя и телефон получателя");
+                    return;
+                  }
+                  if (!city.trim()) {
+                    toast.error("Укажите город получения");
+                    return;
+                  }
+                  if (deliveryType === "delivery" && address.trim().length < 5) {
+                    toast.error("Заполните адрес доставки");
                     return;
                   }
                   setStep(2);
@@ -1670,16 +1782,76 @@ export function CheckoutPage() {
 
           {step === 2 && (
             <Card className="p-6 space-y-4">
-              <h3 className="font-display font-semibold">Способ оплаты</h3>
+              <h3 className="font-display font-semibold">Подтверждение заказа</h3>
+
+              {/* ===== СВОДКА ПОДТВЕРЖДЕНИЯ (состав + получатель + получение) ===== */}
+              <div className="rounded-lg border border-border p-4 space-y-3 bg-muted/30">
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Получатель</span>
+                    <span className="font-medium text-right">
+                      {recipientName} · {recipientPhone}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Получение</span>
+                    <span className="font-medium text-right">
+                      {deliveryType === "delivery" ? "Доставка" : "Самовывоз"}
+                      {deliveryDate ? `, ${deliveryDate}` : ""}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Город</span>
+                    <span className="font-medium text-right">
+                      {city}
+                      {deliveryType === "delivery" && address ? `, ${address}` : ""}
+                    </span>
+                  </div>
+                  {notes && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Комментарий</span>
+                      <span className="font-medium text-right">{notes}</span>
+                    </div>
+                  )}
+                </div>
+                <Separator />
+                <div className="space-y-2">
+                  {cart.map((item) => {
+                    const params = item.custom
+                      ? builderConfigParams(item.custom.config)
+                      : productParams(item);
+                    return (
+                      <div key={item.itemId ?? item.productId} className="flex gap-2 text-sm">
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate font-medium">{item.title}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.quantity} × {formatCurrency(item.price)}
+                            {params.length > 0 && (
+                              <span className="ml-1">
+                                · {params.map((p) => `${p.label}: ${p.value}`).join(", ")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="font-medium shrink-0">
+                          {formatCurrency(item.price * item.quantity)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ===== Способ оплаты ===== */}
               <div className="space-y-2">
                 {[
-                  { id: "card", label: "Банковской картой", desc: "Visa, Mastercard, Мир" },
-                  { id: "cash", label: "Наличными при получении", desc: "Доступно при доставке курьером" },
-                  { id: "split", label: "СБП — Система быстрых платежей", desc: "Перевод по QR-коду" },
+                  { id: "card" as const, label: "Банковской картой онлайн", desc: "Visa, Mastercard, Мир — редирект на защищённую страницу" },
+                  { id: "split" as const, label: "СБП — Система быстрых платежей", desc: "Перевод по QR-коду" },
+                  { id: "cash" as const, label: "Наличными при получении", desc: "Доступно при доставке курьером" },
                 ].map((m) => (
                   <button
                     key={m.id}
-                    onClick={() => setPaymentMethod(m.id as any)}
+                    onClick={() => setPaymentMethod(m.id)}
                     className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${
                       paymentMethod === m.id
                         ? "border-primary bg-primary/5"
@@ -1690,132 +1862,8 @@ export function CheckoutPage() {
                     <div className="text-xs text-muted-foreground">{m.desc}</div>
                   </button>
                 ))}
-
-                {/* Опция рассрочки — показывается только если доступна */}
-                {(() => {
-                  // Проверяем, есть ли товары с рассрочкой
-                  const confectioners = useAppStore.getState().confectioners;
-                  const hasInstallment = cart.some((item) => {
-                    const product = useAppStore.getState().products.find((p) => p.id === item.productId);
-                    if (!product) return false;
-                    const confectioner = confectioners.find((c) => c.id === product.confectionerId);
-                    const opts = getProductPaymentOptions(product, confectioner);
-                    return opts.installment;
-                  });
-                  if (!hasInstallment) return null;
-                  return (
-                    <button
-                      onClick={() => setPaymentMethod("installment")}
-                      className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${
-                        paymentMethod === "installment"
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/40"
-                      }`}
-                    >
-                      <div className="font-medium text-sm flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-rose-600" />
-                        Рассрочка
-                        <Badge className="bg-rose-100 text-rose-800 text-[10px]">
-                          0% или с переплатой
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Оплата частями: Сплит, Тинькофф, СберРассрочка
-                      </div>
-                    </button>
-                  );
-                })()}
               </div>
 
-              {/* Carte details */}
-              {paymentMethod === "card" && (
-                <div className="space-y-3 pt-2">
-                  <div>
-                    <Label>Номер карты</Label>
-                    <Input placeholder="0000 0000 0000 0000" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label>Срок</Label>
-                      <Input placeholder="MM/YY" />
-                    </div>
-                    <div>
-                      <Label>CVC</Label>
-                      <Input placeholder="123" type="password" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Installment plan selection */}
-              {paymentMethod === "installment" && (
-                <div className="space-y-3 pt-2">
-                  <Label>Выберите вариант рассрочки</Label>
-                  <div className="space-y-2 max-h-72 overflow-y-auto">
-                    {cart.flatMap((item) => {
-                      const product = useAppStore.getState().products.find((p) => p.id === item.productId);
-                      if (!product) return [];
-                      const confectioner = useAppStore.getState().confectioners.find((c) => c.id === product.confectionerId);
-                      const opts = getProductPaymentOptions(product, confectioner);
-                      return opts.installments.map((plan) => {
-                        const calc = calculateInstallmentPayment(item.price * item.quantity, plan);
-                        const provider = INSTALLMENT_PROVIDERS[plan.provider];
-                        return (
-                          <button
-                            key={`${item.productId}-${plan.id}`}
-                            onClick={() => setSelectedInstallmentPlan(plan.id)}
-                            className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${
-                              selectedInstallmentPlan === plan.id
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:border-primary/40"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-base">{provider?.icon || "📅"}</span>
-                                <div>
-                                  <div className="font-medium text-sm">{plan.name}</div>
-                                  <div className="text-[10px] text-muted-foreground">{provider?.label}</div>
-                                </div>
-                              </div>
-                              {plan.interestRate === 0 ? (
-                                <Badge className="bg-emerald-500 text-white text-[10px]">0%</Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-[10px]">+{plan.interestRate}%</Badge>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-3 gap-1 text-[10px]">
-                              {calc.downPayment > 0 && (
-                                <div>
-                                  <div className="text-muted-foreground">Первый взнос</div>
-                                  <div className="font-semibold">{formatCurrency(calc.downPayment)}</div>
-                                </div>
-                              )}
-                              <div>
-                                <div className="text-muted-foreground">В месяц</div>
-                                <div className="font-semibold text-primary">{formatCurrency(calc.monthlyPayment)}</div>
-                              </div>
-                              <div>
-                                <div className="text-muted-foreground">Всего</div>
-                                <div className="font-semibold">{formatCurrency(calc.totalToPay)}</div>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      });
-                    })}
-                  </div>
-                  {selectedInstallmentPlan && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs">
-                      <div className="font-medium text-rose-800 mb-1">График платежей</div>
-                      <div className="text-rose-700">
-                        Сегодня спишется первый взнос, далее — ежемесячно равными долями.
-                        Эскроу 24ч на всю сумму.
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
               {blockedNotice && (
                 <div
                   role="alert"
@@ -1838,9 +1886,9 @@ export function CheckoutPage() {
                 <Button
                   onClick={submitCheckout}
                   className="flex-1"
-                  disabled={submitting || (paymentMethod === "installment" && !selectedInstallmentPlan)}
+                  disabled={submitting}
                 >
-                  {submitting ? "Оформляем…" : paymentMethod === "installment" ? "Оформить рассрочку" : "Оплатить"}{" "}
+                  {submitting ? "Оформляем…" : "Оплатить"}{" "}
                   {!submitting && formatCurrency(total)}
                 </Button>
               </div>

@@ -221,6 +221,7 @@ export async function POST(
       userId: confectionerId,
       template: "ORDER_STATUS_CHANGED",
       vars: { orderNumber: order.number, statusLabel: "назначен на вас (переназначение)" },
+      metadata: { orderId: id },
     }).catch(() => {});
 
     // 5. Авто-resolve (риск может уйти в GREEN — задачи закроются сами)

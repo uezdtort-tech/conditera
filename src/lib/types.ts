@@ -1197,7 +1197,17 @@ export interface ChatRoom {
   orderId?: string;
 }
 
+// Снимок конфигурации конструктора тортов для custom-позиции корзины
+// (структурно совпадает с CakeBuilderConfig из lib/cake-builder-pricing —
+// импорт типа оттуда, чтобы клиент и сервер использовали ОДИН тип).
 export interface CartItem {
+  /**
+   * Уникальный id ПОЗИЦИИ корзины (не товара): дедуп/удаление/обновление
+   * по нему — разные варианты одного товара и custom-торты не конфликтуют.
+   * Опционален для обратной совместимости старых localStorage-корзин
+   * (fallback — матч по productId).
+   */
+  itemId?: string;
   productId: string;
   title: string;
   image: string;
@@ -1209,6 +1219,14 @@ export interface CartItem {
     coating?: string;
     decoration?: string;
     inscription?: string;
+  };
+  /**
+   * Custom-позиция конструктора тортов (golden path ТЗ: конструктор → корзина
+   * → checkout → оплата). productId для таких позиций = "" (нет товара в БД),
+   * цена пересчитывается на сервере по calculateBuilderPrice.
+   */
+  custom?: {
+    config: import("./cake-builder-pricing").CakeBuilderConfig;
   };
 }
 
@@ -1395,6 +1413,20 @@ export interface EcoBadge {
   icon: string;
   description: string;
   verified: boolean;
+}
+
+// ===== ОТЗЫВЫ НА ТОВАР (product_reviews, витрина карточки товара) =====
+// Витринная форма отзыва из GET /api/products/[id] (approved, с профилем автора).
+export interface Review {
+  id: string;
+  author: string; // имя из profiles (fallback: «Покупатель»)
+  avatar?: string; // avatar_url автора (может отсутствовать)
+  rating: number; // 1..5
+  text: string;
+  date: string; // ISO created_at
+  photos?: string[]; // приложенные фото (может отсутствовать)
+  pros?: string | null;
+  cons?: string | null;
 }
 
 // ===== ВИДЕО-ОТЗЫВЫ =====

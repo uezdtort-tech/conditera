@@ -19,7 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
-import { BOT_USER_ID } from "@/lib/chat-rooms";
+import { BOT_USER_ID, ensureOrderChatChannel } from "@/lib/chat-rooms";
 
 export const runtime = "nodejs";
 
@@ -417,43 +417,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // ---- order: чат заказа ----
+    // p1-b: единый find-or-create (ensureOrderChatChannel в chat-rooms.ts):
+    // та же логика, что и ensureOrderChatRoom из checkout/статусов, + гарантия
+    // membership ОБОИХ участников (раньше добавлялся только запросивший —
+    // кондитер не видел комнату, созданную клиентом). 403 для посторонних.
     const orderId = body?.orderId || "";
     if (!orderId) throw new HttpError(400, "orderId обязателен");
 
-    // find-or-create по order_id
-    const { data: found } = await supabaseAdmin
-      .from("chat_channels")
-      .select("*")
-      .eq("order_id", orderId)
-      .is("deleted_at", null)
-      .limit(1) as { data: ChannelRow[] | null };
-    let channel = (found || [])[0];
-    let created = false;
-    if (!channel) {
-      const { data: createdRow, error } = await supabaseAdmin
-        .from("chat_channels")
-        .insert({
-          type: "group",
-          name: `Заказ ${orderId.slice(0, 8)}`,
-          order_id: orderId,
-        })
-        .select("*")
-        .single() as { data: ChannelRow | null; error: SupabaseError | null };
-      if (error || !createdRow) {
-        console.error("[chat/rooms] create order:", error?.message);
-        throw new HttpError(500, "Не удалось создать чат заказа");
-      }
-      channel = createdRow;
-      created = true;
-    }
-
-    // Гарантируем membership текущего пользователя
-    if (!memberByChannel.has(channel.id)) {
-      const { error: memberErr } = await supabaseAdmin
-        .from("chat_channel_members")
-        .insert({ channel_id: channel.id, user_id: user.id, role: "member" });
-      if (memberErr) console.warn("[chat/rooms] order member:", memberErr.message);
-    }
+    const { channel, created } = await ensureOrderChatChannel(orderId, { actor: user });
 
     const freshMembers = await myMembershipMap(user.id);
     const rooms = await buildRooms([channel], freshMembers, user.id);

@@ -2,6 +2,13 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { STATIC_PROMO_CODES } from "@/lib/promo-codes";
+import {
+  calculateBuilderPrice,
+  describeBuilderConfig,
+  type CakeBuilderConfig,
+} from "@/lib/cake-builder-pricing";
+import { calculateRegionalPriceSync } from "@/lib/regional-pricing";
 import type {
   User,
   Role,
@@ -249,8 +256,15 @@ interface AppState {
   navigate: (view: NavState["view"], params?: Record<string, string>) => void;
 
   addToCart: (product: Product, customization?: CartItem["customization"], quantity?: number) => void;
-  removeFromCart: (productId: string) => void;
-  updateCartQuantity: (productId: string, quantity: number) => void;
+  /**
+   * Custom-позиция конструктора тортов (golden path: конструктор → корзина).
+   * Цена считается по ЕДИНОЙ формуле lib/cake-builder-pricing; дедуп по
+   * JSON.stringify(config); productId = "" (товара в БД нет).
+   */
+  addCustomToCart: (input: { config: import("./cake-builder-pricing").CakeBuilderConfig; quantity?: number }) => void;
+  /** Ключ — itemId позиции (fallback для старых корзин — productId). */
+  removeFromCart: (productIdOrItemId: string) => void;
+  updateCartQuantity: (productIdOrItemId: string, quantity: number) => void;
   clearCart: () => void;
   setCartOpen: (open: boolean) => void;
   applyPromo: (code: string) => { success: boolean; discount: number; error?: string };
@@ -392,12 +406,24 @@ interface AppState {
   convertPriceItemToService: (priceListId: string, itemId: string) => void;
 }
 
-const PROMO_CODES: Record<string, number> = {
-  WELCOME10: 0.1,
-  SWEET15: 0.15,
-  UYEZD20: 0.2,
-  BIRTHDAY: 0.25,
-};
+const PROMO_CODES = STATIC_PROMO_CODES;
+
+/** Уникальный id ПОЗИЦИИ корзины (не товара) — дедуп/удаление/обновление по нему. */
+function makeCartItemId(seed: string): string {
+  const rnd =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `${seed}_${rnd}`;
+}
+
+/** Матч позиции корзины по ключу: itemId (новый контракт) / productId (старые корзины). */
+function matchesCartEntry(
+  entry: { itemId?: string; productId: string },
+  key: string
+): boolean {
+  return entry.itemId ? entry.itemId === key : entry.productId === key;
+}
 
 // === Клиентский mini-FAQ для авточата в preview-mode ===
 // (полная версия — в src/lib/chat-faq.ts, но она для server-side)
@@ -769,6 +795,8 @@ export const useAppStore = create<AppState>()(
             cart: [
               ...cart,
               {
+                // Уникальный id ПОЗИЦИИ: разные варианты одного товара не конфликтуют
+                itemId: makeCartItemId(`ci_${product.id}`),
                 productId: product.id,
                 title: product.title,
                 image: product.images[0],
@@ -783,18 +811,55 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      removeFromCart: (productId) => {
-        set({ cart: get().cart.filter((item) => item.productId !== productId) });
+      addCustomToCart: ({ config, quantity = 1 }) => {
+        const builderConfig: CakeBuilderConfig = { ...config };
+        // ОДНА формула с сервером (lib/cake-builder-pricing) + региональный коэффициент
+        const price = calculateBuilderPrice(builderConfig) ?? 0;
+        const cart = get().cart;
+        // Дедуп по снимку конфига: та же конфигурация → +1 к количеству
+        const existingIndex = cart.findIndex(
+          (item) =>
+            !!item.custom &&
+            JSON.stringify(item.custom.config) === JSON.stringify(builderConfig)
+        );
+        if (existingIndex >= 0) {
+          const newCart = [...cart];
+          newCart[existingIndex].quantity += quantity;
+          set({ cart: newCart, cartOpen: true });
+          return;
+        }
+        set({
+          cart: [
+            ...cart,
+            {
+              itemId: makeCartItemId("ci_custom"),
+              productId: "", // товара в БД нет — checkout считает по custom-конфигу
+              title: describeBuilderConfig(builderConfig),
+              image: "/builder-bg.png",
+              price,
+              quantity,
+              confectionerId: "",
+              custom: { config: builderConfig },
+            },
+          ],
+          cartOpen: true,
+        });
       },
 
-      updateCartQuantity: (productId, quantity) => {
+      removeFromCart: (productIdOrItemId) => {
+        set({
+          cart: get().cart.filter((item) => !matchesCartEntry(item, productIdOrItemId)),
+        });
+      },
+
+      updateCartQuantity: (productIdOrItemId, quantity) => {
         if (quantity <= 0) {
-          get().removeFromCart(productId);
+          get().removeFromCart(productIdOrItemId);
           return;
         }
         set({
           cart: get().cart.map((item) =>
-            item.productId === productId ? { ...item, quantity } : item
+            matchesCartEntry(item, productIdOrItemId) ? { ...item, quantity } : item
           ),
         });
       },
@@ -804,9 +869,12 @@ export const useAppStore = create<AppState>()(
 
       applyPromo: (code) => {
         const upperCode = code.toUpperCase();
-        if (PROMO_CODES[upperCode]) {
-          set({ promoCode: upperCode, promoDiscount: PROMO_CODES[upperCode] });
-          return { success: true, discount: PROMO_CODES[upperCode] };
+        const promo = PROMO_CODES[upperCode];
+        // Приоритет серверной проверки — на checkout; здесь оптимистичная оценка
+        if (promo && promo.type === "percent") {
+          const fraction = promo.value / 100;
+          set({ promoCode: upperCode, promoDiscount: fraction });
+          return { success: true, discount: fraction };
         }
         return { success: false, discount: 0, error: "Промокод не найден" };
       },

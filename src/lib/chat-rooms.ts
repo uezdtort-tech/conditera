@@ -9,6 +9,7 @@
  *   chat_channel_members: UNIQUE(channel_id, user_id), last_read_at.
  */
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { HttpError } from "@/lib/http-helpers";
 import type { AuthenticatedUser } from "@/lib/auth";
 
 export interface SupabaseError { message: string; code?: string }
@@ -175,4 +176,139 @@ export async function fetchRoomMessages(
       ? (m.quick_replies as ApiChatMessage["quickReplies"])
       : undefined,
   }));
+}
+
+// ===== Order-комната: единый find-or-create (p1-b) =====
+
+export interface OrderChatOrder {
+  id: string;
+  number: string;
+  total: number;
+  user_id: string;
+  confectioner_id: string | null;
+}
+
+export interface EnsureOrderChatResult {
+  channel: ChannelRow;
+  created: boolean;
+  order: OrderChatOrder;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Найти или создать order-комнату в chat_channels + гарантировать membership
+ * ОБОИХ участников заказа (клиент + кондитер) и опционального actor.
+ *
+ * Идемпотентно по order_id: существующая (не удалённая) комната возвращается
+ * как есть; гонка создания гасится частичным уникальным индексом
+ * uq_chat_channels_order_id (миграция 0058) — 23505 пере-читает строку.
+ *
+ * Используется:
+ *  - POST /api/chat/rooms {type:'order'} ( actor — залогиненный пользователь);
+ *  - ensureOrderChatRoom (chat-automation: checkout/статусы/напоминания).
+ *
+ * @throws HttpError(400|403|404) — для API-роутов; ensureOrderChatRoom
+ *         оборачивает их в non-blocking warn.
+ */
+export async function ensureOrderChatChannel(
+  orderId: string,
+  opts?: { actor?: AuthenticatedUser }
+): Promise<EnsureOrderChatResult> {
+  if (!orderId || !UUID_RE.test(orderId)) {
+    throw new HttpError(400, "orderId должен быть UUID");
+  }
+
+  // Заказ обязателен: участники берутся из него же.
+  const { data: order, error: orderErr } = await supabaseAdmin
+    .from("orders")
+    .select("id, number, total, user_id, confectioner_id")
+    .eq("id", orderId)
+    .maybeSingle() as { data: OrderChatOrder | null; error: SupabaseError | null };
+
+  if (orderErr) {
+    console.warn("[chat] order lookup:", orderErr.message);
+    throw new HttpError(500, "Не удалось загрузить заказ");
+  }
+  if (!order) {
+    throw new HttpError(404, "Заказ не найден");
+  }
+
+  // Доступ: участник заказа или staff (поддержка/админ).
+  if (opts?.actor) {
+    const actor = opts.actor;
+    const isParticipant = actor.id === order.user_id || actor.id === order.confectioner_id;
+    if (!isParticipant && !isStaffUser(actor)) {
+      throw new HttpError(403, "Нет доступа к чату этого заказа");
+    }
+  }
+
+  // find-or-create по order_id ( deleted_at IS NULL — «удалённая» комната
+  // создаётся заново, а не resurrect).
+  const { data: found } = await supabaseAdmin
+    .from("chat_channels")
+    .select("*")
+    .eq("order_id", orderId)
+    .is("deleted_at", null)
+    .limit(1) as { data: ChannelRow[] | null };
+
+  let channel = (found || [])[0];
+  let created = false;
+
+  if (!channel) {
+    const { data: createdRow, error: createErr } = await supabaseAdmin
+      .from("chat_channels")
+      .insert({
+        type: "group",
+        name: `Заказ №${order.number}`,
+        order_id: order.id,
+      })
+      .select("*")
+      .single() as { data: ChannelRow | null; error: SupabaseError | null };
+
+    if (createErr || !createdRow) {
+      if (createErr?.code === "23505") {
+        // Гонка: другой ensure успел создать комнату → пере-читаем.
+        const { data: raced } = await supabaseAdmin
+          .from("chat_channels")
+          .select("*")
+          .eq("order_id", orderId)
+          .is("deleted_at", null)
+          .limit(1) as { data: ChannelRow[] | null };
+        if ((raced || [])[0]) {
+          channel = (raced || [])[0];
+        }
+      }
+      if (!channel) {
+        console.error("[chat] create order channel:", createErr?.message);
+        throw new HttpError(500, "Не удалось создать чат заказа");
+      }
+    } else {
+      channel = createdRow;
+      created = true;
+    }
+  }
+
+  // Membership: клиент + кондитер (+ actor, если он не среди них — например staff).
+  const memberIds = [...new Set([order.user_id, order.confectioner_id, opts?.actor?.id].filter(
+    (v): v is string => typeof v === "string" && v.length > 0
+  ))];
+  const { data: existingMembers } = await supabaseAdmin
+    .from("chat_channel_members")
+    .select("user_id, left_at")
+    .eq("channel_id", channel.id) as { data: { user_id: string; left_at: string | null }[] | null };
+
+  const active = new Set((existingMembers || []).filter((m) => !m.left_at).map((m) => m.user_id));
+  const toAdd = memberIds.filter((id) => !active.has(id));
+  if (toAdd.length > 0) {
+    const { error: memberErr } = await supabaseAdmin
+      .from("chat_channel_members")
+      .upsert(
+        toAdd.map((userId) => ({ channel_id: channel!.id, user_id: userId, role: "member" })),
+        { onConflict: "channel_id,user_id", ignoreDuplicates: true }
+      );
+    if (memberErr) console.warn("[chat] order members:", memberErr.message);
+  }
+
+  return { channel, created, order };
 }

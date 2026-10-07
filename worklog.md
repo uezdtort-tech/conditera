@@ -7890,3 +7890,98 @@ Stage Summary:
 - Реализована ТЗ-корректировка «Adaptive Order Lifecycle»: сложность внутри системы. Один движок (lifecycle/capacity/acceptance), три уровня подачи: home (простой «Сегодня»), business (Производственный центр), enterprise (тот же центр + Control Tower из P0.5). Новых параллельных систем нет: карточки зовут существующие lifecycle-эндпоинты, фото — существующий media-стек, закупки — существующий purchase-draft.
 - Артефакты: миграция 0055; src/app/api/confectioner/scale/route.ts; расширение confectioner-today + onboarding; src/components/dashboard/confectioner-today-simple.tsx, confectioner-scale-settings.tsx; правки today-tab/dashboard v1+v2; prisma schema. Демо-заказы 1045–1048 у confectioner@demo.ru для превью.
 - Рекомендация след. агентам: P0.5 verify-скрипт запускать без параллельных сборок (OOM); для enterprise-уровня UI-вкл. уже работает через scale=enterprise (тот же bento) — дальнейшие уровни (смены, склады, SLA) — бэклог.
+---
+Task ID: p1-c
+Agent: Z.ai Code (кабинет клиента + отзыв + проблема + повтор + wishlist)
+Task: P1 — кабинет клиента: отзыв по заказу (§15), «Есть проблема» (§16), повторный заказ (§13), чат по заказу (§9), UI отмены, wishlist API
+
+Work Log:
+- Прочитан хвост worklog (p05-orchestrator, Task 6): setup.mjs ledger auto-discovery миграций подтверждён; демо-креды customer@demo.ru/Demo123!; business-статусы enum 0001.
+- Миграция 0057_order_reviews.sql (0056 не занят на момент создания): product_reviews + order_id UUID NULL REF orders(id) ON DELETE SET NULL + photos JSONB DEFAULT '[]' + idx_reviews_order; idempotent; применена bun scripts/db/setup.mjs --seed-only (ledger 56), колонки/индекс проверены pg-запросом.
+- POST /api/reviews (в существующем src/app/api/reviews/route.ts, GET не тронут): auth getUserFromRequest; валидации (UUID, rating 1-5 int, фото ≤3, text ≤2000); заказ → владелец 403 → DELIVERED/COMPLETED 422 → order_items[0].product_id null → 422 «Товар недоступен для отзыва» → 409 по order_id → 409 по UNIQUE(product_id,user_id) («Вы уже оставляли отзыв на этот товар») + catch гонки 23505; status='approved' (конвейера auto-approve нет, seed пишет approved, витринный GET читает только approved; админ-модерация сохранена). Плюс GET ?mine=1 — свои отзывы с order_id (состояние «Отзыв отправлен» персистентно).
+- POST /api/orders/[id]/repeat — ПЕРЕПИСАН по новому контракту (заказ НЕ создаётся): {orderNumber, currency, items:[{productId,title,image,quantity,unitPrice(актуальная products.price),oldPrice(snapshot price||unit_price),available,unavailableReason?}]}; проверки product/published/is_available (0052); custom без product → 422; auth сменён getCurrentUser (Supabase-cookie — app-JWT не видел) на getUserFromRequest + isAdmin (как /api/orders и /cancel).
+- НОВЫЙ /api/wishlist (product_favorites, 0002): GET карточки {productId,id,title,price,images,slug,available} + фолбэк-обложка из product_images; POST {productId} toggle; DELETE ?productId; UUID-валидация, 404, скоуп user_id, auth.
+- /api/crm/tickets: POST принимает metadata (санитайзер: скаляры + string[]) → сохраняется в support_tickets.metadata; GET ?filter=own уже скоупнут — использован как есть (клиентский POST был открыт).
+- НОВЫЙ src/components/chat/chat-order-bridge.ts: openChatForOrder (window-event) + useChatOrderBridge в dashboard/page.tsx → оба маунта ChatWidget получили initialOrderId={chatOrderId ?? undefined}; chat-widget.tsx НЕ тронут (p1-b).
+- customer-dashboard.tsx (расширен, секции не переписаны): «Оставить отзыв» (замена заглушки) → ReviewOrderDialog (звёзды 1-5 интерактив, текст, ≤3 фото через POST /api/upload category=reviews, ≤5МБ клиентски) → сабмит → «Отзыв отправлен» disabled (из ?mine=1); «Есть проблема» (все статусы кроме CANCELLED/REFUNDED) → ProblemOrderDialog (radio product_quality/order_issue/delivery/other, описание ≥10, фото tickets) → POST тикет «Проблема по заказу №X» + metadata{description,photos}; бейдж открытого тикета (open/in_progress/waiting) на карточке из GET tickets?filter=own; «Повторить заказ» (DELIVERED/COMPLETED) → POST repeat → всё available+цены ок → сразу addToCart+тост+корзина, иначе RepeatOrderDialog (изменение цены old→new, недоступные с причиной не добавляются, «Добавить в корзину (N)»); кастомизация order_items.customization (filling/coating/decoration/inscription) переносится в addToCart; «Отменить заказ» (PENDING/CONFIRMED) → AlertDialog → POST cancel → invalidate ["orders-real"]; «Сообщение кондитеру» = ensureChatRoom({type:'order',orderId}) → openChatForOrder → setChatOpen(true), null → тост «Чат временно недоступен»; таб Избранное: WishlistGrid из GET /api/wishlist (карточка + «В корзину» min-Product + сердечка-toggle), фолбэк localStorage (аноним/ошибка); бейдж сайдбара — серверный счётчик.
+- Проверки: typecheck 0; lint 0; curl-смоук всех веток reviews (201/409×2/422/400/401), repeat (200, 18500 vs 9800), wishlist (add/toggle/DELETE/400), tickets (201+metadata, TKT-2026-0001, статус auto→in_progress покрыт бейджем); agent-browser E2E: 6 кнопок на правильных статусах, «Отзыв отправлен» disabled, 409-тост отзыва, диалог повтора «цена изменилась 5600→1200» → корзина с актуальной ценой, отмена 1046 → toast+статус, бейдж обращения, order-комната создана в chat_channels, избранное — серверная карточка, 375px h-scroll 0; dev.log чист по моим файлам.
+- Демо-данные изменены (превью): 1045/1048 → DELIVERED, тест-отзыв на 1048 (пастила), тикет TKT-2026-0001 по 1045, order-чат 1047, 1 favorite (Наполеон).
+
+Stage Summary:
+- Кабинет клиента закрыт по P1: отзыв после доставки с фото и идемпотентностью (one order → one review, one user-product), «Есть проблема» → тикеты с фото и бейджем статуса, «Повторить заказ» без молчаливого создания заказа (актуальные цены/доступность → корзина через диалог при расхождениях), чат привязан к заказу (комната find-or-create + initialOrderId-мост к p1-b), отмена заказа с confirm+возвратом, избранное переведено на БД-API с localStorage-фолбэком.
+- Файлы: supabase/migrations/0057_order_reviews.sql (НОВЫЙ); src/app/api/reviews/route.ts (POST + GET?mine=1); src/app/api/orders/[id]/repeat/route.ts (переписан, новый контракт + auth-фикс); src/app/api/wishlist/route.ts (НОВЫЙ); src/app/api/crm/tickets/route.ts (metadata passthrough); src/components/chat/chat-order-bridge.ts (НОВЫЙ); src/app/dashboard/page.tsx (2 маунта ChatWidget + мост, минимальный дифф); src/components/dashboard/customer-dashboard.tsx (кнопки/диалоги/wishlist; ~450 строк добавлено, секции не переписаны).
+- Следующим агентам: chat-widget initialOrderId-логика — p1-b (мост и проп уже подключены); НЕ считать копейки в products.price — рубли по факту; конвейер auto-approve отзывов отсутствует — при появлении сменить status в POST /api/reviews в одном месте.
+---
+Task ID: p1-a
+Agent: Z.ai Code (клиентский контур: конструктор → корзина → checkout → оплата → success)
+Task: P1-a — golden path покупателя: custom-позиции конструктора в корзине, серверная перепроверка checkout, шаги/подтверждение CheckoutPage, страница /checkout/success, повторная оплата
+
+Work Log:
+- ЕДИНАЯ формула цены конструктора: src/lib/cake-builder-pricing.ts (НОВЫЙ, изоморфный) — calculateBuilderUnitPrice/calculateBuilderPrice (base→regional), validateBuilderConfig (productType/base/coating/filling/decor/dietary/qty/servings/inscription, неизвестная начинка = отказ), describeBuilderConfig/builderConfigParams, mergeBuilderFillings (mock + fillings DB, маппинг price_multiplier→₽ как в клиенте) + 27 тестов (cake-builder-pricing.test.ts).
+- store.ts: CartItem.itemId (id ПОЗИЦИИ; дедуп/удаление/обновление по itemId с fallback на productId для старых localStorage-корзин — matchesCartEntry); addCustomToCart({config,quantity}) — custom-позиция productId="" с снимком CakeBuilderConfig, дедуп по JSON-снимку конфига, цена по calculateBuilderPrice; applyPromo через lib/promo-codes (STATIC_PROMO_CODES); addToCart сигнатура не тронута (совместимо с repeat-флоу p1-c).
+- POST /api/checkout: Idempotency-Key (заголовок, TTL 15 мин → повтор возвращает СУЩЕСТВУЮЩИЙ заказ с items+payment, idempotentReplay:true); zod — позиция XOR product_id|custom, customerName/customerPhone обязательны (валидный РФ-телефон), адрес только для delivery, promoCode; серверный пересчёт: товары — published + filling-модификатор из products.fillings (неизвестный ключ/начинка → 422), coating/decoration — информационные атрибуты без модификатора (в products нет данных о ценах); custom — validateBuilderConfig+calculateBuilderPrice по справочнику fillings (mock+DB), снимок конфига в order_items.selected_attributes; промокод — серверная истина validatePromoCode (₽-скидка, free_delivery, orders.promo_code/promo_discount, used_count через applyPromoCodeToOrder); доставка calculateDelivery(subtotal) / pickup=0; contact{name,phone}+idempotency_key в orders.metadata; ответ {orderId,orderNumber,paymentUrl,total,subtotal,deliveryCost,discount,appliedPromoCode,isStub,items[]}; paymentUrl-стаб теперь /checkout/success?orderId=&demo=true; return_url YooKassa → /checkout/success?orderId=; cart_items-очистка только по реальным id.
+- CheckoutPage (extra-pages.tsx): шаги «Получение → Подтверждение → Готово»; получатель controlled (имя/телефон РФ-валидация, префилл из профиля), переключатель Доставка/Самовывоз (адрес только для доставки), город/дата/комментарий; availability-баннер только по товарным позициям; шаг 2 = сводка подтверждения (получатель, получение, состав с параметрами через builderConfigParams/productParams) + способ оплаты card/СБП/наличные БЕЗ декоративных полей карты и рассрочки (getProductPaymentOptions/installments удалены — они не совместимы с серверным контрактом); payload: itemId, selected_attributes (непустые ключи customization), custom.config, customerName/Phone, deliveryType, promoCode, paymentMethod, заголовок Idempotency-Key; доставка через calculateDelivery (единая формула).
+- /checkout/success/page.tsx (НОВЫЙ): Suspense+useSearchParams(orderId,demo), GET /api/orders/[id] (GET уже существовал: auth+ownership, order+items+payment), человеческие статусы (ORDER_STATUS_LABELS/PAYMENT_STATUS_LABELS), состав с параметрами (снимок конструктора распознаётся по productType → builderConfigParams), серверные суммы (subtotal/delivery/discount/total), кнопка «Оплатить» при payment_status=pending → POST /api/payment/create {orderId} → redirect paymentUrl (контракт роута подтверждён: auth+owner+PAID_ORDER_STATUSES+upsert по yookassa_payment_id), «Перейти к заказам» → /dashboard.
+- cake-builder-page.tsx: блок «Добавить в корзину» на шагах ≥7 (рядом с RFQ-сабмитом, путь не вытесняет) — handleAddToCart собирает CakeBuilderConfig из cakeBuilder (все 17 полей) → addCustomToCart → navigate("checkout"); неавторизованным — auth-модалка.
+- Не тронуты файлы p1-c (customer-dashboard, reviews, repeat, wishlist, chat).
+
+Stage Summary:
+- Golden path замкнут: конструктор (снимок конфига) → корзина (itemId+custom, backward-compat) → checkout (idempotency-key, серверная цена/промокод/доставка/валидация, XOR product|custom) → заказ+платёж → /checkout/success (статус, состав с параметрами, серверные суммы, повторная оплата через /api/payment/create) → /dashboard.
+- Контракты: checkout req {cartItems:[{id?,product_id?|custom?,quantity,selected_attributes?}], customerName, customerPhone, deliveryType, deliveryAddress?, deliveryCity, deliveryDate?, notes?, promoCode?, paymentMethod?} + заголовок Idempotency-Key; resp {orderId, orderNumber, paymentUrl, total, subtotal, deliveryCost, discount, appliedPromoCode, isStub, items:[{title,quantity,unitPrice,total,selectedAttributes}], idempotentReplay?}.
+- Verify: tsc --noEmit 0; bun run lint 0 (весь проект); vitest cake-builder-pricing(27)+cake-builder-options(28)+store(19) = 74 passed; curl /checkout=200, /checkout/success?orderId=&demo=true=200, /cake-builder=200 (компиляция в dev.log чистая); payments/units — рубли, webhook-сверка в копейках не затронута.
+- Осталось след. агентам: миграция для refund-поля order_items нет (не нужна — custom в selected_attributes); опционально polling статуса на success (сейчас кнопка обновления = повторный fetch при remount); рассрочка удалена из checkout UI — при возврате фичи завести серверный контракт installment.
+
+---
+Task ID: p1-d
+Agent: Z.ai Code (витрина: /api/products + каталог/карточка товара)
+Task: P1-d — починка витринных данных: total, фильтр категории, экранирование поиска, потолок цены, prepTime, бейдж is_available, live-отзывы в карточке
+
+Work Log:
+- Продолжение после таймаута: проверены правки предыдущего экземпляра (reviews-таб, честные пустые стейты — на месте; prepTime=undefined — заменён маппингом из БД; заявленный «select дополнен полями 0052» в GET /api/products фактически ОТСУТСТВОВАЛ — добавлен: без него is_available/production_time_hours не доезжали до карточек).
+- total (route.ts): count:exact head:true с теми же фильтрами (status/category/confectioner/search) ДО пагинации; total=размеру страницы больше не равен; при ошибке count — fallback на длину страницы. Клиенты total не потребляют (useLiveProducts читает только products; каталог фильтрует локально) — client-side правок не потребовалось.
+- Категория: category_id — UUID FK, витрина шлёт slug → резолв через product_categories (UUID passthrough); неизвестный slug → честное {[],total:0}. curl: category=cakes → 2 товара (napoleon+svadebnyy), bento → 1, unknown → 0.
+- Поиск: toSafeIlikePattern — разделители or() ( `(),"\` ) вырезаются, пробелы → % («торт,тест» → %торт%тест%); паттерн одинаковый в основном и count-запросах. curl «?q=торт,тест» → 200 (был 400), «торт» → 3 товара.
+- Потолок цены каталога: maxPrice=useMemo(max(15000,…prices)); слайдер max динамический; фильтр `priceRange[1]>=maxPrice || p.price<=priceRange[1]` (шаг слайдера 100 не всегда достаёт до maxPrice); AI-бюджет min(budget,maxPrice); оба сброса → [0,maxPrice]; sync-эффект поднимает верхнюю границу если пользователь её не трогал (prevMax фиксируется ДО setPriceRange — updater вызывается позже, первый вариант с чтением ref внутри updater не срабатывал; найдено браузер-проверкой).
+- prepTime: formatPrepTime(production_time_hours) с русской плюрализацией (12→«12 ч», 24→«1 день», 28→«1 дн 4 ч», 48→«2 дня»; null/0/битое→undefined); строка «N готовка» и разделитель «•» на product-page — условные; мета-карта «срок» оживает.
+- is_available: mapper `p.is_available ?? true`; product-card — бейдж «Нет в наличии» (bg-muted, не красный) + disabled/aria-disabled/title кнопка корзины + guard; product-page уже гейтился — live-значение доезжает через расширенный select.
+- Отзывы: types.ts — новый витринный `interface Review` (его раньше не существовало); products/[id] — photos (0057) в select/ответе; mapApiReviewToReview — defensive (никогда не бросает); useLiveProductDetail → {product, reviews} (404→[]); ProductPage — ProductReviewsList (инициалы/имя/звёзды с aria/дата ru-RU/фото) вместо заглушки при live-отзывах; fallback (live пуст) = прежние заглушка/пустой стейт (store.reviews не существует — в Product/mock данных поля нет).
+- Демо-данные (БД, не миграция): production_time_hours 48/28/72/12 (svadebnyy/bento/korovka/kapkeyki — в сиде все NULL); chokolatnyy-candy-bar → is_available=false (не участвует в order_items/favorites/cart — проверено) для демо бейджа.
+- Проверки: tsc 0; lint 0; curl total=12 (=COUNT в БД) при limit=5; «?q=торт,тест» → 200; category=cakes/bento/unknown → 2/1/честный 0; detail svadebnyy → reviews с author.name+photos+createdAt; 404 на no-such; браузер: слайдер max=18500 и thumbs [0,18500], «12 товаров», свадебный торт видим, candy-bar с бейджем и disabled кнопкой, «2 дня готовка»/«1 дн 4 ч готовка», живой отзыв (ДП, «Демо Покупатель», звёзды, дата) в «Отзывы (1)», 375px без h-scroll; dev.log чист по моим файлам.
+
+Stage Summary:
+- Витрина отвечает на реальные данные БД end-to-end: total честный, категории витрины фильтруются по slug, поиск не падает на спецсимволах, ценовой фильтр не прячет товары дороже 15 000 ₽, сроки изготовления из production_time_hours, недоступные товары помечены и не добавляются в корзину, таб отзывов показывает одобренные отзывы с профилями и фото.
+- Файлы: src/app/api/products/route.ts; src/app/api/products/[id]/route.ts (только GET-select/reviews.photos); src/lib/types.ts (+Review); src/lib/supabase/use-marketplace.ts (prepTime/isAvailable/review-mapper/detail); src/components/pages/catalog-page.tsx (maxPrice); src/components/pages/product-page.tsx (готовка-условие, ProductReviewsList); src/components/marketplace/product-card.tsx (бейдж+disabled).
+- Детали/контракты: agent-ctx/p1-d-products-catalog.md.
+- Следующим: reviews_count (сводка) — счётчик сида, может расходиться с фактическими approved-отзывами (список рендерит live; автопересчёт счётчика вне скоупа); prepTime отображается только у товаров с заполненным production_time_hours (в сиде NULL — данные, не код); при обновлении сидов учесть 0052-поля.
+
+---
+Task ID: p1-b
+Agent: full-stack-developer (завершение оформлено оркестратором)
+Task: P1 §9 — чат customer↔confectioner по заказу end-to-end
+
+Work Log:
+- B1: ensureOrderChatRoom переведён на chat_channels/chat_channel_members; миграция 0058_chat_channels_order_unique.sql (partial unique index по order_id → find-or-create идемпотентен на уровне БД, гонки checkout vs «Сообщение кондитеру» дают одну комнату).
+- B2: ChatWidget initialOrderId реализован (эффект find-or-create order-комнаты + фокус, бейдж «Заказ №…» в шапке с ленивым GET /api/orders/[id], кеш на сессию).
+- B3: новый src/components/dashboard/confectioner-chat-tab.tsx (order-комнаты: заказ-сводка №/статус/сумма из ORDER_STATUS_LABELS, кнопка «К заказам») — смонтирован в confectioner-dashboard.tsx (tab chat).
+- B4: быстрые действия order-комнат («Уточнить заказ», «Изменить дату», «Уточнить доставку» — шаблон в инпут).
+- B5: POST /api/chat/rooms/[id]/messages → sendNotification получателю (skip self).
+
+Stage Summary:
+- Order-чат сквозной: checkout/кабинет создаёт комнату в chat_channels (0058 идемпотентность), клиент открывает по initialOrderId из заказа, кондитер видит заказ из чата, unread/read уже работали.
+- tsc 0 / lint 0 на момент падения агента; финальная регрессия — оркестратор.
+
+---
+Task ID: p1-e
+Agent: full-stack-developer (завершение оформлено оркестратором)
+Task: P1 §10 — notification center с переходом к заказу
+
+Work Log:
+- E1: sendNotification += metadata (аддитивно); lifecycle.ts — все order-уведомления несут metadata:{orderId}; checkout route шлёт «заказ создан» кондитеру.
+- E2: GET /api/notifications(+list) возвращает metadata.
+- E3: notifications-bell.tsx — клик: markRead + metadata.orderId → /dashboard?tab=orders&orderId=X; дашборды читают tab/orderId из searchParams.
+- E4: payment/webhook (succeeded/cancelled) и payment/refund — уведомления клиенту/кондитеру с metadata.orderId.
+- E5: CustomerNotificationsTab — мок → GET/PATCH /api/notifications/preferences; миграция 0059_notification_prefs_columns.sql (недостающие колонки контракта, идемпотентно).
+
+Stage Summary:
+- Цепочка ТЗ §10 замкнута: событие → уведомление (metadata.orderId) → переход к заказу из колокола; настройки реальны (0059 применена setup.mjs).
+- tsc 0 / lint 0; финальная регрессия — оркестратор.

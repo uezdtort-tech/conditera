@@ -31,6 +31,7 @@ import type {
   Product as StoreProduct,
   ProductCategory,
   ProductMediaItem,
+  Review,
 } from "@/lib/types";
 
 // ==================== Types ====================
@@ -831,6 +832,33 @@ interface ApiProduct {
   confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
 }
 
+/**
+ * Русская плюрализация: pluralRu(1, "день", "дня", "дней") → "день".
+ */
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+/**
+ * production_time_hours (0052, часы) → человекочитаемый срок.
+ * 12 → "12 ч", 24 → "1 день", 28 → "1 дн 4 ч", 72 → "3 дня".
+ * null/0/отрицательные → undefined (показываем только реальные данные).
+ */
+function formatPrepTime(hours: unknown): string | undefined {
+  const h = typeof hours === "string" ? Number(hours) : hours;
+  if (typeof h !== "number" || !Number.isFinite(h) || h <= 0) return undefined;
+  const total = Math.round(h);
+  if (total < 24) return `${total} ч`;
+  const days = Math.floor(total / 24);
+  const rem = total % 24;
+  if (rem === 0) return `${days} ${pluralRu(days, "день", "дня", "дней")}`;
+  return `${days} дн ${rem} ч`;
+}
+
 function guessCategory(title: string, tags: string[] | null): ProductCategory {
   const hay = `${title} ${(tags || []).join(" ")}`.toLowerCase();
   if (hay.includes("капкейк")) return "cupcakes";
@@ -863,9 +891,10 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     reviewsCount: p.reviews_count ?? 0,
     servings: p.servings ?? undefined,
     weight: p.weight_grams ? `${p.weight_grams} г` : undefined,
-    // pay4: prepTime в БД нет — раньше выдумывали «1 день / 2–5 дней» из
-    // флага is_featured. Показываем срок только из реальных данных.
-    prepTime: undefined,
+    // prepTime — из production_time_hours (0052): часы → "12 ч / 1 день / 1 дн 4 ч".
+    // Раньше ставили undefined с пометкой «в БД нет» — поле теперь приходит
+    // из select, а в БД есть колонка production_time_hours.
+    prepTime: formatPrepTime(p.production_time_hours),
     // pay4: бейджи — только по реальным данным; синтетические
     // isPopular (reviews>0) и порог isHit от reviews>=20 убраны
     isHit: Boolean(p.is_featured),
@@ -896,7 +925,9 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     recipeId: p.recipe_id ?? null,
     minOrderQty: p.min_order_qty ?? undefined,
     customOrderAvailable: p.custom_order_available ?? undefined,
-    isAvailable: p.is_available ?? undefined,
+    // is_available (0052): НЕ NULL DEFAULT true в БД; при отсутствии поля в
+    // ответе (старые клиенты/мок) считаем доступным
+    isAvailable: p.is_available ?? true,
     productionTimeHours: p.production_time_hours ?? null,
     // media приходит из API уже в camelCase (ProductMediaItem[])
     media: Array.isArray(p.media) ? p.media : undefined,
@@ -924,6 +955,46 @@ export function useLiveProducts(limit = 60) {
   });
 }
 
+/* ------------------------------------------------------------------ *
+ * Отзывы карточки товара (GET /api/products/[id] → reviews[])
+ * ------------------------------------------------------------------ */
+
+/** Сырой отзыв из ответа /api/products/[id] (все поля опциональны — API эволюционирует). */
+interface ApiReview {
+  id?: unknown;
+  rating?: unknown;
+  text?: unknown;
+  pros?: unknown;
+  cons?: unknown;
+  helpfulCount?: unknown;
+  createdAt?: unknown;
+  photos?: unknown;
+  author?: { id?: string | null; name?: string | null; avatar?: string | null } | null;
+}
+
+/**
+ * mapApiReviewToReview — безопасное приведение к витринному типу Review.
+ * НИКОГДА не бросает: любое отсутствующее/битое поле заменяется дефолтом.
+ */
+function mapApiReviewToReview(r: ApiReview): Review {
+  const ratingRaw = Number(r.rating);
+  const rating = Number.isFinite(ratingRaw) ? Math.min(5, Math.max(1, Math.round(ratingRaw))) : 0;
+  const photos = Array.isArray(r.photos)
+    ? r.photos.filter((u): u is string => typeof u === "string" && u.length > 0)
+    : undefined;
+  return {
+    id: typeof r.id === "string" ? r.id : String(r.id ?? ""),
+    author: r.author?.name || "Покупатель",
+    avatar: r.author?.avatar || undefined,
+    rating,
+    text: typeof r.text === "string" ? r.text : "",
+    date: typeof r.createdAt === "string" ? r.createdAt : "",
+    photos: photos && photos.length > 0 ? photos : undefined,
+    pros: typeof r.pros === "string" ? r.pros : null,
+    cons: typeof r.cons === "string" ? r.cons : null,
+  };
+}
+
 /**
  * useLiveProductDetail — карточка товара по id/slug (публичный GET /api/products/[id]).
  *
@@ -932,16 +1003,25 @@ export function useLiveProducts(limit = 60) {
  * (/product?id=...) в store товара ещё нет — страница мгновенно показывала
  * «Товар не найден». Хук догружает карточку напрямую; null + loading=false
  * = товара нет в БД (честная 404-ветка).
+ *
+ * Возвращает { product, reviews }: reviews — approved-отзывы с именами
+ * авторов (уже приведённые к витринному типу Review; [] при 404/ошибке).
  */
 export function useLiveProductDetail(id: string | null | undefined) {
-  return useQuery<{ product: StoreProduct | null }>({
+  return useQuery<{ product: StoreProduct | null; reviews: Review[] }>({
     queryKey: ["live-product-detail", id],
     queryFn: async () => {
       const res = await fetch(`/api/products/${id}`);
-      if (res.status === 404) return { product: null };
+      if (res.status === 404) return { product: null, reviews: [] };
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as { product?: ApiProduct };
-      return { product: json.product ? mapApiProductToProduct(json.product) : null };
+      const json = (await res.json()) as {
+        product?: ApiProduct;
+        reviews?: ApiReview[];
+      };
+      return {
+        product: json.product ? mapApiProductToProduct(json.product) : null,
+        reviews: (json.reviews ?? []).map(mapApiReviewToReview),
+      };
     },
     enabled: Boolean(id),
     staleTime: 60 * 1000,

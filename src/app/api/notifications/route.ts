@@ -5,7 +5,8 @@
  * body, channel, status, metadata, read_at, created_at.
  *
  * GET    — список своих уведомлений (50 свежих, новые сверху).
- *          Формат элемента: { id, type, title, message, createdAt, read }.
+ *          Формат элемента: { id, type, title, message, metadata, createdAt, read },
+ *          где metadata = { orderId?, roomId? } — для перехода к заказу/чату.
  * PATCH  — { id, read: true } — отметить одно; { readAll: true } — все.
  * DELETE — ?id=<uuid> — удалить одно; ?all=true — очистить все.
  *
@@ -23,6 +24,7 @@ interface NotificationRow {
   type: string | null;
   title: string | null;
   body: string | null;
+  metadata: unknown;
   read_at: string | null;
   created_at: string;
 }
@@ -34,7 +36,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const { data, error } = await supabaseAdmin
       .from("notifications")
-      .select("id, type, title, body, read_at, created_at")
+      .select("id, type, title, body, metadata, read_at, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -46,6 +48,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       type: n.type || "system",
       title: n.title || "Уведомление",
       message: n.body || "",
+      // metadata.orderId/roomId — переход к заказу/чату из колокола (ТЗ §10)
+      metadata: (n.metadata && typeof n.metadata === "object" ? n.metadata : null) as {
+        orderId?: string;
+        roomId?: string;
+      } | null,
       createdAt: n.created_at,
       read: n.read_at != null,
     }));

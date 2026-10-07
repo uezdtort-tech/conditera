@@ -68,6 +68,7 @@ import {
   School,
   Store,
   User as UserIcon,
+  MessagesSquare,
 } from "lucide-react";
 import {
   ORDER_STATUS_LABELS,
@@ -122,6 +123,8 @@ import { useRealInventory } from "@/lib/use-real-inventory";
 import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
 import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-scale-settings";
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
+import { ConfectionerChatTab } from "@/components/dashboard/confectioner-chat-tab";
+import { ensureChatRoom } from "@/components/chat/chat-api";
 
 export function ConfectionerDashboard() {
   const navigate = useAppStore((s) => s.navigate);
@@ -147,6 +150,12 @@ export function ConfectionerDashboard() {
       ? new URLSearchParams(window.location.search).get("tab") || "overview"
       : "overview"
   );
+  // Переход из колокола (?tab=orders&orderId=X): подсветка заказа (ТЗ §10)
+  const [highlightOrderId] = useState(() =>
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("orderId")
+      : null
+  );
   const [showTariffDialog, setShowTariffDialog] = useState(false);
   // Разбор заказа (OrderBreakdownDialog): id заказа или null
   const [breakdownOrderId, setBreakdownOrderId] = useState<string | null>(null);
@@ -159,6 +168,24 @@ export function ConfectionerDashboard() {
   // Смена статуса через PATCH /api/orders/[id] (реальная стейт-машина STATUS_TRANSITIONS)
   const updateOrderStatusApi = useRealUpdateOrderStatus();
   const updateConfectionerTariff = useAppStore((s) => s.updateConfectionerTariff);
+  // Чат по заказу (p1-b): find-or-create order-комната → фокус в ChatWidget
+  const [openingChatOrderId, setOpeningChatOrderId] = useState<string | null>(null);
+
+  async function openOrderChat(orderId: string) {
+    setOpeningChatOrderId(orderId);
+    try {
+      const room = await ensureChatRoom({ type: "order", orderId });
+      if (!room) {
+        toast.error("Чат временно недоступен");
+        return;
+      }
+      const store = useAppStore.getState();
+      store.setActiveChatRoom(room.id);
+      store.setChatOpen(true);
+    } finally {
+      setOpeningChatOrderId(null);
+    }
+  }
 
   if (!user) {
     return (
@@ -244,6 +271,7 @@ export function ConfectionerDashboard() {
                 <SidebarTab icon={Sunrise} label="Сегодня" active={activeTab === "today"} onClick={() => setActiveTab("today")} />
                 <SidebarTab icon={LayoutDashboard} label="Обзор" active={activeTab === "overview"} onClick={() => setActiveTab("overview")} />
                 <SidebarTab icon={ShoppingBag} label="Заказы" badge={String(myOrders.length)} active={activeTab === "orders"} onClick={() => setActiveTab("orders")} />
+                <SidebarTab icon={MessagesSquare} label="Чат" active={activeTab === "chat"} onClick={() => setActiveTab("chat")} />
                 <SidebarTab icon={Package} label="Каталог" badge={String(myProducts.length)} active={activeTab === "products"} onClick={() => setActiveTab("products")} />
                 <SidebarTab icon={Coins} label="Финансы" active={activeTab === "finance"} onClick={() => setActiveTab("finance")} />
                 <SidebarTab icon={Calculator} label="НПД и налоги" active={activeTab === "tax"} onClick={() => setActiveTab("tax")} />
@@ -468,7 +496,11 @@ export function ConfectionerDashboard() {
                     const status = ORDER_STATUS_LABELS[order.status];
                     const payment = PAYMENT_STATUS_LABELS[order.paymentStatus];
                     return (
-                      <Card key={order.id} className="p-4">
+                      <Card
+                        key={order.id}
+                        id={`order-card-${order.id}`}
+                        className={`p-4 ${highlightOrderId === order.id ? "ring-2 ring-primary" : ""}`}
+                      >
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                           <div>
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -546,7 +578,12 @@ export function ConfectionerDashboard() {
                             <ClipboardList className="h-4 w-4 mr-1" />
                             Состав
                           </Button>
-                          <Button size="sm" variant="outline">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={openingChatOrderId === order.id}
+                            onClick={() => openOrderChat(order.id)}
+                          >
                             <MessageCircle className="h-4 w-4 mr-1" />
                             Чат
                           </Button>
@@ -556,6 +593,10 @@ export function ConfectionerDashboard() {
                   })}
                 </div>
               </div>
+            )}
+
+            {activeTab === "chat" && (
+              <ConfectionerChatTab onOpenOrders={() => setActiveTab("orders")} />
             )}
 
             {activeTab === "products" && (

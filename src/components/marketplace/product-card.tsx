@@ -31,6 +31,7 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (product.isAvailable === false) return; // кнопка задизейблена — защита на всякий случай
     addToCart(product);
   };
 
@@ -61,6 +62,11 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
 
         {/* Badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1">
+          {product.isAvailable === false && (
+            <Badge className="bg-muted text-muted-foreground text-[10px] px-2 py-0.5">
+              Нет в наличии
+            </Badge>
+          )}
           {product.isHit && (
             <Badge className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5">
               Хит
@@ -175,6 +181,9 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           <Button
             size="icon"
             onClick={handleAddToCart}
+            disabled={product.isAvailable === false}
+            aria-disabled={product.isAvailable === false}
+            title={product.isAvailable === false ? "Нет в наличии" : "Добавить в корзину"}
             className="h-9 w-9 shrink-0"
             aria-label="Добавить в корзину"
           >

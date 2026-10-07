@@ -16,6 +16,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { emitEvent } from "@/lib/n8n";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
 import {
+  BOT_USER_ID,
   canAccessRoom,
   fetchChannel,
   fetchRoomMessages,
@@ -161,6 +162,48 @@ export async function POST(
         senderId: user.id,
         roomType: mapChannelType(channel),
       }).catch(() => {});
+
+      // p1-b (B5): уведомление «новое сообщение» остальным участникам комнаты
+      // (sender исключён по условию; ботам не шлём). Non-blocking: сбой
+      // уведомления не роняет отправку сообщения. metadata {roomId, orderId}
+      // — чтобы колокол мог вести к чату/заказу.
+      try {
+        const { data: members } = await supabaseAdmin
+          .from("chat_channel_members")
+          .select("user_id")
+          .eq("channel_id", id)
+          .is("left_at", null)
+          .neq("user_id", user.id) as { data: { user_id: string }[] | null };
+        const recipients = [...new Set((members || []).map((m) => m.user_id))]
+          .filter((uid) => uid !== BOT_USER_ID);
+        if (recipients.length > 0) {
+          const { sendNotification } = await import("@/lib/notifications");
+          await Promise.all(
+            recipients.map((uid) =>
+              sendNotification({
+                userId: uid,
+                template: "NEW_MESSAGE",
+                vars: {
+                  senderName: user.name || "Пользователь",
+                  messagePreview: content.slice(0, 80),
+                },
+                data: {
+                  type: "chat_message",
+                  roomId: id,
+                  orderId: channel.order_id || undefined,
+                },
+              }).catch((e: unknown) => {
+                console.warn("[chat/messages] notify failed:", e instanceof Error ? e.message : e);
+              })
+            )
+          );
+        }
+      } catch (notifyErr: unknown) {
+        console.warn(
+          "[chat/messages] notify block failed:",
+          notifyErr instanceof Error ? notifyErr.message : notifyErr
+        );
+      }
     }
 
     const message: ApiChatMessage = {

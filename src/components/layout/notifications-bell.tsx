@@ -9,11 +9,18 @@ import {
 } from "lucide-react";
 import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 
+interface NotificationMetadata {
+  orderId?: string;
+  roomId?: string;
+  [key: string]: unknown;
+}
+
 interface NotificationItem {
   id: string;
   type: string;
   title: string;
   message: string;
+  metadata?: NotificationMetadata | null;
   createdAt: string;
   read: boolean;
 }
@@ -73,6 +80,30 @@ export function NotificationsBell() {
       const headers = await getSessionAuthHeaders(await getCsrfToken());
       fetch("/api/notifications", { method: "PATCH", headers, body: JSON.stringify({ id, read: true }) }).catch(() => {});
     })();
+  };
+
+  /**
+   * Клик по уведомлению (ТЗ §10: событие → уведомление → переход к заказу):
+   *   metadata.orderId → /dashboard?tab=orders&orderId=X (роут один для клиента
+   *   и кондитера — дашборд сам покажет нужную роль);
+   *   metadata.roomId   → /dashboard?tab=messages&roomId=X (чат, p1-b);
+   *   иначе — просто отметить прочитанным.
+   * Полная навигация (assign) — дашборды маунтятся заново и читают вкладку из URL.
+   */
+  const handleNotificationClick = (notif: NotificationItem) => {
+    markRead(notif.id);
+    const meta = notif.metadata;
+    if (meta?.orderId) {
+      setOpen(false);
+      window.location.assign(`/dashboard?tab=orders&orderId=${encodeURIComponent(meta.orderId)}`);
+      return;
+    }
+    if (meta?.roomId) {
+      setOpen(false);
+      window.location.assign(`/dashboard?tab=messages&roomId=${encodeURIComponent(String(meta.roomId))}`);
+      return;
+    }
+    setOpen(false);
   };
 
   const markAllRead = () => {
@@ -167,8 +198,17 @@ export function NotificationsBell() {
                 return (
                   <div
                     key={notif.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${notif.title}. Открыть${notif.metadata?.orderId ? " заказ" : ""}`}
                     className={`flex items-start gap-3 p-3 border-b hover:bg-accent/50 transition-colors cursor-pointer ${!notif.read ? "bg-primary/5" : ""}`}
-                    onClick={() => markRead(notif.id)}
+                    onClick={() => handleNotificationClick(notif)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleNotificationClick(notif);
+                      }
+                    }}
                   >
                     <div className={`shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${color}`}>
                       <Icon className="h-4 w-4" />

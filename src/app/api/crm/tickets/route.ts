@@ -55,12 +55,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!user) return unauthorizedResponse();
 
     const body = await request.json();
-    const { subject, category = "other", priority = "medium", orderId, message } = body as {
+    const { subject, category = "other", priority = "medium", orderId, message, metadata } = body as {
       subject: string;
       category?: string;
       priority?: string;
       orderId?: string;
       message: string;
+      metadata?: Record<string, unknown>;
     };
 
     if (!subject || !message) {
@@ -68,6 +69,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { error: "Subject и message обязательны" },
         { status: 400 }
       );
+    }
+
+    // metadata (P1 §16): клиент передаёт контекст обращения (описание, фото).
+    // Пропускаем только безопасные скаляры/строки — не доверяем произвольному JSON.
+    let safeMetadata: Record<string, unknown> | undefined;
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+      safeMetadata = {};
+      for (const [key, value] of Object.entries(metadata)) {
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+          safeMetadata[key] = value;
+        } else if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+          safeMetadata[key] = value;
+        }
+      }
     }
 
     // Создать тикет (number генерируется триггером)
@@ -79,6 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         category,
         priority,
         order_id: orderId,
+        ...(safeMetadata ? { metadata: safeMetadata } : {}),
       })
       .select()
       .single();

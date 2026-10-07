@@ -368,6 +368,12 @@ interface SendInput {
   scheduledFor?: Date;
   /** Custom data attached to notification */
   data?: Record<string, unknown>;
+  /**
+   * Алиас для контекстных данных, попадающих в notifications.metadata
+   * (например { orderId } для перехода из колокола к заказу).
+   * Мержится поверх data — аддитивно, существующие вызовы не ломает.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 interface UserProfileRow {
@@ -528,6 +534,7 @@ export async function sendNotification(input: SendInput): Promise<{
         body,
         metadata: {
           ...(input.data || {}),
+          ...(input.metadata || {}),
           ...(input.scheduledFor ? { scheduled_for: input.scheduledFor.toISOString() } : {}),
         },
       })

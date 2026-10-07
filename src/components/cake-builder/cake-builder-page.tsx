@@ -117,6 +117,7 @@ export function CakeBuilderPage() {
   const cakeBuilder = useAppStore((s) => s.cakeBuilder);
   const updateCakeBuilder = useAppStore((s) => s.updateCakeBuilder);
   const resetCakeBuilder = useAppStore((s) => s.resetCakeBuilder);
+  const addCustomToCart = useAppStore((s) => s.addCustomToCart);
   const navigate = useAppStore((s) => s.navigate);
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
@@ -371,6 +372,46 @@ export function CakeBuilderPage() {
     else navigate("home");
   };
 
+  /**
+   * Golden path ТЗ P1: конструктор → корзина → checkout → оплата.
+   * Снимок конфига кладётся в корзину как custom-позиция (productId=""),
+   * цену на checkout пересчитывает сервер по ЕДИНОЙ формуле
+   * lib/cake-builder-pricing (store.addCustomToCart считает только оценку).
+   */
+  const handleAddToCart = () => {
+    if (!cakeBuilder.productType) return;
+    if (!isAuthenticated) {
+      setAuthModalOpen(true);
+      toast.info("Войдите, чтобы добавить торт в корзину");
+      return;
+    }
+    addCustomToCart({
+      config: {
+        productType: cakeBuilder.productType,
+        eventType: cakeBuilder.eventType,
+        base: cakeBuilder.base,
+        tiers: cakeBuilder.tiers,
+        shape: cakeBuilder.shape,
+        filling: cakeBuilder.filling,
+        coating: cakeBuilder.coating,
+        decorations: cakeBuilder.decorations,
+        dietary: cakeBuilder.dietary,
+        city: cakeBuilder.city,
+        deliveryDate: cakeBuilder.deliveryDate,
+        deliveryType: cakeBuilder.deliveryType,
+        address: cakeBuilder.address,
+        servings: cakeBuilder.servings,
+        quantity: cakeBuilder.quantity,
+        inscription: cakeBuilder.inscription,
+        comment: cakeBuilder.comment,
+      },
+    });
+    toast.success("Торт добавлен в корзину", {
+      description: "Состав и цена видны в корзине — оформление в один шаг",
+    });
+    navigate("checkout");
+  };
+
   const handleClose = () => {
     resetCakeBuilder();
     setSubmitted(false);
@@ -457,21 +498,21 @@ export function CakeBuilderPage() {
     <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-br from-primary/5 via-background to-accent/5">
       <div className="container mx-auto px-4 py-6 lg:py-8 max-w-7xl">
         {/* ===== HEADER ===== */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-3 mb-6 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
             <Button variant="ghost" size="sm" onClick={handleBack}>
               <ChevronLeft className="h-4 w-4 mr-1" />
               Назад
             </Button>
             <div className="h-8 w-px bg-border" />
-            <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center shrink-0">
                 <Cake className="h-5 w-5 text-primary-foreground" />
               </div>
-              <div>
-                <h1 className="font-display text-lg lg:text-xl font-bold flex items-center gap-2">
-                  {productTypeMeta ? `Конструктор: ${productTypeMeta.label}` : "Конструктор десертов"}
-                  <Badge variant="secondary" className="text-[10px]">
+              <div className="min-w-0">
+                <h1 className="font-display text-lg lg:text-xl font-bold flex items-center gap-2 min-w-0">
+                  <span className="truncate min-w-0">{productTypeMeta ? `Конструктор: ${productTypeMeta.label}` : "Конструктор десертов"}</span>
+                  <Badge variant="secondary" className="text-[10px] shrink-0">
                     Шаг {step + 1} / 9
                   </Badge>
                 </h1>
@@ -1178,6 +1219,17 @@ export function CakeBuilderPage() {
         </div>
 
         {/* ===== FOOTER NAVIGATION ===== */}
+        {step >= 7 && (
+          <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4">
+            <div className="text-sm text-muted-foreground">
+              Не хотите ждать ответов кондитеров? Оформите торт сразу по оценочной цене.
+            </div>
+            <Button variant="outline" onClick={handleAddToCart} className="shrink-0">
+              <Cake className="h-4 w-4 mr-1" />
+              Добавить в корзину
+            </Button>
+          </div>
+        )}
         <div className="mt-6 flex items-center justify-between border-t pt-4">
           <Button
             variant="ghost"

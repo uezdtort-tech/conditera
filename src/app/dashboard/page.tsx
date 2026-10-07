@@ -26,6 +26,7 @@ import { SupabaseAuthSync } from "@/components/layout/supabase-auth-sync";
 import { PromoPopup } from "@/components/layout/promo-popup";
 import { CartDrawer } from "@/components/marketplace/cart-drawer";
 import { ChatWidget } from "@/components/chat/chat-widget";
+import { useChatOrderBridge } from "@/components/chat/chat-order-bridge";
 import { CakeBuilderDialog } from "@/components/cake-builder/cake-builder-dialog";
 import { useSeoMetadata } from "@/lib/use-seo-metadata";
 import dynamic from "next/dynamic";
@@ -135,6 +136,8 @@ export default function DashboardPage(): React.JSX.Element {
   const authModalOpen = useAppStore((s) => s.authModalOpen);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
   const view = useAppStore((s) => s.nav.view);
+  // «Сообщение кондитеру» из карточки заказа (customer-dashboard) → ChatWidget
+  const chatOrderId = useChatOrderBridge();
 
   useSeoMetadata(view || "dashboard-customer");
 
@@ -221,7 +224,7 @@ export default function DashboardPage(): React.JSX.Element {
         <AuthModal />
         <PromoPopup />
         <CartDrawer />
-        <ChatWidget />
+        <ChatWidget initialOrderId={chatOrderId ?? undefined} />
         <CakeBuilderDialog />
       </div>
     );
@@ -235,7 +238,7 @@ export default function DashboardPage(): React.JSX.Element {
         <AuthModal />
       <PromoPopup />
       <CartDrawer />
-      <ChatWidget />
+      <ChatWidget initialOrderId={chatOrderId ?? undefined} />
       <CakeBuilderDialog />
     </div>
   );

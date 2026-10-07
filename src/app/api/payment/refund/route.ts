@@ -180,7 +180,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
-      .select("id, user_id")
+      .select("id, user_id, number")
       .eq("id", payment.order_id)
       .single();
     if (orderErr || !order) {
@@ -416,6 +416,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .from("refunds")
         .update({ status: "processed", processed_at: new Date().toISOString() })
         .eq("id", refund.id);
+
+      // P1: webhook refund.succeeded не придёт (провайдера нет) — уведомляем
+      // клиента отсюда (ТЗ §10; metadata.orderId, fail-safe)
+      try {
+        if (order.user_id) {
+          const { sendNotification } = await import("@/lib/notifications");
+          await sendNotification({
+            userId: order.user_id,
+            template: "REFUND_PROCESSED",
+            vars: { amount, orderNumber: order.number || payment.order_id },
+            metadata: { orderId: payment.order_id },
+          });
+        }
+      } catch (e) {
+        console.warn("[payment/refund] notification failed (non-blocking):", e);
+      }
     }
 
     // PAY-1: финальные статусы payments/orders ('refunded') выставляет

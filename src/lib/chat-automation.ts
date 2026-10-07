@@ -27,6 +27,7 @@
  */
 
 import { supabaseAdmin } from "./supabase/admin";
+import { ensureOrderChatChannel, BOT_USER_ID } from "./chat-rooms";
 
 // ===== System bot user =====
 const BOT_EMAIL = "assistant@conditera.bot";
@@ -42,10 +43,6 @@ interface UserRow {
   name: string | null;
   avatar_url: string | null;
   email: string | null;
-}
-
-interface ChatRoomRow {
-  id: string;
 }
 
 interface OrderRow {
@@ -87,6 +84,24 @@ export async function getBotUser(): Promise<{ id: string; name: string; avatar: 
       id: bot.id,
       name: bot.name || BOT_NAME,
       avatar: bot.avatar_url || BOT_AVATAR,
+    };
+  }
+
+  // p1-b: фолбэк на сид-бота локального runtime (compat/0004_seed_bot_user,
+  // support-bot@system.local — тот же BOT_USER_ID, что и у нового чата).
+  // Прежняя попытка создать профиль на лету ломалась ограничением
+  // profiles_id_fkey (profiles.id → users.id) и молча роняла ВСЕ bot-сообщения.
+  const { data: seededBot } = await supabaseAdmin
+    .from("profiles")
+    .select("id, name, avatar_url")
+    .eq("id", BOT_USER_ID)
+    .maybeSingle() as { data: UserRow | null; error: SupabaseError | null };
+
+  if (seededBot) {
+    return {
+      id: seededBot.id,
+      name: seededBot.name || BOT_NAME,
+      avatar: seededBot.avatar_url || BOT_AVATAR,
     };
   }
 
@@ -157,6 +172,13 @@ interface ChatMessageRow {
 
 /**
  * Отправить авто-сообщение от лица бота в чат.
+ *
+ * Поддерживает оба хранилища (p1-b):
+ *  - chat_channels (id — UUID): вставка с channel_id + quick_replies-колонкой,
+ *    метрики канала обновляются в chat_channels — так сообщения видны
+ *    единственному живому UI (GET /api/chat/rooms → ChatWidget);
+ *  - легаси chat_rooms (id — текст, «r1/r2/r3»-комнаты auto-reply): старый
+ *    путь без изменений.
  */
 export async function sendBotMessage(params: SendMessageParams): Promise<ChatMessageRow | null> {
   let bot: { id: string; name: string; avatar: string };
@@ -168,6 +190,50 @@ export async function sendBotMessage(params: SendMessageParams): Promise<ChatMes
     return null;
   }
 
+  // Канал или легаси-комната?
+  const { data: ch } = await supabaseAdmin
+    .from("chat_channels")
+    .select("id")
+    .eq("id", params.roomId)
+    .limit(1) as { data: { id: string }[] | null };
+  const isChannel = Array.isArray(ch) && ch.length > 0;
+
+  if (isChannel) {
+    const { data: message, error: msgErr } = await supabaseAdmin
+      .from("chat_messages")
+      .insert({
+        channel_id: params.roomId,
+        sender_id: bot.id,
+        text: params.text,
+        is_system: true,
+        is_bot: true,
+        bot_kind: params.botKind || "order_status",
+        quick_replies: params.quickReplies || [],
+        metadata: params.metadata || {},
+        created_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single() as { data: ChatMessageRow | null; error: SupabaseError | null };
+
+    if (msgErr || !message) {
+      console.error("[chat-bot] channel message insert failed:", msgErr?.message);
+      return null;
+    }
+
+    // Метрики канала (0004): чтобы комната поднялась вверх списка
+    const { error: chErr } = await supabaseAdmin
+      .from("chat_channels")
+      .update({
+        last_message_text: params.text.slice(0, 120),
+        last_message_at: new Date().toISOString(),
+      })
+      .eq("id", params.roomId);
+    if (chErr) console.warn("[chat-bot] channel update failed:", chErr.message);
+
+    return message;
+  }
+
+  // Легаси-путь (chat_rooms, auto-reply) — без изменений
   const { data: message, error: msgErr } = await supabaseAdmin
     .from("chat_messages")
     .insert({
@@ -210,42 +276,17 @@ export async function sendBotMessage(params: SendMessageParams): Promise<ChatMes
 // ===== Создание чата для заказа =====
 
 /**
- * Создать ChatRoom для заказа + welcome-сообщение.
- * Идемпотентно: если комната уже есть — возвращаем её.
+ * Создать чат для заказа + welcome-сообщение.
+ *
+ * p1-b: консолидировано на chat_channels + chat_channel_members (единый
+ * контракта с GET /api/chat/rooms и ChatWidget; легаси chat_rooms больше НЕ
+ * используется). Find-or-create и membership обоих участников — в общем
+ * хелпере ensureOrderChatChannel (идемпотентен, миграция 0058).
+ * Идемпотентно: если комната уже есть — возвращаем её (welcome НЕ повторяем).
  */
 export async function ensureOrderChatRoom(orderId: string): Promise<string> {
-  // Ищем существующую
-  const { data: existing, error: findErr } = await supabaseAdmin
-    .from("chat_rooms")
-    .select("id")
-    .eq("order_id", orderId)
-    .maybeSingle() as { data: ChatRoomRow | null; error: SupabaseError | null };
-
-  if (findErr) {
-    console.warn("[chat-bot] find room failed:", findErr.message);
-  }
-  if (existing) return existing.id;
-
-  // Получаем заказ с участниками
-  const { data: order, error: orderErr } = await supabaseAdmin
-    .from("orders")
-    .select(`
-      id, number, total, delivery_address, delivery_date, delivery_time,
-      customer_id, confectioner_id
-    `)
-    .eq("id", orderId)
-    .maybeSingle() as { data: OrderRow | null; error: SupabaseError | null };
-
-  if (orderErr || !order) {
-    throw new Error(`Order ${orderId} not found`);
-  }
-
-  // orders.confectioner_id = auth.users.id = confectioners."userId" (модель A / миграция 0034).
-  // Отдельный lookup профиля кондитера для participants не нужен.
-  const participants = [order.customer_id];
-  if (order.confectioner_id) {
-    participants.push(order.confectioner_id);
-  }
+  const { channel, created, order } = await ensureOrderChatChannel(orderId);
+  if (!created) return channel.id;
 
   // Получаем items заказа для welcome-сообщения
   const { data: items, error: itemsErr } = await supabaseAdmin
@@ -257,34 +298,15 @@ export async function ensureOrderChatRoom(orderId: string): Promise<string> {
     console.warn("[chat-bot] items load failed:", itemsErr.message);
   }
 
-  const { data: room, error: roomErr } = await supabaseAdmin
-    .from("chat_rooms")
-    .insert({
-      type: "order",
-      name: `Заказ #${order.number}`,
-      participants,
-      order_id: order.id,
-      last_message: "Чат создан",
-      last_message_at: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single() as { data: ChatRoomRow | null; error: SupabaseError | null };
-
-  if (roomErr || !room) {
-    console.error("[chat-bot] room insert failed:", roomErr?.message);
-    throw new Error("Не удалось создать чат для заказа");
-  }
-
   // Welcome-сообщение с quick replies
   const itemsList = (items || [])
     .map((i) => `  • ${i.title} × ${i.quantity} = ${i.price * i.quantity}₽`)
     .join("\n");
 
   await sendBotMessage({
-    roomId: room.id,
+    roomId: channel.id,
     text:
-      `🤖 Добро пожаловать! Я — Уездный помощник, сопроводитель вашего заказа #${order.number}.\n\n` +
+      `🤖 Добро пожаловать! Я — Уездный помощник, сопроводитель вашего заказа №${order.number}.\n\n` +
       `📋 Состав заказа:\n${itemsList || "(нет товаров)"}\n\n` +
       `💰 Итого: ${order.total}₽\n\n` +
       `Я буду держать вас в курсе статуса заказа. Если есть вопросы — задавайте, я постараюсь помочь.`,
@@ -298,7 +320,7 @@ export async function ensureOrderChatRoom(orderId: string): Promise<string> {
     metadata: { orderId: order.id, orderNumber: order.number },
   });
 
-  return room.id;
+  return channel.id;
 }
 
 // ===== Триггеры по статусам =====

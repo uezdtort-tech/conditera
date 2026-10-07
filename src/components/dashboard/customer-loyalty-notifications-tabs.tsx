@@ -52,6 +52,7 @@ import {
 } from "@/lib/finance";
 import { LEVELS, type LoyaltyLevel, formatPoints } from "@/lib/loyalty-config";
 import { toast } from "sonner";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 
 // ====== LOYALTY TAB ======
 
@@ -409,26 +410,115 @@ const DEFAULT_PREFS: NotifyPrefs = {
   maxPerDay: 20,
 };
 
+// camelCase → snake_case (соответствует CAMEL_TO_SNAKE в
+// /api/notifications/preferences; GET может вернуть обе нотации)
+const SNAKE_KEYS: Partial<Record<keyof NotifyPrefs, string>> = {
+  emailEnabled: "email_enabled",
+  smsEnabled: "sms_enabled",
+  pushEnabled: "push_enabled",
+  telegramEnabled: "telegram_enabled",
+  inAppEnabled: "in_app_enabled",
+  orderUpdates: "order_updates",
+  paymentUpdates: "payment_updates",
+  promos: "promotions",
+  messages: "new_message",
+  reviews: "new_review",
+  loyalty: "loyalty",
+  abandonedCart: "abandoned_cart",
+  digest: "weekly_digest",
+  quietHoursStart: "quiet_hours_start",
+  quietHoursEnd: "quiet_hours_end",
+  timezone: "timezone",
+  maxPerDay: "max_per_day",
+};
+
+/** Ответ API (snake_case или camelCase) → NotifyPrefs; недостающее — дефолты. */
+function mapApiPrefs(raw: Record<string, unknown> | null | undefined): NotifyPrefs {
+  const merged: NotifyPrefs = { ...DEFAULT_PREFS };
+  if (!raw || typeof raw !== "object") return merged;
+  (Object.keys(SNAKE_KEYS) as (keyof NotifyPrefs)[]).forEach((key) => {
+    const snake = SNAKE_KEYS[key];
+    const v = raw[key] ?? (snake ? raw[snake] : undefined);
+    if (v !== undefined && v !== null) {
+      (merged as any)[key] = v;
+    }
+  });
+  return merged;
+}
+
 export function CustomerNotificationsTab() {
   const [prefs, setPrefs] = useState<NotifyPrefs>(DEFAULT_PREFS);
   const [loading, setLoading] = useState(false);
 
-  // In real app: load from /api/notifications/preferences on mount
+  // Загрузка настроек при маунте (GET /api/notifications/preferences)
   useEffect(() => {
-    // skip API call in mock mode
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers = await getSessionAuthHeaders();
+        const res = await fetch("/api/notifications/preferences", {
+          headers,
+          credentials: "include",
+        });
+        if (!res.ok) return; // неавторизован/ошибка — показываем дефолты
+        const data = (await res.json()) as { preferences?: Record<string, unknown> };
+        if (!cancelled && data.preferences) {
+          setPrefs(mapApiPrefs(data.preferences));
+        }
+      } catch {
+        // молча — настройки не критичны, работаем на дефолтах
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  /** PATCH в фоне; при ошибке — откат к снапшоту + тост. */
+  const patchPrefs = (body: Partial<NotifyPrefs>, snapshot: NotifyPrefs) => {
+    (async () => {
+      try {
+        const headers = await getSessionAuthHeaders(await getCsrfToken());
+        const res = await fetch("/api/notifications/preferences", {
+          method: "PATCH",
+          headers,
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch {
+        setPrefs(snapshot);
+        toast.error("Не удалось сохранить настройки уведомлений");
+      }
+    })();
+  };
+
+  // Optimistic: мгновенно переключаем UI, PATCH уходит в фоне
   const update = <K extends keyof NotifyPrefs>(key: K, value: NotifyPrefs[K]) => {
+    const snapshot = prefs;
     setPrefs((p) => ({ ...p, [key]: value }));
-    // In real app: PUT /api/notifications/preferences
+    patchPrefs({ [key]: value } as Partial<NotifyPrefs>, snapshot);
   };
 
   const save = () => {
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      toast.success("Настройки уведомлений сохранены");
-    }, 600);
+    (async () => {
+      try {
+        const headers = await getSessionAuthHeaders(await getCsrfToken());
+        const res = await fetch("/api/notifications/preferences", {
+          method: "PATCH",
+          headers,
+          credentials: "include",
+          body: JSON.stringify(prefs),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        toast.success("Настройки уведомлений сохранены");
+      } catch {
+        toast.error("Не удалось сохранить настройки уведомлений");
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   return (

@@ -14,7 +14,7 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
   const navigate = useAppStore((s) => s.navigate);
 
   return (
-    <nav className="flex items-center gap-1 text-xs text-muted-foreground mb-4 overflow-x-auto whitespace-nowrap">
+    <nav className="flex items-center gap-1 text-xs text-muted-foreground mb-4 overflow-x-auto whitespace-nowrap max-w-full">
       <button
         onClick={() => navigate("home")}
         className="flex items-center gap-1 hover:text-primary transition-colors"

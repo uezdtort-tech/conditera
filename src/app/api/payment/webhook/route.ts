@@ -221,7 +221,8 @@ export async function POST(request: NextRequest) {
         payment_status,
         status,
         customer_id,
-        user_id
+        user_id,
+        confectioner_id
       `
       )
       .eq("id", orderId)
@@ -407,6 +408,7 @@ export async function POST(request: NextRequest) {
                 orderNumber: order.number,
                 balance: result.points,
               },
+              metadata: { orderId },
             });
             console.info(`[webhook] Awarded ${result.points} points to ${bonusUserId}`);
           } else {
@@ -426,7 +428,22 @@ export async function POST(request: NextRequest) {
               amount: order.total,
               orderNumber: order.number,
             },
+            metadata: { orderId },
           });
+          // Кондитеру: заказ оплачен — можно приступать (ТЗ §10; metadata.orderId).
+          // orders.confectioner_id — UUID пользователя кондитера (см. accept-route),
+          // шлём напрямую без lookup в confectioners.
+          if (order.confectioner_id) {
+            await sendNotification({
+              userId: order.confectioner_id,
+              template: "PAYMENT_SUCCEEDED",
+              vars: {
+                amount: order.total,
+                orderNumber: order.number,
+              },
+              metadata: { orderId },
+            });
+          }
         } catch (e) {
           console.warn("[webhook] Notification failed:", e);
         }
@@ -447,6 +464,21 @@ export async function POST(request: NextRequest) {
             .from("orders")
             .update({ payment_status: "cancelled", status: "CANCELLED" })
             .eq("id", orderId);
+        }
+        // P1: клиенту — платёж не прошёл (ТЗ §10; metadata.orderId, fail-safe)
+        try {
+          const canceledUserId = order.user_id || order.customer_id;
+          if (canceledUserId) {
+            const { sendNotification } = await import("@/lib/notifications");
+            await sendNotification({
+              userId: canceledUserId,
+              template: "PAYMENT_FAILED",
+              vars: { orderNumber: order.number },
+              metadata: { orderId },
+            });
+          }
+        } catch (e) {
+          console.warn("[webhook] cancel notification failed (non-blocking):", e);
         }
         break;
       }
@@ -511,6 +543,25 @@ export async function POST(request: NextRequest) {
             .eq("yookassa_refund_id", object.id);
         } catch (e) {
           console.warn("[webhook] refunds row update failed:", e);
+        }
+
+        // P1: клиенту — возврат обработан (ТЗ §10; metadata.orderId, fail-safe)
+        try {
+          const refundUserId = order.user_id || order.customer_id;
+          if (refundUserId) {
+            const { sendNotification } = await import("@/lib/notifications");
+            await sendNotification({
+              userId: refundUserId,
+              template: "REFUND_PROCESSED",
+              vars: {
+                orderNumber: order.number,
+                amount: wireKop != null ? Math.round(wireKop) / 100 : Number(payment?.amount ?? order.total),
+              },
+              metadata: { orderId },
+            });
+          }
+        } catch (e) {
+          console.warn("[webhook] refund notification failed (non-blocking):", e);
         }
         break;
       }

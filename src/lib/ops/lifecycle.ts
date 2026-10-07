@@ -566,6 +566,8 @@ export async function applyOrderTransition(
             userId: t.userId,
             template: def!.notification as never,
             vars: t.vars,
+            // metadata.orderId — переход к заказу из колокола уведомлений (ТЗ §10)
+            metadata: { orderId: input.orderId },
           });
         }
       } catch (e) {

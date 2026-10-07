@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Minus, Plus, Trash2, ShoppingBag, Tag, X, Truck } from "lucide-react";
 import { formatCurrency, calculateDelivery } from "@/lib/finance";
+import { builderConfigParams } from "@/lib/cake-builder-pricing";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -36,7 +37,8 @@ export function CartDrawer() {
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const discount = Math.round(subtotal * promoDiscount);
-  const deliveryCost = calculateDelivery(subtotal - discount).cost;
+  // Единая формула доставки с сервером (lib/finance.calculateDelivery по subtotal)
+  const deliveryCost = calculateDelivery(subtotal).cost;
   const total = subtotal - discount + deliveryCost;
 
   const handleApplyPromo = () => {
@@ -111,49 +113,68 @@ export function CartDrawer() {
           <>
             {/* Items */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {cart.map((item, idx) => (
+              {cart.map((item, idx) => {
+                // Ключ позиции: itemId (новый контракт) / productId+idx (старые корзины)
+                const itemKey = item.itemId ?? `${item.productId}-${idx}`;
+                const mutationKey = item.itemId ?? item.productId;
+                const customParams = item.custom ? builderConfigParams(item.custom.config) : [];
+                return (
                 <div
-                  key={`${item.productId}-${idx}`}
+                  key={itemKey}
                   className="flex gap-3 p-3 bg-card rounded-lg border border-border"
                 >
                   <img
-                    src={item.image}
+                    src={item.image || "/builder-bg.png"}
                     alt={item.title}
-                    className="h-16 w-16 rounded-md object-cover shrink-0" loading="lazy" decoding="async" />
+                    className={`h-16 w-16 rounded-md object-cover shrink-0 ${item.custom ? "bg-muted" : ""}`}
+                    loading="lazy"
+                    decoding="async"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <h4 className="text-sm font-medium line-clamp-2">
                         {item.title}
                       </h4>
                       <button
-                        onClick={() => removeFromCart(item.productId)}
+                        onClick={() => removeFromCart(mutationKey)}
                         className="text-muted-foreground hover:text-destructive shrink-0"
                         aria-label="Удалить"
                       >
                         <X className="h-4 w-4" />
                       </button>
                     </div>
-                    {item.customization && (
+                    {item.custom ? (
+                      // Custom-позиция конструктора: параметры из снимка конфига
                       <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
-                        {item.customization.filling && (
-                          <div>Начинка: {item.customization.filling}</div>
-                        )}
-                        {item.customization.coating && (
-                          <div>Покрытие: {item.customization.coating}</div>
-                        )}
-                        {item.customization.decoration && (
-                          <div>Декор: {item.customization.decoration}</div>
-                        )}
-                        {item.customization.inscription && (
-                          <div>Надпись: &laquo;{item.customization.inscription}&raquo;</div>
-                        )}
+                        {customParams.map((p) => (
+                          <div key={p.label}>
+                            {p.label}: {p.value}
+                          </div>
+                        ))}
                       </div>
+                    ) : (
+                      item.customization && (
+                        <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                          {item.customization.filling && (
+                            <div>Начинка: {item.customization.filling}</div>
+                          )}
+                          {item.customization.coating && (
+                            <div>Покрытие: {item.customization.coating}</div>
+                          )}
+                          {item.customization.decoration && (
+                            <div>Декор: {item.customization.decoration}</div>
+                          )}
+                          {item.customization.inscription && (
+                            <div>Надпись: &laquo;{item.customization.inscription}&raquo;</div>
+                          )}
+                        </div>
+                      )
                     )}
                     <div className="flex items-center justify-between mt-2">
                       <div className="flex items-center gap-1.5 border border-border rounded-md">
                         <button
                           onClick={() =>
-                            updateCartQuantity(item.productId, item.quantity - 1)
+                            updateCartQuantity(mutationKey, item.quantity - 1)
                           }
                           className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-l-md"
                           aria-label="Уменьшить"
@@ -165,7 +186,7 @@ export function CartDrawer() {
                         </span>
                         <button
                           onClick={() =>
-                            updateCartQuantity(item.productId, item.quantity + 1)
+                            updateCartQuantity(mutationKey, item.quantity + 1)
                           }
                           className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-r-md"
                           aria-label="Увеличить"
@@ -179,7 +200,8 @@ export function CartDrawer() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
 
               {/* Promo */}
               <div className="pt-3 border-t">
@@ -221,7 +243,7 @@ export function CartDrawer() {
                   </div>
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Попробуйте: WELCOME10, SWEET15, UYEZD20, BIRTHDAY
+                  Попробуйте: WELCOME10, SWEET15, UYEZD20, BIRTHDAY25
                 </p>
               </div>
 

@@ -163,10 +163,11 @@ export async function GET(
       .eq("productId", product.id)
       .order("sortOrder", { ascending: true });
 
-    // Отзывы (approved) + имена авторов из profiles
+    // Отзывы (approved) + имена авторов из profiles; photos — JSONB-массив URL
+    // (POST /api/reviews, миграция 0057) — витрина показывает их в отзыве
     const { data: reviews } = await supabaseAdmin
       .from("product_reviews")
-      .select("id, user_id, rating, text, pros, cons, helpful_count, created_at")
+      .select("id, user_id, rating, text, pros, cons, helpful_count, photos, created_at")
       .eq("product_id", product.id)
       .eq("status", "approved")
       .order("created_at", { ascending: false })
@@ -182,6 +183,7 @@ export async function GET(
       const authorMap = new Map((authors || []).map((a: { id: string; name: string; avatar_url: string }) => [a.id, a]));
       enrichedReviews = reviews.map((r: Record<string, unknown>) => {
         const author = authorMap.get(r.user_id as string);
+        const rawPhotos = Array.isArray(r.photos) ? r.photos : [];
         return {
           id: r.id,
           rating: r.rating,
@@ -189,6 +191,7 @@ export async function GET(
           pros: r.pros,
           cons: r.cons,
           helpfulCount: r.helpful_count,
+          photos: rawPhotos.filter((u): u is string => typeof u === "string" && u.length > 0),
           createdAt: r.created_at,
           author: author
             ? { id: author.id, name: author.name, avatar: author.avatar_url }
