@@ -167,10 +167,53 @@ export async function computeOrderBreakdown(
       recipe_id: r.recipe_id,
     }));
 
-  // --- SQL 2: ингредиенты всех задействованных рецептов ---
+  const needs = await computeIngredientNeeds(
+    items.map((i) => ({ recipe_id: i.recipe_id, quantity: i.quantity })),
+    order.confectioner_id
+  );
+
+  return {
+    order,
+    items,
+    ingredients: needs.ingredients,
+    shortages: needs.shortages,
+    can_produce: needs.can_produce,
+    total_shortage_cost: needs.total_shortage_cost,
+  };
+}
+
+export interface IngredientNeedInput {
+  recipe_id: string | null;
+  quantity: number;
+}
+
+export interface IngredientNeeds {
+  ingredients: BreakdownIngredient[];
+  shortages: BreakdownIngredient[];
+  can_produce: boolean;
+  total_shortage_cost: number;
+}
+
+/**
+ * Потребность в ингредиентах для набора позиций (recipe_id × quantity)
+ * относительно склада владельца. Реиспользуется:
+ *   • computeOrderBreakdown (разбор существующего заказа);
+ *   • Acceptance Engine P0.5 (гипотетическая проверка «можем ли принять»).
+ *
+ * Бюджет: 2 SQL (recipe_ingredients, inventory_items).
+ */
+export async function computeIngredientNeeds(
+  items: IngredientNeedInput[],
+  ownerId: string | null
+): Promise<IngredientNeeds> {
+  const pool = getPool();
+
+  // --- SQL A: ингредиенты всех задействованных рецептов ---
   const recipeIds = [
     ...new Set(
-      items.map((i) => i.recipe_id).filter((id): id is string => Boolean(id))
+      items
+        .map((i) => i.recipe_id)
+        .filter((id): id is string => id !== null && UUID_RE.test(id))
     ),
   ];
   const recipeIngredients: RecipeIngredientRow[] = [];
@@ -185,27 +228,36 @@ export async function computeOrderBreakdown(
     recipeIngredients.push(...riResult.rows);
   }
 
-  // --- SQL 3: активный склад владельца заказа ---
+  // --- SQL B: активный склад владельца ---
   const inventory: InventoryRow[] = [];
-  if (order.confectioner_id) {
+  if (ownerId) {
     const invResult = await pool.query<InventoryRow>(
       `SELECT id::text, name, quantity, unit, cost_per_unit, supplier
        FROM public.inventory_items
        WHERE owner_id = $1::uuid AND is_active`,
-      [order.confectioner_id]
+      [ownerId]
     );
     inventory.push(...invResult.rows);
   }
 
-  // --- Агрегация одинаковых ингредиентов (по inventory_item_id или lower(name)) ---
   const aggregates = new Map<string, IngredientAgg>();
+
+  // Кол-во единиц товара на рецепт (для гипотетических позиций тоже)
+  const qtyByRecipe = new Map<string, number>();
+  for (const item of items) {
+    if (!item.recipe_id) continue;
+    const q = Math.max(Number(item.quantity) || 0, 0);
+    qtyByRecipe.set(item.recipe_id, (qtyByRecipe.get(item.recipe_id) ?? 0) + q);
+  }
+  const itemQuantityFor = (recipeId: string): number =>
+    qtyByRecipe.get(recipeId) ?? 0;
 
   for (const ri of recipeIngredients) {
     const perUnit = Number(ri.qty);
     if (!Number.isFinite(perUnit) || perUnit <= 0) continue;
-    // recipe_ingredients — норма на 1 единицу товара; в заказе может быть
+    // recipe_ingredients — норма на 1 единицу товара; в наборе может быть
     // несколько позиций товаров с одним рецептом — берём суммарное количество.
-    const itemQuantity = itemQuantityForRecipe(items, ri.recipe_id);
+    const itemQuantity = itemQuantityFor(ri.recipe_id);
     if (itemQuantity <= 0) continue;
 
     const contribution = perUnit * itemQuantity;
@@ -326,26 +378,12 @@ export async function computeOrderBreakdown(
   );
 
   return {
-    order,
-    items,
     ingredients,
     shortages,
     can_produce:
       ingredients.length > 0 && ingredients.every((i) => i.status === "ok"),
     total_shortage_cost: totalShortageCost,
   };
-}
-
-/** Суммарное количество единиц товара в заказе для товара с данным recipe_id. */
-function itemQuantityForRecipe(
-  items: BreakdownItem[],
-  recipeId: string
-): number {
-  let total = 0;
-  for (const item of items) {
-    if (item.recipe_id === recipeId) total += Math.max(item.quantity, 0);
-  }
-  return total;
 }
 
 /**

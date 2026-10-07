@@ -23,6 +23,14 @@
 import { type Pool } from "pg";
 import { getPool } from "@/lib/postgrest/pool";
 import { recordEvent } from "@/lib/ops/events";
+import {
+  computeRiskSnapshotsBulk,
+  persistRiskLevels,
+  emitRiskChanges,
+  type OrderRiskSnapshot,
+} from "@/lib/ops/risk-engine";
+import { RISK_TASK_LEVELS, ESCALATION_CONFIG } from "@/lib/ops/lifecycle-config";
+import { minuteToHHMM } from "@/lib/ops/deadline";
 
 export interface OpsScanStats {
   created: number;
@@ -95,6 +103,10 @@ async function runScan(): Promise<OpsScanStats> {
     ["LOW_STOCK", ruleLowStock],
     ["CHAT_UNANSWERED", ruleChatUnanswered],
     ["ORDER_REVIEW_REQUEST", ruleOrderReviewRequest],
+    // P0.5:
+    ["ORDER_AT_RISK", ruleOrderAtRisk],
+    ["CONTACT_CUSTOMER", ruleContactCustomer],
+    ["ORDER_PRODUCTION_DELAYED", ruleProductionDelayed],
   ];
 
   for (const [name, rule] of rules) {
@@ -244,39 +256,85 @@ async function materializeRule(
 }
 
 // ---------------------------------------------------------------------------
-// Правило 1: ORDER_UNASSIGNED (critical, ADMIN)
+// Правило 1: ORDER_UNASSIGNED (ADMIN) — с эскалацией по SLA (ТЗ §24):
+//   < 15 мин → info, 15–30 → important, ≥ 30 → critical,
+//   ≥ 60 мин → событие order.unassigned_escalated (админ-эскалация).
 // ---------------------------------------------------------------------------
 
+type UnassignedRow = {
+  id: string;
+  number: string;
+  total: number;
+  delivery_date: string | null;
+  paid_at: Date | null;
+  created_at: Date;
+};
+
 async function ruleOrderUnassigned(pool: Pool): Promise<RuleStats> {
-  const { rows } = await pool.query<{
-    id: string;
-    number: string;
-    total: number;
-    delivery_date: string | null;
-  }>(
-    `SELECT id::text, number, total, delivery_date
+  const { rows } = await pool.query<UnassignedRow>(
+    `SELECT id::text, number, total, delivery_date, paid_at, created_at
      FROM public.orders
      WHERE confectioner_id IS NULL
        AND payment_status::text IN ('escrow', 'succeeded', 'released')
        AND status NOT IN ('CANCELLED', 'REFUNDED')`
   );
 
-  const candidates: TaskCandidate[] = rows.map((r) => ({
-    dedup_key: `ORDER_UNASSIGNED:${r.id}`,
-    type: "ORDER_UNASSIGNED",
-    severity: "critical",
-    title: `Заказ #${r.number} не назначен кондитеру`,
-    description: "Оплата получена, но исполнитель не назначен — назначьте кондитера.",
-    entity_type: "order",
-    entity_id: r.id,
-    assignee_role: "ADMIN",
-    assignee_id: null,
-    payload: { total: r.total, deliveryDate: r.delivery_date },
-    action_label: "Назначить кондитера",
-    action_url: "/dashboard?tab=orders",
-  }));
+  const now = Date.now();
+  const escalatedIds: string[] = [];
+  const candidates: TaskCandidate[] = rows.map((r) => {
+    const ageMin = Math.floor(
+      (now - (r.paid_at ? new Date(r.paid_at).getTime() : new Date(r.created_at).getTime())) / 60_000
+    );
+    const severity: Severity =
+      ageMin >= ESCALATION_CONFIG.unassignedCriticalMinutes
+        ? "critical"
+        : ageMin >= ESCALATION_CONFIG.unassignedNotifyMinutes
+          ? "important"
+          : "info";
+    if (ageMin >= ESCALATION_CONFIG.unassignedEscalationMinutes) escalatedIds.push(r.id);
+    return {
+      dedup_key: `ORDER_UNASSIGNED:${r.id}`,
+      type: "ORDER_UNASSIGNED",
+      severity,
+      title: `Заказ #${r.number} не назначен кондитеру`,
+      description:
+        ageMin >= ESCALATION_CONFIG.unassignedCriticalMinutes
+          ? `Оплата получена ${ageMin} мин назад — исполнитель не назначен (SLA нарушен).`
+          : "Оплата получена, но исполнитель не назначен — назначьте кондитера.",
+      entity_type: "order",
+      entity_id: r.id,
+      assignee_role: "ADMIN",
+      assignee_id: null,
+      payload: { total: r.total, deliveryDate: r.delivery_date, ageMinutes: ageMin },
+      action_label: "Назначить кондитера",
+      action_url: "/dashboard?tab=orders",
+    };
+  });
 
-  return materializeRule(pool, "ORDER_UNASSIGNED", candidates);
+  const stats = await materializeRule(pool, "ORDER_UNASSIGNED", candidates);
+
+  // Админ-эскалация (ТЗ §24): событие по возрасту ≥ 60 мин (dedup уровнем:
+  // пишем только если задача ещё не critical — определяем по созданным/обновлённым)
+  if (escalatedIds.length > 0) {
+    const { rows: critRows } = await pool.query<{ entity_id: string }>(
+      `SELECT entity_id FROM public.ops_tasks
+       WHERE type='ORDER_UNASSIGNED' AND severity='critical' AND status='open'
+         AND entity_id = ANY($1::text[])`,
+      [escalatedIds]
+    );
+    const alreadyCritical = new Set(critRows.map((r) => r.entity_id));
+    for (const id of escalatedIds) {
+      if (alreadyCritical.has(id)) continue;
+      await recordEvent("order.unassigned_escalated", {
+        entityType: "order",
+        entityId: id,
+        payload: { minutes: ESCALATION_CONFIG.unassignedEscalationMinutes },
+        source: "engine",
+      });
+    }
+  }
+
+  return stats;
 }
 
 // ---------------------------------------------------------------------------
@@ -582,4 +640,174 @@ async function ruleOrderReviewRequest(pool: Pool): Promise<RuleStats> {
   }));
 
   return materializeRule(pool, "ORDER_REVIEW_REQUEST", candidates);
+}
+
+// ===========================================================================
+// P0.5: Risk / Escalation rules (ТЗ §8, §12, §13, §23, §24)
+// ===========================================================================
+
+/**
+ * Правило 7: ORDER_AT_RISK (ТЗ §13) — риск ORANGE/RED → задача кондитеру
+ * (и админу для RED). Авто-resolve при возврате риска в GREEN/YELLOW
+ * (материализация по dedup_key: исчезнувшие условия закрываются).
+ * Риск пересчитывается здесь же (bulk, один SQL) и пишется в order_production.
+ */
+async function ruleOrderAtRisk(pool: Pool): Promise<RuleStats> {
+  const snapshots = await computeRiskSnapshotsBulk(3);
+  await persistRiskLevels(
+    snapshots.map((s) => ({
+      orderId: s.orderId,
+      level: s.risk.level,
+      reasons: s.risk.reasons,
+    }))
+  );
+  await emitRiskChanges(snapshots);
+
+  const candidates: TaskCandidate[] = [];
+  for (const s of snapshots) {
+    if (!RISK_TASK_LEVELS.has(s.risk.level)) continue;
+    // Не оплаченные заказы не эскалируем (нет обязательств)
+    if (!["escrow", "succeeded", "released"].includes(s.paymentStatus)) continue;
+
+    const severity: Severity = s.risk.level === "RED" ? "critical" : "important";
+    const reasonText = s.risk.details.join("; ");
+    const nextStart =
+      s.production.latestSafeStartAt instanceof Date
+        ? s.production.latestSafeStartAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
+        : null;
+
+    const base = {
+      type: "ORDER_AT_RISK" as const,
+      severity,
+      entity_type: "order" as const,
+      entity_id: s.orderId,
+      payload: {
+        orderNumber: s.orderNumber,
+        riskLevel: s.risk.level,
+        reasons: s.risk.reasons,
+        details: s.risk.details,
+        deliveryDate: s.deliveryDate,
+        latestSafeStartAt: s.production.latestSafeStartAt
+          ? s.production.latestSafeStartAt.toISOString()
+          : null,
+      },
+      action_label: "Открыть заказ",
+      action_url: "/dashboard?tab=orders",
+    };
+
+    candidates.push({
+      ...base,
+      dedup_key: `ORDER_AT_RISK:${s.orderId}`,
+      title: `Заказ #${s.orderNumber} под риском (${s.risk.level})`,
+      description: `${reasonText}${nextStart ? ` Последний безопасный старт: ${nextStart}.` : ""}`,
+      assignee_role: "ADMIN",
+      assignee_id: null,
+    });
+
+    if (s.confectionerId) {
+      candidates.push({
+        ...base,
+        dedup_key: `ORDER_AT_RISK:${s.orderId}:u${s.confectionerId}`,
+        title: `Заказ #${s.orderNumber} под риском (${s.risk.level})`,
+        description: `${reasonText}${nextStart ? ` Последний безопасный старт: ${nextStart}.` : ""}`,
+        assignee_role: "CONFECTIONER",
+        assignee_id: s.confectionerId,
+      });
+    }
+  }
+
+  return materializeRule(pool, "ORDER_AT_RISK", candidates);
+}
+
+/**
+ * Правило 8: CONTACT_CUSTOMER (ТЗ §23) — RED-заказы требуют связи с клиентом:
+ * «Заказ №N может быть готов позже» + оператор решает (связаться / перенести
+ * окно / переназначить / отменить). AI не используется (ТЗ §54).
+ */
+async function ruleContactCustomer(pool: Pool): Promise<RuleStats> {
+  const snapshots = await computeRiskSnapshotsBulk(3);
+  const red = snapshots.filter(
+    (s) => s.risk.level === "RED" && ["escrow", "succeeded", "released"].includes(s.paymentStatus)
+  );
+
+  const candidates: TaskCandidate[] = red.map((s) => ({
+    dedup_key: `CONTACT_CUSTOMER:${s.orderId}`,
+    type: "CONTACT_CUSTOMER",
+    severity: "important" as const,
+    title: `Свяжитесь с клиентом по заказу #${s.orderNumber}`,
+    description: `Заказ под риском (${s.risk.details.join("; ")}). Сообщите клиенту о возможной задержке или согласуйте новый слот.`,
+    entity_type: "order",
+    entity_id: s.orderId,
+    assignee_role: "ADMIN" as const,
+    assignee_id: null,
+    payload: {
+      orderNumber: s.orderNumber,
+      riskLevel: s.risk.level,
+      reasons: s.risk.reasons,
+      deliveryDate: s.deliveryDate,
+      suggestedMessage: `Заказ №${s.orderNumber} может быть готов позже. Мы свяжемся с вами, как только уточним время.`,
+    },
+    action_label: "Связаться с клиентом",
+    action_url: "/dashboard?tab=orders",
+  }));
+
+  return materializeRule(pool, "CONTACT_CUSTOMER", candidates);
+}
+
+/**
+ * Правило 9: ORDER_PRODUCTION_DELAYED (ТЗ §24) — производство не начато,
+ * хотя безопасное время старта прошло. Auto-resolve при старте производства.
+ */
+async function ruleProductionDelayed(pool: Pool): Promise<RuleStats> {
+  const { rows } = await pool.query<{
+    order_id: string;
+    number: string;
+    confectioner_id: string | null;
+    latest_safe_start_at: Date | null;
+    started_at: Date | null;
+    estimated_minutes: number | null;
+    planned_date: string | null;
+    planned_start_minute: number | null;
+  }>(
+    `SELECT o.id::text AS order_id, o.number, o.confectioner_id::text,
+            p.latest_safe_start_at, p.started_at, p.estimated_minutes,
+            to_char(p.planned_date, 'YYYY-MM-DD') AS planned_date,
+            p.planned_start_minute
+     FROM public.orders o
+     JOIN public.order_production p ON p.order_id = o.id
+     WHERE o.status::text IN ('CONFIRMED', 'PREPARING')
+       AND p.started_at IS NULL
+       AND p.latest_safe_start_at IS NOT NULL
+       AND p.latest_safe_start_at < now() - ($1::int * interval '1 minute')`,
+    [ESCALATION_CONFIG.productionStartMissedMinutes]
+  );
+
+  const candidates: TaskCandidate[] = rows.map((r) => {
+    const planned =
+      r.planned_date && r.planned_start_minute !== null
+        ? `${r.planned_date} ${minuteToHHMM(r.planned_start_minute)}`
+        : null;
+    return {
+      dedup_key: `ORDER_PRODUCTION_DELAYED:${r.order_id}`,
+      type: "ORDER_PRODUCTION_DELAYED",
+      severity: "important" as const,
+      title: `Производство заказа #${r.number} не начато`,
+      description: `Безопасное время старта прошло${planned ? ` (план: ${planned})` : ""}. Начните производство или переназначьте исполнителя.`,
+      entity_type: "order",
+      entity_id: r.order_id,
+      assignee_role: r.confectioner_id ? ("CONFECTIONER" as const) : ("ADMIN" as const),
+      assignee_id: r.confectioner_id,
+      payload: {
+        orderNumber: r.number,
+        latestSafeStartAt: r.latest_safe_start_at
+          ? new Date(r.latest_safe_start_at).toISOString()
+          : null,
+        estimatedMinutes: r.estimated_minutes,
+      },
+      action_label: "Начать производство",
+      action_url: "/dashboard?tab=orders",
+    };
+  });
+
+  return materializeRule(pool, "ORDER_PRODUCTION_DELAYED", candidates);
 }
