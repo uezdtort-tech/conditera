@@ -668,6 +668,12 @@ async function ruleOrderAtRisk(pool: Pool): Promise<RuleStats> {
     if (!RISK_TASK_LEVELS.has(s.risk.level)) continue;
     // Не оплаченные заказы не эскалируем (нет обязательств)
     if (!["escrow", "succeeded", "released"].includes(s.paymentStatus)) continue;
+    // ORDER_AT_RISK — про НАРУШЕНИЕ ПЛАНА ДО производства (ТЗ §13: пример —
+    // производство не начато). После старта производства сроки контролируют
+    // ORDER_PRODUCTION_DELAYED / ORDER_OVERDUE — иначе задача не закрывается.
+    const productionNotStarted =
+      !s.startedAt && ["PENDING", "NEGOTIATING", "CONFIRMED"].includes(s.status);
+    if (!productionNotStarted) continue;
 
     const severity: Severity = s.risk.level === "RED" ? "critical" : "important";
     const reasonText = s.risk.details.join("; ");

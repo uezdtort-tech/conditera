@@ -115,7 +115,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.error(
       "[orders/availability] POST failed:",
-      err instanceof Error ? err.message : err
+      err instanceof Error ? `${err.message}\n${err.stack}` : err
     );
     return NextResponse.json(
       { error: "INTERNAL", message: "Внутренняя ошибка сервера" },

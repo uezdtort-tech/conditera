@@ -95,7 +95,7 @@ export async function POST(
     const conf = await pool.query<{ user_id: string; name: string | null }>(
       `SELECT "userId"::text AS user_id, "businessName" AS name
        FROM public.confectioners
-       WHERE "userId" = $1::uuid AND "verificationStatus" = 'approved'`,
+       WHERE "userId" = $1::text AND "verificationStatus" = 'approved'`,
       [confectionerId]
     );
     if (conf.rowCount === 0) {

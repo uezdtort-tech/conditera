@@ -54,9 +54,10 @@ export async function POST(
     const checklist = await getOrderChecklist(id);
 
     // Отметить все производственные этапы, кроме handoff (он после READY)
+    // и ready_photo (фото прикладывается только через /media — гейт §35)
     const doneNow: string[] = [];
     for (const stage of checklist) {
-      if (stage.stage_key === "handoff") continue;
+      if (stage.stage_key === "handoff" || stage.stage_key === "ready_photo") continue;
       if (!stage.is_done) {
         await setStageDone(id, stage.stage_key, true, user.id);
         doneNow.push(stage.stage_key);

@@ -196,10 +196,13 @@ export interface CapacityDayView {
 /**
  * Ёмкость кондитера на дату: активные резервы + окно рабочего дня.
  * Все данные одним SQL (ТЗ §52 — без N+1).
+ * excludeOrderId — исключить собственный резерв заказа (acceptance-check
+ * существующего заказа не должен считать своё окно занятостью).
  */
 export async function getCapacityDay(
   userId: string,
-  date: string
+  date: string,
+  excludeOrderId?: string
 ): Promise<CapacityDayView> {
   const config = await getConfectionerCapacity(userId);
   const pool = getPool();
@@ -213,8 +216,9 @@ export async function getCapacityDay(
      WHERE confectioner_id = $1::uuid
        AND reserved_date = $2::date
        AND status IN ('reserved','confirmed')
+       AND ($3::uuid IS NULL OR order_id <> $3::uuid)
      ORDER BY start_minute`,
-    [userId, date]
+    [userId, date, excludeOrderId ?? null]
   );
   const busy: BusyInterval[] = res.rows.map((r) => ({
     start: r.start_minute,
@@ -242,9 +246,10 @@ export async function findAvailableWindow(
   userId: string,
   date: string,
   requiredMinutes: number,
-  earliestMinute: number = 0
+  earliestMinute: number = 0,
+  excludeOrderId?: string
 ): Promise<{ window: FreeWindow | null; view: CapacityDayView }> {
-  const view = await getCapacityDay(userId, date);
+  const view = await getCapacityDay(userId, date, excludeOrderId);
   const window = findFreeWindow(view.freeWindows, requiredMinutes, earliestMinute);
   return { window, view };
 }

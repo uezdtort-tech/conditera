@@ -239,6 +239,10 @@ async function earliestPurchaseEta(
   const pool = getPool();
   const names = shortages.map((s) => s.name.trim().toLowerCase());
   const invIds = shortages.map((s) => s.inventory_item_id).filter((x): x is string => Boolean(x));
+  // ВАЖНО: lower() встроенного PG не обрабатывает кириллицу (C-коллация:
+  // lower('Ягоды')='Ягоды'), поэтому сравниваем и оригинал, и JS-variant.
+  const originals = shortages.map((s) => s.name.trim());
+  const nameVariants = [...new Set([...originals, ...names])];
   const res = await pool.query<{ eta: Date }>(
     `SELECT MIN(d.expected_eta) AS eta
      FROM public.purchase_drafts d
@@ -247,10 +251,11 @@ async function earliestPurchaseEta(
        AND d.status IN ('draft','sent')
        AND d.expected_eta IS NOT NULL
        AND (
-         (i.inventory_item_id IS NOT NULL AND i.inventory_item_id::text = ANY($2::uuid[]))
+         (i.inventory_item_id IS NOT NULL AND i.inventory_item_id::text = ANY($2::text[]))
+         OR trim(i.name) = ANY($3::text[])
          OR lower(trim(i.name)) = ANY($3::text[])
        )`,
-    [ownerId, invIds, names]
+    [ownerId, invIds, nameVariants]
   );
   return res.rows[0]?.eta ?? null;
 }
@@ -269,6 +274,11 @@ export interface AcceptanceInput {
   now?: Date;
   /** Глубина поиска альтернативных окон (дней). */
   alternativeDaysAhead?: number;
+  /**
+   * Для существующего заказа: исключить его СОВЙ резерв из занятости
+   * (окно заказа не должно блокировать его же проверку выполнимости).
+   */
+  excludeReservationForOrderId?: string;
 }
 
 interface OwnerGroup {
@@ -417,7 +427,8 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
         ownerId,
         input.deliveryDate,
         estimate.minutes,
-        earliest
+        earliest,
+        input.excludeReservationForOrderId
       );
       utilization = view.utilizationPercent;
       freeMinutes = view.freeMinutes;
@@ -615,5 +626,6 @@ export async function checkOrderAcceptance(
     deliveryDate: data.deliveryDate,
     deliveryTimeWindow: data.deliveryTimeWindow,
     deliveryTime: data.deliveryTime,
+    excludeReservationForOrderId: orderId,
   });
 }
