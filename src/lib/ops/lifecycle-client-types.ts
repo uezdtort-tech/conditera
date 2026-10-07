@@ -258,3 +258,42 @@ export interface AssignmentCandidate {
   inventory: { canProduce: boolean | null; shortageCount: number; shortageCost: number | null };
   conflict: { overloaded: boolean; message: string | null } | null;
 }
+
+// ---------------------------------------------------------------------------
+// P0.5 Core Adaptive — простой режим «Сегодня» (масштаб бизнеса)
+// ---------------------------------------------------------------------------
+
+/** Масштаб бизнеса: home — домашний кондитер, business — ИП/ООО, enterprise — сеть. */
+export type BusinessScale = "home" | "business" | "enterprise";
+
+/**
+ * Простая карточка заказа для режима «домашний кондитер»:
+ * «Заказ №1045 — Торт «Красный бархат», выдать к 17:00, Анна,
+ * всё необходимое есть / не хватает сливок — 500 мл».
+ * Никаких «capacity reservation» / «SLA» — только человекочитаемые поля.
+ */
+export interface SimpleOrderCard {
+  orderId: string;
+  number: string;
+  title: string;
+  extraItems: number;
+  customerName: string | null;
+  deliverAt: string | null; // "17:00"
+  deliveryDate: string | null;
+  deliveryType: string | null;
+  status: string;
+  total: number;
+  todo: { code: "accept" | "start" | "ready" | "handoff"; label: string } | null;
+  availability: "ok" | "missing_ingredients" | "unknown" | null;
+  missing: Array<{ name: string; shortage: number | null; unit: string }>;
+  /** Крайний срок безопасного старта — «нужно купить до 12:00». */
+  latestSafeStartAt: string | null;
+  capacityFits: boolean | null;
+}
+
+/** Предупреждение «заказов слишком много» с ближайшим свободным окном. */
+export interface CapacityAlert {
+  active: boolean;
+  message: string | null;
+  nearestWindow: { date: string; startTime: string } | null;
+}

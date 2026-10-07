@@ -3,6 +3,13 @@
 /**
  * confectioner-today-tab.tsx — таб «Сегодня» кондитера (Task 3-C, P0.5 §31 — Task 9-b).
  *
+ * P0.5 Core Adaptive (ТЗ-корректировка): таб адаптируется под масштаб бизнеса
+ * (confectioners.business_scale, миграция 0055):
+ *   • home       — простой экран «Сегодня» (confectioner-today-simple.tsx):
+ *                  карточки «заказ — время — клиент — всё есть / не хватает»,
+ *                  одна кнопка действия; без ERP-терминов;
+ *   • business / enterprise — полный «Производственный центр» (bento-компоновка).
+ *
  * Данные: GET /api/ops/confectioner-today (refetch 60с) — bento-компоновка:
  *   • ⏭ Следующее действие (P0.5, banner);
  *   • 🔴 Требуют действия (severity-счётчики + топ-5 задач, resolve/dismiss);
@@ -18,7 +25,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import type { ConfectionerTodayP05 } from "@/lib/ops/lifecycle-client-types";
+import type {
+  CapacityAlert, ConfectionerTodayP05, SimpleOrderCard,
+} from "@/lib/ops/lifecycle-client-types";
+import { ConfectionerTodaySimple } from "@/components/dashboard/confectioner-today-simple";
 import {
   AttentionCard, CapacityCard, DraftEtaSetter, NextActionBanner, ProductionPlanCard,
 } from "@/components/dashboard/confectioner-p05-cards";
@@ -41,7 +51,13 @@ import {
 } from "@/lib/ops-client-types";
 
 /** P0.5-дополнения опциональны: capacity/nextAction — null, остальные могут отсутствовать. */
-type ConfectionerTodayResponseP05 = ConfectionerTodayResponse & Partial<ConfectionerTodayP05>;
+type ConfectionerTodayResponseP05 = ConfectionerTodayResponse &
+  Partial<ConfectionerTodayP05> & {
+    /** P0.5 Core Adaptive: масштаб бизнеса (home | business | enterprise). */
+    businessScale?: string;
+    simpleOrders?: SimpleOrderCard[];
+    capacityAlert?: CapacityAlert;
+  };
 
 async function fetchConfectionerToday(): Promise<ConfectionerTodayResponseP05> {
   const res = await csrfFetch("/api/ops/confectioner-today");
@@ -232,6 +248,20 @@ export function ConfectionerTodayTab({
     day: "numeric",
     month: "long",
   });
+
+  // P0.5 Core Adaptive (ТЗ-корректировка): домашний кондитер видит простой
+  // экран «Сегодня» без ERP-терминов. Ветка до общего заголовка — иначе
+  // над простым экраном останется шапка «Производственный центр».
+  if (data && data.businessScale === "home") {
+    return (
+      <ConfectionerTodaySimple
+        orders={data.simpleOrders ?? []}
+        capacityAlert={data.capacityAlert ?? null}
+        isLoading={false}
+        onOpenBreakdown={onOpenBreakdown}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">

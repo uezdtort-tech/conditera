@@ -448,6 +448,9 @@ model Confectioner {
   rejectionReason    String?
   trustLevel         TrustLevel @default(NEW)
   tariff             Tariff     @default(START)
+  // P0.5 Core Adaptive: масштаб бизнеса (home | business | enterprise).
+  // Управляет только сложностью UI/автоматизации; движки lifecycle/capacity общие.
+  businessScale      String     @default("home") // "home" | "business" | "enterprise"
   legalInfo          Json
   taxMode            TaxMode    @default(NPD)
   specialization     String[]   @default([])

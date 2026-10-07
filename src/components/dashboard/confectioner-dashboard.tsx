@@ -120,6 +120,7 @@ import { toast } from "sonner";
 import { useRealOrders, useRealUpdateOrderStatus } from "@/lib/use-real-orders";
 import { useRealInventory } from "@/lib/use-real-inventory";
 import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
+import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-scale-settings";
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
 
 export function ConfectionerDashboard() {
@@ -1132,6 +1133,8 @@ export function ConfectionerDashboard() {
 
             {activeTab === "settings" && (
               <div className="space-y-4">
+                {/* P0.5 Core Adaptive: масштаб бизнеса (профиль возможностей) */}
+                <ConfectionerScaleSettings />
                 <ProfileSettings />
                 {/* 2FA — защита выплат */}
                 <TfaSettings />

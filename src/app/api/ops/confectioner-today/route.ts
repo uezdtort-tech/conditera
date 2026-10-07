@@ -24,6 +24,18 @@ import { getPool } from "@/lib/postgrest/pool";
 import { materializeOpsTasks, type OpsScanStats } from "@/lib/ops/rules";
 import { getCapacityDay } from "@/lib/ops/capacity";
 import { layoutPlanTimeline, type PlannedStage } from "@/lib/ops/production";
+import {
+  checkOrderAcceptance,
+  suggestAlternativeWindows,
+  type AcceptanceResult,
+} from "@/lib/ops/acceptance";
+import type { SimpleOrderCard, CapacityAlert } from "@/lib/ops/lifecycle-client-types";
+
+/**
+ * P0.5 Core Adaptive (ТЗ-корректировка): простые карточки заказа для режима
+ * «домашний кондитер» — человекочитаемые статусы вместо ERP-терминов.
+ * Контракт: src/lib/ops/lifecycle-client-types.ts (SimpleOrderCard/CapacityAlert).
+ */
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +44,9 @@ const SEVERITY_RANK = `CASE t.severity WHEN 'critical' THEN 0 WHEN 'important' T
 
 const ORDER_SHAPE = `o.id::text AS id, o.number, o.status::text AS status,
   o.delivery_time, o.total,
+  o.delivery_date::text AS delivery_date,
+  o.delivery_type::text AS delivery_type,
+  COALESCE(p.name, '') AS customer_name,
   COALESCE(oi.items_count, 0) AS items_count,
   COALESCE(oi.titles, '{}') AS product_titles`;
 
@@ -40,7 +55,23 @@ const ORDER_ITEMS_LATERAL = `LEFT JOIN LATERAL (
            array_agg(COALESCE(oi.product_title, oi.title))::text[] AS titles
     FROM public.order_items oi
     WHERE oi.order_id = o.id
-  ) oi ON true`;
+  ) oi ON true
+  LEFT JOIN public.profiles p ON p.id = o.customer_id`;
+
+interface OrderRowFull {
+  // pg требует индексную сигнатуру (QueryResultRow)
+  [key: string]: unknown;
+  id: string;
+  number: string;
+  status: string;
+  delivery_time: string | null;
+  total: number;
+  delivery_date: string | null;
+  delivery_type: string | null;
+  customer_name: string;
+  items_count: number;
+  product_titles: string[] | null;
+}
 
 export async function GET(request: NextRequest) {
   const user = await getUserFromRequest(request);
@@ -108,9 +139,9 @@ export async function GET(request: NextRequest) {
       err instanceof Error ? err.message : err
     );
 
-  let ordersToday: unknown[] = [];
+  let ordersToday: OrderRowFull[] = [];
   try {
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<OrderRowFull>(
       `SELECT ${ORDER_SHAPE}
        FROM public.orders o ${ORDER_ITEMS_LATERAL}
        WHERE o.confectioner_id = $1::uuid
@@ -125,9 +156,9 @@ export async function GET(request: NextRequest) {
     orderShapeError("ordersToday", err);
   }
 
-  let inProduction: unknown[] = [];
+  let inProduction: OrderRowFull[] = [];
   try {
-    const { rows } = await pool.query(
+    const { rows } = await pool.query<OrderRowFull>(
       `SELECT ${ORDER_SHAPE}, o.delivery_date AS delivery_date
        FROM public.orders o ${ORDER_ITEMS_LATERAL}
        WHERE o.confectioner_id = $1::uuid
@@ -369,6 +400,134 @@ export async function GET(request: NextRequest) {
     unansweredChats: messagesUnread,
   };
 
+  // ========================================================================
+  // P0.5 Core Adaptive: масштаб бизнеса + простой режим «Сегодня»
+  // (ТЗ-корректировка: сложность внутри системы, а не на пользователе)
+  // ========================================================================
+
+  let businessScale = "home";
+  try {
+    const { rows } = await pool.query<{ business_scale: string }>(
+      `SELECT business_scale FROM public.confectioners WHERE "userId" = $1::text LIMIT 1`,
+      [ownerId]
+    );
+    businessScale = rows[0]?.business_scale ?? "home";
+  } catch (err) {
+    orderShapeError("businessScale", err);
+  }
+
+  /**
+   * Простая карточка заказа: «Заказ №1045 — Торт…, выдать к 17:00,
+   * Анна, всё необходимое есть / не хватает сливок — 500 мл».
+   * todo — одна понятная кнопка на текущем этапе (без слов «production»).
+   */
+  const todoForStatus = (status: string, deliveryType: string | null) => {
+    const isPickup = deliveryType === "pickup" || deliveryType === "self_pickup";
+    switch (status) {
+      case "PENDING":
+        return { code: "accept" as const, label: "Принять заказ" };
+      case "CONFIRMED":
+        return { code: "start" as const, label: "Начать приготовление" };
+      case "PREPARING":
+        return { code: "ready" as const, label: "Заказ готов" };
+      case "READY":
+        return {
+          code: "handoff" as const,
+          label: isPickup ? "Передать клиенту" : "Передать курьеру",
+        };
+      default:
+        return null;
+    }
+  };
+
+  const buildSimpleCard = (o: OrderRowFull, acceptance: AcceptanceResult | null): SimpleOrderCard => {
+    const titles = o.product_titles ?? [];
+    const owner = acceptance?.owners?.[0] ?? null;
+    const shortages = owner?.inventory?.canProduce === false ? (owner.inventory.shortages ?? []) : [];
+    // Ингредиенты проверяем, только пока заказ предстоит готовить
+    const needsCheck = o.status === "PENDING" || o.status === "CONFIRMED" || o.status === "PREPARING";
+    const availability: SimpleOrderCard["availability"] = !needsCheck
+      ? null
+      : acceptance
+        ? shortages.length > 0
+          ? "missing_ingredients"
+          : "ok"
+        : "unknown";
+    return {
+      orderId: o.id,
+      number: o.number,
+      title: titles[0] ?? "Заказ",
+      extraItems: Math.max(0, (o.items_count ?? 0) - 1),
+      customerName: o.customer_name || null,
+      deliverAt: o.delivery_time || null,
+      deliveryDate: o.delivery_date ?? null,
+      deliveryType: o.delivery_type ?? null,
+      status: o.status,
+      total: Number(o.total) || 0,
+      todo: todoForStatus(o.status, o.delivery_type),
+      availability,
+      missing: shortages.map((s) => ({ name: s.name, shortage: s.shortage, unit: s.unit })),
+      latestSafeStartAt: owner?.deadline?.latestSafeStartAt ?? null,
+      capacityFits: owner?.capacity?.fits ?? null,
+    };
+  };
+
+  let simpleOrders: SimpleOrderCard[] = [];
+  try {
+    // Проверяем дефицит/мощность только для незавершённых заказов, максимум 12
+    // (защита от N+1, ТЗ §52; для остальных — availability unknown)
+    const candidates = ordersToday
+      .filter((o) => o.status === "PENDING" || o.status === "CONFIRMED" || o.status === "PREPARING")
+      .slice(0, 12);
+    const checked = new Map<string, AcceptanceResult>();
+    for (const o of candidates) {
+      try {
+        const result = await checkOrderAcceptance(o.id);
+        if (result) checked.set(o.id, result);
+      } catch (err) {
+        console.warn("[ops/confectioner-today] acceptance check failed:", err instanceof Error ? err.message : err);
+      }
+    }
+    simpleOrders = ordersToday.map((o) => buildSimpleCard(o, checked.get(o.id) ?? null));
+    // В производстве (до 3 дней) — тоже карточки, без повторной проверки
+    const todayIds = new Set(ordersToday.map((o) => o.id));
+    for (const o of inProduction) {
+      if (!todayIds.has(o.id)) {
+        simpleOrders.push(buildSimpleCard(o, checked.get(o.id) ?? null));
+      }
+    }
+  } catch (err) {
+    orderShapeError("simpleOrders", err);
+  }
+
+  let capacityAlert: CapacityAlert = { active: false, message: null, nearestWindow: null };
+  try {
+    const overloaded = simpleOrders.some((c) => c.capacityFits === false);
+    if (overloaded) {
+      // Самый ёмкий несозданный резерв — сколько минут нужно свободного окна
+      const requiredMinutes = Math.max(
+        60,
+        ...productionPlan.map((p) => p.estimatedMinutes ?? p.endMinute - p.startMinute)
+      );
+      const windows = await suggestAlternativeWindows(ownerId, requiredMinutes, todayStr, 3, new Date());
+      const first = windows[0] ?? null;
+      capacityAlert = {
+        active: true,
+        message: first
+          ? "На сегодня много заказов — есть риск не успеть"
+          : "На сегодня много заказов — свободных окон в ближайшие дни нет",
+        nearestWindow: first
+          ? {
+              date: first.date,
+              startTime: `${String(Math.floor(first.start / 60)).padStart(2, "0")}:${String(first.start % 60).padStart(2, "0")}`,
+            }
+          : null,
+      };
+    }
+  } catch (err) {
+    orderShapeError("capacityAlert", err);
+  }
+
   return NextResponse.json({
     scannedAt: stats?.scannedAt ?? null,
     tasks,
@@ -383,5 +542,9 @@ export async function GET(request: NextRequest) {
     productionPlan,
     nextAction,
     attention,
+    // P0.5 Core Adaptive:
+    businessScale,
+    simpleOrders,
+    capacityAlert,
   });
 }

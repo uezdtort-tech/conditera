@@ -223,6 +223,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const selfPickup = selfPickupRaw === "true";
 
+  // P0.5 Core Adaptive: масштаб бизнеса (профиль возможностей).
+  // Явное поле имеет приоритет; иначе выводим из legalStatus:
+  //   NPD/PHYSICAL → home, IP/OOO → business (предприятие — уже не домашняя кухня).
+  const VALID_BUSINESS_SCALES = new Set(["home", "business", "enterprise"]);
+  const businessScaleRaw = (formData.get("businessScale") as string | null)?.trim();
+  let businessScale = legalStatus === "IP" || legalStatus === "OOO" ? "business" : "home";
+  if (businessScaleRaw) {
+    if (!VALID_BUSINESS_SCALES.has(businessScaleRaw)) {
+      return NextResponse.json(
+        { error: "businessScale должен быть home | business | enterprise", field: "businessScale" },
+        { status: 400 }
+      );
+    }
+    businessScale = businessScaleRaw;
+  }
+
   // ===== Проверка: нет ли уже строки кондитера =====
   const { data: existing } = await supabaseAdmin
     .from("confectioners")
@@ -347,6 +363,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     verificationStatus: "pending",
     trustLevel: "NEW",
     tariff: "START",
+    business_scale: businessScale,
     legalInfo,
     taxMode,
     specialization,

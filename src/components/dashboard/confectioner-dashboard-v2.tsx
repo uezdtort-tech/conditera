@@ -26,6 +26,7 @@ import {
 } from "@/components/dashboard/_shared";
 import { useConfectionerDashboard } from "@/lib/supabase/use-dashboards";
 import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
+import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-scale-settings";
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
 
 const TABS = [
@@ -300,15 +301,19 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
 
       case "settings":
         return (
-          <Card className="p-4">
-            <h3 className="font-semibold mb-3">Настройки кондитера</h3>
-            <p className="text-sm text-muted-foreground">
-              Открыть полные настройки профиля и тариф.
-            </p>
-            <Button className="mt-3" onClick={() => navigate("settings" as never)}>
-              <Settings className="h-4 w-4 mr-2" /> Открыть настройки
-            </Button>
-          </Card>
+          <div className="space-y-4">
+            {/* P0.5 Core Adaptive: масштаб бизнеса (профиль возможностей) */}
+            <ConfectionerScaleSettings />
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3">Настройки кондитера</h3>
+              <p className="text-sm text-muted-foreground">
+                Открыть полные настройки профиля и тариф.
+              </p>
+              <Button className="mt-3" onClick={() => navigate("settings" as never)}>
+                <Settings className="h-4 w-4 mr-2" /> Открыть настройки
+              </Button>
+            </Card>
+          </div>
         );
 
       default:
