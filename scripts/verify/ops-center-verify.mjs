@@ -104,6 +104,22 @@ async function main() {
   assert("демо-заказ DEMO-1048 существует", demo.rowCount > 0);
   const orderId = demo.rows[0].id;
 
+  // P0.5: ORDER_UNASSIGNED теперь эскалирует по SLA (15/30/60 мин).
+  // Для проверки critical-уровня создаём «давно не назначенный» заказ
+  // (paid_at 40 минут назад → severity critical). Удаляется в cleanup.
+  const aged = await client.query(
+    `INSERT INTO public.orders
+       (number, user_id, subtotal, delivery_cost, discount, total, status, payment_status,
+        payment_method, delivery_address, delivery_city, delivery_date, delivery_time_window,
+        delivery_type, metadata, paid_at)
+     VALUES ('OPSVERIFY-AGED-' || floor(random()*100000)::text, '11111111-1111-4111-8111-111111111106',
+             1000, 0, 0, 1000, 'PENDING', 'escrow', 'card', 'тест', 'Москва',
+             CURRENT_DATE + 1, '10:00-12:00', 'delivery',
+             jsonb_build_object('test','ops-verify'), now() - interval '40 minutes')
+     RETURNING id::text`
+  );
+  cleanupIds.orders.push(aged.rows[0].id);
+
   section("Rule engine: материализация и идемпотентность");
   const scan1 = await api("GET", "/api/ops/tasks?refresh=1", { token: admin });
   assert("GET /api/ops/tasks → 200", scan1.status === 200, `got ${scan1.status}`);
@@ -223,10 +239,15 @@ async function main() {
 
 async function cleanup() {
   try {
+    if (cleanupIds.orders.length > 0) {
+      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanupIds.orders]);
+    }
     if (cleanupIds.drafts.length > 0) {
       await client.query(`DELETE FROM public.purchase_drafts WHERE id = ANY($1)`, [cleanupIds.drafts]);
     }
-    console.log(`\n  cleanup: удалено черновиков верификации: ${cleanupIds.drafts.length}`);
+    console.log(`\n  cleanup: удалено черновиков верификации: ${cleanupIds.drafts.length}, заказов: ${cleanupIds.orders.length}`);
   } catch (err) {
     console.log(`\n  cleanup warning: ${err.message}`);
   } finally {

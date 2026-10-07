@@ -55,8 +55,10 @@ export interface OrderRiskSnapshot {
 const ACTIVE_STATUSES = "('PENDING','NEGOTIATING','CONFIRMED','PREPARING','READY','IN_DELIVERY','DELIVERED')";
 
 /**
- * Снимки риска для активных заказов в окне ближайших `daysWindow` дней
- * (доставка <= today + daysWindow), ОДНИМ SQL. Опционально — только один заказ.
+ * Снимки риска для активных заказов в окне [сегодня .. today+daysWindow],
+ * ОДНИМ SQL. Опционально — только один заказ.
+ * Просроченные (delivery_date < today) НЕ включаются — их зона ORDER_OVERDUE;
+ * без даты — тоже (дедлайн неизвестен). Это ограничивает шум очереди.
  */
 export async function computeRiskSnapshotsBulk(
   daysWindow = 3,
@@ -123,7 +125,8 @@ export async function computeRiskSnapshotsBulk(
          AND i.quantity <= i.min_quantity
      ) low ON true
      WHERE o.status::text IN ${ACTIVE_STATUSES}
-       AND (o.delivery_date IS NULL OR o.delivery_date <= CURRENT_DATE + $1::int)
+       AND o.delivery_date >= CURRENT_DATE
+       AND o.delivery_date <= CURRENT_DATE + $1::int
        AND ($2::uuid IS NULL OR o.id = $2::uuid)
      ORDER BY o.delivery_date NULLS LAST, o.created_at`,
     [daysWindow, orderId ?? null]

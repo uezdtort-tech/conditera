@@ -674,6 +674,17 @@ async function ruleOrderAtRisk(pool: Pool): Promise<RuleStats> {
     const productionNotStarted =
       !s.startedAt && ["PENDING", "NEGOTIATING", "CONFIRMED"].includes(s.status);
     if (!productionNotStarted) continue;
+    // Срочность: RED (план уже нарушен) ИЛИ безопасный старт в пределах
+    // deadlineApproachingMinutes (ТЗ §24). Остальные сигналы (например,
+    // CAPACITY_NOT_RESERVED) видны в Control Tower/lifecycle, но не спамят
+    // общую очередь — legacy-заказы без плана не должны заливать её.
+    const latest = s.production.latestSafeStartAt;
+    const urgent =
+      s.risk.level === "RED" ||
+      (latest !== null &&
+        latest.getTime() - Date.now() <=
+          ESCALATION_CONFIG.deadlineApproachingMinutes * 60_000);
+    if (!urgent) continue;
 
     const severity: Severity = s.risk.level === "RED" ? "critical" : "important";
     const reasonText = s.risk.details.join("; ");
