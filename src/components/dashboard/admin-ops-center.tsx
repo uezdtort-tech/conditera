@@ -1,23 +1,27 @@
 "use client";
 
 /**
- * admin-ops-center.tsx — «Операционный центр» администратора (Task 3-A).
+ * admin-ops-center.tsx — «Операционный центр» администратора (Task 3-A, P0.5: 9-a).
  *
  * Данные:
  *   • GET /api/ops/tasks?status=open&limit=100 — очередь задач (refetch 60с);
- *   • GET /api/ops/summary — сводка дня (refetch 60с).
+ *   • GET /api/ops/summary — сводка дня (refetch 60с);
+ *   • GET /api/ops/orders-today — Control Tower «ЗАКАЗЫ СЕГОДНЯ» (refetch 60с).
  *
- * Секции: «Сегодня» (StatCard-сетка) → «Требуют внимания» (severity-группы
- * critical/important/info со сценариями resolve/dismiss) → «Финансы» → «Система».
+ * Секции: «Сегодня» (StatCard-сетка) → «ЗАКАЗЫ СЕГОДНЯ (Control Tower)»
+ * (чипы-фильтры + карточки-башни с «Рабочей областью») → «Требуют внимания»
+ * (severity-группы critical/important/info со сценариями resolve/dismiss)
+ * → «Финансы» → «Система».
  *
- * Палитра: critical→red, important→amber, info→slate, ok→emerald (без синего).
+ * Палитра: critical→red, important→amber, info→slate, ok→emerald,
+ * риск: GREEN→emerald / YELLOW→amber / ORANGE→orange / RED→red (без синего).
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle, BellOff, CheckCircle2, Coins, Database, Gauge,
-  Loader2, RefreshCw, ShoppingCart, Truck, UserPlus, UtensilsCrossed,
+  Loader2, Radar, RefreshCw, ShoppingCart, Truck, UserPlus, UtensilsCrossed,
   Wallet, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,10 +30,14 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, StatCard } from "@/components/dashboard/_shared";
 import { csrfFetch } from "@/lib/api-client";
 import { useOpsTaskAction } from "@/lib/use-ops-task-actions";
+import { OrderWorkspaceButton } from "@/components/dashboard/order-workspace-dialog";
 import {
   SEVERITY_UI, extractPayloadInfo, formatRub,
   type OpsSeverity, type OpsSummaryResponse, type OpsTask, type OpsTasksResponse,
 } from "@/lib/ops-client-types";
+import {
+  type OrdersTodayResponse, type TowerCard,
+} from "@/lib/ops/lifecycle-client-types";
 
 const REFETCH_MS = 60_000;
 
@@ -45,6 +53,139 @@ export async function fetchOpsSummary(): Promise<OpsSummaryResponse> {
   const res = await csrfFetch("/api/ops/summary");
   if (!res.ok) throw new Error(`Не удалось загрузить сводку (HTTP ${res.status})`);
   return (await res.json()) as OpsSummaryResponse;
+}
+
+/** GET /api/ops/orders-today — Control Tower «ORDERS TODAY» (P0.5). */
+async function fetchOrdersToday(): Promise<OrdersTodayResponse> {
+  const res = await csrfFetch("/api/ops/orders-today");
+  if (!res.ok) throw new Error(`Не удалось загрузить Control Tower (HTTP ${res.status})`);
+  return (await res.json()) as OrdersTodayResponse;
+}
+
+// ==================== Control Tower: словари и хелперы ====================
+
+type TowerFilter = "today" | "all" | "onTrack" | "attention" | "atRisk" | "overdue" | "unassigned";
+
+type TowerRiskLevel = TowerCard["risk"]["level"];
+
+/** Риск-палитра башни: GREEN→emerald, YELLOW→amber, ORANGE→orange, RED→red. */
+const TOWER_RISK_UI: Record<TowerRiskLevel, { label: string; border: string; badge: string }> = {
+  GREEN: { label: "В норме", border: "border-emerald-200", badge: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  YELLOW: { label: "Внимание", border: "border-amber-200", badge: "border-amber-200 bg-amber-50 text-amber-700" },
+  ORANGE: { label: "Под риском", border: "border-orange-200", badge: "border-orange-200 bg-orange-50 text-orange-700" },
+  RED: { label: "Критично", border: "border-red-200", badge: "border-red-200 bg-red-50 text-red-700" },
+};
+
+interface TowerChipDef {
+  key: TowerFilter;
+  label: string;
+  idle: string;
+  active: string;
+}
+
+/** Чипы-фильтры: активный чип подсвечивается цветом группы (без синего). */
+const TOWER_CHIPS: TowerChipDef[] = [
+  { key: "today", label: "Заказов сегодня", idle: "border-border text-foreground", active: "border-primary bg-primary/10 text-primary" },
+  { key: "all", label: "Всего", idle: "border-border text-foreground", active: "border-primary bg-primary/10 text-primary" },
+  { key: "onTrack", label: "On track", idle: "border-emerald-200 text-emerald-700", active: "border-emerald-300 bg-emerald-100 text-emerald-800" },
+  { key: "attention", label: "Внимание", idle: "border-amber-200 text-amber-700", active: "border-amber-300 bg-amber-100 text-amber-800" },
+  { key: "atRisk", label: "Под риском", idle: "border-orange-200 text-orange-700", active: "border-orange-300 bg-orange-100 text-orange-800" },
+  { key: "overdue", label: "Просрочено", idle: "border-red-200 text-red-700", active: "border-red-300 bg-red-100 text-red-800" },
+  { key: "unassigned", label: "Не назначено", idle: "border-slate-200 text-slate-600", active: "border-slate-300 bg-slate-100 text-slate-800" },
+];
+
+function towerChipCount(key: TowerFilter, counts: OrdersTodayResponse["counts"] | undefined): number {
+  if (!counts) return 0;
+  switch (key) {
+    case "today": return counts.ordersToday;
+    case "all": return counts.all;
+    case "onTrack": return counts.onTrack;
+    case "attention": return counts.attention;
+    case "atRisk": return counts.atRisk;
+    case "overdue": return counts.overdue;
+    case "unassigned": return counts.unassigned;
+  }
+}
+
+/** "YYYY-MM-DD…" → "DD.MM" (без Date — нет TZ-сдвигов). */
+function formatTowerDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+  return m ? `${m[3]}.${m[2]}` : dateStr;
+}
+
+/** ISO datetime → "DD.MM HH:MM". */
+function formatTowerDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+/** Карточка Control Tower: сводка состояния заказа + вход в «Рабочую область». */
+function TowerOrderCard({ card }: { card: TowerCard }) {
+  const risk = TOWER_RISK_UI[card.risk.level] ?? TOWER_RISK_UI.GREEN;
+  const capacityText = card.capacityOk === null ? "—" : card.capacityOk ? "OK" : "нет окна";
+  const capacityBadge =
+    card.capacityOk === true
+      ? "border-emerald-200 text-emerald-700"
+      : card.capacityOk === false
+        ? "border-amber-200 text-amber-700"
+        : "border-slate-200 text-slate-600";
+  const inventoryBadge = card.inventoryOk
+    ? "border-emerald-200 text-emerald-700"
+    : "border-amber-200 text-amber-700";
+
+  return (
+    <div className={`rounded-lg border ${risk.border} bg-card p-3 flex flex-col gap-2 min-w-0`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold truncate" title={`Заказ № ${card.number}`}>№ {card.number}</div>
+          <div className="text-xs text-muted-foreground truncate" title={card.confectionerName ?? undefined}>
+            {card.confectionerName || "Не назначен"}
+          </div>
+        </div>
+        <Badge variant="outline" className={`text-[10px] shrink-0 ${risk.badge}`}>
+          {risk.label}
+        </Badge>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {card.deliveryDate && (
+          <Badge variant="secondary" className="text-[10px]">
+            {formatTowerDate(card.deliveryDate)}{card.isToday ? " · сегодня" : ""}
+          </Badge>
+        )}
+        <Badge variant="outline" className={`text-[10px] ${card.productionStarted ? "border-orange-200 text-orange-700" : "border-slate-200 text-slate-600"}`}>
+          {card.productionStarted ? "производство идёт" : "не начато"}
+        </Badge>
+        <Badge variant="outline" className={`text-[10px] ${capacityBadge}`}>
+          Мощность: {capacityText}
+        </Badge>
+        <Badge variant="outline" className={`text-[10px] ${inventoryBadge}`}>
+          Ингредиенты: {card.inventoryOk ? "OK" : "дефицит"}
+        </Badge>
+      </div>
+
+      {card.latestSafeStartAt && (
+        <div className="text-[11px] text-muted-foreground">
+          Безопасный старт: <span className="tabular-nums">{formatTowerDateTime(card.latestSafeStartAt)}</span>
+        </div>
+      )}
+
+      {card.risk.details.length > 0 && (
+        <div className="space-y-0.5">
+          {card.risk.details.slice(0, 2).map((d, i) => (
+            <p key={i} className="text-[11px] text-muted-foreground line-clamp-1" title={d}>{d}</p>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-auto pt-2 border-t border-border">
+        <OrderWorkspaceButton orderId={card.id} label="Рабочая область" />
+      </div>
+    </div>
+  );
 }
 
 function formatDueAt(dueAt: string): string {
@@ -203,6 +344,30 @@ export function AdminOpsCenter({ onNavigateTab }: { onNavigateTab?: (tabId: stri
 
   const actionMutation = useOpsTaskAction();
 
+  // Control Tower: авто-фильтр «Под риском», пока пользователь не выбрал свой
+  const towerQuery = useQuery({
+    queryKey: ["ops-orders-today"],
+    queryFn: fetchOrdersToday,
+    refetchInterval: REFETCH_MS,
+  });
+  const [towerUserFilter, setTowerUserFilter] = useState<TowerFilter | null>(null);
+  const towerCounts = towerQuery.data?.counts;
+  const towerFilter: TowerFilter = towerUserFilter ?? (towerCounts && towerCounts.atRisk > 0 ? "atRisk" : "all");
+
+  const towerCards = useMemo<TowerCard[]>(() => {
+    const d = towerQuery.data;
+    if (!d) return [];
+    switch (towerFilter) {
+      case "today": return d.cards.filter((c) => c.isToday);
+      case "all": return d.cards;
+      case "onTrack": return d.groups.onTrack;
+      case "attention": return d.groups.attention;
+      case "atRisk": return d.groups.atRisk;
+      case "overdue": return d.groups.overdue;
+      case "unassigned": return d.groups.unassigned;
+    }
+  }, [towerQuery.data, towerFilter]);
+
   const tasks = tasksQuery.data?.tasks ?? [];
   const counts = summaryQuery.data?.attention ?? tasksQuery.data?.counts ?? { critical: 0, important: 0, info: 0 };
 
@@ -268,6 +433,67 @@ export function AdminOpsCenter({ onNavigateTab }: { onNavigateTab?: (tabId: stri
             <StatCard icon={UserPlus} label="Новые клиенты" value={String(today?.newCustomers ?? 0)} color="text-purple-600 bg-purple-100" />
             <StatCard icon={Wallet} label="Выручка сегодня" value={formatRub(today?.revenueToday ?? 0)} color="text-emerald-700 bg-emerald-100" />
             <StatCard icon={Coins} label="Выручка за месяц" value={formatRub(today?.revenueMonth ?? 0)} color="text-amber-700 bg-amber-100" />
+          </div>
+        )}
+      </section>
+
+      {/* ==================== ЗАКАЗЫ СЕГОДНЯ (CONTROL TOWER) ==================== */}
+      <section aria-label="Заказы сегодня (Control Tower)">
+        <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <Radar className="h-3.5 w-3.5 text-primary" />
+            Заказы сегодня (Control Tower)
+          </h2>
+          {towerQuery.data?.generatedAt && (
+            <span className="text-[10px] text-muted-foreground">
+              Срез: {new Date(towerQuery.data.generatedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+        </div>
+
+        {towerQuery.isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-36 bg-muted/50 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        ) : towerQuery.error ? (
+          <ErrorState error={towerQuery.error as Error} onRetry={() => void towerQuery.refetch()} />
+        ) : (
+          <div className="space-y-3">
+            {/* Чипы-фильтры: горизонтальный скролл на мобиле, без overflow 375px */}
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {TOWER_CHIPS.map((chip) => {
+                const isActive = towerFilter === chip.key;
+                return (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => setTowerUserFilter(chip.key)}
+                    className={`shrink-0 whitespace-nowrap rounded-full border px-3 min-h-[44px] sm:min-h-0 sm:py-1 text-xs font-medium transition ${
+                      isActive ? chip.active : chip.idle
+                    }`}
+                  >
+                    {chip.label}: <span className="font-bold tabular-nums">{towerChipCount(chip.key, towerCounts)}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {towerCards.length === 0 ? (
+              <EmptyState
+                icon={CheckCircle2}
+                title="Заказов в группе нет"
+                text="Control Tower не видит заказов в выбранной группе — переключите фильтр"
+              />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {towerCards.map((card) => (
+                  <TowerOrderCard key={card.id} card={card} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </section>

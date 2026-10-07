@@ -149,6 +149,15 @@ export const ORDER_TRANSITIONS: Record<string, TransitionDef[]> = {
       notify: ["customer"],
     },
     {
+      // Самовывоз: подтверждение передачи клиенту (ТЗ §36 handoff)
+      to: "DELIVERED",
+      roles: ["CONFECTIONER", "ADMIN", "SUPER_ADMIN"],
+      label: "передан клиенту",
+      event: "order.handed_off",
+      notification: "ORDER_DELIVERED",
+      notify: ["customer"],
+    },
+    {
       to: "CANCELLED",
       roles: ["ADMIN", "SUPER_ADMIN"],
       label: "заказ отменён",

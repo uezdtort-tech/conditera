@@ -1,18 +1,27 @@
 "use client";
 
 /**
- * confectioner-today-tab.tsx — таб «Сегодня» кондитера (Task 3-C).
+ * confectioner-today-tab.tsx — таб «Сегодня» кондитера (Task 3-C, P0.5 §31 — Task 9-b).
  *
  * Данные: GET /api/ops/confectioner-today (refetch 60с) — bento-компоновка:
+ *   • ⏭ Следующее действие (P0.5, banner);
  *   • 🔴 Требуют действия (severity-счётчики + топ-5 задач, resolve/dismiss);
  *   • 🟠 Заказы сегодня (+ кнопка «Разбор» → OrderBreakdownDialog);
  *   • 🟢 В производстве;
- *   • 📦 Нужно докупить (низкие остатки + черновики закупок);
- *   • 💬 Сообщения; 💰 Выручка сегодня.
+ *   • 🏭 Производство сегодня + 📊 Ёмкость сегодня (P0.5);
+ *   • 📦 Нужно докупить (низкие остатки + черновики закупок + ETA поставки);
+ *   • 🔔 Требует внимания (P0.5); 💬 Сообщения; 💰 Выручка сегодня.
+ *
+ * P0.5-поля (capacity/productionPlan/nextAction/attention) приходят в ТОМ ЖЕ
+ * ответе — новые fetch не нужны, см. confectioner-p05-cards.tsx.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import type { ConfectionerTodayP05 } from "@/lib/ops/lifecycle-client-types";
+import {
+  AttentionCard, CapacityCard, DraftEtaSetter, NextActionBanner, ProductionPlanCard,
+} from "@/components/dashboard/confectioner-p05-cards";
 import {
   AlertTriangle, BellOff, CheckCircle2, ChefHat, ClipboardList, Coins,
   Loader2, MessageSquare, Package, RefreshCw, ShoppingBag,
@@ -31,10 +40,13 @@ import {
   type OpsSeverity, type OpsTask,
 } from "@/lib/ops-client-types";
 
-async function fetchConfectionerToday(): Promise<ConfectionerTodayResponse> {
+/** P0.5-дополнения опциональны: capacity/nextAction — null, остальные могут отсутствовать. */
+type ConfectionerTodayResponseP05 = ConfectionerTodayResponse & Partial<ConfectionerTodayP05>;
+
+async function fetchConfectionerToday(): Promise<ConfectionerTodayResponseP05> {
   const res = await csrfFetch("/api/ops/confectioner-today");
   if (!res.ok) throw new Error(`Не удалось загрузить данные дня (HTTP ${res.status})`);
-  return (await res.json()) as ConfectionerTodayResponse;
+  return (await res.json()) as ConfectionerTodayResponseP05;
 }
 
 function orderTime(o: ConfectionerTodayOrder): string {
@@ -259,6 +271,9 @@ export function ConfectionerTodayTab({
         </Card>
       ) : !data ? null : (
         <>
+          {/* P0.5: Следующее действие — первый, самый заметный блок таба */}
+          <NextActionBanner nextAction={data.nextAction} onOpenBreakdown={onOpenBreakdown} />
+
           {/* Стат-строка */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <StatCard icon={AlertTriangle} label="Требуют действий" value={String(tasksTotal)} color="text-red-600 bg-red-100" />
@@ -333,6 +348,14 @@ export function ConfectionerTodayTab({
               )}
             </SectionCard>
 
+            {/* P0.5: Производство сегодня (план) + Ёмкость сегодня */}
+            <ProductionPlanCard
+              plan={data.productionPlan ?? []}
+              onOpenBreakdown={onOpenBreakdown}
+              className="lg:col-span-2"
+            />
+            <CapacityCard capacity={data.capacity} />
+
             {/* Нужно докупить */}
             <SectionCard
               emoji="📦"
@@ -367,19 +390,20 @@ export function ConfectionerTodayTab({
                         Черновики закупок
                       </div>
                       {data.purchaseDrafts.map((d) => (
-                        <div
-                          key={d.id}
-                          className="flex items-center justify-between gap-2 p-2 border border-border rounded-lg text-sm"
-                        >
-                          <div className="min-w-0">
-                            <Badge variant="outline" className="text-[10px] border-slate-200 text-slate-600 mr-2">
-                              {purchaseDraftSourceLabel(d.source)}
-                            </Badge>
-                            <Badge variant="secondary" className="text-[10px]">{d.status}</Badge>
+                        <div key={d.id} className="p-2 border border-border rounded-lg text-sm min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <Badge variant="outline" className="text-[10px] border-slate-200 text-slate-600 mr-2">
+                                {purchaseDraftSourceLabel(d.source)}
+                              </Badge>
+                              <Badge variant="secondary" className="text-[10px]">{d.status}</Badge>
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+                              {d.items_count} поз. · ≈{formatRub(d.total_estimated)}
+                            </span>
                           </div>
-                          <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                            {d.items_count} поз. · ≈{formatRub(d.total_estimated)}
-                          </span>
+                          {/* P0.5: ETA поставки (PATCH /api/purchase-drafts/[id]) */}
+                          <DraftEtaSetter draftId={d.id} />
                         </div>
                       ))}
                     </div>
@@ -410,6 +434,9 @@ export function ConfectionerTodayTab({
                 </p>
               </SectionCard>
             </div>
+
+            {/* P0.5: Требует внимания (риски / остатки / чаты) */}
+            <AttentionCard attention={data.attention} className="lg:col-span-3" />
           </div>
         </>
       )}

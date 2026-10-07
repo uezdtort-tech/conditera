@@ -88,7 +88,7 @@ export async function GET(
     }>(
       `SELECT occurred_at AS at, type, source, payload, actor_id::text AS actor
        FROM public.domain_events
-       WHERE entity_type = 'order' AND entity_id = $1::uuid
+       WHERE entity_type = 'order' AND entity_id = $1::text
        ORDER BY occurred_at ASC
        LIMIT 200`,
       [id]
@@ -101,7 +101,7 @@ export async function GET(
       actor: string | null;
       comment: string | null;
     }>(
-      `SELECT created_at AS at, status_from, status_to, changed_by::text AS actor, comment
+      `SELECT created_at AS at, status_from AS "from", status_to AS "to", changed_by::text AS actor, comment
        FROM public.order_status_history
        WHERE order_id = $1::uuid
        ORDER BY created_at ASC

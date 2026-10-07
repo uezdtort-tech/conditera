@@ -60,6 +60,10 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
+import {
+  CheckoutAvailabilityBanner,
+  formatAlternativeWindowShort,
+} from "./checkout-availability";
 
 export function ReadyMadePage() {
   const products = useAppStore((s) => s.products);
@@ -1438,6 +1442,8 @@ export function CheckoutPage() {
   const [notes, setNotes] = useState("");
   // Оформление: реальный POST /api/checkout
   const [submitting, setSubmitting] = useState(false);
+  // 422 от движка выполнимости: постоянный баннер над кнопкой оплаты (ТЗ P0.5 §29)
+  const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
   const [orderResult, setOrderResult] = useState<{
     orderId: string;
     orderNumber: string;
@@ -1501,9 +1507,24 @@ export function CheckoutPage() {
         total?: number;
         isStub?: boolean;
         error?: string;
+        alternativeWindows?: Array<{ date: string; start: string; end: string }>;
       } | null;
 
       if (!res.ok || !data?.orderId) {
+        // 422: слот недоступен — постоянный баннер + подсказка ближайшего окна
+        if (
+          res.status === 422 &&
+          data?.alternativeWindows &&
+          data.alternativeWindows.length > 0
+        ) {
+          const when = formatAlternativeWindowShort(data.alternativeWindows[0]);
+          setBlockedNotice(
+            (data.error || "На выбранное время заказ выполнить не получится") +
+              (when ? ` Ближайшее доступное время — ${when}.` : "")
+          );
+        } else {
+          setBlockedNotice(null);
+        }
         // Ошибка валидации/бэкенда — корзину НЕ чистим, пользователь может повторить
         toast.error("Не удалось оформить заказ", {
           description: data?.error || `Ошибка сервера (${res.status})`,
@@ -1511,6 +1532,7 @@ export function CheckoutPage() {
         return;
       }
 
+      setBlockedNotice(null);
       setOrderResult({
         orderId: data.orderId,
         orderNumber: data.orderNumber || "",
@@ -1609,10 +1631,19 @@ export function CheckoutPage() {
                   <Input
                     type="date"
                     value={deliveryDate}
-                    onChange={(e) => setDeliveryDate(e.target.value)}
+                    onChange={(e) => {
+                      setDeliveryDate(e.target.value);
+                      setBlockedNotice(null);
+                    }}
                   />
                 </div>
               </div>
+              {/* Живая проверка выполнимости заказа (ТЗ P0.5 §29) */}
+              <CheckoutAvailabilityBanner
+                cart={cart}
+                deliveryDate={deliveryDate}
+                enabled={Boolean(user)}
+              />
               <div>
                 <Label>Комментарий курьеру</Label>
                 <Textarea
@@ -1783,6 +1814,21 @@ export function CheckoutPage() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+              {blockedNotice && (
+                <div
+                  role="alert"
+                  className="flex flex-col gap-3 rounded-lg border border-red-500/40 bg-red-500/5 p-3 sm:flex-row sm:items-center"
+                >
+                  <p className="min-w-0 flex-1 text-sm text-red-800">{blockedNotice}</p>
+                  <Button
+                    variant="outline"
+                    onClick={() => setStep(1)}
+                    className="min-h-[44px] w-full shrink-0 border-red-500/40 text-red-800 hover:bg-red-500/10 hover:text-red-900 sm:min-h-0 sm:w-auto"
+                  >
+                    Изменить дату
+                  </Button>
                 </div>
               )}
               <div className="flex gap-2">

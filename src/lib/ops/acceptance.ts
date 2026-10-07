@@ -479,7 +479,7 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
     if (ownerId) {
       const pool = getPool();
       const nm = await pool.query<{ business_name: string | null }>(
-        `SELECT business_name FROM public.confectioners WHERE "userId" = $1::uuid LIMIT 1`,
+        `SELECT "businessName" AS business_name FROM public.confectioners WHERE "userId" = $1::text LIMIT 1`,
         [ownerId]
       );
       confectionerName = nm.rows[0]?.business_name ?? null;

@@ -29,6 +29,7 @@ import {
   CreditCard, FileText, Download, Filter, Package,
 } from "lucide-react";
 import { formatCurrency, formatDate, ORDER_STATUS_LABELS } from "@/lib/finance";
+import { OrderWorkspaceButton } from "@/components/dashboard/order-workspace-dialog";
 import { toast } from "sonner";
 import type { Order, OrderStatus } from "@/lib/types";
 
@@ -185,6 +186,7 @@ export function AdminOrdersManager() {
             <Button size="sm" variant="outline" onClick={() => setViewingOrder(o)}>
               <Eye className="h-3.5 w-3.5 mr-1" />Открыть
             </Button>
+            <OrderWorkspaceButton orderId={o.id} label="Рабочая область" />
           </Card>
         ))}
       </div>
