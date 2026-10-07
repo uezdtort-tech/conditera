@@ -219,7 +219,9 @@ export function ConfectionerDashboard() {
           На главную
         </button>
 
-        <div className="grid lg:grid-cols-[260px_1fr] gap-4 lg:gap-6">
+        {/* grid-cols-1 (ТЗ P0.5 §51): без явного трека auto-колонка раздувается
+            по max-content контента → горизонтальный overflow на 375px */}
+        <div className="grid grid-cols-1 min-w-0 lg:grid-cols-[260px_1fr] gap-4 lg:gap-6">
           {/* Sidebar */}
           <aside className="lg:sticky lg:top-20 lg:self-start">
             <Card className="p-3 lg:p-4">

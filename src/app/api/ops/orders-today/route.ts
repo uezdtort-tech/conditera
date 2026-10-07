@@ -86,11 +86,24 @@ export async function GET(
     }));
 
     // --- Группировка (ТЗ §21) ---
+    // atRisk: RED всегда + ORANGE только «срочные» (безопасный старт в пределах
+    // 60 мин, как в очереди ORDER_AT_RISK) — клик по чипу показывает именно
+    // проблемные заказы, а не все legacy-заказы без плана (ТЗ §32).
+    const URGENT_MS = 60 * 60_000;
+    const isUrgent = (c: TowerCard) =>
+      c.risk.level === "RED" ||
+      (c.risk.level === "ORANGE" &&
+        c.latestSafeStartAt !== null &&
+        new Date(c.latestSafeStartAt).getTime() - Date.now() <= URGENT_MS);
     const groups = {
       all: cards,
       onTrack: cards.filter((c) => c.risk.level === "GREEN"),
-      attention: cards.filter((c) => c.risk.level === "YELLOW"),
-      atRisk: cards.filter((c) => c.risk.level === "ORANGE" || c.risk.level === "RED"),
+      attention: cards.filter(
+        (c) =>
+          c.risk.level === "YELLOW" ||
+          (c.risk.level === "ORANGE" && !isUrgent(c))
+      ),
+      atRisk: cards.filter(isUrgent),
       overdue: cards.filter((c) => {
         // Доставка в прошлом и не завершён — перекрытие с ORDER_OVERDUE правилом
         if (!c.deliveryDate) return false;
@@ -108,6 +121,7 @@ export async function GET(
       overdue: groups.overdue.length,
       unassigned: groups.unassigned.length,
     };
+    void cards; // cards используются группами выше
 
     return NextResponse.json({
       generatedAt: new Date().toISOString(),

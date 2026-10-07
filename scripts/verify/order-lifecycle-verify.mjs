@@ -144,12 +144,17 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
 }
 
 async function deleteOrder(orderId) {
+  // escrow_accounts создаётся триггером/эккаунтингом при payment_status='escrow'
+  await client.query(`DELETE FROM public.escrow_accounts WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
+  await client.query(`DELETE FROM public.payments WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
+  await client.query(`DELETE FROM public.deliveries WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.order_media WHERE order_id = $1::uuid`, [orderId]);
   await client.query(`DELETE FROM public.capacity_reservations WHERE order_id = $1::uuid`, [orderId]);
   await client.query(`DELETE FROM public.order_production_checklist WHERE order_id = $1::uuid`, [orderId]);
   await client.query(`DELETE FROM public.order_production WHERE order_id = $1::uuid`, [orderId]);
   await client.query(`DELETE FROM public.order_status_history WHERE order_id = $1::uuid`, [orderId]);
-  await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = $1::uuid`, [orderId]);
+  await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = $1::text`, [orderId]);
+  await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = $1::text`, [orderId]);
   await client.query(`DELETE FROM public.orders WHERE id = $1::uuid`, [orderId]);
 }
 
@@ -479,6 +484,8 @@ main()
         `DELETE FROM public.ops_tasks WHERE entity_type='order' AND entity_id = ANY($1::text[])`,
         [testOrders]
       );
+      const left = await client.query(`SELECT count(*)::int AS c FROM public.orders WHERE number LIKE 'P05V-%'`);
+      console.log(`cleanup: заказов удалено ${testOrders.length}, осталось P05V: ${left.rows[0].c}`);
     } catch (e) {
       console.error("cleanup error:", e.message);
     }
