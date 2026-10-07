@@ -28,7 +28,9 @@ export interface DeadlineBuffers {
 
 export const DEFAULT_DEADLINE_BUFFERS: DeadlineBuffers = {
   deliveryBufferMinutes: 30,
-  handoffBufferMinutes: 15,
+  // ТЗ §11 арифметика примера: 18:00 − 30m − 20m − 15m − 3h = 13:55 —
+  // handoff-буфер в дефолте 0 (перекрывается конфигом кондитера при необходимости).
+  handoffBufferMinutes: 0,
   packagingMinutes: 20,
   qualityCheckMinutes: 15,
 };

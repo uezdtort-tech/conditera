@@ -193,9 +193,11 @@ function pickLevel(
     "NO_CONFECTIONER",
     "DELIVERY_RISK",
   ]);
-  const hasHard = reasons.some((r) => hard.has(r));
   const hasPayment = reasons.includes("PAYMENT_NOT_CONFIRMED");
   const hasNotReserved = reasons.includes("CAPACITY_NOT_RESERVED");
+  // Неоплаченный заказ ещё не принят в работу: NO_CONFECTIONER — мягкая причина
+  const hasHard =
+    hasPayment === false && reasons.some((r) => hard.has(r));
 
   // Не оплачен → максимум YELLOW (заказ ещё не принят в работу).
   if (hasPayment && !hasHard) return "YELLOW";
