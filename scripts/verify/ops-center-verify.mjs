@@ -120,6 +120,23 @@ async function main() {
   );
   cleanupIds.orders.push(aged.rows[0].id);
 
+  // P0.5: ORDER_REVIEW_REQUEST правило (info) требует завершённый заказ
+  // за последние 2 дня — создаём свой (иначе зависимость от чужих данных,
+  // после чисток которых правило материализует пусто).
+  const done = await client.query(
+    `INSERT INTO public.orders
+       (number, user_id, confectioner_id, subtotal, delivery_cost, discount, total, status, payment_status,
+        payment_method, delivery_address, delivery_city, delivery_date, delivery_time_window,
+        delivery_type, metadata, paid_at, delivered_at, completed_at)
+     VALUES ('OPSVERIFY-DONE-' || floor(random()*100000)::text, '11111111-1111-4111-8111-111111111106',
+             '11111111-1111-4111-8111-111111111101', 1000, 0, 0, 1000, 'COMPLETED', 'released',
+             'card', 'тест', 'Москва', CURRENT_DATE - 1, '12:00-14:00', 'delivery',
+             jsonb_build_object('test','ops-verify'), now() - interval '2 days',
+             now() - interval '1 day', now() - interval '1 day')
+     RETURNING id::text`
+  );
+  cleanupIds.orders.push(done.rows[0].id);
+
   section("Rule engine: материализация и идемпотентность");
   const scan1 = await api("GET", "/api/ops/tasks?refresh=1", { token: admin });
   assert("GET /api/ops/tasks → 200", scan1.status === 200, `got ${scan1.status}`);
