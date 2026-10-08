@@ -8154,3 +8154,24 @@ Stage Summary:
 - Контракты разделены: витрина/каталог/помощник — новый продукт-search движок (клиент+сервер, один модуль); рекомендации — recommendations.ts; /api/search-трио — мёртвый Meilisearch-легаси без UI-потребителей (кроме telegram health -> /api/search/health).
 - Правила продолжения: P2.4 — расширять /api/recommendations (якоря уже заложены); P2.5 — строить на /api/ai/search (парсер уже есть) + применение через контракт каталога; НЕ создавать вторых движков/парсеров.
 - Отдельная cleanup-задача (вне P2.4/P2.5): удалить /api/search + /api/search/reindex + lib/meilisearch.ts + npm-dep + compose-сервисы; telegram health перевести на /api/health; обновить текст на странице архитектуры.
+
+---
+Task ID: p0-ops-diag
+Agent: main (Z.ai Code)
+Task: P0-диагностика по протоколу владельца — фиксация Git-состояния, расследование удаления upload-роутов, ledger окна 0034→0060, серверный сценарий inspect→backup→apply→verify. Миграции на живую БД НЕ применялись (доступа нет).
+
+Work Log:
+- Git: HEAD f5001d0, origin/main 8df53be, ahead 2 (docs worklog), behind 0. Дерево чистое после восстановления upload-роутов (см. предыдущий раунд).
+- UUID-коммит 8df53be: автор "Z User <z@container>" (identity песочницы), содержимое = worklog +17 строк, время совпало с push-раундом → фоновый автокоммит среды, НЕ ручной. Историю не трогали (запрет force-push).
+- Расследование удалений upload-роутов: процессы песочницы (bun-сервисы/caddy/platform) НЕ содержат git-вотчеров; .git/hooks пуст; crontab отсутствует; в scripts/automation/mini-services нет git rm/restore логики. Вердикт: удаления и UUID-автокоммиты — жизненный цикл платформы-песочницы вне репозитория. Митигировано ритуалом: git status + diff-filter=D в начале/конце каждого раунда (раздел 10 ТЗ).
+- Ledger файловой стороны: окно 0034→0060 = 25 файлов (0038/0056 отсутствуют — норма); по каждому извлечены маркерные объекты (колонки/RPC/таблицы/индексы/constraints).
+- pglite-верификаторы 0034–0039: все PASS (ops-0034-0037, payout-0036, payout-0037, release-0039, refund-contract).
+- НОВОЕ: scripts/verify-ops-full-window-pglite.ts — ПОЛНОЕ окно 0034→0060 на PGlite: 25/25 COMMIT × 2 прогона, 17 маркеров, RPC 0045 (bonus ±) и 0048 (inventory IN/OUT/overdraft-reject) живьём, идемпотентность подтверждена. Расширения PGlite: uuid-ossp (ДЕФИС в имени!), pgcrypto, btree_gist через конструктор. Фикстура документирует pre-0034 пререквизиты живой БД: роли anon/authenticated/service_role/authenticator, auth.uid(), legacy-таблицы (reviews, chat_rooms, operator_escalations, order_fraud_logs с TEXT id), products.confectioner_id = UUID (модель A), handle_marketplace_updated_at().
+- НОВОЕ: scripts/ops-apply-0039-0060.ts — раннер продолжения канонического окна (applyFileStrict реюз, маркеры на каждый файл, строгий порядок, abort-on-fail).
+- НОВОЕ: scripts/ops/p0-pipeline.sh — серверный конвейер: inspect (механизм миграций + маркеры + identity + деньги) → вердикт A/B/C (A=apply не нужен; B=строгий префикс, apply суффикса; C=PARTIAL/дыры → STOP) → backup (pg_dump полный+схема; падение=STOP) → apply (0034–0037 канон + 0039–0060 раннер; без backup запрещён) → verify (verify-money-path + p11-hardening через PGURL). Логи в download/p0-pipeline-*.log.
+- Smoke внешних платежей: NOT TESTED — YooKassa credentials в песочнице отсутствуют.
+
+Stage Summary:
+- P0状态: миграции 0034→0060 доказано-применимы и идемпотентны (pglite, схема-уровень). Состояние ЖИВОЙ БД НЕ установлено (нет доступа) — вердикт выдаст p0-pipeline.sh inspect на сервере.
+- Деплой money-path: НЕТ (verify на живой БД не зелёный).
+- Владельцу: один сценарий на сервере — DATABASE_URL=... bash scripts/ops/p0-pipeline.sh all (STOP на вердикте C и любом падении).
