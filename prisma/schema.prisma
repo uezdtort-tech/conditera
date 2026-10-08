@@ -1,3 +1,10 @@
+// ⚠️⚠️⚠️ DEPRECATED (P1.1 §6) ⚠️⚠️⚠️
+// Этот файл НЕ используется рантаймом: @prisma/client удалён из зависимостей,
+// src/ его не импортирует (src/lib/db.ts — shim над supabaseAdmin).
+// Единственный источник истины по схеме БД: supabase/migrations/*.sql
+// (+ scripts/generate-supabase-types.mjs для типизации). Не обновляйте этот
+// файл и не сверяйте его с БД — он исторический (v1.0) и дрейфует.
+//
 // Prisma schema for "Уездный кондитер" marketplace
 // PostgreSQL — real production database (also runs locally via PGlite WASM adapter)
 //

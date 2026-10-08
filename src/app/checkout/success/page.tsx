@@ -106,39 +106,77 @@ function CheckoutSuccessContent() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
 
-  const loadOrder = useCallback(async () => {
-    if (!orderId) {
-      setLoadError("Не указан номер заказа в адресе страницы");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const headers = await getSessionAuthHeaders();
-      const res = await csrfFetch(`/api/orders/${encodeURIComponent(orderId)}`, { headers });
-      if (res.status === 401) {
-        setLoadError("Войдите в аккаунт, чтобы увидеть заказ");
+  const loadOrder = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!orderId) {
+        setLoadError("Не указан номер заказа в адресе страницы");
+        setLoading(false);
         return;
       }
-      if (!res.ok) {
-        setLoadError("Заказ не найден");
-        return;
+      // P1.1: polling-обновления — тихие (без спиннера каждые 4 с)
+      if (!opts?.silent) setLoading(true);
+      try {
+        const headers = await getSessionAuthHeaders();
+        const res = await csrfFetch(`/api/orders/${encodeURIComponent(orderId)}`, { headers });
+        if (res.status === 401) {
+          setLoadError("Войдите в аккаунт, чтобы увидеть заказ");
+          return;
+        }
+        if (!res.ok) {
+          setLoadError("Заказ не найден");
+          return;
+        }
+        const data = (await res.json()) as { order?: SuccessOrder };
+        if (data.order) {
+          setOrder(data.order);
+          setLoadError(null);
+        } else if (!opts?.silent) {
+          setLoadError("Заказ не найден");
+        }
+      } catch {
+        if (!opts?.silent) setLoadError("Не удалось загрузить заказ");
+      } finally {
+        if (!opts?.silent) setLoading(false);
       }
-      const data = (await res.json()) as { order?: SuccessOrder };
-      if (data.order) setOrder(data.order);
-      else setLoadError("Заказ не найден");
-    } catch {
-      setLoadError("Не удалось загрузить заказ");
-    } finally {
-      setLoading(false);
-    }
-  }, [orderId]);
+    },
+    [orderId]
+  );
 
   useEffect(() => {
     void loadOrder();
   }, [loadOrder]);
 
-  const paymentPending = order ? order.payment_status === "pending" : false;
+  // P1.1 §9: лёгкий ограниченный polling пока платёж pending. Возврат с
+  // платёжного шлюза часто опережает webhook — раньше страница навсегда
+  // показывала «Ожидает оплаты» до ручного refresh. Ограничение: 15 попыток
+  // × 4 с (~1 мин), потом останавливается (не бесконечный). Refresh страницы
+  // перезапускает цикл — результат не ломается.
+  const paymentPendingRaw = order ? order.payment_status === "pending" : false;
+  useEffect(() => {
+    if (!paymentPendingRaw) return;
+    let attempts = 0;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      attempts += 1;
+      if (attempts > 15) {
+        clearInterval(timer);
+        return;
+      }
+      void loadOrder({ silent: true }).then(() => {
+        if (cancelled) return;
+        // loadOrder обновит order → payment_status изменится → эффект
+        // перезапустится/остановится сам
+      });
+    }, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // NB: намеренно НЕ зависим от loadOrder-identity — цикл держится, пока
+    // платёж pending (loadOrder стабилен: useCallback([orderId]))
+  }, [paymentPendingRaw]);
+
+  const paymentPending = paymentPendingRaw;
 
   async function handlePay() {
     if (!orderId || paying) return;

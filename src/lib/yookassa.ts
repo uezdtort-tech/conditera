@@ -67,6 +67,13 @@ export interface YooKassaPaymentRequest {
   orderId: string;
   returnUrl: string;
   metadata?: Record<string, string>;
+  /**
+   * P1.1: поколение попытки оплаты. Отменённый платёж нельзя «переиграть»
+   * тем же Idempotence-Key (YooKassa вернёт тот же мёртвый платёж до 24 ч).
+   * Передавайте суффикс «:N» для НОВОЙ попытки после cancel; ретрай той же
+   * попытки по-прежнему идемпотентен (тот же суффикс → тот же платёж).
+   */
+  idempotenceKeySuffix?: string;
 }
 
 export interface YooKassaPaymentResponse {
@@ -118,8 +125,12 @@ export async function createPayment(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // P3: детерминированный ключ — ретрай не создаст дубль платежа
-        "Idempotence-Key": idempotenceKeyFor("create", data.orderId),
+        // P3: детерминированный ключ — ретрай не создаст дубль платежа.
+        // P1.1: suffix поколений — повторная оплата после cancel работает.
+        "Idempotence-Key": idempotenceKeyFor(
+          "create",
+          data.orderId + (data.idempotenceKeySuffix ?? "")
+        ),
         Authorization: getAuthHeader(),
       },
       body: JSON.stringify({

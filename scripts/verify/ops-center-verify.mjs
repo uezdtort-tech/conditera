@@ -80,7 +80,9 @@ async function login(email) {
   return res.json.accessToken;
 }
 
-const client = new Client({ connectionString: "postgresql://postgres@127.0.0.1:54329/conditera" });
+// P1.1: единый паттерн с order-lifecycle-verify — PGURL окружением переопределяется
+const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const client = new Client({ connectionString: PG_URL });
 const cleanupIds = { orders: [], drafts: [] };
 
 async function main() {
@@ -232,11 +234,21 @@ async function main() {
     [200, 400, 403, 409, 422].includes(st.status),
     `got ${st.status} ${JSON.stringify(st.json).slice(0, 100)}`
   );
-  const evStatus = await client.query(
-    `SELECT 1 FROM public.domain_events WHERE type='order.status_changed' AND entity_id=$1 LIMIT 1`,
-    [orderId]
-  );
-  assert("order.status_changed записан в domain_events", evStatus.rowCount > 0);
+  // P1.1: recordEvent — fire-and-forget (void, асинхронно) — ждём событие
+  // до 3 с, прежде чем признать отсутствие записи реальной проблемой.
+  let evWritten = false;
+  for (let i = 0; i < 10; i++) {
+    const evStatus = await client.query(
+      `SELECT 1 FROM public.domain_events WHERE type='order.status_changed' AND entity_id=$1 LIMIT 1`,
+      [orderId]
+    );
+    if (evStatus.rowCount > 0) {
+      evWritten = true;
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  assert("order.status_changed записан в domain_events", evWritten);
   const evTypes = await client.query(`SELECT DISTINCT type FROM public.domain_events ORDER BY type`);
   const typesList = evTypes.rows.map((r) => r.type);
   assert(
@@ -264,6 +276,11 @@ async function cleanup() {
     if (cleanupIds.drafts.length > 0) {
       await client.query(`DELETE FROM public.purchase_drafts WHERE id = ANY($1)`, [cleanupIds.drafts]);
     }
+    // P1.1 §4: verify мутировал демо-фикстуру (PATCH → PREPARING) —
+    // восстанавливаем, чтобы повторный прогон стартовал из известного состояния.
+    await client.query(
+      `UPDATE public.orders SET status='CONFIRMED', updated_at=now() WHERE number='DEMO-1048' AND status <> 'CONFIRMED'`
+    );
     console.log(`\n  cleanup: удалено черновиков верификации: ${cleanupIds.drafts.length}, заказов: ${cleanupIds.orders.length}`);
   } catch (err) {
     console.log(`\n  cleanup warning: ${err.message}`);

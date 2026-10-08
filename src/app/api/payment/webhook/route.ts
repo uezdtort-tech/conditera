@@ -245,10 +245,22 @@ export async function POST(request: NextRequest) {
         // === СВЕРКА СУММЫ (P0) ===
         // payments.amount и orders.total — в рублях; провайдер присылает
         // строку в рублях. Не совпало → платёж НЕ зачисляем.
-        const expectedKop = (payment ? Number(payment.amount) : Number(order.total)) * 100;
-        if (wireKop !== null && wireKop !== expectedKop) {
+        // P1.1: Math.round обязателен — дробные рубли (builder-прайсинг с
+        // множителями) без округления давали 2899.99…*100 ≠ 289999 и
+        // легальный платёж отклонялся с amount_mismatch при списанных
+        // деньгах. Инвариант создания платежа: payment.amount === order.total,
+        // расхождение = заказ изменён после создания платежа → оплата по
+        // старой сумме не зачисляется (P1.1 §2).
+        const expectedKop = Math.round(
+          Number(payment ? payment.amount : order.total) * 100
+        );
+        const orderKop = Math.round(Number(order.total) * 100);
+        const amountMismatch =
+          (wireKop !== null && wireKop !== expectedKop) ||
+          (payment !== null && orderKop !== expectedKop);
+        if (amountMismatch) {
           console.error(
-            `[webhook] AMOUNT_MISMATCH order=${orderId} expected_kop=${expectedKop} got_kop=${wireKop} — платёж НЕ зачислен`
+            `[webhook] AMOUNT_MISMATCH order=${orderId} expected_kop=${expectedKop} order_kop=${orderKop} got_kop=${wireKop} — платёж НЕ зачислен`
           );
           return NextResponse.json({ success: true, skipped: "amount_mismatch" });
         }
@@ -418,7 +430,8 @@ export async function POST(request: NextRequest) {
           console.warn("[webhook] Bonus award failed (non-blocking):", e);
         }
 
-        // P1: Уведомление об успешной оплате
+        // P1: Уведомление об успешной оплате (P1.1: dedupKey — retry
+        // webhook'а не задвоит PAYMENT_SUCCEEDED — CAS выше + ключ в metadata)
         try {
           const { sendNotification } = await import("@/lib/notifications");
           await sendNotification({
@@ -429,6 +442,7 @@ export async function POST(request: NextRequest) {
               orderNumber: order.number,
             },
             metadata: { orderId },
+            dedupKey: `order-paid:${orderId}`,
           });
           // Кондитеру: заказ оплачен — можно приступать (ТЗ §10; metadata.orderId).
           // orders.confectioner_id — UUID пользователя кондитера (см. accept-route),
@@ -442,6 +456,7 @@ export async function POST(request: NextRequest) {
                 orderNumber: order.number,
               },
               metadata: { orderId },
+              dedupKey: `order-paid-cf:${orderId}`,
             });
           }
         } catch (e) {
@@ -465,29 +480,36 @@ export async function POST(request: NextRequest) {
             .update({ payment_status: "cancelled", status: "CANCELLED" })
             .eq("id", orderId);
         }
-        // P1: клиенту — платёж не прошёл (ТЗ §10; metadata.orderId, fail-safe)
-        try {
-          const canceledUserId = order.user_id || order.customer_id;
-          if (canceledUserId) {
-            const { sendNotification } = await import("@/lib/notifications");
-            await sendNotification({
-              userId: canceledUserId,
-              template: "PAYMENT_FAILED",
-              vars: { orderNumber: order.number },
-              metadata: { orderId },
-            });
+        // P1: клиенту — платёж не прошёл (ТЗ §10; metadata.orderId, fail-safe).
+        // P1.1: гейт тем же условием, что и обновление заказа выше — повторный
+        // payment.canceled webhook не спамит PAYMENT_FAILED при уже отменённом заказе.
+        if (order.payment_status !== "cancelled" && order.status !== "CANCELLED") {
+          try {
+            const canceledUserId = order.user_id || order.customer_id;
+            if (canceledUserId) {
+              const { sendNotification } = await import("@/lib/notifications");
+              await sendNotification({
+                userId: canceledUserId,
+                template: "PAYMENT_FAILED",
+                vars: { orderNumber: order.number },
+                metadata: { orderId },
+                dedupKey: `payment-failed:${orderId}`,
+              });
+            }
+          } catch (e) {
+            console.warn("[webhook] cancel notification failed (non-blocking):", e);
           }
-        } catch (e) {
-          console.warn("[webhook] cancel notification failed (non-blocking):", e);
         }
         break;
       }
 
       case "refund.succeeded": {
         // Сумма возврата не может превышать сумму платежа
-        if (payment && wireKop !== null && wireKop > Number(payment.amount) * 100) {
+        // (P1.1: Math.round — дробные рубли ломали сравнение копеек)
+        const paymentKop = payment ? Math.round(Number(payment.amount) * 100) : null;
+        if (payment && wireKop !== null && paymentKop !== null && wireKop > paymentKop) {
           console.error(
-            `[webhook] REFUND_AMOUNT_MISMATCH payment=${payment.id} payment_kop=${Number(payment.amount) * 100} refund_kop=${wireKop}`
+            `[webhook] REFUND_AMOUNT_MISMATCH payment=${payment.id} payment_kop=${paymentKop} refund_kop=${wireKop}`
           );
           return NextResponse.json({ success: true, skipped: "refund_amount_mismatch" });
         }
@@ -558,6 +580,8 @@ export async function POST(request: NextRequest) {
                 amount: wireKop != null ? Math.round(wireKop) / 100 : Number(payment?.amount ?? order.total),
               },
               metadata: { orderId },
+              // P1.1: dedup — повторный refund webhook не задвоит рассылку
+              dedupKey: `refund-processed:${object.id}`,
             });
           }
         } catch (e) {

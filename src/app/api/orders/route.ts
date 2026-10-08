@@ -579,6 +579,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           total: finalTotal,
         },
         data: { orderId: order.id, type: "order_created" },
+        // P1.1: дедуп события — повторная эмиссия не задвоит уведомление
+        dedupKey: `order-created:${order.id}`,
       });
 
       if (confectionerId) {
@@ -596,6 +598,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               text: `Заказ #${order.number} на сумму ${finalTotal} ₽`,
             },
             data: { orderId: order.id, type: "new_order" },
+            dedupKey: `order-created-cf:${order.id}`,
           });
         }
       }

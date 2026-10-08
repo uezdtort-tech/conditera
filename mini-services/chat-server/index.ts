@@ -187,6 +187,58 @@ async function resolveRoomId(roomId: string, token: string, userId: string): Pro
   return roomId;
 }
 
+// ===== P1.1: проверка membership комнаты (аудит §15) =====
+// Раньше room:join/message:send работали с ЛЮБОЙ комнатой: любой
+// аутентифицированный пользователь мог слушать чужой заказ-чат и
+// вколачивать real-time сообщения с подделанным senderId.
+// Гейт через Next API (GET /api/chat/rooms/{id} — canAccessRoom):
+// 200 → member; 403/404 → чужая комната. Позитивный результат кешируется
+// (TTL 60 c), чтобы не бить API на каждом typing/read.
+
+const LEGACY_MOCK_ROOMS = new Set(["r1", "r2"]); // mock-комнаты витрины, не персистятся
+
+const roomAccessCache = new Map<string, { ts: number }>(); // `${userId}:${roomId}` → verified
+const ROOM_ACCESS_TTL_MS = 60_000;
+
+async function verifyRoomAccess(
+  socket: import("socket.io").Socket,
+  rawRoomId: string
+): Promise<{ ok: boolean; realRoomId: string }> {
+  const userId: string = (socket as any).userId;
+  const token = socket.handshake.auth?.token as string | undefined;
+
+  // Легаси mock-комнаты витрины — публичные demo-чаты, доступа к БД не требуют
+  if (LEGACY_MOCK_ROOMS.has(rawRoomId)) return { ok: true, realRoomId: rawRoomId };
+
+  // r3 — легаси support-комната: резолвим в реальную (find-or-create свою)
+  let roomId = rawRoomId;
+  if (rawRoomId === "r3" && token && userId) {
+    roomId = await resolveRoomId(rawRoomId, token, userId);
+    if (roomId === "r3") return { ok: false, realRoomId: roomId }; // не смогли создать свою
+  }
+
+  const cacheKey = `${userId}:${roomId}`;
+  const cached = roomAccessCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < ROOM_ACCESS_TTL_MS) {
+    return { ok: true, realRoomId: roomId };
+  }
+  if (!token) return { ok: false, realRoomId: roomId };
+  try {
+    const res = await fetch(`${NEXT_API_BASE}/api/chat/rooms/${roomId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      roomAccessCache.set(cacheKey, { ts: Date.now() });
+      return { ok: true, realRoomId: roomId };
+    }
+    console.warn(`[room-access] ${userId} → ${roomId}: ${res.status} (denied)`);
+  } catch (err) {
+    // Next API недоступен — fail-closed (не впускаем), транзиентно ок
+    console.warn("[room-access] check failed:", (err as Error).message);
+  }
+  return { ok: false, realRoomId: roomId };
+}
+
 // === КРИТИЧНО: JWT_SECRET без unsafe-default ===
 function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
@@ -446,6 +498,18 @@ io.on("connection", (socket) => {
 
   console.log(`✅ ${userName} (${userId}) подключился`);
 
+  // ===== P1.1: хелперы доступа =====
+  // Верифицированная комната = прошла room:join (membership гейт).
+  // Для высокочастотных relay-событий (typing/read/react) — только
+  // локальная проверка без API-вызова.
+  const isVerifiedRoom = (rawRoomId: string): boolean => {
+    const v = (socket.data as any).verifiedRooms as Set<string> | undefined;
+    return !!v?.has(rawRoomId);
+  };
+  const STAFF_ROLES = new Set(["CONFECTIONER", "ADMIN", "SUPER_ADMIN", "SUPPORT"]);
+  const hasStaffRole = (): boolean =>
+    (((socket as any).userRoles as string[] | undefined) || []).some((r) => STAFF_ROLES.has(r));
+
   // Регистрируем онлайн
   onlineUsers.set(userId, { socketId: socket.id, userId, name: userName, avatar: userAvatar });
 
@@ -453,7 +517,20 @@ io.on("connection", (socket) => {
   io.emit("user:online", { userId, name: userName });
 
   // ===== Присоединение к комнате чата =====
-  socket.on("room:join", (roomId: string) => {
+  // P1.1: только члены комнаты (или свои mock-комнаты витрины). Чужая —
+  // room:error без join: слушать чужой заказ-чат больше нельзя.
+  socket.on("room:join", async (rawRoomId: string) => {
+    const access = await verifyRoomAccess(socket, rawRoomId);
+    if (!access.ok) {
+      socket.emit("room:error", { roomId: rawRoomId, error: "Нет доступа к комнате" });
+      console.warn(`⛔ ${userName} → ${rawRoomId}: доступ запрещён`);
+      return;
+    }
+    const roomId = access.realRoomId;
+    (socket.data as any).verifiedRooms =
+      ((socket.data as any).verifiedRooms as Set<string> | undefined) ?? new Set<string>();
+    ((socket.data as any).verifiedRooms as Set<string>).add(roomId);
+    if (roomId !== rawRoomId) ((socket.data as any).verifiedRooms as Set<string>).add(rawRoomId);
     socket.join(roomId);
     console.log(`📍 ${userName} вошёл в комнату ${roomId}`);
 
@@ -490,7 +567,11 @@ io.on("connection", (socket) => {
   });
 
   // ===== Отправка сообщения =====
-  socket.on("message:send", (data: {
+  // P1.1: (1) sender — ТОЛЬКО из JWT (клиентский senderId/senderName
+  // подделываемы — игнорируются, whitelist полей вместо спреда);
+  // (2) broadcast только после membership-гейта — вколотить сообщение
+  // в чужую комнату больше нельзя.
+  socket.on("message:send", async (data: {
     roomId: string;
     message: {
       id: string;
@@ -504,26 +585,52 @@ io.on("connection", (socket) => {
       forwardedFrom?: string;
     };
   }) => {
+    const access = await verifyRoomAccess(socket, data.roomId);
+    if (!access.ok) {
+      socket.emit("message:error", {
+        roomId: data.roomId,
+        messageId: data.message?.id,
+        error: "Нет доступа к комнате",
+      });
+      console.warn(`⛔ message:send ${userName} → ${data.roomId}: доступ запрещён`);
+      return;
+    }
+    const roomId = access.realRoomId;
+
+    // Whitelist полей + sender из JWT — клиентский payload не доверенный
     const message = {
-      ...data.message,
+      id: data.message?.id,
+      text: data.message?.text,
+      senderId: userId,
+      senderName: userName,
+      senderAvatar: userAvatar,
+      type: data.message?.type === "system" ? ("text" as const) : (data.message?.type ?? ("text" as const)),
+      attachment: data.message?.attachment,
+      replyTo: data.message?.replyTo,
+      forwardedFrom: data.message?.forwardedFrom,
       timestamp: new Date().toISOString(),
       status: "sent" as const,
     };
 
+    if (!message.id || !message.text) {
+      socket.emit("message:error", { roomId, error: "Некорректное сообщение" });
+      return;
+    }
+
     // Отправляем всем в комнате, кроме отправителя
-    socket.to(data.roomId).emit("message:receive", {
-      roomId: data.roomId,
+    socket.to(roomId).emit("message:receive", {
+      roomId,
       message,
     });
 
     // Подтверждение отправителю
     socket.emit("message:sent", {
-      roomId: data.roomId,
+      roomId,
       messageId: message.id,
       status: "sent",
     });
 
-    console.log(`💬 ${userName} → ${data.roomId}: ${message.text?.slice(0, 50)}...`);
+    console.log(`💬 ${userName} → ${roomId}: ${message.text?.slice(0, 50)}...`);
 
     // ===== Персистентность: пересылаем в Next API с JWT отправителя =====
     // (тот же Idempotency-Key, что у клиента → при двойной записи
@@ -621,7 +728,9 @@ io.on("connection", (socket) => {
   });
 
   // ===== Indicators: печатает =====
+  // P1.1: только в верифицированные комнаты (без API-вызова, best-effort)
   socket.on("typing:start", (data: { roomId: string }) => {
+    if (!isVerifiedRoom(data.roomId)) return;
     socket.to(data.roomId).emit("typing:start", {
       roomId: data.roomId,
       userId,
@@ -630,6 +739,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("typing:stop", (data: { roomId: string }) => {
+    if (!isVerifiedRoom(data.roomId)) return;
     socket.to(data.roomId).emit("typing:stop", {
       roomId: data.roomId,
       userId,
@@ -637,7 +747,9 @@ io.on("connection", (socket) => {
   });
 
   // ===== Read receipts: прочитано =====
+  // P1.1: relay-события только для верифицированных комнат (после room:join)
   socket.on("message:read", (data: { roomId: string; messageIds: string[] }) => {
+    if (!isVerifiedRoom(socket, data.roomId)) return;
     socket.to(data.roomId).emit("message:read", {
       roomId: data.roomId,
       userId,
@@ -654,15 +766,24 @@ io.on("connection", (socket) => {
     userId: string;
     userName: string;
   }) => {
-    socket.to(data.roomId).emit("message:react", data);
+    if (!isVerifiedRoom(socket, data.roomId)) return;
+    // P1.1: userId/userName — из JWT, не из клиентского payload
+    socket.to(data.roomId).emit("message:react", {
+      ...data,
+      userId,
+      userName,
+    });
   });
 
   // ===== Закрепление сообщений =====
   socket.on("message:pin", (data: { roomId: string; messageId: string; pinned: boolean }) => {
+    if (!isVerifiedRoom(socket, data.roomId)) return;
     socket.to(data.roomId).emit("message:pin", data);
   });
 
   // ===== Уведомления о заказах =====
+  // P1.1: только персонал — заказ-статусы рассылает система/кондитер,
+  // а не произвольный пользователь (phishing-вектор закрыт).
   socket.on("order:notify", (data: {
     targetUserId: string;
     orderId: string;
@@ -670,6 +791,7 @@ io.on("connection", (socket) => {
     status: string;
     message: string;
   }) => {
+    if (!hasStaffRole(socket)) return;
     const target = onlineUsers.get(data.targetUserId);
     if (target) {
       io.to(target.socketId).emit("order:notification", data);
@@ -683,6 +805,7 @@ io.on("connection", (socket) => {
     title: string;
     body: string;
   }) => {
+    if (!hasStaffRole(socket)) return;
     const target = onlineUsers.get(data.targetUserId);
     if (target) {
       io.to(target.socketId).emit("notification:receive", data);
@@ -697,6 +820,8 @@ io.on("connection", (socket) => {
     lng: number;
     eta?: number;
   }) => {
+    // P1.1: только роль COURIER — гео-координаты шлёт назначенный курьер
+    if (!((socket as any).userRoles as string[] | undefined)?.includes("COURIER")) return;
     const target = onlineUsers.get(data.customerId);
     if (target) {
       io.to(target.socketId).emit("courier:location_update", {

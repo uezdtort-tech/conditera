@@ -61,29 +61,27 @@ export default async function seedOpsCenter({ client }) {
   }
   const ownerId = owner.rows[0].id;
 
-  // 2. Рецепт: берём 1-2 существующих, иначе вставляем демо-рецепт
-  let recipes = await client.query(
-    `SELECT id::text, slug FROM public.recipes ORDER BY (status = 'published') DESC, created_at LIMIT 2`
+  // 2. Рецепт — ВСЕГДА детерминированный демо-рецепт по slug (P1.1 §4).
+  //    Раньше брался «первый попавшийся published» (ORDER BY published,
+  //    created_at) — на живой БД ингредиенты льются в произвольный рецепт.
+  //    ON CONFLICT DO UPDATE — содержимое стабильно на всех прогонах.
+  await client.query(
+    `INSERT INTO public.recipes (author_id, title, description, content, difficulty, servings, slug, status, published_at)
+     VALUES ($1::uuid, $2, $3, $4, 'easy', 8, $5, 'published', now())
+     ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title, content = EXCLUDED.content`,
+    [
+      ownerId,
+      DEMO_RECIPE.title,
+      "Демо-рецепт для связки товаров и структурированных ингредиентов (ops-center).",
+      DEMO_RECIPE.content,
+      DEMO_RECIPE.slug,
+    ]
   );
-  if (recipes.rowCount === 0) {
-    await client.query(
-      `INSERT INTO public.recipes (author_id, title, description, content, difficulty, servings, slug, status, published_at)
-       VALUES ($1::uuid, $2, $3, $4, 'easy', 8, $5, 'published', now())
-       ON CONFLICT (slug) DO NOTHING`,
-      [
-        ownerId,
-        DEMO_RECIPE.title,
-        "Демо-рецепт для связки товаров и структурированных ингредиентов (ops-center).",
-        DEMO_RECIPE.content,
-        DEMO_RECIPE.slug,
-      ]
-    );
-    recipes = await client.query(
-      `SELECT id::text, slug FROM public.recipes ORDER BY (status = 'published') DESC, created_at LIMIT 2`
-    );
-  }
-  const recipe = recipes.rows[0];
-  if (!recipe) return;
+  const recipeRes = await client.query(`SELECT id::text, slug, title FROM public.recipes WHERE slug = $1`, [
+    DEMO_RECIPE.slug,
+  ]);
+  if (recipeRes.rowCount === 0) return;
+  const recipe = recipeRes.rows[0];
 
   // 3. recipe_ingredients: 5 позиций, inventory_item_id по корню имени склада
   //    NB: lower() в БД (collation C) не фолдит кириллицу — приводим в JS
@@ -121,10 +119,12 @@ export default async function seedOpsCenter({ client }) {
     }
   }
 
-  // 4. Связь товаров с рецептом (только ещё не связанные демо-товары)
+  // 4. Связь товаров с ДЕМО-рецептом — детерминированная (P1.1 §4):
+  //    перелинковываем всегда, а не только при NULL — иначе на живой БД
+  //    продукт остаётся прицеплен к произвольному рецепту прошлых прогонов.
   const linked = await client.query(
     `UPDATE public.products SET recipe_id = $1::uuid, updated_at = now()
-     WHERE slug = ANY($2::text[]) AND recipe_id IS NULL`,
+     WHERE slug = ANY($2::text[]) AND (recipe_id IS NULL OR recipe_id <> $1::uuid)`,
     [recipe.id, DEMO_PRODUCT_SLUGS]
   );
 
@@ -133,7 +133,72 @@ export default async function seedOpsCenter({ client }) {
     [recipe.id]
   );
 
+  // 4. Демо-заказ DEMO-1048 — детерминированный fixture для P0/P0.5/P1
+  //    регрессий (P1.1 §4: тесты не зависят от «заказа прошлой сессии»).
+  //    Каждая пересидка ОБНОВЛЯЕТ его: delivery_date=CURRENT_DATE (иначе
+  //    «Заказы сегодня» устаревают через сутки), статус/paid_at
+  //    восстанавливаются (verify-скрипты мутируют заказ в PREPARING).
+  const demoProduct = await client.query(
+    `SELECT id::text, price, title FROM public.products WHERE slug = $1 LIMIT 1`,
+    [DEMO_PRODUCT_SLUGS[0]]
+  );
+  let demoOrders = 0;
+  if (demoProduct.rowCount > 0) {
+    const unit = Number(demoProduct.rows[0].price) || 18500;
+    const total = unit * 2; // 2 × «Ягодный бархат» = 37 000 ₽ (контракт verify)
+    const ins = await client.query(
+      `INSERT INTO public.orders
+         (number, user_id, confectioner_id, subtotal, delivery_cost, discount, total,
+          status, payment_status, payment_method, delivery_address, delivery_city,
+          delivery_date, delivery_time_window, delivery_type, metadata, paid_at, confirmed_at)
+       VALUES ('DEMO-1048', '11111111-1111-4111-8111-111111111106', $1::uuid,
+               $2, 0, 0, $2, 'CONFIRMED', 'escrow', 'card',
+               'ул. Демо, 1', 'Москва', CURRENT_DATE, '15:00-18:00', 'delivery',
+               jsonb_build_object('test','demo','fixture','ops-center'),
+               now(), now())
+       ON CONFLICT (number) DO UPDATE SET
+         status = 'CONFIRMED',
+         payment_status = 'escrow',
+         paid_at = now(),
+         confirmed_at = now(),
+         delivery_date = CURRENT_DATE,
+         delivery_time_window = '15:00-18:00',
+         total = $2,
+         subtotal = $2,
+         updated_at = now()`,
+      [ownerId, total]
+    );
+    demoOrders = ins.rowCount ?? 0;
+    await client.query(
+      `INSERT INTO public.order_items
+         (order_id, product_id, product_title, quantity, unit_price, total)
+       SELECT o.id, p.id, p.title, 2, p.price, p.price * 2
+       FROM public.orders o CROSS JOIN public.products p
+       WHERE o.number = 'DEMO-1048' AND p.slug = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM public.order_items oi
+           WHERE oi.order_id = o.id AND oi.product_id = p.id
+         )`,
+      [DEMO_PRODUCT_SLUGS[0]]
+    );
+  }
+
+  // 5. Демо-значения времени производства (P1 фикс, восстановлен P1.1 §4 —
+  //    правка была сделана через API в старой БД и потерялась при сбросе):
+  //    быстрые позиции — 6 ч, сложная 3D-скульптура — 12 ч. Свадебный торт
+  //    остаётся NULL (оценка по рецепту/дефолту — так golden path не ловит
+  //    CAPACITY_EXCEEDED на узком окне).
+  await client.query(
+    `UPDATE public.products SET production_time_hours = v.hrs, updated_at = now()
+     FROM (VALUES
+       ('bento-tort-nezhnyy', 6),
+       ('kapkeyki-vanilnyye-12', 6),
+       ('tort-korovka-3d', 12)
+     ) AS v(slug, hrs)
+     WHERE products.slug = v.slug AND products.production_time_hours IS DISTINCT FROM v.hrs`
+  );
+
   console.log(
-    `    ops-center: recipe "${recipe.title}" (${recipe.id}), ingredients=${ingCount.rows[0]?.c ?? 0}, products linked=${linked.rowCount}`
+    `    ops-center: recipe "${recipe.title}" (${recipe.id}), ingredients=${ingCount.rows[0]?.c ?? 0}, products linked=${linked.rowCount}, demo order DEMO-1048=${demoOrders ? "refreshed" : "skipped (нет товара)"}`
   );
 }

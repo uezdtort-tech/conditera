@@ -60,7 +60,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { data: order, error } = await supabaseAdmin
       .from("orders")
-      .select("id, number, total, user_id, payment_status")
+      .select("id, number, total, user_id, payment_status, status")
       .eq("id", orderId)
       .maybeSingle();
 
@@ -69,6 +69,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (PAID_ORDER_STATUSES.has(order.payment_status)) {
       return NextResponse.json({ error: "Заказ уже оплачен" }, { status: 400 });
     }
+    // P1.1 §2: отменённый/возвращённый заказ не оплачивается повторно —
+    // webhook перевёл бы его в escrow при статусе CANCELLED и деньги «зависли» бы
+    // вне выплаты (escrow-release пропускает CANCELLED).
+    if (order.status === "CANCELLED" || order.payment_status === "refunded") {
+      return NextResponse.json(
+        { error: "Заказ отменён — оплата невозможна" },
+        { status: 400 }
+      );
+    }
+
+    // P1.1: новое поколение попытки оплаты после отмены. Отменённый платёж
+    // в течение 24 ч YooKassa вернёт по старому Idempotence-Key как есть
+    // (мёртвый confirmation_url) — суффикс «:N» открывает новую попытку,
+    // сохраняя идемпотентность ретраев внутри поколения.
+    const { data: priorPayments } = await supabaseAdmin
+      .from("payments")
+      .select("status")
+      .eq("order_id", orderId);
+    const priorRows = (priorPayments as { status: string }[] | null) ?? [];
+    const hasCancelledAttempt = priorRows.some((p) => p.status === "cancelled");
+    const idempotenceKeySuffix = hasCancelledAttempt ? `:${priorRows.length}` : undefined;
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -90,9 +111,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const paymentResult = await createPayment({
       amount: Number(order.total), // рубли
       description: `Заказ ${order.number || orderId}`,
-      returnUrl: `${appUrl}/checkout?order=${orderId}`,
+      // P1.1: возврат после оплаты — на страницу success (параметр order=
+      // страницы чекаута раньше нигде не читался).
+      returnUrl: `${appUrl}/checkout/success?orderId=${orderId}`,
       orderId,
       metadata: installmentPlanId ? { installmentPlanId } : undefined,
+      idempotenceKeySuffix,
     });
 
     if (!paymentResult?.success || !paymentResult.payment?.confirmation?.confirmation_url) {

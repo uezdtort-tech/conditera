@@ -103,6 +103,25 @@ export async function PATCH(
       }
     }
 
+    // P1.1 §15: COURIER меняет только назначенные ему доставки. Раньше любой
+    // курьер мог перевести ЛЮБОЙ заказ READY → IN_DELIVERY → DELIVERED.
+    if (
+      userRoles.includes("COURIER") &&
+      !userRoles.includes("ADMIN") &&
+      !userRoles.includes("SUPER_ADMIN") &&
+      (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")
+    ) {
+      const { data: assignment } = await supabaseAdmin
+        .from("deliveries")
+        .select("id")
+        .eq("order_id", orderId)
+        .eq("courier_id", user.id)
+        .maybeSingle();
+      if (!assignment) {
+        return forbiddenResponse("Можно менять только назначенные вам доставки");
+      }
+    }
+
     // Обновляем заказ
     const updateData: Record<string, string> = { status: newStatus };
     if (comment) updateData.notes = comment;

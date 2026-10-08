@@ -56,4 +56,4 @@ INSERT INTO public.fillings (name, description, base_sponge, flavor_group, dieta
 ('Карпатка', 'Заварной бисквит с заварным кремом', 'classic', 'mousse', '{}', 1.0, false, '{}', '#F5DEB3', 44),
 -- Сезонная
 ('Лимонный пирог', 'Лимонный курд на классическом бисквите', 'classic', 'fruit', '{}', 1.0, false, '{}', '#FFF44F', 45)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name) DO NOTHING;

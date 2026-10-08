@@ -374,6 +374,14 @@ interface SendInput {
    * Мержится поверх data — аддитивно, существующие вызовы не ломает.
    */
   metadata?: Record<string, unknown>;
+  /**
+   * P1.1: стабильный ключ дедупликации (миграция 0060: UNIQUE
+   * (user_id, channel, metadata->>'dedup_key') WHERE dedup_key IS NOT NULL).
+   * Повторная обработка одного события (retry webhook, повторная эмиссия)
+   * НЕ создаёт второй notification. Для чата/периодических событий ключ
+   * НЕ передавать — каждое сообщение легитимно даёт своё уведомление.
+   */
+  dedupKey?: string;
 }
 
 interface UserProfileRow {
@@ -523,6 +531,8 @@ export async function sendNotification(input: SendInput): Promise<{
   for (const channel of channels) {
     // Схема notifications (0010): type/title/body/channel/status/metadata/read_at.
     // template → type, data → metadata, scheduled_for — внутрь metadata.
+    // P1.1: dedupKey в metadata — арбитр уникальности 0060; повтор события
+    // (23505) молча пропускается — не дубль, а идемпотентный повтор.
     const { data: notif, error: insertErr } = await supabaseAdmin
       .from("notifications")
       .insert({
@@ -535,6 +545,7 @@ export async function sendNotification(input: SendInput): Promise<{
         metadata: {
           ...(input.data || {}),
           ...(input.metadata || {}),
+          ...(input.dedupKey ? { dedup_key: input.dedupKey } : {}),
           ...(input.scheduledFor ? { scheduled_for: input.scheduledFor.toISOString() } : {}),
         },
       })
@@ -542,6 +553,10 @@ export async function sendNotification(input: SendInput): Promise<{
       .single() as { data: { id: string } | null; error: SupabaseError | null };
 
     if (insertErr || !notif) {
+      if ((insertErr as { code?: string } | null)?.code === "23505") {
+        // Дедуп: то же событие уже доставлено этому пользователю/каналу
+        continue;
+      }
       console.error("[notify] insert failed:", insertErr?.message);
       continue;
     }

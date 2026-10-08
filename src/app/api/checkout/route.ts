@@ -447,6 +447,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // P1.1 §2: production — только реальный платёжный провайдер. Раньше
+    // заказ создавался с demo-URL «оплатить позже» при любом NODE_ENV,
+    // а /api/payment/create в production отдавал 503 — заказ повисал
+    // неоплачиваемым. Теперь незавершённая payment-конфигурация в
+    // production — безопасная ошибка конфигурации ДО создания заказа;
+    // dev/test сохраняют stub-поток.
+    if (!isYookassaConfigured() && process.env.NODE_ENV === "production") {
+      console.error(
+        "[checkout] payment gateway not configured in production — refusing to create order (safe config error)"
+      );
+      return NextResponse.json(
+        { error: "Платёжный шлюз не настроен (ошибка конфигурации сервера)" },
+        { status: 503 }
+      );
+    }
+
     // 4. Доставка — ЕДИНАЯ формула с клиентом (P1-A5); самовывоз → 0 (P1-A7)
     const deliveryResult =
       deliveryType === "delivery" ? calculateDelivery(subtotal) : { cost: 0 };
@@ -515,6 +531,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .single();
 
     if (orderError || !order) {
+      // P1.1 §8: гонка двух параллельных POST с одним Idempotency-Key —
+      // select-before-insert оба промахиваются, уникальный индекс 0060
+      // (user_id, metadata->>'idempotency_key') даёт 23505 победителю-
+      // проигравшему → возвращаем СУЩЕСТВУЮЩИЙ заказ (replay), не два.
+      // (JSON-arrow фильтры в локальном PostgREST-шим не поддерживаются —
+      // ключ сопоставляем в JS по свежим заказам пользователя.)
+      const pgCode = (orderError as { code?: string } | null)?.code;
+      if (pgCode === "23505" && idempotencyKey) {
+        const hourAgoIso = new Date(Date.now() - 60 * 60_000).toISOString();
+        const { data: recent } = await supabaseAdmin
+          .from("orders")
+          .select("id, number, total, subtotal, delivery_cost, discount, metadata")
+          .eq("user_id", user.id)
+          .gte("created_at", hourAgoIso)
+          .order("created_at", { ascending: false })
+          .limit(20);
+        const existing = (recent as Array<{ id: string; number: string; total: number; subtotal: number | null; delivery_cost: number | null; discount: number | null; metadata: Record<string, unknown> | null }> | null)?.find(
+          (o) => o.metadata && (o.metadata as Record<string, unknown>).idempotency_key === idempotencyKey
+        );
+        if (existing) {
+          console.info("[checkout] idempotency race resolved via unique index (0060)");
+          return NextResponse.json(await buildReplayResponse(existing));
+        }
+      }
       console.error("[checkout] Order create error:", orderError?.message);
       return NextResponse.json({ error: "Ошибка создания заказа" }, { status: 500 });
     }
@@ -536,10 +576,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Ошибка создания позиций заказа" }, { status: 500 });
     }
 
+    // 5b-1. order.created — event log (P1.1 §3: dedup key, idempotent) + n8n.
+    // Раньше витринный путь НЕ писал order.created в domain_events (дыра в
+    // ops-логе/timeline: B2B-путь /api/orders писал, checkout — нет).
+    try {
+      const { recordEvent } = await import("@/lib/ops/events");
+      void recordEvent("order.created", {
+        entityType: "order",
+        entityId: order.id,
+        actorId: user.id,
+        dedupKey: `order-created:${order.id}`,
+        payload: { number: order.number, total, source: "checkout" },
+      });
+      const { emitEvent } = await import("@/lib/n8n");
+      void emitEvent("order.created", {
+        orderId: order.id,
+        orderNumber: order.number,
+        total,
+      }).catch(() => {});
+    } catch (e) {
+      console.warn("[checkout] order.created event failed (non-blocking):", (e as Error).message);
+    }
+
     // 5b-2. Уведомления «заказ создан» (ТЗ §10/§20): кондитеру + клиенту
     // (колокол, metadata.orderId → переход к заказу). Non-blocking, fail-safe.
     // ВАЖНО: confectionerId здесь — UUID пользователя кондитера
     // (products.confectioner_id → auth.users), шлём напрямую.
+    // P1.1: dedupKey — повторная обработка не создаёт второй notification.
     try {
       const { sendNotification } = await import("@/lib/notifications");
       void sendNotification({
@@ -547,6 +610,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         template: "ORDER_CREATED",
         vars: { orderNumber: order.number, total },
         metadata: { orderId: order.id },
+        dedupKey: `order-created:${order.id}`,
       }).catch(() => {});
       if (confectionerId) {
         void sendNotification({
@@ -557,6 +621,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             messagePreview: `Заказ #${order.number} на сумму ${total} ₽`,
           },
           metadata: { orderId: order.id },
+          dedupKey: `order-created-cf:${order.id}`,
         }).catch(() => {});
       }
     } catch (e) {

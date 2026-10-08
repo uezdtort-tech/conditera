@@ -156,6 +156,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .from("product_favorites")
       .insert({ user_id: user.userId, product_id: productId });
     if (insErr) {
+      // P1.1: гонка toggle (два параллельных POST) — UNIQUE(user_id, product_id)
+      // даёт 23505; повтор идемпотентен: товар уже в избранном, второй запрос
+      // вернёт «added» вместо 500 (§14: сервер — источник истины).
+      if ((insErr as { code?: string }).code === "23505") {
+        return NextResponse.json({ ok: true, action: "added" as const }, { status: 201 });
+      }
       console.error("[wishlist] POST insert:", insErr.message);
       return NextResponse.json({ error: "Не удалось обновить избранное" }, { status: 500 });
     }

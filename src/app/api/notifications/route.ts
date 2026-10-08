@@ -34,10 +34,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const user = await getUserFromRequest(request);
     if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
 
+    // P1.1: колокол — in-app поверхность. Раньше GET возвращал ВСЕ строки
+    // fan-out (in_app + push + email = 3 строки на одно событие) — отсюда
+    // «дубли ORDER_CREATED ×3» из аудита P1. push/email — записи доставки
+    // внешних каналов (как в /api/notifications/list: channel='in_app').
     const { data, error } = await supabaseAdmin
       .from("notifications")
       .select("id, type, title, body, metadata, read_at, created_at")
       .eq("user_id", user.id)
+      .eq("channel", "in_app")
       .order("created_at", { ascending: false })
       .limit(50);
 

@@ -336,11 +336,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         initiated_by: user.id,
         status: "approved",
         processed_by: user.id,
+        // P1.1: ключ обязателен в записи — иначе ретрай с тем же
+        // Idempotency-Key не найдётся в lookup выше и создаст ВТОРОЙ
+        // возврат денег (уникальный индекс 0041: (initiated_by, key)).
+        idempotency_key: idempotencyKey || null,
       })
       .select()
       .single();
 
     if (refundErr) {
+      // P1.1: гонка двух одинаковых админских запросов — уникальный индекс
+      // 0041 даёт 23505; возвращаем существующую заявку вместо ошибки.
+      const pgCode = (refundErr as { code?: string }).code;
+      if (pgCode === "23505" && idempotencyKey) {
+        const { data: existing } = await supabaseAdmin
+          .from("refunds")
+          .select(
+            "id, payment_id, order_id, amount, reason, status, initiated_by, rejection_reason, created_at, updated_at"
+          )
+          .eq("initiated_by", user.id)
+          .eq("idempotency_key", idempotencyKey)
+          .maybeSingle();
+        if (existing) {
+          return NextResponse.json(
+            { refund: existing, duplicate: true, message: "Возврат уже был принят ранее" },
+            { status: 200 }
+          );
+        }
+      }
       console.error("[payment/refund] insert failed:", refundErr.message);
       // Компенсация: снимаем резерв при невозможности создать запись
       if (!reserveErr && typeof reserved === "number") {
