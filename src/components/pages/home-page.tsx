@@ -9,6 +9,7 @@ import { StoriesFeed } from "@/components/stories/stories-feed";
 import { AICakeFinderButton } from "@/components/ai-cake-finder/ai-cake-finder";
 import { AiSmartSearch } from "@/components/ai/ai-smart-search";
 import { HelpChooseDialog } from "@/components/marketplace/help-choose-dialog";
+import { ForYouBlock } from "@/components/marketplace/for-you-block";
 import type { HelpChooseAnswers } from "@/lib/product-search";
 import { VideoFeed } from "@/components/video-feed/video-feed";
 import { HolidayCalendar } from "@/components/holidays/holiday-calendar";
@@ -443,6 +444,10 @@ export function HomePage() {
           ))}
         </div>
       </section>
+
+      {/* P2.3: персональные рекомендации (только при якорях избранное/
+          история заказов; аноним видит «Популярные товары» выше) */}
+      <ForYouBlock />
 
       {/* ===== CAKE BUILDER CTA ===== */}
       <section className="container mx-auto px-4">

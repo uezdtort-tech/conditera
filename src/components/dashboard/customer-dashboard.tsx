@@ -53,6 +53,7 @@ import {
 } from "@/components/dashboard/customer-loyalty-notifications-tabs";
 import { CustomerNegotiationTab } from "@/components/dashboard/negotiation-tabs";
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
+import { OrderSimilarStrip } from "@/components/dashboard/order-similar-strip";
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
@@ -872,6 +873,16 @@ export function CustomerDashboard() {
                                 </Button>
                               ))}
                           </div>
+
+                          {/* P2.3 §10: «Понравился этот торт?» — похожее
+                              для выполненного заказа (рядом с «Повторить») */}
+                          {(order.status === "DELIVERED" || order.status === "COMPLETED") &&
+                            order.items?.[0]?.productId && (
+                              <OrderSimilarStrip
+                                orderId={order.id}
+                                productId={order.items[0].productId}
+                              />
+                            )}
                         </Card>
                       );
                     })}

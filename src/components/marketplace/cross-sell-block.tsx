@@ -28,7 +28,6 @@ export function CrossSellBlock({ product }: CrossSellBlockProps) {
   const decorProducts = useAppStore((s) => s.decorProducts);
   const serviceProducts = useAppStore((s) => s.serviceProducts);
   const bundles = useAppStore((s) => s.bundles);
-  const allProducts = useAppStore((s) => s.products);
   const addToCart = useAppStore((s) => s.addToCart);
   const cart = useAppStore((s) => s.cart);
 
@@ -41,16 +40,6 @@ export function CrossSellBlock({ product }: CrossSellBlockProps) {
   const relatedDecor = decorProducts.filter((dp) =>
     dp.crossSellWith?.includes(product.id)
   );
-
-  // 2. Похожие вкусы (та же категория, другие кондитеры)
-  const similarProducts = allProducts
-    .filter(
-      (p) =>
-        p.id !== product.id &&
-        p.category === product.category &&
-        p.confectionerId !== product.confectionerId
-    )
-    .slice(0, 4);
 
   // 3. Готовые наборы для этого товара
   const relatedBundles = bundles.filter(
@@ -65,7 +54,6 @@ export function CrossSellBlock({ product }: CrossSellBlockProps) {
   // Если нечего показывать
   if (
     relatedDecor.length === 0 &&
-    similarProducts.length === 0 &&
     relatedBundles.length === 0 &&
     topDecor.length === 0
   ) {
@@ -384,46 +372,7 @@ export function CrossSellBlock({ product }: CrossSellBlockProps) {
         </div>
       )}
 
-      {/* Похожие вкусы */}
-      {similarProducts.length > 0 && (
-        <div>
-          <h2 className="font-display text-xl font-bold mb-4">
-            Похожие вкусы
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {similarProducts.map((p) => (
-              <Card
-                key={p.id}
-                className="overflow-hidden p-0 hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() =>
-                  useAppStore.getState().navigate("product", { id: p.id })
-                }
-              >
-                <div className="aspect-square bg-muted">
-                  <img
-                    src={p.images[0]}
-                    alt={p.title}
-                    className="w-full h-full object-cover" loading="lazy" decoding="async" />
-                </div>
-                <div className="p-2">
-                  <h3 className="font-medium text-xs line-clamp-2 mb-1 min-h-[2rem]">
-                    {p.title}
-                  </h3>
-                  <div className="flex items-center justify-between">
-                    <span className="font-display font-bold text-sm">
-                      {formatCurrency(p.price)}
-                    </span>
-                    <div className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                      <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
-                      {p.rating}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Похожие товары рендерит SimilarProductsBlock (P2.3, единый движок) */}
     </div>
   );
 }

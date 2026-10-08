@@ -9,8 +9,8 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ProductCard } from "@/components/marketplace/product-card";
 import { CrossSellBlock } from "@/components/marketplace/cross-sell-block";
+import { SimilarProductsBlock } from "@/components/marketplace/similar-products";
 import { ProductMediaGallery } from "@/components/products/product-media-gallery";
 import { VideoReviewsSection } from "@/components/dashboard/customer-features-tabs";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
@@ -323,9 +323,6 @@ export function ProductPage() {
   }
 
   const confectioner = confectioners.find((c) => c.id === product.confectionerId);
-  const similarProducts = products
-    .filter((p) => p.category === product.category && p.id !== product.id)
-    .slice(0, 4);
 
   const filling = product.fillings?.[selectedFilling];
   const coating = product.coatings?.[selectedCoating];
@@ -1155,17 +1152,8 @@ export function ProductPage() {
       {/* Video reviews */}
       <VideoReviewsSection productId={product.id} />
 
-      {/* Similar products */}
-      {similarProducts.length > 0 && (
-        <div className="mt-8">
-          <h2 className="font-display text-xl font-bold mb-4">Похожие товары</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {similarProducts.map((p) => (
-              <ProductCard key={p.id} product={p} />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Похожие товары — детерминированный движок P2.3 с причинами */}
+      <SimilarProductsBlock productId={product.id} />
     </div>
   );
 }
