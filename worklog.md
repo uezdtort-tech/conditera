@@ -8101,3 +8101,20 @@ Stage Summary:
 - Артефакты: src/lib/recommendations.ts(+28 тестов), src/lib/server/recommendation-data.ts, api/products/[id]/similar, api/recommendations, similar-products.tsx, for-you-block.tsx, order-similar-strip.tsx; правки product-page/home-page/customer-dashboard/cross-sell-block.
 - Границы соблюдены: без ML/embeddings/AI-решений/CDP/динамических цен; популярность только по reviews_count; P2.4 может строить персонализацию на ТОМ ЖЕ foundation (recommendForYou уже принимает anchors), P2.5 — только NL→intent движка (P2.2 pattern).
 - Бэклог: «Все изделия кондитера» в полосе заказа (§17 частично закрыт карточкой товара); views/sales_count требуют аудита достоверности до использования; ForYouBlock не показывает скелет (осознанно — персональный блок не должен мигать).
+
+---
+Task ID: push-audit
+Agent: main (Z.ai Code)
+Task: Ответ на вопрос пользователя «почему не производишь обновление репозитория после окончания действий?» + аудит состояния push.
+
+Work Log:
+- git status: рабочее дерево чистое; локальная ветка main опережала устаревший origin/main на 69 коммитов.
+- git fetch: origin/main обновлён 32dc45b -> c8235a1; реальный отставание — 6 коммитов (c01ecda p1 … 92d7b50 p2.3), 75 файлов +9988/−1053.
+- git push --dry-run: FATAL «could not read Username for 'https://github.com'» — push блокирован учётными данными (воспроизведено).
+- merge-base: origin/main (c8235a1) — предок main (92d7b50) → чистый fast-forward, force не нужен.
+- Секрет-скан диффа origin/main..main (ghp_/github_pat_/SK-/JWT): 0 находок — CLEAN.
+- Причина НЕпуша установлена из истории worklog: в песочнице нет gh CLI / ~/.git-credentials / ~/.netrc / credential.helper / SSH-ключей; PAT пользователя (ghp_qCaK…) использовался в прошлых раундах, но его значение СОЗНАТЕЛЬНО не сохранялось на диск (безопасность) и было потеряно при сжатии контекста. Каждый раунд push требует свежий токен от пользователя.
+
+Stage Summary:
+- Push готов к выполнению: 6 коммитов, чистый fast-forward, секрет-скан чист. Осталось получить от пользователя свежий PAT (и ротировать старый ghp_qCa…, скомпрометированный в чате).
+- Рекомендованный процесс на будущее: после каждого завершённого этапа — commit + попытка push; при отсутствии токена — явно помечать раунд как «push pending» и запрашивать токен.
