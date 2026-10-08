@@ -8133,3 +8133,24 @@ Work Log:
 Stage Summary:
 - origin/main доведён до 8df53be (P2.3 deterministic recommendations включён). Локальный и удалённый main идентичны, push-debt = 0.
 - Пользователь сообщил, что заменит токен сам после пуша; напоминание о ротации отключено по его требованию. Токен на диск не записывался, в worklog не попадал.
+
+---
+Task ID: contract-audit-p2
+Agent: main (Z.ai Code)
+Task: Проверка контрактов поиска после замечания пользователя: старый /api/search (Meilisearch) vs новый движок; как каталог и «Помочь выбрать» реально используют эти контракты.
+
+Work Log:
+- /api/search (src/app/api/search/route.ts) подтверждён: вызывает searchProducts из @/lib/meilisearch. НО: НОЛЬ вызовов из фронтенда — единственное упоминание в src/proxy.ts (CSRF-исключение GET).
+- /api/search/health: единственный потребитель — telegram/webhook/route.ts:320 (health-команда бота пингует APP_URL/api/search/health).
+- /api/search/reindex: потребителей в src нет (ручной сценарий + scripts/reindex-meilisearch.ts).
+- src/lib/meilisearch.ts: потребители — только 3 search-роута. npm-зависимость meilisearch ^0.60 + сервисы в docker-compose(.dev).yml остаются.
+- Каталог (catalog-page.tsx): товары через store.products <- LiveProductsHydrator -> useLiveProducts() -> GET /api/products?limit=60&sort=popular (сервер: @/lib/product-search: parseQueryIntent/filterAndRank). Фильтры/поиск/фасеты: КЛИЕНТСКИЙ filterAndRank(products.map(toSearchDoc)) — тот же модуль; счётчики occasion/allergen — тоже.
+- «Помочь выбрать» (help-choose-dialog.tsx): 6 шагов -> intent -> клиентский filterAndRank(toSearchDoc) над store.products — тот же единый движок (P2.2 подтверждён).
+- AI-подбор: ai-smart-search.tsx -> POST /api/ai/search (LLM-парсер + rules-fallback, ТОЛЬКО фильтры, без подбора товаров) -> navigate("catalog", фильтры) -> каталог применяет своим движком. ai-search-bar.tsx — МЁРТВ (никем не импортируется); ai/compare живой.
+- P2.3: /api/recommendations (recommendForYou; якоря wishlist+history, anon -> deterministic popular, personalized-флаг в ответе) и /api/products/[id]/similar (recommendSimilar) — оба на @/lib/recommendations (общий SearchDoc с поиском). Потребители: for-you-block.tsx, similar-products.tsx, order-similar-strip.tsx.
+- extra-pages.tsx:1112 — только текстовый список технологий («Meilisearch, pg_trgm») на странице архитектуры, не вызов.
+
+Stage Summary:
+- Контракты разделены: витрина/каталог/помощник — новый продукт-search движок (клиент+сервер, один модуль); рекомендации — recommendations.ts; /api/search-трио — мёртвый Meilisearch-легаси без UI-потребителей (кроме telegram health -> /api/search/health).
+- Правила продолжения: P2.4 — расширять /api/recommendations (якоря уже заложены); P2.5 — строить на /api/ai/search (парсер уже есть) + применение через контракт каталога; НЕ создавать вторых движков/парсеров.
+- Отдельная cleanup-задача (вне P2.4/P2.5): удалить /api/search + /api/search/reindex + lib/meilisearch.ts + npm-dep + compose-сервисы; telegram health перевести на /api/health; обновить текст на странице архитектуры.
