@@ -8118,3 +8118,18 @@ Work Log:
 Stage Summary:
 - Push готов к выполнению: 6 коммитов, чистый fast-forward, секрет-скан чист. Осталось получить от пользователя свежий PAT (и ротировать старый ghp_qCa…, скомпрометированный в чате).
 - Рекомендованный процесс на будущее: после каждого завершённого этапа — commit + попытка push; при отсутствии токена — явно помечать раунд как «push pending» и запрашивать токен.
+
+---
+Task ID: push-complete
+Agent: main (Z.ai Code)
+Task: Push накопленных коммитов в origin/main по выданному пользователем PAT.
+
+Work Log:
+- git push https://<TOKEN>@github.com/uezdtort-tech/conditera.git main -> SUCCESS: c8235a1..8df53be main -> main (EXIT=0).
+- Отправлено 7 коммитов: c01ecda (feat p1 golden path), 7a481ce (chore), a85121b (worklog P1), f1be438 (fix p1.1 hardening), 04d2dca (feat p2 search+help-choose), 92d7b50 (feat p2.3 recommendations), 8df53be (авто-коммит worklog push-audit, 17 строк).
+- ls-remote подтвердил: remote refs/heads/main == 8df53be == локальный main; git fetch синхронизировал ссылку, ветки идентичны.
+- Секрет-скан отправленного диффа (ghp_/github_pat_/SK-/JWT): 0 находок — CLEAN.
+
+Stage Summary:
+- origin/main доведён до 8df53be (P2.3 deterministic recommendations включён). Локальный и удалённый main идентичны, push-debt = 0.
+- Пользователь сообщил, что заменит токен сам после пуша; напоминание о ротации отключено по его требованию. Токен на диск не записывался, в worklog не попадал.
