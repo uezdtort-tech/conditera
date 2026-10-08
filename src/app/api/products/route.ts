@@ -35,28 +35,54 @@ import {
   adminCreateProductSchema,
   confectionerCreateProductSchema,
 } from "@/lib/validations/product";
+import {
+  parseQueryIntent,
+  filterAndRank,
+  toSearchDoc,
+  wordStem,
+  type SearchDoc,
+  type AllergenKey,
+  type OccasionKey,
+  type RankOptions,
+} from "@/lib/product-search";
 
 export const runtime = "nodejs";
 
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
+/** Верхняя граница выборки кандидатов для поискового движка (фасетный каталог) */
+const SEARCH_CANDIDATES_CAP = 500;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * Поисковая строка → безопасный ILIKE-паттерн для PostgREST or().
- *
- * or() парсит значение по разделителям `,` `(` `)` `"` — ввод пользователя с
- * такими символами («торт,тест») ломал синтаксис и давал 400. Спецсимволы
- * заменяются на пробел, пробелы внутри — на `%` (мягкое AND: "торт тест"
- * → %торт%тест%). Возвращаемый паттерн гарантированно не содержит
- * разделителей or() и не может сломать запрос.
- */
-function toSafeIlikePattern(raw: string): string | null {
-  const cleaned = raw.replace(/[(),"\\]/g, " ").trim();
-  if (!cleaned) return null;
-  return `%${cleaned.replace(/\s+/g, "%")}%`;
+const ALLERGEN_KEYS: AllergenKey[] = ["nuts", "gluten", "sugar", "lactose", "egg"];
+const OCCASION_KEYS: OccasionKey[] = ["birthday", "wedding", "kids", "gift", "holiday"];
+
+function isAllergenKey(v: string): v is AllergenKey {
+  return (ALLERGEN_KEYS as string[]).includes(v);
 }
+function isOccasionKey(v: string): v is OccasionKey {
+  return (OCCASION_KEYS as string[]).includes(v);
+}
+function numParam(searchParams: URLSearchParams, key: string): number | null {
+  const raw = searchParams.get(key);
+  if (raw === null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Поля products для выдачи (0052-карточка + dietary_features для фильтров P2). */
+const PRODUCT_SELECT = `
+  id, title, slug, description, price, old_price,
+  category_id, weight_grams, servings, tags,
+  rating_average, reviews_count, confectioner_id,
+  status, is_featured, created_at, images,
+  short_description, long_description,
+  diameter_cm, height_cm, size_text, shape, product_type,
+  filling_description, layers_count, composition, recipe_id,
+  min_order_qty, custom_order_available, is_available, production_time_hours,
+  dietary_features
+`;
 
 /** camel→snake маппинг полей карточки 0052 для INSERT (только переданные поля). */
 function mapCardFieldsToSnake(v: Record<string, unknown>): Record<string, unknown> {
@@ -88,8 +114,35 @@ function mapCardFieldsToSnake(v: Record<string, unknown>): Record<string, unknow
   return out;
 }
 
+/** DB-строка products → SearchDoc поискового движка. */
+function rowToDoc(r: Record<string, unknown>): SearchDoc {
+  return toSearchDoc({
+    id: String(r.id),
+    title: String(r.title ?? ""),
+    description: (r.description as string | null) ?? null,
+    shortDescription: (r.short_description as string | null) ?? null,
+    longDescription: (r.long_description as string | null) ?? null,
+    fillingDescription: (r.filling_description as string | null) ?? null,
+    tags: (r.tags as string[] | null) ?? [],
+    dietaryFeatures: (r.dietary_features as string[] | null) ?? [],
+    composition:
+      (r.composition as { ingredients?: string[]; allergens?: string[] } | null) ?? null,
+    price: Number(r.price) || 0,
+    servings: (r.servings as number | null) ?? null,
+    weightGrams: (r.weight_grams as number | null) ?? null,
+    isAvailable: r.is_available !== false,
+    rating: Number(r.rating_average ?? 0),
+    reviewsCount: Number(r.reviews_count ?? 0),
+  });
+}
+
 /**
  * GET /api/products — получить список товаров с фильтрами.
+ *
+ * P2.1: поиск через единый движок (title/описания/начинка/теги с русской
+ * морфологией, «до N ₽», «на N человек», «без орехов») + фильтры
+ * priceMin/priceMax/servingsMin/occasion/exclude/taste/inStock.
+ * Ответ (products/total/limit/offset) не менялся — обратная совместимость.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -104,48 +157,59 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
     const offset = parseInt(searchParams.get("offset") || "0", 10);
 
-    // Fetch products — use correct column names from the actual schema.
-    // The products table (migration 0002) has: id, title, slug, description, price,
-    // old_price, category_id (not "category"), weight_grams (not "weight"),
-    // servings, tags, rating_average (not "rating"), reviews_count, status, is_featured.
-    // Images are in a separate product_images table, not a column on products.
-    // confectioner_id is UUID FK to auth.users — NOT to confectioners table (TEXT id).
-    // We fetch confectioner data separately after getting products.
-    let query = supabaseAdmin
-      .from("products")
-      .select(`
-        id, title, slug, description, price, old_price,
-        category_id, weight_grams, servings, tags,
-        rating_average, reviews_count, confectioner_id,
-        status, is_featured, created_at, images,
-        short_description, long_description,
-        diameter_cm, height_cm, size_text, shape, product_type,
-        filling_description, layers_count, composition, recipe_id,
-        min_order_qty, custom_order_available, is_available, production_time_hours
-      `)
-      .eq("status", "published");
+    // ==== P2.1 расширенные фильтры ====
+    const priceMin = numParam(searchParams, "priceMin");
+    const priceMax = numParam(searchParams, "priceMax");
+    const servingsMin = numParam(searchParams, "servingsMin");
+    const weightMin = numParam(searchParams, "weightMin");
+    const weightMax = numParam(searchParams, "weightMax");
+    const occasionRaw = searchParams.get("occasion");
+    const occasion =
+      occasionRaw && isOccasionKey(occasionRaw) ? occasionRaw : null;
+    const excludeKeys = (searchParams.get("exclude") || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(isAllergenKey);
+    const tasteRaw = searchParams.get("taste");
+    const inStock = searchParams.get("inStock") === "true";
 
-    // Фильтр по категории: products.category_id — UUID FK на product_categories.id,
-    // витрина шлёт slug («cakes») → резолвим slug в id. Если передали UUID —
-    // используем напрямую. Неизвестный slug → честная пустая выдача (товаров
-    // такой категории не существует), а не отсутствие фильтра.
+    const advanced = Boolean(
+      (search && search.trim()) ||
+        priceMin !== null ||
+        priceMax !== null ||
+        servingsMin !== null ||
+        weightMin !== null ||
+        weightMax !== null ||
+        occasion ||
+        excludeKeys.length > 0 ||
+        (tasteRaw && tasteRaw.trim()) ||
+        inStock
+    );
+
+    // Категории: одна выборка для резолва slug→id и enrichment category_slug.
+    const { data: allCategories, error: catError } = await supabaseAdmin
+      .from("product_categories")
+      .select("id, slug");
+    if (catError) {
+      console.error("[products] GET categories error:", catError.message);
+      return NextResponse.json(
+        { error: "Database query failed", details: catError.message },
+        { status: 500 }
+      );
+    }
+    const catSlugById: Record<string, string> = {};
+    (allCategories || []).forEach((c: { id: string; slug: string }) => {
+      catSlugById[c.id] = c.slug;
+    });
+
     let categoryIds: string[] | null = null;
     if (category && category !== "all") {
       if (UUID_RE.test(category)) {
         categoryIds = [category];
       } else {
-        const { data: catRows, error: catError } = await supabaseAdmin
-          .from("product_categories")
-          .select("id")
-          .eq("slug", category);
-        if (catError) {
-          console.error("[products] GET categories lookup error:", catError.message);
-          return NextResponse.json(
-            { error: "Database query failed", details: catError.message },
-            { status: 500 }
-          );
-        }
-        categoryIds = (catRows || []).map((c: { id: string }) => c.id);
+        categoryIds = (allCategories || [])
+          .filter((c: { slug: string }) => c.slug === category)
+          .map((c: { id: string }) => c.id);
         if (categoryIds.length === 0) {
           // Категории с таким slug нет в БД — товаров по ней не может быть
           return NextResponse.json({ products: [], total: 0, limit, offset });
@@ -153,8 +217,159 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Поиск по title/description (ILIKE): паттерн уже безопасен для or()
-    const searchPattern = search ? toSafeIlikePattern(search) : null;
+    /** Enrichment страницы: кондитер, изображения, обложка, category_slug. */
+    const enrichProducts = async (
+      rows: Record<string, unknown>[]
+    ): Promise<Record<string, unknown>[]> => {
+      const confectionerIds = [
+        ...new Set(rows.map((p) => p.confectioner_id as string).filter(Boolean)),
+      ];
+      const productIds = rows.map((p) => p.id as string);
+
+      const confectionerMap: Record<
+        string,
+        { id: string; businessName: string; avatar: string; verified: boolean; city: string }
+      > = {};
+      if (confectionerIds.length > 0) {
+        // split-brain identity: products.confectioner_id — auth-UUID,
+        // у confectioners он в «userId» (TEXT), а не в «id»
+        const { data: confData } = await supabaseAdmin
+          .from("confectioners")
+          .select("id, userId, businessName, avatar, verified, city")
+          .in("userId", confectionerIds);
+        (confData || []).forEach((c: { id: string; userId: string; businessName: string; avatar: string; verified: boolean; city: string }) => {
+          confectionerMap[c.userId] = c;
+        });
+      }
+
+      const imageMap: Record<string, string[]> = {};
+      if (productIds.length > 0) {
+        const { data: imgData } = await supabaseAdmin
+          .from("product_images")
+          .select("product_id, url")
+          .in("product_id", productIds)
+          .order("sort_order", { ascending: true });
+        (imgData || []).forEach((img: { product_id: string; url: string }) => {
+          if (!imageMap[img.product_id]) imageMap[img.product_id] = [];
+          imageMap[img.product_id].push(img.url);
+        });
+      }
+
+      const coverMap: Record<string, string> = {};
+      if (productIds.length > 0) {
+        const { data: coverData } = await supabaseAdmin
+          .from("product_media")
+          .select("id, product_id")
+          .in("product_id", productIds)
+          .eq("status", "approved")
+          .eq("is_cover", true)
+          .eq("media_type", "photo");
+        (coverData || []).forEach((c: { id: string; product_id: string }) => {
+          coverMap[c.product_id] = `/api/product-media/${c.id}`;
+        });
+      }
+
+      return rows.map((p) => {
+        const confId = p.confectioner_id as string;
+        const conf = confId ? confectionerMap[confId] : null;
+        const colImages = Array.isArray(p.images) ? (p.images as string[]) : [];
+        const tableImages = imageMap[p.id as string] || [];
+        const coverUrl = coverMap[p.id as string];
+        const mergedImages = [
+          ...new Set([...(coverUrl ? [coverUrl] : []), ...colImages, ...tableImages]),
+        ];
+        const categorySlug = catSlugById[p.category_id as string] ?? null;
+        return {
+          ...p,
+          images: mergedImages,
+          category_slug: categorySlug,
+          confectioner: conf
+            ? {
+                id: conf.id,
+                businessName: conf.businessName,
+                avatar: conf.avatar,
+                verified: conf.verified,
+                city: conf.city,
+              }
+            : null,
+        };
+      });
+    };
+
+    if (advanced) {
+      // ==== Поисковый движок: кандидаты ≤500 → фильтры/скоринг → страница ====
+      let candidatesQuery = supabaseAdmin
+        .from("products")
+        .select(PRODUCT_SELECT)
+        .eq("status", "published");
+      if (categoryIds) candidatesQuery = candidatesQuery.in("category_id", categoryIds);
+      if (confectionerId) candidatesQuery = candidatesQuery.eq("confectioner_id", confectionerId);
+      candidatesQuery = candidatesQuery.range(0, SEARCH_CANDIDATES_CAP - 1);
+
+      const { data: rows, error } = await candidatesQuery;
+      if (error) {
+        console.error("[products] GET search query error:", error.message);
+        return NextResponse.json(
+          { error: "Database query failed", details: error.message },
+          { status: 500 }
+        );
+      }
+
+      // Интент из строки запроса + явные параметры (строже из двух).
+      const intent = parseQueryIntent(search ?? "");
+      if (priceMin !== null) {
+        intent.priceMin = intent.priceMin !== null ? Math.max(intent.priceMin, priceMin) : priceMin;
+      }
+      if (priceMax !== null) {
+        intent.priceMax = intent.priceMax !== null ? Math.min(intent.priceMax, priceMax) : priceMax;
+      }
+      if (servingsMin !== null) {
+        intent.servingsMin =
+          intent.servingsMin !== null ? Math.max(intent.servingsMin, servingsMin) : servingsMin;
+      }
+      if (occasion) intent.occasion = occasion;
+      for (const key of excludeKeys) {
+        if (!intent.excludeAllergens.includes(key)) intent.excludeAllergens.push(key);
+      }
+      if (tasteRaw) {
+        for (const word of tasteRaw.split(",")) {
+          const stem = wordStem(word.trim());
+          if (stem && !intent.tastes.includes(stem)) intent.tastes.push(stem);
+        }
+      }
+
+      let docs = (rows || []).map((r: Record<string, unknown>) => rowToDoc(r));
+      if (inStock) docs = docs.filter((d) => d.isAvailable);
+      // Размер (P2 §4): вес в граммах — фильтр по известным данным
+      if (weightMin !== null || weightMax !== null) {
+        docs = docs.filter((d) => {
+          if (d.weightGrams === null) return true; // вес неизвестен — не выдумываем
+          if (weightMin !== null && d.weightGrams < weightMin) return false;
+          if (weightMax !== null && d.weightGrams > weightMax) return false;
+          return true;
+        });
+      }
+
+      const rankSort: RankOptions["sort"] =
+        sort === "price-asc" || sort === "price-desc" || sort === "rating" ? sort : "popular";
+      const ranked = filterAndRank(docs, intent, { sort: rankSort });
+      const total = ranked.total;
+      const page = ranked.items.slice(offset, offset + limit).map((d) => d.id);
+      const pageRows = (rows || []).filter((r: Record<string, unknown>) =>
+        page.includes(r.id as string)
+      );
+      // Восстановить порядок ранжирования
+      pageRows.sort(
+        (a: Record<string, unknown>, b: Record<string, unknown>) =>
+          page.indexOf(a.id as string) - page.indexOf(b.id as string)
+      );
+
+      const enrichedProducts = await enrichProducts(pageRows);
+      return NextResponse.json({ products: enrichedProducts, total, limit, offset });
+    }
+
+    // ==== Обычный путь (без q/advanced) — прежние PostgREST-фильтры ====
+    let query = supabaseAdmin.from("products").select(PRODUCT_SELECT).eq("status", "published");
 
     // total — ОБЩЕЕ число товаров с теми же фильтрами (не размер страницы).
     // head:true + count:exact — один COUNT без передачи строк.
@@ -164,28 +379,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .eq("status", "published");
     if (categoryIds) countQuery = countQuery.in("category_id", categoryIds);
     if (confectionerId) countQuery = countQuery.eq("confectioner_id", confectionerId);
-    if (searchPattern) {
-      countQuery = countQuery.or(
-        `title.ilike.${searchPattern},description.ilike.${searchPattern}`
-      );
-    }
     const { count: totalCount, error: countError } = await countQuery;
     if (countError) {
       console.error("[products] GET count error:", countError.message);
       // не роняем выдачу — fallback на размер страницы
     }
 
-    // Фильтр по кондитеру
     if (confectionerId) {
       query = query.eq("confectioner_id", confectionerId);
     }
     if (categoryIds) {
       query = query.in("category_id", categoryIds);
-    }
-    if (searchPattern) {
-      query = query.or(
-        `title.ilike.${searchPattern},description.ilike.${searchPattern}`
-      );
     }
 
     // Сортировка
@@ -218,80 +422,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Fetch confectioner profiles and product images separately
-    // (avoiding PostgREST relationship which doesn't exist between products.confectioner_id and confectioners.id)
-    const confectionerIds = [...new Set((products || []).map((p: { confectioner_id: string }) => p.confectioner_id).filter(Boolean))];
-    const productIds = (products || []).map((p: { id: string }) => p.id);
-
-    // Batch fetch confectioners
-    // ВАЖНО (split-brain identity): products.confectioner_id — auth-UUID,
-    // у confectioners он лежит в «userId» (TEXT-колонка), а не в «id».
-    let confectionerMap: Record<string, { id: string; businessName: string; avatar: string; verified: boolean; city: string }> = {};
-    if (confectionerIds.length > 0) {
-      const { data: confData } = await supabaseAdmin
-        .from("confectioners")
-        .select("id, userId, businessName, avatar, verified, city")
-        .in("userId", confectionerIds);
-      (confData || []).forEach((c: { id: string; userId: string; businessName: string; avatar: string; verified: boolean; city: string }) => {
-        confectionerMap[c.userId] = c;
-      });
-    }
-
-    // Batch fetch product images
-    let imageMap: Record<string, string[]> = {};
-    if (productIds.length > 0) {
-      const { data: imgData } = await supabaseAdmin
-        .from("product_images")
-        .select("product_id, url")
-        .in("product_id", productIds)
-        .order("sort_order", { ascending: true });
-      (imgData || []).forEach((img: { product_id: string; url: string }) => {
-        if (!imageMap[img.product_id]) imageMap[img.product_id] = [];
-        imageMap[img.product_id].push(img.url);
-      });
-    }
-
-    // Обложки product_media (Task 3-a): approved + is_cover + photo,
-    // одним запросом по всем товарам выборки. URL /api/product-media/<id>
-    // добавляется В НАЧАЛО images (dedupe).
-    const coverMap: Record<string, string> = {};
-    if (productIds.length > 0) {
-      const { data: coverData } = await supabaseAdmin
-        .from("product_media")
-        .select("id, product_id")
-        .in("product_id", productIds)
-        .eq("status", "approved")
-        .eq("is_cover", true)
-        .eq("media_type", "photo");
-      (coverData || []).forEach((c: { id: string; product_id: string }) => {
-        coverMap[c.product_id] = `/api/product-media/${c.id}`;
-      });
-    }
-
-    // Merge products with confectioner and images.
-    // Источник фото: product_media обложка (В НАЧАЛЕ) + products.images (text[],
-    // сид 0005) + product_images (отдельная таблица загрузок) — с дедупликацией.
-    const enrichedProducts = (products || []).map((p: Record<string, unknown>) => {
-      const confId = p.confectioner_id as string;
-      const conf = confId ? confectionerMap[confId] : null;
-      const colImages = Array.isArray(p.images) ? (p.images as string[]) : [];
-      const tableImages = imageMap[(p.id as string)] || [];
-      const coverUrl = coverMap[p.id as string];
-      const mergedImages = [
-        ...new Set([...(coverUrl ? [coverUrl] : []), ...colImages, ...tableImages]),
-      ];
-      return {
-        ...p,
-        images: mergedImages,
-        confectioner: conf ? {
-          id: conf.id,
-          businessName: conf.businessName,
-          avatar: conf.avatar,
-          verified: conf.verified,
-          city: conf.city,
-        } : null,
-      };
-    });
+    const enrichedProducts = await enrichProducts((products || []) as Record<string, unknown>[]);
 
     return NextResponse.json({
       products: enrichedProducts,

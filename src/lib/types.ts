@@ -571,6 +571,9 @@ export interface Product {
   isNew?: boolean;
   isHit?: boolean;
   tags?: string[];
+  // dietary_features из БД («содержит орехи», «без сахара», «веган»…) —
+  // данные для фильтра ограничений каталога (P2.1)
+  dietaryFeatures?: string[];
   // Кастомизация
   fillings?: { name: string; priceModifier: number }[];
   coatings?: { name: string; priceModifier: number }[];

@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StoriesFeed } from "@/components/stories/stories-feed";
 import { AICakeFinderButton } from "@/components/ai-cake-finder/ai-cake-finder";
 import { AiSmartSearch } from "@/components/ai/ai-smart-search";
+import { HelpChooseDialog } from "@/components/marketplace/help-choose-dialog";
+import type { HelpChooseAnswers } from "@/lib/product-search";
 import { VideoFeed } from "@/components/video-feed/video-feed";
 import { HolidayCalendar } from "@/components/holidays/holiday-calendar";
 import { ProductCard } from "@/components/marketplace/product-card";
@@ -103,6 +105,13 @@ export function HomePage() {
   const popularProducts = products.filter((p) => p.isPopular || p.isHit).slice(0, 8);
   const newProducts = products.filter((p) => p.isNew).slice(0, 4);
 
+  // P2.2: анкета «Помочь выбрать» на главной (ТЗ §5) — результат можно
+  // перенести в каталог («Показать в каталоге»)
+  const [helpOpen, setHelpOpen] = useState(false);
+  const showHelpResultsInCatalog = (answers: HelpChooseAnswers) => {
+    navigate("catalog", { help: JSON.stringify(answers) });
+  };
+
   return (
     <div className="space-y-20 pb-12">
       {/* ===== HERO ===== */}
@@ -168,6 +177,15 @@ export function HomePage() {
                   Собрать торт в конструкторе
                 </Button>
                 <AICakeFinderButton />
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setHelpOpen(true)}
+                  className="btn-3d-light"
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Помочь выбрать
+                </Button>
                 <Button
                   size="lg"
                   variant="outline"
@@ -970,6 +988,13 @@ export function HomePage() {
         </Card>
         </div>
       </section>
+
+      {/* P2.2: анкета «Помочь выбрать» — короткий вопросник, подбор детерминированный */}
+      <HelpChooseDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        onShowInCatalog={showHelpResultsInCatalog}
+      />
     </div>
   );
 }

@@ -828,6 +828,8 @@ interface ApiProduct {
   custom_order_available?: boolean | null;
   is_available?: boolean | null;
   production_time_hours?: number | null;
+  dietary_features?: string[] | null;
+  category_slug?: string | null;
   media?: ProductMediaItem[];
   confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
 }
@@ -859,6 +861,14 @@ function formatPrepTime(hours: unknown): string | undefined {
   return `${days} дн ${rem} ч`;
 }
 
+/** Валидные slug категорий (ProductCategory) — для category_slug из БД. */
+const PRODUCT_CATEGORY_SLUGS = new Set([
+  "cakes", "cupcakes", "pastries", "cookies", "chocolate", "macarons", "bento",
+  "desserts", "zephyr_bouquets", "pies", "patties", "rolls", "healthy",
+  "pastila", "oriental_sweets", "candies", "marmalade", "lollipops",
+  "gingerbread", "realistic_cakes",
+]);
+
 function guessCategory(title: string, tags: string[] | null): ProductCategory {
   const hay = `${title} ${(tags || []).join(" ")}`.toLowerCase();
   if (hay.includes("капкейк")) return "cupcakes";
@@ -882,7 +892,12 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     // «копейки» — витрина показывала 7 ₽ вместо 690 ₽.
     price: Math.round(p.price),
     oldPrice: p.old_price ? Math.round(p.old_price) : undefined,
-    category: guessCategory(p.title, p.tags),
+    // P2: настоящая категория из БД (product_categories.slug) — раньше
+    // угадывалась по title/tags («Пастила» попадала в cakes)
+    category:
+      p.category_slug && PRODUCT_CATEGORY_SLUGS.has(p.category_slug)
+        ? (p.category_slug as ProductCategory)
+        : guessCategory(p.title, p.tags),
     images: p.images || [],
     confectionerId: p.confectioner?.id || "",
     confectionerName: p.confectioner?.businessName || undefined,
@@ -929,6 +944,9 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     // ответе (старые клиенты/мок) считаем доступным
     isAvailable: p.is_available ?? true,
     productionTimeHours: p.production_time_hours ?? null,
+    // P2.1: dietary_features («содержит орехи», «без сахара»…) — данные для
+    // фильтра ограничений; раньше не доезжали до витрины
+    dietaryFeatures: p.dietary_features ?? [],
     // media приходит из API уже в camelCase (ProductMediaItem[])
     media: Array.isArray(p.media) ? p.media : undefined,
   };

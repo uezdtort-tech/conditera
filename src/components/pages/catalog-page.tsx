@@ -11,6 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProductCard } from "@/components/marketplace/product-card";
+import { HelpChooseDialog } from "@/components/marketplace/help-choose-dialog";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { AiSmartSearch } from "@/components/ai/ai-smart-search";
 import { AiCompareDialog } from "@/components/ai/ai-compare-dialog";
@@ -18,8 +19,23 @@ import type { AiSearchFilters } from "@/lib/ai-search-types";
 import { CATEGORIES } from "@/lib/mock-data";
 import { productMatchesPaymentFilter, PAYMENT_METHOD_INFO } from "@/lib/finance";
 import type { PaymentFilterOption } from "@/lib/types";
+import {
+  parseQueryIntent,
+  filterAndRank,
+  toSearchDoc,
+  wordStem,
+  matchesOccasion,
+  passesAllergen,
+  ALLERGEN_GROUPS,
+  OCCASIONS,
+  emptyHelpAnswers,
+  type AllergenKey,
+  type HelpChooseAnswers,
+  type OccasionKey,
+  type RankOptions,
+} from "@/lib/product-search";
 import { toast } from "sonner";
-import { Search, SlidersHorizontal, X, Filter, Cake, CreditCard, Scale } from "lucide-react";
+import { Search, SlidersHorizontal, X, Filter, Cake, CreditCard, Scale, Sparkles } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -85,32 +101,100 @@ export function CatalogPage() {
   const [aiServings, setAiServings] = useState<number>(initialAiFilters?.guests ?? 0);
   const [aiKeywords, setAiKeywords] = useState<string[]>(initialAiFilters?.keywords ?? []);
 
+  // P2.1: повод, ограничения (аллергены), минимальные порции
+  const [occasion, setOccasion] = useState<OccasionKey | null>(null);
+  const [restrictions, setRestrictions] = useState<AllergenKey[]>([]);
+  const [servingsMin, setServingsMin] = useState<number | null>(null);
+
+  // P2.2: «Помочь выбрать» — анкета и переход с главной (nav.params.help)
+  const [helpOpen, setHelpOpen] = useState(false);
+  const initialHelp: HelpChooseAnswers | null = (() => {
+    const raw = nav.params?.help;
+    if (!raw) return null;
+    try {
+      return { ...emptyHelpAnswers(), ...(JSON.parse(raw) as HelpChooseAnswers) };
+    } catch {
+      return null;
+    }
+  })();
+
+  const applyHelpAnswers = (a: HelpChooseAnswers) => {
+    setOccasion(a.occasion ?? null);
+    setRestrictions(a.excludeAllergens ?? []);
+    setServingsMin(a.servingsMin ?? null);
+    setTasteFilters(a.tastes ?? []);
+    if (a.priceMax !== null) {
+      setPriceRange(([lo]) => [lo, Math.min(a.priceMax as number, maxPrice)]);
+    }
+    setSearchQuery("");
+  };
+
+  useEffect(() => {
+    // Переход с главной («Помочь выбрать» → «Показать в каталоге»):
+    // применяем один раз при маунте, пока nav.params ещё содержат help
+    if (initialHelp) applyHelpAnswers(initialHelp);
+  }, []);
+
   // Режим сравнения (сценарий №2: сравнение выбранных тортов)
   const [compareMode, setCompareMode] = useState(false);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
 
   const filtered = useMemo(() => {
-    let result = [...products];
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.title.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          p.tags?.some((t) => t.toLowerCase().includes(q))
+    // P2.1: единый поисковый движок (морфология, «до N ₽», «на N человек»,
+    // «без орехов») вместо наивного includes по title/description
+    const intent = parseQueryIntent(searchQuery);
+    if (occasion) intent.occasion = occasion;
+    for (const r of restrictions) {
+      if (!intent.excludeAllergens.includes(r)) intent.excludeAllergens.push(r);
+    }
+    if (servingsMin !== null && (intent.servingsMin ?? 0) < servingsMin) {
+      intent.servingsMin = servingsMin;
+    }
+    if (priceRange[0] > 0) {
+      intent.priceMin =
+        intent.priceMin !== null ? Math.max(intent.priceMin, priceRange[0]) : priceRange[0];
+    }
+    if (priceRange[1] < maxPrice) {
+      intent.priceMax =
+        intent.priceMax !== null ? Math.min(intent.priceMax, priceRange[1]) : priceRange[1];
+    }
+    if (tasteFilters.length > 0) {
+      for (const t of tasteFilters) {
+        for (const w of t.split(/\s+/)) {
+          const stem = wordStem(w);
+          if (stem && !intent.tastes.includes(stem)) intent.tastes.push(stem);
+        }
+      }
+    }
+    // AI-фильтры умного поиска (сценарий №1) — через тот же движок
+    if (aiServings > 0 && (intent.servingsMin ?? 0) < aiServings) {
+      intent.servingsMin = aiServings;
+    }
+    for (const ex of aiExclude) {
+      const stem = wordStem(ex);
+      if (stem) intent.genericExcludes.push(stem);
+    }
+    if (aiKeywords.length > 0 && intent.tokens.length === 0) {
+      intent.tokens.push(
+        ...aiKeywords.map(wordStem).filter((s): s is string => Boolean(s))
       );
     }
+
+    const docs = products.map(toSearchDoc);
+    const rankSort: RankOptions["sort"] =
+      sortBy === "price-asc" || sortBy === "price-desc" || sortBy === "rating"
+        ? sortBy
+        : "popular";
+    const { items } = filterAndRank(docs, intent, { sort: rankSort });
+    const byId = new Map(products.map((p) => [p.id, p]));
+    let result = items
+      .map((d) => byId.get(d.id))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p));
+
     if (activeCategory !== "all") {
       result = result.filter((p) => p.category === activeCategory);
     }
-    result = result.filter(
-      (p) =>
-        p.price >= priceRange[0] &&
-        // при верхней границе = max все товары видимы (слайдер с шагом 100
-        // не всегда может точно встать на maxPrice)
-        (priceRange[1] >= maxPrice || p.price <= priceRange[1])
-    );
     if (selectedConfectioners.length > 0) {
       result = result.filter((p) =>
         selectedConfectioners.includes(p.confectionerId)
@@ -118,15 +202,6 @@ export function CatalogPage() {
     }
     if (onlyHit) result = result.filter((p) => p.isHit || p.isPopular);
     if (minRating > 0) result = result.filter((p) => p.rating >= minRating);
-    if (tasteFilters.length > 0) {
-      result = result.filter((p) =>
-        tasteFilters.every((taste) =>
-          p.tags?.some((t) => t.toLowerCase().includes(taste.toLowerCase())) ||
-          p.title.toLowerCase().includes(taste.toLowerCase()) ||
-          p.description.toLowerCase().includes(taste.toLowerCase())
-        )
-      );
-    }
     // Фильтр по способу оплаты
     if (paymentFilters.length > 0) {
       result = result.filter((p) => {
@@ -134,47 +209,38 @@ export function CatalogPage() {
         return paymentFilters.every((opt) => productMatchesPaymentFilter(p, confectioner, opt));
       });
     }
-    // AI-фильтры умного поиска (сценарий №1)
-    if (aiServings > 0) {
-      // Товары без указанных порций не отбрасываем (не выдумываем данные)
-      result = result.filter(
-        (p) => !(typeof p.servings === "number" && p.servings > 0 && p.servings < aiServings)
-      );
-    }
-    if (aiKeywords.length > 0) {
-      result = result.filter((p) => {
-        const hay = [p.title, p.description, (p.tags || []).join(" ")].join(" ").toLowerCase();
-        return aiKeywords.some((kw) => hay.includes(kw));
-      });
-    }
-    if (aiExclude.length > 0) {
-      result = result.filter((p) => {
-        const hay = [
-          p.title,
-          p.description,
-          (p.tags || []).join(" "),
-          (p.composition?.ingredients || []).join(" "),
-          (p.composition?.allergens || []).join(" "),
-        ].join(" ").toLowerCase();
-        return !aiExclude.some((ex) => hay.includes(ex));
-      });
-    }
-    switch (sortBy) {
-      case "price-asc":
-        result.sort((a, b) => a.price - b.price);
-        break;
-      case "price-desc":
-        result.sort((a, b) => b.price - a.price);
-        break;
-      case "rating":
-        result.sort((a, b) => b.rating - a.rating);
-        break;
-      case "popular":
-      default:
-        result.sort((a, b) => b.reviewsCount - a.reviewsCount);
-    }
     return result;
-  }, [products, searchQuery, activeCategory, priceRange, selectedConfectioners, onlyHit, paymentFilters, tasteFilters, minRating, confectioners, sortBy, aiServings, aiKeywords, aiExclude, maxPrice]);
+  }, [products, searchQuery, activeCategory, priceRange, selectedConfectioners, onlyHit, paymentFilters, tasteFilters, minRating, confectioners, sortBy, aiServings, aiKeywords, aiExclude, maxPrice, occasion, restrictions, servingsMin]);
+
+  // Честные счётчики чипов: считаются по реальным данным каталога
+  // (чип с нулём не скрывается — показывается приглушённым)
+  const occasionCounts = useMemo(() => {
+    const counts = {} as Record<OccasionKey, number>;
+    (Object.keys(OCCASIONS) as OccasionKey[]).forEach((k) => {
+      counts[k] = products.filter((p) => matchesOccasion(toSearchDoc(p), k)).length;
+    });
+    return counts;
+  }, [products]);
+
+  const restrictionCounts = useMemo(() => {
+    const counts = {} as Record<AllergenKey, number>;
+    (Object.keys(ALLERGEN_GROUPS) as AllergenKey[]).forEach((k) => {
+      counts[k] = products.filter((p) => passesAllergen(toSearchDoc(p), k)).length;
+    });
+    return counts;
+  }, [products]);
+
+  const toggleRestriction = (key: AllergenKey) => {
+    setRestrictions((prev) =>
+      prev.includes(key) ? prev.filter((r) => r !== key) : [...prev, key]
+    );
+  };
+
+  const resetAdvancedFilters = () => {
+    setOccasion(null);
+    setRestrictions([]);
+    setServingsMin(null);
+  };
 
   // Применение фильтров из умного поиска (вариант="compact") к локальному состоянию каталога
   const applyAiFilters = (f: AiSearchFilters) => {
@@ -318,6 +384,90 @@ export function CatalogPage() {
         </div>
       </div>
 
+      {/* Повод (P2 §4) — только реальные слова каталога, счётчики из БД */}
+      <div>
+        <h4 className="font-medium text-sm mb-3">Повод</h4>
+        <div className="flex flex-wrap gap-1">
+          {(Object.keys(OCCASIONS) as OccasionKey[]).map((key) => {
+            const count = occasionCounts[key] ?? 0;
+            return (
+              <button
+                key={key}
+                onClick={() => setOccasion(occasion === key ? null : key)}
+                aria-pressed={occasion === key}
+                disabled={count === 0}
+                title={count === 0 ? "В каталоге пока нет товаров с таким поводом" : undefined}
+                className={`px-2 py-1 text-xs rounded-full border transition-colors ${
+                  occasion === key
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : count === 0
+                      ? "border-border opacity-50 cursor-not-allowed"
+                      : "border-border hover:border-primary/40"
+                }`}
+              >
+                {OCCASIONS[key].label}
+                <span className="ml-1 opacity-70">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Порции (P2 §4 «Размер»: порции) — честный фильтр по известным данным */}
+      <div>
+        <h4 className="font-medium text-sm mb-3">Порции</h4>
+        <div className="flex flex-wrap gap-1">
+          {[0, 2, 10, 15, 20, 30].map((n) => (
+            <button
+              key={n}
+              onClick={() => setServingsMin(n === 0 ? null : n)}
+              aria-pressed={servingsMin === (n === 0 ? null : n)}
+              className={`px-2 py-1 text-xs rounded-full border ${
+                servingsMin === (n === 0 ? null : n)
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border hover:border-primary/40"
+              }`}
+            >
+              {n === 0 ? "Любые" : `${n}+ чел.`}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-1.5">
+          Товары с меньшим известным числом порций скрываются; без данных — остаются.
+        </p>
+      </div>
+
+      {/* Ограничения (P2 §4) — из dietary_features/composition, не фиктивные */}
+      <div>
+        <h4 className="font-medium text-sm mb-3">Ограничения</h4>
+        <div className="flex flex-wrap gap-1">
+          {(Object.keys(ALLERGEN_GROUPS) as AllergenKey[]).map((key) => {
+            const count = restrictionCounts[key] ?? 0;
+            return (
+              <button
+                key={key}
+                onClick={() => toggleRestriction(key)}
+                aria-pressed={restrictions.includes(key)}
+                disabled={count === 0}
+                className={`px-2 py-1 text-xs rounded-full border transition-colors ${
+                  restrictions.includes(key)
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : count === 0
+                      ? "border-border opacity-50 cursor-not-allowed"
+                      : "border-border hover:border-primary/40"
+                }`}
+              >
+                {ALLERGEN_GROUPS[key].label}
+                <span className="ml-1 opacity-70">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-1.5">
+          По данным карточек: «содержит орехи» скрывает товар, пометка «без сахара» — оставляет.
+        </p>
+      </div>
+
       {/* Taste/ingredients filter */}
       <div>
         <h4 className="font-medium text-sm mb-3">Вкус / ингредиенты</h4>
@@ -396,6 +546,7 @@ export function CatalogPage() {
           setAiExclude([]);
           setAiKeywords([]);
           setAiServings(0);
+          resetAdvancedFilters();
         }}
       >
         Сбросить фильтры
@@ -417,9 +568,10 @@ export function CatalogPage() {
         </p>
       </div>
 
-      {/* Search bar */}
-      <div className="flex gap-2 mb-6">
-        <div className="relative flex-1">
+      {/* Search bar — P2 §20: на мобильном поиск сверху на всю ширину,
+          сортировка и фильтры — второй строкой */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <div className="relative w-full sm:w-auto sm:flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             value={searchQuery}
@@ -437,7 +589,7 @@ export function CatalogPage() {
           )}
         </div>
         <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-44 shrink-0">
+          <SelectTrigger className="flex-1 min-w-0 sm:flex-none sm:w-44 shrink-0">
             <SelectValue placeholder="Сортировка" />
           </SelectTrigger>
           <SelectContent>
@@ -462,9 +614,70 @@ export function CatalogPage() {
         </Sheet>
       </div>
 
-      {/* Уточнить поиск с ИИ (сценарий №1 в каталоге) */}
+      {/* P2 §20: мобильные быстрые фильтры — горизонтальная лента под поиском,
+          первая — доступная кнопка «Помочь выбрать» */}
+      <div
+        className="flex gap-1.5 overflow-x-auto pb-1 mb-4 lg:hidden"
+        role="toolbar"
+        aria-label="Быстрые фильтры"
+      >
+        <button
+          onClick={() => setHelpOpen(true)}
+          className="shrink-0 px-3 py-1.5 text-xs rounded-full border bg-primary text-primary-foreground border-primary"
+        >
+          ✨ Помочь выбрать
+        </button>
+        {(Object.keys(OCCASIONS) as OccasionKey[]).map((key) => {
+          const count = occasionCounts[key] ?? 0;
+          return (
+            <button
+              key={key}
+              onClick={() => setOccasion(occasion === key ? null : key)}
+              aria-pressed={occasion === key}
+              disabled={count === 0}
+              className={`shrink-0 px-3 py-1.5 text-xs rounded-full border ${
+                occasion === key
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : count === 0
+                    ? "border-border opacity-50"
+                    : "border-border bg-background"
+              }`}
+            >
+              {OCCASIONS[key].label}
+            </button>
+          );
+        })}
+        {(["nuts", "gluten", "sugar"] as AllergenKey[]).map((key) => (
+          <button
+            key={key}
+            onClick={() => toggleRestriction(key)}
+            aria-pressed={restrictions.includes(key)}
+            className={`shrink-0 px-3 py-1.5 text-xs rounded-full border ${
+              restrictions.includes(key)
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border bg-background"
+            }`}
+          >
+            {ALLERGEN_GROUPS[key].label}
+          </button>
+        ))}
+      </div>
+
+      {/* P2 §5: «Помочь выбрать» — рядом с уточнением через ИИ; обычный путь не спрятан */}
       <Card className="p-3 mb-4 border-purple-200 dark:border-purple-900">
-        <AiSmartSearch variant="compact" onApplyFilters={applyAiFilters} />
+        <div className="flex flex-col sm:flex-row items-stretch gap-2">
+          <div className="flex-1 min-w-0">
+            <AiSmartSearch variant="compact" onApplyFilters={applyAiFilters} />
+          </div>
+          <Button
+            variant="outline"
+            className="shrink-0 gap-1.5"
+            onClick={() => setHelpOpen(true)}
+          >
+            <Sparkles className="h-4 w-4" />
+            Помочь выбрать
+          </Button>
+        </div>
       </Card>
 
       {/* Режим сравнения (сценарий №2) */}
@@ -535,6 +748,7 @@ export function CatalogPage() {
                   setAiExclude([]);
                   setAiKeywords([]);
                   setAiServings(0);
+                  resetAdvancedFilters();
                 }}
               >
                 Сбросить всё
@@ -581,6 +795,13 @@ export function CatalogPage() {
         onOpenChange={setCompareOpen}
         products={compareProducts}
         onRemove={(id) => setCompareIds((prev) => prev.filter((x) => x !== id))}
+      />
+
+      {/* P2.2: анкета «Помочь выбрать» — тот же движок, без AI */}
+      <HelpChooseDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        onShowInCatalog={applyHelpAnswers}
       />
     </div>
   );
