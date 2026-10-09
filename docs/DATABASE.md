@@ -11,10 +11,10 @@
 | **Docker Supabase** | ✓ | ~60 сек | Полный Supabase stack (Auth, Storage, Realtime, Edge Functions) |
 | **PGlite (без Docker)** | ✗ | ~5 сек | WASM PostgreSQL в Node.js — для CI, тестов, preview |
 
-- **197 таблиц** в схеме `public` (после применения всех миграций)
-- **20 SQL миграций** (0001–0019 + 0016b) общим объёмом ~7 000 строк
-- **27 SQL RPC функций** для атомарных операций (counters, balance, escrow)
-- **80+ RLS policies** для row-level security
+- **228 таблиц** в схеме `public` (после применения всех миграций; замер 2026-10-09)
+- **59 SQL миграций** (0001–0060; пропуски 0038 и 0056 намеренные) общим объёмом ~11 800 строк
+- **352 функции** в схеме `public`, из них 27 атомарных SQL RPC для counters/balance/escrow (миграция 0013 и далее)
+- **326 RLS policies** для row-level security (замер 2026-10-09)
 - **3 seed файла**: 28 категорий, 45 начинок, 7 CMS-страниц, 13 пунктов меню
 
 ---

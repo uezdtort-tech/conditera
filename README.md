@@ -211,7 +211,7 @@ chat.message.created, inventory.low, service.booking.created).
 - **Socket.IO JWT auth:** проверка access-token из `handshake.auth.token` (jose)
 - **Критичные секреты без fallback:** JWT_SECRET, TFA_ENCRYPTION_KEY, CRON_SECRET — приложение падает в production, если не заданы
 - **CSRF:** double-submit cookie pattern (`src/lib/csrf.ts`)
-- **CSP + security headers:** middleware.ts + next.config.ts + Caddyfile
+- **CSP + security headers:** src/proxy.ts (middleware в Next 16) + next.config.ts + Caddyfile
 - **Anti-fraud:** rate limiting по IP (SHA-256 хэш с солью, 152-ФЗ)
 - **YooKassa IP whitelist:** проверка только в production
 - **Эскроу через cron** (не setTimeout): переживает рестарты

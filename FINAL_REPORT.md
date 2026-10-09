@@ -92,7 +92,7 @@
 - **Было:** Проверка только наличия токена (formal)
 - **Стало:** Timing-safe comparison через `crypto.timingSafeEqual` (header vs httpOnly+SameSite+Secure cookie)
 - **Тесты:** 30 unit-тестов в `src/middleware.test.ts`
-- **Файлы:** `src/middleware.ts`, `src/lib/csrf.ts`, `src/app/api/csrf-token/route.ts`
+- **Файлы:** `src/proxy.ts`, `src/lib/csrf.ts`, `src/app/api/csrf-token/route.ts`
 
 ### ✅ 2. Security headers — ужесточены
 - `next.config.ts`: строгий CSP (whitelist YooKassa, frame-ancestors, base-uri, object-src:none, upgrade-insecure-requests)
@@ -100,7 +100,7 @@
 - `HSTS` с preload (только в prod)
 - `COOP/CORP/COEP` — Cross-Origin политики
 - `Cache-Control: no-store` для /api/auth|payment|profile|admin
-- **Файлы:** `next.config.ts`, `src/middleware.ts`
+- **Файлы:** `next.config.ts`, `src/proxy.ts`
 
 ### ✅ 3. Rate limiting
 - `src/lib/rate-limit.ts`: sliding window на Redis (production) + in-memory fallback (dev)
@@ -271,8 +271,8 @@
 ### Из второго обращения (security audit):
 | # | Требование | Статус | Доказательство |
 |---|------------|--------|----------------|
-| 12 | CSRF: криптографичная проверка | ✅ | `timingSafeEqual` в middleware.ts |
-| 13 | Security headers: ужесточить CSP | ✅ | Строгий CSP в next.config.ts + middleware.ts |
+| 12 | CSRF: криптографичная проверка | ✅ | `timingSafeEqual` в proxy.ts |
+| 13 | Security headers: ужесточить CSP | ✅ | Строгий CSP в next.config.ts + proxy.ts |
 | 14 | Rate limiting: auth/payment/webhooks | ✅ | `enforceRateLimit` в payment/create + anti-fraud в auth/login |
 | 15 | Prisma: safeSelect + omit секретов | ✅ | `prisma-safe-select.ts` с 29 тестами |
 | 16 | Zod валидация: DaData/YooKassa/SimpleX | ✅ | `validation-schemas.ts` с 62 тестами + SSRF protection |
@@ -347,3 +347,15 @@
    ```
 9. **Подключить UptimeRobot/BetterStack** на `https://conditera.ru/api/health`
 10. **Опционально**: Cloudflare перед Caddy (DDoS protection + WAF)
+
+---
+
+## RC addendum — 2026-10-09
+
+**Статус: CODE RC.** Регрессия зелёная; production НЕ верифицирован (см. ниже).
+
+- Регрессия: typecheck 0 ошибок; ESLint 0; Vitest 908/908 (36 файлов); p11-hardening 23/23; order-lifecycle 81/81; `verify-money-path` на живой БД — критических находок нет (оплата → escrow → баланс → резерв → выплата замкнута).
+- Upload smoke (live): POST без CSRF → 403; позитивные загрузки → 201 на `/api/upload`, `/api/products/[id]/media`, `/api/orders/[id]/media`; сниффер magic bytes отклоняет подделку → 415; лимит 10 МБ подтверждён.
+- Инфраструктура Next 16: запросный прокси — `src/proxy.ts` (в Next 16 middleware переименован в proxy; исторические тесты остаются в `src/middleware.test.ts`, импортируя `./proxy`).
+- Остаточные риски (не блокируют CODE RC): MEDIUM — `orders/[id]` GET: COURIER/SUPPORT читают `payments(*)`; LOW — chat messages POST без rate limit; сравнение cron-секрета в `cron-auth.ts` не timing-safe.
+- Production: НЕ ПРОВЕРЕН (нет доступа из песочницы). Owner-пайплайн: `scripts/ops/p0-pipeline.sh` inspect → backup → apply → verify (apply — только с разрешения owner и после бэкапа).
