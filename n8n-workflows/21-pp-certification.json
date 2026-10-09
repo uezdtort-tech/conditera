@@ -21,7 +21,7 @@
     },
     {
       "parameters": {
-        "url": "http://web:3000/api/cron/pp-certification",
+        "url": "http://web:3000/api/cron/pp-certification-check",
         "method": "GET",
         "headers": {
           "X-Cron-Secret": "={{$env.CRON_SECRET}}"
