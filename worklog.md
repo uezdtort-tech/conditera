@@ -8277,3 +8277,24 @@ Stage Summary:
 - E: 41 роут-кандидат с нулём живых строковых ссылок (TOP: /api scaffold; франшиза franchise-exchange×5, franchisee×3; pickup-point×4; team×3; builder/{config,partners}; events×4; channel×5; cron/pp-certification-check (n8n указывает на неверный URL!); moderation/report; nutritionist/certify; organization/suggest; subscriptions; services/bookings; confectioner/{portfolio,recipe-acceptances}; courier/location; quotes/[id]/respond; tenders/[id]/bid; taster/sessions/[id]; loyalty/partners/[id]; ai-assistant/conversations/[id]). Verdict: UNKNOWN (lean-dead) — перед удалением каждому нужна проверка фичи (UI может читать БД напрямую) + smoke curl. НЕ dead по определению.
 - БИТЫЕ ПУТИ (NOT dead — FIX): 3× `ediaId]` → динамический сегмент [mediaId] (order-media, product-media, products/[id]/media) — роуты 404-ят при живых потребителях; + n8n 21 → неверный URL /api/cron/pp-certification.
 - F: npm meilisearch — удалять только вместе с кластером A; ещё 6 zero-import deps (@tanstack/react-table, @hookform/resolvers, @reactuses/core, react-markdown, react-syntax-highlighter, date-fns) — UNKNOWN, на усмотрение main (массовую чистку не инициировать в RC).
+
+---
+Task ID: rc-pre-push-final
+Agent: Z.ai Code (main)
+Task: Pre-push audit, owner-authorized push, recovery of FS-rollback-lost commits
+
+Work Log:
+- Owner выдал разрешение на push (токен передан в чате; использован только для git fetch/push, нигде не сохранён и не закоммичен)
+- ОБНАРУЖЕНО: откат снапшота ФС платформы отбросил репо к состоянию сразу после 5590268 — 5 аудированных коммитов (e46a8b3 scaffold /api, 7890eb3 mock-data-works, 5d77d29 use-escrow, d079684 docs, 50f1a5a worklog) отсутствуют в reflog (никогда не существовали в текущей ФС); «удалённые» файлы восстановлены, доки откачены
+- Проверены 2 уцелевших коммита (d5e3604 worklog +102 строки; 5590268 n8n URL-fix) — в точности соответствуют аудиту → пушнуты 20d7363..5590268 в origin/main (fast-forward)
+- Утраченная работа восстановлена с повторной верификацией: 3 коммита удаления (scaffold src/app/api/route.ts, src/lib/mock-data-works.ts, src/lib/supabase/use-escrow.ts), перед каждым rg = 0 живых ссылок, после всех — typecheck exit 0
+- Upload smoke (live): POST без CSRF → 403; позитивные загрузки → 201 на /api/upload (portfolio), /api/products/:id/media (pending на модерации), /api/orders/:id/media (ready_photo, чеклист-этап отмечен); подделка PNG → 415; файл физически присутствует в storage-шим bucket (storage.objects), строки в БД созданы
+- БД перемерена live: 228 таблиц / 352 функции / 326 RLS policies — совпало с прежним аудитом; миграций 59 (11 845 строк)
+- verify-money-path на живой БД: exit 0, критических находок нет (оплата → escrow → баланс → резерв → выплата)
+- risk.test.ts (escrow-правила): 26/26 passed
+- Доки пересинхронизированы: README:214 и FINAL_REPORT → src/proxy.ts (middleware в Next 16), docs/DATABASE.md → замеренные цифры, FINAL_REPORT + RC addendum
+
+Stage Summary:
+- origin/main: 20d7363 → 5590268 → финальный push всех восстановленных коммитов; CODE RC сохранён
+- Production NOT VERIFIED (owner-pipeline scripts/ops/p0-pipeline.sh: inspect → backup → apply → verify)
+- Остаточные риски без изменений: MEDIUM orders/:id payments(*) для COURIER/SUPPORT; LOW chat rate limit, cron-auth timing-safe
