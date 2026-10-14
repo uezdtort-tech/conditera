@@ -204,12 +204,25 @@ export async function GET(
     // Проверяем права доступа
     const isOwner = order.user_id === user.id;
     const isConfectioner = order.confectioner_id === user.id;
-    const isAdmin = user.roles.some((r: string) =>
-      ["ADMIN", "SUPER_ADMIN", "SUPPORT", "COURIER"].includes(r)
+    // P1 (courier-scope): COURIER удалён из привилегированного списка — сама
+    // по себе роль курьера не даёт права читать чужие заказы (раньше любой
+    // курьер мог получить полные детали любого заказа: items, payment,
+    // delivery). Курьер допускается только к заказу, на который назначен:
+    // orders.courier_id — канонический маркер, устанавливаемый атомарно
+    // POST /api/courier/assign. Получатель и назначение для courier:location
+    // берутся из этих же серверных данных.
+    const isPrivileged = user.roles.some((r: string) =>
+      ["ADMIN", "SUPER_ADMIN", "SUPPORT"].includes(r)
     );
+    const isCourierAssigned =
+      user.roles.includes("COURIER") && order.courier_id === user.id;
 
-    if (!isOwner && !isConfectioner && !isAdmin) {
-      return forbiddenResponse("Нет доступа к этому заказу");
+    if (!isOwner && !isConfectioner && !isPrivileged && !isCourierAssigned) {
+      return forbiddenResponse(
+        user.roles.includes("COURIER")
+          ? "Курьер не назначен на этот заказ"
+          : "Нет доступа к этому заказу"
+      );
     }
 
     return NextResponse.json({ order });
