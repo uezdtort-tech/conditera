@@ -15,7 +15,7 @@ services:
   #   docker volume rm uyezdny_uyezdny-db-dev-data
   #   docker-compose -f docker-compose.dev.yml up -d
   db-dev:
-    image: postgres:18-alpine
+    image: public.ecr.aws/docker/library/postgres:18-alpine
     container_name: uyezdny-db-dev
     ports:
       - "5433:5432"
@@ -42,7 +42,7 @@ services:
 
   # ===== Redis (для сессий/кэша/rate-limiting) =====
   redis-dev:
-    image: redis:7-alpine
+    image: public.ecr.aws/docker/library/redis:7-alpine
     container_name: uyezdny-redis-dev
     ports:
       - "6380:6379"

@@ -139,7 +139,7 @@ services:
   #   docker compose up -d
   # Volume postgres_data_v18 — новый, чистый, без конфликтов версий.
   db:
-    image: postgres:18-alpine
+    image: public.ecr.aws/docker/library/postgres:18-alpine
     container_name: conditera-db
     <<: *default-restart
     environment:
@@ -276,7 +276,7 @@ services:
 
   # ===== Redis (кэш, сессии, Socket.IO adapter, rate-limiting) =====
   redis:
-    image: redis:7-alpine
+    image: public.ecr.aws/docker/library/redis:7-alpine
     container_name: conditera-redis
     <<: *default-restart
     command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -378,7 +378,7 @@ services:
 
   # ===== Caddy (обратный прокси + HTTPS) =====
   caddy:
-    image: caddy:2.8-alpine
+    image: public.ecr.aws/docker/library/caddy:2.8-alpine
     container_name: conditera-caddy
     <<: *default-restart
     ports:

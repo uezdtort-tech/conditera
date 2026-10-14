@@ -13,11 +13,14 @@
 #       dockerfile: Dockerfile.chat
 # ====================================================================
 
-FROM oven/bun:1-alpine
+# v3 (registry-hardening): oven/bun публичных зеркал не имеет, а Docker Hub ловит
+# 429 в GH Actions — берём node из public.ecr.aws и ставим bun CLI из npm
+# (musl-бинарь @oven/bun-linux-x64-musl; в runtime работает так же, как oven/bun).
+FROM public.ecr.aws/docker/library/node:20-alpine
 WORKDIR /app
 
-# dumb-init для корректной обработки сигналов (SIGTERM, SIGINT)
-RUN apk add --no-cache dumb-init wget
+# dumb-init для корректной обработки сигналов (SIGTERM, SIGINT) + bun CLI из npm
+RUN apk add --no-cache dumb-init wget && npm install -g bun@1
 
 # Копируем lockfile ДО установки — иначе --frozen-lockfile падает (нет lockfile)
 # и срабатывает недетерминированный fallback

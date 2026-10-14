@@ -10,13 +10,17 @@
 # в зависимостях bridge, и `node --loader ts-node/esm` падал на старте контейнера.
 # Также в apk добавлен `file` (использовался проверкой ELF, но не был установлен).
 
-FROM oven/bun:1-alpine
+# v3 (registry-hardening): oven/bun публичных зеркал не имеет, а Docker Hub ловит
+# 429 в GH Actions — берём node из public.ecr.aws и ставим bun CLI из npm (musl).
+FROM public.ecr.aws/docker/library/node:20-alpine
 
 WORKDIR /app
 
-# dumb-init + ca-certs + file (проверка ELF у скачанного CLI) + simplex-chat CLI
-# Используем конкретную версию v6.2.0 (стабильный asset simplex-chat-ubuntu-22_04-x86-64)
+# dumb-init + ca-certs + file (проверка ELF у скачанного CLI) + bun CLI из npm +
+# simplex-chat CLI. Используем конкретную версию v6.2.0 (стабильный asset
+# simplex-chat-ubuntu-22_04-x86-64)
 RUN apk add --no-cache dumb-init wget ca-certificates file && \
+    npm install -g bun@1 && \
     wget -qO /usr/local/bin/simplex-chat \
       "https://github.com/simplex-chat/simplex-chat/releases/download/v6.2.0/simplex-chat-ubuntu-22_04-x86-64" && \
     chmod +x /usr/local/bin/simplex-chat && \

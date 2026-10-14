@@ -17,8 +17,13 @@
 # игнорировал bun.lock и разрешал зависимости по диапазонам — недетерминированное
 # дерево (частая причина падений docker-build в CI). `bun install --frozen-lockfile`
 # воспроизводит ровно то дерево, на котором проходят lint/test/build в CI.
-FROM oven/bun:1-alpine AS deps
+# v3 (registry-hardening): базовые образы берём из public.ecr.aws (анонимные pull,
+# без rate-limit 429 Docker Hub, на который ловил CI). oven/bun публичных зеркал не
+# имеет — bun-CLI ставится из npm registry поверх node (musl-бинарь @oven/…-musl).
+FROM public.ecr.aws/docker/library/node:20-alpine AS deps
 WORKDIR /app
+
+RUN npm install -g bun@1 && bun --version
 
 COPY package.json bun.lock ./
 COPY .npmrc* ./
@@ -28,7 +33,7 @@ COPY .npmrc* ./
 RUN bun install --frozen-lockfile
 
 # --- Этап 2: Build ---
-FROM node:20-alpine AS builder
+FROM public.ecr.aws/docker/library/node:20-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -45,7 +50,7 @@ RUN npm run build
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
 # Использует postgres:16-alpine чтобы был psql клиент.
-FROM postgres:16-alpine AS migrator
+FROM public.ecr.aws/docker/library/postgres:16-alpine AS migrator
 WORKDIR /migrations
 
 # Копируем все SQL миграции
@@ -60,7 +65,7 @@ RUN chmod +x /docker-entrypoint-initdb.d/01-apply-migrations.sh
 ENTRYPOINT ["sh", "/docker-entrypoint-initdb.d/01-apply-migrations.sh"]
 
 # --- Этап 4: Production runner ---
-FROM node:20-alpine AS runner
+FROM public.ecr.aws/docker/library/node:20-alpine AS runner
 WORKDIR /app
 
 # Версия образа (commit SHA) — видна в /api/health
