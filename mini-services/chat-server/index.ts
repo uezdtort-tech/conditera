@@ -275,7 +275,7 @@ const httpServer = createServer((req, res) => {
 });
 
 io = new Server(httpServer, {
-  path: "/",
+  path: "/socket.io",
   cors: {
     // Origin отражаем (любой источник): auth-граница сокета — JWT в
     // handshake.auth.token, а НЕ origin/cookies. Строгий origin-лист ломал
@@ -679,7 +679,7 @@ io.on("connection", (socket) => {
       id: `m_${Date.now()}`,
       text: data.reply.label,
       senderId: userId,
-      senderName,
+      senderName: userName,
       senderAvatar: userAvatar,
       timestamp: new Date().toISOString(),
       status: "sent" as const,
@@ -749,7 +749,7 @@ io.on("connection", (socket) => {
   // ===== Read receipts: прочитано =====
   // P1.1: relay-события только для верифицированных комнат (после room:join)
   socket.on("message:read", (data: { roomId: string; messageIds: string[] }) => {
-    if (!isVerifiedRoom(socket, data.roomId)) return;
+    if (!isVerifiedRoom(data.roomId)) return;
     socket.to(data.roomId).emit("message:read", {
       roomId: data.roomId,
       userId,
@@ -766,7 +766,7 @@ io.on("connection", (socket) => {
     userId: string;
     userName: string;
   }) => {
-    if (!isVerifiedRoom(socket, data.roomId)) return;
+    if (!isVerifiedRoom(data.roomId)) return;
     // P1.1: userId/userName — из JWT, не из клиентского payload
     socket.to(data.roomId).emit("message:react", {
       ...data,
@@ -777,7 +777,7 @@ io.on("connection", (socket) => {
 
   // ===== Закрепление сообщений =====
   socket.on("message:pin", (data: { roomId: string; messageId: string; pinned: boolean }) => {
-    if (!isVerifiedRoom(socket, data.roomId)) return;
+    if (!isVerifiedRoom(data.roomId)) return;
     socket.to(data.roomId).emit("message:pin", data);
   });
 
@@ -791,7 +791,7 @@ io.on("connection", (socket) => {
     status: string;
     message: string;
   }) => {
-    if (!hasStaffRole(socket)) return;
+    if (!hasStaffRole()) return;
     const target = onlineUsers.get(data.targetUserId);
     if (target) {
       io.to(target.socketId).emit("order:notification", data);
@@ -805,7 +805,7 @@ io.on("connection", (socket) => {
     title: string;
     body: string;
   }) => {
-    if (!hasStaffRole(socket)) return;
+    if (!hasStaffRole()) return;
     const target = onlineUsers.get(data.targetUserId);
     if (target) {
       io.to(target.socketId).emit("notification:receive", data);
