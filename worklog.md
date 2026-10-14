@@ -8358,3 +8358,34 @@ Work Log:
 
 Stage Summary:
 - Контрольная точка: HEAD=fa9c9b8, main ahead 2 от 8454b3a, tree clean, оба upload-маршрута на месте
+---
+
+Task ID: quickreply-authz
+Agent: main (Super Z)
+Task: P1 bot:quick_reply — фикс к a5a3298, строгие проверки, runtime-гейт.
+
+Work Log:
+- DRIFT #4: UUID-коммит `3fe4274` (3f1ec848-…) поверх `a5a3298`, только ensure-dev.sh (+13/−2, полезное). Backup/uuid-3fe4274 → reset a5a3298 → переоформлен `baffb06` (+BOT_SECRET).
+- Патч владельца недоступен в той песочнице → реконструкция по спецификации; коммит `982eca4`: валидация → verifyRoomAccess → канонический realRoomId.
+- chat-server strict tsc 0 (1 прекondition m[1] вне правки); typecheck 0; lint 0; vitest 908/908.
+- ensure-dev.sh timeout 300 секунд; 3 подряд сбоя канала → остановка выполнения.
+
+Stage Summary:
+- HEAD=`982eca4`, tree clean, push запрещён; runtime-гейт открыт (handshake/доставка/история/UI не выполнены).
+- Отдельные дефекты: room:leave (presence spoofing), courier:location (не подтверждается назначение).
+
+---
+
+Task ID: runtime-gate-1
+Agent: main (Super Z)
+Task: RUNTIME VERIFICATION → PRODUCTION GATE (владелец): контрольная точка, запуск, Socket.IO, room:leave, courier:location, UI, автоматизация.
+
+Work Log:
+- Контрольная точка совпала: HEAD=`982eca4c34a9706cd8509a5554dfab183ae99d08`, tree clean, diff пуст; цепочка до `8454b3a (origin/main)`.
+- Оба upload-маршрута на месте (2544/2566 bytes).
+- `upload/conditera-room-leave-authz.patch` найден; `git apply --check` → OK на дереве `982eca4`; ревью: алиасы в `room:join`, гейт `verifiedRooms` + `socket.rooms`, `room:error` при отказе, очистка только своей комнаты. Сам патч НЕ применён.
+- Инфраструктура: отказ канала исполнения `broken session: 403 Forbidden` на инструментах и субагентах, включая простые команды. Запуск стека, Socket.IO runtime-gate, room:leave-применение, courier-аудит, UI и автоматизация не начаты.
+
+Stage Summary:
+- Статика этого же дерева ранее сообщалась как typecheck 0 / lint 0 / Vitest 908/908 / chat strict tsc 0 — всё перепроверить при восстановлении.
+- Runtime-gate полностью открыт. При продолжении начинать с проверки реального состояния, затем PostgreSQL → `.env.local` → Next → chat с теми же секретами, не раскрывая их.
