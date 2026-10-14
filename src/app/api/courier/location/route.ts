@@ -3,14 +3,21 @@
  *
  * Тело запроса: { lat: number, lng: number, heading?: number }
  *
- * Сохраняет текущую позицию в courier_locations (upsert по courier_id).
+ * Сохраняет текущую позицию в courier_locations (одна строка на курьера,
+ * unique-индекс courier_locations_courierId_key).
  * Также добавляет точку в order_tracking для активного заказа (если есть).
  *
  * Auth: COURIER role.
  *
+ * P1 (courier-schema): фактические колонки — camelCase (courierId, orderId,
+ * updatedAt, timestamp) — код раньше ссылался на courier_id/updated_at и
+ * колонку orders.courier_id, которой в схеме нет → 500 на каждом запросе.
+ * Активный заказ берётся из серверных данных: deliveries.courier_id →
+ * orders.status = IN_DELIVERY. Клиентский payload orderId не принимается.
+ *
  * Соответствует таблицам:
  *  - courier_locations (upsert текущей позиции)
- *  - orders (поиск активного заказа со status=IN_DELIVERY)
+ *  - deliveries + orders (активная доставка)
  *  - order_tracking (вставка точки трекинга)
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -67,49 +74,67 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const courierId = user.id;
 
-    // Upsert текущей позиции курьера (через upsert с onConflict по courier_id)
-    const { error: upsertErr } = await supabaseAdmin
+    // P1 (courier-schema): courier_locations в camelCase (courierId, updatedAt);
+    // upsert через onConflict("courier_id") падал 42703. Select → update/insert.
+    const nowIso = new Date().toISOString();
+    const { data: existingLoc } = await supabaseAdmin
       .from("courier_locations")
-      .upsert(
-        {
-          courier_id: courierId,
-          lat,
-          lng,
-          heading: heading ?? null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "courier_id" }
-      );
+      .select("id")
+      .eq("courierId", courierId)
+      .maybeSingle() as { data: { id: string } | null };
 
-    if (upsertErr) {
-      console.error("[courier/location] upsert error:", upsertErr.message);
+    const locPayload = { lat, lng, heading: heading ?? null, updatedAt: nowIso };
+    const locErr = existingLoc
+      ? (await supabaseAdmin
+          .from("courier_locations")
+          .update(locPayload)
+          .eq("id", existingLoc.id)).error
+      : (await supabaseAdmin
+          .from("courier_locations")
+          .insert({ id: crypto.randomUUID(), courierId, ...locPayload })).error;
+
+    if (locErr) {
+      console.error("[courier/location] upsert error:", locErr.message);
       return NextResponse.json(
-        { error: "Ошибка при обновлении позиции", details: upsertErr.message },
+        { error: "Ошибка при обновлении позиции", details: locErr.message },
         { status: 500 }
       );
     }
 
-    // Если у курьера есть активный заказ в доставке — добавить точку трекинга
+    // Если у курьера есть активная доставка — добавить точку трекинга.
+    // Активный заказ — из серверных данных (deliveries.courier_id →
+    // orders.status IN_DELIVERY), не из клиентского payload.
     try {
-      const { data: activeOrder, error: orderErr } = await supabaseAdmin
-        .from("orders")
-        .select("id")
-        .eq("courier_id", courierId)
-        .eq("status", "IN_DELIVERY")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data: myDeliveries } = await supabaseAdmin
+        .from("deliveries")
+        .select("order_id")
+        .eq("courier_id", courierId) as { data: { order_id: string }[] | null };
+      const orderIds = [...new Set((myDeliveries || []).map((d) => d.order_id))];
 
-      if (!orderErr && activeOrder) {
+      let activeOrder: { id: string } | null = null;
+      if (orderIds.length > 0) {
+        const { data: found } = await supabaseAdmin
+          .from("orders")
+          .select("id")
+          .in("id", orderIds)
+          .eq("status", "IN_DELIVERY")
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle() as { data: { id: string } | null };
+        activeOrder = found;
+      }
+
+      if (activeOrder) {
         const { error: trackErr } = await supabaseAdmin
           .from("order_tracking")
           .insert({
-            order_id: activeOrder.id,
-            courier_id: courierId,
+            id: crypto.randomUUID(),
+            orderId: activeOrder.id,
+            courierId,
             lat,
             lng,
             heading: heading ?? null,
-            created_at: new Date().toISOString(),
+            timestamp: nowIso,
           });
 
         if (trackErr) {

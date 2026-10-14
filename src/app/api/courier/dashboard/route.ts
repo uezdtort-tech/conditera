@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
+import { getCourierOrderIds } from "@/lib/courier-assignments";
 
 export const runtime = "nodejs";
 
@@ -70,37 +71,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     try {
       const courierId = user.id;
 
+      // P1 (courier-schema): назначение — deliveries.courier_id (orders.courier_id
+      // в реальной схеме нет). Сначала id назначенных заказов, затем статусы.
+      const myOrderIds = await getCourierOrderIds(courierId);
+
       // Реальные данные: активные доставки (status IN_DELIVERY) + завершённые за сегодня
       const today = new Date(new Date().setHours(0, 0, 0, 0));
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
+      const UUID0 = "00000000-0000-0000-0000-000000000000";
+      const ordersIn = (
+        select: string,
+        opts?: { count?: "exact" | "planned" | "estimated"; head?: boolean }
+      ) =>
+        supabaseAdmin
+          .from("orders")
+          .select(select, opts)
+          .in("id", myOrderIds.length > 0 ? myOrderIds : [UUID0]);
+
       const [activeResult, completedTodayResult, earningsTodayResult, earningsMonthResult] =
         await Promise.all([
           // Активные доставки
-          supabaseAdmin
-            .from("orders")
-            .select("*", { count: "exact", head: true })
-            .eq("courier_id", courierId)
+          ordersIn("*", { count: "exact", head: true })
             .in("status", ["READY", "IN_DELIVERY"]),
           // Завершено сегодня
-          supabaseAdmin
-            .from("orders")
-            .select("*", { count: "exact", head: true })
-            .eq("courier_id", courierId)
+          ordersIn("*", { count: "exact", head: true })
             .in("status", ["DELIVERED", "COMPLETED"])
             .gte("updated_at", today.toISOString()),
           // Заработок сегодня (сумма delivery_cost по завершённым)
-          supabaseAdmin
-            .from("orders")
-            .select("delivery_cost")
-            .eq("courier_id", courierId)
+          ordersIn("delivery_cost")
             .in("status", ["DELIVERED", "COMPLETED"])
             .gte("updated_at", today.toISOString()),
           // Заработок за месяц
-          supabaseAdmin
-            .from("orders")
-            .select("delivery_cost")
-            .eq("courier_id", courierId)
+          ordersIn("delivery_cost")
             .in("status", ["DELIVERED", "COMPLETED"])
             .gte("updated_at", monthStart.toISOString()),
         ]);
@@ -130,12 +133,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
 
       // Получить список активных доставок с детализацией
-      const { data: activeOrders } = await supabaseAdmin
-        .from("orders")
-        .select(
-          "id, number, status, delivery_address, delivery_time, total, user_id, confectioner_id"
-        )
-        .eq("courier_id", courierId)
+      const { data: activeOrders } = await ordersIn(
+        "id, number, status, delivery_address, delivery_time, total, user_id, confectioner_id"
+      )
         .in("status", ["READY", "IN_DELIVERY"])
         .order("updated_at", { ascending: false })
         .limit(10);
@@ -154,12 +154,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
 
       // Получить последние завершённые (история)
-      const { data: historyOrders } = await supabaseAdmin
-        .from("orders")
-        .select(
-          "id, number, delivery_cost, total, updated_at, user_id"
-        )
-        .eq("courier_id", courierId)
+      const { data: historyOrders } = await ordersIn(
+        "id, number, delivery_cost, total, updated_at, user_id"
+      )
         .in("status", ["DELIVERED", "COMPLETED"])
         .order("updated_at", { ascending: false })
         .limit(10);

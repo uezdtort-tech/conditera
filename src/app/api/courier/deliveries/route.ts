@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
+import { getCourierOrderIds } from "@/lib/courier-assignments";
 
 export const runtime = "nodejs";
 
@@ -56,7 +57,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       MAX_LIMIT
     );
 
-    // Базовый запрос — заказы текущего курьера
+    // Базовый запрос — заказы текущего курьера.
+    // P1 (courier-schema): назначение — deliveries.courier_id (orders.courier_id
+    // в реальной схеме нет) → сначала id назначенных заказов.
+    const myOrderIds = await getCourierOrderIds(courierId);
     let query = supabaseAdmin
       .from("orders")
       .select(
@@ -66,7 +70,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         updated_at, user_id, confectioner_id
       `
       )
-      .eq("courier_id", courierId)
+      .in("id", myOrderIds.length > 0 ? myOrderIds : ["00000000-0000-0000-0000-000000000000"])
       .order("updated_at", { ascending: false })
       .limit(limit);
 

@@ -61,37 +61,102 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const courierId = user.id;
 
-    // Атомарное обновление: только заказ без курьера в статусе READY/IN_DELIVERY.
-    // Используем update + eq().is() для optimistic lock.
-    // Возвращаем обновлённую запись для проверки count.
-    const { data: updated, error: updateErr } = await supabaseAdmin
+    // P1 (courier-schema): назначение живёт в deliveries (order_id +
+    // courier_id). Колонки orders.courier_id в реальной схеме БД НЕТ —
+    // прежний update(.is("courier_id", null)) падал 500 (42703) на каждом
+    // запросе. Логика сохранена: только заказ READY/IN_DELIVERY без
+    // назначенного курьера; атомарный optimistic-lock клейм.
+    const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
-      .update({
-        courier_id: courierId,
-        status: "IN_DELIVERY",
-        updated_at: new Date().toISOString(),
-      })
+      .select("id, number, status")
       .eq("id", orderId)
-      .is("courier_id", null)
-      .in("status", ["READY", "IN_DELIVERY"])
-      .select("id, number")
-      .maybeSingle();
+      .maybeSingle() as { data: { id: string; number: string; status: string } | null; error: { message: string } | null };
 
-    if (updateErr) {
-      console.error("[courier/assign] update error:", updateErr.message);
+    if (orderErr) {
+      console.error("[courier/assign] order fetch error:", orderErr.message);
       return NextResponse.json(
-        { error: "Database update failed", details: updateErr.message },
+        { error: "Database query failed", details: orderErr.message },
+        { status: 500 }
+      );
+    }
+    if (!order) {
+      return NextResponse.json(
+        { error: "Заказ не найден" },
+        { status: 404 }
+      );
+    }
+    if (!["READY", "IN_DELIVERY"].includes(order.status)) {
+      return NextResponse.json(
+        { error: `Заказ не готов к выдаче курьеру (статус ${order.status})` },
+        { status: 409 }
+      );
+    }
+
+    // 1. Атомарный клейм существующей неназначенной строки deliveries
+    const nowIso = new Date().toISOString();
+    const { data: claimed, error: claimErr } = await supabaseAdmin
+      .from("deliveries")
+      .update({ courier_id: courierId, status: "assigned", updated_at: nowIso })
+      .eq("order_id", orderId)
+      .is("courier_id", null)
+      .select("id")
+      .maybeSingle() as { data: { id: string } | null; error: { message: string } | null };
+
+    if (claimErr) {
+      console.error("[courier/assign] claim error:", claimErr.message);
+      return NextResponse.json(
+        { error: "Database update failed", details: claimErr.message },
         { status: 500 }
       );
     }
 
-    // Если updated === null — значит условие не выполнилось (заказ уже занят)
-    if (!updated) {
+    // 2. Строки для клейма не было: создаём (иначе — уже занят другим)
+    if (!claimed) {
+      const { data: rows } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, courier_id")
+        .eq("order_id", orderId) as { data: { id: string; courier_id: string | null }[] | null };
+      if ((rows || []).some((r) => r.courier_id)) {
+        return NextResponse.json(
+          { error: "Заказ уже занят другим курьером, доставлен или не найден" },
+          { status: 409 }
+        );
+      }
+      const { data: inserted, error: insertErr } = await supabaseAdmin
+        .from("deliveries")
+        .insert({ order_id: orderId, courier_id: courierId, status: "assigned" })
+        .select("id")
+        .single() as { data: { id: string } | null; error: { message: string } | null };
+      if (insertErr || !inserted) {
+        // Гонка двух курьеров без unique-индекса: проверяем, не занял ли заказ другой
+        const { data: recheck } = await supabaseAdmin
+          .from("deliveries")
+          .select("courier_id")
+          .eq("order_id", orderId) as { data: { courier_id: string | null }[] | null };
+        if ((recheck || []).some((r) => r.courier_id && r.courier_id !== courierId)) {
+          return NextResponse.json(
+            { error: "Заказ уже занят другим курьером, доставлен или не найден" },
+            { status: 409 }
+          );
+        }
+        console.error("[courier/assign] insert error:", insertErr?.message);
+        return NextResponse.json(
+          { error: "Database update failed", details: insertErr?.message },
+          { status: 500 }
+        );
+      }
+    }
+
+    // 3. Переводим заказ в IN_DELIVERY (статусная часть — orders.status существует)
+    const { error: statusErr } = await supabaseAdmin
+      .from("orders")
+      .update({ status: "IN_DELIVERY", updated_at: nowIso })
+      .eq("id", orderId);
+    if (statusErr) {
+      console.error("[courier/assign] status update error:", statusErr.message);
       return NextResponse.json(
-        {
-          error: "Заказ уже занят другим курьером, доставлен или не найден",
-        },
-        { status: 409 }
+        { error: "Database update failed", details: statusErr.message },
+        { status: 500 }
       );
     }
 
@@ -119,8 +184,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       success: true,
-      orderId: updated.id,
-      orderNumber: updated.number,
+      orderId: order.id,
+      orderNumber: order.number,
       courierId,
     });
   } catch (error: any) {

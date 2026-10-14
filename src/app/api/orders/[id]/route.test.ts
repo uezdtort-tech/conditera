@@ -55,6 +55,7 @@ const baseOrder = {
   confectioner_id: "confectioner-uuid",
   courier_id: null as string | null,
   status: "IN_DELIVERY",
+  delivery: [] as { courier_id?: string | null }[],
 };
 
 function makeUser(id: string, roles: string[]) {
@@ -107,19 +108,34 @@ describe("GET /api/orders/[id] — scope доступа", () => {
     expect(res.status).toBe(403);
   });
 
-  it("200 назначенный курьер (courier_id === user.id)", async () => {
-    singleResult.data = { ...baseOrder, courier_id: "courier-uuid" };
+  it("200 назначенный курьер (deliveries[].courier_id === user.id)", async () => {
+    // Канонический маркер назначения — deliveries.courier_id (orders.courier_id
+    // в реальной схеме БД не существует).
+    singleResult.data = {
+      ...baseOrder,
+      delivery: [{ id: "d1", courier_id: "courier-uuid" }],
+    };
     getUserFromRequest.mockResolvedValue(makeUser("courier-uuid", ["COURIER"]));
     const res = await callGet();
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.order.courier_id).toBe("courier-uuid");
+    expect(json.order.delivery[0].courier_id).toBe("courier-uuid");
+  });
+
+  it("200 назначенный курьер (легаси-фоллбэк order.courier_id)", async () => {
+    singleResult.data = { ...baseOrder, courier_id: "courier-uuid", delivery: [] };
+    getUserFromRequest.mockResolvedValue(makeUser("courier-uuid", ["COURIER"]));
+    const res = await callGet();
+    expect(res.status).toBe(200);
   });
 
   it("403 неназначенный курьер на чужой заказ (регрессия P1 courier-scope)", async () => {
     // Канонический регрессионный случай: до фикса роль COURIER была в
     // привилегированном списке и любой курьер читал любой заказ.
-    singleResult.data = { ...baseOrder, courier_id: "another-courier" };
+    singleResult.data = {
+      ...baseOrder,
+      delivery: [{ id: "d1", courier_id: "another-courier" }],
+    };
     getUserFromRequest.mockResolvedValue(makeUser("courier-uuid", ["COURIER"]));
     const res = await callGet();
     expect(res.status).toBe(403);
@@ -127,8 +143,8 @@ describe("GET /api/orders/[id] — scope доступа", () => {
     expect(json.error).toContain("Курьер не назначен");
   });
 
-  it("403 курьер на заказ без курьера", async () => {
-    singleResult.data = { ...baseOrder, courier_id: null };
+  it("403 курьер на заказ без назначения в deliveries (пустой embed)", async () => {
+    singleResult.data = { ...baseOrder, delivery: [] };
     getUserFromRequest.mockResolvedValue(makeUser("courier-uuid", ["COURIER"]));
     const res = await callGet();
     expect(res.status).toBe(403);

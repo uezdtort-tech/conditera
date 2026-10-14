@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
+import { getCourierOrderIds } from "@/lib/courier-assignments";
 
 export const runtime = "nodejs";
 
@@ -41,11 +42,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const courierId = user.id;
 
-    // Получить все доставленные заказы курьера
+    // Получить все доставленные заказы курьера.
+    // P1 (courier-schema): назначение — deliveries.courier_id (orders.courier_id
+    // в реальной схеме нет) → сначала id назначенных заказов.
+    const myOrderIds = await getCourierOrderIds(courierId);
     const { data: deliveredOrders, error } = await supabaseAdmin
       .from("orders")
       .select("id, number, delivery_cost, total, status, created_at")
-      .eq("courier_id", courierId)
+      .in("id", myOrderIds.length > 0 ? myOrderIds : ["00000000-0000-0000-0000-000000000000"])
       .in("status", ["DELIVERED", "COMPLETED"])
       .order("created_at", { ascending: false });
 

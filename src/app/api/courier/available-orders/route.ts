@@ -43,7 +43,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // Найти заказы в статусе READY или IN_DELIVERY без курьера
+    // Найти заказы в статусе READY или IN_DELIVERY без назначенного курьера.
+    // P1 (courier-schema): orders.courier_id не существует — назначение
+    // определяется по deliveries (строки с courier_id not null).
     const { data: orders, error } = await supabaseAdmin
       .from("orders")
       .select(
@@ -54,7 +56,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       `
       )
       .in("status", ["READY", "IN_DELIVERY"])
-      .is("courier_id", null)
       .order("delivery_date", { ascending: true })
       .limit(MAX_ORDERS_RETURN);
 
@@ -66,12 +67,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    if (!orders || orders.length === 0) {
+    // Исключаем заказы, у которых уже есть назначенный курьер (deliveries)
+    let unassigned = orders || [];
+    if (unassigned.length > 0) {
+      const { data: assignedRows } = await supabaseAdmin
+        .from("deliveries")
+        .select("order_id")
+        .in("order_id", unassigned.map((o: any) => o.id))
+        .not("courier_id", "is", null) as { data: { order_id: string }[] | null };
+      const taken = new Set((assignedRows || []).map((r) => r.order_id));
+      unassigned = unassigned.filter((o: any) => !taken.has(o.id));
+    }
+
+    if (unassigned.length === 0) {
       return NextResponse.json({ orders: [], total: 0 });
     }
 
     // Получить items для всех заказов одним запросом
-    const orderIds = orders.map((o: any) => o.id);
+    const orderIds = unassigned.map((o: any) => o.id);
     const [{ data: items }, { data: customers }, { data: confectioners }] = await Promise.all([
       supabaseAdmin
         .from("order_items")
@@ -80,11 +93,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       supabaseAdmin
         .from("profiles")
         .select("id, name, phone")
-        .in("id", orders.map((o: any) => o.user_id).filter(Boolean)),
+        .in("id", unassigned.map((o: any) => o.user_id).filter(Boolean)),
       supabaseAdmin
         .from("confectioners")
         .select("id, businessName, city")
-        .in("id", orders.map((o: any) => o.confectioner_id).filter(Boolean)),
+        .in("id", unassigned.map((o: any) => o.confectioner_id).filter(Boolean)),
     ]);
 
     // Сгруппировать items по order_id
@@ -106,7 +119,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // Собрать итоговый массив
-    const result = orders.map((o: any) => ({
+    const result = unassigned.map((o: any) => ({
       id: o.id,
       number: o.number,
       status: o.status,

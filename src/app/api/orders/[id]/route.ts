@@ -17,6 +17,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 // (auth/v1 — 501-стаб) и отдавал 401 всем Bearer-клиентам.
 import { getUserFromRequest } from "@/lib/auth";
 import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
+import { isCourierAssignedToOrder } from "@/lib/courier-assignments";
 import { emitEvent } from "@/lib/n8n";
 import { recordEvent } from "@/lib/ops/events";
 
@@ -207,15 +208,15 @@ export async function GET(
     // P1 (courier-scope): COURIER удалён из привилегированного списка — сама
     // по себе роль курьера не даёт права читать чужие заказы (раньше любой
     // курьер мог получить полные детали любого заказа: items, payment,
-    // delivery). Курьер допускается только к заказу, на который назначен:
-    // orders.courier_id — канонический маркер, устанавливаемый атомарно
-    // POST /api/courier/assign. Получатель и назначение для courier:location
-    // берутся из этих же серверных данных.
+    // delivery). Курьер допускается только к заказу, на который назначен.
+    // Канонический маркер назначения — deliveries.courier_id (orders.courier_id
+    // в реальной схеме БД не существует; deliveries приходят встроенными как
+    // order.delivery[]). Сравнение — по серверным данным, не по payload.
     const isPrivileged = user.roles.some((r: string) =>
       ["ADMIN", "SUPER_ADMIN", "SUPPORT"].includes(r)
     );
     const isCourierAssigned =
-      user.roles.includes("COURIER") && order.courier_id === user.id;
+      user.roles.includes("COURIER") && isCourierAssignedToOrder(order, user.id);
 
     if (!isOwner && !isConfectioner && !isPrivileged && !isCourierAssigned) {
       return forbiddenResponse(
