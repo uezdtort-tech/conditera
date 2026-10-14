@@ -211,6 +211,20 @@ test.describe('Recipe purchase flow — проверка контракта да
   })
 })
 
+/**
+ * Получить CSRF-токен (header) и csrf_token cookie (double-submit pattern).
+ * Middleware требует ОБА: header x-csrf-token и cookie csrf_token.
+ */
+async function getCsrf(): Promise<{ token: string; cookie: string }> {
+  const response = await apiFetch('/api/csrf-token')
+  if (!response.ok) throw new Error(`CSRF token fetch failed: ${response.status}`)
+  const data = (await response.json()) as { token: string }
+  const setCookie = response.headers.get('set-cookie') || ''
+  const match = setCookie.match(/csrf_token=([^;]+)/)
+  if (!match) throw new Error('CSRF cookie not set')
+  return { token: data.token, cookie: match[1] }
+}
+
 test.describe('Recipe purchase — проверка покупки (контракт)', () => {
   test('POST /api/recipes/marketplace/:id/purchase — расчёт роялти по формуле', async () => {
     // Этот тест проверяет только формулу расчёта в коде.
@@ -238,10 +252,18 @@ test.describe('Recipe purchase — проверка покупки (контра
   })
 
   test('POST /api/recipes/marketplace/:id/purchase — без авторизации → 401', async () => {
+    // Без сессии, но с валидным CSRF-токеном → маршрут отвечает 401.
+    // ВАЖНО: cookie-заголовок должен содержать ИМЯ cookie: csrf_token=<token>
+    // (bare value парсер cookie'ев игнорирует → 403 "CSRF-токен отсутствует").
+    const { token, cookie } = await getCsrf()
     const fakeId = '00000000-0000-0000-0000-000000000099'
     const response = await apiFetch(`/api/recipes/marketplace/${fakeId}/purchase`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': token,
+        Cookie: `csrf_token=${cookie}`,
+      },
       body: JSON.stringify({}),
     })
     expect(response.status).toBe(401)

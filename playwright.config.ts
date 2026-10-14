@@ -12,7 +12,10 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const PORT = process.env.PORT || 3000
-const baseURL = process.env.E2E_BASE_URL || `http://localhost:${PORT}`
+// ВАЖНО: 127.0.0.1, а не localhost — Node.js ≥17 резолвит localhost в ::1 (IPv6),
+// а dev/prod сервер слушает 0.0.0.0 (IPv4-only). API request-context тесты
+// падали с ECONNREFUSED ::1:3000 (см. e2e «120 failed» прогон).
+const baseURL = process.env.E2E_BASE_URL || `http://127.0.0.1:${PORT}`
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -87,7 +90,9 @@ export default defineConfig({
         timeout: 120_000,
         reuseExistingServer: !process.env.CI,  // в CI — новый сервер, локально — переиспользуем
         env: {
-          DATABASE_URL: 'file:./db/e2e-test.db',
+          // Embedded PostgreSQL (см. scripts/db/runtime.mjs); перед запуском
+          // webServer БД должна быть инициализирована: bun run db:setup
+          DATABASE_URL: 'postgresql://postgres@127.0.0.1:54329/conditera',
           JWT_SECRET: 'e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa',
           TFA_ENCRYPTION_KEY: 'e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa',
           CRON_SECRET: 'e2e_test_cron_secret',

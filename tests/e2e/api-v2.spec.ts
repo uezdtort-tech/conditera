@@ -178,16 +178,26 @@ test.describe('API v2.0 — loyalty partners', () => {
 })
 
 test.describe('API v2.0 — AI assistant', () => {
-  test('POST /api/ai-assistant/chat без авторизации → 401', async () => {
-    const response = await apiFetch('/api/ai-assistant/chat', {
+  /**
+   * Залогиниться демо-клиентом (CSRF-exempt login) и вернуть Bearer-токен.
+   * Валидационные ветки (422) маршрута доступны только аутентифицированным:
+   * маршрут проверяет аутентификацию ДО валидации тела (безопасностный порядок),
+   * поэтому неавторизованный запрос с CSRF получает 401, а не 422.
+   */
+  async function loginDemo(): Promise<string> {
+    const response = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'Привет' }),
+      body: JSON.stringify({ email: 'customer@demo.ru', password: 'Demo123!' }),
     })
-    expect(response.status).toBe(401)
-  })
+    if (!response.ok) throw new Error(`Demo login failed: ${response.status}`)
+    const data = (await response.json()) as { accessToken?: string }
+    if (!data.accessToken) throw new Error('Demo login: no accessToken')
+    return data.accessToken
+  }
 
-  test('POST /api/ai-assistant/chat без поля message → 422 (с CSRF)', async () => {
+  test('POST /api/ai-assistant/chat без авторизации → 401', async () => {
+    // Без сессии, но с валидным CSRF → маршрут отвечает 401 (auth проверяется первым).
     const csrf = await getCsrfToken()
     const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
@@ -195,6 +205,22 @@ test.describe('API v2.0 — AI assistant', () => {
         'Content-Type': 'application/json',
         [CSRF_HEADER]: csrf.token,
         cookie: `${CSRF_COOKIE}=${csrf.cookie}`,
+      },
+      body: JSON.stringify({ message: 'Привет' }),
+    })
+    expect(response.status).toBe(401)
+  })
+
+  test('POST /api/ai-assistant/chat без поля message → 422 (с CSRF + auth)', async () => {
+    const csrf = await getCsrfToken()
+    const accessToken = await loginDemo()
+    const response = await apiFetch('/api/ai-assistant/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [CSRF_HEADER]: csrf.token,
+        cookie: `${CSRF_COOKIE}=${csrf.cookie}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({}),  // пустое тело — без message
     })
@@ -203,6 +229,7 @@ test.describe('API v2.0 — AI assistant', () => {
 
   test('POST /api/ai-assistant/chat с слишком длинным message → 422', async () => {
     const csrf = await getCsrfToken()
+    const accessToken = await loginDemo()
     const longMessage = 'а'.repeat(5001)  // > 5000 символов
     const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
@@ -210,6 +237,7 @@ test.describe('API v2.0 — AI assistant', () => {
         'Content-Type': 'application/json',
         [CSRF_HEADER]: csrf.token,
         cookie: `${CSRF_COOKIE}=${csrf.cookie}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ message: longMessage }),
     })
@@ -217,15 +245,6 @@ test.describe('API v2.0 — AI assistant', () => {
   })
 
   test('POST /api/ai-assistant/feedback без авторизации → 401', async () => {
-    const response = await apiFetch('/api/ai-assistant/feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ log_id: 1, was_helpful: true }),
-    })
-    expect(response.status).toBe(401)
-  })
-
-  test('POST /api/ai-assistant/feedback с невалидным log_id → 422 (с CSRF)', async () => {
     const csrf = await getCsrfToken()
     const response = await apiFetch('/api/ai-assistant/feedback', {
       method: 'POST',
@@ -233,6 +252,22 @@ test.describe('API v2.0 — AI assistant', () => {
         'Content-Type': 'application/json',
         [CSRF_HEADER]: csrf.token,
         cookie: `${CSRF_COOKIE}=${csrf.cookie}`,
+      },
+      body: JSON.stringify({ log_id: 1, was_helpful: true }),
+    })
+    expect(response.status).toBe(401)
+  })
+
+  test('POST /api/ai-assistant/feedback с невалидным log_id → 422 (с CSRF + auth)', async () => {
+    const csrf = await getCsrfToken()
+    const accessToken = await loginDemo()
+    const response = await apiFetch('/api/ai-assistant/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [CSRF_HEADER]: csrf.token,
+        cookie: `${CSRF_COOKIE}=${csrf.cookie}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ log_id: -1, was_helpful: true }),
     })

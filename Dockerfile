@@ -13,21 +13,19 @@
 # ====================================================================
 
 # --- Этап 1: Dependencies (all, including dev) ---
-FROM node:20-alpine AS deps
+# v2 (e2e-fix): bun + bun.lock вместо npm. Прежний `npm install --no-package-lock`
+# игнорировал bun.lock и разрешал зависимости по диапазонам — недетерминированное
+# дерево (частая причина падений docker-build в CI). `bun install --frozen-lockfile`
+# воспроизводит ровно то дерево, на котором проходят lint/test/build в CI.
+FROM oven/bun:1-alpine AS deps
 WORKDIR /app
 
-# Копируем package файлы
-COPY package.json bun.lock* package-lock.json* ./
+COPY package.json bun.lock ./
 COPY .npmrc* ./
 
-# Устанавливаем ВСЕ зависимости (нужны dev для build)
-RUN if [ -f package-lock.json ]; then \
-      npm ci --legacy-peer-deps; \
-    elif [ -f bun.lock ]; then \
-      npm install --legacy-peer-deps --no-package-lock; \
-    else \
-      npm install --legacy-peer-deps; \
-    fi
+# Все зависимости (нужны dev для build); native-пакеты из trustedDependencies
+# получают postinstall (embedded-postgres и т.п. билду не мешают)
+RUN bun install --frozen-lockfile
 
 # --- Этап 2: Build ---
 FROM node:20-alpine AS builder

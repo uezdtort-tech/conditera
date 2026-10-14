@@ -11,7 +11,9 @@ upload
 backups
 tool-results
 skills
-mini-services
+# НЕ исключаем mini-services целиком: Dockerfile.chat и Dockerfile.simplex-bridge
+# копируют исходники из mini-services/*/ — исключаем только их node_modules
+mini-services/*/node_modules
 mobile-app
 n8n-workflows
 simplex

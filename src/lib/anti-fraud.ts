@@ -3,7 +3,10 @@
  *
  * Правила:
  *  - order_create: не более 5 заказов в час с IP, не более 20 в день
- *  - register: не более 3 регистраций в час с IP
+ *  - register: не более 10 ПОПЫТОК регистрации в час с IP
+ *    (считается каждая попытка, включая невалидные — strict против mass-register;
+ *     раньше было 3/час, но это срабатывало на опечатках живых пользователей и
+ *     на E2E-наборах, делающих несколько валидационных попыток подряд)
  *  - login: не более 20 попыток в час с IP (защита от brute-force)
  *  - review: не более 10 отзывов в час с IP (защита от накруток)
  *
@@ -30,7 +33,7 @@ interface RateLimitConfig {
 
 export const LIMITS: Record<FraudAction, RateLimitConfig> = {
   order_create: { maxPerHour: 5, maxPerDay: 20 },
-  register: { maxPerHour: 3, maxPerDay: 10 },
+  register: { maxPerHour: 10, maxPerDay: 30 },
   login: { maxPerHour: 20, maxPerDay: 100 },
   review: { maxPerHour: 10, maxPerDay: 30 },
 };

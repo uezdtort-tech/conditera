@@ -5,25 +5,28 @@
 # Если сборка падает на wget — проверьте актуальный asset на:
 #   https://github.com/simplex-chat/simplex-chat/releases
 # Ищите файл вида simplex-chat-ubuntu-XX_04-x86-64
+#
+# v2 (e2e-fix): runtime переведён с node+ts-node на bun — ts-node отсутствовал
+# в зависимостях bridge, и `node --loader ts-node/esm` падал на старте контейнера.
+# Также в apk добавлен `file` (использовался проверкой ELF, но не был установлен).
 
-FROM node:20-alpine
+FROM oven/bun:1-alpine
 
 WORKDIR /app
 
-# dumb-init + simplex-chat CLI
+# dumb-init + ca-certs + file (проверка ELF у скачанного CLI) + simplex-chat CLI
 # Используем конкретную версию v6.2.0 (стабильный asset simplex-chat-ubuntu-22_04-x86-64)
-# Если нужно обновить — проверьте список assets на странице релизов
-RUN apk add --no-cache dumb-init wget ca-certificates && \
+RUN apk add --no-cache dumb-init wget ca-certificates file && \
     wget -qO /usr/local/bin/simplex-chat \
       "https://github.com/simplex-chat/simplex-chat/releases/download/v6.2.0/simplex-chat-ubuntu-22_04-x86-64" && \
     chmod +x /usr/local/bin/simplex-chat && \
-    # Проверяем что бинарник действительно скачался (не HTML error page)
     test -s /usr/local/bin/simplex-chat && \
     file /usr/local/bin/simplex-chat | grep -q "ELF"
 
-# Зависимости bridge
+# Зависимости bridge (bun.lock копируем ДО установки — иначе --frozen-lockfile падает)
 COPY mini-services/simplex-bridge/package.json ./
-RUN npm install --production
+COPY mini-services/simplex-bridge/bun.lock* ./
+RUN bun install --frozen-lockfile
 
 # Код bridge
 COPY mini-services/simplex-bridge/index.ts ./
@@ -40,4 +43,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 # Старт: simplex-chat CLI в фоне → bridge подключается к нему
 CMD ["dumb-init", "sh", "-c", \
-     "simplex-chat -p ${SIMPLEX_CLI_PORT} --database /app/simplex.db --no-tui & sleep 2 && node --loader ts-node/esm index.ts"]
+     "simplex-chat -p ${SIMPLEX_CLI_PORT} --database /app/simplex.db --no-tui & sleep 2 && bun index.ts"]

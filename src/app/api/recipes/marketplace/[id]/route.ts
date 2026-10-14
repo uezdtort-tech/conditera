@@ -17,6 +17,23 @@ import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
 import type { RecipeMarketplace } from "@/lib/supabase/types";
 
+/**
+ * Postgres numeric/int8 через PostgREST-шим приходит строкой — приводим
+ * числовые поля к number для JSON-контракта (types объявляют number).
+ */
+const NUMERIC_FIELDS = ["base_price", "premium_price", "royalty_rate", "rating"] as const;
+
+function coerceRecipeNumbers<T extends Record<string, unknown>>(row: T): T {
+  const out: Record<string, unknown> = { ...row };
+  for (const f of NUMERIC_FIELDS) {
+    const v = out[f];
+    if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+      out[f] = Number(v);
+    }
+  }
+  return out as T;
+}
+
 export const runtime = "nodejs";
 
 interface RouteParams {
@@ -75,7 +92,7 @@ export async function GET(
         .then(() => { /* fire-and-forget */ });
     }
 
-    return NextResponse.json({ data: recipe as RecipeMarketplace });
+    return NextResponse.json({ data: coerceRecipeNumbers(recipe as unknown as Record<string, unknown>) as unknown as RecipeMarketplace });
   } catch (error: any) {
     console.error("[recipes/:id] GET unexpected:", error?.message);
     return NextResponse.json(

@@ -436,11 +436,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
       .catch(() => {});
 
-    return NextResponse.json({
-      user: safeUser,
-      accessToken,
-      refreshToken,
-    });
+    // 201 Created — REST-контракт создания ресурса (E2E integration-auth-flow
+    // ожидает именно 201; 200 ошибочно сигнализировал «обычный ответ»).
+    return NextResponse.json(
+      {
+        user: safeUser,
+        accessToken,
+        refreshToken,
+      },
+      { status: 201 }
+    );
   } catch (error: any) {
     console.error("Register error:", error?.message);
     return NextResponse.json(

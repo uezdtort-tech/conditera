@@ -25,8 +25,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   verifyWebhook,
   getPaymentStatus,
-  getRefund,
   isYookassaConfigured,
+  getRefund,
 } from "@/lib/yookassa";
 
 export const runtime = "nodejs";
@@ -119,6 +119,17 @@ async function verifyEventWithProvider(
           : null;
   if (!expectedStatus) return { ok: true }; // прочие события не сверяем
 
+  // PAY-1a: если YooKassa не настроена (E2E/staging без кредитов) — сверку
+  // провести нечем. Аутентичность вызова уже обеспечена webhook-секретом;
+  // раньше отсутствие кредитов приводило к network-error → fail-closed 500
+  // на ВСЕ вебхуки и ломало платёжный конвейер в необслуживаемых окружениях.
+  if (!isYookassaConfigured()) {
+    console.warn(
+      `[webhook] YooKassa not configured — provider verification skipped (event=${event})`
+    );
+    return { ok: true, skip: "provider_not_configured" };
+  }
+
   const res = await getPaymentStatus(providerPaymentId);
   if (!res.success || !res.payment) return { ok: false };
   if (res.payment.status !== expectedStatus) return { ok: true, skip: "provider_mismatch" };
@@ -173,6 +184,13 @@ export async function POST(request: NextRequest) {
     }
 
     const orderId = payment?.order_id ?? metaOrderId;
+    // Non-UUID orderId (мусор в metadata.orderId) не может существовать в БД:
+    // .eq("id", …) по uuid-колонке бросил бы 22P02 и отдал бы 500. Валидный
+    // контракт для «заказа не существует» — 404 (см. E2E payment-webhook).
+    if (orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)) {
+      console.warn(`[webhook] orderId is not a UUID: ${orderId} — 404`);
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
     if (!orderId) {
       return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
     }

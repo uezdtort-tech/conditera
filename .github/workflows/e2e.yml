@@ -67,8 +67,10 @@ on:
 
 env:
   NODE_VERSION: "20"
-  # Используем PGlite для изолированных тестов
-  DATABASE_URL: "file:./db/e2e-test.db"
+  # Локальный PostgreSQL (embedded, без Docker) — источник данных для шима
+  # /rest/v1 и всех API. Раньше здесь был legacy file:./db/e2e-test.db, а саму
+  # БД никто не поднимал — все API-тесты E2E падали (53+ ошибок CI).
+  DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
   JWT_SECRET: "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa"
   TFA_ENCRYPTION_KEY: "e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
   CRON_SECRET: "e2e_test_cron_secret"
@@ -144,6 +146,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Bootstrap embedded PostgreSQL + migrations + seed
+        run: |
+          node scripts/db/runtime.mjs start
+          bun run db:setup
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
+          JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
+
       - name: Restore build cache
         uses: actions/cache@v4
         with:
@@ -158,7 +168,7 @@ jobs:
           bun run start &
           # Ждём пока приложение поднимется
           for i in {1..30}; do
-            if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health | grep -q "200"; then
+            if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health | grep -q "200"; then
               echo "✓ Application is up"
               break
             fi
@@ -179,8 +189,10 @@ jobs:
         run: bun run test:e2e -- --project=${{ matrix.browser }} ${{ github.event.inputs.grep && format('--grep "{0}"', github.event.inputs.grep) || '' }}
         env:
           # Сервер уже запущен предыдущим шагом — запрещаем playwright
-          # поднимать собственный webServer (иначе конфликт порта 3000)
-          E2E_BASE_URL: http://localhost:3000
+          # поднимать собственный webServer (иначе конфликт порта 3000).
+          # 127.0.0.1 (не localhost): Node ≥17 резолвит localhost в ::1,
+          # сервер слушает 0.0.0.0 — API-тесты падали с ECONNREFUSED ::1:3000
+          E2E_BASE_URL: http://127.0.0.1:3000
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}

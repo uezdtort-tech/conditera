@@ -29,6 +29,25 @@ import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
 import type { RecipeMarketplace } from "@/lib/supabase/types";
 
+/**
+ * Postgres numeric/int8 через PostgREST-шим приходит строкой ("500.00") —
+ * приводим числовые поля к number для JSON-контракта API (types объявляют number).
+ */
+const NUMERIC_FIELDS = ["base_price", "premium_price", "royalty_rate", "rating"] as const;
+
+function coerceRecipeNumbers<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = { ...row };
+    for (const f of NUMERIC_FIELDS) {
+      const v = out[f];
+      if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+        out[f] = Number(v);
+      }
+    }
+    return out as T;
+  });
+}
+
 export const runtime = "nodejs";
 
 const MAX_LIMIT = 100;
@@ -59,7 +78,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .select(
         `
         id, author_id, title, slug, description, base_price, is_premium,
-        premium_price, royalty_rate, cooking_time_min, difficulty, tags,
+        is_published, premium_price, royalty_rate, cooking_time_min, difficulty, tags,
         preview_image, views, purchases_count, rating, published_at,
         created_at, updated_at
       `
@@ -130,7 +149,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({
-      data: (data || []) as Partial<RecipeMarketplace>[],
+      data: coerceRecipeNumbers(data || []),
       meta: {
         total: count ?? data?.length ?? 0,
         limit,

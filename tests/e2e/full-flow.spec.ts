@@ -79,10 +79,13 @@ test.describe("Auth flow", () => {
 
   test("dashboard redirects unauthenticated user", async ({ page }) => {
     await page.goto(`${BASE_URL}/dashboard`);
-    // Должен редиректить на /login или показать страницу входа
-    await page.waitForTimeout(2000);
+    // Редирект делает middleware; на холодном dev-сервере (компиляция /dashboard,
+    // auth-шима и /login) он может занять больше 2 секунд — ждём URL явно.
+    await page
+      .waitForURL(/login/, { timeout: 20_000 })
+      .catch(() => {});
     const url = page.url();
-    expect(url).toContain("login").toBeTruthy();
+    expect(url).toContain("login");
   });
 });
 

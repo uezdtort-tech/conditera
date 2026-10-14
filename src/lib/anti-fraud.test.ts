@@ -152,9 +152,12 @@ describe('LIMITS config', () => {
     expect(LIMITS.order_create.maxPerDay).toBe(20)
   })
 
-  it('register: 3/час (строгий лимит от спама регистраций)', () => {
-    expect(LIMITS.register.maxPerHour).toBe(3)
-    expect(LIMITS.register.maxPerDay).toBe(10)
+  it('register: 10/час (strict по ПОПЫТКАМ, но терпимый к опечаткам живых пользователей)', () => {
+    // e2e-fix: было 3/час — каждая попытка (включая невалидные) съедала лимит,
+    // живой пользователь с 3 опечатками блокировался на час; E2E-наборы,
+    // делающие несколько валидационных попыток подряд, получали 429.
+    expect(LIMITS.register.maxPerHour).toBe(10)
+    expect(LIMITS.register.maxPerDay).toBe(30)
   })
 
   it('login: 20/час (умеренный лимит, защита от brute-force)', () => {

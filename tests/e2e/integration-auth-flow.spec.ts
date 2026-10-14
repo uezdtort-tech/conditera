@@ -141,6 +141,19 @@ test.describe.serial('Integration: full auth flow', () => {
   })
 })
 
+/**
+ * Получить CSRF-токен (header) и csrf_token cookie (double-submit pattern).
+ * Middleware требует ОБА: header x-csrf-token и cookie csrf_token.
+ */
+async function extractCsrf(csrfResponse: any): Promise<{ token: string; cookie: string }> {
+  expect(csrfResponse.status()).toBe(200)
+  const body = await csrfResponse.json()
+  const setCookie = csrfResponse.headers()['set-cookie'] || ''
+  const match = setCookie.match(/csrf_token=([^;]+)/)
+  expect(match).toBeTruthy()
+  return { token: body.token, cookie: match![1] }
+}
+
 test.describe('Integration: public API endpoints', () => {
   test('GET /api/products → returns array (public)', async ({ request }) => {
     const response = await request.get('/api/products?limit=5')
@@ -178,15 +191,25 @@ test.describe('Integration: public API endpoints', () => {
   })
 
   test('POST /api/ai-assistant/chat without auth → 401', async ({ request }) => {
+    // Контракт: без сессии, но с валидным CSRF-токеном → маршрут отвечает 401.
+    // Cookie csrf_token playwright request-фикстура берёт из своего jar
+    // (установлен ответом GET /api/csrf-token) — явный Cookie-заголовок дублировал
+    // бы cookie из jar и ломал сравнение. Отправляем только header.
+    const csrf = await request.get('/api/csrf-token')
+    const { token } = await extractCsrf(csrf)
     const response = await request.post('/api/ai-assistant/chat', {
       data: { message: 'test' },
+      headers: { 'x-csrf-token': token },
     })
     expect(response.status()).toBe(401)
   })
 
   test('POST /api/ai-assistant/feedback without auth → 401', async ({ request }) => {
+    const csrf = await request.get('/api/csrf-token')
+    const { token } = await extractCsrf(csrf)
     const response = await request.post('/api/ai-assistant/feedback', {
       data: { log_id: 1, was_helpful: true },
+      headers: { 'x-csrf-token': token },
     })
     expect(response.status()).toBe(401)
   })
