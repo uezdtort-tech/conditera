@@ -19,20 +19,24 @@ test.describe('Auth flow — register/login (exempt от CSRF)', () => {
 
   test('POST /api/auth/register без полей → 400-500 (exempt от CSRF)', async ({ request }) => {
     const response = await request.post('/api/auth/register', { data: {} })
-    // register exempt от CSRF → проходит → валидация тела → 400 (missing fields) или 500 (БД недоступна)
-    expect([400, 422, 500]).toContain(response.status())
+    // register exempt от CSRF → проходит → валидация тела → 400 (missing fields) или 500 (БД недоступна).
+    // 429 — strict anti-fraud лимитер (20/час с IP): отклонённые попытки тоже
+    // расходуют окно (см. src/lib/anti-fraud.ts). 429 = отказ — контракт не нарушен.
+    expect([400, 422, 429, 500]).toContain(response.status())
   })
 
   test('POST /api/auth/register с коротким паролем → 400-500', async ({ request }) => {
     const response = await request.post('/api/auth/register', {
       data: { email: 'test@example.com', password: '123', name: 'Test', phone: '+79999999999' },
     })
-    expect([400, 422, 500]).toContain(response.status())
+    // 429 — см. комментарий выше (strict rate limit; отклонённая попытка — отказ).
+    expect([400, 422, 429, 500]).toContain(response.status())
   })
 
   test('POST /api/auth/login без email/password → 400-500', async ({ request }) => {
     const response = await request.post('/api/auth/login', { data: {} })
-    expect([400, 500]).toContain(response.status())
+    // 429 — см. комментарий выше (strict rate limit; отклонённая попытка — отказ).
+    expect([400, 429, 500]).toContain(response.status())
   })
 
   test('POST /api/auth/refresh без refreshToken → 400', async ({ request }) => {

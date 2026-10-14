@@ -261,6 +261,13 @@ const JWT_SECRET = getJwtSecret();
 let io: Server;
 
 const httpServer = createServer((req, res) => {
+  // engine.io отвечает ТОЛЬКО на pathname "/socket.io/" (со слэшем). Прокси
+  // и шлюзы могут терять завершающий слэш. Next-rewrite выше шлёт запрос
+  // уже со слэшем; нормализация ниже — defense-in-depth для Node-деплоев,
+  // где мутация req.url видна слушателю engine.io (в Bun — нет).
+  if (req.url && /^\/socket\.io($|\?)/.test(req.url)) {
+    req.url = req.url.replace(/^\/socket\.io/, "/socket.io/");
+  }
   if (req.url === "/health" || req.url === "/healthz") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({

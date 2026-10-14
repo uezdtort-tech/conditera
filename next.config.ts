@@ -140,6 +140,29 @@ const nextConfig: NextConfig = {
   },
 
   poweredByHeader: false,
+
+  // ===== Socket.IO → chat-server (локальный runtime без Docker) =====
+  // Браузер ходит same-origin: /socket.io/* проксируется в mini-service :3030.
+  // В Docker этот путь перехватывает Caddy (handle /socket.io/* →
+  // chat-service:3030) до Next — rewrite остаётся не у дел; в dev он даёт
+  // ту же топологию, что и прод (один внешний порт, чат за обратным прокси).
+  // skipTrailingSlashRedirect: engine.io отвечает ТОЛЬКО на /socket.io/ (со
+  // слэшем) — авто-редирект Next 308 превращал /socket.io/ в /socket.io и
+  // вешал polling-handshake.
+  skipTrailingSlashRedirect: true,
+  async rewrites() {
+    return [
+      {
+        // Жёсткий слэш в destination: engine.io отвечает ТОЛЬКО на
+        // "/socket.io/" — при подстановке через :path* Next теряет
+        // завершающий слэш и polling-handshake зависает.
+        // skipTrailingSlashRedirect выше гарантирует, что /socket.io/
+        // и /socket.io матчатся этим правилом в исходном виде.
+        source: "/socket.io",
+        destination: "http://127.0.0.1:3030/socket.io/",
+      },
+    ];
+  },
 };
 
 // ===== Sentry wrapper (если установлен @sentry/nextjs) =====

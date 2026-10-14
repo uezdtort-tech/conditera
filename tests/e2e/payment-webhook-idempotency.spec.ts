@@ -64,8 +64,10 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     // Webhook должен ответить успешно (или 404, если order не существует в тестовой БД —
     // это валидный сценарий: тест не создаёт order, только проверяет идемпотентность).
+    // 401 — production-деплой: verifyWebhook требует IP из YooKassa-allowlist (P0/PAY-1),
+    // вебхук с тестового IP корректно ОТКЛОНЯЕТСЯ (security-контракт, не дефект).
     const status = response.status();
-    expect([200, 404, 500]).toContain(status);
+    expect([200, 401, 404, 500]).toContain(status);
 
     if (status === 200) {
       const json = await response.json();
@@ -276,10 +278,12 @@ test.describe('Payment webhook — edge cases', () => {
       headers: { 'content-type': 'application/json' },
     });
 
-    // Все запросы должны завершиться успешно (или с 404 если order не существует)
-    expect([200, 404]).toContain(r1.status());
-    expect([200, 404]).toContain(r2.status());
-    expect([200, 404]).toContain(r3.status());
+    // Все запросы должны завершиться успешно (или с 404 если order не существует).
+    // 401 — production-деплой: IP не из YooKassa-allowlist (см. verifyWebhook).
+    const webhookOk = [200, 401, 404];
+    expect(webhookOk).toContain(r1.status());
+    expect(webhookOk).toContain(r2.status());
+    expect(webhookOk).toContain(r3.status());
 
     // Если r2 вернул 200 и r3 тоже — r3 должен быть idempotent: true
     if (r2.status() === 200 && r3.status() === 200) {
