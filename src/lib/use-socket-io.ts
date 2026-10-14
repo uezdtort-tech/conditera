@@ -110,7 +110,7 @@ export function useSocketIO() {
         if (disposed) return;
 
         socket = io(CHAT_SERVER_URL, {
-          path: "/",
+          path: "/socket.io",
           auth: {
             token: accessToken,
             userName: user.name,

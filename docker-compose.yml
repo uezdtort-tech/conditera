@@ -315,6 +315,7 @@ services:
       - CHAT_PORT=3030
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
+      - NEXT_API_URL=http://web:3000
     depends_on:
       redis:
         condition: service_healthy
