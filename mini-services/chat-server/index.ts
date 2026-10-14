@@ -684,7 +684,7 @@ io.on("connection", (socket) => {
     const rawRoomId = typeof data?.roomId === "string" ? data.roomId : "";
     const label = typeof data?.reply?.label === "string" ? data.reply.label : "";
     const action = typeof data?.reply?.action === "string" ? data.reply.action : "";
-    if (!rawRoomId || rawRoomId.length > 128 || !label || label.length > 200 || action.length > 64) {
+    if (!rawRoomId || rawRoomId.length > 128 || !label || !label.trim() || label.length > 200 || action.length > 100) {
       socket.emit("message:error", { roomId: rawRoomId || null, error: "Некорректные данные quick_reply" });
       return;
     }
