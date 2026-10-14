@@ -873,24 +873,74 @@ io.on("connection", (socket) => {
   });
 
   // ===== Курьерский трекинг (real-time) =====
-  socket.on("courier:location", (data: {
+  // P1 (courier-authz): роль COURIER — необходимое, но НЕ достаточное условие.
+  // Раньше обработчик принимал произвольные orderId/customerId из payload:
+  // любой курьер мог доставить ложную геопозицию любому пользователю.
+  // Теперь: (1) валидация payload и координат (finite, диапазоны);
+  // (2) серверная проверка назначения — GET /api/orders/{orderId} с JWT
+  // курьера: order.courier_id === userId из токена; получатель берётся из
+  // серверных данных заказа (user_id), клиентский customerId игнорируется;
+  // (3) недоступность Next API — fail-closed (без доставки).
+  socket.on("courier:location", async (data: {
     orderId: string;
     customerId: string;
     lat: number;
     lng: number;
     eta?: number;
   }) => {
-    // P1.1: только роль COURIER — гео-координаты шлёт назначенный курьер
     if (!((socket as any).userRoles as string[] | undefined)?.includes("COURIER")) return;
-    const target = onlineUsers.get(data.customerId);
-    if (target) {
-      io.to(target.socketId).emit("courier:location_update", {
-        orderId: data.orderId,
-        lat: data.lat,
-        lng: data.lng,
-        eta: data.eta,
-        timestamp: new Date().toISOString(),
+
+    // (1) Структура payload + конечные координаты в допустимых диапазонах
+    const orderId = typeof data?.orderId === "string" ? data.orderId : "";
+    const lat = data?.lat;
+    const lng = data?.lng;
+    const eta = data?.eta;
+    const coordsOk =
+      typeof lat === "number" && Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
+      typeof lng === "number" && Number.isFinite(lng) && lng >= -180 && lng <= 180;
+    const etaOk = eta === undefined || (typeof eta === "number" && Number.isFinite(eta) && eta >= 0);
+    if (!orderId || orderId.length > 64 || !coordsOk || !etaOk) {
+      socket.emit("courier:error", { orderId: orderId || null, error: "Некорректные данные геопозиции" });
+      return;
+    }
+
+    // (2) Серверная проверка назначения (payload клиента — не доказательство)
+    const token = socket.handshake.auth?.token as string | undefined;
+    if (!token) return;
+    try {
+      const res = await fetch(`${NEXT_API_BASE}/api/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) {
+        socket.emit("courier:error", { orderId, error: "Нет доступа к заказу" });
+        console.warn(`⛔ courier:location ${userName} → ${orderId}: ${res.status} (denied)`);
+        return;
+      }
+      const payload = (await res.json()) as {
+        order?: { courier_id?: string | null; courierId?: string | null; user_id?: string; customerId?: string };
+      };
+      const order = payload?.order;
+      const assignedCourier = order?.courier_id ?? order?.courierId ?? null;
+      if (!order || assignedCourier !== userId) {
+        socket.emit("courier:error", { orderId, error: "Курьер не назначен на заказ" });
+        console.warn(`⛔ courier:location ${userName} → ${orderId}: курьер не назначен`);
+        return;
+      }
+      // (3) Получатель — из серверных данных заказа, не из payload
+      const recipientId = order.user_id ?? order.customerId;
+      const target = recipientId ? onlineUsers.get(recipientId) : undefined;
+      if (target) {
+        io.to(target.socketId).emit("courier:location_update", {
+          orderId,
+          lat,
+          lng,
+          eta,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      // Next API недоступен — fail-closed: без проверки назначения не доставляем
+      console.warn("[courier:location] verification failed:", (err as Error).message);
     }
   });
 
