@@ -68,9 +68,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // назначенного курьера; атомарный optimistic-lock клейм.
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
-      .select("id, number, status")
+      .select("id, number, status, delivery_address, delivery_cost")
       .eq("id", orderId)
-      .maybeSingle() as { data: { id: string; number: string; status: string } | null; error: { message: string } | null };
+      .maybeSingle() as { data: { id: string; number: string; status: string; delivery_address: string | null; delivery_cost: number | null } | null; error: { message: string } | null };
 
     if (orderErr) {
       console.error("[courier/assign] order fetch error:", orderErr.message);
@@ -124,7 +124,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       const { data: inserted, error: insertErr } = await supabaseAdmin
         .from("deliveries")
-        .insert({ order_id: orderId, courier_id: courierId, status: "assigned" })
+        .insert({
+          order_id: orderId,
+          courier_id: courierId,
+          status: "assigned",
+          // address NOT NULL в схеме deliveries — берём из серверных данных заказа
+          address: order.delivery_address || "",
+          cost: Number(order.delivery_cost || 0),
+        })
         .select("id")
         .single() as { data: { id: string } | null; error: { message: string } | null };
       if (insertErr || !inserted) {
