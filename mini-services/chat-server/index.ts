@@ -917,10 +917,22 @@ io.on("connection", (socket) => {
         return;
       }
       const payload = (await res.json()) as {
-        order?: { courier_id?: string | null; courierId?: string | null; user_id?: string; customerId?: string };
+        order?: {
+          courier_id?: string | null;
+          courierId?: string | null;
+          user_id?: string;
+          customerId?: string;
+          delivery?: { courier_id?: string | null }[] | null;
+        };
       };
       const order = payload?.order;
-      const assignedCourier = order?.courier_id ?? order?.courierId ?? null;
+      // P1 (courier-schema): канонический маркер назначения — deliveries.courier_id
+      // (GET /api/orders/[id] возвращает строки deliveries как order.delivery[]).
+      // orders.courier_id в реальной схеме БД не существует — оставлен как fallback.
+      const deliveryRows = Array.isArray(order?.delivery) ? order!.delivery! : [];
+      const assignedCourier =
+        order?.courier_id ?? order?.courierId ??
+        deliveryRows.find((d) => d?.courier_id)?.courier_id ?? null;
       if (!order || assignedCourier !== userId) {
         socket.emit("courier:error", { orderId, error: "Курьер не назначен на заказ" });
         console.warn(`⛔ courier:location ${userName} → ${orderId}: курьер не назначен`);
