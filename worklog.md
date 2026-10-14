@@ -8389,3 +8389,23 @@ Work Log:
 Stage Summary:
 - Статика этого же дерева ранее сообщалась как typecheck 0 / lint 0 / Vitest 908/908 / chat strict tsc 0 — всё перепроверить при восстановлении.
 - Runtime-gate полностью открыт. При продолжении начинать с проверки реального состояния, затем PostgreSQL → `.env.local` → Next → chat с теми же секретами, не раскрывая их.
+
+---
+
+Task ID: runtime-gate-2
+Agent: main (Super Z)
+Task: RUNTIME VERIFICATION → PRODUCTION GATE (resume-kit): статика, запуск, Socket.IO gate, courier-schema realignment.
+
+Work Log:
+- Контроль состояния: фактический HEAD=ed5404f (UUID-коммит = только +31 строка worklog — две отложенные записи; порчи нет), ожидаемая точка 2a734f5 в истории. Дерево чистое, оба upload-маршрута на месте. Resume-kit (SHA256 7/7 OK) прочитан (PROMPT_AGENT.md, CHECKPOINT.md; PATCHES_GUIDE.md в zip).
+- Коммиты 35f94bc/0fa95e4/2a734f5 сверены со спецификацией владельца: room:leave-фикс идентичен патчу (git apply --check → "does not apply" = уже применён), courier:location соответствует схеме «валидация → серверная проверка назначения → получатель из серверных данных → fail-closed».
+- Дефект владельца подтверждён: GET /api/orders/[id] имел COURIER в привилегированном списке → 8a83760 (фикс + 11 регрессионных тестов; затем уточнение на deliveries-embed в a84040d).
+- СТАТИКА (дважды за сессию): typecheck=0, chat-server strict tsc=0, lint=0, vitest 928/928 (38 файлов).
+- Чистый запуск: убиты 5 сирот chat-server от прошлой сессии; PG 54329 (существующий кластер), Next dev (rm -rf .next) → /api/health 200 (database ok), chat-server с JWT_SECRET/BOT_SECRET из .env.local (значения не печатались).
+- СХЕМА БД (127.0.0.1:54329/conditera): в orders НЕТ courier_id; каноническое назначение — deliveries.courier_id (FK orders/auth.users); courier_locations/order_tracking в camelCase. Все 6 courier-роутов были написаны против фантомной колонки → 500 (42703). Реalignment: a84040d (assign/location/available-orders/dashboard/deliveries/earnings + lib/courier-assignments.ts + тесты), be321f0 (chat-server читает order.delivery[].courier_id), 29eb0f8 (deliveries.address NOT NULL — заполнять из заказа; scripts/verify-chat-runtime.mjs).
+- RUNTIME GATE: scripts/verify-chat-runtime.mjs → 44/44 PASSED (exit 0): handshake (нет токена/неверный/валидный), room:join allow/deny, message:send/receive (sender из JWT, spoof отклонён, без эха), персистентность в chat_messages + history API, bot:quick_reply allow/deny (+нет доставки чужому), room:leave (чужая → room:error, алиас r3, мультикомнатность, typing после выхода не релеится), typing/read receipts только участникам, reconnect без дублей, support-бот real-time + персистенция через BOT_SECRET, courier: assign 200/409, GET orders 200/403, courier:location доставлен назначенному (spoof customerId игнорирован), неназначенный → courier:error, не-курьер игнорируется, POST /api/courier/location 200 + строки в courier_locations/order_tracking.
+- Попутно подтверждена защита: login rate-limit 20/час с IP реально отдаёт 429; CSRF-требование на courier POST подтверждено 403 без токена. Тестовые артефакты (фикстуры rt-*, order_fraud_logs login) вычищены.
+
+Stage Summary:
+- Статусы: CODE READY, STATIC PASS, RUNTIME PASS (chat + courier). E2E/UI/BUILD/DOCKER — следующий этап.
+- HEAD=29eb0f8, tree clean; push/deploy по-прежнему запрещены.
