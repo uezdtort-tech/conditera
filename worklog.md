@@ -8327,3 +8327,34 @@ Stage Summary:
 - Корневые причины CI-падений устранены: (а) E2E без БД → bootstrap embedded PG; (б) localhost→::1 → 127.0.0.1; (в) docker: .dockerignore/mini-services + npm-vs-bun.lock
 - Docker-сборка в песочнице не воспроизводима (docker CLI отсутствует) — фиксы статические, требуют проверки прогоном CI
 - PUSH НЕ ВЫПОЛНЯЛСЯ — по отдельному разрешению владельца
+---
+Task ID: e2e-recovery-2
+Agent: main (Super Z)
+Task: Docker registry hardening (429), браузерная проверка сценариев (прошлый сеанс; аппенд тогда упал по сбою канала — восстановлен сейчас).
+
+Work Log:
+- Docker Hub 429 (блокер CI): базовые образы → public.ecr.aws/docker/library/* (manifests node:20-alpine, postgres:16/18-alpine, redis:7-alpine, caddy:2.8-alpine проверены → 200 анонимно)
+- oven/bun зеркал не имеет (ghcr.io/oven-sh/bun → 401) → node:20-alpine из ECR + npm install -g bun@1 (@oven/bun-linux-x64-musl существует, bun@1.4.3); bun install --frozen-lockfile сохранён
+- ci.yml caddy → ECR; docker-compose.yml/.dev.yml postgres/redis/caddy → ECR; сторонние (pgbouncer/meilisearch/n8n/simplex/mailu) не менялись
+- mini-services/*/bun.lock УЖЕ в git с 27.09 (Glob их не видел); --frozen-lockfile ок (23/31 пакетов)
+- Коммит fa9c9b8; создан scripts/ensure-dev.sh (self-healing PG:54329 + dev:3000 + chat:3030 — песочница убивает detached-процессы)
+- Embedded PG пересоздан (.pgdata был потерян), db:setup: 59 миграций + сиды + демо-юзеры + .env.local → 127.0.0.1:54329/conditera
+- Health status:ok/database:ok; API: /api/products 200, /api/confectioners 200 (партнёры), /api/recipes/marketplace 200
+- Agent Browser: / и /catalog без ошибок консоли; РЕГИСТРАЦИЯ ✓ (e2e-browser-test@demo.ru, login 200); ЗАКАЗ ✓ «Заказ оформлен! UK-2026-668761, 4 400 ₽» (наличными при получении)
+- Зафиксировано, не доведено: консоль [Socket.IO] Ошибка подключения: server error; сеанс прерван 3 подряд отказами канала инструментов
+
+Stage Summary:
+- main = 49604e0 + fa9c9b8 (ahead 2, не публиковались — нет учётных данных в песочнице; пуш отдельно запрещён владельцем до особого разрешения)
+- Подтверждено в браузере: регистрация, каталог, заказ. Остаток: чаты/конструктор/возвраты/загрузки
+---
+Task ID: recovery-protocol
+Agent: main (Super Z)
+Task: AUTONOMOUS RECOVERY & PRODUCTION-READINESS PROTOCOL (владелец): инвентаризация с нуля, чистый запуск, полные сценарии, финальный gate.
+
+Work Log:
+- Фаза 0 инвентаризация: DRIFT #3 зафиксирован — оба upload-маршрута снова удалены в рабочем дереве (150 строк, вне коммитов) + чужой UUID-коммит 86083af (06:52:42, только мой scripts/ensure-dev.sh, 24 строки) поверх fa9c9b8
+- Обработано по прецеденту владельца (worklog 8308): ветка backup/uuid-86083af сохранена, main → reset --hard fa9c9b8 (локальные коммиты не публиковались — опубликованная контрольная точка 8454b3a не затронута), маршруты восстановлены, дерево чистое
+- Следующий шаг: архив владельца (путь/дата/SHA-256), инвентарь окружения, чистый запуск
+
+Stage Summary:
+- Контрольная точка: HEAD=fa9c9b8, main ahead 2 от 8454b3a, tree clean, оба upload-маршрута на месте
