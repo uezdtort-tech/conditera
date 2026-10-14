@@ -531,6 +531,12 @@ io.on("connection", (socket) => {
       ((socket.data as any).verifiedRooms as Set<string> | undefined) ?? new Set<string>();
     ((socket.data as any).verifiedRooms as Set<string>).add(roomId);
     if (roomId !== rawRoomId) ((socket.data as any).verifiedRooms as Set<string>).add(rawRoomId);
+    const roomAliases =
+      ((socket.data as any).roomAliases as Map<string, string> | undefined) ??
+      new Map<string, string>();
+    roomAliases.set(rawRoomId, roomId);
+    roomAliases.set(roomId, roomId);
+    (socket.data as any).roomAliases = roomAliases;
     socket.join(roomId);
     console.log(`📍 ${userName} вошёл в комнату ${roomId}`);
 
@@ -557,8 +563,37 @@ io.on("connection", (socket) => {
   });
 
   // ===== Выход из комнаты =====
-  socket.on("room:leave", (roomId: string) => {
+  socket.on("room:leave", (rawRoomId: string) => {
+    if (typeof rawRoomId !== "string" || rawRoomId.length === 0 || rawRoomId.length > 128) {
+      socket.emit("room:error", { roomId: rawRoomId, error: "Некорректный идентификатор комнаты" });
+      return;
+    }
+
+    const verifiedRooms = (socket.data as any).verifiedRooms as Set<string> | undefined;
+    const roomAliases = (socket.data as any).roomAliases as Map<string, string> | undefined;
+    const roomId = roomAliases?.get(rawRoomId) ?? rawRoomId;
+
+    // Клиент не может подделать presence-события для комнаты, к которой
+    // он не присоединён. Для алиасов используем canonical ID из room:join.
+    if (!verifiedRooms?.has(rawRoomId) || !verifiedRooms.has(roomId) || !socket.rooms.has(roomId)) {
+      socket.emit("room:error", { roomId: rawRoomId, error: "Нет доступа к комнате" });
+      return;
+    }
+
     socket.leave(roomId);
+
+    // Сбрасываем только этот room + связанные алиасы; другие комнаты
+    // текущего сокета остаются верифицированными.
+    verifiedRooms.delete(roomId);
+    if (roomAliases) {
+      for (const [alias, canonicalId] of roomAliases) {
+        if (canonicalId === roomId) {
+          roomAliases.delete(alias);
+          verifiedRooms.delete(alias);
+        }
+      }
+    }
+
     socket.to(roomId).emit("room:user_left", {
       userId,
       name: userName,
