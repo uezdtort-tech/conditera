@@ -443,6 +443,33 @@ async function main() {
     const upd3 = await custUpdate3;
     record("courier:location от не-курьера игнорируется", upd3.timedOut);
 
+    // 12f2. неверные координаты от НАЗНАЧЕННОГО курьера → courier:error, покупателю не доставляется
+    const k1CoordErr = expectEvent(sockK1, "courier:error", { timeoutMs: 6000, predicate: (d) => d?.orderId === fixtureIds.order });
+    const custNoBadCoord = expectEvent(sockCust, "courier:location_update", { timeoutMs: 3000, predicate: (d) => d?.orderId === fixtureIds.order });
+    sockK1.emit("courier:location", { orderId: fixtureIds.order, customerId: RT_C.user.id, lat: 999, lng: 37.6 });
+    const coordE = await k1CoordErr;
+    const updNoBadCoord = await custNoBadCoord;
+    record(
+      "courier:location неверные координаты (lat=999) → courier:error",
+      !coordE.timedOut && /Некоррект|коорд/i.test(String(coordE.data?.error)),
+      JSON.stringify(coordE.data)
+    );
+    record("courier:location неверные координаты: покупатель НЕ получил гео", updNoBadCoord.timedOut);
+
+    // 12f3. несуществующий заказ → courier:error (GET 404 → !res.ok), покупателю не доставляется
+    const ghostOrderId = "00000000-0000-4000-8000-000000000000";
+    const k1GhostErr = expectEvent(sockK1, "courier:error", { timeoutMs: 6000, predicate: (d) => d?.orderId === ghostOrderId });
+    const custNoGhost = expectEvent(sockCust, "courier:location_update", { timeoutMs: 3000, predicate: (d) => d?.orderId === ghostOrderId });
+    sockK1.emit("courier:location", { orderId: ghostOrderId, customerId: RT_C.user.id, lat: 55.75, lng: 37.62 });
+    const ghostE = await k1GhostErr;
+    const updNoGhost = await custNoGhost;
+    record(
+      "courier:location несуществующий заказ → courier:error",
+      !ghostE.timedOut && /доступ|назнач/i.test(String(ghostE.data?.error)),
+      JSON.stringify(ghostE.data)
+    );
+    record("courier:location несуществующий заказ: покупатель НЕ получил гео", updNoGhost.timedOut);
+
     // 12g. HTTP POST /api/courier/location: 200 + строки в БД (camelCase фикс)
     const locPost = await api("POST", "/api/courier/location", { token: RT_K1.token, csrfPair: await getCsrfPair(), body: { lat: 55.76, lng: 37.64, heading: 90 } });
     record("POST /api/courier/location → 200", locPost.status === 200, `status=${locPost.status} ${JSON.stringify(locPost.json).slice(0, 120)}`);
