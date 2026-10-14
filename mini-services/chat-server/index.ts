@@ -670,36 +670,61 @@ io.on("connection", (socket) => {
   });
 
   // ===== Авточат: quick-reply от пользователя (нажал кнопку под bot-сообщением) =====
-  socket.on("bot:quick_reply", (data: {
+  // P1 (quickreply-authz): раньше broadcast шёл в клиент-заданный roomId ДО
+  // какой-либо проверки — аутентифицированный клиент мог вколотить
+  // «quick-reply»-сообщение (и bot-ответ) в чужую комнату. Теперь, как в
+  // room:join/message:send: (1) валидация структуры/размера входа →
+  // (2) verifyRoomAccess, отказ = message:error без рассылки →
+  // (3) рассылка и bot-ответ только в канонический realRoomId.
+  socket.on("bot:quick_reply", async (data: {
     roomId: string;
     reply: { label: string; action: string; payload?: any };
   }) => {
+    // (1) Структура и размер входных данных — клиентский payload не доверенный
+    const rawRoomId = typeof data?.roomId === "string" ? data.roomId : "";
+    const label = typeof data?.reply?.label === "string" ? data.reply.label : "";
+    const action = typeof data?.reply?.action === "string" ? data.reply.action : "";
+    if (!rawRoomId || rawRoomId.length > 128 || !label || label.length > 200 || action.length > 64) {
+      socket.emit("message:error", { roomId: rawRoomId || null, error: "Некорректные данные quick_reply" });
+      return;
+    }
+
+    // (2) Гейт membership — тот же verifyRoomAccess, что у room:join/message:send
+    const access = await verifyRoomAccess(socket, rawRoomId);
+    if (!access.ok) {
+      socket.emit("message:error", { roomId: rawRoomId, error: "Нет доступа к комнате" });
+      console.warn(`⛔ bot:quick_reply ${userName} → ${rawRoomId}: доступ запрещён`);
+      return;
+    }
+    // (3) Канонический ID комнаты — только после проверки
+    const roomId = access.realRoomId;
+
     // Добавляем сообщение пользователя с текстом кнопки
     const userMsg = {
       id: `m_${Date.now()}`,
-      text: data.reply.label,
+      text: label,
       senderId: userId,
       senderName: userName,
       senderAvatar: userAvatar,
       timestamp: new Date().toISOString(),
       status: "sent" as const,
     };
-    io.to(data.roomId).emit("message:receive", { roomId: data.roomId, message: userMsg });
+    io.to(roomId).emit("message:receive", { roomId, message: userMsg });
 
     (async () => {
       const authToken = socket.handshake.auth?.token as string | undefined;
-      let roomType: string | null = roomTypeCache.get(data.roomId) || null;
-      if (!roomType) roomType = await getRoomType(data.roomId, authToken || "");
+      let roomType: string | null = roomTypeCache.get(roomId) || null;
+      if (!roomType) roomType = await getRoomType(roomId, authToken || "");
       const isChatRoom =
-        data.roomId.startsWith("order:") ||
-        data.roomId.startsWith("support:") ||
-        data.roomId === "r2" ||
-        data.roomId === "r3" ||
+        roomId.startsWith("order:") ||
+        roomId.startsWith("support:") ||
+        roomId === "r2" ||
+        roomId === "r3" ||
         roomType === "support" ||
         roomType === "order";
 
       // Если это эскалация — отвечаем как escalation
-      if (data.reply.action === "human:operator") {
+      if (action === "human:operator") {
         setTimeout(() => {
           const botMsg = {
             id: `bot_${Date.now()}`,
@@ -712,17 +737,17 @@ io.on("connection", (socket) => {
             isBot: true,
             botKind: "escalation",
           };
-          io.to(data.roomId).emit("message:receive", { roomId: data.roomId, message: botMsg });
+          io.to(roomId).emit("message:receive", { roomId, message: botMsg });
           // Персистенция escalation-ответа бота
           if (authToken) {
-            resolveRoomId(data.roomId, authToken, userId)
+            resolveRoomId(roomId, authToken, userId)
               .then((realRoomId) => persistBotMessage(realRoomId, botMsg.text, "escalation"))
               .catch(() => {});
           }
         }, 500);
       } else if (isChatRoom) {
         // Иначе — обычный auto-reply по тексту кнопки
-        handleAutoReply(data.roomId, data.reply.label, userId, authToken);
+        handleAutoReply(roomId, label, userId, authToken);
       }
     })();
   });
