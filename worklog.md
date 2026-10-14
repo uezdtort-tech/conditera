@@ -8445,3 +8445,12 @@ Stage Summary:
 - Контрольная точка: HEAD = b3a88ee (после f648048 → a23a2f1 верификатор-негативы → b0205e3 worklog → b3a88ee e2e-IPv6-фикс); main ahead origin/main; push/deploy не выполнялись (запрещены).
 - Остаточные ограничения среды (НЕ дефекты репо): (1) песочница убивает фоновые процессы по TTL ~2 мин — длинные комбинированные прогоны требуют поизоляционного запуска; (2) docker CLI отсутствует; (3) seed-кондитеры вне 6 демо-юзеров не логинятся паролем Demo123! (401) — живой PATCH-переход статуса подтверждён на владельце заказа; матрица переходов покрыта юнит-тестами.
 - Воспроизводимый запуск: `node scripts/db/runtime.mjs start` → `bun run db:setup` (если нет .env.local) → `bash scripts/ensure-dev.sh` (Next :3000 + chat :3030 с JWT_SECRET/BOT_SECRET из .env.local) → гейт: `bun scripts/verify-chat-runtime.mjs` (48/48).
+
+---
+Task ID: release-gate-verify
+Agent: main (Super Z)
+Task: Независимая перепроверка Release Gate (владелец): HEAD/дерево/upload-маршруты → статика → runtime-верификатор → E2E-счётчик (144 vs 145) → build → Docker gate.
+
+Work Log:
+- ИНВЕНТАРИЗАЦИЯ (без разрушения): git rev-parse HEAD → 29ec529b347552c5bb1423baec61827d99dc8fd6, branch=main, git status --short пуст, git diff пуст, git diff --cached пуст. История -30: цепочка 982eca4→35f94bc→0fa95e4→2a734f5 на месте; поверх — ed5404f (UUID, только +31 worklog), 8a83760 (orders/[id] COURIER scope), a84040d/be321f0/29eb0f8 (courier realignment + verify-chat-runtime.mjs), e105a13 (worklog), f648048 (UUID: next.config.ts skipTrailingSlashRedirect+rewrite /socket.io→:3030/socket.io/ с жёстким слэшем, chat-server нормализация req.url defense-in-depth, e2e-допуск 429 — ревью по diff: связный полезный контент), a23a2f1 (верификатор: courier-негативы), b0205e3 (worklog), b3a88ee (e2e 127.0.0.1 вместо localhost/::1), 29ec529 (worklog). origin/main=8454b3a.
+- Оба upload-маршрута: git ls-files --error-unmatch OK для src/app/api/upload/route.ts и src/app/api/services/upload/route.ts; файлы на диске (2544/2566 B).
