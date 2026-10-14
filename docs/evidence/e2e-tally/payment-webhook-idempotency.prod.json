@@ -1,0 +1,552 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/home/z/my-project/node_modules/.bin/playwright",
+      "test",
+      "tests/e2e/payment-webhook-idempotency.spec.ts",
+      "--project=chromium",
+      "--reporter=json"
+    ],
+    "configFile": "/home/z/my-project/playwright.config.ts",
+    "rootDir": "/home/z/my-project/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/z/my-project/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/home/z/my-project/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/z/my-project/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "mobile-chrome",
+        "name": "mobile-chrome",
+        "testDir": "/home/z/my-project/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "payment-webhook-idempotency.spec.ts",
+      "file": "payment-webhook-idempotency.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Payment webhook idempotency",
+          "file": "payment-webhook-idempotency.spec.ts",
+          "line": 52,
+          "column": 15,
+          "specs": [
+            {
+              "title": "1. Первый webhook payment.succeeded → 200, заказ в эскроу",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 43,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.749Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-61858e3d3170129084cf",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 54,
+              "column": 7
+            },
+            {
+              "title": "2. Повторный webhook с тем же orderId → idempotent (200 OK)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 19,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.844Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-0da0fc4ddd364293d7a3",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 78,
+              "column": 7
+            },
+            {
+              "title": "3. Невалидный payload (нет orderId) → 400 Bad Request",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 12,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m401\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m401\u001b[39m\n    at /home/z/my-project/tests/e2e/payment-webhook-idempotency.spec.ts:126:31",
+                        "location": {
+                          "file": "/home/z/my-project/tests/e2e/payment-webhook-idempotency.spec.ts",
+                          "column": 31,
+                          "line": 126
+                        },
+                        "snippet": "  124 |     });\n  125 |\n> 126 |     expect(response.status()).toBe(400);\n      |                               ^\n  127 |   });\n  128 |\n  129 |   test('4. Payload без object → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/z/my-project/tests/e2e/payment-webhook-idempotency.spec.ts",
+                            "column": 31,
+                            "line": 126
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m401\u001b[39m\n\n  124 |     });\n  125 |\n> 126 |     expect(response.status()).toBe(400);\n      |                               ^\n  127 |   });\n  128 |\n  129 |   test('4. Payload без object → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {\n    at /home/z/my-project/tests/e2e/payment-webhook-idempotency.spec.ts:126:31"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.870Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/z/my-project/test-results/payment-webhook-idempotenc-a93cc-т-orderId-→-400-Bad-Request-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/z/my-project/tests/e2e/payment-webhook-idempotency.spec.ts",
+                        "column": 31,
+                        "line": 126
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-6c262df4cb6dc4eea081",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 110,
+              "column": 7
+            },
+            {
+              "title": "4. Payload без object → 400 Bad Request",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-7a5ffef62a561a394e6f",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 129,
+              "column": 7
+            },
+            {
+              "title": "5. Полностью пустой body → 400 Bad Request",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-8e11f86420260ea3881e",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 143,
+              "column": 7
+            },
+            {
+              "title": "6. Невалидный JSON → 400 Bad Request",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-bfa55fde75c46daf5094",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 152,
+              "column": 7
+            },
+            {
+              "title": "7. Webhook payment.canceled → 200 (обработан)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-9b9c6204c9bee9dc9c5f",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 161,
+              "column": 7
+            },
+            {
+              "title": "8. Webhook refund.succeeded → 200 (обработан)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-fe53e7fe4fc76c38eec8",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 176,
+              "column": 7
+            },
+            {
+              "title": "9. Unknown event → 200 OK (логируется, не падает)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-d5a008501e621ed3a2e9",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 190,
+              "column": 7
+            },
+            {
+              "title": "10. Idempotency: три повторных webhook → side-effects не дублируются",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-0f8f3a166444aa4c6d57",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 205,
+              "column": 7
+            },
+            {
+              "title": "11. GET /api/payment/webhook → 200 status ok",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:11.895Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-34219c65c15ad7adfc5e",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 247,
+              "column": 7
+            }
+          ]
+        },
+        {
+          "title": "Payment webhook — edge cases",
+          "file": "payment-webhook-idempotency.spec.ts",
+          "line": 258,
+          "column": 6,
+          "specs": [
+            {
+              "title": "разные status для одного orderId — обновляется статус",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 43,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:29:12.304Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "7bb1f3ae5b24880526d8-ccb87bb4bbdfd331321b",
+              "file": "payment-webhook-idempotency.spec.ts",
+              "line": 259,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-14T23:29:11.259Z",
+    "duration": 1153.5639999999999,
+    "expected": 3,
+    "skipped": 8,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

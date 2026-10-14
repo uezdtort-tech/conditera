@@ -1,0 +1,528 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/home/z/my-project/node_modules/.bin/playwright",
+      "test",
+      "tests/e2e/full-flow.spec.ts",
+      "--grep",
+      "Public pages",
+      "--project=chromium",
+      "--reporter=json"
+    ],
+    "configFile": "/home/z/my-project/playwright.config.ts",
+    "rootDir": "/home/z/my-project/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/z/my-project/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/home/z/my-project/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/z/my-project/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "mobile-chrome",
+        "name": "mobile-chrome",
+        "testDir": "/home/z/my-project/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "full-flow.spec.ts",
+      "file": "full-flow.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Public pages — должны возвращать 200",
+          "file": "full-flow.spec.ts",
+          "line": 14,
+          "column": 6,
+          "specs": [
+            {
+              "title": "homepage loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6633,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:27:28.346Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-0132330a826a91ad65ce",
+              "file": "full-flow.spec.ts",
+              "line": 15,
+              "column": 7
+            },
+            {
+              "title": "catalog page loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3555,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:27:35.147Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-b4e1b9b6275d2a99cbd3",
+              "file": "full-flow.spec.ts",
+              "line": 20,
+              "column": 7
+            },
+            {
+              "title": "confectioners page loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2851,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:27:38.739Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-83a6f666260c57db633d",
+              "file": "full-flow.spec.ts",
+              "line": 25,
+              "column": 7
+            },
+            {
+              "title": "recipes page loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 10081,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:27:41.602Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-40ef7613b08c429cab86",
+              "file": "full-flow.spec.ts",
+              "line": 30,
+              "column": 7
+            },
+            {
+              "title": "blog page loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5790,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:27:51.713Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-27ab8765d8cf53584363",
+              "file": "full-flow.spec.ts",
+              "line": 35,
+              "column": 7
+            },
+            {
+              "title": "faq page loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5570,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:27:57.526Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-382a766b8b0f6966338e",
+              "file": "full-flow.spec.ts",
+              "line": 40,
+              "column": 7
+            },
+            {
+              "title": "help page loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5258,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:28:03.105Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-a382975bc3e227933e05",
+              "file": "full-flow.spec.ts",
+              "line": 45,
+              "column": 7
+            },
+            {
+              "title": "about page loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5619,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:28:08.405Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-78440aa1236aaae94739",
+              "file": "full-flow.spec.ts",
+              "line": 50,
+              "column": 7
+            },
+            {
+              "title": "contacts page loads",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2760,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_EMPTY_RESPONSE at http://127.0.0.1:3000/contacts\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:3000/contacts\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_EMPTY_RESPONSE at http://127.0.0.1:3000/contacts\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:3000/contacts\", waiting until \"load\"\u001b[22m\n\n    at /home/z/my-project/tests/e2e/full-flow.spec.ts:56:16",
+                        "location": {
+                          "file": "/home/z/my-project/tests/e2e/full-flow.spec.ts",
+                          "column": 16,
+                          "line": 56
+                        },
+                        "snippet": "  54 |\n  55 |   test(\"contacts page loads\", async ({ page }) => {\n> 56 |     await page.goto(`${BASE_URL}/contacts`);\n     |                ^\n  57 |     await expect(page.locator(\"body\")).toBeVisible();\n  58 |   });\n  59 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/z/my-project/tests/e2e/full-flow.spec.ts",
+                            "column": 16,
+                            "line": 56
+                          },
+                          "message": "Error: page.goto: net::ERR_EMPTY_RESPONSE at http://127.0.0.1:3000/contacts\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:3000/contacts\", waiting until \"load\"\u001b[22m\n\n\n  54 |\n  55 |   test(\"contacts page loads\", async ({ page }) => {\n> 56 |     await page.goto(`${BASE_URL}/contacts`);\n     |                ^\n  57 |     await expect(page.locator(\"body\")).toBeVisible();\n  58 |   });\n  59 |\n    at /home/z/my-project/tests/e2e/full-flow.spec.ts:56:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:28:14.038Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/z/my-project/test-results/full-flow-Public-pages-—-д-d2ee6-ать-200-contacts-page-loads-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/home/z/my-project/test-results/full-flow-Public-pages-—-д-d2ee6-ать-200-contacts-page-loads-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/z/my-project/test-results/full-flow-Public-pages-—-д-d2ee6-ать-200-contacts-page-loads-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/z/my-project/tests/e2e/full-flow.spec.ts",
+                        "column": 16,
+                        "line": 56
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-b383fe70de311c67ba24",
+              "file": "full-flow.spec.ts",
+              "line": 55,
+              "column": 7
+            },
+            {
+              "title": "checkout page loads",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 333,
+                      "error": {
+                        "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:3000/checkout\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:3000/checkout\", waiting until \"load\"\u001b[22m\n",
+                        "stack": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:3000/checkout\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:3000/checkout\", waiting until \"load\"\u001b[22m\n\n    at /home/z/my-project/tests/e2e/full-flow.spec.ts:61:16",
+                        "location": {
+                          "file": "/home/z/my-project/tests/e2e/full-flow.spec.ts",
+                          "column": 16,
+                          "line": 61
+                        },
+                        "snippet": "  59 |\n  60 |   test(\"checkout page loads\", async ({ page }) => {\n> 61 |     await page.goto(`${BASE_URL}/checkout`);\n     |                ^\n  62 |     await expect(page.locator(\"body\")).toBeVisible();\n  63 |   });\n  64 | });"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/z/my-project/tests/e2e/full-flow.spec.ts",
+                            "column": 16,
+                            "line": 61
+                          },
+                          "message": "Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:3000/checkout\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:3000/checkout\", waiting until \"load\"\u001b[22m\n\n\n  59 |\n  60 |   test(\"checkout page loads\", async ({ page }) => {\n> 61 |     await page.goto(`${BASE_URL}/checkout`);\n     |                ^\n  62 |     await expect(page.locator(\"body\")).toBeVisible();\n  63 |   });\n  64 | });\n    at /home/z/my-project/tests/e2e/full-flow.spec.ts:61:16"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-14T23:28:17.385Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/z/my-project/test-results/full-flow-Public-pages-—-д-a9bc5-ать-200-checkout-page-loads-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/home/z/my-project/test-results/full-flow-Public-pages-—-д-a9bc5-ать-200-checkout-page-loads-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/home/z/my-project/test-results/full-flow-Public-pages-—-д-a9bc5-ать-200-checkout-page-loads-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/home/z/my-project/tests/e2e/full-flow.spec.ts",
+                        "column": 16,
+                        "line": 61
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "0366a69751fb3136692b-927602865de6e98c6c2e",
+              "file": "full-flow.spec.ts",
+              "line": 60,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-14T23:27:27.494Z",
+    "duration": 50438.554,
+    "expected": 8,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  }
+}
