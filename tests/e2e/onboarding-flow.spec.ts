@@ -21,7 +21,7 @@
  */
 import { expect, test } from "@playwright/test";
 
-const APP = process.env.E2E_APP_URL || "http://localhost:3000";
+const APP = process.env.E2E_APP_URL || "http://127.0.0.1:3000";
 
 const TS = Date.now();
 const CONFECTIONER = {
