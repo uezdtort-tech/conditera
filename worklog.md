@@ -8517,3 +8517,21 @@ Stage Summary:
 - Nightly E2E failure: (1) DB-bootstrap 500/503 — ЗАКРЫТО локально (49604e0); (2) ::1 — ЗАКРЫТО (b3a88ee); (3) firefox/webkit matrix-drift — ОТКРЫТО (решение владельца).
 - Docker gate: BLOCKED (среда без движка — перепроверено). PRODUCTION-READY: NO.
 - Границы соблюдены: без push/merge/deploy, история не переписана, секреты не печатались, публикация не автоматизирована.
+
+---
+Task ID: e2e-matrix-variant-b
+Agent: main (Super Z)
+Task: РЕШЕНИЕ ВЛАДЕЛЬЦА (variant B): зафиксировать nightly/dispatch E2E-матрицу на chromium; убрать firefox/webkit/all из workflow_dispatch; один узкий коммит; публикация — отдельное решение владельца.
+
+Work Log:
+- Предпосылки сверены: playwright.config.ts активирует ТОЛЬКО chromium + mobile-chrome (firefox/webkit закомментированы — строки 67/72/77 конфига); e2e.yml матрица разворачивала ["chromium","firefox","webkit"] при event=schedule/ручном browser=all → "project not found" на run 38701876670 независимо от БД. Успешный Dependabot-прогон того же дня — не проверка сборки приложения (принято к сведению).
+- ПРАВКА e2e.yml (единственный файл, 3 локуса): (1) matrix → фиксированный browser: ["chromium"] с комментарием о решении владельца; (2) input browser (chromium/firefox/webkit/all) УДАЛЁН из workflow_dispatch — интерфейс не предлагает неподдерживаемые варианты; input grep СОХРАНЁН (используется шагом Run Playwright); (3) шапка: обновлены описания триггеров + блок «РЕШЕНИЕ ВЛАДЕЛЬЦА (variant B, 2026-10-15)» + TODO(future-task) на полноценное покрытие Firefox/WebKit (раскомментировать проекты → валидировать спеки на обоих движках → вернуть в матрицу и dispatch).
+- ВАЛИДАЦИЯ: pyyaml-парс OK; триггеры schedule/workflow_dispatch/push/pull_request целы; dispatch inputs = [grep]; matrix = ["chromium"]; висячих ссылок на inputs.browser нет (firefox/webkit только в комментариях); ссылка github.event.inputs.grep на месте.
+- КОММИТ: 37d90ab «ci(e2e): pin nightly/dispatch matrix to chromium — owner decision variant B» — один логический коммит, только .github/workflows/e2e.yml (17+/15−). Никаких других изменений не входило.
+- Границы: push/merge/deploy НЕ выполнялись; Docker gate остаётся отдельным обязательным условием (в песочнице движка нет — BLOCKED); тесты/авторизация/платежи не затронуты; upload-маршруты целы.
+
+Stage Summary:
+- Локальный main: 37d90ab → cb68e3d → 3cab007 → da11451 → … (26 коммитов впереди origin/main=8454b3a).
+- Статусы: SOURCE/STATIC/RUNTIME/E2E(локально 148+1skip)/BUILD = PASS (без изменений); Опубликованный main nightly = FAIL (закрывается публикацией 26 коммитов: bootstrap БД 49604e0, 127.0.0.1 b3a88ee, матрица 37d90ab); DOCKER = BLOCKED (реальный compose config + 3 образа — в среде владельца); PRODUCTION-READY = NO.
+- Ожидаемый эффект после публикации владельцем: первый CI-прогон на push → chromium-only матрица + bootstrap PG + 127.0.0.1 → зелёный; подтверждение — новым прогоном CI, не отчётом.
+- TODO(future-task) зафиксирован в шапке e2e.yml: Firefox/WebKit покрытие отдельной задачей.
