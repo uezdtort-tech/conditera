@@ -1,0 +1,33 @@
+# VARIANT B STRUCTURAL CHECK — 7a8d878 (7a8d878dc245da27f45b04ba861fc2e460771006)
+# Date: 2026-10-15T16:38:07Z  |  Per TZ_RELEASE_GATE v3.0, Этап 2
+
+== git diff --check ==
+EXIT=0 (no whitespace errors)
+
+== 37d90ab scope (must be e2e.yml only) ==
+37d90ab ci(e2e): pin nightly/dispatch matrix to chromium — owner decision variant B (2026-10-15)
+ .github/workflows/e2e.yml | 32 +++++++++++++++++---------------
+ 1 file changed, 17 insertions(+), 15 deletions(-)
+
+== YAML structural assertions (PyYAML; unquoted 'on' handled per YAML 1.1 boolean caveat) ==
+[PASS] matrix.browser == ["chromium"] — ['chromium']
+[PASS] dispatch inputs == ["grep"] (browser removed) — ['grep']
+[PASS] 4 triggers preserved — ['pull_request', 'push', 'schedule', 'workflow_dispatch']
+[PASS] grep wired into Playwright cmd — present
+[PASS] no executable inputs.browser refs — absent
+[PASS] future TODO Firefox/WebKit present — present
+[PASS] owner-decision block present — present
+[PASS] active playwright projects = chromium + mobile-chrome — ['chromium', 'mobile-chrome']
+[PASS] firefox/webkit NOT active projects — both absent from active
+[PASS] grep passed to Playwright (--grep format) — present
+ALL VARIANT B ASSERTIONS: PASS
+
+== prettier (bunx; not a repo dependency — TZ: don't add deps for this) ==
+Checking formatting...
+[warn] playwright.config.ts
+[warn] Code style issues found in the above file. Run Prettier with --write to fix.
+note: playwright.config.ts style warn is PRE-EXISTING (untouched by 37d90ab; style-only, not a variant-B defect)
+
+== protected upload routes tracked ==
+src/app/api/services/upload/route.ts
+src/app/api/upload/route.ts

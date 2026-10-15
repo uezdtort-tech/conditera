@@ -1,0 +1,39 @@
+# E2E TALLY AUTO-VERIFICATION — 7a8d878 (7a8d878dc245da27f45b04ba861fc2e460771006)
+# Date: 2026-10-15T16:38:54Z  |  Per TZ_RELEASE_GATE v3.0, Этап 4
+# Canonical artifacts per TALLY.md table; duplicate retry artifacts EXCLUDED from sums:
+#   excluded: integration-auth-flow.early-prod.json, integration-auth-flow.prod.json (superseded by .dev),
+#             full-flow.dev-chunk1-OOM-evidence.json, payment-webhook-idempotency.prod.json
+
+spec                           passed  skip  fail  flaky  match
+api-v2                             37     0     0      0  OK
+auth-flow                          14     0     0      0  OK
+full-flow                          36     0     0      0  OK
+integration-auth-flow              17     0     0      0  OK
+onboarding-flow                     1     1     0      0  OK
+payment-webhook-idempotency        12     0     0      0  OK
+recipe-purchase-flow                7     0     0      0  OK
+regional-pricing                   13     0     0      0  OK
+smoke                              11     0     0      0  OK
+
+TOTALS: passed=148 skipped=1 failed=0 flaky=0 slots=149
+TALLY.md claim: 148 passed / 0 failed / 0 flaky / 1 skipped / 149 slots
+AUTO-VERDICT: PASS; per-spec match: ALL OK
+
+== unique skip condition (E2E_FULL_STACK) in test source ==
+tests/e2e/onboarding-flow.spec.ts:61:      process.env.E2E_FULL_STACK !== "1",
+tests/e2e/onboarding-flow.spec.ts:62:      "Требуется полный Supabase-стек (docker-compose.supabase.yml). Запуск: E2E_FULL_STACK=1 npm run test:e2e",
+
+== root-cause commits on local history (diff scope) ==
+49604e0 fix(e2e): green E2E suite, CI DB bootstrap and Docker build fixes
+ .dockerignore                                 |  4 +-
+ .github/workflows/e2e.yml                     | 22 +++++++--
+ Dockerfile                                    | 20 ++++----
+ Dockerfile.chat                               |  7 +--
+ Dockerfile.simplex-bridge                     | 19 ++++----
+ playwright.config.ts                          |  9 +++-
+ src/app/api/auth/register/route.ts            | 15 ++++--
+b3a88ee fix(e2e): default spec URLs to 127.0.0.1:3000 — localhost resolves to ::1 where server does not listen (known pitfall, onboarding smoke failed ECONNREFUSED ::1)
+ tests/e2e/full-flow.spec.ts       | 2 +-
+ tests/e2e/onboarding-flow.spec.ts | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+(37d90ab scope verified in variant-b-check file)
