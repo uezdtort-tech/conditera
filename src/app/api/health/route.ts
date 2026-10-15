@@ -162,16 +162,21 @@ export async function GET(): Promise<NextResponse> {
     },
   ];
 
-  // Status: ok если все required dependencies настроены
+  // Status: ok если все required dependencies настроены И БД жива.
+  // DEV-17: статус когерентен HTTP-коду — 503 (БД недоступна) не может
+  // сопровождаться status:"ok" в теле. n8n — fail-open по задокументированному
+  // контракту (см. докблок выше) и на readiness/status не влияет.
   const allRequiredOk = dependencies
     .filter((d) => d.required)
     .every((d) => d.configured);
+  const status: HealthResponse["status"] =
+    dbStatus === "ok" && allRequiredOk ? "ok" : "degraded";
 
   const response: HealthResponse = {
     app: "ok",
     database: dbStatus,
     n8n: n8nStatus,
-    status: allRequiredOk ? "ok" : "degraded",
+    status,
     service: "conditera",
     version: APP_VERSION,
     timestamp: new Date().toISOString(),
