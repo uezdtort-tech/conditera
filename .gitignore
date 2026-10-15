@@ -46,6 +46,8 @@ local-*
 .claude
 .z-ai-config
 *.log
+# exception: evidence logs are primary release-gate proof (unique name + SHA), keep tracked
+!docs/evidence/**/*.log
 dev.log
 dev.out.log
 test
