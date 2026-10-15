@@ -42,6 +42,64 @@ export class UploadServiceError extends Error {
 }
 
 /**
+ * Единое сообщение о превышении лимита для pre-parse гейта (DEV-20 / U-12, U-13).
+ * Имя файла здесь ещё неизвестно (multipart не разобран), формат согласован
+ * с per-file сообщением в saveUploadedFile (…: больше N МБ).
+ */
+export const OVERSIZE_UPLOAD_MESSAGE = `Файл слишком большой: больше ${Math.round(
+  MAX_UPLOAD_BYTES / 1024 / 1024
+)} МБ`;
+
+/** Content-Length заголовка как число или null (chunked / отсутствует / не число). */
+function contentLengthOf(request: Request): number | null {
+  const raw = request.headers.get("content-length");
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
+ * Разобрать multipart/form-data с когерентным контрактом размеров (DEV-20).
+ *
+ * Три зоны контракта:
+ *  1. Content-Length ≤ MAX_UPLOAD_BYTES — обычный разбор request.formData().
+ *  2. Content-Length > MAX_UPLOAD_BYTES → 422 FILE_TOO_LARGE ЕЩЁ ДО разбора
+ *     тела (тело не читается). Та же 422 возвращается из catch при неудаче
+ *     formData(), если заголовок говорит «больше лимита» — это покрывает зону
+ *     молчаливой обрезки тела платформой (клон тела для middleware/proxy:
+ *     DEFAULT_BODY_CLONE_SIZE_LIMIT = 10 MiB, node_modules/next/dist/server/
+ *     body-streams.js:30 — formData() бросает TypeError "Unexpected end of
+ *     form", а раньше это выдавало бессмысленный 400 BAD_REQUEST).
+ *  3. Chunked-запрос без Content-Length (или с нечисловым): размер заранее
+ *     неизвестен — неудача разбора остаётся документированным 400
+ *     BAD_REQUEST (прежнее поведение).
+ *
+ * Бросает только UploadServiceError; сам лимит MAX_UPLOAD_BYTES не меняет.
+ * Общий хелпер для POST /api/upload и POST /api/services/upload — без
+ * дублирования логики в роутах.
+ */
+export async function parseUploadRequest(request: Request): Promise<FormData> {
+  const contentLength = contentLengthOf(request);
+
+  if (contentLength !== null && contentLength > MAX_UPLOAD_BYTES) {
+    throw new UploadServiceError(422, "FILE_TOO_LARGE", OVERSIZE_UPLOAD_MESSAGE);
+  }
+
+  try {
+    return await request.formData();
+  } catch {
+    // Defense-in-depth: до разбора мы гейт уже прошли, здесь 422 достижим
+    // только если платформа обрезала тело при Content-Length > лимита
+    // (например, заголовок появился после предварительной проверки) —
+    // переводим в тот же FILE_TOO_LARGE вместо бессмысленного BAD_REQUEST.
+    if (contentLength !== null && contentLength > MAX_UPLOAD_BYTES) {
+      throw new UploadServiceError(422, "FILE_TOO_LARGE", OVERSIZE_UPLOAD_MESSAGE);
+    }
+    throw new UploadServiceError(400, "BAD_REQUEST", "Ожидается multipart/form-data");
+  }
+}
+
+/**
  * Сохранить один файл. Возвращает публичный URL (относительный путь шима).
  * Каталог — <category>/<uuid>.<ext>; category очищается (анти-traversal).
  */

@@ -27,3 +27,9 @@ Uploaded file deleted from `upload/storage/media/services/` + `storage.objects` 
 ## Artifacts
 
 - `.run/acc/u12-u13.mjs`, `.run/acc/u12-u13-transcript.txt` (gitignored)
+
+---
+
+## FIX VERIFIED (v4.1) — oversize-контракт когерентен (DEV-20, Task A-3c)
+
+Несогласованный ответ на oversize (400 BAD_REQUEST вместо code-level 422, см. примечание в U-12) устранён тем же общим хелпером: `parseUploadRequest` (`src/lib/upload-service.ts:81-100`) в этом роуте (`src/app/api/services/upload/route.ts:38-52`) гейтит по Content-Length до разбора тела — `Content-Length > MAX_UPLOAD_BYTES` (10 МБ, лимит не менялся) → **422** `{"error":"FILE_TOO_LARGE","message":"Файл слишком большой: больше 10 МБ"}` (pre-parse, storage не вызывается); chunked без Content-Length — задокументированный 400. Live-прув (10.5 MiB → 422; малый PNG → 201 в `services/`) и тесты — см. `U-12-fix-oversize-contract-b8bdcbf.md`.

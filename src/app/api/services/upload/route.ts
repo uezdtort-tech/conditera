@@ -7,11 +7,16 @@
  * multipart/form-data: files (file[], 1..8)
  * Ответ: { urls: string[] }
  * Auth: любой аутентифицированный (свои услуги добавляют в своих маршрутах).
+ * Размер: Content-Length > MAX_UPLOAD_BYTES (10 МБ) → 422 FILE_TOO_LARGE
+ * ещё до разбора тела (когерентный oversized-контракт, DEV-20 — хелпер
+ * parseUploadRequest в @/lib/upload-service); chunked без Content-Length
+ * при неудаче разбора остаётся документированным 400 BAD_REQUEST.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import {
+  parseUploadRequest,
   saveUploadedFiles,
   UploadServiceError,
   MAX_UPLOAD_FILES,
@@ -32,8 +37,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     let form: FormData;
     try {
-      form = await request.formData();
-    } catch {
+      form = await parseUploadRequest(request);
+    } catch (err) {
+      if (err instanceof UploadServiceError) {
+        return NextResponse.json(
+          { error: err.code, message: err.message },
+          { status: err.status }
+        );
+      }
       return NextResponse.json(
         { error: "BAD_REQUEST", message: "Ожидается multipart/form-data" },
         { status: 400 }

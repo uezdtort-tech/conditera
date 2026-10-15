@@ -29,3 +29,9 @@ All uploaded files deleted from `upload/storage/media/` and matching `storage.ob
 ## Artifacts
 
 - `.run/acc/u12-u13.mjs`, `.run/acc/u12-u13-transcript.txt` (gitignored; sha256 hashes only, no secrets)
+
+---
+
+## FIX VERIFIED (v4.1) — oversize-контракт когерентен (DEV-20, Task A-3c)
+
+Найденный выше несогласованный ответ на oversize (400 BAD_REQUEST при code-level гейте 422) устранён: общий хелпер `parseUploadRequest` (`src/lib/upload-service.ts:81-100`) гейтит по Content-Length **до** разбора тела — `Content-Length > MAX_UPLOAD_BYTES` (10 МБ, лимит не менялся) → **422** `{"error":"FILE_TOO_LARGE","message":"Файл слишком большой: больше 10 МБ"}`; зона молчаливой обрезки тела платформой (`body-streams.js` `DEFAULT_BODY_CLONE_SIZE_LIMIT` = 10 MiB) покрыта тем же pre-parse 422; chunked без Content-Length при неудаче разбора — задокументированный 400 (прежнее поведение). Live-прувы (10.5 MiB и 12 MiB → 422; малый PNG → 201) и регрессионные тесты — см. `U-12-fix-oversize-contract-b8bdcbf.md` (probe exit 0, 20 новых тестов зелёные, typecheck 0). Knob `middlewareClientMaxBodySize` не менялся.
