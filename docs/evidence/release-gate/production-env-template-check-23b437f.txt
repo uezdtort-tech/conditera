@@ -1,0 +1,21 @@
+DEV-12: .env.production.example required-var contract check (TZ v4.0 §9)
+Script: scripts/verify/production-env-template.mjs (prints only names, never values)
+
+=== PRE-FIX (defect proof) — node scripts/verify/production-env-template.mjs ===
+[compose]  docker-compose.yml: 6 required var(s): CRON_SECRET, JWT_SECRET, MEILI_MASTER_KEY, N8N_ADMIN_PASSWORD, POSTGRES_PASSWORD, SIMPLEX_BRIDGE_API_KEY
+[template] .env.production.example: 61 key(s)
+MISSING (2) — отсутствуют в .env.production.example:
+  N8N_ADMIN_PASSWORD
+  SIMPLEX_BRIDGE_API_KEY
+exit code: 1
+
+=== POST-FIX (after adding N8N_ADMIN_PASSWORD + SIMPLEX_BRIDGE_API_KEY as CHANGE_ME_* placeholders) ===
+[compose]  docker-compose.yml: 6 required var(s): CRON_SECRET, JWT_SECRET, MEILI_MASTER_KEY, N8N_ADMIN_PASSWORD, POSTGRES_PASSWORD, SIMPLEX_BRIDGE_API_KEY
+[template] .env.production.example: 63 key(s)
+OK: контракт выполнен — все required-переменные присутствуют в шаблоне
+exit code: 0
+
+Notes:
+- Required set re-verified on current docker-compose.yml: 11 ${NAME:?...} interpolations -> 6 unique names
+  (POSTGRES_PASSWORD x4, MEILI_MASTER_KEY x2, JWT_SECRET, CRON_SECRET, N8N_ADMIN_PASSWORD, SIMPLEX_BRIDGE_API_KEY).
+- Placeholders are UNUSABLE (CHANGE_ME_*, >= 24 chars), no real secret values introduced.
