@@ -1,0 +1,26 @@
+# variant B check — a0ace2c21215962475ea67e5ea62daed7b70aba1
+date: 2026-10-15T17:14:30Z
+
+== matrix ==
+138:        browser: ["chromium"]
+== triggers ==
+28:  schedule:
+32:  workflow_dispatch:
+43:  push:
+57:  pull_request:
+== browser inputs refs (expect none) ==
+none
+== active playwright projects ==
+67:      name: 'chromium',
+72:    //   name: 'firefox',
+77:      name: 'mobile-chrome',
+== grep transmission ==
+192:          # E2E_GREP передаётся через env (см. блок env ниже), а не текстуальной
+193:          # ${{ }}-подстановкой: расширение "$E2E_GREP" внутри bash-массива не
+197:          if [ -n "$E2E_GREP" ]; then
+198:            ARGS+=(--grep "$E2E_GREP")
+209:          E2E_GREP: ${{ github.event.inputs.grep }}
+== git diff --check ==
+exit=0
+== yaml parse ==
+BaseLoader OK
