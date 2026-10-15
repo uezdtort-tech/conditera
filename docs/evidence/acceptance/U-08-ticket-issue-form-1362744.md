@@ -35,3 +35,15 @@ cleanup: ticket_messages=1 support_tickets=1 orders=1 user_rows=1/1/1 (synthetic
 ## Artifacts
 
 - `.run/acc/u09-u10-u14.mjs`, `.run/acc/u09-u10-u14-transcript.txt`, `.run/acc/u07-u09-transcript.txt`
+
+---
+
+## FIX VERIFIED (v4.1)
+
+The FINDING above is **closed** by task A-2c (Release Gate v4.1) at HEAD `8e67d3b` — see `U-08-fix-shim-id-8e67d3b.md` for full proof.
+
+- **Fix**: `src/lib/postgrest/translate.ts:435-447` — the hidden-column check for embed join columns now treats `*` as covering all base-table columns (`i.column.name === "*"`), so the base PK (`id`, the one-to-many join column) survives top-level; unselected join columns without `*` are still hidden (PostgREST semantics, not widened).
+- **Before/after**: previously `translate.ts:433-441` added the join PK to `hidden` even under `select=*` and `:519-523`-range code deleted it from output → list rows without `id`. Now rows carry base `id`; embeds stay under relation keys.
+- **Tests**: `src/lib/postgrest/translate.test.ts` (7) + `src/app/api/crm/tickets/route.test.ts` (17) → 24/24 exit 0; full suite 963/963 exit 0; `bun run typecheck` exit 0.
+- **Live re-probe** (dev :3000, CSRF pair, synthetic ticket, cleanup → baseline 0): POST → 201 with `ticket.id`; all list rows (`filter=own`, SUPPORT/ADMIN `filter=all`) carry non-empty string `id`; `filter=all` as CONFECTIONER still 403; repeated list → same ids. 16/16 PASS, exit 0.
+- Owner-finding #2 (list rows lack `id`) — **resolved**. Owner-finding #3 (creation not idempotent) — intentionally **unchanged**; current duplicate-on-resubmit behavior locked by test with reference to owner decision.

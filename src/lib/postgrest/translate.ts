@@ -435,7 +435,15 @@ export async function handleSelect(ctx: PgrstContext, tableName: string): Promis
   // скрытые колонки для join'а embed'ов
   for (const e of embeds) {
     const col = resolveColumn(table, e.thisColumn);
-    if (!items.some((i) => i.column && i.column.name === col.name)) hidden.add(col.name);
+    // `*` покрывает ВСЕ колонки базовой таблицы, включая join-колонку
+    // (PostgREST-семантика: select=*,rel(...) возвращает базовые PK/FK
+    // top-level — иначе строки списка теряют id, см.
+    // docs/evidence/acceptance/U-08-fix-shim-id-bbe286b.md, DEV-19).
+    // Явный выбор колонки тоже оставляет её видимой; join-колонка,
+    // НЕ выбранная пользователем (без `*`), по-прежнему скрыта.
+    if (!items.some((i) => i.column && (i.column.name === "*" || i.column.name === col.name))) {
+      hidden.add(col.name);
+    }
   }
 
   const colsSql = [...items.filter((i) => !i.embed).map((i) => (i.column!.name === "*" ? "*" : `${quoteIdent(i.column!.name)}${i.alias ? ` AS ${quoteIdent(i.alias)}` : ""}`)), ...[...hidden].map((h) => quoteIdent(h))];
