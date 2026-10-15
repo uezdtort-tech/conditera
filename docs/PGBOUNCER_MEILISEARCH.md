@@ -291,7 +291,7 @@ echo "MEILI_MASTER_KEY=$(openssl rand -hex 32)"
 
 # 2. Добавить в .env.production:
 # MEILI_MASTER_KEY=<сгенерированный ключ>
-# MEILISearch_URL=http://meilisearch:7700
+# MEILI_URL=http://meilisearch:7700
 
 # 3. Запустить стек
 docker compose up -d

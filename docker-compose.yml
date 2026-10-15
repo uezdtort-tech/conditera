@@ -64,7 +64,9 @@ services:
       - DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@pgbouncer:5432/conditera?schema=public&pgbouncer=true
       - DIRECT_DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/conditera?schema=public
       - REDIS_URL=redis://redis:6379
-      - MEILISearch_URL=http://meilisearch:7700
+      # MEILI_URL — единый контракт с src/lib/meilisearch.ts:33 (раньше здесь был
+      # MEILISearch_URL со сломанным регистром — код эту переменную не читал)
+      - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
       - NODE_ENV=production
       # Telegram bot + канал (для уведомлений о заказах, лидах, тикетах)

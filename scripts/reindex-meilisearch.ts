@@ -8,7 +8,7 @@
  *
  * Требует переменные окружения:
  *   - DATABASE_URL (или DIRECT_DATABASE_URL)
- *   - MEILISearch_URL
+ *   - MEILI_URL (контракт src/lib/meilisearch.ts; legacy-fallback MEILI_HOST)
  *   - MEILI_MASTER_KEY
  */
 import { config } from 'dotenv'
@@ -27,7 +27,7 @@ async function main() {
   const healthy = await isMeilisearchHealthy()
   if (!healthy) {
     console.error('❌ Meilisearch is not available')
-    console.error('   Check MEILISearch_URL and MEILI_MASTER_KEY in .env')
+    console.error('   Check MEILI_URL and MEILI_MASTER_KEY in .env')
     process.exit(1)
   }
   console.log('   ✓ Meilisearch is healthy')
