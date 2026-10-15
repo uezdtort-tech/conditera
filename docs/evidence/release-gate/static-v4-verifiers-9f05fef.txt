@@ -1,0 +1,73 @@
+=== STATIC GATE EVIDENCE (DEV-08) — REPO VERIFIERS ===
+HEAD: 9f05fefa4d856fb4a3322710e63e5bf67c3ef9fa
+UTC: 2026-10-15T18:37:25Z
+---
+[node scripts/scan-evidence.mjs]
+=== EVIDENCE HYGIENE SCAN (redacted) ===
+scan target files: 36
+marker   docs/evidence/e2e-tally/TALLY.md : email-pii : real=0 synthetic=1 : lines=136 [REDACTED]
+marker   docs/evidence/e2e-tally/TALLY.md : phone-pii : real=0 synthetic=3 : lines=112,136,193 [REDACTED]
+marker   docs/evidence/e2e-tally/full-flow.prod.json : phone-pii : real=0 synthetic=1 : lines=1307 [REDACTED]
+marker   docs/evidence/e2e-tally/payment-webhook-idempotency.prod.json : phone-pii : real=0 synthetic=1 : lines=546 [REDACTED]
+marker   docs/evidence/e2e-tally/regional-pricing.prod.json : phone-pii : real=0 synthetic=1 : lines=550 [REDACTED]
+marker   docs/evidence/e2e-tally/smoke.prod.json : phone-pii : real=0 synthetic=1 : lines=359 [REDACTED]
+marker   docs/evidence/e2e-tally/tally-contract-0fca2ac.json : phone-pii : real=0 synthetic=2 : lines=363,536 [REDACTED]
+marker   docs/evidence/release-gate/docker-engine-check-671f82a.txt : phone-pii : real=0 synthetic=4 : lines=19,20,21,23 [REDACTED]
+marker   docs/evidence/release-gate/docker-static-review.md : phone-pii : real=0 synthetic=1 : lines=3 [REDACTED]
+marker   docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt : phone-pii : real=0 synthetic=9 : lines=8,9,10,11,12,13,14,15 [REDACTED]
+marker   docs/evidence/release-gate/evidence-hygiene-report-d6d5f9c.md : phone-pii : real=0 synthetic=1 : lines=16 [REDACTED]
+marker   docs/evidence/release-gate/process-cleanup-before-a0ace2c.txt : phone-pii : real=0 synthetic=21 : lines=4,5,6,7,8,9,10,11 [REDACTED]
+marker   docs/evidence/release-gate/process-env-sync-remediation-a0ace2c.log : phone-pii : real=0 synthetic=19 : lines=21,25,44,45,46,47,48,49 [REDACTED]
+marker   docs/evidence/release-gate/runtime-verify-after-desync-fix-a0ace2c.log : phone-pii : real=0 synthetic=9 : lines=11,15,16,18,21,23,32,34 [REDACTED]
+marker   docs/evidence/release-gate/runtime-verify-pass-48-7a8d878.log : phone-pii : real=0 synthetic=9 : lines=11,15,16,18,21,23,32,34 [REDACTED]
+marker   docs/evidence/release-gate/variant-b-check-a0ace2c.txt : phone-pii : real=0 synthetic=1 : lines=1 [REDACTED]
+=== SUMMARY ===
+real findings: 0
+synthetic-test-data markers: 84
+RESULT: no real secret/PII values detected in tracked evidence (synthetic markers only).
+EXIT: 0
+
+[node scripts/verify/production-env-template.mjs]
+[compose]  docker-compose.yml: 6 required var(s): CRON_SECRET, JWT_SECRET, MEILI_MASTER_KEY, N8N_ADMIN_PASSWORD, POSTGRES_PASSWORD, SIMPLEX_BRIDGE_API_KEY
+[template] .env.production.example: 63 key(s)
+OK: контракт выполнен — все required-переменные присутствуют в шаблоне
+EXIT: 0
+
+[node scripts/verify/e2e-tally-contract.mjs]
+=== E2E TALLY CONTRACT VERIFIER (DEV-07 / TZ v4.0 §8.1) ===
+HEAD: 9f05fef  |  артефактов: 15  |  групп по идентичности: 14
+
+--- Канонический (aggregated per-spec) tally ---
+spec                         mode  projects     passed fail flaky skip  artifact
+api-v2                      prod  chromium        37    0     0    0  api-v2.prod.json
+auth-flow                   prod  chromium        14    0     0    0  auth-flow.prod.json
+full-flow                   prod  chromium        36    0     0    0  full-flow.prod.json
+integration-auth-flow       dev   chromium        17    0     0    0  integration-auth-flow.dev.f28b090-run2.json
+onboarding-flow             prod  chromium         1    0     0    1  onboarding-flow.prod.json
+payment-webhook-idempotency dev   chromium        12    0     0    0  payment-webhook-idempotency.dev.json
+recipe-purchase-flow        prod  chromium         7    0     0    0  recipe-purchase-flow.prod.json
+regional-pricing            prod  chromium        13    0     0    0  regional-pricing.prod.json
+smoke                       prod  chromium        11    0     0    0  smoke.prod.json
+
+RECOMPUTED TOTALS: passed=148 failed=0 flaky=0 skipped=1 slots=149
+CANONICAL CLAIM:   passed=148 failed=0 flaky=0 skipped=1 slots=149
+
+--- Исключённые/диагностические артефакты (правила R1–R3) ---
+full-flow.dev-chunk1-OOM-evidence.json  [R1-oom-evidence]
+    — частичный прерванный dev-прогон, сохранённый как СВИДЕТЕЛЬСТВО OOM песочницы (dmesg SIGKILL next-server); самостоятельной суммарной ценности не несёт, не канонический прогон
+    stats: passed=8 failed=2 flaky=0 skipped=0
+integration-auth-flow.prod.json  [R3-non-canonical-mode-diagnostic]
+    — записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит
+    дубликаты (побайтно идентичны → один логический прогон): integration-auth-flow.early-prod.json
+    stats: passed=17 failed=0 flaky=0 skipped=0
+payment-webhook-idempotency.prod.json  [R3-non-canonical-mode-diagnostic]
+    — записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит
+    stats: passed=3 failed=1 flaky=0 skipped=8
+corroboration: integration-auth-flow — integration-auth-flow.dev.f28b090-run1.json (startTime 2026-10-15T18:02:46.573Z) — статистика совпадает с каноном
+corroboration: integration-auth-flow — integration-auth-flow.dev.json (startTime 2026-10-14T23:36:46.378Z) — статистика совпадает с каноном
+
+VERDICT vs CLAIM: PASS
+problems: 0 (идентичность, дубликаты, skip-аудит, полнота, TALLY.md-сверка — все проверки пройдены)
+machine-readable contract: docs/evidence/e2e-tally/tally-contract-9f05fef.json
+EXIT: 0
+

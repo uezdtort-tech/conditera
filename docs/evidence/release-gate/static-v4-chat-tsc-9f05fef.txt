@@ -1,0 +1,6 @@
+=== STATIC GATE EVIDENCE (DEV-08) ===
+HEAD: 9f05fefa4d856fb4a3322710e63e5bf67c3ef9fa
+UTC: 2026-10-15T18:37:15Z
+Command: cd mini-services/chat-server && bunx tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --skipLibCheck --types node index.ts
+Exit code: 0
+---

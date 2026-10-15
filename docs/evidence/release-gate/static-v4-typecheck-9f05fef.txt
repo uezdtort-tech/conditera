@@ -1,0 +1,7 @@
+=== STATIC GATE EVIDENCE (DEV-08) ===
+HEAD: 9f05fefa4d856fb4a3322710e63e5bf67c3ef9fa
+UTC: 2026-10-15T18:35:35Z
+Command: bun run typecheck
+Exit code: 0
+---
+$ tsc --noEmit
