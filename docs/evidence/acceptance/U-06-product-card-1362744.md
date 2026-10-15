@@ -190,3 +190,60 @@ verify: product_slices rows=0, products.fillings=[]
 
 Synthetic row removed (no FK on the table; product row untouched except `fillings`
 restored to its exact original `[]`); DB state identical to pre-probe.
+
+---
+
+## 8. FIX VERIFIED (v4.1)
+
+**Date:** 2026-10-15 22:30 UTC · **HEAD:** `bbe286b` (full: `bbe286bcf4dca71e277d0b2f488a9c853edb13b3`) · **Task ID:** A-1c (Release Gate v4.1)
+**Verdict:** the §7 root-caused caveat is CLOSED — `fillings` now reaches `StoreProduct` on live DB data and the section «Срезы торта по начинкам» renders in the browser from a real `product_slices` row. U-06 is **PASS without caveats**.
+
+### 8.1 What was fixed (the exact §7 gap, minimally)
+
+| # | §7 root cause | Fix (file:line @ `bbe286b` + working tree) |
+|---|---|---|
+| 1 | `PRODUCT_CARD_COLUMNS` did not select `fillings` | `src/app/api/products/[id]/route.ts:55` — `fillings` appended to the card select (raw jsonb passthrough; comment at :45–47) |
+| 2 | mapper did not map it | `src/lib/supabase/use-marketplace.ts:963–980` — `mapApiProductToProduct` normalizes `p.fillings` to a typed array (always `[]` for null/non-array; entries without string `name` dropped; `priceModifier` → finite `number`, default 0). Contract type: `ApiProduct.fillings` at :838 (`{ name; priceModifier? }[] \| null`), exported for regression tests |
+
+Gate consumer unchanged: `src/components/pages/product-page.tsx:1142` (`product.fillings && product.fillings.length > 0` → `ProductSliceGallery`), slice match `slice.fillingName === filling.name` + `img src = slice.image` (`src/components/cake-slice/cake-slice-visualizer.tsx:823, 895–896`). No consumer code touched.
+
+### 8.2 Regression tests (new, hermetic — repo `route.test.ts` conventions)
+
+| File | Cases | Covers |
+|---|---|---|
+| `src/app/api/products/[id]/route.test.ts` | 5 | select includes `fillings`; jsonb passthrough `{name,priceModifier}[]` / `[]` / `null`; base card contract (id/images/media/slices/reviews) unbroken |
+| `src/lib/supabase/use-marketplace.fillings.test.ts` | 6 | mapper: valid array passthrough; missing/null/[]/non-array → `[]`; non-string-name dropped; `priceModifier` → number (0 default) |
+| `src/components/pages/product-page.fillings-gate.test.tsx` | 3 | gate on the real `ProductPage`: fillings+matching slice → section + `<img>`; `fillings []` → section absent AND `/slices` never fetched; non-matching `fillingName` → section yes, slice photo no |
+
+Run (`vitest run`, repo `test` script): **3 files, 14/14 passed, exit 0**. `bun run typecheck` (tsc --noEmit): **exit 0** (one typing fix applied to the route-test's supabase-builder mock — `QueryBuilder` type replacing an invalid `Record<string, Mock> & Thenable` intersection; test logic untouched).
+
+### 8.3 Live verification (real data, real source — PG :54329 + dev :3000 + agent-browser)
+
+Positive (product `…000b`, published, `fillings = [{Шоколад-ганаш, 300}, {Малина-базилик, 0}]`, synthetic slice inserted):
+
+- synthetic row `product_slices`: id **`acc-u06-v41`**, `fillingName="Шоколад-ганаш"` (matches existing `fillings[0]` — `products.fillings` itself NOT mutated), `image=/api/product-media/aaaaaaaa-aaaa-4aaa-8aaa-00000000f001` (existing approved cover f001 — no files created), caption labels it synthetic, `sortOrder=999`
+- `GET /api/products/…000b` (live): `product.fillings` present (2 items) — the §7 «API does not contain fillings» symptom is gone; card `slices[]` contains the row
+- Browser `/product?id=…000b`: section **«Срезы торта по начинкам» renders** (Card with `h3`), filling chips «Шоколад-ганаш +300 ₽» / «Малина-базилик», slice thumbnail `<img src="/api/product-media/…f001" alt="Шоколад-ганаш">` **naturalWidth=1024, naturalHeight=1024** — the img is inside the gallery Card that owns the heading
+- Screenshot: `U-06-fixed-with-slice-bbe286b.png`
+
+Negative (product `…0001` «Свадебный торт „Ягодный бархат"», `fillings = []`):
+
+- Browser `/product?id=…0001`: heading absent (`sectionPresent=false`), no filling text, 0 slice imgs, h1 correct — gate honestly closed on empty fillings
+- Screenshot: `U-06-fixed-negative-nofillings-bbe286b.png`
+
+### 8.4 Cleanup (verified)
+
+- `product_slices` for `…000b` → **0 rows** (synthetic `acc-u06-v41` deleted; also removed `acc-u06-slice-v41` — an un-cleaned leftover of the interrupted A-1c predecessor run of this same U-06 v4.1 verification, caption «…(U-06 v4.1 fix verification)»; pre-chain baseline 0 rows matches §7.5)
+- `products.fillings` restored to the exact pre-verification value (byte-identical, `FILLINGS_MATCH_BACKUP: true`); product row otherwise untouched
+- Proof artifact: `.run/u06-cleanup-proof.json` (gitignored scratch); live re-inspect: `SLICES: []`
+
+### 8.5 Chain trace (fix → gate → render, live)
+
+```
+products.fillings (jsonb, 0043)
+  → route.ts:55 PRODUCT_CARD_COLUMNS … fillings          (SELECT, raw passthrough)
+  → use-marketplace.ts:838 ApiProduct.fillings (typed)    (:963–980 normalization → StoreProduct.fillings, types.ts:578)
+  → product-page.tsx:1142 gate fillings.length > 0        → ProductSliceGallery
+  → cake-slice-visualizer.tsx:809 GET /api/products/<id>/slices
+  → :823 slice.fillingName === filling.name → :895-896 <img src={slice.image} alt={filling.name}> — LIVE: naturalWidth 1024 ✓
+```

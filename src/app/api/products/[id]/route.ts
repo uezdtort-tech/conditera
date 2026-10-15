@@ -41,7 +41,9 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// Колонки карточки товара (0002 + ALTER 0040/0043 + 0052), snake_case контракт
+// Колонки карточки товара (0002 + ALTER 0040/0043 + 0052), snake_case контракт.
+// fillings (0043, jsonb) обязательна: её читает гейт секции «Срезы торта по
+// начинкам» (ProductSliceGallery) и селекторы кастомизации на карточке (U-06).
 const PRODUCT_CARD_COLUMNS = `
   id, title, slug, description, short_description, long_description,
   price, old_price, category_id, weight_grams, servings, tags,
@@ -49,7 +51,8 @@ const PRODUCT_CARD_COLUMNS = `
   filling_description, layers_count, composition, recipe_id,
   min_order_qty, custom_order_available, is_available, production_time_hours,
   rating_average, reviews_count, confectioner_id,
-  status, is_featured, created_at, updated_at, published_at, images
+  status, is_featured, created_at, updated_at, published_at, images,
+  fillings
 `;
 
 export async function GET(

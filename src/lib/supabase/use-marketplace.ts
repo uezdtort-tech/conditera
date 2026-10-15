@@ -797,7 +797,9 @@ export function useConfectioners(opts: ConfectionersQuery = {}) {
  * useLiveProducts — витрина магазина на live-данных                   *
  * ------------------------------------------------------------------ */
 
-interface ApiProduct {
+// export: контракт ответа /api/products(/…/[id]) — используется регрессионными
+// тестами fillings (U-06) и типизацией клиентов витрины
+export interface ApiProduct {
   id: string;
   title: string;
   slug: string;
@@ -829,6 +831,11 @@ interface ApiProduct {
   is_available?: boolean | null;
   production_time_hours?: number | null;
   dietary_features?: string[] | null;
+  // products.fillings (миграция 0043, jsonb) — источник гейта секции
+  // «Срезы торта по начинкам» (ProductPage → ProductSliceGallery) и
+  // селекторов кастомизации. Раньше не выбиралась API и не маппилась →
+  // StoreProduct.fillings был undefined для всех DB-товаров (U-06).
+  fillings?: { name: string; priceModifier?: number }[] | null;
   category_slug?: string | null;
   media?: ProductMediaItem[];
   confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
@@ -947,6 +954,26 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     // P2.1: dietary_features («содержит орехи», «без сахара»…) — данные для
     // фильтра ограничений; раньше не доезжали до витрины
     dietaryFeatures: p.dietary_features ?? [],
+    // fillings (jsonb, миграция 0043): гейт «Срезы торта по начинкам»
+    // (product-page.tsx) и селекторы кастомизации читают product.fillings —
+    // без маппинга секция была мёртвой для DB-товаров (U-06).
+    // Нормализация по конвенции этого маппера (tags/dietaryFeatures): всегда
+    // массив — [] при отсутствии/пустом jsonb; записи без строкового name
+    // отбрасываются, priceModifier приводится к number (default 0).
+    fillings: Array.isArray(p.fillings)
+      ? p.fillings
+          .filter(
+            (f): f is { name: string; priceModifier?: number } =>
+              Boolean(f) && typeof (f as { name?: unknown } | null)?.name === "string"
+          )
+          .map((f) => {
+            const pm = Number(f.priceModifier);
+            return {
+              name: f.name,
+              priceModifier: Number.isFinite(pm) ? pm : 0,
+            };
+          })
+      : [],
     // media приходит из API уже в camelCase (ProductMediaItem[])
     media: Array.isArray(p.media) ? p.media : undefined,
   };

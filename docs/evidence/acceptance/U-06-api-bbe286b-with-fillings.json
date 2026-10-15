@@ -1,0 +1,25 @@
+{
+  "id": "aaaaaaaa-0000-4000-8000-00000000000b",
+  "title": "Порционные десерты (20 шт.)",
+  "fillings": [
+    {
+      "name": "Шоколад-ганаш",
+      "priceModifier": 300
+    },
+    {
+      "name": "Малина-базилик",
+      "priceModifier": 0
+    }
+  ],
+  "slices_count": 1,
+  "slices": [
+    {
+      "id": "acc-u06-slice-v41",
+      "fillingName": "Шоколад-ганаш",
+      "image": "/api/product-media/aaaaaaaa-aaaa-4aaa-8aaa-00000000f001",
+      "config": null,
+      "caption": "Срез: шоколадный ганаш (U-06 v4.1 fix verification)",
+      "sortOrder": 999
+    }
+  ]
+}
