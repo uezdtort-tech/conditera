@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.local.example
 !.env.production.example
+# mailu.env — секреты почтового сервера (профиль mail/full), коммитить запрещено;
+# шаблон имён ключей — mailu.env.template
+/mailu.env
 
 # vercel
 .vercel

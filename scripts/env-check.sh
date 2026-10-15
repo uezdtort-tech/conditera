@@ -6,6 +6,7 @@
 #   bash scripts/env-check.sh           # проверка .env.local (dev)
 #   bash scripts/env-check.sh production # проверка .env.production
 #   bash scripts/env-check.sh prod       # alias
+#   bash scripts/env-check.sh production mail  # + advisory-проверка mailu.env (профиль mail/full)
 #
 # Что проверяет:
 #   1. Существование файла .env.local / .env.production
@@ -24,6 +25,11 @@ else
   ENV_FILE=".env.local"
   MODE_LABEL="development"
 fi
+
+# DEV-16: опциональный второй аргумент — профиль compose (mail | full).
+# Проверка mailu.env выполняется ТОЛЬКО при явном запросе mail-профиля и только
+# как advisory (warning, не error) — дефолтный профиль от файла не зависит.
+PROFILE="${2:-}"
 
 # Цвета
 RED='\033[0;31m'
@@ -198,6 +204,21 @@ check_optional "SUPABASE_STORAGE_HOSTNAME" "кастомный домен CDN (�
 check_required "STORAGE_BUCKET_AVATARS" "имя бакета для аватаров"
 check_required "STORAGE_BUCKET_PORTFOLIO" "имя бакета для портфолио"
 echo ""
+
+# ===== MAIL PROFILE (DEV-16) — только при явном запросе профиля mail/full =====
+if [ "$PROFILE" = "mail" ] || [ "$PROFILE" = "full" ]; then
+  echo -e "${BOLD}[MAIL PROFILE: $PROFILE]${NC}"
+  if [ -f "mailu.env" ]; then
+    log "mailu.env найден (env_file сервиса mailu; значения не проверяются и не печатаются)"
+    if ! grep -Eq '^SECRET_KEY=[0-9a-fA-F]{64}[[:space:]]*$' mailu.env; then
+      warn "mailu.env: SECRET_KEY отсутствует или не 64-hex — сгенерируйте: openssl rand -hex 32 (advisory)"
+    fi
+  else
+    warn "mailu.env ОТСУТСТВУЕТ — 'docker compose --profile $PROFILE up -d' упадёт на env_file (env file mailu.env not found)."
+    warn "Дефолтный профиль это НЕ ломает: сервис mailu под профилями [mail, full] (docker-compose.yml). Шаблон: mailu.env.template"
+  fi
+  echo ""
+fi
 
 # ===== ИТОГ =====
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
