@@ -1,6 +1,12 @@
 #!/bin/bash
 # scripts/ensure-dev.sh — self-healing пролог для команд браузерной проверки:
 # поднимает embedded PG, dev-сервер (3000) и chat-service (3030), если песочница их убила.
+#
+# TZ v4.0 §7 (DEV-04): lifecycle chat/next передан scripts/lib/dev-process-manager.mjs —
+# управляемые процессы (state: .run/ensure-dev.state.json) рестартуются при смене
+# отпечатка секрета; unmanaged-процессы НИКОГДА не убиваются по имени/порту —
+# при desync менеджер даёт actionable-сообщение и ensure-dev завершается с кодом 2.
+set -u
 cd /home/z/my-project
 
 # 1. PostgreSQL (pg_ctl daemon)
@@ -12,24 +18,34 @@ if [ ! -f .env.local ]; then
   bun run db:setup >> dev.log 2>&1
 fi
 
-# Секреты чата: chat-server (bun) НЕ читает .env.local автоматически —
-# без совпадающего JWT_SECRET handshake отвергается (auth: unauthorized /
-# в браузере «Ошибка подключения: server error»), без BOT_SECRET
-# персистенция bot-сообщений отключена.
+# Секреты чата: передаются менеджеру через окружение. Значения НИКОГДА не печатаются.
 JWT_SECRET=$(sed -n 's/^JWT_SECRET=//p' .env.local 2>/dev/null | head -1)
 BOT_SECRET=$(sed -n 's/^BOT_SECRET=//p' .env.local 2>/dev/null | head -1)
+export JWT_SECRET BOT_SECRET
 
-# 2. Dev-сервер :3000
-if ! curl -sf -o /dev/null --max-time 4 http://127.0.0.1:3000/api/health; then
-  setsid nohup bun run dev:local >> dev.log 2>&1 < /dev/null &
-  for i in $(seq 1 60); do
-    sleep 5
-    curl -sf -o /dev/null --max-time 4 http://127.0.0.1:3000/api/health && break
-  done
+# 2. Chat-service :3030 через менеджер процессов (managed lifecycle, env-fingerprint)
+node scripts/lib/dev-process-manager.mjs ensure-chat --port 3030 \
+  --cwd mini-services/chat-server \
+  --log /tmp/chat-server.log \
+  --state .run/ensure-dev.state.json
+rc=$?
+if [ $rc -ne 0 ]; then
+  echo "[ensure] chat desync (exit $rc) — действуй по сообщению выше"
+  exit $rc
 fi
 
-# 3. Chat-service :3030 (с JWT_SECRET/BOT_SECRET из .env.local — общие с Next)
-(echo > /dev/tcp/127.0.0.1/3030) 2>/dev/null || { (cd mini-services/chat-server && JWT_SECRET="$JWT_SECRET" BOT_SECRET="$BOT_SECRET" setsid nohup bun run dev >> /tmp/chat-server.log 2>&1 < /dev/null &); sleep 3; }
+# 3. Dev-сервер :3000 через менеджер процессов (managed lifecycle, .env.local hash)
+node scripts/lib/dev-process-manager.mjs ensure-next --port 3000 \
+  --cwd /home/z/my-project \
+  --env-local .env.local \
+  --start-cmd "bun run dev:local" \
+  --log dev.log \
+  --state .run/ensure-dev.state.json
+rc=$?
+if [ $rc -ne 0 ]; then
+  echo "[ensure] next desync (exit $rc) — действуй по сообщению выше"
+  exit $rc
+fi
 
 # Итоговый статус
 H=$(curl -s --max-time 6 http://127.0.0.1:3000/api/health | head -c 120)

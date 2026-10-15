@@ -1,0 +1,43 @@
+# process-cleanup-before — DEV-04 (head a0ace2c, 2026-10-15T17:38:35Z)
+
+## ps -eo pid,ppid,pgid,etime,cmd | grep bun|next
+ 1180     1  1042    02:17:33 bun run dev
+ 1184     1  1042    02:17:33 bun run dev
+ 1193     1  1042    02:17:33 bun run dev
+ 1200  1184  1042    02:17:33 bun --hot index.ts
+ 1208  1193  1042    02:17:32 bun --hot index.ts
+ 1210  1180  1042    02:17:32 bun --hot index.ts
+ 1230     1   917    02:17:32 bun run dev
+ 1234     1   917    02:17:32 bun run dev
+ 1240  1230   917    02:17:32 bun --hot index.ts
+ 1241     1   917    02:17:32 bun run dev
+ 1250  1234   917    02:17:32 bun --hot index.ts
+ 1254  1241   917    02:17:32 bun --hot index.ts
+ 3403     1  3403       57:38 bun run dev:local
+ 3406  3403  3403       57:38 node /home/z/my-project/node_modules/.bin/next dev -H 0.0.0.0 -p 3000
+ 3418  3406  3403       57:37 next-server (v16.3.5)
+ 3451  3418  3403       57:19 node /home/z/my-project/.next/dev/build/chunks/pool_entry-[turbopack-node]_transforms_postcss_ts_0tp-k2v._.js 46659
+ 3463  3418  3403       57:19 node /home/z/my-project/.next/dev/build/chunks/pool_entry-[turbopack-node]_transforms_postcss_ts_0tp-k2v._.js 45481
+ 3470  3418  3403       57:19 node /home/z/my-project/.next/dev/build/chunks/pool_entry-[turbopack-node]_transforms_postcss_ts_0tp-k2v._.js 35257
+ 3691  3689  3691       56:01 bun run dev
+ 3692  3691  3691       56:01 bun --hot index.ts
+
+## ss -ltnp :3000/:3030
+LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:(("next-server (v1",pid=3418,fd=22))
+LISTEN 0      512                *:3030             *:*    users:(("bun",pid=3692,fd=100))           
+
+## cwd of chat pgid members (1042/917/3691)
+1180 cwd=/home/z/my-project/mini-services/chat-server cmd=bun run dev 
+1184 cwd=/home/z/my-project/mini-services/n8n-receiver cmd=bun run dev 
+1193 cwd=/home/z/my-project/mini-services/simplex-bridge cmd=bun run dev 
+1200 cwd=/home/z/my-project/mini-services/n8n-receiver cmd=bun --hot index.ts 
+1208 cwd=/home/z/my-project/mini-services/simplex-bridge cmd=bun --hot index.ts 
+1210 cwd=/home/z/my-project/mini-services/chat-server cmd=bun --hot index.ts 
+1230 cwd=/home/z/my-project/mini-services/chat-server cmd=bun run dev 
+1234 cwd=/home/z/my-project/mini-services/n8n-receiver cmd=bun run dev 
+1240 cwd=/home/z/my-project/mini-services/chat-server cmd=bun --hot index.ts 
+1241 cwd=/home/z/my-project/mini-services/simplex-bridge cmd=bun run dev 
+1250 cwd=/home/z/my-project/mini-services/n8n-receiver cmd=bun --hot index.ts 
+1254 cwd=/home/z/my-project/mini-services/simplex-bridge cmd=bun --hot index.ts 
+3691 cwd=/home/z/my-project/mini-services/chat-server cmd=bun run dev 
+3692 cwd=/home/z/my-project/mini-services/chat-server cmd=bun --hot index.ts 

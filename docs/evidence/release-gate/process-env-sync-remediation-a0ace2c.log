@@ -1,0 +1,71 @@
+# process-env-sync remediation transcript — DEV-04 (head a0ace2c, 2026-10-15T17:43:11Z)
+
+## 0. Before-state evidence: docs/evidence/release-gate/process-cleanup-before-a0ace2c.txt
+   Stale chat processes: pgid 1042 members 1180,1210 (chat-server cwd); pgid 917 members 1230,1240 (chat-server cwd).
+   GROUPS WERE MIXED: 1042 also held n8n-receiver (1184,1200), simplex-bridge (1193,1208);
+   917 also held n8n-receiver (1234,1250), simplex-bridge (1241,1254) -> individual PID kill only, NO group kill.
+
+## 1. Env-fingerprint decision (fingerprints only, secret values never printed)
+   listener :3030 PID 3692 JWT_SECRET fingerprint: e0022e0df8f9
+   .env.local       JWT_SECRET fingerprint: e0022e0df8f9
+   DECISION: ALIGNED -> keep listener 3692 (+ its group leader 3691) per remediation plan;
+             kill only failed-bind duplicates.
+
+## 2. Pre-kill verification (recorded BEFORE kill; group membership check)
+   PID 1180 cwd=/home/z/my-project/mini-services/chat-server (verified via /proc/1180/cwd)
+   PID 1210 cwd=/home/z/my-project/mini-services/chat-server (verified via /proc/1210/cwd)
+   PID 1230 cwd=/home/z/my-project/mini-services/chat-server (verified via /proc/1230/cwd)
+   PID 1240 cwd=/home/z/my-project/mini-services/chat-server (verified via /proc/1240/cwd)
+   1180/1230: 'bun run dev' (group leader); 1210/1240: 'bun --hot index.ts' (chat child)
+
+## 3. Kill actions: kill -TERM 1180 1210 1230 1240
+   Result: 1180 dead, 1210 dead, 1230 dead, 1240 dead (all without SIGKILL escalation)
+
+## 4. Survivors verified (non-chat members untouched; aligned listener kept)
+    3692  3691  3691 bun --hot index.ts
+
+## 5. ensure-next manager decision on :3000 (unmanaged probe)
+   $ node scripts/lib/dev-process-manager.mjs ensure-next --port 3000 --cwd /home/z/my-project --env-local .env.local --start-cmd "bun run dev:local" --log dev.log --state .run/ensure-dev.state.json
+   {"action":"ok-unmanaged-aligned-probe","pid":3418,"probeStatus":404}
+   Exit 0 -> PID 3418 (next-server, group 3403) LEFT RUNNING per plan; garbage-token pre-check returned 401 (endpoint validates JWT signature).
+
+## 6. ensure-dev.sh double-run (idempotency)
+   --- RUN 1 (exit 0) ---
+   {"action":"ok-unmanaged-aligned","pid":3692,"fingerprint":"e0022e0df8f9"}
+   {"action":"ok-unmanaged-aligned-probe","pid":3418,"probeStatus":404}
+   health: {"app":"ok","database":"ok","n8n":"ok","status":"ok","service":"conditera","version":"2.0.0-dev"}
+   --- RUN 2 (exit 0, identical, no restarts) ---
+   {"action":"ok-unmanaged-aligned","pid":3692,"fingerprint":"e0022e0df8f9"}
+   {"action":"ok-unmanaged-aligned-probe","pid":3418,"probeStatus":404}
+   health: {"app":"ok","database":"ok","n8n":"ok","status":"ok","service":"conditera","version":"2.0.0-dev"}
+
+## 7. After-state (2026-10-15T17:43:11Z)
+   ### ps
+    1184     1  1042    02:22:08 bun run dev
+    1193     1  1042    02:22:08 bun run dev
+    1200  1184  1042    02:22:08 bun --hot index.ts
+    1208  1193  1042    02:22:08 bun --hot index.ts
+    1234     1   917    02:22:07 bun run dev
+    1241     1   917    02:22:07 bun run dev
+    1250  1234   917    02:22:07 bun --hot index.ts
+    1254  1241   917    02:22:07 bun --hot index.ts
+    3403     1  3403    01:02:13 bun run dev:local
+    3406  3403  3403    01:02:13 node /home/z/my-project/node_modules/.bin/next dev -H 0.0.0.0 -p 3000
+    3418  3406  3403    01:02:13 next-server (v16.3.5)
+    3451  3418  3403    01:01:55 node /home/z/my-project/.next/dev/build/chunks/pool_entry-[turbopack-node]_transforms_postcss_ts_0tp-k2v._.js 46659
+    3463  3418  3403    01:01:54 node /home/z/my-project/.next/dev/build/chunks/pool_entry-[turbopack-node]_transforms_postcss_ts_0tp-k2v._.js 45481
+    3470  3418  3403    01:01:54 node /home/z/my-project/.next/dev/build/chunks/pool_entry-[turbopack-node]_transforms_postcss_ts_0tp-k2v._.js 35257
+    3691  3689  3691    01:00:36 bun run dev
+    3692  3691  3691    01:00:36 bun --hot index.ts
+   ### ss -ltnp :3000/:3030
+   LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:(("next-server (v1",pid=3418,fd=22))
+   LISTEN 0      512                *:3030             *:*    users:(("bun",pid=3692,fd=100))           
+   ### manager status (state file .run/ensure-dev.state.json ABSENT by design:
+       unmanaged-aligned processes are NOT adopted into state; managed state appears
+       only when the manager itself spawns/restarts a process)
+   state file: /home/z/my-project/.run/ensure-dev.state.json
+   {}
+
+## 8. Verification results
+   Regression test (scripts/verify-process-env-sync.mjs): PASS 13/13, exit 0 (node and bun)
+   Runtime gate (scripts/verify-chat-runtime.mjs): PASSED 48/48, exit 0

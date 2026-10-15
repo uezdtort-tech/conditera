@@ -1,0 +1,15 @@
+✅ 1. ensureChat(A) → started — exit=0 action=started pid=7126
+✅ 1a. health 200 после старта (порт 13030) — health=true
+✅ 2. ensureChat(B) → restarted (A→B) — exit=0 action=restarted old=7126 new=7152
+✅ 2a. PID_A мёртв, новый PID жив — oldDead=true newAlive=true
+✅ 2b. health 200 после рестарта — health=true
+✅ 3. handshake c токеном B_j УСПЕШЕН — err=none
+✅ 4. handshake c токеном A_j ОТКЛОНЁН (auth: unauthorized) — err=auth: unauthorized
+✅ 5. ensureChat(A) на unmanaged → ok-unmanaged-aligned — exit=0 action=ok-unmanaged-aligned alignedPid=7164 manualAlive=true
+✅ 5a. ручной процесс жив и health 200 после проверки
+✅ 6. ensureChat(B) на unmanaged(A) → exit 2 + actionable stderr — exit=2 stderr=DESYNC: port 13033 held by unmanaged PID 7187 with different/unreadable env. Verify it is yours, then: kill 7187 — or ru
+✅ 6a. ручной процесс НЕ убит менеджером (жив, health 200)
+✅ 7. секреты (значения + 16-char подстроки) отсутствуют во всех захватах
+✅ 7a. state-файл хранит fingerprints (12 hex), не секреты — fingerprints=1
+
+PASS 13/13

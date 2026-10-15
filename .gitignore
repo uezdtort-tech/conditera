@@ -71,6 +71,9 @@ playwright-report/
 /tool-results/
 /upload/
 
+# dev-process-manager runtime state (PIDs/fingerprints — never commit)
+/.run/
+
 # sandbox PID churn — не отслеживать
 .zscripts/dev.pid
 download/
