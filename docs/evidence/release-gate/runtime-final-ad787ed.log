@@ -1,0 +1,52 @@
+✅ preflight: /api/health 200 — status=200
+✅ preflight: chat-server /health — {"status":"ok","service":"conditera-chat-server","uptime":250.66665425,"connections":0}
+✅ preflight: /api/csrf-token
+✅ login: customer/confectioner/admin
+✅ create direct room A↔B — status=200
+✅ create foreign room A↔C (для негативных кейсов)
+✅ create support room A — type=support
+✅ handshake: без токена отклонён — auth: token required
+✅ handshake: неверный токен отклонён — auth: unauthorized
+✅ handshake: валидные токены A/B/C подключены
+✅ room:join A → online_users — {"roomId":"94541846-bd43-4cdd-9ad6-6d960be4a600","users":["11111111-1111-4111-8111-111111111106"]}
+✅ room:join A: нет room:error
+✅ room:join B → room:user_joined у A
+✅ room:join B в чужую → room:error — {"roomId":"c02fcbaf-2068-422c-b056-d5ffbbbfb841","error":"Нет доступа к комнате"}
+✅ message:send → message:sent у A — {"roomId":"94541846-bd43-4cdd-9ad6-6d960be4a600","messageId":"rt-msg-17920942834
+✅ message:receive у B, sender из JWT (не payload) — senderId=11111111-1111-4111-8111-111111111106
+✅ message:send не эхо-рассылается отправителю (socket.to)
+✅ message:send B в чужую → message:error, C ничего не получил — {"roomId":"c02fcbaf-2068-422c-b056-d5ffbbbfb841","messageId":"rt-spoof-1792094283464","error":"Нет доступа к комнате"}
+✅ message:persist в chat_messages (server-side) — 5 rows, match=true
+✅ history API возвращает сообщение — status=200, total=12
+✅ room:join A → support room — online_users={"roomId":"721c5484-462e-4888-81d1-a68c4af88719","users":["11111111-1111-4111-8111-111111111106"]} timedOut=false (3000ms) roomError=null
+✅ bot:quick_reply в своей комнате: userMsg получен
+✅ support: FAQ bot-ответ получен (real-time) — {"id":"bot_1792094302393","text":"💳 Способы оплаты:\n  • Карта (Visa, Mastercar
+✅ bot:quick_reply B в чужую → message:error, C ничего не получил — {"roomId":"c02fcbaf-2068-422c-b056-d5ffbbbfb841","error":"Нет доступа к комнате"}
+✅ room:leave B чужой комнаты → room:error — {"roomId":"721c5484-462e-4888-81d1-a68c4af88719","error":"Нет доступа к комнате"}
+✅ room:leave по алиасу r3 — без room:error
+✅ room:leave одной комнаты не ломает другую (typing релеится)
+✅ typing в покинутой комнате не доставляется
+✅ message:read релеится участнику
+✅ message:read в чужую комнату не доставляется
+✅ reconnect: доставка сообщений восстановлена
+✅ reconnect: история без дублей (БД) — [{"text":"RT-GATE-1792094283464-hello","n":1},{"text":"RT-GATE-1792094283464-reconnect","n":1}]
+✅ support: bot-ответ персистентен (BOT_SECRET работает) — {"text":"💳 Способы оплаты:\n  • Карта (Visa, Mastercard, Мир)\n  • СБП по QR\n  • Наличные при получении\n  • Рассрочка
+✅ POST /api/courier/assign courier1 → 200 — {"success":true,"orderId":"bb5698b1-927a-43db-a719-a4129af06156","orderNumber":"RT-1792094283464","courierId":"1f82d233-
+✅ POST /api/courier/assign courier2 → 409 (уже занят) — status=409
+✅ GET /api/orders/[id] courier1 (назначен) → 200 — status=200
+✅ GET /api/orders/[id] courier2 (не назначен) → 403 — status=403
+✅ courier:location назначенного → location_update покупателю, spoof customerId игнорирован — {"orderId":"bb5698b1-927a-43db-a719-a4129af06156","lat":55.751244,"lng":37.618423,"eta":10,"timestamp":"2026-10-15T19:58:39.528Z"}
+✅ courier:location неназначенного → courier:error — {"orderId":"bb5698b1-927a-43db-a719-a4129af06156","error":"Нет доступа к заказу"}
+✅ courier:location неназначенного: покупатель НЕ получил гео
+✅ courier:location от не-курьера игнорируется
+✅ courier:location неверные координаты (lat=999) → courier:error — {"orderId":"bb5698b1-927a-43db-a719-a4129af06156","error":"Некорректные данные геопозиции"}
+✅ courier:location неверные координаты: покупатель НЕ получил гео
+✅ courier:location несуществующий заказ → courier:error — {"orderId":"00000000-0000-4000-8000-000000000000","error":"Нет доступа к заказу"}
+✅ courier:location несуществующий заказ: покупатель НЕ получил гео
+✅ POST /api/courier/location → 200 — status=200 {"success":true}
+✅ courier_locations: строка записана (camelCase) — {"courierId":"1f82d233-0c6c-4571-9ab1-89c0ff174769","lat":55.76,"lng":37.64}
+✅ order_tracking: точка трекинга для активного заказа — {"orderId":"bb5698b1-927a-43db-a719-a4129af06156","courierId":"1f82d233-0c6c-4571-9ab1-89c0ff174769"}
+
+===== RUNTIME GATE SUMMARY =====
+PASSED: 48/48
+ALL RUNTIME CHECKS PASSED
