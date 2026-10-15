@@ -36,23 +36,24 @@
 
 Регистрация в проде успешна ⇔ admin-API GoTrue принимает service-role
 `createUser` (шаг 7). Гейт **поведенческий** (по факту `authErr`), а не по
-наличию env: даже при НАЛИЧИИ `NEXT_PUBLIC_SUPABASE_URL` /
-`SUPABASE_SERVICE_ROLE_KEY`, но недостижимом/некорректном GoTrue — `authErr`
-→ 500. Т.е. preflight-блокировка регистрации «до конфигурации провайдера»
-выполняется по построению, любая ошибка конфигурации провайдера даёт отказ,
-а не тишину.
+наличию env: даже при НАЛИЧИИ обоих Supabase env (публичный URL + сервисный
+role-ключ — имена см. `src/lib/supabase/admin.ts:21–22`), но
+недостижимом/некорректном GoTrue — `authErr` → 500. Т.е.
+preflight-блокировка регистрации «до конфигурации провайдера» выполняется
+по построению, любая ошибка конфигурации провайдера даёт отказ, а не тишину.
 
 ## 3. Что уже surfaced префлайтами (проверено, без изменений кода)
 
 - **`/api/health`** — `src/app/api/health/route.ts:116,126–132`: компонент
-  `supabase` (`required: true`) проверяет НАЛИЧИЕ env
-  `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; при отсутствии —
-  `configured:false` → `allRequiredOk=false` → `status:"degraded"`
-  (route.ts:169–173, когерентность статуса — DEV-17 d82d5f6).
+  `supabase` (`required: true`) проверяет НАЛИЧИЕ пары Supabase-env
+  (публичный URL + сервисный role-ключ, точные имена — route.ts:116); при
+  отсутствии — `configured:false` → `allRequiredOk=false` →
+  `status:"degraded"` (route.ts:169–173, когерентность статуса — DEV-17
+  d82d5f6).
 - **`scripts/env-check.sh:132–137`** — секция «Database & Supabase»:
-  `check_required` для `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-  `SUPABASE_SERVICE_ROLE_KEY` — прод-сборка env без этих переменных префлайт
-  не проходит.
+  `check_required` для трёх переменных (публичный URL, anon-ключ, сервисный
+  role-ключ — точные имена в самом скрипте) — прод-сборка env без этих
+  переменных префлайт не проходит.
 
 ## 4. Гэп (зафиксирован, НЕ реализуется в этой задаче)
 
@@ -73,7 +74,8 @@ behavioral-чек `POST /auth/v1/admin/users` сервисным ключом п
 1. Сконфигурировать реальный поддерживаемый auth-провайдер в прод-топологии:
    валидный `NEXT_PUBLIC_SUPABASE_URL` (реальный Kong/Supabase, не localhost —
    резолвер `src/lib/supabase/url.ts` локальные URL считает лок-рантаймом) +
-   `SUPABASE_SERVICE_ROLE_KEY` с правами admin-API GoTrue.
+   валидный сервисный role-ключ (имя — `src/lib/supabase/admin.ts:22`,
+   значение — из секретного хранилища владельца) с правами admin-API GoTrue.
 2. Поведенческая приёмка: прод-регистрация → 201 (после конфигурации) /
    500 fail-closed (до) — прогон на прод-топологии, не в песочнице.
 3. Решение по гэпу §4 (reachability-проба в префлайт) — отдельная задача.
