@@ -1,0 +1,33 @@
+# DEV-10 — Docker engine availability check
+# HEAD: 671f82a (2026-10-15)
+# EXPECTED VERDICT: BLOCKED (no engine binary, no socket, cap_sys_admin absent from bounding+effective set)
+# Nothing was installed or started for this check (constraint honored).
+
+== command -v (docker/podman/nerdctl/buildah) ==
+docker     -> NOT FOUND (exit 1)
+podman     -> NOT FOUND (exit 1)
+nerdctl    -> NOT FOUND (exit 1)
+buildah    -> NOT FOUND (exit 1)
+
+== socket ==
+ls: cannot access '/var/run/docker.sock': No such file or directory
+
+== textual cap_sys_admin count in /proc/self/status ==
+0
+
+== capability fields ==
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	00000000a80425fb
+CapAmb:	0000000000000000
+
+== capsh --decode CapBnd ==
+0x00000000a80425fb=cap_chown,cap_dac_override,cap_fowner,cap_fsetid,cap_kill,cap_setgid,cap_setuid,cap_setpcap,cap_net_bind_service,cap_net_raw,cap_sys_chroot,cap_mknod,cap_audit_write,cap_setfcap
+
+== python decode of bit 21 (cap_sys_admin, mask 0x200000) ==
+cap_sys_admin: bounding=0 effective=0
+
+== VERDICT: BLOCKED — no engine binary on PATH, no /var/run/docker.sock,
+== CapEff=0, CapBnd=0x00000000a80425fb without cap_sys_admin (bit 21 = 0 in both sets).
+== Docker-dependent gates (image build, compose config, runtime T1-T6 of DEV-14) remain owner-side.
