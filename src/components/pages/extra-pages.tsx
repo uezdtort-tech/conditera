@@ -61,6 +61,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import {
+  beginCheckoutIdempotencyAttempt,
+  resolveCheckoutIdempotencyAttempt,
+} from "@/lib/checkout-idempotency";
+import {
   CheckoutAvailabilityBanner,
   formatAlternativeWindowShort,
 } from "./checkout-availability";
@@ -1448,13 +1452,6 @@ export function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   // 422 от движка выполнимости: постоянный баннер над кнопкой оплаты (ТЗ P0.5 §29)
   const [blockedNotice, setBlockedNotice] = useState<string | null>(null);
-  // Идемпотентность checkout (P1-A6): ОДИН ключ на монтирование страницы —
-  // двойной клик / повторный POST возвращает существующий заказ, а не новый.
-  const [idempotencyKey] = useState(() =>
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `co_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-  );
   const [orderResult, setOrderResult] = useState<{
     orderId: string;
     orderNumber: string;
@@ -1498,6 +1495,7 @@ export function CheckoutPage() {
   };
 
   /** POST /api/checkout: создаёт заказ + платёж (schema: cartItems/customerName/…) */
+  let activeIdemAttempt: { key: string } | null = null;
   async function submitCheckout() {
     if (!user) {
       toast.error("Войдите, чтобы оформить заказ");
@@ -1551,22 +1549,29 @@ export function CheckoutPage() {
                   : undefined,
             }
       );
+      // U-07 fix: ключ стабилен на ЛОГИЧЕСКУЮ отправку (сигнатура тела), а не
+      // на монтирование страницы: сетевой сбой/таймаут → повтор той же отправки
+      // (в т.ч. после remount/перезагрузки — ключ живёт в sessionStorage) вернёт
+      // replay того же заказа; после известного исхода (успех/4xx) — новый ключ.
+      const checkoutBody = {
+        cartItems: cartItemsPayload,
+        customerName: recipientName.trim(),
+        customerPhone: recipientPhone.trim(),
+        deliveryType,
+        deliveryAddress: deliveryType === "delivery" ? address.trim() : undefined,
+        deliveryCity: city.trim(),
+        deliveryDate: deliveryDate || undefined,
+        notes: notes.trim() || undefined,
+        promoCode: promoCode || undefined,
+        paymentMethod,
+      };
+      const idemAttempt = beginCheckoutIdempotencyAttempt(checkoutBody);
+      activeIdemAttempt = idemAttempt;
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers: { ...headers, "Idempotency-Key": idempotencyKey },
+        headers: { ...headers, "Idempotency-Key": idemAttempt.key },
         credentials: "include",
-        body: JSON.stringify({
-          cartItems: cartItemsPayload,
-          customerName: recipientName.trim(),
-          customerPhone: recipientPhone.trim(),
-          deliveryType,
-          deliveryAddress: deliveryType === "delivery" ? address.trim() : undefined,
-          deliveryCity: city.trim(),
-          deliveryDate: deliveryDate || undefined,
-          notes: notes.trim() || undefined,
-          promoCode: promoCode || undefined,
-          paymentMethod,
-        }),
+        body: JSON.stringify(checkoutBody),
       });
       const data = (await res.json().catch(() => null)) as {
         orderId?: string;
@@ -1577,6 +1582,17 @@ export function CheckoutPage() {
         error?: string;
         alternativeWindows?: Array<{ date: string; start: string; end: string }>;
       } | null;
+
+      // Фиксация исхода для idempotency (ЕДИНСТВЕННАЯ точка): 2xx — заказ
+      // создан → ключ закрыт; 4xx — сервер точно не создавал заказ → закрыт;
+      // 5xx/мусорный ответ — исход неизвестен → ключ живёт до replay.
+      if (res.ok && data?.orderId) {
+        resolveCheckoutIdempotencyAttempt(idemAttempt.key, "success");
+      } else if (res.status >= 400 && res.status < 500) {
+        resolveCheckoutIdempotencyAttempt(idemAttempt.key, "rejected");
+      } else {
+        resolveCheckoutIdempotencyAttempt(idemAttempt.key, "unknown");
+      }
 
       if (!res.ok || !data?.orderId) {
         // 422: слот недоступен — постоянный баннер + подсказка ближайшего окна
@@ -1611,6 +1627,9 @@ export function CheckoutPage() {
       clearCart();
       setStep(3);
     } catch (e) {
+      // Сетевой сбой/таймаут: исход НЕИЗВЕСТЕН (сервер мог создать заказ) —
+      // ключ сохраняется, повтор той же отправки вернёт replay, не дубль.
+      if (activeIdemAttempt) resolveCheckoutIdempotencyAttempt(activeIdemAttempt.key, "unknown");
       toast.error("Сеть недоступна — заказ не оформлен", {
         description: e instanceof Error ? e.message : undefined,
       });

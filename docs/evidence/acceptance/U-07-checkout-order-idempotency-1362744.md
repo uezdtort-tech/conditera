@@ -42,3 +42,16 @@ All rows created by the probe removed (orders cascade to order_items/payments/hi
 ## Artifacts
 
 - `.run/acc/u07-u09.mjs`, `.run/acc/u07-u09-transcript.txt` (redacted-safe)
+
+---
+
+FIX VERIFIED (v4.1) — Task B-1, base HEAD `0bcb79a`, date 2026-10-15 UTC.
+
+Verdict: **client-only fix, server untouched**. Server mechanism is sound when the key is sent (15-min replay + unique index 0060 race guard — proven live by a 4× parallel probe); the duplicate came from clients: `useCreateOrder` sent no key at all, CheckoutPage's key was per-mount (regenerated on reload/remount → duplicate after a lost response + page reload). Server stays lenient (opt-in contract kept and locked by regression; "reject without key" is the owner's call — legitimate keyless callers exist).
+
+Fix (payment/webhook/escrow/payout/refund/bonus-balance untouched — 0 diff there):
+- NEW `src/lib/checkout-idempotency.ts` — stable Idempotency-Key per LOGICAL submission: key bound to a canonical body signature, kept in sessionStorage across remounts/reloads while the outcome is unknown (network error/5xx → retry replays same order); closed on known outcome (2xx success / 4xx rejected) so a deliberate repeat order gets a NEW key (no false replay).
+- `src/components/pages/extra-pages.tsx` (CheckoutPage) — uses the helper; single outcome-resolution point.
+- `src/lib/supabase/use-marketplace.ts` (useCreateOrder) — now sends the header per the same contract (was: no key at all).
+
+Evidence: `docs/evidence/acceptance/U-07-fix-idempotency-0bcb79a.md` (chain trace file:line, verdict, diff stat, tests, live matrix). Regression: 20 vitest (14 helper + 6 hook-level, conventions of use-marketplace.fillings.test.ts); live integrator `scripts/verify/checkout-idempotency-verify.mjs` — PASS 15/15, exit 0: A same-key ×2 → same orderId, 1 row; B no-key ×2 → 2 rows (current opt-in contract documented, owner finding stands); C 4× parallel same-key → all 200, exactly 1 order (`[checkout] idempotency race resolved via unique index (0060)` in dev.log); D lost-response (request processed, response discarded) → retry returns the SAME orderId, 1 row. Full suite 48 files / 1003 tests exit 0; typecheck 0; lint 0; scan-evidence 0. Cleanup verified: 0 residual synthetic rows.

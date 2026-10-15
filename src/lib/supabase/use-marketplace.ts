@@ -27,6 +27,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import {
+  beginCheckoutIdempotencyAttempt,
+  resolveCheckoutIdempotencyAttempt,
+} from "@/lib/checkout-idempotency";
 import type {
   Product as StoreProduct,
   ProductCategory,
@@ -590,18 +594,44 @@ export function useCreateOrder() {
       deliveryType = "delivery",
       notes,
     }: CreateOrderInput) => {
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cartItems,
-          deliveryAddress,
-          deliveryCity,
-          deliveryDate,
-          deliveryType,
-          notes,
-        }),
-      });
+      // U-07 fix: стабильный Idempotency-Key на ЛОГИЧЕСКУЮ отправку — ключ
+      // привязан к сигнатуре тела: повтор mutate с тем же телом при неизвестном
+      // исходе (сеть/5xx) шлёт ТОТ ЖЕ ключ → сервер вернёт replay того же
+      // заказа; после известного исхода (2xx/4xx) — новый ключ (без ложного
+      // replay повторного заказа). Раньше ключ не отправлялся вовсе — каждый
+      // resubmit создавал дубликат (U-07).
+      const payload = {
+        cartItems,
+        deliveryAddress,
+        deliveryCity,
+        deliveryDate,
+        deliveryType,
+        notes,
+      };
+      const idemAttempt = beginCheckoutIdempotencyAttempt(payload);
+      let response: Response;
+      try {
+        response = await fetch("/api/checkout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idemAttempt.key,
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        // Сеть/таймаут: исход неизвестен — ключ сохраняется для replay-ретрая.
+        resolveCheckoutIdempotencyAttempt(idemAttempt.key, "unknown");
+        throw e;
+      }
+      if (response.ok) {
+        resolveCheckoutIdempotencyAttempt(idemAttempt.key, "success");
+      } else if (response.status >= 400 && response.status < 500) {
+        // Сервер отверг запрос до создания заказа — следующая отправка новая.
+        resolveCheckoutIdempotencyAttempt(idemAttempt.key, "rejected");
+      } else {
+        resolveCheckoutIdempotencyAttempt(idemAttempt.key, "unknown");
+      }
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
