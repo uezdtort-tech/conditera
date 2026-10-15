@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-15T18:12:04.762Z",
-  "headShort": "3b50ad0",
+  "generatedAt": "2026-10-15T18:22:24.125Z",
+  "headShort": "daedd88",
   "claim": {
     "passed": 148,
     "failed": 0,
@@ -152,7 +152,7 @@
       "spec": "integration-auth-flow",
       "mode": "dev",
       "canonical": {
-        "artifact": "integration-auth-flow.dev.d2f192b-run2.json",
+        "artifact": "integration-auth-flow.dev.f28b090-run2.json",
         "duplicateArtifacts": [],
         "spec": "integration-auth-flow",
         "recordedMode": "dev",
@@ -182,7 +182,7 @@
         "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
         "shaProvenance": {
           "source": "filename",
-          "head": "d2f192b",
+          "head": "f28b090",
           "basis": "имя артефакта <spec>.<mode>.<HEADshort>-run<N>.json кодирует короткий SHA HEAD, при котором выполнен прогон (конвенция фикс-сессии DEV-05)"
         },
         "exclusions": []

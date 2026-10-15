@@ -9,7 +9,9 @@
 - Независимая авто-верификация тех же артефактов: HEAD `7a8d878`
   (docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt).
 - Пост-фиксовые прогоны integration-auth-flow (DEV-05, детерминизм фикстур):
-  HEAD `f28b090` (run1) и `d2f192b` (run2), 2026-10-15.
+  HEAD `f28b090` (run1) и `d2f192b` (run2; впоследствии `d2f192b` amended в
+  `d82d5f6` параллельным агентом — см. «Provenance SHA исходников», п. 3),
+  2026-10-15.
 - Машиночитаемый контракт: `tally-contract-<HEADshort>.json` в этом каталоге,
   генерируется и проверяется командой:
 
@@ -24,7 +26,7 @@ node scripts/verify/e2e-tally-contract.mjs   # exit 0 = контракт вып�
 | api-v2 | prod | e2e-one.sh api-v2 | 89b6708 | pg-54329* | api-v2.prod.json | 0 | 37 | 0 | 0 | 0 | — |
 | auth-flow | prod | e2e-one.sh auth-flow | 89b6708 | pg-54329* | auth-flow.prod.json | 0 | 14 | 0 | 0 | 0 | — |
 | full-flow | prod | e2e-one.sh full-flow | 89b6708 | pg-54329* | full-flow.prod.json | 0 | 36 | 0 | 0 | 0 | — |
-| integration-auth-flow | dev | E2E_SERVER_MODE=dev e2e-one.sh integration-auth-flow | d2f192b | pg-54329* | integration-auth-flow.dev.d2f192b-run2.json | 0 | 17 | 0 | 0 | 0 | — |
+| integration-auth-flow | dev | E2E_SERVER_MODE=dev e2e-one.sh integration-auth-flow | f28b090 | pg-54329* | integration-auth-flow.dev.f28b090-run2.json | 0 | 17 | 0 | 0 | 0 | — |
 | onboarding-flow | prod | e2e-one.sh onboarding-flow | 89b6708 | pg-54329* | onboarding-flow.prod.json | 0 | 1 | 0 | 0 | 1 | E2E_FULL_STACK≠1: Требуется полный Supabase-стек |
 | payment-webhook-idempotency | dev | E2E_SERVER_MODE=dev e2e-one.sh payment-webhook-idempotency | 89b6708 | pg-54329* | payment-webhook-idempotency.dev.json | 0 | 12 | 0 | 0 | 0 | — |
 | recipe-purchase-flow | prod | e2e-one.sh recipe-purchase-flow | 89b6708 | pg-54329* | recipe-purchase-flow.prod.json | 0 | 7 | 0 | 0 | 0 | — |
@@ -81,7 +83,15 @@ stats)** — никогда не «угадывание по имени файл
    148/0/0/1/149).
 2. Артефакты конвенции `<spec>.<mode>.<HEADshort>-run<N>.json` (DEV-05):
    короткий SHA HEAD закодирован в ИМЕНИ файла — `…f28b090-run1.json` /
-   `…d2f192b-run2.json`.
+   `…f28b090-run2.json` (run2 — после переименования, см. п. 3).
+3. run2-артефакт изначально сохранён как `…d2f192b-run2.json`; коммит
+   `d2f192b` был amended в `d82d5f6` во время параллельного DEV-17 fold-back
+   (содержимое свидетельства не затронуто — spec-код между прогонами идентичен);
+   переименован в резолвящегося родителя `f28b090` (commit d2f192b не достижим
+   ни от одного ref'а и не резолвится в свежем клоне; `f28b090` — новейший
+   коммит, существовавший на момент прогона run2 и присутствующий в истории).
+   Фактический HEAD прогона run2 = `d2f192b` зафиксирован здесь и в таблице
+   «Детерминизм фикстур» ниже.
 
 ### Provenance: recorded-mode vs поведение (честная фиксация расхождения)
 
@@ -137,7 +147,7 @@ dev-режим, проект chromium — CI-политика chromium-only; mob
 | Прогон | HEAD | Команда | Статистика | Exit | Артефакт |
 |---|---|---|---|---|---|
 | run1 | f28b090 | E2E_SERVER_MODE=dev e2e-one.sh integration-auth-flow | expected=17 unexpected=0 flaky=0 skipped=0 | 0 | integration-auth-flow.dev.f28b090-run1.json |
-| run2 | d2f192b | E2E_SERVER_MODE=dev e2e-one.sh integration-auth-flow | expected=17 unexpected=0 flaky=0 skipped=0 | 0 | integration-auth-flow.dev.d2f192b-run2.json |
+| run2 | d2f192b (amended → d82d5f6; артефакт переименован в …f28b090-run2.json — см. Provenance п. 3) | E2E_SERVER_MODE=dev e2e-one.sh integration-auth-flow | expected=17 unexpected=0 flaky=0 skipped=0 | 0 | integration-auth-flow.dev.f28b090-run2.json |
 
 Оба прогона — одинаковые ожидаемые результаты, статистика идентична; run2 —
 канонический (новейший), run1 и прежний `integration-auth-flow.dev.json`
