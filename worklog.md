@@ -8618,3 +8618,83 @@ Stage Summary:
 - Изменённые фикстуры: tests/e2e/integration-auth-flow.spec.ts:34-43 (per-run email/phone, export), :50-94 (register: ровно 201, 409 по телу → PHONE_TAKEN/EMAIL_TAKEN, 429/500 → падение), :96-137 (login/refresh без каскадных skip, 2fa-негатив независим).
 - Канонический tally integration-auth-flow: артефакт integration-auth-flow.dev.d2f192b-run2.json (run1 + прежний .dev.json — корроборация).
 - Ограничения честно: recorded-mode integration prod-артефакта неподтверждаем (метаданные репортера не хранят env) — задокументировано; поведенческий prod-прогон регистрации в этой сессии не выполнялся (требует bun run build) — открытая точка, на суммы не влияет; exit-код в артефактах не хранится — колонка Exit из журнала раннера.
+
+---
+Task ID: 7-a
+Agent: Z.ai Code (release-gate chain-integrity agent; запись бэкфилнута агентом задачи 8-d)
+Task: TZ v4.0 release-gate — починка целостности цепочки истории и закрытие хвостов DEV-10/14/18: dangling SHA d2f192b (потерян amend'ом в d82d5f6), worklog/evidence-контрольная точка, assessment DEV-14, preflight DEV-18, docker-гейт DEV-10, re-key tally-контракта DEV-07.
+
+Work Log:
+- Chain integrity: dangling-ссылка на d2f192b (tip DEV-17, потерянный при fold-back amend в d82d5f6) разрешена — артефакт run2 перепривязан на актуальную историю коммитом 76b5cf9 «docs(e2e): resolve dangling SHA reference in run2 artifact provenance (post-parallel amend d2f192b->d82d5f6)»; все упоминания SHA в evidence снова разрешимы из main.
+- Контрольная точка worklog/evidence: 001c4ff «docs(worklog): release-gate v4.0 progress — DEV-00..07,12..17 evidence, variant B check at a0ace2c» — progress-документ зафиксирован отдельным коммитом до дальнейших гейтов.
+- DEV-14 (security assessment, без кода): 82ae685 «docs(security): simplex-bridge non-root assessment — owner risk decision required» — оценка запуска simplex-bridge под non-root; решение осознанно оставлено владельцу (risk decision), evidence в docs/evidence/release-gate/.
+- DEV-18 (preflight регистрации в prod, fail-closed): 671f82a «docs(auth): production registration fail-closed preflight evidence (DEV-18)» — фиксация гейт-строк register/route.ts + behavior-gate по факту authErr; далее 0fca2ac «docs(auth): scrub service-role env var name from preflight evidence — evidence-hygiene gate exit 0 (DEV-18 follow-up)» — гигиена evidence (имя service-role переменной вычищено, скан exit 0).
+- DEV-10 (docker-гейт): 163d6cf «ops(docker): engine availability check — BLOCKED confirmed at 671f82a (DEV-10)» — docker engine в песочнице недоступен, BLOCKED зафиксирован честно (не PASS), статический разбор compose/Dockerfile приложен; контейнерные гейты — владелец.
+- DEV-07 re-key: 9f05fef «ops(e2e): machine-readable tally contract re-verified and re-keyed to final sanity HEAD 0fca2ac (DEV-07)» — tally-contract-0fca2ac.json перегенерирован, VERDICT PASS, итоги 148/0/0/1 подтверждены верификатором.
+- Ограничения: живой стек :3000/:3030/:54329 не перезапускался; push не выполнялся; только docs/evidence/scripts-verify артефакты.
+
+Stage Summary:
+- Цепочка истории целостна: dangling d2f192b → разрешён 76b5cf9; все evidence-SHA разрешимы из main; линейность чужих коммитов не нарушена.
+- Коммиты (без push): 76b5cf9 (chain fix), 001c4ff (worklog/evidence checkpoint), 82ae685 (DEV-14 assessment), 671f82a + 0fca2ac (DEV-18 preflight + hygiene), 163d6cf (DEV-10 BLOCKED), 9f05fef (DEV-07 re-key to 0fca2ac).
+- Открытые пункты для владельца: docker-стек (DEV-10 BLOCKED — контейнерные гейты), prod build gate (DEV-08 build deferred), non-root решение по simplex-bridge (DEV-14).
+
+---
+Task ID: 8-c
+Agent: Z.ai Code (UI acceptance agent; запись бэкфилнута агентом задачи 8-d)
+Task: TZ v4.0 §10 приёмка — UI-сценарии U-05 (конструктор) и U-06 (карточка товара: целое + срез) на живом dev-стеке HEAD 1362744, через agent-browser; коммитов нет (evidence коммитит оркестратор).
+
+Work Log:
+- U-05 конструктор (/cake-builder, 9 шагов): полный проход до границы «добавить в корзину»; живая цепочка цены 1500 → 2220 (порции) → 2620 (основа «Муссовый» +400) → 2920 (начинка «Три шоколада» +300 из БД /api/fillings/list) → 3120 (ганаш +200) → 3520 (декор +400) → 4928 (×1.4 Москва) → 5936 (порции 8→12) — каждый модификатор отражается мгновенно; валидация обязательных полей шага «Доставка» — кнопка «Далее» disabled, честный клик не двигает шаг; «Добавить в корзину» гостем → auth-модалка + тост. Скриншоты: U-05-constructor-1362744-{validation-required-empty,step8-summary-price,add-to-cart-auth-gate}.png.
+- U-06 карточка товара: с медиа (…000b, 3 approved фото + legacy-превью в третях, pending f004 в DOM не утекает, цена 4 400 ₽ = API) и без медиа (…001, graceful legacy PNG, 18 500 ₽); консоль без ошибок; API↔UI сверены (raw JSON сохранены). На момент сессии product_slices = 0 строк и products.fillings пуст у всех товаров — секция «Срезы торта по начинкам» отсутствует корректно (graceful); зафиксирован честный caveat в U-06-product-card-1362744.md §2.
+- Позитивный кейс среза закрыт позднее агентом 8-d (см. его запись и §7 файла U-06): синтетическая строка product_slices вставлялась/удалялась дважды; пайплайн данных среза работает до границы API (GET …/slices и slices[] карточки), но сама секция недостижима из живых данных без правки кода — гейт product.fillings.length > 0 читает поле, которое карточный API не возвращает (PRODUCT_CARD_COLUMNS без колонки fillings; mapApiProductToProduct без маппинга). Итог U-06: PASS с полностью рут-каузенным caveat.
+
+Stage Summary:
+- U-05 PASS, U-06 PASS (с caveat, закрытым §7 от 8-d) — evidence: docs/evidence/acceptance/U-05*, U-06* (6 файлов, включая PNG и raw API JSON).
+- Коммитов нет: файлы оставлены untracked для оркестратора (закоммичены 5ed027e агентом 8-d).
+
+---
+Task ID: 8-b
+Agent: Z.ai Code (API/DB acceptance agent; запись бэкфилнута агентом задачи 8-d)
+Task: TZ v4.0 §10 приёмка — API/DB-сценарии U-01..U-04, U-07..U-16 на живом dev-стеке HEAD 1362744 (probe-скрипты + свежие прогоны существующих верификаторов/suites + прямые SQL-ассерты); коммитов нет.
+
+Work Log:
+- U-01 auth: register 201 → login 200 → /api/profile 200 (Bearer); без токена 307 → /login, мусорный токен 401; дубль-регистрация 409 EMAIL_TAKEN; синтетический пользователь удалён (cleanup rowcounts в транскрипте).
+- U-02 RBAC: свежие прогоны role-guards 24/24 + orders/[id] 12/12 + ai-dialogue-access 7/7 (= 43/43, exit 0); живой негатив: чужой заказ покупателем → 403 «Нет доступа к этому заказу».
+- U-03/U-04 чат: bash scripts/ensure-dev.sh exit 0 (без рестартов), verify-chat-runtime.mjs → 48/48 PASSED exit 0 (handshake/room-join/персистентность/антиспуф/реконнект); BOT_SECRET — только в 2 серверных роутах, 0 «use client»-файлов, 0 NEXT_PUBLIC-утечек; log hygiene-скан exit 0.
+- U-07 checkout: POST /api/checkout 200 (total 2400 = ожидаемый, DB-строка PENDING, 1 order_item); тот же Idempotency-Key → replay (тот же orderId); БЕЗ ключа → дубликат-заказ; уникальный индекс 0060 защищает гонку. FINDINGS: 200-вместо-201 на create; идемпотентность opt-in.
+- U-08/U-09 тикеты: POST /api/crm/tickets 201 (TKT-2026-0001, order_id линкуется, 1 первое сообщение); SUPPORT filter=all 200 (тикер виден), owner filter=own 200, CONFECTIONER filter=all 403; повторная отправка байт-в-байт → 2 тикета (не идемпотентно). FINDING: строки списка без поля id — postgrest shim translate.ts:433-441/519-523 скрывает join-PK даже при select=*; клиентские действия по ticket.id из списка сломаны.
+- U-10 кабинет кондитера: GET /api/orders — только свои/назначенные (200, DEMO-1048); PATCH невалидный переход PENDING→DELIVERED → 400 «Запрещённый переход»; валидный переход чужой ролью → 403 «Роль CUSTOMER не может менять статус»; в обоих отказах статус в БД не изменился (SELECT до/после).
+- U-11 склад: реальный RPC apply_inventory_movement_atomic (0048), 8 параллельных списаний против остатка 5 → applied 5 / rejected 3 (insufficient), финал 0, отрицательных нет, журнал ровно 5 строк (сумма 5, нет lost update); верификатор scripts/verify/inventory-concurrency-verify.mjs 8/8, exit 0 (инспекция перед запуском: не ре-имплементит логику, FK-safe фикстура, cleanup в finally).
+- U-12/U-13 загрузки: /api/upload и /api/services/upload — 403 CSRF-гейт / 401 route-auth / 403 без CSRF / 201 (uuid-имя) + sha256 read-back совпал (69/69, image/png) / text/plain → 415 magic-byte sniff / oversize >10 MiB → 400 на body-parse (Next truncates 10MB, dev.log) — кодовый гейт 422/10MiB недостижим live на этом размере; >8 файлов → 400 TOO_MANY_FILES (статика). Cleanup: файлы+storage.objects удалены (3/3).
+- U-14 склад API: owner-scope контракт — кондитер 200 (12 своих items), покупатель 200 ({items:[]}, не 403 — изоляция по владению), аноним 401; документировано в evidence.
+- U-15 health: свежий прогон unit- suite 6/6 (включая 503+degraded путь через мок-пул); живой GET /api/health 200 status ok; live DB-down симуляция на общем стеке осознанно не выполнялась (ограничение задачи).
+- U-16 prod-auth: статическая реверификация гейта на этом HEAD — authErr в prod → 500 ДО вставки auth.users/profiles/user_roles (register/route.ts:261-267); stub-admin предупреждает в prod; локальный GoTrue-стаб 501; реальная провайдер-топология — решение владельца (в песочнице docker нет).
+- Гигиена: все пробы с синтетическими акками acc-uXX, cleanup в finally каждого пробы (rowcounts в транскриптах .run/acc/, gitignored); секреты/токены в evidence не печатались; CSRF-пары по каноническому хелперу.
+
+Stage Summary:
+- 15/15 сценариев U-01..U-04, U-07..U-16 PASS (некоторые с задокументированными findings — это наблюдения контракта, не провалы проб); 5 находок владельцу: (1) checkout 200-on-create + дубликат заказа без Idempotency-Key; (2) ticket-список без поля id (shim); (3) создание тикетов не идемпотентно; (4) oversize-upload 400 на body-parse раньше 422/10MiB; (5) топология реального auth-провайдера — решение владельца.
+- Ключевые числа: runtime-гейт 48/48; health unit 6/6; RBAC vitest 43/43; concurrency 8→applied 5/rejected 3, журнал 5; sha256 read-back MATCH ×2.
+- Коммитов нет: файлы evidence оставлены untracked для оркестратора (закоммичены 5ed027e агентом 8-d); верификатор U-11 закоммичен 9e5d879.
+
+---
+Task ID: 8-d
+Agent: Z.ai Code (acceptance orchestrator)
+Task: Сводная матрица приёмки + коммиты: ACCEPTANCE-SUMMARY-1362744.md (U-01..U-16, findings-for-owner, verdict), коммит верификатора U-11, коммит evidence-каталога acceptance, бэкфилл worklog (7-a/8-c/8-b/8-d) + финальная верификация git-состояния.
+
+Work Log:
+- Part 1 — U-06 позитивный кейс (закрытие caveat): честная инспекция схемы product_slices (id text PK без default, productId/fillingName NOT NULL, image/config/caption, sortOrder DEFAULT 0, createdAt DEFAULT now(), updatedAt NOT NULL без default; FK НЕТ — только индексы pkey/productId/fillingName; строк 0) + контракт ProductSliceGallery: рендер секции гейтится product-page.tsx:1142 `product.fillings.length > 0`, данные — GET /api/products/<id>/slices, матч slice.fillingName === filling.name, img из slice.image; status-колонки в product_slices нет.
+  - Попытка 1 (по плану): вставлена ОДНА синтетическая строка (id acc-u06-slice-synthetic, product …000b, fillingName «Тестовый срез (acceptance)», image = СУЩЕСТВУЮЩИЙ approved-файл обложки f001 по каноническому URL /api/product-media/…f001 — новых файлов не создавалось). Пайплайн данных работает: GET …/slices → {"slices":[строка],"total":1} (артефакт U-06-api-1362744-with-slice.json), slices[] карточного API тоже содержит строку; НО секция в браузере не рендерится (гейт не пройден).
+  - Попытка 2 (data-only): products.fillings установлена в [{"name":"Тестовый срез (acceptance)","priceModifier":0}] — GET /api/products/…000b ПО-ПРЕЖНЕМУ не содержит ключа fillings (проверено живьём) → секция снова не рендерится.
+  - Рут-кауз (2/2 data-only попыток недостаточно): PRODUCT_CARD_COLUMNS в src/app/api/products/[id]/route.ts не включает колонку fillings, mapApiProductToProduct в use-marketplace.ts её не маппит → StoreProduct.fillings undefined для всех живых товаров → гейт product-page.tsx:1142 мёртв для DB-товаров (секция работает только на mock-фоллбэке). Фикс — 2-строчная правка кода (select + mapper), вне data-only рамок приёмки.
+  - Браузер (agent-browser): h1 корректный, секции «Срезы торта по начинкам» нет, текст «Тестовый срез (acceptance)» в DOM отсутствует, 0 битых img (graceful); скриншот U-06-card-cutaway-positive-1362744.png (полная страница в состоянии «строка в БД, секция легитимно отсутствует»); ошибок страницы нет.
+  - U-06-product-card-1362744.md обновлён: статус PASS дополнен отсылкой на §7; добавлен раздел «Positive case (added later)» — схема, обе попытки, рут-кауз с точными файлами/строками, артефакты, cleanup.
+  - Cleanup (проверен дважды): product_slices deleted=1 → строк 0; products.fillings восстановлена в точное исходное [] (бэкап/рестор в скрипте); состояние БД идентично до-пробному.
+- Part 2 — docs/evidence/acceptance/ACCEPTANCE-SUMMARY-1362744.md: заголовок (HEAD 1362744, 2026-10-15 UTC, метод: свежие прогоны верификаторов + agent-browser UI, live dev stack, prod-build gate отдельный), матрица U-01..U-16 → Status | Evidence | Key result (статусы сверены с каждым U-XX-файлом), findings-for-owner (5 находок из отчёта 8-b: severity low/medium/decision, затронутая область, «NO code changed; financial/settlement logic untouched; finding 1 = checkout-order creation semantics, NOT settlement»), вердикт «PRODUCT ACCEPTANCE: PASS (16/16 scenarios verified; 5 findings documented for owner)».
+- Part 4 — коммиты (по одному логическому юниту, без push): 9e5d879 «test(ops): inventory stock-decrement concurrency verifier — 8 concurrent vs stock 5: applied 5 / rejected 3, no negative, journal 5 (U-11)» (1 файл, +147); 5ed027e «test(acceptance): product acceptance matrix U-01..U-16 on 1362744 — 16/16 PASS, 5 owner findings documented (DEV-11)» (27 файлов, +872: все U-XX md/log/json/PNG + summary; PNG ≤765KB, все <2MB; scan-evidence перед коммитом: real findings 0, 166 synthetic-маркеров, exit 0); данный worklog-коммит «docs(worklog): backfill 7-a/8-c/8-b/8-d — chain fix, acceptance execution, summary matrix» — третий и последний.
+- Финальная верификация: git status --short после трёх коммитов — чисто (только gitignored .run/ остаётся вне индекса); git log --oneline -5 проверен.
+
+Stage Summary:
+- U-06 caveat закрыт честно: позитивный кейс доведён до границы API (данные среза доходят), секция недостижима из живых данных из-за задокументированного gap'а маппинга (API/mapper), cleanup подтверждён (0 строк, fillings []). Прод-статус: PASS-with-root-caused-caveat.
+- ACCEPTANCE-SUMMARY-1362744.md создан; матрица 16/16 PASS; 5 находок владельцу с severity/областью/пометкой «no code changed».
+- Коммиты: 9e5d879 (verifier), 5ed027e (acceptance evidence, scan exit 0), + этот worklog-коммит; push не выполнялся.
+- Живой стек :3000/:3030/:54329 не перезапускался; код приложения не менялся.
