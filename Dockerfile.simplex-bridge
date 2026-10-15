@@ -12,6 +12,10 @@
 
 # v3 (registry-hardening): oven/bun публичных зеркал не имеет, а Docker Hub ловит
 # 429 в GH Actions — берём node из public.ecr.aws и ставим bun CLI из npm (musl).
+# v4 (non-root, DEV-14): рантайм (simplex-chat CLI + bun bridge) работает как
+# пользователь node — конвенция web (USER nextjs) и chat-server (USER chat).
+# Оценка и чек-лист владельца T1–T6:
+#   docs/evidence/release-gate/simplex-bridge-nonroot-assessment-001c4ff.md
 FROM public.ecr.aws/docker/library/node:20-alpine
 
 WORKDIR /app
@@ -34,6 +38,14 @@ RUN bun install --frozen-lockfile
 
 # Код bridge
 COPY mini-services/simplex-bridge/index.ts ./
+
+# Non-root (DEV-14): все сборочные шаги выше — под root; перед сменой
+# пользователя отдаём /app (включая /app/simplex.db, создаваемую CLI при
+# старте) пользователю node (uid 1000 из базового образа, HOME=/home/node).
+# Порты 5225/5226 > 1024 и healthcheck-wget привилегий не требуют.
+RUN chown -R node:node /app
+USER node
+ENV HOME=/home/node
 
 # Конфигурация SimpleX CLI (профиль, опции)
 ENV SIMPLEX_CLI_PORT=5225
