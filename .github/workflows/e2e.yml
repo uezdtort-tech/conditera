@@ -5,35 +5,35 @@
 # Запускается:
 #   • По расписанию: nightly в 03:00 UTC
 #   • При изменениях в API routes или e2e тестах
-#   • Вручную (workflow_dispatch) с параметром браузера
+#   • Вручную (workflow_dispatch) с фильтром grep
 #
 # Pipeline: install → build → start preview → run Playwright → upload report
 #
 # Отличие от ci.yml:
 #   • Запускается отдельно (не блокирует основной CI)
-#   • Поддерживает все 3 браузера (chromium, firefox, webkit)
 #   • Загружает HTML-отчёт как артефакт
+#
+# РЕШЕНИЕ ВЛАДЕЛЬЦА (variant B, 2026-10-15): матрица зафиксирована на chromium.
+# playwright.config.ts активирует только chromium + mobile-chrome — проекты
+# firefox/webkit закомментированы, поэтому nightly-джобы этих браузеров падали
+# с "project not found" независимо от состояния БД (run 38701876670).
+# TODO(future-task): полноценное покрытие Firefox/WebKit — раскомментировать
+# проекты в playwright.config.ts, прогнать спеки на обоих движках и только
+# после этого вернуть их в матрицу (и опцию "all" в workflow_dispatch).
 # ============================================================
 
 name: E2E Tests
 
 on:
   schedule:
-    # Nightly в 03:00 UTC — полный smoke для всех браузеров
+    # Nightly в 03:00 UTC — chromium-only (см. «РЕШЕНИЕ ВЛАДЕЛЬЦА» в шапке)
     - cron: "0 3 * * *"
 
   workflow_dispatch:
     inputs:
-      browser:
-        description: "Браузер (chromium, firefox, webkit, или all)"
-        required: false
-        default: "chromium"
-        type: choice
-        options:
-          - chromium
-          - firefox
-          - webkit
-          - all
+      # Параметр browser (firefox/webkit/all) удалён: проекты не активированы
+      # в playwright.config.ts — интерфейс не должен предлагать неподдерживаемые
+      # варианты. Вернуть вместе с TODO(future-task) из шапки.
       grep:
         description: "Фильтр тестов (regex, пусто = все)"
         required: false
@@ -132,8 +132,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # По умолчанию только chromium, для nightly — все 3 браузера
-        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit"]')) || fromJson('["chromium"]') }}
+        # Фиксированная матрица (variant B, решение владельца 2026-10-15):
+        # единственный активный проект Playwright. Nightly и ручной запуск —
+        # только chromium до активации firefox/webkit (TODO в шапке файла).
+        browser: ["chromium"]
 
     steps:
       - uses: actions/checkout@v4
