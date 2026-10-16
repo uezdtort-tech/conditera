@@ -8950,3 +8950,22 @@ Stage Summary:
 - единственный содержательный коммит сессии: 13a5947 (сужение H-1 + верификатор 14/14); drift #8 восстановлен без коммита (только evidence-файл); история не переписывалась, файлы/коммиты не удалялись
 - блокеры (все владелец/среда): публикация, CI на SHA, защита main, Docker, U-06 контент, auth-провайдер, подтверждение anti-fraud register 10/ч
 - lint 0; scan-evidence exit 0 (real 0 / 317 synthetic); гейты vitest/tally/e2e не перезапускались — обоснование: 0 diff исполняемых исходников с 12c8815
+
+---
+Task ID: v4.5-owner-directive
+Agent: Z.ai Code (main)
+Task: исполнение директивы владельца «рекомендация по ближайшему релизу» (17.10.2026) — P0-A/B/C/D, решения владельца (anti-fraud revert), webhook-регрессии, P1-матрица, отчёт.
+
+Work Log:
+- DEV-00: HEAD=99fae33 (совпал), дерево чистое (drift #9 НЕ случился — протокол статуса при старте), origin/main=8454b3a, ahead 79/0
+- Решение владельца anti-fraud (commit c408a20): LIMITS.register возвращён к 3/час 10/день (значения origin/main), ассерты выровнены; E2E-совместимость БЕЗ ослабления лимитера — per-spec симулированный x-real-ip 10.20.0.21/22/23 для auth-flow/integration-auth-flow/onboarding-flow (доверенный канал extractIp, в prod перезаписывает Caddy); арифметика: 4 register-попытки на общий 0.0.0.0-бакет падали при 3/час, теперь каждая спека ≤3 на свой IP
+- CI (commit 509c4e3): docker-build — снят фильтр main-only (гейт на PR), + load:true ×3, + шаг docker compose config -q (6 dummy required-переменных; сборка НЕ замена валидации — требование владельца), + Secret-gate по слоям (docker history --no-trunc ×3, grep секрет-паттернов, inspect ×3); НОВЫЙ job evidence-hygiene (scan-evidence + adversarial-регрессия 14/14 + env-template; только node builtins); YAML валидирован python3
+- Регрессии (commit 8f9d970): НОВЫЙ route.http.test.ts (5 HTTP-кейсов webhook: 401 секрет/non-UUID 404/без конфигурации без 500/fail-closed 500/400 мусор); НОВЫЙ auth.expiry.test.ts (6 кейсов: expired access/refresh → null, чужой секрет → null, sanity, vi.hoisted для module-level getSecretEnv, @vitest-environment node из-за jose-webapi instanceof Uint8Array в jsdom-реалме); vitest.setup.ts window-guard
+- НАЙДЕННЫЙ ФАКТ (документирован, НЕ исправлялся): PAY-1a skip-ветка route.ts:126-131 — мёртвый код (guard :83 перехватывает раньше, ok:true без маркера skip); поведение корректно, чистка только по согласованию владельца (платёжный код не трогаем)
+- P1-матрица: 9 сценариев ✅ подтверждены evidence, 1 честный ⚠️ gap (UI-форма возврата без отдельного E2E); директива «неподтверждённое в пилот не включается» соблюдена
+- Гейты: vitest ПОЛНЫЙ 52 файла / 1025 passed (было 1011, +14 новых), typecheck 0, lint 0, scan 0/321, scan-rules 14/14, env-template 0
+
+Stage Summary:
+- READY FOR OWNER REVIEW; публичный production: NO-GO до закрытия P0 (эхо директивы)
+- коммиты: c408a20 (anti-fraud revert), 509c4e3 (CI docker-гейт на PR + compose + secret-gate + evidence-hygiene), 8f9d970 (webhook HTTP-регрессии + истёкший токен), docs — отчёт RELEASE-GATE-v4.5-REPORT.md
+- блокеры (владелец/среда): публикация→PR→CI, auth-провайдер OWNER DECISION, U-06 контент, backup/rollback/мониторинг, UI-форма возврата (добавить E2E или исключить), письменное согласование рисков
