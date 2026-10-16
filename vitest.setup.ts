@@ -53,6 +53,9 @@ vi.mock('next/image', () => ({
 import React from 'react'
 
 // Mock matchMedia (не реализован в jsdom)
+// v4.5: guard для node-реалма (@vitest-environment node — auth.expiry.test.ts,
+// jose требует node-реалм для Uint8Array) — window отсутствует, DOM-моки не нужны
+if (typeof window !== 'undefined') {
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: (query: string) => ({
@@ -106,6 +109,7 @@ window.scrollTo = vi.fn() as any
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = vi.fn() as any
 }
+} // end typeof window !== 'undefined'
 
 // Подавляем шум консоли в тестах (можно включить обратно при дебаге)
 const originalError = console.error
