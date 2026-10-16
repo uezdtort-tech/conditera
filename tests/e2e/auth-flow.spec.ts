@@ -15,6 +15,15 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 
 test.describe('Auth flow — register/login (exempt от CSRF)', () => {
+  // Решение владельца 2026-10-17: register-лимит возвращён к исходным 3/час.
+  // Спек делает 2 register-попытки — выделен собственный симулированный
+  // клиентский IP, чтобы не выжигать общий 0.0.0.0-бакет и не мешать
+  // реальным регистрациям других спеков (в full-stack прогоне их больше).
+  // x-real-ip — доверенный канал reverse-proxy (extractIp, src/lib/anti-fraud.ts);
+  // в production значение перезаписывает Caddy, подделка исключена
+  // (инвариант «:3000 не доступен извне напрямую», docs/DNS_SETUP.md).
+  test.use({ extraHTTPHeaders: { 'x-real-ip': '10.20.0.21' } })
+
   // register и login exempt от CSRF → POST проходит без CSRF
 
   test('POST /api/auth/register без полей → 400/422/429 (exempt от CSRF)', async ({ request }) => {

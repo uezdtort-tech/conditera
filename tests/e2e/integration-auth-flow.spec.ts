@@ -43,6 +43,14 @@ const testPassword = 'TestPassword123!'
 const testName = 'E2E Test User'
 
 test.describe('Integration: full auth flow (порядок: register → login → refresh)', () => {
+  // Решение владельца 2026-10-17: register-лимит возвращён к исходным 3/час,
+  // а реальная регистрация здесь жёстко падает на 429 (см. классификацию ниже).
+  // Выделен собственный симулированный клиентский IP — прогон детерминирован
+  // и не зависит от register-попыток других спеков. x-real-ip — доверенный
+  // канал reverse-proxy (extractIp, src/lib/anti-fraud.ts); в production
+  // значение перезаписывает Caddy, подделка исключена (docs/DNS_SETUP.md).
+  test.use({ extraHTTPHeaders: { 'x-real-ip': '10.20.0.22' } })
+
   let accessToken: string | null = null
   let refreshToken: string | null = null
   let userId: string | null = null

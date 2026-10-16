@@ -3,10 +3,12 @@
  *
  * Правила:
  *  - order_create: не более 5 заказов в час с IP, не более 20 в день
- *  - register: не более 10 ПОПЫТОК регистрации в час с IP
- *    (считается каждая попытка, включая невалидные — strict против mass-register;
- *     раньше было 3/час, но это срабатывало на опечатках живых пользователей и
- *     на E2E-наборах, делающих несколько валидационных попыток подряд)
+ *  - register: не более 3 ПОПЫТКИ регистрации в час с IP (решение владельца
+ *    2026-10-17: ИСХОДНЫЙ лимит сохранён — повышение 3→10 не подтверждено;
+ *    считается каждая попытка, включая невалидные — strict против mass-register.
+ *    E2E-совместимость: спеки, реально регистрирующие пользователей, шлют
+ *    per-spec симулированный x-real-ip (доверенный канал, в production
+ *    перезаписывается Caddy — см. tests/e2e/*.spec.ts и docs/DNS_SETUP.md)
  *  - login: не более 20 попыток в час с IP (защита от brute-force)
  *  - review: не более 10 отзывов в час с IP (защита от накруток)
  *
@@ -33,7 +35,7 @@ interface RateLimitConfig {
 
 export const LIMITS: Record<FraudAction, RateLimitConfig> = {
   order_create: { maxPerHour: 5, maxPerDay: 20 },
-  register: { maxPerHour: 10, maxPerDay: 30 },
+  register: { maxPerHour: 3, maxPerDay: 10 },
   login: { maxPerHour: 20, maxPerDay: 100 },
   review: { maxPerHour: 10, maxPerDay: 30 },
 };

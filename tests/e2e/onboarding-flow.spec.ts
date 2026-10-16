@@ -44,6 +44,14 @@ const PORTFOLIO_PNG = Buffer.from(
 );
 
 test.describe("Onboarding flow кондитера", () => {
+  // Решение владельца 2026-10-17: register-лимит возвращён к исходным 3/час.
+  // Спек реально регистрирует CONFECTIONER (assert regRes.ok()) — выделен
+  // собственный симулированный клиентский IP: в full-stack прогоне регистрация
+  // детерминирована и не выжигает общий 0.0.0.0-бакет. x-real-ip — доверенный
+  // канал reverse-proxy (extractIp, src/lib/anti-fraud.ts); в production
+  // значение перезаписывает Caddy, подделка исключена (docs/DNS_SETUP.md).
+  test.use({ extraHTTPHeaders: { "x-real-ip": "10.20.0.23" } });
+
   // CSRF (double-submit cookie): GET /api/csrf-token ставит httpOnly-cookie и возвращает токен;
   // каждый мутирующий запрос должен нести x-csrf-token.
   async function getCsrf(req: { get: (url: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }> }): Promise<string> {
