@@ -1,0 +1,6 @@
+=== GATE: E2E integration-auth-flow (v4.2, auth register/login/session on live dev provider) ===
+HEAD: 299afb4ece4e2029f02c7af3aee8709f0cd0298b
+UTC: 2026-10-16T15:54:58Z
+cmd: E2E_SERVER_MODE=dev bash scripts/e2e-one.sh integration-auth-flow
+
+integration-auth-flow: expected=17 unexpected=0 flaky=0 skipped=0 EXIT=0

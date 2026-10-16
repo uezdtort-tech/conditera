@@ -185,4 +185,47 @@ describe("GET /api/products/[id] — колонка fillings (регрессия
     expect(Array.isArray(json.slices)).toBe(true);
     expect(Array.isArray(json.reviews)).toBe(true);
   });
+
+  // v4.2: полный позитив с НЕПУСТЫМИ данными — фактический API-ответ.
+  // Главное фото — РЕАЛЬНЫЙ ассет репо, используемый реальным продуктом
+  // ...0001 (public/uploads/products/svadebnyy-tort-yagodnyy-barhat.png).
+  // URL фото среза — ЯВНО ОБОЗНАЧЕННЫЙ тестовый fixture (реальных фотографий
+  // разреза в репо/БД нет — это задокументированное ограничение U-06,
+  // см. RELEASE-GATE-v4.2-REPORT.md §U-06); URL проходит сквозь API как есть.
+  it("непустые fillings + slices: главный фото-URL и фото среза в фактическом ответе", async () => {
+    const MAIN_PHOTO = "/uploads/products/svadebnyy-tort-yagodnyy-barhat.png";
+    const SLICE_FIXTURE = "/test-fixtures/u06-slice-fixture.png";
+    const fillings = [
+      { name: "Шоколад-ганаш", priceModifier: 300 },
+      { name: "Малина-базилик", priceModifier: 0 },
+    ];
+    tables.products = baseProductRow({ fillings, images: [MAIN_PHOTO] });
+    tables.product_slices = [
+      {
+        id: "u06-v42-fixture-slice",
+        productId: PRODUCT_ID,
+        fillingName: "Шоколад-ганаш",
+        image: SLICE_FIXTURE,
+        config: null,
+        caption: "fixture (v4.2 регрессия)",
+        sortOrder: 0,
+      },
+    ];
+
+    const res = await callGet();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    // Главное фото продукта доезжает до ответа без потерь
+    expect(json.product.images).toContain(MAIN_PHOTO);
+    // fillings непустые и байт-в-байт те, что в jsonb
+    expect(json.product.fillings).toEqual(fillings);
+    // Срез присутствует в ответе и сцеплен с продуктом и начинкой
+    expect(json.slices).toHaveLength(1);
+    expect(json.slices[0]).toMatchObject({
+      productId: PRODUCT_ID,
+      fillingName: "Шоколад-ганаш",
+      image: SLICE_FIXTURE,
+    });
+  });
 });
