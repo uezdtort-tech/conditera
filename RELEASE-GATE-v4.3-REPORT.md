@@ -166,7 +166,7 @@ Dev-провайдер (embedded PG, auth.users stub) **не** засчитыв�
 
 ### 3.1 Состав кандидата (v4.3 п.1–2)
 
-71→73 коммита впереди `origin/main=8454b3a`; diff: 223 файла, +37978/−477.
+71→75 коммитов впереди `origin/main=8454b3a`; diff: 223 файла, +37978/−477.
 Классификация коммитов: docs(worklog)×11, fix(chat-server)×6, ops(evidence)×5,
 test×8, fix(e2e/courier/docker)×6, ci(e2e)×2, docs(release/auth)×5, ops×9, feat×N
 (health/checkout/PostgREST shim/U-06 и др. — полный список `git log origin/main..HEAD`).
@@ -216,9 +216,9 @@ webhook-спек `[200,401,404,500]` (401 = prod allowlist P0/PAY-1; 404 = order
 
 ### 3.4 Точный шаг публикации (выполняет ВЛАДЕЛЕЦ; без разрешения — ничего не публикуется)
 
-1. `git branch release-candidate-v43 3d9a7f8` (или более новый финальный SHA из §5)
+1. `git branch release-candidate-v43 a9a0672` (финальный SHA этой сессии, §5)
    → `git push -u origin release-candidate-v43`;
-2. открыть PR `release-candidate-v43` → `main` (НЕ прямой push 73 коммитов);
+2. открыть PR `release-candidate-v43` → `main` (НЕ прямой push 75 коммитов);
    CI (`ci.yml`) + ручной `e2e.yml` (workflow_dispatch, при желании с E2E_GREP)
    запустятся на head-SHA ветки = **точный SHA кандидата** — URL прогона
    зафиксировать рядом с этим отчётом;
@@ -250,7 +250,9 @@ smoke `up -d`+health/чек-лист T1–T6 non-root).
 | `bdf2ec9` | test(u06): живой трёх-состояний верификатор + 4 скриншота + лог (21/21 PASS) |
 | `3d9a7f8` | test(e2e): точные статус-контракты (анти-маскировка) + 4 JSON-артефакта + 2 гейт-лога |
 | `31f6446` | docs(release): отчёт v4.3 + worklog (H-1) |
-| (hygiene) | сканер: узкий даунгрейд presence-only инвентаря (precedent E-1) + коррекция счётчика §5 |
+| `a9a0672` | ops(hygiene): сканер presence-only даунгрейд (precedent E-1) + коррекция §5 |
+
+**Финальный SHA кандидата v4.3: `a9a0672`** (дерево чистое, ahead 75/0 vs `8454b3a`).
 
 Гейты на финальном дереве: lint 0; скан-evidence exit 0 (real 0 / 317 синтетик —
 включая hygiene-даунгрейд presence-only инвентаря в `v43-auth-iaf-7dcc09d.log`:
