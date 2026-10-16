@@ -197,7 +197,7 @@ stderr | src/lib/http-helpers.test.ts > handleRouteError > возвращает 
     at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
 
 stderr | src/lib/http-helpers.test.ts > handleRouteError > не раскрывает детали для не-HttpError
-[route] unhandled error: DB connection string postgres://user:pass@host Error: DB connection string postgres://user:pass@host
+[route] unhandled error: DB connection string [REDACTED BY E-1 HYGIENE] Error: DB connection string [REDACTED BY E-1 HYGIENE]
     at /home/z/my-project/src/lib/http-helpers.test.ts:133:17
     at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
     at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
@@ -317,3 +317,19 @@ stderr | src/lib/courier-assignments.test.ts > getCourierOrderIds > возвра
 
 --- exit ---
 EXIT_CODE=0
+
+--- E-1 HYGIENE NOTE (append-only; scan gate exit 1 → 0) ---
+line 200: the flagged connection string was the LITERAL placeholder from the
+src/lib/http-helpers.test.ts fixture (dummy user/pass/host — the test verifies
+error redaction, no real credentials exist). Value redacted to the marker
+token in place; stack-trace lines and test identity preserved byte-for-byte.
+lines 245, 259: NOT redacted — they quote the auth admin client's documented
+absence warning (src/lib/supabase/admin.ts:31/36: env NAME + "not set", the
+key is explicitly absent; a real leak is KEY=<value> and can never match).
+Downgraded scanner-side by a narrow line-format pattern instead of garbling
+the diagnostic text (same class as C-3: name-based rule vs documented message).
+Provenance: this log was committed in 8252163 outside the D-1r step-6
+pre-commit scan set (9 of 17 files); the 3 real-class hits surfaced in the
+E-1 full-tree scan. Regression after fix: temp file with real-shaped secret
+lines (jwt-like / bearer / KEY=<value>) still classifies FINDING (exit 1);
+marker-bearing and absence-warning lines downgrade to synthetic (exit 0).

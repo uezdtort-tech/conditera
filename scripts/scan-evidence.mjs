@@ -40,15 +40,22 @@ const RULES = [
 
 // Synthetic test-data markers that downgrade a finding to "synthetic" when the
 // LINE context clearly indicates generated fixtures.
-// The last entry recognizes the hygiene workflow's own redaction marker
-// ([REDACTED BY C-N HYGIENE]): a line carrying it was already sanitized by a
-// C-task redaction, so name-based rules (which match the variable NAME, e.g.
-// SUPABASE_SERVICE_ROLE_KEY, regardless of value) must not re-fail the gate.
+// The last entries extend the C-3 mechanism:
+//  - the redaction marker is now task-generic ([REDACTED BY <TASK> HYGIENE],
+//    e.g. C-3 / E-1): a line carrying it was already sanitized by a hygiene
+//    redaction, so rules that match remaining line structure (variable NAMEs,
+//    URL schemes) must not re-fail the gate;
+//  - E-1: the documented ABSENCE warning of the auth admin client
+//    (src/lib/supabase/admin.ts:31/36) names the env var while stating the
+//    key is NOT set — a name-based rule cannot distinguish that message from
+//    a real secret, but the line format proves no value exists (a real leak
+//    is KEY=<value> and never matches this pattern).
 const SYNTHETIC_CONTEXT = [
   /e2e[-_.]/i, /@example\./i, /\.test\b/i, /\.test\./i, /test[-_]?user/i,
   /fixture/i, /synthetic/i, /placeholder/i, /example\.com/i, /conditera\.test/i,
   /e2e_\d+/i, /run[_-]?\d+/i, /\+7999\d{7}/, /79990000000/,
-  /\[REDACTED BY C-\d+ HYGIENE\]/,
+  /\[REDACTED BY [A-Z0-9]+(?:-[A-Z0-9]+)* HYGIENE\]/,
+  /\[supabase\/admin\] SUPABASE_SERVICE_ROLE_KEY not set\./,
 ];
 
 function classifyLine(line, ruleSev) {
