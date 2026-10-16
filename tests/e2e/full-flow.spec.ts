@@ -93,23 +93,27 @@ test.describe("Auth flow", () => {
 test.describe("API endpoints", () => {
   test("GET /api/health returns 200", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/health`);
-    expect(response.ok()).toBeTruthy();
+    // Точный контракт: HTTP-гейт всегда 200 (когерентность — в теле: ok/degraded).
+    expect(response.status()).toBe(200);
   });
 
-  test("GET /api/products returns 200 or 500 (no DB in test)", async ({ request }) => {
+  test("GET /api/products returns 200", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/products`);
-    // 200 если БД есть, 500 если нет — оба варианта допустимы
-    expect([200, 500]).toContain(response.status());
+    // БД гарантирована bootstrap'ом (workflow db:setup / e2e-one.sh) —
+    // 500 = реальный сбой, маскировать нельзя (v4.3 DEV-03).
+    expect(response.status()).toBe(200);
   });
 
   test("GET /api/csrf-token returns 200", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/csrf-token`);
-    expect(response.ok()).toBeTruthy();
+    expect(response.status()).toBe(200);
   });
 
   test("GET /api/auth/session returns 200", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/auth/session`);
-    expect(response.ok()).toBeTruthy();
+    // Документированный контракт: 200 + { user: null } без авторизации
+    // (session/route.ts docstring; живое подтверждение 200).
+    expect(response.status()).toBe(200);
   });
 
   test("GET /api/crm/tickets returns 401 without auth", async ({ request }) => {
@@ -188,14 +192,14 @@ test.describe("Sensitive endpoints — Cache-Control no-store", () => {
 test.describe("SEO", () => {
   test("robots.txt is accessible", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/robots.txt`);
-    expect(response.ok()).toBeTruthy();
+    expect(response.status()).toBe(200);
     const body = await response.text();
     expect(body).toContain("User-agent");
   });
 
   test("sitemap.xml is accessible", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/sitemap.xml`);
-    expect(response.ok()).toBeTruthy();
+    expect(response.status()).toBe(200);
     const body = await response.text();
     expect(body).toContain("xml");
   });

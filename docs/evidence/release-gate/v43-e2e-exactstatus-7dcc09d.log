@@ -1,0 +1,26 @@
+=== GATE: E2E exact-status tightening (v4.3 DEV-03 п.4 — тесты не маскируют неожиданные статусы) ===
+HEAD: 7dcc09d975c15f2a9cfc46eae87afb0ffa513797 (test files edited on top; committed in this session)
+UTC: 2026-10-16T17:3xZ
+cmd per spec: E2E_SERVER_MODE=prod bash scripts/e2e-one.sh <spec>
+
+Findings fixed (test contracts tightened, app code 0 diff):
+- tests/e2e/full-flow.spec.ts: /api/health, /api/products (was [200,500]!),
+  /api/csrf-token, /api/auth/session, robots.txt, sitemap.xml → exact 200
+- tests/e2e/smoke.spec.ts: /api/products (was [200,500]!) → exact 200
+- tests/e2e/auth-flow.spec.ts: /api/auth/session unauth (was [401,307,200,500]!)
+  → exact 200 (документированный контракт 200 + {user:null});
+  register без полей / короткий пароль: [400,422,429,500] → [400,422,429];
+  login без полей: [400,429,500] → [400,429] (валидация до БД; DB гарантирован bootstrap)
+Left AS-IS (documented security-context variances, not masking):
+- payment-webhook-idempotency.spec.ts:70 [200,401,404,500] — 401 = prod allowlist
+  security-контракт P0/PAY-1 (документирован), 404 = order отсутствует в тестовой БД;
+  payment-смежный спек не тронут перед публикацией (жёсткое правило owner)
+- payment-webhook-idempotency.spec.ts:158 [400,500] — фиксируется как известное
+  допущение в отчёте v4.3 §3 (решение владельца при необходимости)
+
+Results (prod bundle, exact-status contracts):
+smoke:        expected=11 unexpected=0 flaky=0 skipped=0 EXIT=0
+full-flow:    expected=36 unexpected=0 flaky=0 skipped=0 EXIT=0
+auth-flow:    expected=14 unexpected=0 flaky=0 skipped=0 EXIT=0
+integration-auth-flow (dev provider): expected=17 unexpected=0 flaky=0 skipped=0 EXIT=0 (см. v43-auth-iaf-7dcc09d.log)
+eslint: exit 0

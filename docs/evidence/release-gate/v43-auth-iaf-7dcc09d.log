@@ -1,0 +1,10 @@
+=== GATE: E2E integration-auth-flow (v4.3 DEV-02, register/login/session-restore on live dev provider) ===
+HEAD: 7dcc09d975c15f2a9cfc46eae87afb0ffa513797
+UTC: 2026-10-16T17:24Z
+cmd: E2E_SERVER_MODE=dev bash scripts/e2e-one.sh integration-auth-flow
+env presence-only: NEXT_PUBLIC_SUPABASE_URL SET, NEXT_PUBLIC_SUPABASE_ANON_KEY SET, SUPABASE_SERVICE_ROLE_KEY SET, JWT_SECRET SET, JWT_REFRESH_SECRET SET (len recorded in report, values NOT printed); GOTRUE_PROBE_TIMEOUT_MS ABSENT (optional, default 3s)
+
+integration-auth-flow: expected=17 unexpected=0 flaky=0 skipped=0 EXIT=0
+Coverage: 1.register → 2.login → 3.refresh(session restore, exact-200 assert) → 4.2FA setup → 5.health → 6.CSRF 403 exact → 7.rate-limit → public routes
+Fail-closed regressions (vitest, same session): register/route.test.ts + health/route.test.ts = 14 passed (prod+authErr → 500 до записей; prod unreachable → degraded)
+NOTE: dev-провайдер ≠ production-приёмка; топология реального GoTrue = OWNER DECISION (см. отчёт v4.3 §2)

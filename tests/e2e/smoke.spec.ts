@@ -106,8 +106,9 @@ test.describe('Smoke tests — базовая работоспособность
 
   test('API products endpoint returns JSON', async ({ request }) => {
     const response = await request.get('/api/products')
-    // Может быть 200 (с БД) или 500 (без БД в dev) — главное что это JSON
-    expect([200, 500]).toContain(response.status())
+    // Точный контракт: БД гарантирована bootstrap'ом (workflow db:setup /
+    // e2e-one.sh) — 500 = реальный сбой, маскировать нельзя (v4.3 DEV-03).
+    expect(response.status()).toBe(200)
     const body = await response.json().catch(() => null)
     expect(body).toBeTruthy()
   })
