@@ -40,7 +40,7 @@ const RULES = [
 
 // Synthetic test-data markers that downgrade a finding to "synthetic" when the
 // LINE context clearly indicates generated fixtures.
-// The last entries extend the C-3 mechanism:
+// The entries extend the C-3 mechanism:
 //  - the redaction marker is now task-generic ([REDACTED BY <TASK> HYGIENE],
 //    e.g. C-3 / E-1): a line carrying it was already sanitized by a hygiene
 //    redaction, so rules that match remaining line structure (variable NAMEs,
@@ -50,22 +50,48 @@ const RULES = [
 //    key is NOT set — a name-based rule cannot distinguish that message from
 //    a real secret, but the line format proves no value exists (a real leak
 //    is KEY=<value> and never matches this pattern).
+//  NOTE: the broad H-1 presence-only pattern (v4.3) is NOT listed here —
+//  it was narrowed in the v4.4 review (see PRESENCE_ONLY_LINE below).
 const SYNTHETIC_CONTEXT = [
   /e2e[-_.]/i, /@example\./i, /\.test\b/i, /\.test\./i, /test[-_]?user/i,
   /fixture/i, /synthetic/i, /placeholder/i, /example\.com/i, /conditera\.test/i,
   /e2e_\d+/i, /run[_-]?\d+/i, /\+7999\d{7}/, /79990000000/,
   /\[REDACTED BY [A-Z0-9]+(?:-[A-Z0-9]+)* HYGIENE\]/,
   /\[supabase\/admin\] SUPABASE_SERVICE_ROLE_KEY not set\./,
-  // H-1 (v4.3): presence-only env inventory lines in gate logs — line starts
-  // with a fixed prefix and contains NO '=' at all, so no value can be present
-  // (var names are followed by SET/ABSENT markers only). A real leak is
-  // KEY=<value> and never matches this line format.
-  /^env presence-only: [^=\n]*$/,
 ];
 
-function classifyLine(line, ruleSev) {
-  const syntheticCtx = SYNTHETIC_CONTEXT.some((re) => re.test(line));
-  if (ruleSev === 'real') return syntheticCtx ? 'synthetic' : 'real';
+// H-1 (v4.3), NARROWED in the v4.4 release-candidate review — formal basis:
+//
+// A presence-only inventory line ("env presence-only: VAR SET, VAR ABSENT …",
+// no '=' anywhere) carries variable NAMES only. Among the 'real' rules, ONLY
+// 'supabase-service-role' can fire on such a line without any value present:
+// its alternation SUPABASE_SERVICE_ROLE|… is a substring of the documented
+// variable NAME. Every OTHER 'real' rule requires value-shaped content
+// (-----BEGIN key, Bearer <16+>, eyJ… JWT, Cookie: <8+>, sk-/ghp_/github_pat_/
+// AKIA tokens, postgres://user:pass@, KEY=<value>, quoted password). Those
+// value shapes can appear WITHOUT '=' (JWT/base64url, URL creds, quoted
+// strings), so the v4.3 invariant "a real leak is KEY=<value> and never
+// matches an '='-free line" was provably false: the broad downgrade could
+// silently skip a real JWT/bearer/cookie/db-conn/password/api-key riding on
+// a presence-only line. Therefore the downgrade is SCOPED to the only
+// name-based trigger class ('supabase-service-role'); all value-shaped rules
+// stay REAL on any line. Regression proof: scripts/verify/
+// scan-evidence-rules-verify.mjs (adversarial cases exit 1, legit inventory
+// exits 0).
+const PRESENCE_ONLY_LINE = /^env presence-only: [^=\n]*$/;
+
+function classifyLine(line, category, ruleSev) {
+  if (ruleSev === 'real') {
+    // H-1 (narrowed): downgrade ONLY the name-based trigger class on a
+    // presence-only line. Value-shaped rules (jwt-like, bearer-token,
+    // cookie-header, db-conn-with-credentials, password-literal,
+    // api-key-pattern, private-key, env-secret-assignment) must stay REAL
+    // even on an '='-free presence-only line.
+    if (category === 'supabase-service-role' && PRESENCE_ONLY_LINE.test(line)) {
+      return 'synthetic';
+    }
+    return SYNTHETIC_CONTEXT.some((re) => re.test(line)) ? 'synthetic' : 'real';
+  }
   return 'synthetic';
 }
 
@@ -83,7 +109,7 @@ function scanFile(rel) {
     for (const [category, re, sev] of RULES) {
       // For multiline constructs (private key) match on whole text separately below.
       if (re.test(line)) {
-        const cls = classifyLine(line, sev);
+        const cls = classifyLine(line, category, sev);
         findings.push({ rel, line: i + 1, category, cls });
       }
     }
