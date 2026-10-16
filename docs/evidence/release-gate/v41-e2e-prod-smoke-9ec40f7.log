@@ -23,3 +23,48 @@ not a regression of app logic; auth_gotrue classification and fail-closed regist
 --- integrity ---
 sha256 smoke.prod.9ec40f7-run1.json: 8269991db137c54f…
 exit: attempt-1=1 / attempt-2=1 (single genuine finding)
+
+=== v4.1 contract alignment (E-1 Step A) — smoke.spec.ts:40 vs 8cbf9c6 ===
+task_id: E-1 (Release Gate v4.1, final alignment + bookkeeping)
+base_head: 8252163 (bundle from stage-4 build @ 9ec40f7 tree; 9ec40f7/8252163 touch only
+docs/evidence + scripts/scan-evidence.mjs — zero src/ diff, prod bundle code-identical)
+utc: 2026-10-16T01:25:11Z (runner stats.startTime)
+--- root cause recap (attempt-2 finding above, now resolved IN SPEC, not masked) ---
+smoke.spec.ts:40 asserted body.status === 'ok'; commit 8cbf9c6 (TZ v4.1 Этап 3.1) added the
+GoTrue reachability preflight with a documented production degradation gate: NODE_ENV=production
++ Supabase env configured + GoTrue unreachable → top-level status:"degraded" (HTTP stays 200
+while the database gate holds). Sandbox/CI prod has no real GoTrue (stub → 501) → "degraded"
+is the CORRECT documented value; the hardcoded 'ok' was spec drift, not app misbehavior.
+--- assertion before (drifted, failed run1) ---
+expect(body.status).toBe('ok')
+--- assertion after (coherence invariant — STRENGTHENED, presence checks kept verbatim) ---
+expect(response.status()).toBe(200)
+expect(body.service).toBe('conditera')
+expect(body.timestamp).toBeDefined()
+expect(['ok','degraded']).toContain(body.status)                          // (1) vocabulary
+if (body.auth === 'unreachable' && body.environment === 'production')
+  expect(body.status).toBe('degraded')                                    // (2) prod gate coherence
+if (body.status === 'ok') {
+  expect(body.auth === 'ok' || body.environment !== 'production').toBe(true) // (3a) ok ⇒ auth-ok or gate-off env
+  expect(body.database).toBe('ok')                                        // (3b) ok ⇒ db gate holds (503 otherwise)
+}
+NOTE on (2): task sketch wrote the implication unqualified; the precise documented contract
+(8cbf9c6 route docs + C-1 anti-false-positive vitest "dev+501 → auth unreachable BUT status ok")
+requires the production qualifier — unqualified would flag documented-correct dev behavior.
+Strength vs run1 in prod: vocabulary + two cross-field coherence invariants + db gate on "ok"
+(strictly more checks than the single value equality it replaces; nothing weakened).
+--- fresh prod re-run (runner contract honored: E2E_SERVER_MODE=prod, runner owns the server) ---
+cmd: E2E_SERVER_MODE=prod bash scripts/e2e-one.sh smoke
+attempt-1 (no infra retries needed): expected=11 unexpected=0 flaky=0 skipped=0 EXIT=0
+artifact: docs/evidence/e2e-v41/smoke.prod.9ec40f7-run2.json
+sha256: 69cde7043b3340ac344f7b5825420999ae3dcee0717d9b7978b261fd9fea94fd
+duration: 21044 ms; health test itself: 35 ms, status expected (passed)
+--- live /api/health body during this run (values the invariants evaluated) ---
+status:"degraded" auth:"unreachable" database:"ok" environment:"production" service:"conditera"
+→ (1) degraded ∈ {ok,degraded} ✓; (2) unreachable+production ⇒ degraded ✓ (fired, held);
+   (3) skipped (status != ok). Exactly the 8cbf9c6 documented prod shape.
+--- CI nightly projection (e2e.yml: chromium, next start → NODE_ENV=production, service-role
+key intentionally absent) --- auth:"not-configured" → status:"degraded" (supabase env-pair
+incomplete) → invariants: (1) ✓, (2) not triggered, (3) not triggered → nightly green.
+E2E_FULL_STACK (real GoTrue): auth:"ok"/status:"ok" → (1) ✓, (2) n/a, (3a) ✓, (3b) ✓ → green.
+exit: 0
