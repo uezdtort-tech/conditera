@@ -8930,3 +8930,23 @@ Stage Summary:
 - коммиты: bdf2ec9 (U-06 verifier+evidence), 3d9a7f8 (E2E exact-status+evidence), финальный docs (отчёт+worklog); push/PR/защита/deploy НЕ выполнялись
 - scan-evidence exit 0 (real 0 / 302+ синтетик), lint 0, env-template 0
 H1-HYGIENE: pre-commit scan (run AFTER commit 31f6446 landed — chain-race, same lesson as F-1) caught 1 real-class finding: v43-auth-iaf-7dcc09d.log:5 supabase-service-role — name-based trigger on VARIABLE NAME in "env presence-only:" inventory line (values never printed; line contains no '=' at all). Disposition per precedent E-1 (documented no-value line formats): NARROW downgrade pattern /^env presence-only: [^=\n]*$/ added to scripts/scan-evidence.mjs with regression test (inventory→synthetic; KEY=<value> leak and prefix+assignment stay real). Post-fix scan exit 0 (real 0 / 317 synthetic). Hygiene follow-up commit (no history rewrite); report §5 counter corrected.
+
+---
+Task ID: v4.4-RC-review
+Agent: Z.ai Code (main)
+Task: Release Candidate Review поверх локального кандидата v4.3 — сводка 77 коммитов/225 файлов, ревью scan-evidence.mjs (последнее правило понижения), критичные участки (U-06, E2E, auth, lifecycle, upload, финансы), факты vs предположения + происхождение build, release/PR-план, отчёт с单一 статусом.
+
+Work Log:
+- DEV-00: HEAD=2708cd9, origin/main=8454b3a, ahead 77/0; drift #8 обнаружен (4 unstaged-удаления upload-маршрутов) → pre-restore diff сохранён (v44-drift-4upload-deletions-pre-restore-2708cd9.diff, 584 строки) → git restore → blob-хэши IDENTICAL ×4
+- Task 1: diff origin/main..HEAD = 225 файлов (+38310/−477; в задании было «223»); 176A/48M/1D (robots.ts→robots.txt/route.ts, RFC 9309); опасные участки разобраны построчно: webhook (2 error-contract правки, verifyWebhook 401 сохранён, YOOKASSA_* обязательны в prod-шаблоне → skip-ветка в проде недостижима), anti-fraud register 3/ч→10/ч (единственное смягчение, семантика «по попыткам», с 49604e0), orders/[id] (усиление RBAC — COURIER de-privileged), миграции 0 diff, UUID-коммиты не пустые (снапшоты, контент в гейтованном HEAD)
+- Task 2: НАЙДЕНО ослабление сканера — H-1 /^env presence-only: [^=\n]*$/ понижал =-свободные реальные секреты (JWT/bearer/cookie/db-conn/пароль/api-key); инвариант «утечка всегда KEY=<value>» опровергнут; формальное сужение: среди 10 real-правил только supabase-service-role может сработать на name-only строке → downgrade ограничен этой категорией; верификатор scripts/verify/scan-evidence-rules-verify.mjs на реальном сабпроцессе сканера: 14/14 PASS (A1-A8 real остаются real, B1-B2 легитимный инвентарь synthetic, C1-C3 прецеденты E-1/F-1 целы, C4 смешанный файл сохраняет real); полный скан exit 0 (real 0 / synthetic 317 — без изменений); коммит 13a5947
+- Task 3: upload-маршруты оба на месте (=HEAD, 422-контракт+385 строк тестов); финансы: 0 денежных diff (только webhook error-contract); auth fail-closed на месте (health degraded :303, register 500); U-06 evidence на HEAD (21/21 лог+3 скриншота+верификатор), не переоткрывался; lifecycle: dev-process-manager +589 (fingerprint-рестарт); E2E точные статусы spot-check OK
+- Task 4: production build был на 12c8815 (артефакт .next удалён рестартом среды — зафиксировано); diff 12c8815..HEAD вне docs = 9 файлов, 0 влияют на бандл (3 CLI-скрипта, 2 vitest-теста, seed template, 3 E2E-спеки) → исходники исполняемого кода байт-идентичны билду; следующий CI обязан собрать точный опубликованный SHA
+- Task 5: план публикации подготовлен (release-candidate-v44 ветка с HEAD → PR → CI на head-SHA; джобы ci.yml: lint-typecheck/test/build/docker-build/security-checks/validate-caddyfile; docker-build = равноценная замена локального Docker-гейта); правила защиты main сформулированы; НИЧЕГО не публиковано
+- Task 7: RELEASE-CANDIDATE-REVIEW-v4.4-REPORT.md (готов, риски §7, план §5)
+
+Stage Summary:
+- READY FOR OWNER REVIEW; PRODUCTION-READY не выставлен
+- единственный содержательный коммит сессии: 13a5947 (сужение H-1 + верификатор 14/14); drift #8 восстановлен без коммита (только evidence-файл); история не переписывалась, файлы/коммиты не удалялись
+- блокеры (все владелец/среда): публикация, CI на SHA, защита main, Docker, U-06 контент, auth-провайдер, подтверждение anti-fraud register 10/ч
+- lint 0; scan-evidence exit 0 (real 0 / 317 synthetic); гейты vitest/tally/e2e не перезапускались — обоснование: 0 diff исполняемых исходников с 12c8815
