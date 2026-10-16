@@ -1,0 +1,32 @@
+=== LIVE RE-ACCEPTANCE DEV-05 (upload oversize contract) on final candidate ===
+HEAD: 12c88153c4dbde310f122b58975fdd8295285c1b
+UTC: 2026-10-16T15:18:28Z
+server: managed dev stack :3000 (dev shape health ok/ok)
+
+dev server: http://127.0.0.1:3000 — /api/health → 200
+
+─── Подготовка ───
+  ✔ логин confectioner@demo.ru
+
+─── POST /api/upload — oversize с Content-Length (зона обрезки платформой) ───
+  ✔ 10.5 MiB (тело 11010048 B + envelope, CL 10.50 MiB) → 422 FILE_TOO_LARGE — got 422 {"error":"FILE_TOO_LARGE","message":"Файл слишком большой: больше 10 МБ"}
+  ✔ 12 MiB (тело 12582912 B + envelope, CL 12.00 MiB) → 422 FILE_TOO_LARGE — got 422 {"error":"FILE_TOO_LARGE","message":"Файл слишком большой: больше 10 МБ"}
+
+─── POST /api/upload — малый валидный файл ───
+  ✔ малый PNG → 201 {url} — got 201 {"url":"http://127.0.0.1:3000/storage/v1/object/public/media/acc-a3c/c329035a-b4bf-418e-a078-8a84d93ae50e.png"}
+    url: http://127.0.0.1:3000/storage/v1/object/public/media/acc-a3c/c329035a-b4bf-418e-a078-8a84d93ae50e.png
+  ✔ read-back → 200 image/png, 67 байт — got 200
+  ✔ read-back sha256 == отправленному
+
+─── POST /api/services/upload — oversize с Content-Length ───
+  ✔ 10.5 MiB → 422 FILE_TOO_LARGE — got 422 {"error":"FILE_TOO_LARGE","message":"Файл слишком большой: больше 10 МБ"}
+
+─── POST /api/services/upload — малый валидный файл ───
+  ✔ малый PNG → 201 {urls:[…]} — got 201 {"urls":["http://127.0.0.1:3000/storage/v1/object/public/media/services/279bee31-03fc-40d8-bab0-4bbf16dd15eb.png"]}
+    url: http://127.0.0.1:3000/storage/v1/object/public/media/services/279bee31-03fc-40d8-bab0-4bbf16dd15eb.png
+
+─── Итог ───
+
+  ИТОГО: PASS 8  FAIL 0
+
+  cleanup: storage.objects rows deleted=2, files deleted=2 из 2

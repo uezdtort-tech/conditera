@@ -1,0 +1,591 @@
+{
+  "generatedAt": "2026-10-16T15:22:05.131Z",
+  "headShort": "12c8815",
+  "claim": {
+    "passed": 148,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 1,
+    "slots": 149
+  },
+  "recomputedTotals": {
+    "passed": 148,
+    "failed": 0,
+    "flaky": 0,
+    "skipped": 1,
+    "slots": 149
+  },
+  "verdict": "PASS",
+  "drift": [],
+  "problems": [],
+  "canonicalRuns": [
+    {
+      "spec": "api-v2",
+      "mode": "prod",
+      "canonical": {
+        "artifact": "api-v2.prod.json",
+        "duplicateArtifacts": [],
+        "spec": "api-v2",
+        "recordedMode": "prod",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:19:54.655Z",
+        "stats": {
+          "startTime": "2026-10-14T23:19:54.655Z",
+          "duration": 6626.438,
+          "expected": 37,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 37,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "7f1ac45e529e409b4d3e284f022e2c067d59335d22dc00eea8dec64921039e53",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/api-v2.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": []
+      },
+      "corroborating": []
+    },
+    {
+      "spec": "auth-flow",
+      "mode": "prod",
+      "canonical": {
+        "artifact": "auth-flow.prod.json",
+        "duplicateArtifacts": [],
+        "spec": "auth-flow",
+        "recordedMode": "prod",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:20:15.993Z",
+        "stats": {
+          "startTime": "2026-10-14T23:20:15.993Z",
+          "duration": 3105.236,
+          "expected": 14,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 14,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "cef74b8d42c525e7886c7600d1cbccdb89a8ab54b5786e9ff46ab227a412ca03",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/auth-flow.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": []
+      },
+      "corroborating": []
+    },
+    {
+      "spec": "full-flow",
+      "mode": "prod",
+      "canonical": {
+        "artifact": "full-flow.prod.json",
+        "duplicateArtifacts": [],
+        "spec": "full-flow",
+        "recordedMode": "prod",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:30:49.013Z",
+        "stats": {
+          "startTime": "2026-10-14T23:30:49.013Z",
+          "duration": 31125.688,
+          "expected": 36,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 36,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "ef57c4620ca07ca0612c1867b97ddfece1a1b820ca6096a5994545d94bae237d",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/full-flow.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": []
+      },
+      "corroborating": []
+    },
+    {
+      "spec": "integration-auth-flow",
+      "mode": "dev",
+      "canonical": {
+        "artifact": "integration-auth-flow.dev.f28b090-run2.json",
+        "duplicateArtifacts": [],
+        "spec": "integration-auth-flow",
+        "recordedMode": "dev",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-15T18:03:17.486Z",
+        "stats": {
+          "startTime": "2026-10-15T18:03:17.486Z",
+          "duration": 5172.367,
+          "expected": 17,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 17,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "0a31a2663b83ea3947c4c7b7ac54238c5f2ec5aa9bbab002c338f368227255bd",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/integration-auth-flow.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "filename",
+          "head": "f28b090",
+          "basis": "имя артефакта <spec>.<mode>.<HEADshort>-run<N>.json кодирует короткий SHA HEAD, при котором выполнен прогон (конвенция фикс-сессии DEV-05)"
+        },
+        "exclusions": []
+      },
+      "corroborating": [
+        {
+          "artifact": "integration-auth-flow.dev.f28b090-run1.json",
+          "startTime": "2026-10-15T18:02:46.573Z",
+          "sha256": "b7b5f4d505df7f0f8357cf5f270110dd38cdaced8b363bb85ab0ca38b8b60612",
+          "stats": {
+            "startTime": "2026-10-15T18:02:46.573Z",
+            "duration": 9317.408,
+            "expected": 17,
+            "skipped": 0,
+            "unexpected": 0,
+            "flaky": 0
+          }
+        },
+        {
+          "artifact": "integration-auth-flow.dev.json",
+          "startTime": "2026-10-14T23:36:46.378Z",
+          "sha256": "cf379023221e88ea6c4a8bddbd6035820cbcbd57f236c414dad28243c8a2888a",
+          "stats": {
+            "startTime": "2026-10-14T23:36:46.378Z",
+            "duration": 5492.524,
+            "expected": 17,
+            "skipped": 0,
+            "unexpected": 0,
+            "flaky": 0
+          }
+        }
+      ]
+    },
+    {
+      "spec": "onboarding-flow",
+      "mode": "prod",
+      "canonical": {
+        "artifact": "onboarding-flow.prod.json",
+        "duplicateArtifacts": [],
+        "spec": "onboarding-flow",
+        "recordedMode": "prod",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:29:05.175Z",
+        "stats": {
+          "startTime": "2026-10-14T23:29:05.175Z",
+          "duration": 3320.438,
+          "expected": 1,
+          "skipped": 1,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 1,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 1
+        },
+        "statsMatch": true,
+        "sha256": "d1b0dfe9995e53fbcb81b9ade5401a435b4eccf277d87b6ae96053f4c0b1e094",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/onboarding-flow.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": [],
+        "skipReason": "Требуется полный Supabase-стек (docker-compose.supabase.yml). Запуск: E2E_FULL_STACK=1 npm run test:e2e | Требуется полный Supabase-стек (docker-compose.supabase.yml). Запуск: E2E_FULL_STACK=1 npm run test:e2e"
+      },
+      "corroborating": []
+    },
+    {
+      "spec": "payment-webhook-idempotency",
+      "mode": "dev",
+      "canonical": {
+        "artifact": "payment-webhook-idempotency.dev.json",
+        "duplicateArtifacts": [],
+        "spec": "payment-webhook-idempotency",
+        "recordedMode": "dev",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:34:24.439Z",
+        "stats": {
+          "startTime": "2026-10-14T23:34:24.439Z",
+          "duration": 3501.549,
+          "expected": 12,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 12,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "9edfca6a2caa515f073a7bd35e0ce12a5a9f79131ad0992c826e30e192dfc386",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/payment-webhook-idempotency.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": []
+      },
+      "corroborating": []
+    },
+    {
+      "spec": "recipe-purchase-flow",
+      "mode": "prod",
+      "canonical": {
+        "artifact": "recipe-purchase-flow.prod.json",
+        "duplicateArtifacts": [],
+        "spec": "recipe-purchase-flow",
+        "recordedMode": "prod",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:31:33.600Z",
+        "stats": {
+          "startTime": "2026-10-14T23:31:33.600Z",
+          "duration": 1163.263,
+          "expected": 7,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 7,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "ca9d10e4a212b6b3fffde513e96f4b9eea7bb165aa118861504b0e249afb6e96",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/recipe-purchase-flow.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": []
+      },
+      "corroborating": []
+    },
+    {
+      "spec": "regional-pricing",
+      "mode": "prod",
+      "canonical": {
+        "artifact": "regional-pricing.prod.json",
+        "duplicateArtifacts": [],
+        "spec": "regional-pricing",
+        "recordedMode": "prod",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:31:37.487Z",
+        "stats": {
+          "startTime": "2026-10-14T23:31:37.487Z",
+          "duration": 1005.1819999999999,
+          "expected": 13,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 13,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "8bda1d88726519b0ed7ba49b9ed5dccabb5e8460dc5c2b841c1e593137fa7664",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/regional-pricing.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": []
+      },
+      "corroborating": []
+    },
+    {
+      "spec": "smoke",
+      "mode": "prod",
+      "canonical": {
+        "artifact": "smoke.prod.json",
+        "duplicateArtifacts": [],
+        "spec": "smoke",
+        "recordedMode": "prod",
+        "projects": [
+          "chromium"
+        ],
+        "startTime": "2026-10-14T23:23:00.532Z",
+        "stats": {
+          "startTime": "2026-10-14T23:23:00.532Z",
+          "duration": 38509.292,
+          "expected": 11,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "recomputed": {
+          "expected": 11,
+          "unexpected": 0,
+          "flaky": 0,
+          "skipped": 0
+        },
+        "statsMatch": true,
+        "sha256": "1f0fca8ec055fbe17bbf97215bb1cbe8f265ea4fa83d4010ae60a4e671f4804e",
+        "sourceSha": "present",
+        "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/smoke.spec.ts --project=chromium --reporter=json",
+        "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+        "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+        "shaProvenance": {
+          "source": "session-evidence",
+          "head": "89b6708",
+          "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+          "reverifiedAt": "7a8d878",
+          "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+        },
+        "exclusions": []
+      },
+      "corroborating": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "artifact": "full-flow.dev-chunk1-OOM-evidence.json",
+      "duplicateArtifacts": [],
+      "spec": "full-flow",
+      "recordedMode": "dev",
+      "projects": [
+        "chromium"
+      ],
+      "startTime": "2026-10-14T23:27:27.494Z",
+      "stats": {
+        "startTime": "2026-10-14T23:27:27.494Z",
+        "duration": 50438.554,
+        "expected": 8,
+        "skipped": 0,
+        "unexpected": 2,
+        "flaky": 0
+      },
+      "recomputed": {
+        "expected": 8,
+        "unexpected": 2,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "statsMatch": true,
+      "sha256": "78e2ffe8ce549d9d5fb671a3ecfffbf373b9395ce724419a264dbf99b8dd5c63",
+      "sourceSha": "present",
+      "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/full-flow.spec.ts --grep Public pages --project=chromium --reporter=json",
+      "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+      "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+      "shaProvenance": {
+        "source": "session-evidence",
+        "head": "89b6708",
+        "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+        "reverifiedAt": "7a8d878",
+        "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+      },
+      "exclusions": [
+        {
+          "rule": "R1-oom-evidence",
+          "reason": "частичный прерванный dev-прогон, сохранённый как СВИДЕТЕЛЬСТВО OOM песочницы (dmesg SIGKILL next-server); самостоятельной суммарной ценности не несёт, не канонический прогон"
+        }
+      ]
+    },
+    {
+      "artifact": "integration-auth-flow.prod.json",
+      "duplicateArtifacts": [
+        "integration-auth-flow.early-prod.json"
+      ],
+      "spec": "integration-auth-flow",
+      "recordedMode": "prod",
+      "projects": [
+        "chromium"
+      ],
+      "startTime": "2026-10-14T23:19:17.589Z",
+      "stats": {
+        "startTime": "2026-10-14T23:19:17.589Z",
+        "duration": 5509.313,
+        "expected": 17,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "recomputed": {
+        "expected": 17,
+        "unexpected": 0,
+        "flaky": 0,
+        "skipped": 0
+      },
+      "statsMatch": true,
+      "sha256": "7dd164dc1e4c6a789bf3fb58ac41a8c7e8565c75b7803b1a5c51c80518723fdb",
+      "sourceSha": "present",
+      "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/integration-auth-flow.spec.ts --project=chromium --reporter=json",
+      "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+      "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+      "shaProvenance": {
+        "source": "session-evidence",
+        "head": "89b6708",
+        "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+        "reverifiedAt": "7a8d878",
+        "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+      },
+      "exclusions": [
+        {
+          "rule": "R3-non-canonical-mode-diagnostic",
+          "reason": "записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит"
+        }
+      ]
+    },
+    {
+      "artifact": "payment-webhook-idempotency.prod.json",
+      "duplicateArtifacts": [],
+      "spec": "payment-webhook-idempotency",
+      "recordedMode": "prod",
+      "projects": [
+        "chromium"
+      ],
+      "startTime": "2026-10-14T23:29:11.259Z",
+      "stats": {
+        "startTime": "2026-10-14T23:29:11.259Z",
+        "duration": 1153.5639999999999,
+        "expected": 3,
+        "skipped": 8,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "recomputed": {
+        "expected": 3,
+        "unexpected": 1,
+        "flaky": 0,
+        "skipped": 8
+      },
+      "statsMatch": true,
+      "sha256": "a8f6c36c6fcb32e1e3ecb74f5c261b91bd601bc642c6a95aba2e68e4542b8830",
+      "sourceSha": "present",
+      "command": "/usr/bin/node /home/z/my-project/node_modules/.bin/playwright test tests/e2e/payment-webhook-idempotency.spec.ts --project=chromium --reporter=json",
+      "exitCode": "not-in-artifact (см. TALLY.md: exit 0 для канонических прогонов)",
+      "dbMode": "not-in-artifact (стек: embedded PG :54329, scripts/db/runtime.mjs)",
+      "shaProvenance": {
+        "source": "session-evidence",
+        "head": "89b6708",
+        "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+        "reverifiedAt": "7a8d878",
+        "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+      },
+      "exclusions": [
+        {
+          "rule": "R3-non-canonical-mode-diagnostic",
+          "reason": "записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит"
+        }
+      ]
+    }
+  ],
+  "shaProvenance": {
+    "session": {
+      "head": "89b6708",
+      "basis": "TALLY.md (заголовок сессии release-gate-verify): все артефакты исходной девятки сняты при HEAD 89b6708",
+      "reverifiedAt": "7a8d878",
+      "reverifyEvidence": "docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt"
+    },
+    "runArtifacts": {
+      "basis": "имя артефакта <spec>.<mode>.<HEADshort>-run<N>.json кодирует короткий SHA HEAD, при котором выполнен прогон (конвенция фикс-сессии DEV-05)"
+    }
+  },
+  "exclusionRules": [
+    {
+      "id": "R1-oom-evidence"
+    },
+    {
+      "id": "R2-duplicate-copy"
+    },
+    {
+      "id": "R3-non-canonical-mode-diagnostic"
+    }
+  ]
+}

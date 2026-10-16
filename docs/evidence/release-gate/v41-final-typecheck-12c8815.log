@@ -1,0 +1,6 @@
+=== STATIC GATE: TYPECHECK (v4.1 final re-bind) ===
+HEAD: 12c88153c4dbde310f122b58975fdd8295285c1b
+UTC: 2026-10-16T15:07:35Z
+Command: bun run typecheck
+
+$ tsc --noEmit

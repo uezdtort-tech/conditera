@@ -1,0 +1,598 @@
+# Upload-routes drift incident #2 (v4.1 post-handoff)
+date: 2026-10-16T15:06:38Z
+head: 12c88153c4dbde310f122b58975fdd8295285c1b
+branch: main
+type: unstaged deletions of tracked files (drift, NOT an authored change — v4.1 scope forbids removing upload routes)
+previously: incident #7 documented/restored at bbe286b (pre-restore-deletion-diff-v41-4a901ae.txt)
+
+diff --git a/src/app/api/services/upload/route.test.ts b/src/app/api/services/upload/route.test.ts
+deleted file mode 100644
+index ec9f8ef..0000000
+--- a/src/app/api/services/upload/route.test.ts
++++ /dev/null
+@@ -1,195 +0,0 @@
+-/**
+- * Регрессионные тесты POST /api/services/upload — oversized-payload контракт
+- * (DEV-20 / Release Gate v4.1; закрывает FINDING из U-13-upload-services-1362744.md).
+- *
+- * Контракт (поле `files`, роут делит хелпер parseUploadRequest с /api/upload):
+- *   - ≤ MAX_UPLOAD_BYTES, валидный multipart с честным Content-Length → 201 {urls};
+- *   - Content-Length > MAX_UPLOAD_BYTES → 422 {"error":"FILE_TOO_LARGE"} —
+- *     pre-parse, тело не читается (зона обрезки платформой покрыта);
+- *   - chunked/мусор без Content-Length → 400 BAD_REQUEST (документированная зона);
+- *   - пост-parse поведения (NO_FILES / TOO_MANY_FILES) не тронуты.
+- *
+- * Моки: @/lib/auth, @/lib/supabase/admin (storage) — герметично, без сети/БД.
+- * Конвенции — src/app/api/health/route.test.ts. jsdom-окружение (проектный
+- * default, setup требует window): глобальный File подменяется на node:buffer
+- * File — иначе undici-парсер multipart падает на webidl brand check (зонд A-3c).
+- */
+-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+-import { File as NodeFile } from "node:buffer";
+-import { NextRequest } from "next/server";
+-
+-// --- Моки модулей (герметично, без сети и Supabase) ---
+-
+-const getUserFromRequest = vi.fn();
+-vi.mock("@/lib/auth", () => ({
+-  getUserFromRequest: (...args: unknown[]) => getUserFromRequest(...args),
+-}));
+-
+-const uploadMock = vi.fn();
+-const getPublicUrlMock = vi.fn();
+-
+-vi.mock("@/lib/supabase/admin", () => ({
+-  supabaseAdmin: {
+-    storage: {
+-      from: () => ({ upload: uploadMock, getPublicUrl: getPublicUrlMock }),
+-    },
+-  },
+-}));
+-
+-import { POST } from "./route";
+-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES, OVERSIZE_UPLOAD_MESSAGE } from "@/lib/upload-service";
+-
+-const DEMO_USER = { id: "confectioner-uuid", roles: ["CONFECTIONER"], email: "test@test.local" };
+-const MOCK_URL = "/storage/v1/object/public/media/services/00000000-0000-4000-8000-000000000000.png";
+-
+-// --- Multipart-хелперы (raw bytes — без зависимости от jsdom FormData) ---
+-
+-const BOUNDARY = "----a3c-services-upload-boundary";
+-
+-/** 1×1 валидный PNG (67 байт) — тот же fixture, что в scripts/verify. */
+-const PNG_1X1 = Buffer.from(
+-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+-  "base64"
+-);
+-
+-function multipartFiles(filenames: string[]): Buffer {
+-  const parts = filenames.map((filename) =>
+-    Buffer.concat([
+-      Buffer.from(
+-        `--${BOUNDARY}\r\nContent-Disposition: form-data; name="files"; filename="${filename}"\r\nContent-Type: image/png\r\n\r\n`
+-      ),
+-      PNG_1X1,
+-      Buffer.from(`\r\n`),
+-    ])
+-  );
+-  parts.push(Buffer.from(`--${BOUNDARY}--\r\n`));
+-  return Buffer.concat(parts);
+-}
+-
+-function makePost(body: Buffer, headers: Record<string, string> = {}): NextRequest {
+-  return new NextRequest("http://localhost:3000/api/services/upload", {
+-    method: "POST",
+-    headers: {
+-      "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+-      ...headers,
+-    },
+-    body: new Uint8Array(body), // BodyInit: свежий ArrayBuffer для TS
+-  });
+-}
+-
+-async function callPost(body: Buffer, headers: Record<string, string> = {}) {
+-  return POST(makePost(body, headers));
+-}
+-
+-beforeEach(() => {
+-  vi.clearAllMocks();
+-  vi.stubGlobal("File", NodeFile);
+-  getUserFromRequest.mockResolvedValue(DEMO_USER);
+-  uploadMock.mockResolvedValue({ error: null });
+-  getPublicUrlMock.mockReturnValue({ data: { publicUrl: MOCK_URL } });
+-});
+-
+-afterEach(() => {
+-  vi.unstubAllGlobals();
+-});
+-
+-describe("POST /api/services/upload — oversized-payload контракт (DEV-20)", () => {
+-  it("401 без аутентификации (базовая защита не тронута)", async () => {
+-    getUserFromRequest.mockResolvedValue(null);
+-    const res = await callPost(multipartFiles(["a.png"]), {
+-      "content-length": String(PNG_1X1.length),
+-    });
+-    expect(res.status).toBe(401);
+-    expect(await res.json()).toEqual({
+-      error: "UNAUTHORIZED",
+-      message: "Требуется аутентификация",
+-    });
+-  });
+-
+-  it("Content-Length > MAX_UPLOAD_BYTES (тело — мусор) → 422 FILE_TOO_LARGE pre-parse, storage не вызывается", async () => {
+-    // Мусорное тело: без pre-parse гейта formData() бросил бы → был бы 400.
+-    const res = await callPost(Buffer.from("garbage-not-multipart"), {
+-      "content-length": String(MAX_UPLOAD_BYTES + 1),
+-    });
+-    expect(res.status).toBe(422);
+-    expect(await res.json()).toEqual({
+-      error: "FILE_TOO_LARGE",
+-      message: OVERSIZE_UPLOAD_MESSAGE,
+-    });
+-    expect(uploadMock).not.toHaveBeenCalled();
+-  });
+-
+-  it("реальное multipart-тело > 10 МБ с честным Content-Length → 422 FILE_TOO_LARGE (зона обрезки платформой)", async () => {
+-    const oversizePayload = Buffer.alloc(MAX_UPLOAD_BYTES + 1, 0x41);
+-    const body = Buffer.concat([
+-      Buffer.from(
+-        `--${BOUNDARY}\r\nContent-Disposition: form-data; name="files"; filename="big.png"\r\nContent-Type: image/png\r\n\r\n`
+-      ),
+-      oversizePayload,
+-      Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
+-    ]);
+-    const res = await callPost(body, { "content-length": String(body.length) });
+-    expect(res.status).toBe(422);
+-    expect(await res.json()).toEqual({
+-      error: "FILE_TOO_LARGE",
+-      message: "Файл слишком большой: больше 10 МБ",
+-    });
+-    expect(uploadMock).not.toHaveBeenCalled();
+-  });
+-
+-  it("валидный 1×1 PNG ниже лимита → 201 {urls:[…]}, файл уходит в services/", async () => {
+-    const body = multipartFiles(["photo.png"]);
+-    const res = await callPost(body, { "content-length": String(body.length) });
+-    expect(res.status).toBe(201);
+-    expect(await res.json()).toEqual({ urls: [MOCK_URL] });
+-    expect(uploadMock).toHaveBeenCalledTimes(1);
+-    const [filePath] = uploadMock.mock.calls[0];
+-    expect(String(filePath)).toMatch(/^services\/[0-9a-f-]{36}\.png$/);
+-  });
+-
+-  it("мусор без Content-Length (text/plain) → 400 BAD_REQUEST (форма ответа сохранена)", async () => {
+-    const res = await callPost(Buffer.from("plain garbage"), {
+-      "content-type": "text/plain",
+-    });
+-    expect(res.status).toBe(400);
+-    expect(await res.json()).toEqual({
+-      error: "BAD_REQUEST",
+-      message: "Ожидается multipart/form-data",
+-    });
+-  });
+-
+-  it("chunked multipart без Content-Length + мусор → 400 BAD_REQUEST (документированная зона)", async () => {
+-    const res = await callPost(Buffer.from("chunked garbage without boundary"));
+-    expect(res.status).toBe(400);
+-    expect(await res.json()).toEqual({
+-      error: "BAD_REQUEST",
+-      message: "Ожидается multipart/form-data",
+-    });
+-    expect(uploadMock).not.toHaveBeenCalled();
+-  });
+-
+-  it("валидный multipart без файлов → 400 NO_FILES (пост-parse поведение не троннуто)", async () => {
+-    const body = Buffer.concat([
+-      Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="note"\r\n\r\nx\r\n`),
+-      Buffer.from(`--${BOUNDARY}--\r\n`),
+-    ]);
+-    const res = await callPost(body, { "content-length": String(body.length) });
+-    expect(res.status).toBe(400);
+-    expect(await res.json()).toEqual({
+-      error: "NO_FILES",
+-      message: "Не передано файлов (поле 'files')",
+-    });
+-  });
+-
+-  it("9 файлов (> MAX_UPLOAD_FILES) → 400 TOO_MANY_FILES, storage не вызывается", async () => {
+-    const names = Array.from({ length: MAX_UPLOAD_FILES + 1 }, (_, i) => `f${i}.png`);
+-    const body = multipartFiles(names);
+-    const res = await callPost(body, { "content-length": String(body.length) });
+-    expect(res.status).toBe(400);
+-    expect(await res.json()).toEqual({
+-      error: "TOO_MANY_FILES",
+-      message: `Максимум ${MAX_UPLOAD_FILES} файлов за запрос`,
+-    });
+-    expect(uploadMock).not.toHaveBeenCalled();
+-  });
+-});
+diff --git a/src/app/api/services/upload/route.ts b/src/app/api/services/upload/route.ts
+deleted file mode 100644
+index f6c52a4..0000000
+--- a/src/app/api/services/upload/route.ts
++++ /dev/null
+@@ -1,87 +0,0 @@
+-/**
+- * POST /api/services/upload — загрузка фотографий услуг (совместимость).
+- *
+- * ТЗ P0.5 §3: endpoint отсутствовал, но реально вызывался services-manager'ом
+- * (FormData поле `files`, ожидается {urls: string[]}) — обеспечена совместимость.
+- *
+- * multipart/form-data: files (file[], 1..8)
+- * Ответ: { urls: string[] }
+- * Auth: любой аутентифицированный (свои услуги добавляют в своих маршрутах).
+- * Размер: Content-Length > MAX_UPLOAD_BYTES (10 МБ) → 422 FILE_TOO_LARGE
+- * ещё до разбора тела (когерентный oversized-контракт, DEV-20 — хелпер
+- * parseUploadRequest в @/lib/upload-service); chunked без Content-Length
+- * при неудаче разбора остаётся документированным 400 BAD_REQUEST.
+- */
+-
+-import { NextRequest, NextResponse } from "next/server";
+-import { getUserFromRequest } from "@/lib/auth";
+-import {
+-  parseUploadRequest,
+-  saveUploadedFiles,
+-  UploadServiceError,
+-  MAX_UPLOAD_FILES,
+-} from "@/lib/upload-service";
+-
+-export const runtime = "nodejs";
+-export const dynamic = "force-dynamic";
+-
+-export async function POST(request: NextRequest): Promise<NextResponse> {
+-  try {
+-    const user = await getUserFromRequest(request);
+-    if (!user) {
+-      return NextResponse.json(
+-        { error: "UNAUTHORIZED", message: "Требуется аутентификация" },
+-        { status: 401 }
+-      );
+-    }
+-
+-    let form: FormData;
+-    try {
+-      form = await parseUploadRequest(request);
+-    } catch (err) {
+-      if (err instanceof UploadServiceError) {
+-        return NextResponse.json(
+-          { error: err.code, message: err.message },
+-          { status: err.status }
+-        );
+-      }
+-      return NextResponse.json(
+-        { error: "BAD_REQUEST", message: "Ожидается multipart/form-data" },
+-        { status: 400 }
+-      );
+-    }
+-
+-    const files = form.getAll("files").filter((f): f is File => f instanceof File);
+-    if (files.length === 0) {
+-      return NextResponse.json(
+-        { error: "NO_FILES", message: "Не передано файлов (поле 'files')" },
+-        { status: 400 }
+-      );
+-    }
+-    if (files.length > MAX_UPLOAD_FILES) {
+-      return NextResponse.json(
+-        { error: "TOO_MANY_FILES", message: `Максимум ${MAX_UPLOAD_FILES} файлов за запрос` },
+-        { status: 400 }
+-      );
+-    }
+-
+-    try {
+-      const urls = await saveUploadedFiles(files, "services");
+-      return NextResponse.json({ urls }, { status: 201 });
+-    } catch (err) {
+-      if (err instanceof UploadServiceError) {
+-        return NextResponse.json(
+-          { error: err.code, message: err.message },
+-          { status: err.status }
+-        );
+-      }
+-      throw err;
+-    }
+-  } catch (err) {
+-    console.error("[services/upload] POST failed:", err instanceof Error ? err.message : err);
+-    return NextResponse.json(
+-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
+-      { status: 500 }
+-    );
+-  }
+-}
+diff --git a/src/app/api/upload/route.test.ts b/src/app/api/upload/route.test.ts
+deleted file mode 100644
+index 06b49c3..0000000
+--- a/src/app/api/upload/route.test.ts
++++ /dev/null
+@@ -1,190 +0,0 @@
+-/**
+- * Регрессионные тесты POST /api/upload — oversized-payload контракт
+- * (DEV-20 / Release Gate v4.1; закрывает FINDING из U-12-upload-general-1362744.md).
+- *
+- * Контракт:
+- *   - ≤ MAX_UPLOAD_BYTES, валидный multipart с честным Content-Length → 201 {url};
+- *   - Content-Length > MAX_UPLOAD_BYTES → 422 {"error":"FILE_TOO_LARGE",
+- *     "message":"Файл слишком большой: больше 10 МБ"} — pre-parse, тело не
+- *     читается (в т.ч. реальное тело > 10 МБ — зона молчаливой обрезки
+- *     платформой, body-streams.js DEFAULT_BODY_CLONE_SIZE_LIMIT);
+- *   - chunked/мусор без Content-Length → 400 BAD_REQUEST (документированная
+- *     зона, прежнее поведение сохранено);
+- *   - форма ответа ошибки неизменна: {error, message}.
+- *
+- * Моки: @/lib/auth, @/lib/supabase/admin (storage) — герметично, без сети/БД.
+- * Конвенции — src/app/api/health/route.test.ts (docblock-контекст, vi.mock,
+- * русские describe/it, без ослабления проверок). jsdom-окружение (проектный
+- * default, setup требует window): глобальный File подменяется на node:buffer
+- * File — иначе undici-парсер multipart падает на webidl brand check (зонд A-3c).
+- */
+-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+-import { File as NodeFile } from "node:buffer";
+-import { NextRequest } from "next/server";
+-
+-// --- Моки модулей (герметично, без сети и Supabase) ---
+-
+-const getUserFromRequest = vi.fn();
+-vi.mock("@/lib/auth", () => ({
+-  getUserFromRequest: (...args: unknown[]) => getUserFromRequest(...args),
+-}));
+-
+-const uploadMock = vi.fn();
+-const getPublicUrlMock = vi.fn();
+-
+-vi.mock("@/lib/supabase/admin", () => ({
+-  supabaseAdmin: {
+-    storage: {
+-      from: () => ({ upload: uploadMock, getPublicUrl: getPublicUrlMock }),
+-    },
+-  },
+-}));
+-
+-import { POST } from "./route";
+-import { MAX_UPLOAD_BYTES, OVERSIZE_UPLOAD_MESSAGE } from "@/lib/upload-service";
+-
+-const DEMO_USER = { id: "confectioner-uuid", roles: ["CONFECTIONER"], email: "test@test.local" };
+-const MOCK_URL = "/storage/v1/object/public/media/misc/00000000-0000-4000-8000-000000000000.png";
+-
+-// --- Multipart-хелперы (raw bytes — без зависимости от jsdom FormData) ---
+-
+-const BOUNDARY = "----a3c-upload-boundary";
+-
+-/** 1×1 валидный PNG (67 байт) — тот же fixture, что в scripts/verify. */
+-const PNG_1X1 = Buffer.from(
+-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+-  "base64"
+-);
+-
+-function multipartFile(field: string, filename: string, mime: string, bytes: Buffer): Buffer {
+-  return Buffer.concat([
+-    Buffer.from(
+-      `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${field}"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`
+-    ),
+-    bytes,
+-    Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
+-  ]);
+-}
+-
+-function multipartFields(fields: Record<string, string>): Buffer {
+-  const parts = Object.entries(fields).map(
+-    ([name, value]) =>
+-      Buffer.from(
+-        `--${BOUNDARY}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
+-      )
+-  );
+-  parts.push(Buffer.from(`--${BOUNDARY}--\r\n`));
+-  return Buffer.concat(parts);
+-}
+-
+-function makePost(body: Buffer, headers: Record<string, string> = {}): NextRequest {
+-  return new NextRequest("http://localhost:3000/api/upload", {
+-    method: "POST",
+-    headers: {
+-      "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+-      ...headers,
+-    },
+-    body: new Uint8Array(body), // BodyInit: свежий ArrayBuffer для TS
+-  });
+-}
+-
+-async function callPost(body: Buffer, headers: Record<string, string> = {}) {
+-  return POST(makePost(body, headers));
+-}
+-
+-beforeEach(() => {
+-  vi.clearAllMocks();
+-  vi.stubGlobal("File", NodeFile);
+-  getUserFromRequest.mockResolvedValue(DEMO_USER);
+-  uploadMock.mockResolvedValue({ error: null });
+-  getPublicUrlMock.mockReturnValue({ data: { publicUrl: MOCK_URL } });
+-});
+-
+-afterEach(() => {
+-  vi.unstubAllGlobals();
+-});
+-
+-describe("POST /api/upload — oversized-payload контракт (DEV-20)", () => {
+-  it("401 без аутентификации (базовая защита не тронута)", async () => {
+-    getUserFromRequest.mockResolvedValue(null);
+-    const res = await callPost(multipartFile("file", "a.png", "image/png", PNG_1X1), {
+-      "content-length": String(PNG_1X1.length),
+-    });
+-    expect(res.status).toBe(401);
+-    expect(await res.json()).toEqual({
+-      error: "UNAUTHORIZED",
+-      message: "Требуется аутентификация",
+-    });
+-  });
+-
+-  it("Content-Length > MAX_UPLOAD_BYTES (тело — мусор) → 422 FILE_TOO_LARGE pre-parse, storage не вызывается", async () => {
+-    // Мусорное тело: если бы запрос дошёл до formData(), контракт дал бы 400.
+-    // 422 доказывает, что гейт сработал ДО разбора тела.
+-    const res = await callPost(Buffer.from("garbage-not-multipart"), {
+-      "content-length": String(MAX_UPLOAD_BYTES + 1),
+-    });
+-    expect(res.status).toBe(422);
+-    expect(await res.json()).toEqual({
+-      error: "FILE_TOO_LARGE",
+-      message: OVERSIZE_UPLOAD_MESSAGE,
+-    });
+-    expect(uploadMock).not.toHaveBeenCalled();
+-  });
+-
+-  it("реальное multipart-тело > 10 МБ с честным Content-Length → 422 FILE_TOO_LARGE (зона обрезки платформой)", async () => {
+-    // payload 10 МБ + 1: sniff не выполняется — гейт срабатывает раньше.
+-    const oversizePayload = Buffer.alloc(MAX_UPLOAD_BYTES + 1, 0x41);
+-    const body = multipartFile("file", "big.png", "image/png", oversizePayload);
+-    const res = await callPost(body, { "content-length": String(body.length) });
+-    expect(res.status).toBe(422);
+-    expect(await res.json()).toEqual({
+-      error: "FILE_TOO_LARGE",
+-      message: "Файл слишком большой: больше 10 МБ",
+-    });
+-    expect(uploadMock).not.toHaveBeenCalled();
+-  });
+-
+-  it("валидный 1×1 PNG ниже лимита → 201 {url}, файл уходит в storage", async () => {
+-    const body = multipartFile("file", "photo.png", "image/png", PNG_1X1);
+-    const res = await callPost(body, { "content-length": String(body.length) });
+-    expect(res.status).toBe(201);
+-    expect(await res.json()).toEqual({ url: MOCK_URL });
+-    expect(uploadMock).toHaveBeenCalledTimes(1);
+-    const [filePath, buffer, opts] = uploadMock.mock.calls[0];
+-    expect(String(filePath)).toMatch(/^misc\/[0-9a-f-]{36}\.png$/);
+-    expect(Buffer.from(buffer as Uint8Array).equals(PNG_1X1)).toBe(true);
+-    expect((opts as { contentType: string }).contentType).toBe("image/png");
+-  });
+-
+-  it("мусор без Content-Length (text/plain) → 400 BAD_REQUEST (форма ответа сохранена)", async () => {
+-    const res = await callPost(Buffer.from("plain garbage"), {
+-      "content-type": "text/plain",
+-    });
+-    expect(res.status).toBe(400);
+-    expect(await res.json()).toEqual({
+-      error: "BAD_REQUEST",
+-      message: "Ожидается multipart/form-data",
+-    });
+-  });
+-
+-  it("chunked multipart без Content-Length + мусор → 400 BAD_REQUEST (документированная зона)", async () => {
+-    // content-type multipart, но тела нет Content-Length и boundary не совпадает.
+-    const res = await callPost(Buffer.from("chunked garbage without boundary"));
+-    expect(res.status).toBe(400);
+-    expect(await res.json()).toEqual({
+-      error: "BAD_REQUEST",
+-      message: "Ожидается multipart/form-data",
+-    });
+-    expect(uploadMock).not.toHaveBeenCalled();
+-  });
+-
+-  it("валидный multipart без поля file → 400 NO_FILE (пост-parse поведение не троннуто)", async () => {
+-    const body = multipartFields({ category: "misc" });
+-    const res = await callPost(body, { "content-length": String(body.length) });
+-    expect(res.status).toBe(400);
+-    expect(await res.json()).toEqual({
+-      error: "NO_FILE",
+-      message: "Не передан файл (поле 'file')",
+-    });
+-  });
+-});
+diff --git a/src/app/api/upload/route.ts b/src/app/api/upload/route.ts
+deleted file mode 100644
+index cb23e5d..0000000
+--- a/src/app/api/upload/route.ts
++++ /dev/null
+@@ -1,88 +0,0 @@
+-/**
+- * POST /api/upload — универсальная загрузка одного файла (совместимость).
+- *
+- * ТЗ P0.5 §3: endpoint отсутствовал, но реально вызывался фронтендом
+- * (confectioner-atelier-tab: category=portfolio, confectioner-lessons-tab:
+- * category=recipe) — обеспечена совместимость, вызовы не мигрировали.
+- *
+- * multipart/form-data: file (обяз.), ownerType?, category?
+- * Ответ: { url }
+- * Auth: любой аутентифицированный.
+- * Размер: Content-Length > MAX_UPLOAD_BYTES (10 МБ) → 422 FILE_TOO_LARGE
+- * ещё до разбора тела (когерентный oversized-контракт, DEV-20 — хелпер
+- * parseUploadRequest в @/lib/upload-service); chunked без Content-Length
+- * при неудаче разбора остаётся документированным 400 BAD_REQUEST.
+- */
+-
+-import { NextRequest, NextResponse } from "next/server";
+-import { getUserFromRequest } from "@/lib/auth";
+-import {
+-  parseUploadRequest,
+-  saveUploadedFile,
+-  UploadServiceError,
+-} from "@/lib/upload-service";
+-
+-export const runtime = "nodejs";
+-export const dynamic = "force-dynamic";
+-
+-export async function POST(request: NextRequest): Promise<NextResponse> {
+-  try {
+-    const user = await getUserFromRequest(request);
+-    if (!user) {
+-      return NextResponse.json(
+-        { error: "UNAUTHORIZED", message: "Требуется аутентификация" },
+-        { status: 401 }
+-      );
+-    }
+-
+-    let form: FormData;
+-    try {
+-      form = await parseUploadRequest(request);
+-    } catch (err) {
+-      if (err instanceof UploadServiceError) {
+-        return NextResponse.json(
+-          { error: err.code, message: err.message },
+-          { status: err.status }
+-        );
+-      }
+-      return NextResponse.json(
+-        { error: "BAD_REQUEST", message: "Ожидается multipart/form-data" },
+-        { status: 400 }
+-      );
+-    }
+-
+-    const file = form.get("file");
+-    if (!(file instanceof File)) {
+-      return NextResponse.json(
+-        { error: "NO_FILE", message: "Не передан файл (поле 'file')" },
+-        { status: 400 }
+-      );
+-    }
+-
+-    const category = String(form.get("category") ?? "misc");
+-    const ownerType = String(form.get("ownerType") ?? "");
+-
+-    try {
+-      // каталог: <ownerType>/<category> для изоляции по типу владельца
+-      const url = await saveUploadedFile(
+-        file,
+-        ownerType ? `${ownerType}/${category}` : category
+-      );
+-      return NextResponse.json({ url }, { status: 201 });
+-    } catch (err) {
+-      if (err instanceof UploadServiceError) {
+-        return NextResponse.json(
+-          { error: err.code, message: err.message },
+-          { status: err.status }
+-        );
+-      }
+-      throw err;
+-    }
+-  } catch (err) {
+-    console.error("[upload] POST failed:", err instanceof Error ? err.message : err);
+-    return NextResponse.json(
+-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
+-      { status: 500 }
+-    );
+-  }
+-}
+
+--- git status --porcelain ---
+ D src/app/api/services/upload/route.test.ts
+ D src/app/api/services/upload/route.ts
+ D src/app/api/upload/route.test.ts
+ D src/app/api/upload/route.ts
+?? docs/evidence/release-gate/pre-restore-deletion-diff-v41-2-12c8815.txt

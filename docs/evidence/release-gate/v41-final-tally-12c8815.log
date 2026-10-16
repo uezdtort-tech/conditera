@@ -1,0 +1,35 @@
+=== E2E TALLY CONTRACT VERIFIER (DEV-07 / TZ v4.0 §8.1) ===
+HEAD: 12c8815  |  артефактов: 15  |  групп по идентичности: 14
+
+--- Канонический (aggregated per-spec) tally ---
+spec                         mode  projects     passed fail flaky skip  artifact
+api-v2                      prod  chromium        37    0     0    0  api-v2.prod.json
+auth-flow                   prod  chromium        14    0     0    0  auth-flow.prod.json
+full-flow                   prod  chromium        36    0     0    0  full-flow.prod.json
+integration-auth-flow       dev   chromium        17    0     0    0  integration-auth-flow.dev.f28b090-run2.json
+onboarding-flow             prod  chromium         1    0     0    1  onboarding-flow.prod.json
+payment-webhook-idempotency dev   chromium        12    0     0    0  payment-webhook-idempotency.dev.json
+recipe-purchase-flow        prod  chromium         7    0     0    0  recipe-purchase-flow.prod.json
+regional-pricing            prod  chromium        13    0     0    0  regional-pricing.prod.json
+smoke                       prod  chromium        11    0     0    0  smoke.prod.json
+
+RECOMPUTED TOTALS: passed=148 failed=0 flaky=0 skipped=1 slots=149
+CANONICAL CLAIM:   passed=148 failed=0 flaky=0 skipped=1 slots=149
+
+--- Исключённые/диагностические артефакты (правила R1–R3) ---
+full-flow.dev-chunk1-OOM-evidence.json  [R1-oom-evidence]
+    — частичный прерванный dev-прогон, сохранённый как СВИДЕТЕЛЬСТВО OOM песочницы (dmesg SIGKILL next-server); самостоятельной суммарной ценности не несёт, не канонический прогон
+    stats: passed=8 failed=2 flaky=0 skipped=0
+integration-auth-flow.prod.json  [R3-non-canonical-mode-diagnostic]
+    — записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит
+    дубликаты (побайтно идентичны → один логический прогон): integration-auth-flow.early-prod.json
+    stats: passed=17 failed=0 flaky=0 skipped=0
+payment-webhook-idempotency.prod.json  [R3-non-canonical-mode-diagnostic]
+    — записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит
+    stats: passed=3 failed=1 flaky=0 skipped=8
+corroboration: integration-auth-flow — integration-auth-flow.dev.f28b090-run1.json (startTime 2026-10-15T18:02:46.573Z) — статистика совпадает с каноном
+corroboration: integration-auth-flow — integration-auth-flow.dev.json (startTime 2026-10-14T23:36:46.378Z) — статистика совпадает с каноном
+
+VERDICT vs CLAIM: PASS
+problems: 0 (идентичность, дубликаты, skip-аудит, полнота, TALLY.md-сверка — все проверки пройдены)
+machine-readable contract: docs/evidence/e2e-tally/tally-contract-12c8815.json

@@ -1,0 +1,11 @@
+=== GATE: E2E PROD SMOKE (v4.1 final re-bind, fresh bundle) ===
+HEAD: 12c88153c4dbde310f122b58975fdd8295285c1b
+UTC: 2026-10-16T15:12:49Z
+cmd: E2E_SERVER_MODE=prod bash scripts/e2e-one.sh smoke
+
+smoke: expected=5 unexpected=6 flaky=0 skipped=0 EXIT=1
+
+--- attempt-2 (after bunx playwright install chromium, remediation of sandbox-wiped browser cache; same precedent as stage-4 attempt-1) ---
+UTC: 2026-10-16T15:13:48Z
+
+smoke: expected=11 unexpected=0 flaky=0 skipped=0 EXIT=0

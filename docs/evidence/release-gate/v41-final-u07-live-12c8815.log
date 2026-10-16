@@ -1,0 +1,90 @@
+=== LIVE RE-ACCEPTANCE U-07 (checkout idempotency) on final candidate ===
+HEAD: 12c88153c4dbde310f122b58975fdd8295285c1b
+UTC: 2026-10-16T15:15:28Z
+server: next start (prod bundle, :3000)
+
+  ✔ логин customer@demo.ru
+
+  fixture: synthetic checkout (u07fix-3lumyq), product=aaaaaaaa-0000-4000-8000-000000000002, очистка в finally
+
+─── A. Replay: два POST с одним Idempotency-Key (последовательно) ───
+  ✖ A1 create → 200 — got 503 {"error":"Платёжный шлюз не настроен (ошибка конфигурации сервера)"}
+  ✖ A2 retry (тот же ключ) → 200 — got 503 {"error":"Платёжный шлюз не настроен (ошибка конфигурации сервера)"}
+  ✖ A: retry вернул ТОТ ЖЕ orderId (не дубль) — undefined vs undefined
+  ✖ A: replay помечен idempotentReplay:true
+  ✖ A: в БД ровно 1 заказ с этим ключом — n=0
+  ids: A orderId=undefined
+
+─── B. Без Idempotency-Key — текущий opt-in контракт (finding U-07 #2) ───
+  ✖ B1 (без ключа) → 200 — got 503
+  ✖ B2 (без ключа) → 200 — got 503
+  ✖ B: два РАЗНЫХ заказа (дубли-защита = обязанность клиента, сервер лоялен) — undefined vs undefined
+  ids: B без ключа → undefined и undefined
+
+─── C. Гонка: 4 параллельных POST с одним Idempotency-Key (индекс 0060) ───
+  ✖ C: все 4 ответа → 200 (гонка не даёт 5xx/4xx) — statuses=503,503,503,503
+  ✖ C: все ответы вернули ОДИН orderId — ids=
+  ✖ C: в БД ровно 1 заказ с этим ключом — n=0
+  ids: C (4× параллельно, ключ u07fix-3lumyq-c) → 
+
+─── D. Lost response: POST отправлен, ответ потерян → retry с тем же ключом ───
+  info: «потерянный» запрос обработан сервером=false (его ответ выброшен)
+  ✖ D: retry (тот же ключ) → 200 — got 503 {"error":"Платёжный шлюз не настроен (ошибка конфигурации сервера)"}
+  ✖ D: в БД ровно 1 заказ с этим ключом (ни дубля, ни потери) — n=0
+  ids: D lost=- → retry=undefined
+
+  ИТОГО: PASS 1  FAIL 13
+  Проваленные проверки:
+   - A1 create → 200
+   - A2 retry (тот же ключ) → 200
+   - A: retry вернул ТОТ ЖЕ orderId (не дубль)
+   - A: replay помечен idempotentReplay:true
+   - A: в БД ровно 1 заказ с этим ключом
+   - B1 (без ключа) → 200
+   - B2 (без ключа) → 200
+   - B: два РАЗНЫХ заказа (дубли-защита = обязанность клиента, сервер лоялен)
+   - C: все 4 ответа → 200 (гонка не даёт 5xx/4xx)
+   - C: все ответы вернули ОДИН orderId
+   - C: в БД ровно 1 заказ с этим ключом
+   - D: retry (тот же ключ) → 200
+   - D: в БД ровно 1 заказ с этим ключом (ни дубля, ни потери)
+
+  cleanup: нечего удалять (заказы не создались)
+
+--- attempt-2 (canonical dev stack, same environment as 87fe425 evidence; prod-bundle attempt-1 503 = fail-closed payment gate without gateway config in sandbox prod, recorded as expected behavior) ---
+UTC: 2026-10-16T15:18:10Z
+
+  ✔ логин customer@demo.ru
+
+  fixture: synthetic checkout (u07fix-a94w6a), product=aaaaaaaa-0000-4000-8000-000000000002, очистка в finally
+
+─── A. Replay: два POST с одним Idempotency-Key (последовательно) ───
+  ✔ A1 create → 200
+  ✔ A2 retry (тот же ключ) → 200
+  ✔ A: retry вернул ТОТ ЖЕ orderId (не дубль)
+  ✔ A: replay помечен idempotentReplay:true
+  ✔ A: в БД ровно 1 заказ с этим ключом
+  ids: A orderId=fc44d6e9-0b7e-4d2e-9062-00d2ff7a68f8
+
+─── B. Без Idempotency-Key — текущий opt-in контракт (finding U-07 #2) ───
+  ✔ B1 (без ключа) → 200
+  ✔ B2 (без ключа) → 200
+  ✔ B: два РАЗНЫХ заказа (дубли-защита = обязанность клиента, сервер лоялен)
+  ids: B без ключа → febf04fd-9b21-4808-af92-1a9b0c5c6dd9 и ffba874b-2fdb-4389-8225-8c84c870d801
+
+─── C. Гонка: 4 параллельных POST с одним Idempotency-Key (индекс 0060) ───
+  ✔ C: все 4 ответа → 200 (гонка не даёт 5xx/4xx)
+  ✔ C: все ответы вернули ОДИН orderId
+  ✔ C: в БД ровно 1 заказ с этим ключом
+  ids: C (4× параллельно, ключ u07fix-a94w6a-c) → 7465cac0-cc14-48ab-b573-1cedfd9724ba
+
+─── D. Lost response: POST отправлен, ответ потерян → retry с тем же ключом ───
+  info: «потерянный» запрос обработан сервером=true (его ответ выброшен)
+  ✔ D: retry (тот же ключ) → 200
+  ✔ D: в БД ровно 1 заказ с этим ключом (ни дубля, ни потери)
+  ✔ D: retry вернул orderId «потерянного» запроса (replay, не дубль)
+  ids: D lost=39571840-8185-41a4-9fcc-495efc8da0b2 → retry=39571840-8185-41a4-9fcc-495efc8da0b2
+
+  ИТОГО: PASS 15  FAIL 0
+
+  cleanup: orders=5 (synthetic u07fix-a94w6a; payments/order_items/events/notifications вычищены)
