@@ -8912,3 +8912,20 @@ G1-STATUS: step 6 (report) done, artifact=RELEASE-GATE-v4.2-REPORT.md — per-bl
 
 Stage Summary:
 - v4.2 complete: candidate 050e128 (+final docs commit) locally verified; U-06 honestly NOT PASS (content-blocked, mechanics proven, owner checklist delivered); auth working-in-app proven live 17/17, provider topology = OWNER DECISION; CI publish path exact and prepared; Docker BLOCKED (no engine); push/PR/deploy NOT performed; verdict READY FOR OWNER REVIEW, PRODUCTION-READY not set.
+
+---
+Task ID: H-1 (Release Gate v4.3 — закрытие внешних блокеров)
+date: 2026-10-16T17:4xZ
+head_at_start: 7dcc09d975c15f2a9cfc46eae87afb0ffa513797 (main; ahead 71/0 vs origin/main 8454b3a re-verified by ls-remote дважды в сессии; tree clean)
+
+H1-STATUS: step DEV-01 (U-06) done, commit=bdf2ec9 — механика изучена (0017:281 DDL, 0043 slice_image, редактор confectioner-slice-editor-tab проводен); 3 приоритета с реальными ID/фото; контента НЕТ (product_slices=0, fillings=0 у продуктов, slice_image=0 из 45, uploads/fillings пуст); чек-лист владельцу в seed_slices.template.sql; ЖИВАЯ проверка трёх состояний 21/21 PASS (scripts/verify/u06-three-state-live.mjs, prod-бандл): A — секции нет+главное фото naturalWidth>0; B — секция+1 img [TEMP-U06] загружен, alt=fillingName; C — 2 img оба загружены, API sortOrder asc; temp-строки [TEMP-U06] помечены, cleanup байт-в-байт (fillings='[]', slices=0); 4 скриншота docs/evidence/u06-v43/; matrix: техника PASS / UI PASS / контент ОТСУТСТВУЕТ / приёмка BLOCKED
+H1-STATUS: инфра-находка — убийца dev-серверов идентифицирован: OOM-киллер контейнера (Turbopack RSS 3.0GB при лимите 4GB, зафиксировано в шапке e2e-one.sh); живые проверки переведены на prod-бандл (валиден для HEAD: git diff 12c8815..HEAD -- src/ = 2 vitest-файла)
+H1-STATUS: step DEV-02 (auth) done — контракт docs/AUTH.md + env-таблица presence-only (5 обязательных SET в .env.local, значения не печатались; GOTRUE_PROBE_TIMEOUT_MS опциональна); IAF 17/0/0/0 EXIT=0 на живом dev-провайдере (register→login→refresh-восстановление сессии точный 200→2FA→CSRF 403); fail-closed регрессии 14 passed; OWNER DECISION топология провайдера (4 сценария); dev-стаб ≠ production-приёмка зафиксировано
+H1-STATUS: step DEV-03 (candidate/CI) done, commit=3d9a7f8 — состав 73 коммитов классифицирован; diff vs origin/main: финансовые файлы 0, миграции 0 (0060 уже был в origin/main — git cat-file), workflows ci+e2e, конфиги с обоснованиями v4.0-v4.2; e2e.yml подтверждена построчно (chromium-only :138, grep через env :196-209, db:setup :152-156, readiness :168-181, 127.0.0.1 :206); НАЙДЕНЫ И УСТРАНЕНЫ маскировки статусов: products [200,500]→200 ×2, session [401,307,200,500]→200, ok()→200 ×4, register/login 500 исключён; прогон prod: smoke 11/0, full-flow 36/0, auth-flow 14/0 EXIT=0; webhook-спек оставлен (security-вариантность P0/PAY-1 задокументирована, owner может потребовать ужесточения); шаг публикации подготовлен (ветка+PR на точный SHA, push НЕ выполнялся)
+H1-STATUS: step DEV-04 done — Docker BLOCKED подтверждён evidence (v43-docker-engine-check-3d9a7f8.txt: нет CLI/socket/systemd); CI/branch-protection BLOCKED до публикации (ls-remote: origin/main=8454b3a неизменен)
+H1-STATUS: step DEV-05 done — RELEASE-GATE-v4.3-REPORT.md (§0 фактическое состояние, §1 U-06 матрица, §2 auth, §3 candidate/CI/анти-маскировка, §4 BLOCKED-таблица, §5 коммиты, §6 риски, §7 вердикт)
+
+Stage Summary:
+- v4.3 complete: READY FOR OWNER REVIEW; PRODUCTION-READY не выставлен (нужны: публикация §3.4 → CI на точном SHA → Docker-гейт → auth-топология OWNER DECISION)
+- коммиты: bdf2ec9 (U-06 verifier+evidence), 3d9a7f8 (E2E exact-status+evidence), финальный docs (отчёт+worklog); push/PR/защита/deploy НЕ выполнялись
+- scan-evidence exit 0 (real 0 / 302+ синтетик), lint 0, env-template 0

@@ -1,0 +1,9 @@
+=== Docker engine check (v4.3 DEV-04, 2026-10-16T17:31:45Z, HEAD 3d9a7f80c966fff5017a62404dd29682c081602a) ===
+--- command -v docker/compose/podman:
+(пусто = отсутствует)
+--- /var/run/docker.sock:
+ls: cannot access '/var/run/docker.sock': No such file or directory
+--- systemd docker unit:
+System has not been booted with systemd as init system (PID 1). Can't operate.
+Failed to connect to system scope bus via local transport: Host is down
+--- ВЕРДИКТ: Docker Engine недоступен → Compose config / 3 сборки / inspect = BLOCKED
