@@ -1,0 +1,32 @@
+U06-THREESTATE: start 2026-10-16T17:22:02.083Z (candidate tree 7dcc09d)
+U06-THREESTATE: server down — direct spawn `bun run start` (prod bundle)…
+U06-THREESTATE: server up (health 200, prod bundle)
+U06-THREESTATE: pre state: fillings=[{"name": "[TEMP-U06] Ванильный крем (проверка)", "priceModifier": 0}] slices(product)=1 slices(total)=1
+U06-THREESTATE: leftover temp data — safety cleanup first
+U06-THREESTATE: PASS asset exists: IMG_1 (real repo file) | /uploads/products/svadebnyy-tort-yagodnyy-barhat.png
+U06-THREESTATE: PASS asset exists: IMG_2 (real repo file) | /uploads/products/bento-tort-nezhnyy.png
+U06-THREESTATE: chromium launched (attempt 1)
+U06-THREESTATE: PASS A: API card fillings empty | []
+U06-THREESTATE: PASS A: DOM no slice section | sections=0
+U06-THREESTATE: PASS A: DOM main photo present+loaded
+U06-THREESTATE: screenshot: stateA-no-slices.png
+U06-THREESTATE: PASS B: API card 1 filling | [{"name":"[TEMP-U06] Ванильный крем (проверка)","priceModifier":0}]
+U06-THREESTATE: PASS B: API card main image intact | ["/uploads/products/tort-napoleon-domashniy.png"]
+U06-THREESTATE: PASS B: GET /slices = 1 slice with IMG_1 | [{"id":"temp-u06-0002-1","productId":"aaaaaaaa-0000-4000-8000-000000000002","fillingName":"[TEMP-U06] Ванильный крем (проверка)","image":"/uploads/products/svadebnyy-tort-yagodnyy-barhat.png","config":null,"caption":"[TEMP-U06] временная строка механики v4.3 — НЕ production-контент","sortOrder":0,"createdAt":"2026-10-16T17:22:08.279Z","updatedAt":"2026-10-16T17:22:08.279Z"}]
+U06-THREESTATE: PASS B: DOM slice section present | sections=1
+U06-THREESTATE: PASS B: DOM one slice img loaded | [{"alt":"[TEMP-U06] Ванильный крем (проверка)","src":"/uploads/products/svadebnyy-tort-yagodnyy-barhat.png","loaded":true}]
+U06-THREESTATE: PASS B: DOM slice alt === fillingName | alt=[TEMP-U06] Ванильный крем (проверка)
+U06-THREESTATE: PASS B: DOM main photo still present
+U06-THREESTATE: screenshot: stateB-one-slice.png
+U06-THREESTATE: PASS C: GET /slices = 2 slices ordered by sortOrder asc | [{"id":"temp-u06-0002-1","productId":"aaaaaaaa-0000-4000-8000-000000000002","fillingName":"[TEMP-U06] Ванильный крем (проверка)","image":"/uploads/products/svadebnyy-tort-yagodnyy-barhat.png","config":null,"caption":"[TEMP-U06] временная строка механики v4.3 — НЕ production-контент","sortOrder":0,"createdAt":"2026-10-16T17:22:08.279Z","updatedAt":"2026-10-16T17:22:08.279Z"},{"id":"temp-u06-0002-2","productId":"aaaaaaaa-0000-4000-8000-000000000002","fillingName":"[TEMP-U06] Шоколадный ганаш (проверка)","image":"/uploads/products/bento-tort-nezhnyy.png","config":null,"caption":"[TEMP-U06] временная строка механики v4.3 — НЕ production-контент","sortOrder":1,"createdAt":"2026-10-16T17:22:09.730Z","updatedAt":"2026-10-16T17:22:09.730Z"}]
+U06-THREESTATE: PASS C: API card 2 fillings | [{"name":"[TEMP-U06] Ванильный крем (проверка)","priceModifier":0},{"name":"[TEMP-U06] Шоколадный ганаш (проверка)","priceModifier":300}]
+U06-THREESTATE: PASS C: DOM slice section present | sections=1
+U06-THREESTATE: PASS C: DOM two slice imgs loaded | [{"alt":"[TEMP-U06] Ванильный крем (проверка)","src":"/uploads/products/svadebnyy-tort-yagodnyy-barhat.png","loaded":true},{"alt":"[TEMP-U06] Шоколадный ганаш (проверка)","src":"/uploads/products/bento-tort-nezhnyy.png","loaded":true}]
+U06-THREESTATE: PASS C: DOM slice alts = both fillings in order | ["[TEMP-U06] Ванильный крем (проверка)","[TEMP-U06] Шоколадный ганаш (проверка)"]
+U06-THREESTATE: screenshot: stateC-two-slices.png
+U06-THREESTATE: PASS cleanup: fillings restored to [] | fillings=[]
+U06-THREESTATE: PASS cleanup: product_slices back to 0 (product & total) | product=0 total=0
+U06-THREESTATE: PASS post: API card fillings empty again | []
+U06-THREESTATE: PASS post: GET /slices empty again | []
+U06-THREESTATE: SUMMARY pass=21/21 fail=0
+U06-THREESTATE: VERDICT: mechanics three-state PASS (real content still ABSENT — owner checklist stands)
