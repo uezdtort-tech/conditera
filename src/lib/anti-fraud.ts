@@ -3,9 +3,11 @@
  *
  * Правила:
  *  - order_create: не более 5 заказов в час с IP, не более 20 в день
- *  - register: не более 3 ПОПЫТКИ регистрации в час с IP (решение владельца
- *    2026-10-17: ИСХОДНЫЙ лимит сохранён — повышение 3→10 не подтверждено;
- *    считается каждая попытка, включая невалидные — strict против mass-register.
+ *  - register: не более 3 ПОПЫТКИ регистрации в час И не более 10 в сутки с IP
+ *    (решение владельца 2026-10-17: ИСХОДНЫЙ лимит сохранён — повышение 3→10
+ *    не подтверждено; считается каждая попытка, включая невалидные — strict
+ *    против mass-register. Дневной лимит 10/24ч enforced с v4.6 — до этого
+ *    maxPerDay был объявлен в конфиге, но не проверялся).
  *    E2E-совместимость: спеки, реально регистрирующие пользователей, шлют
  *    per-spec симулированный x-real-ip (доверенный канал, в production
  *    перезаписывается Caddy — см. tests/e2e/*.spec.ts и docs/DNS_SETUP.md)
@@ -93,9 +95,14 @@ export interface FraudCheckResult {
  * Если лимит превышён — возвращаем allowed: false.
  * Если нет — логируем попытку и возвращаем allowed: true.
  *
+ * Проверяются ОБА окна: час (maxPerHour) и сутки (maxPerDay).
+ * Дневная проверка выполняется только когда часовая пройдена — на частом
+ * отказном пути экономим один запрос.
+ *
  * ВАЖНО: между проверкой и записью есть окно race condition, но
  * для rate-limiting это приемлемо — один-два лишних запроса не критичны,
  * а полная транзакция замедлила бы каждый запрос.
+ * (Strict-порядок insert→count устраняет гонку размывания счётчика.)
  */
 export async function checkFraudLimit(
   req: Request,
@@ -162,6 +169,37 @@ export async function checkFraudLimit(
       reason: `Превышен лимит ${action} (${config.maxPerHour}/час с вашего IP). Попробуйте позже.`,
       remaining: 0,
       resetAt,
+    };
+  }
+
+  // ===== Дневное окно (24ч): maxPerDay — enforced с v4.6 =====
+  // До v4.6 maxPerDay существовал только в конфиге (умершие данные):
+  // checkFraudLimit сравнивал счётчик только с maxPerHour, и атакующий
+  // мог держать ровно maxPerHour попыток каждый час = до 24*maxPerHour в сутки.
+  const dayAgoIso = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const { count: dayCount, error: dayErr } = await supabaseAdmin
+    .from("order_fraud_logs")
+    .select("id", { count: "exact", head: true })
+    .eq("ip_hash", ipHash)
+    .eq("action", action)
+    .gte("created_at", dayAgoIso);
+
+  if (dayErr) {
+    console.error("[anti-fraud] day-count failed:", dayErr.message);
+    // Fail-open: консистентно с часовой проверкой (см. комментарий выше).
+    return {
+      allowed: true,
+      remaining: config.maxPerHour - recentCount,
+      resetAt,
+    };
+  }
+
+  if ((dayCount || 0) > config.maxPerDay) {
+    return {
+      allowed: false,
+      reason: `Превышен суточный лимит ${action} (${config.maxPerDay}/24ч с вашего IP). Попробуйте позже.`,
+      remaining: 0,
+      resetAt: now + 24 * 60 * 60 * 1000,
     };
   }
 

@@ -15,10 +15,25 @@ conditera.ru, www.conditera.ru {
         # Редирект www → корень (если зашли на www.conditera.ru)
         # (Caddy автоматически делает это через 'www.conditera.ru' в сертификате)
 
+        # ===== Доверенный прокси: X-Real-IP (v4.6, P0-antifraud) =====
+        # Приложение (extractIp/getClientIP) доверяет ТОЛЬКО перезаписанному
+        # proxy-значению X-Real-IP. Без header_up клиентский (подделанный)
+        # X-Real-IP прошёл бы сквозь Caddy нетронутым → обход per-IP
+        # rate-limit (каждый запрос с новым поддельным IP = свежий бакет).
+        # {remote_host} = реальный TCP-пир Caddy (клиент при прямом доступе
+        # 80/443; Cloudflare edge при проксировании через CF).
+        # ВНИМАНИЕ (топология cloudflared-туннеля): если cloudflared ходит
+        # на localhost:80 ЭТОГО Caddy, пир = 127.0.0.1 для всех клиентов —
+        # в этой топологии переписать из доверенного CF-Connecting-IP:
+        #   header_up X-Real-IP {header.CF-Connecting-IP}
+        # и гарантировать, что Caddy снаружи недоступен (только туннель).
+        # См. docs/DNS_SETUP.md, раздел «Доверенный прокси».
+
         # ===== Маршрутизация =====
         # API (Next.js Route Handlers) — с health check
         handle /api/* {
                 reverse_proxy web:3000 {
+                        header_up X-Real-IP {remote_host}
                         # Health check — опрашивает /api/health каждые 10с
                         health_uri /api/health
                         health_interval 10s
@@ -35,6 +50,7 @@ conditera.ru, www.conditera.ru {
         # WebSocket (Socket.IO чат)
         handle /socket.io/* {
                 reverse_proxy chat-service:3030 {
+                        header_up X-Real-IP {remote_host}
                         # WebSocket требует долгих таймаутов
                         transport http {
                                 read_timeout 300s
@@ -57,6 +73,7 @@ conditera.ru, www.conditera.ru {
         # Всё остальное — Next.js (SSR/SSG)
         handle {
                 reverse_proxy web:3000 {
+                        header_up X-Real-IP {remote_host}
                         health_uri /api/health
                         health_interval 10s
                         transport http {
@@ -105,6 +122,7 @@ conditera.ru, www.conditera.ru {
         }
         handle @api_auth {
                 reverse_proxy web:3000 {
+                        header_up X-Real-IP {remote_host}
                         health_uri /api/health
                         health_interval 10s
                 }
@@ -154,7 +172,11 @@ smp.conditera.ru {
 
 # Для localhost (разработка без домена)
 localhost {
-        reverse_proxy web:3000
+        reverse_proxy web:3000 {
+                # Дев-паритет с prod: приложение доверяет только переписанному
+                # X-Real-IP (пир = локальный клиент, он же реальный источник).
+                header_up X-Real-IP {remote_host}
+        }
 }
 
 # ===== Cloudflare Tunnel: recommended config.yml =====

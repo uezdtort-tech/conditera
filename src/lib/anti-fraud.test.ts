@@ -183,3 +183,151 @@ describe('LIMITS config', () => {
     }
   })
 })
+
+// ===== checkFraudLimit: часовое И суточное окна (v4.6, P0-antifraud) =====
+// Дневной лимит maxPerDay до v4.6 был объявлен в конфиге, но НЕ проверялся:
+// checkFraudLimit сравнивал счётчик только с maxPerHour, и атакующий мог
+// держать ровно maxPerHour попыток КАЖДЫЙ час (до 24*maxPerHour в сутки).
+// Эти тесты фиксируют контракт ОБЕИХ проверок на моке supabaseAdmin.
+const hoisted = vi.hoisted(() => {
+  // Очередь ответов select-запросов (час → сутки), вызовы вставляются тестом.
+  const selectQueue: Array<{ count: number | null; error: { message: string } | null }> = []
+  const calls: string[] = []
+  const makeBuilder = () => {
+    const builder: Record<string, unknown> = {}
+    builder.insert = vi.fn(() => {
+      calls.push('insert')
+      return Promise.resolve({ error: null })
+    })
+    builder.select = vi.fn(() => {
+      calls.push('select')
+      const chain: Record<string, unknown> = {}
+      const passthrough = (): Record<string, unknown> => chain
+      chain.eq = passthrough
+      chain.gte = passthrough
+      chain.not = passthrough
+      chain.limit = passthrough
+      chain.then = (
+        resolve: (v: { count: number | null; error: { message: string } | null }) => void,
+        reject: (e: unknown) => void
+      ) => {
+        const next = selectQueue.shift()
+        if (!next) {
+          reject(new Error('selectQueue exhausted — тест не задал ответ для этого select-запроса'))
+          return
+        }
+        resolve(next)
+      }
+      return chain
+    })
+    return builder
+  }
+  return {
+    selectQueue,
+    calls,
+    fromMock: vi.fn(() => makeBuilder()),
+  }
+})
+
+vi.mock('@/lib/supabase/admin', () => ({
+  supabaseAdmin: {
+    from: hoisted.fromMock,
+  },
+}))
+
+// Импорт ПОСЛЕ vi.mock (hoisting): anti-fraud получит замоканный admin-клиент
+import { checkFraudLimit } from './anti-fraud'
+
+describe('checkFraudLimit — два окна (v4.6)', () => {
+  const req = (): Request =>
+    new Request('https://example.com/api/auth/register', {
+      method: 'POST',
+      headers: { 'x-real-ip': '10.55.0.1' },
+    })
+
+  beforeEach(() => {
+    hoisted.selectQueue.length = 0
+    hoisted.calls.length = 0
+    hoisted.fromMock.mockClear()
+  })
+
+  it('register: час в норме, сутки в норме → allowed, remaining по часу', async () => {
+    hoisted.selectQueue.push({ count: 2, error: null }, { count: 5, error: null })
+    const res = await checkFraudLimit(req(), 'register')
+    expect(res.allowed).toBe(true)
+    expect(res.remaining).toBe(LIMITS.register.maxPerHour - 2)
+  })
+
+  it('register: 4-я попытка в час → отказ по часовому лимиту (3/час)', async () => {
+    hoisted.selectQueue.push({ count: 4, error: null })
+    const res = await checkFraudLimit(req(), 'register')
+    expect(res.allowed).toBe(false)
+    expect(res.reason).toContain('3/час')
+    // Дневной select не выполняется на отказном часовом пути (экономия запроса)
+    expect(hoisted.selectQueue).toHaveLength(0)
+  })
+
+  it('register: час OK (2), сутки 11 > 10 → отказ по СУТОЧНОМУ лимиту (v4.6 — раньше пропускалось)', async () => {
+    hoisted.selectQueue.push({ count: 2, error: null }, { count: 11, error: null })
+    const res = await checkFraudLimit(req(), 'register')
+    expect(res.allowed).toBe(false)
+    expect(res.reason).toContain('суточный')
+    expect(res.reason).toContain('10/24ч')
+    expect(res.remaining).toBe(0)
+  })
+
+  it('register: ровно 10 за сутки (граница) → allowed (строгое неравенство >)', async () => {
+    hoisted.selectQueue.push({ count: 3, error: null }, { count: 10, error: null })
+    const res = await checkFraudLimit(req(), 'register')
+    expect(res.allowed).toBe(true)
+  })
+
+  it('daily-атака «maxPerHour каждый час» теперь закрыта: 5/ч × 5ч = 25 > 20 → отказ', async () => {
+    // order_create: атакующий держит ровно 5 заказов в час (часовой лимит
+    // проходит), но за 24ч накапливает 25 > 20 → дневной лимит срабатывает.
+    hoisted.selectQueue.push({ count: 5, error: null }, { count: 25, error: null })
+    const res = await checkFraudLimit(req(), 'order_create')
+    expect(res.allowed).toBe(false)
+    expect(res.reason).toContain('20/24ч')
+  })
+
+  it('strict-порядок: попытка записывается ДО подсчёта (insert раньше select)', async () => {
+    hoisted.selectQueue.push({ count: 1, error: null }, { count: 1, error: null })
+    await checkFraudLimit(req(), 'register')
+    expect(hoisted.calls[0]).toBe('insert')
+    expect(hoisted.calls).toContain('select')
+    expect(hoisted.calls.indexOf('insert')).toBeLessThan(hoisted.calls.indexOf('select'))
+  })
+
+  it('ошибка часового подсчёта → fail-open (allow, консистентно с прежним контрактом)', async () => {
+    hoisted.selectQueue.push({ count: null, error: { message: 'db down' } })
+    const res = await checkFraudLimit(req(), 'register')
+    expect(res.allowed).toBe(true)
+    expect(res.remaining).toBe(LIMITS.register.maxPerHour)
+  })
+
+  it('ошибка дневного подсчёта → fail-open (allow)', async () => {
+    hoisted.selectQueue.push({ count: 2, error: null }, { count: null, error: { message: 'db down' } })
+    const res = await checkFraudLimit(req(), 'register')
+    expect(res.allowed).toBe(true)
+  })
+
+  it('ошибка вставки попытки → fail-open (allow, попытка не посчитана)', async () => {
+    hoisted.fromMock.mockImplementationOnce(() => ({
+      insert: vi.fn(() => Promise.resolve({ error: { message: 'insert failed' } })),
+    }))
+    const res = await checkFraudLimit(req(), 'register')
+    expect(res.allowed).toBe(true)
+    expect(res.remaining).toBe(LIMITS.register.maxPerHour)
+  })
+
+  it('разные IP → разные бакеты: один insert + два select (час+сутки) на попытку', async () => {
+    hoisted.selectQueue.push({ count: 1, error: null }, { count: 1, error: null })
+    await checkFraudLimit(
+      new Request('https://example.com', { headers: { 'x-real-ip': '10.55.0.2' } }),
+      'register'
+    )
+    expect(hoisted.calls).toEqual(['insert', 'select', 'select'])
+    expect(hoisted.fromMock).toHaveBeenCalledTimes(3)
+  })
+})

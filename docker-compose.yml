@@ -52,8 +52,14 @@ services:
     image: ${WEB_IMAGE:-conditera:local}
     container_name: conditera-web
     <<: *default-restart
+    # v4.6 (P0-antifraud): порт web публикуется ТОЛЬКО на 127.0.0.1 —
+    # внешний доступ к Next.js ИСКЛЮЧЁН в обход Caddy (иначе клиент
+    # подделывает X-Real-IP/XFF напрямую на :3000 и обходит rate-limit;
+    # см. docs/DNS_SETUP.md «Доверенный прокси», src/lib/anti-fraud.ts).
+    # Caddy ходит на web:3000 по внутренней сети conditera-net — маппинг
+    # на хост нужен только для локальной отладки (curl localhost:3000).
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file:
       - .env.production
     environment:
@@ -211,7 +217,10 @@ services:
     expose:
       - "5432"
     ports:
-      - "6432:5432"  # PgBouncer порт для внешних подключений (pgAdmin, DBeaver)
+      # v4.6: только localhost — pgAdmin/DBeaver с самой машины;
+      # извне PgBouncer недоступен (учётные данные БД не должны быть
+      # доступны из интернета).
+      - "127.0.0.1:6432:5432"
     depends_on:
       db:
         condition: service_healthy
@@ -255,7 +264,10 @@ services:
     expose:
       - "7700"
     ports:
-      - "7700:7700"  # Meilisearch Studio (admin UI) — закрыть в production через firewall
+      # v4.6: только localhost — Meilisearch Studio/админ-API не должны быть
+      # доступны извне (раньше полагались на внешний firewall — теперь
+      # закрыто на уровне compose).
+      - "127.0.0.1:7700:7700"
     volumes:
       - meili_data:/meili_data
     healthcheck:
@@ -516,7 +528,7 @@ services:
       - "465:465"   # SMTPS (отправка через SSL)
       - "587:587"   # SMTP (отправка через STARTTLS)
       - "993:993"   # IMAPS (приём почты клиентами)
-      - "8081:80"   # Webmail (Roundcube) — закрыть в production, оставить через Caddy
+      - "127.0.0.1:8081:80"   # Webmail (Roundcube) — только localhost; наружу почтовый веб-клиент не публикуем (v4.6)
     volumes:
       - mailu_data:/data
       - mailu_mail:/mail

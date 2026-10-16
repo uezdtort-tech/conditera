@@ -1,0 +1,10 @@
+# Docker Engine check — v4.6 (2026-10-16T22:03:01Z)
+head_at_check: 8e66f172d26eaf037987b617d47e0a87e85fa216
+which docker: NOT_FOUND
+docker version: /bin/bash: line 1: docker: command not found
+/var/run/docker.sock: ls: cannot access '/var/run/docker.sock': No such file or directory
+ABSENT
+systemctl docker: System has not been booted with systemd as init system (PID 1). Can't operate.
+Failed to connect to system scope bus via local transport: Host is down
+podman: NOT_FOUND
+VERDICT: Docker Engine ABSENT in sandbox -> docker-build/history/inspect gate = BLOCKED until CI executes on published SHA (per v4.6 directive item P0-Docker.5)

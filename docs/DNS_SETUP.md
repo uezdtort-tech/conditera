@@ -222,7 +222,9 @@ Env при схеме:
 2. `CF-Connecting-IP` — только если Cloudflare Proxy реально на пути;
 3. хвост `X-Forwarded-For` с учётом `TRUSTED_PROXY_HOPS` (по умолчанию 1).
 
-Требования схемы «белая IP»:
-- Внешний доступ — ТОЛЬКО через Caddy (80/443). Прямую публикацию порта Next (:3000) наружу исключить, иначе клиент подделывает XFF и обходит rate-limit.
-- В Caddyfile для upstream добавить: `header_up X-Real-IP {remote_host}`
+Требования схемы «белая IP» (статус v4.6 — ВЫПОЛНЕНО в репозитории):
+- Внешний доступ — ТОЛЬКО через Caddy (80/443). Прямую публикацию порта Next (:3000) наружу исключить, иначе клиент подделывает XFF и обходит rate-limit. ✅ docker-compose.yml: web публикуется только на `127.0.0.1:3000` (v4.6); PgBouncer 6432 / Meilisearch 7700 / Mailu webmail 8081 — тоже только `127.0.0.1` (раньше висели на 0.0.0.0). Внутренние сервисы (db, redis, chat-service, n8n) наружу не публикуются вообще.
+- В Caddyfile для upstream добавить: `header_up X-Real-IP {remote_host}` ✅ добавлено во ВСЕ reverse_proxy к web:3000 (блоки /api/*, catch-all, @api_auth), к chat-service:3030 и в localhost-блок (v4.6). Раньше клиентский (подделанный) X-Real-IP проходил сквозь Caddy нетронутым → обход per-IP rate-limit.
 - Если прокси два (CDN → Caddy), выставить `TRUSTED_PROXY_HOPS=2`.
+- Топология cloudflared-туннеля (tunnel → localhost:80): пир Caddy = 127.0.0.1 для всех клиентов — в ЭТОЙ топологии переписывать из доверенного `CF-Connecting-IP` (`header_up X-Real-IP {header.CF-Connecting-IP}`) и гарантировать, что Caddy снаружи недоступен. Выбор топологии — за владельцем (см. Caddyfile, комментарий «Доверенный прокси»).
+- Суточный лимит антифрода (maxPerDay) enforced с v4.6: раньше проверялось только часовое окно, и атакующий мог держать ровно maxPerHour попыток каждый час.
