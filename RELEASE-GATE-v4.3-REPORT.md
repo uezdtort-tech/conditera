@@ -249,9 +249,13 @@ smoke `up -d`+health/чек-лист T1–T6 non-root).
 |---|---|
 | `bdf2ec9` | test(u06): живой трёх-состояний верификатор + 4 скриншота + лог (21/21 PASS) |
 | `3d9a7f8` | test(e2e): точные статус-контракты (анти-маскировка) + 4 JSON-артефакта + 2 гейт-лога |
-| (финальный) | `RELEASE-GATE-v4.3-REPORT.md` + worklog-аппенд (docs-only) |
+| `31f6446` | docs(release): отчёт v4.3 + worklog (H-1) |
+| (hygiene) | сканер: узкий даунгрейд presence-only инвентаря (precedent E-1) + коррекция счётчика §5 |
 
-Гейты на финальном дереве: lint 0; скан-evidence exit 0 (real 0 / 302 синтетик);
+Гейты на финальном дереве: lint 0; скан-evidence exit 0 (real 0 / 317 синтетик —
+включая hygiene-даунгрейд presence-only инвентаря в `v43-auth-iaf-7dcc09d.log`:
+name-based срабатывание на имя переменной при отсутствии `=` в строке, узкий
+паттерн по прецеденту E-1 с регресс-тестом «real-утечка остаётся real»);
 env-template exit 0; IAF 17/0; smoke 11/0; full-flow 36/0; auth-flow 14/0;
 fail-closed регрессии 14 passed; U-06 three-state 21/21. Полный vitest/ build не
 перепрогонялись: 0 изменений app-исходников в сессии (только тесты/доки/verifier),

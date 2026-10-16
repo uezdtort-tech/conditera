@@ -56,6 +56,11 @@ const SYNTHETIC_CONTEXT = [
   /e2e_\d+/i, /run[_-]?\d+/i, /\+7999\d{7}/, /79990000000/,
   /\[REDACTED BY [A-Z0-9]+(?:-[A-Z0-9]+)* HYGIENE\]/,
   /\[supabase\/admin\] SUPABASE_SERVICE_ROLE_KEY not set\./,
+  // H-1 (v4.3): presence-only env inventory lines in gate logs — line starts
+  // with a fixed prefix and contains NO '=' at all, so no value can be present
+  // (var names are followed by SET/ABSENT markers only). A real leak is
+  // KEY=<value> and never matches this line format.
+  /^env presence-only: [^=\n]*$/,
 ];
 
 function classifyLine(line, ruleSev) {
