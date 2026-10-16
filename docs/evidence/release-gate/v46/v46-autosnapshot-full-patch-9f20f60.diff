@@ -1,0 +1,453 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index ccdfd72..d24ed6c 100755
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -144,9 +144,21 @@ jobs:
+     name: Build Docker images
+     runs-on: ubuntu-latest
+     needs: build
++    env:
++      # v4.6 (P0): образы собираются на АКТУАЛЬНОМ SHA кандидата.
++      # На pull_request github.sha = merge-коммит PR, а не head ветки —
++      # теги/GIT_SHA обязаны использовать SHA головы PR, иначе «сборка
++      # на актуальном SHA» не выполняется по построению. Для push — github.sha.
++      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+     steps:
+       - uses: actions/checkout@v4
+ 
++      - name: Record built SHA
++        # Доказательство в логе CI: какой SHA реально вшит в образы (GIT_SHA).
++        run: |
++          echo "Docker images will be built on SHA: ${{ env.CANDIDATE_SHA }}"
++          echo "  (pull_request head || push sha; github.sha was: ${{ github.sha }})"
++
+       - name: Validate Compose configuration
+         # v4.5 (P0-B): сборка образов НЕ заменяет валидацию конфигурации.
+         # Обязательные переменные подставлены dummy-значениями — проверяется
+@@ -171,11 +183,11 @@ jobs:
+           file: ./Dockerfile
+           push: false
+           load: true
+-          tags: conditera:${{ github.sha }}
++          tags: conditera:${{ env.CANDIDATE_SHA }}
+           # DEV-15: GIT_SHA → ENV APP_VERSION в образе (Dockerfile:43-44/72-73) —
+           # версия деплоя видна в /api/health (version). Без этого APP_VERSION=unknown.
+           build-args: |
+-            GIT_SHA=${{ github.sha }}
++            GIT_SHA=${{ env.CANDIDATE_SHA }}
+           cache-from: type=gha
+           cache-to: type=gha,mode=max
+ 
+@@ -186,7 +198,7 @@ jobs:
+           file: ./Dockerfile.chat
+           push: false
+           load: true
+-          tags: conditera-chat:${{ github.sha }}
++          tags: conditera-chat:${{ env.CANDIDATE_SHA }}
+           cache-from: type=gha
+           cache-to: type=gha,mode=max
+ 
+@@ -197,16 +209,20 @@ jobs:
+           file: ./Dockerfile.simplex-bridge
+           push: false
+           load: true
+-          tags: conditera-simplex-bridge:${{ github.sha }}
++          tags: conditera-simplex-bridge:${{ env.CANDIDATE_SHA }}
+           cache-from: type=gha
+           cache-to: type=gha,mode=max
+ 
+       - name: Secret-gate on built image layers
+         # v4.5 (P0-B): проверка итоговых образов — в слоях не должно быть
+         # секретов/ключей (docker history показывает все команды сборки).
++        # v4.6: load:true кладёт образы в локальный daemon, но тег сам по себе
++        # НЕ доказательство существования образа — поэтому гейт НЕЛЬЗЯ считать
++        # пройденным без фактически выполненных docker history/inspect ниже:
++        # обе команды падают с non-zero exit, если образ отсутствует локально.
+         run: |
+           FAIL=0
+-          for img in "conditera:${{ github.sha }}" "conditera-chat:${{ github.sha }}" "conditera-simplex-bridge:${{ github.sha }}"; do
++          for img in "conditera:${{ env.CANDIDATE_SHA }}" "conditera-chat:${{ env.CANDIDATE_SHA }}" "conditera-simplex-bridge:${{ env.CANDIDATE_SHA }}"; do
+             echo "— scanning $img"
+             if docker history --no-trunc "$img" 2>/dev/null | grep -Eiq \
+               "(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY|ci_test_jwt_secret|ci_test_tfa_key)"; then
+diff --git a/Caddyfile b/Caddyfile
+index 0d5308f..52c0101 100755
+--- a/Caddyfile
++++ b/Caddyfile
+@@ -15,10 +15,25 @@ conditera.ru, www.conditera.ru {
+         # Редирект www → корень (если зашли на www.conditera.ru)
+         # (Caddy автоматически делает это через 'www.conditera.ru' в сертификате)
+ 
++        # ===== Доверенный прокси: X-Real-IP (v4.6, P0-antifraud) =====
++        # Приложение (extractIp/getClientIP) доверяет ТОЛЬКО перезаписанному
++        # proxy-значению X-Real-IP. Без header_up клиентский (подделанный)
++        # X-Real-IP прошёл бы сквозь Caddy нетронутым → обход per-IP
++        # rate-limit (каждый запрос с новым поддельным IP = свежий бакет).
++        # {remote_host} = реальный TCP-пир Caddy (клиент при прямом доступе
++        # 80/443; Cloudflare edge при проксировании через CF).
++        # ВНИМАНИЕ (топология cloudflared-туннеля): если cloudflared ходит
++        # на localhost:80 ЭТОГО Caddy, пир = 127.0.0.1 для всех клиентов —
++        # в этой топологии переписать из доверенного CF-Connecting-IP:
++        #   header_up X-Real-IP {header.CF-Connecting-IP}
++        # и гарантировать, что Caddy снаружи недоступен (только туннель).
++        # См. docs/DNS_SETUP.md, раздел «Доверенный прокси».
++
+         # ===== Маршрутизация =====
+         # API (Next.js Route Handlers) — с health check
+         handle /api/* {
+                 reverse_proxy web:3000 {
++                        header_up X-Real-IP {remote_host}
+                         # Health check — опрашивает /api/health каждые 10с
+                         health_uri /api/health
+                         health_interval 10s
+@@ -35,6 +50,7 @@ conditera.ru, www.conditera.ru {
+         # WebSocket (Socket.IO чат)
+         handle /socket.io/* {
+                 reverse_proxy chat-service:3030 {
++                        header_up X-Real-IP {remote_host}
+                         # WebSocket требует долгих таймаутов
+                         transport http {
+                                 read_timeout 300s
+@@ -57,6 +73,7 @@ conditera.ru, www.conditera.ru {
+         # Всё остальное — Next.js (SSR/SSG)
+         handle {
+                 reverse_proxy web:3000 {
++                        header_up X-Real-IP {remote_host}
+                         health_uri /api/health
+                         health_interval 10s
+                         transport http {
+@@ -105,6 +122,7 @@ conditera.ru, www.conditera.ru {
+         }
+         handle @api_auth {
+                 reverse_proxy web:3000 {
++                        header_up X-Real-IP {remote_host}
+                         health_uri /api/health
+                         health_interval 10s
+                 }
+@@ -154,7 +172,11 @@ smp.conditera.ru {
+ 
+ # Для localhost (разработка без домена)
+ localhost {
+-        reverse_proxy web:3000
++        reverse_proxy web:3000 {
++                # Дев-паритет с prod: приложение доверяет только переписанному
++                # X-Real-IP (пир = локальный клиент, он же реальный источник).
++                header_up X-Real-IP {remote_host}
++        }
+ }
+ 
+ # ===== Cloudflare Tunnel: recommended config.yml =====
+diff --git a/docker-compose.yml b/docker-compose.yml
+index dc3fc8e..076a290 100755
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -52,8 +52,14 @@ services:
+     image: ${WEB_IMAGE:-conditera:local}
+     container_name: conditera-web
+     <<: *default-restart
++    # v4.6 (P0-antifraud): порт web публикуется ТОЛЬКО на 127.0.0.1 —
++    # внешний доступ к Next.js ИСКЛЮЧЁН в обход Caddy (иначе клиент
++    # подделывает X-Real-IP/XFF напрямую на :3000 и обходит rate-limit;
++    # см. docs/DNS_SETUP.md «Доверенный прокси», src/lib/anti-fraud.ts).
++    # Caddy ходит на web:3000 по внутренней сети conditera-net — маппинг
++    # на хост нужен только для локальной отладки (curl localhost:3000).
+     ports:
+-      - "3000:3000"
++      - "127.0.0.1:3000:3000"
+     env_file:
+       - .env.production
+     environment:
+@@ -211,7 +217,10 @@ services:
+     expose:
+       - "5432"
+     ports:
+-      - "6432:5432"  # PgBouncer порт для внешних подключений (pgAdmin, DBeaver)
++      # v4.6: только localhost — pgAdmin/DBeaver с самой машины;
++      # извне PgBouncer недоступен (учётные данные БД не должны быть
++      # доступны из интернета).
++      - "127.0.0.1:6432:5432"
+     depends_on:
+       db:
+         condition: service_healthy
+@@ -255,7 +264,10 @@ services:
+     expose:
+       - "7700"
+     ports:
+-      - "7700:7700"  # Meilisearch Studio (admin UI) — закрыть в production через firewall
++      # v4.6: только localhost — Meilisearch Studio/админ-API не должны быть
++      # доступны извне (раньше полагались на внешний firewall — теперь
++      # закрыто на уровне compose).
++      - "127.0.0.1:7700:7700"
+     volumes:
+       - meili_data:/meili_data
+     healthcheck:
+@@ -516,7 +528,7 @@ services:
+       - "465:465"   # SMTPS (отправка через SSL)
+       - "587:587"   # SMTP (отправка через STARTTLS)
+       - "993:993"   # IMAPS (приём почты клиентами)
+-      - "8081:80"   # Webmail (Roundcube) — закрыть в production, оставить через Caddy
++      - "127.0.0.1:8081:80"   # Webmail (Roundcube) — только localhost; наружу почтовый веб-клиент не публикуем (v4.6)
+     volumes:
+       - mailu_data:/data
+       - mailu_mail:/mail
+diff --git a/docs/DNS_SETUP.md b/docs/DNS_SETUP.md
+index 002042e..1567071 100755
+--- a/docs/DNS_SETUP.md
++++ b/docs/DNS_SETUP.md
+@@ -222,7 +222,9 @@ Env при схеме:
+ 2. `CF-Connecting-IP` — только если Cloudflare Proxy реально на пути;
+ 3. хвост `X-Forwarded-For` с учётом `TRUSTED_PROXY_HOPS` (по умолчанию 1).
+ 
+-Требования схемы «белая IP»:
+-- Внешний доступ — ТОЛЬКО через Caddy (80/443). Прямую публикацию порта Next (:3000) наружу исключить, иначе клиент подделывает XFF и обходит rate-limit.
+-- В Caddyfile для upstream добавить: `header_up X-Real-IP {remote_host}`
++Требования схемы «белая IP» (статус v4.6 — ВЫПОЛНЕНО в репозитории):
++- Внешний доступ — ТОЛЬКО через Caddy (80/443). Прямую публикацию порта Next (:3000) наружу исключить, иначе клиент подделывает XFF и обходит rate-limit. ✅ docker-compose.yml: web публикуется только на `127.0.0.1:3000` (v4.6); PgBouncer 6432 / Meilisearch 7700 / Mailu webmail 8081 — тоже только `127.0.0.1` (раньше висели на 0.0.0.0). Внутренние сервисы (db, redis, chat-service, n8n) наружу не публикуются вообще.
++- В Caddyfile для upstream добавить: `header_up X-Real-IP {remote_host}` ✅ добавлено во ВСЕ reverse_proxy к web:3000 (блоки /api/*, catch-all, @api_auth), к chat-service:3030 и в localhost-блок (v4.6). Раньше клиентский (подделанный) X-Real-IP проходил сквозь Caddy нетронутым → обход per-IP rate-limit.
+ - Если прокси два (CDN → Caddy), выставить `TRUSTED_PROXY_HOPS=2`.
++- Топология cloudflared-туннеля (tunnel → localhost:80): пир Caddy = 127.0.0.1 для всех клиентов — в ЭТОЙ топологии переписывать из доверенного `CF-Connecting-IP` (`header_up X-Real-IP {header.CF-Connecting-IP}`) и гарантировать, что Caddy снаружи недоступен. Выбор топологии — за владельцем (см. Caddyfile, комментарий «Доверенный прокси»).
++- Суточный лимит антифрода (maxPerDay) enforced с v4.6: раньше проверялось только часовое окно, и атакующий мог держать ровно maxPerHour попыток каждый час.
+diff --git a/docs/evidence/release-gate/v46-docker-engine-check-8e66f17.txt b/docs/evidence/release-gate/v46-docker-engine-check-8e66f17.txt
+new file mode 100644
+index 0000000..9dd1ef6
+--- /dev/null
++++ b/docs/evidence/release-gate/v46-docker-engine-check-8e66f17.txt
+@@ -0,0 +1,10 @@
++# Docker Engine check — v4.6 (2026-10-16T22:03:01Z)
++head_at_check: 8e66f172d26eaf037987b617d47e0a87e85fa216
++which docker: NOT_FOUND
++docker version: /bin/bash: line 1: docker: command not found
++/var/run/docker.sock: ls: cannot access '/var/run/docker.sock': No such file or directory
++ABSENT
++systemctl docker: System has not been booted with systemd as init system (PID 1). Can't operate.
++Failed to connect to system scope bus via local transport: Host is down
++podman: NOT_FOUND
++VERDICT: Docker Engine ABSENT in sandbox -> docker-build/history/inspect gate = BLOCKED until CI executes on published SHA (per v4.6 directive item P0-Docker.5)
+diff --git a/src/lib/anti-fraud.test.ts b/src/lib/anti-fraud.test.ts
+index 39226de..deafbd5 100755
+--- a/src/lib/anti-fraud.test.ts
++++ b/src/lib/anti-fraud.test.ts
+@@ -183,3 +183,151 @@ describe('LIMITS config', () => {
+     }
+   })
+ })
++
++// ===== checkFraudLimit: часовое И суточное окна (v4.6, P0-antifraud) =====
++// Дневной лимит maxPerDay до v4.6 был объявлен в конфиге, но НЕ проверялся:
++// checkFraudLimit сравнивал счётчик только с maxPerHour, и атакующий мог
++// держать ровно maxPerHour попыток КАЖДЫЙ час (до 24*maxPerHour в сутки).
++// Эти тесты фиксируют контракт ОБЕИХ проверок на моке supabaseAdmin.
++const hoisted = vi.hoisted(() => {
++  // Очередь ответов select-запросов (час → сутки), вызовы вставляются тестом.
++  const selectQueue: Array<{ count: number | null; error: { message: string } | null }> = []
++  const calls: string[] = []
++  const makeBuilder = () => {
++    const builder: Record<string, unknown> = {}
++    builder.insert = vi.fn(() => {
++      calls.push('insert')
++      return Promise.resolve({ error: null })
++    })
++    builder.select = vi.fn(() => {
++      calls.push('select')
++      const chain: Record<string, unknown> = {}
++      const passthrough = (): Record<string, unknown> => chain
++      chain.eq = passthrough
++      chain.gte = passthrough
++      chain.not = passthrough
++      chain.limit = passthrough
++      chain.then = (
++        resolve: (v: { count: number | null; error: { message: string } | null }) => void,
++        reject: (e: unknown) => void
++      ) => {
++        const next = selectQueue.shift()
++        if (!next) {
++          reject(new Error('selectQueue exhausted — тест не задал ответ для этого select-запроса'))
++          return
++        }
++        resolve(next)
++      }
++      return chain
++    })
++    return builder
++  }
++  return {
++    selectQueue,
++    calls,
++    fromMock: vi.fn(() => makeBuilder()),
++  }
++})
++
++vi.mock('@/lib/supabase/admin', () => ({
++  supabaseAdmin: {
++    from: hoisted.fromMock,
++  },
++}))
++
++// Импорт ПОСЛЕ vi.mock (hoisting): anti-fraud получит замоканный admin-клиент
++import { checkFraudLimit } from './anti-fraud'
++
++describe('checkFraudLimit — два окна (v4.6)', () => {
++  const req = (): Request =>
++    new Request('https://example.com/api/auth/register', {
++      method: 'POST',
++      headers: { 'x-real-ip': '10.55.0.1' },
++    })
++
++  beforeEach(() => {
++    hoisted.selectQueue.length = 0
++    hoisted.calls.length = 0
++    hoisted.fromMock.mockClear()
++  })
++
++  it('register: час в норме, сутки в норме → allowed, remaining по часу', async () => {
++    hoisted.selectQueue.push({ count: 2, error: null }, { count: 5, error: null })
++    const res = await checkFraudLimit(req(), 'register')
++    expect(res.allowed).toBe(true)
++    expect(res.remaining).toBe(LIMITS.register.maxPerHour - 2)
++  })
++
++  it('register: 4-я попытка в час → отказ по часовому лимиту (3/час)', async () => {
++    hoisted.selectQueue.push({ count: 4, error: null })
++    const res = await checkFraudLimit(req(), 'register')
++    expect(res.allowed).toBe(false)
++    expect(res.reason).toContain('3/час')
++    // Дневной select не выполняется на отказном часовом пути (экономия запроса)
++    expect(hoisted.selectQueue).toHaveLength(0)
++  })
++
++  it('register: час OK (2), сутки 11 > 10 → отказ по СУТОЧНОМУ лимиту (v4.6 — раньше пропускалось)', async () => {
++    hoisted.selectQueue.push({ count: 2, error: null }, { count: 11, error: null })
++    const res = await checkFraudLimit(req(), 'register')
++    expect(res.allowed).toBe(false)
++    expect(res.reason).toContain('суточный')
++    expect(res.reason).toContain('10/24ч')
++    expect(res.remaining).toBe(0)
++  })
++
++  it('register: ровно 10 за сутки (граница) → allowed (строгое неравенство >)', async () => {
++    hoisted.selectQueue.push({ count: 3, error: null }, { count: 10, error: null })
++    const res = await checkFraudLimit(req(), 'register')
++    expect(res.allowed).toBe(true)
++  })
++
++  it('daily-атака «maxPerHour каждый час» теперь закрыта: 5/ч × 5ч = 25 > 20 → отказ', async () => {
++    // order_create: атакующий держит ровно 5 заказов в час (часовой лимит
++    // проходит), но за 24ч накапливает 25 > 20 → дневной лимит срабатывает.
++    hoisted.selectQueue.push({ count: 5, error: null }, { count: 25, error: null })
++    const res = await checkFraudLimit(req(), 'order_create')
++    expect(res.allowed).toBe(false)
++    expect(res.reason).toContain('20/24ч')
++  })
++
++  it('strict-порядок: попытка записывается ДО подсчёта (insert раньше select)', async () => {
++    hoisted.selectQueue.push({ count: 1, error: null }, { count: 1, error: null })
++    await checkFraudLimit(req(), 'register')
++    expect(hoisted.calls[0]).toBe('insert')
++    expect(hoisted.calls).toContain('select')
++    expect(hoisted.calls.indexOf('insert')).toBeLessThan(hoisted.calls.indexOf('select'))
++  })
++
++  it('ошибка часового подсчёта → fail-open (allow, консистентно с прежним контрактом)', async () => {
++    hoisted.selectQueue.push({ count: null, error: { message: 'db down' } })
++    const res = await checkFraudLimit(req(), 'register')
++    expect(res.allowed).toBe(true)
++    expect(res.remaining).toBe(LIMITS.register.maxPerHour)
++  })
++
++  it('ошибка дневного подсчёта → fail-open (allow)', async () => {
++    hoisted.selectQueue.push({ count: 2, error: null }, { count: null, error: { message: 'db down' } })
++    const res = await checkFraudLimit(req(), 'register')
++    expect(res.allowed).toBe(true)
++  })
++
++  it('ошибка вставки попытки → fail-open (allow, попытка не посчитана)', async () => {
++    hoisted.fromMock.mockImplementationOnce(() => ({
++      insert: vi.fn(() => Promise.resolve({ error: { message: 'insert failed' } })),
++    }))
++    const res = await checkFraudLimit(req(), 'register')
++    expect(res.allowed).toBe(true)
++    expect(res.remaining).toBe(LIMITS.register.maxPerHour)
++  })
++
++  it('разные IP → разные бакеты: один insert + два select (час+сутки) на попытку', async () => {
++    hoisted.selectQueue.push({ count: 1, error: null }, { count: 1, error: null })
++    await checkFraudLimit(
++      new Request('https://example.com', { headers: { 'x-real-ip': '10.55.0.2' } }),
++      'register'
++    )
++    expect(hoisted.calls).toEqual(['insert', 'select', 'select'])
++    expect(hoisted.fromMock).toHaveBeenCalledTimes(3)
++  })
++})
+diff --git a/src/lib/anti-fraud.ts b/src/lib/anti-fraud.ts
+index 0fbce88..32f9b77 100755
+--- a/src/lib/anti-fraud.ts
++++ b/src/lib/anti-fraud.ts
+@@ -3,9 +3,11 @@
+  *
+  * Правила:
+  *  - order_create: не более 5 заказов в час с IP, не более 20 в день
+- *  - register: не более 3 ПОПЫТКИ регистрации в час с IP (решение владельца
+- *    2026-10-17: ИСХОДНЫЙ лимит сохранён — повышение 3→10 не подтверждено;
+- *    считается каждая попытка, включая невалидные — strict против mass-register.
++ *  - register: не более 3 ПОПЫТКИ регистрации в час И не более 10 в сутки с IP
++ *    (решение владельца 2026-10-17: ИСХОДНЫЙ лимит сохранён — повышение 3→10
++ *    не подтверждено; считается каждая попытка, включая невалидные — strict
++ *    против mass-register. Дневной лимит 10/24ч enforced с v4.6 — до этого
++ *    maxPerDay был объявлен в конфиге, но не проверялся).
+  *    E2E-совместимость: спеки, реально регистрирующие пользователей, шлют
+  *    per-spec симулированный x-real-ip (доверенный канал, в production
+  *    перезаписывается Caddy — см. tests/e2e/*.spec.ts и docs/DNS_SETUP.md)
+@@ -93,9 +95,14 @@ export interface FraudCheckResult {
+  * Если лимит превышён — возвращаем allowed: false.
+  * Если нет — логируем попытку и возвращаем allowed: true.
+  *
++ * Проверяются ОБА окна: час (maxPerHour) и сутки (maxPerDay).
++ * Дневная проверка выполняется только когда часовая пройдена — на частом
++ * отказном пути экономим один запрос.
++ *
+  * ВАЖНО: между проверкой и записью есть окно race condition, но
+  * для rate-limiting это приемлемо — один-два лишних запроса не критичны,
+  * а полная транзакция замедлила бы каждый запрос.
++ * (Strict-порядок insert→count устраняет гонку размывания счётчика.)
+  */
+ export async function checkFraudLimit(
+   req: Request,
+@@ -165,6 +172,37 @@ export async function checkFraudLimit(
+     };
+   }
+ 
++  // ===== Дневное окно (24ч): maxPerDay — enforced с v4.6 =====
++  // До v4.6 maxPerDay существовал только в конфиге (умершие данные):
++  // checkFraudLimit сравнивал счётчик только с maxPerHour, и атакующий
++  // мог держать ровно maxPerHour попыток каждый час = до 24*maxPerHour в сутки.
++  const dayAgoIso = new Date(now - 24 * 60 * 60 * 1000).toISOString();
++  const { count: dayCount, error: dayErr } = await supabaseAdmin
++    .from("order_fraud_logs")
++    .select("id", { count: "exact", head: true })
++    .eq("ip_hash", ipHash)
++    .eq("action", action)
++    .gte("created_at", dayAgoIso);
++
++  if (dayErr) {
++    console.error("[anti-fraud] day-count failed:", dayErr.message);
++    // Fail-open: консистентно с часовой проверкой (см. комментарий выше).
++    return {
++      allowed: true,
++      remaining: config.maxPerHour - recentCount,
++      resetAt,
++    };
++  }
++
++  if ((dayCount || 0) > config.maxPerDay) {
++    return {
++      allowed: false,
++      reason: `Превышен суточный лимит ${action} (${config.maxPerDay}/24ч с вашего IP). Попробуйте позже.`,
++      remaining: 0,
++      resetAt: now + 24 * 60 * 60 * 1000,
++    };
++  }
++
+   return {
+     allowed: true,
+     remaining: config.maxPerHour - recentCount,

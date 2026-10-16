@@ -152,12 +152,25 @@ jobs:
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
+        # v4.6 (P0): чекаутим ИМЕННО тот SHA, которым тегируются образы.
+        # На pull_request дефолтный checkout = merge-коммит, а тег был бы head
+        # PR — «тег одного SHA, собран другой исходник». Здесь исключено:
+        # исходник = CANDIDATE_SHA (для push совпадает с github.sha).
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
 
-      - name: Record built SHA
-        # Доказательство в логе CI: какой SHA реально вшит в образы (GIT_SHA).
+      - name: Verify checked-out source SHA == image tag SHA
+        # Доказательство в логе CI: собранный исходник == тег образов.
         run: |
-          echo "Docker images will be built on SHA: ${{ env.CANDIDATE_SHA }}"
-          echo "  (pull_request head || push sha; github.sha was: ${{ github.sha }})"
+          CHECKED="$(git rev-parse HEAD)"
+          TAGGED="${{ env.CANDIDATE_SHA }}"
+          echo "checked-out SHA: $CHECKED"
+          echo "tag SHA:         $TAGGED"
+          if [ "$CHECKED" != "$TAGGED" ]; then
+            echo "❌ MISMATCH: images would be tagged with a SHA they were not built from"
+            exit 1
+          fi
+          echo "✓ source tree is exactly the tagged candidate SHA"
 
       - name: Validate Compose configuration
         # v4.5 (P0-B): сборка образов НЕ заменяет валидацию конфигурации.
@@ -213,23 +226,45 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Secret-gate on built image layers
-        # v4.5 (P0-B): проверка итоговых образов — в слоях не должно быть
-        # секретов/ключей (docker history показывает все команды сборки).
-        # v4.6: load:true кладёт образы в локальный daemon, но тег сам по себе
-        # НЕ доказательство существования образа — поэтому гейт НЕЛЬЗЯ считать
-        # пройденным без фактически выполненных docker history/inspect ниже:
-        # обе команды падают с non-zero exit, если образ отсутствует локально.
+      - name: Image existence + layer-history + exported-fs secret-gate
+        # v4.5 (P0-B): docker history показывает команды сборки слоёв.
+        # v4.6 (P0):
+        #   1) существование КАЖДОГО образа доказывается docker image inspect
+        #      ДО сканирования — тег сам по себе НЕ доказательство (load:true
+        #      обязан положить образ в daemon, иначе гейт падает здесь);
+        #   2) history/inspect — НЕ полное сканирование секретов: они не видят
+        #      содержимое файлов. Добавлен контент-скан экспортированной
+        #      ФАЙЛОВОЙ СИСТЕМЫ образа (docker create + docker export | grep),
+        #      те же паттерны, что и в history-скане.
         run: |
           FAIL=0
+          SECRET_RE='(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY|ci_test_jwt_secret|ci_test_tfa_key)'
           for img in "conditera:${{ env.CANDIDATE_SHA }}" "conditera-chat:${{ env.CANDIDATE_SHA }}" "conditera-simplex-bridge:${{ env.CANDIDATE_SHA }}"; do
-            echo "— scanning $img"
-            if docker history --no-trunc "$img" 2>/dev/null | grep -Eiq \
-              "(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY|ci_test_jwt_secret|ci_test_tfa_key)"; then
-              echo "❌ Potential secret found in layers of $img"
+            echo "— $img"
+            # 1) существование — строго до history/скана
+            if ! docker image inspect "$img" > /dev/null 2>&1; then
+              echo "❌ image NOT present in local daemon: $img"
               FAIL=1
+              continue
             fi
-            docker image inspect "$img" > /dev/null && echo "  ✓ inspect ok"
+            echo "  ✓ inspect ok (image exists)"
+            # 2) секреты в командах сборки слоёв
+            if docker history --no-trunc "$img" 2>/dev/null | grep -Eiq "$SECRET_RE"; then
+              echo "❌ potential secret in layer history of $img"
+              FAIL=1
+            else
+              echo "  ✓ layer history clean"
+            fi
+            # 3) секреты в содержимом файлов образа (экспорт файловой системы)
+            CID="sg-$(echo "$img" | tr ':/' '--')"
+            docker create --name "$CID" "$img" > /dev/null
+            if docker export "$CID" | grep -aEiq "$SECRET_RE"; then
+              echo "❌ potential secret in exported filesystem of $img"
+              FAIL=1
+            else
+              echo "  ✓ exported filesystem content clean"
+            fi
+            docker rm -f "$CID" > /dev/null
           done
           exit $FAIL
 

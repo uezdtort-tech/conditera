@@ -18,22 +18,38 @@ conditera.ru, www.conditera.ru {
         # ===== Доверенный прокси: X-Real-IP (v4.6, P0-antifraud) =====
         # Приложение (extractIp/getClientIP) доверяет ТОЛЬКО перезаписанному
         # proxy-значению X-Real-IP. Без header_up клиентский (подделанный)
-        # X-Real-IP прошёл бы сквозь Caddy нетронутым → обход per-IP
-        # rate-limit (каждый запрос с новым поддельным IP = свежий бакет).
-        # {remote_host} = реальный TCP-пир Caddy (клиент при прямом доступе
-        # 80/443; Cloudflare edge при проксировании через CF).
-        # ВНИМАНИЕ (топология cloudflared-туннеля): если cloudflared ходит
-        # на localhost:80 ЭТОГО Caddy, пир = 127.0.0.1 для всех клиентов —
-        # в этой топологии переписать из доверенного CF-Connecting-IP:
-        #   header_up X-Real-IP {header.CF-Connecting-IP}
-        # и гарантировать, что Caddy снаружи недоступен (только туннель).
+        # X-Real-IP прошёл бы сквозь Caddy нетронутым → обход per-IP rate-limit.
+        #
+        # Фактическая цепочка ingress — ДВЕ топологии (обе поддержаны ниже):
+        #   A) Прямой доступ: клиент → Caddy :80/:443. Пир Caddy = КЛИЕНТ.
+        #   B) Cloudflare Tunnel: клиент → CF edge (edge ПЕРЕЗАПИСЫВАЕТ
+        #      CF-Connecting-IP, подделать нельзя) → cloudflared (outbound
+        #      к CF, приём только из туннеля) → http://localhost:80 → Caddy.
+        #      Пир Caddy = ЛОКАЛЬНЫЙ cloudflared (127.0.0.1/::1) — НЕ клиент!
+        #      Брать {remote_host} в топологии B нельзя: все клиенты схлопнутся
+        #      в один бакет 127.0.0.1 (3 регистрации/час НА ВЕСЬ САЙТ).
+        #
+        # Решение — условная перезапись по peer (матчер @loopback_peer):
+        #   • peer из loopback (tunnel) → X-Real-IP := CF-Connecting-IP
+        #     (установлен CF edge, через туннельный путь не подделывается);
+        #   • иначе (прямой клиент) → X-Real-IP := {remote_host} (реальный TCP-
+        #     адрес пира), а клиентский CF-Connecting-IP УДАЛЯЕТСЯ (подделка
+        #     невозможна по построению: X-Real-IP всегда перезаписан, и приложение
+        #     проверяет x-real-ip ДО cf-connecting-ip).
+        # Требование целостности пути B: cloudflared принимает запросы ТОЛЬКО
+        # из туннеля Cloudflare (собственный протокол, outbound-соединения) —
+        # прямая инъекция в cloudflared извне отсутствует.
         # См. docs/DNS_SETUP.md, раздел «Доверенный прокси».
+        @loopback_peer {
+                remote_ip 127.0.0.1 ::1
+        }
 
         # ===== Маршрутизация =====
         # API (Next.js Route Handlers) — с health check
         handle /api/* {
-                reverse_proxy web:3000 {
-                        header_up X-Real-IP {remote_host}
+                # Топология B: peer — локальный cloudflared
+                reverse_proxy @loopback_peer web:3000 {
+                        header_up X-Real-IP {header.CF-Connecting-IP}
                         # Health check — опрашивает /api/health каждые 10с
                         health_uri /api/health
                         health_interval 10s
@@ -45,13 +61,32 @@ conditera.ru, www.conditera.ru {
                                 dial_timeout 5s
                         }
                 }
+                # Топология A: peer — прямой клиент
+                reverse_proxy web:3000 {
+                        header_up X-Real-IP {remote_host}
+                        header_up -CF-Connecting-IP
+                        health_uri /api/health
+                        health_interval 10s
+                        transport http {
+                                read_timeout 60s
+                                write_timeout 60s
+                                dial_timeout 5s
+                        }
+                }
         }
 
         # WebSocket (Socket.IO чат)
         handle /socket.io/* {
+                reverse_proxy @loopback_peer chat-service:3030 {
+                        header_up X-Real-IP {header.CF-Connecting-IP}
+                        transport http {
+                                read_timeout 300s
+                                write_timeout 300s
+                        }
+                }
                 reverse_proxy chat-service:3030 {
                         header_up X-Real-IP {remote_host}
-                        # WebSocket требует долгих таймаутов
+                        header_up -CF-Connecting-IP
                         transport http {
                                 read_timeout 300s
                                 write_timeout 300s
@@ -72,8 +107,19 @@ conditera.ru, www.conditera.ru {
 
         # Всё остальное — Next.js (SSR/SSG)
         handle {
+                reverse_proxy @loopback_peer web:3000 {
+                        header_up X-Real-IP {header.CF-Connecting-IP}
+                        health_uri /api/health
+                        health_interval 10s
+                        transport http {
+                                read_timeout 30s
+                                write_timeout 30s
+                                dial_timeout 5s
+                        }
+                }
                 reverse_proxy web:3000 {
                         header_up X-Real-IP {remote_host}
+                        header_up -CF-Connecting-IP
                         health_uri /api/health
                         health_interval 10s
                         transport http {
@@ -121,8 +167,14 @@ conditera.ru, www.conditera.ru {
                 path /api/auth/* /api/payment/* /api/profile/* /api/admin/*
         }
         handle @api_auth {
+                reverse_proxy @loopback_peer web:3000 {
+                        header_up X-Real-IP {header.CF-Connecting-IP}
+                        health_uri /api/health
+                        health_interval 10s
+                }
                 reverse_proxy web:3000 {
                         header_up X-Real-IP {remote_host}
+                        header_up -CF-Connecting-IP
                         health_uri /api/health
                         health_interval 10s
                 }
@@ -174,8 +226,9 @@ smp.conditera.ru {
 localhost {
         reverse_proxy web:3000 {
                 # Дев-паритет с prod: приложение доверяет только переписанному
-                # X-Real-IP (пир = локальный клиент, он же реальный источник).
+                # X-Real-IP. Дев-топология без туннеля: пир = локальный клиент.
                 header_up X-Real-IP {remote_host}
+                header_up -CF-Connecting-IP
         }
 }
 
