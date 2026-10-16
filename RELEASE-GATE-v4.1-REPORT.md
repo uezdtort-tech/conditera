@@ -76,7 +76,7 @@
 | 9 | U-07 checkout idempotency (live) | `node scripts/verify/checkout-idempotency-verify.mjs` | attempt-1 на prod-бандле: 503 «Платёжный шлюз не настроен» — **ожидаемый fail-closed** песочничного prod без конфига шлюза (не регрессия; задокументировано в логе); attempt-2 на управляемом dev-стеке: **PASS 15 / FAIL 0**, cleanup: 5 синтетик-заказов вычищено | `v41-final-u07-live-12c8815.log` |
 | 10 | Upload oversize (live) | `node scripts/verify/upload-oversize-verify.mjs` | **PASS 8 / FAIL 0** (422 по контракту, лимит не ослаблен); cleanup: 2 строки storage + 2 файла | `v41-final-upload-live-12c8815.log` |
 | 11 | U-06 fillings (live API) | GET `/api/products/{id}` | `fillings` присутствует в ответе карточки (list); SQL-проверка: 0 продуктов с контентом fillings, `product_slices`=0, каталог `fillings`=45 → ограничение контента зафиксировано | журнал сессии + §4/DEV-01 |
-| 12 | Evidence hygiene | `node scripts/scan-evidence.mjs` | exit 0 — real findings **0**, 248 синтетик-маркеров | `/tmp/scan-final-check.log` → итог в worklog |
+| 12 | Evidence hygiene | `node scripts/scan-evidence.mjs` | exit 0 — real findings **0**, 301 синтетик-маркер (включая все новые логи; 1 real-находка класса E-1 — литерал-плейсхолдер `postgres://user:pass@host` из фикстуры в stderr vitest-лога — отредактирована маркером `[REDACTED BY F-1 HYGIENE]`, регрессия сканера на real-shaped секреты сохраняется) | `/tmp/scan-postfix.log` → итог в worklog |
 | 13 | Env-template контракт | `node scripts/verify/production-env-template.mjs` | exit 0 (6 required, 63 ключа, только CHANGE_ME) | `v41-final-envtemplate-12c8815.log` |
 
 Никакие результаты более ранних SHA в PASS-статусах §4 не используются: всё перечисленное выше исполнено на `12c8815`.
@@ -120,6 +120,7 @@ curl -fsS http://localhost:3000/api/health | jq '.status,.database'
 | Коммит | Содержимое |
 |---|---|
 | (этот коммит) | `RELEASE-GATE-v4.1-REPORT.md` + 12 evidence-файлов `v41-final-*` / `pre-restore-deletion-diff-v41-2-*` / `smoke.prod.12c8815-run2.json` + `tally-contract-12c8815.json` + worklog-аппенд. Один логический юнит: close-out-привязка. Код не менялся |
+| hygiene follow-up | Редакция плейсхолдера db-conn в `v41-final-vitest-12c8815.log:218` маркером `[REDACTED BY F-1 HYGIENE]` (конвенция C-3/E-1) + правка счётчика маркеров в §5.12. Скан post-fix: exit 0. Код не менялся |
 
 ## 9. Оставшиеся риски / открытые находки (полный реестр — handoff §3b)
 
