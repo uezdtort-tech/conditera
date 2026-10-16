@@ -1,0 +1,18 @@
+=== Release Gate v4.1 — Stage 4 — Step 1: checkpoint ===
+task_id: D-1
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+branch: main
+utc: 2026-10-16T00:22:30Z
+cmd: git rev-parse HEAD; git branch --show-current; git status --short; git rev-list --count origin/main..HEAD
+--- output ---
+9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+main
+[git status --short]
+ M worklog.md
+?? agent-ctx/C-1-release-gate-auth-preflight.md
+?? agent-ctx/C-2-release-gate-v41-simplex-nonroot.md
+?? docs/evidence/release-gate/v41-checkpoint-9ec40f7.log
+[rev-list count origin/main..HEAD]
+62
+--- exit ---
+EXIT_CODE=0

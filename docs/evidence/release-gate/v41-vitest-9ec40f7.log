@@ -1,0 +1,319 @@
+=== Release Gate v4.1 — Stage 4 — Step 5: vitest full ===
+task_id: D-1
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T00:33:28Z
+cmd: bun run test
+--- output ---
+$ vitest run
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /home/z/my-project
+
+ ✓ src/components/pages/product-page.fillings-gate.test.tsx (3 tests) 272ms
+ ✓ src/components/ui/button.test.tsx (7 tests) 170ms
+ ✓ src/lib/rate-limit.test.ts (15 tests) 87ms
+stderr | src/middleware.test.ts > CSRF middleware > blocks state-changing requests without token > blocks PUT /api/products/123 without CSRF token
+GoTrueClient@sb-conditera-auth-token:1 (2.112.3) 2026-10-16T00:33:33.192Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > blocks state-changing requests without token > blocks DELETE /api/reviews/456 without CSRF token
+GoTrueClient@sb-conditera-auth-token:2 (2.112.3) 2026-10-16T00:33:33.195Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > blocks state-changing requests without token > blocks PATCH /api/profile without CSRF token
+GoTrueClient@sb-conditera-auth-token:3 (2.112.3) 2026-10-16T00:33:33.196Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > blocks requests with mismatched token > blocks when header token != cookie token
+GoTrueClient@sb-conditera-auth-token:4 (2.112.3) 2026-10-16T00:33:33.198Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > blocks requests with mismatched token > blocks when header present but cookie missing
+GoTrueClient@sb-conditera-auth-token:5 (2.112.3) 2026-10-16T00:33:33.200Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > blocks requests with mismatched token > blocks when cookie present but header missing
+GoTrueClient@sb-conditera-auth-token:6 (2.112.3) 2026-10-16T00:33:33.201Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > allows requests with matching token > allows POST when header == cookie
+GoTrueClient@sb-conditera-auth-token:7 (2.112.3) 2026-10-16T00:33:33.202Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > allows requests with matching token > allows PUT when header == cookie
+GoTrueClient@sb-conditera-auth-token:8 (2.112.3) 2026-10-16T00:33:33.204Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > GET requests do not require CSRF > allows GET /api/products without token
+GoTrueClient@sb-conditera-auth-token:9 (2.112.3) 2026-10-16T00:33:33.205Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > GET requests do not require CSRF > allows GET /api/orders without token
+GoTrueClient@sb-conditera-auth-token:10 (2.112.3) 2026-10-16T00:33:33.207Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > CSRF-exempt endpoints do not require token > allows POST /api/auth/login without CSRF (auth-internal)
+GoTrueClient@sb-conditera-auth-token:11 (2.112.3) 2026-10-16T00:33:33.208Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > CSRF-exempt endpoints do not require token > allows POST /api/auth/register without CSRF
+GoTrueClient@sb-conditera-auth-token:12 (2.112.3) 2026-10-16T00:33:33.209Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > CSRF-exempt endpoints do not require token > allows POST /api/payment/webhook without CSRF (YooKassa webhook)
+GoTrueClient@sb-conditera-auth-token:13 (2.112.3) 2026-10-16T00:33:33.210Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > CSRF-exempt endpoints do not require token > allows POST /api/webhooks/n8n without CSRF
+GoTrueClient@sb-conditera-auth-token:14 (2.112.3) 2026-10-16T00:33:33.211Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > CSRF-exempt endpoints do not require token > allows POST /api/cron/cleanup without CSRF
+GoTrueClient@sb-conditera-auth-token:15 (2.112.3) 2026-10-16T00:33:33.212Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > CSRF-exempt endpoints do not require token > allows GET /api/csrf-token without CSRF (issuing endpoint)
+GoTrueClient@sb-conditera-auth-token:16 (2.112.3) 2026-10-16T00:33:33.213Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets X-Content-Type-Options: nosniff
+GoTrueClient@sb-conditera-auth-token:17 (2.112.3) 2026-10-16T00:33:33.214Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets X-Frame-Options: SAMEORIGIN
+GoTrueClient@sb-conditera-auth-token:18 (2.112.3) 2026-10-16T00:33:33.215Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets Permissions-Policy with camera/microphone/geolocation disabled
+GoTrueClient@sb-conditera-auth-token:19 (2.112.3) 2026-10-16T00:33:33.216Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets CSP with frame-ancestors allowing space-z.ai
+GoTrueClient@sb-conditera-auth-token:20 (2.112.3) 2026-10-16T00:33:33.217Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets Cache-Control: no-store for /api/auth/*
+GoTrueClient@sb-conditera-auth-token:21 (2.112.3) 2026-10-16T00:33:33.218Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets Cache-Control: no-store for /api/payment/*
+GoTrueClient@sb-conditera-auth-token:22 (2.112.3) 2026-10-16T00:33:33.219Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets HSTS for HTTPS requests
+GoTrueClient@sb-conditera-auth-token:23 (2.112.3) 2026-10-16T00:33:33.220Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > security headers are set > sets Cross-Origin-Opener-Policy: same-origin
+GoTrueClient@sb-conditera-auth-token:24 (2.112.3) 2026-10-16T00:33:33.220Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > timing-safe comparison > rejects tokens of different lengths
+GoTrueClient@sb-conditera-auth-token:25 (2.112.3) 2026-10-16T00:33:33.222Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+stderr | src/middleware.test.ts > CSRF middleware > timing-safe comparison > accepts identical long tokens
+GoTrueClient@sb-conditera-auth-token:26 (2.112.3) 2026-10-16T00:33:33.223Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+
+ ✓ src/middleware.test.ts (30 tests) 75ms
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets — список несёт id строк (DEV-19, U-08 fix) > a) owner filter=own → 200, каждая строка имеет id + embed messages цел
+[pgrst] GET /rest/v1/support_tickets → 200 (3ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets — список несёт id строк (DEV-19, U-08 fix) > d) повторный GET списка → те же id (консистентность между вызовами)
+[pgrst] GET /rest/v1/support_tickets → 200 (1ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets — список несёт id строк (DEV-19, U-08 fix) > d) повторный GET списка → те же id (консистентность между вызовами)
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets — список несёт id строк (DEV-19, U-08 fix) > d) повторный GET списка → те же id (консистентность между вызовами)
+[pgrst] GET /rest/v1/support_tickets → 200 (7ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets — список несёт id строк (DEV-19, U-08 fix) > d) повторный GET списка → те же id (консистентность между вызовами)
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets/[id] — открытие тикета по id из списка > b) owner открывает свой тикет по id из списка → 200, корректная запись
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets/[id] — открытие тикета по id из списка > b) owner открывает свой тикет по id из списка → 200, корректная запись
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > GET /api/crm/tickets/[id] — открытие тикета по id из списка > SUPPORT открывает тикет по id → 200, внутренние заметки видны
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > POST /api/crm/tickets — повторная отправка (текущий контракт) > c) байт-в-байт одинаковый POST → 2 тикета (НЕ идемпотентно — finding #3 для владельца, контракт залочен как есть; семантика создания в этой задаче НЕ меняется)
+[pgrst] POST /rest/v1/support_tickets → 201 (1ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > POST /api/crm/tickets — повторная отправка (текущий контракт) > c) байт-в-байт одинаковый POST → 2 тикета (НЕ идемпотентно — finding #3 для владельца, контракт залочен как есть; семантика создания в этой задаче НЕ меняется)
+[pgrst] POST /rest/v1/ticket_messages → 204 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > POST /api/crm/tickets — повторная отправка (текущий контракт) > c) байт-в-байт одинаковый POST → 2 тикета (НЕ идемпотентно — finding #3 для владельца, контракт залочен как есть; семантика создания в этой задаче НЕ меняется)
+[pgrst] POST /rest/v1/support_tickets → 201 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > POST /api/crm/tickets — повторная отправка (текущий контракт) > c) байт-в-байт одинаковый POST → 2 тикета (НЕ идемпотентно — finding #3 для владельца, контракт залочен как есть; семантика создания в этой задаче НЕ меняется)
+[pgrst] POST /rest/v1/ticket_messages → 204 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > e) owner видит ТОЛЬКО свои тикеты (filter=own)
+[pgrst] GET /rest/v1/support_tickets → 200 (1ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > e) второй пользователь: в своём списке тикет первого НЕВИДИМ (симметричная изоляция)
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > e) чужой тикет: прямой GET другим пользователем → 403
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > e) чужой тикет: прямой GET другим пользователем → 403
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stderr | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > e) несуществующий id → 404
+[pgrst] GET /rest/v1/support_tickets → 406 (1ms): JSON object requested, multiple (or no) rows returned
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > SUPPORT: filter=all → 200, видит тикеты всех пользователей (scope не сужен)
+[pgrst] GET /rest/v1/support_tickets → 200 (1ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > ADMIN: filter=all → 200, видит все тикеты (полномочия сохранены)
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > ADMIN/SUPPORT сохраняют статусные действия: PATCH resolved → 200 и статус меняется
+[pgrst] GET /rest/v1/support_tickets → 200 (1ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > ADMIN/SUPPORT сохраняют статусные действия: PATCH resolved → 200 и статус меняется
+[pgrst] PATCH /rest/v1/support_tickets → 200 (1ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > owner может закрыть свой тикет (PATCH без assignedTo) → 200
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > owner может закрыть свой тикет (PATCH без assignedTo) → 200
+[pgrst] PATCH /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > owner НЕ может назначать (assignedTo) → 403 «Только support может назначать тикеты»
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+stdout | src/app/api/crm/tickets/route.test.ts > Ролевая изоляция /api/crm/tickets (scope не сужен/не расширен) > чужой пользователь не может менять чужой тикет → 403
+[pgrst] GET /rest/v1/support_tickets → 200 (0ms, role=anon)
+
+ ✓ src/app/api/crm/tickets/route.test.ts (17 tests) 57ms
+ ✓ src/lib/upload-service.test.ts (5 tests) 43ms
+ ✓ src/app/api/services/upload/route.test.ts (8 tests) 41ms
+ ✓ src/app/api/upload/route.test.ts (7 tests) 39ms
+ ✓ src/lib/supabase/use-marketplace.checkout-idem.test.tsx (6 tests) 36ms
+ ✓ src/lib/fillings-data.test.ts (35 tests) 28ms
+ ✓ src/lib/validation-schemas.test.ts (62 tests) 22ms
+ ✓ src/lib/product-search.test.ts (36 tests) 26ms
+ ✓ src/lib/finance.test.ts (24 tests) 22ms
+ ✓ src/lib/utils.test.ts (30 tests) 23ms
+ ✓ src/lib/recommendations.test.ts (28 tests) 21ms
+ ✓ src/lib/cake-builder-options.test.ts (28 tests) 18ms
+stdout | src/lib/http-helpers.test.ts > handleRouteError > возвращает корректный статус для HttpError
+[route] 422: Validation failed
+
+stderr | src/lib/http-helpers.test.ts > handleRouteError > возвращает 500 для неизвестной ошибки
+[route] unhandled error: Unexpected Error: Unexpected
+    at /home/z/my-project/src/lib/http-helpers.test.ts:125:17
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
+
+stderr | src/lib/http-helpers.test.ts > handleRouteError > не раскрывает детали для не-HttpError
+[route] unhandled error: DB connection string postgres://user:pass@host Error: DB connection string postgres://user:pass@host
+    at /home/z/my-project/src/lib/http-helpers.test.ts:133:17
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
+
+ ✓ src/lib/http-helpers.test.ts (30 tests) 17ms
+ ✓ src/app/api/health/route.test.ts (11 tests) 16ms
+ ✓ src/lib/regional-pricing.test.ts (70 tests) 15ms
+ ✓ src/app/api/orders/[id]/route.test.ts (12 tests) 15ms
+stderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — fail-closed гейт прод-регистрации (DEV-18 / C-1) > production + createUser fail → 500 fail-closed ДО любых записей: auth.users-стаб, profiles, user_roles, referrals не пишутся
+[register] supabase auth createUser error: stub: GoTrue unavailable
+
+stderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — fail-closed гейт прод-регистрации (DEV-18 / C-1) > development + createUser fail → dev-фоллбэк: auth.users стаб через пул, profiles создан, 201 (гейт строго NODE_ENV-условный)
+[register] supabase auth createUser error: 501 LOCAL_AUTH_DISABLED
+[register] dev/local mode: GoTrue unavailable → auth.users stub row
+
+ ✓ src/app/api/auth/register/route.test.ts (3 tests) 15ms
+ ✓ src/lib/logger.test.ts (25 tests) 16ms
+ ✓ src/lib/sentiment.test.ts (26 tests) 15ms
+stderr | src/app/api/products/[id]/route.test.ts
+⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!
+⚠️  [auth] JWT_REFRESH_SECRET не задана — используется dev-значение. НЕ для production!
+⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!
+
+ ✓ src/app/api/products/[id]/route.test.ts (5 tests) 14ms
+ ✓ src/lib/i18n.test.ts (56 tests) 11ms
+ ✓ src/lib/role-guards.test.ts (24 tests) 12ms
+stderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is not set
+[cron] CRON_SECRET not set — refusing to run
+
+stderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is empty string
+[cron] CRON_SECRET not set — refusing to run
+
+ ✓ src/lib/cron-auth.test.ts (16 tests) 11ms
+ ✓ src/lib/checkout-idempotency.test.ts (14 tests) 11ms
+ ✓ src/lib/prisma-safe-select.test.ts (36 tests) 10ms
+ ✓ src/lib/loyalty.test.ts (23 tests) 10ms
+stderr | src/lib/anti-fraud.test.ts
+[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.
+
+ ✓ src/lib/anti-fraud.test.ts (26 tests) 10ms
+ ✓ src/lib/postgrest/translate.test.ts (7 tests) 9ms
+stderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > production + stub-конфигурация → создание платежа ЗАПРЕЩЕНО (FAIL, mock отключён)
+[yookassa] createPayment: шлюз не настроен (production) — mock отключён
+
+stderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > development + stub-конфигурация → mock-платёж ДОПУСТИМ (stub только вне production)
+⚠️ YooKassa не настроена. Используется mock-ответ (только dev).
+   Для активации укажите YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в .env
+
+ ✓ src/lib/payment-prod-guard.test.ts (5 tests) 10ms
+ ✓ src/lib/supabase/supabase-hooks.test.ts (18 tests) 10ms
+stderr | src/lib/ops/risk.test.ts
+[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.
+
+ ✓ src/lib/ops/risk.test.ts (26 tests) 9ms
+ ✓ src/lib/store.test.ts (19 tests) 9ms
+ ✓ src/lib/migration-0013-atomic-counter-helpers.test.ts (47 tests) 9ms
+ ✓ src/lib/csrf.test.ts (31 tests) 8ms
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает Promise<boolean>
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение при минимальных параметрах
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение со всеми параметрами
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=true (повторная заявка)
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=false (новая заявка, по умолчанию)
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает unicode в businessName (эмодзи)
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает длинные строки (businessName > 100 chars)
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает специальные символы в email
+[telegram] CHANNEL_ID not set — notification not sent
+
+stderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает false в mock-режиме (без TELEGRAM_BOT_TOKEN)
+[telegram] CHANNEL_ID not set — notification not sent
+
+ ✓ src/lib/telegram-bot.test.ts (12 tests) 9ms
+stderr | src/lib/confectioner-gate.test.ts > checkConfectionerGate > возвращает not allowed при ошибке БД (fail-closed)
+[confectioner-gate] lookup failed: Connection refused
+
+ ✓ src/lib/confectioner-gate.test.ts (17 tests) 8ms
+ ✓ src/lib/cake-builder-pricing.test.ts (27 tests) 8ms
+stderr | src/lib/ai-dialogue-access.test.ts > assertDialoguePairAccess (IDOR-guard ai-dialogue) > FAIL-CLOSED: ошибка БД при проверке → 500 (не 403 и не пропуск)
+[ai-dialogue-access] confectioner lookup failed: connection refused
+
+ ✓ src/lib/ai-dialogue-access.test.ts (7 tests) 8ms
+ ✓ src/lib/ops/capacity.test.ts (14 tests) 7ms
+ ✓ src/lib/ops/deadline.test.ts (17 tests) 6ms
+ ✓ src/lib/payout-math.test.ts (13 tests) 6ms
+stderr | src/lib/courier-assignments.test.ts > getCourierOrderIds > возвращает пустой список при ошибке БД (fail-safe)
+[courier-assignments] fetch error: boom
+
+ ✓ src/lib/courier-assignments.test.ts (8 tests) 5ms
+ ✓ src/app/api/payment/webhook/route.test.ts (15 tests) 5ms
+ ✓ src/lib/supabase/use-marketplace.fillings.test.ts (6 tests) 5ms
+ ✓ src/lib/payout-complete-race.test.ts (4 tests) 3ms
+
+ Test Files  49 passed (49)
+      Tests  1011 passed (1011)
+   Start at  00:33:28
+   Duration  42.65s (transform 1.26s, setup 5.79s, import 2.80s, tests 1.31s, environment 27.03s)
+
+--- exit ---
+EXIT_CODE=0

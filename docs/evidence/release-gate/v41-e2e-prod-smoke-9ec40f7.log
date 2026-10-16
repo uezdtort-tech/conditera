@@ -1,0 +1,25 @@
+=== Release Gate v4.1 — Stage 4 — Step 5 (D-1r): prod-mode smoke on fresh bundle ===
+task_id: D-1r
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T01:12:20Z
+cmd: E2E_SERVER_MODE=prod bash scripts/e2e-one.sh smoke  (runner contract: MODE=${E2E_SERVER_MODE:-prod}; prod branch requires .next — built in step 4, exit 0)
+--- stats lines ---
+attempt-1: expected=4 unexpected=7 flaky=0 skipped=0 EXIT=1
+attempt-2 (gate artifact): expected=10 unexpected=1 flaky=0 skipped=0 EXIT=1
+--- attempt-1 failure record (honest, NOT masked) ---
+6/7 failures = 'browserType.launch: Executable doesn't exist ... chromium_headless_shell-1234' — Playwright browser cache
+had only revision -1200 while installed playwright expects v1234. Tooling/environment gap, NOT app behavior.
+Remediation: bunx playwright install chromium (Chrome Headless Shell 151.0.7922.34 v1234 downloaded, exit 0). Raw attempt-1 JSON overwritten by runner
+before copy; failure classification preserved here (stats line + per-test diagnosis extracted pre-overwrite: 6 launch errors + 1 health-status).
+--- attempt-2: single GENUINE FINDING (not masked, spec NOT modified) ---
+unexpected: 'health endpoint returns 200 OK' — expect(body.status).toBe('ok') FAILED: received "degraded" (HTTP 200).
+Root cause: commit 8cbf9c6 (v4.1 Этап 3.1) added the GoTrue reachability probe to /api/health with a PRODUCTION degradation gate:
+NODE_ENV=production + SUPABASE_URL configured + GoTrue unreachable (sandbox has no real Supabase; stub answers 501) → top-level status:"degraded".
+smoke.spec.ts:40 still asserts body.status === 'ok' — spec drift vs 8cbf9c6 behavior. This is exactly the 8cbf9c6 health-shape change the gate plan
+flagged as a risk: assertions are presence-based (would pass) but the VALUE contract changed in prod mode. Per instructions the spec was NOT
+edited to fit; the FAIL is recorded as a finding. Relation to documented conditions: with the full-stack Supabase compose (E2E_FULL_STACK
+condition, onboarding-flow.spec.ts:60 precedent) GoTrue would be reachable and status would return "ok" — the finding is environment-conditional,
+not a regression of app logic; auth_gotrue classification and fail-closed registration gate are functioning as designed.
+--- integrity ---
+sha256 smoke.prod.9ec40f7-run1.json: 8269991db137c54f…
+exit: attempt-1=1 / attempt-2=1 (single genuine finding)

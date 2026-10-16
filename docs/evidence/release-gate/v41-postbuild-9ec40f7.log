@@ -1,0 +1,20 @@
+=== Release Gate v4.1 — Stage 4 — Step 4 (D-1r): post-build managed restart + render check ===
+task_id: D-1r
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T01:09:51Z
+cmd: bash scripts/ensure-dev.sh ; curl /api/health ; curl / (h1+title) ; curl :3030/health
+--- ensure-dev stdout ---
+{"action":"started","pid":22011,"fingerprint":"766c8ee89480"}
+{"action":"started","pid":22031,"envLocalHash":"b7f1648add2f"}
+health: {"app":"ok","database":"ok","n8n":"ok","auth":"unreachable","status":"ok","service":"conditera","version":"2.0.0-dev","t
+--- post-build render check ---
+--- post-build render check UTC 01:09:15Z ---
+GET / : HTTP 200
+homepage <h1> present: <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+homepage <title>: <title>Уездный кондитер — маркетплейс кондитерских изделий</title>
+chat /health: 200
+route table rows: total=3 static(○)=1 dynamic(ƒ)=2
+port 3000: LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:(("next-server (v1",pid=22045,fd=22))
+port 3030: LISTEN 0      512                *:3030             *:*    users:(("bun",pid=22012,fd=100))           
+RESULT: managed stack restarted fresh (chat pid 22011 fp 766c8ee89480 / next pid 22031 envLocalHash b7f1648add2f); /api/health 200, GET / 200 with <h1> + title, chat /health 200.
+exit: 0

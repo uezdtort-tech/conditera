@@ -1,0 +1,19 @@
+=== Release Gate v4.1 — Stage 4 — Step 3 (D-1r): E2E fresh dev-mode runs ===
+task_id: D-1r
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T01:00:14Z
+cmd: E2E_SERVER_MODE=dev bash scripts/e2e-one.sh <spec>  (runner restarts stack in-call; artifact: /tmp/e2e/<spec>.json -> docs/evidence/e2e-v41/<spec>.dev.9ec40f7-run1.json)
+--- stats lines ---
+integration-auth-flow attempt-1: expected=9 unexpected=8 flaky=0 skipped=0 EXIT=1
+integration-auth-flow attempt-2 (gate run1): expected=17 unexpected=0 flaky=0 skipped=0 EXIT=0
+payment-webhook-idempotency (gate run1): expected=12 unexpected=0 flaky=0 skipped=0 EXIT=0
+--- attempt-1 failure record (honest, NOT masked) ---
+attempt-1 raw JSON was overwritten by the runner (/tmp/e2e/integration-auth-flow.json) before the copy step — raw bytes not recoverable;
+preserved here: stats line above + failure diagnosis extracted pre-overwrite: first failure 'GET /api/loyalty/partners' = 'socket hang up',
+then 7x 'connect ECONNREFUSED 127.0.0.1:3000' — dev server DIED mid-run during on-demand route compilation.
+Classification: sandbox OOM pattern documented in scripts/e2e-one.sh header (dev/Turbopack compiles on-demand; dmesg history
+'Out of memory: Killed process next-server'). Infrastructure failure, NOT a functional regression: 9/17 passed before the crash, all 17 passed on attempt-2.
+--- integrity ---
+sha256 integration-auth-flow.dev.9ec40f7-run1.json: 2ec92a202af83c8b…
+sha256 payment-webhook-idempotency.dev.9ec40f7-run1.json: 1961b363ea9f3894…
+exit: attempt-1=1 (infra OOM) / attempt-2=0 / payment-webhook=0

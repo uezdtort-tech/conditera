@@ -1,0 +1,49 @@
+=== Release Gate v4.1 — Stage 4 — Step 6: chat runtime verify ===
+task_id: D-1
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T00:34:29Z
+cmd: bun scripts/verify-chat-runtime.mjs
+--- output ---
+✅ preflight: /api/health 200 — status=200
+✅ preflight: chat-server /health — {"status":"ok","service":"conditera-chat-server","uptime":10459.405255686,"connections":0}
+✅ preflight: /api/csrf-token
+✅ login: customer/confectioner/admin
+✅ create direct room A↔B — status=200
+✅ create foreign room A↔C (для негативных кейсов)
+✅ create support room A — type=support
+✅ handshake: без токена отклонён — auth: token required
+✅ handshake: неверный токен отклонён — auth: unauthorized
+RUNTIME GATE CRASHED: 92 |     const timer = setTimeout(() => {
+93 |       socket.disconnect();
+94 |       reject(new Error("connect timeout"));
+95 |     }, 8000);
+96 |     socket.on("connect", () => { clearTimeout(timer); resolve(socket); });
+97 |     socket.on("connect_error", (err) => { clearTimeout(timer); socket.disconnect(); reject(Object.assign(new Error(err?.message || "connect_error"), { code: "CONNECT_ERROR", raw: err })); });
+                                                                                                                  ^
+error: auth: unauthorized
+ code: "CONNECT_ERROR"
+
+      at /home/z/my-project/scripts/verify-chat-runtime.mjs:97:110
+      at /home/z/my-project/node_modules/@socket.io/component-emitter/lib/cjs/index.js:143:20
+      at onpacket (/home/z/my-project/node_modules/socket.io-client/build/esm-debug/socket.js:520:22)
+      at /home/z/my-project/node_modules/@socket.io/component-emitter/lib/cjs/index.js:143:20
+      at /home/z/my-project/node_modules/socket.io-client/build/esm-debug/manager.js:336:18
+      at processTicksAndRejections (unknown:7:39)
+
+513 |             case PacketType.DISCONNECT:
+514 |                 this.ondisconnect();
+515 |                 break;
+516 |             case PacketType.CONNECT_ERROR:
+517 |                 this.destroy();
+518 |                 const err = new Error(packet.data.message);
+                                      ^
+error: auth: unauthorized
+ data: undefined,
+
+      at onpacket (/home/z/my-project/node_modules/socket.io-client/build/esm-debug/socket.js:518:33)
+      at /home/z/my-project/node_modules/@socket.io/component-emitter/lib/cjs/index.js:143:20
+      at /home/z/my-project/node_modules/socket.io-client/build/esm-debug/manager.js:336:18
+      at processTicksAndRejections (unknown:7:39)
+
+--- exit ---
+EXIT_CODE=2

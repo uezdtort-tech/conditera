@@ -1,0 +1,127 @@
+=== Release Gate v4.1 — Stage 4 — Step 6 (D-1r): sanity sweep ===
+task_id: D-1r
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T01:13:04Z
+cmd: node scripts/scan-evidence.mjs ; node scripts/verify/production-env-template.mjs ; node scripts/verify/e2e-tally-contract.mjs
+extra: scan-evidence.mjs on the 9 NEW v41 evidence/e2e-v41 files (pre-commit hygiene) — exit 0
+--- output ---
+--- scan-evidence (tracked files) ---
+=== EVIDENCE HYGIENE SCAN (redacted) ===
+scan target files: 87
+marker   docs/evidence/acceptance/U-01-register-login-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-02-rbac-roles-1362744.md : email-pii : real=0 synthetic=1 : lines=23 [REDACTED]
+marker   docs/evidence/acceptance/U-02-rbac-roles-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-03-buyer-chat-runtime-gate-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-03-runtime-gate-1362744.log : phone-pii : real=0 synthetic=9 : lines=11,15,16,18,21,23,32,34 [REDACTED]
+marker   docs/evidence/acceptance/U-04-support-chat-bot-secret-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-05-constructor-1362744-add-to-cart-auth-gate.png : phone-pii : real=0 synthetic=4 : lines=79,80,82,123 [REDACTED]
+marker   docs/evidence/acceptance/U-06-api-1362744-with-product.json : phone-pii : real=0 synthetic=1 : lines=1 [REDACTED]
+marker   docs/evidence/acceptance/U-06-api-1362744-with-slice.json : phone-pii : real=0 synthetic=1 : lines=1 [REDACTED]
+marker   docs/evidence/acceptance/U-06-api-1362744-without-product.json : phone-pii : real=0 synthetic=1 : lines=1 [REDACTED]
+marker   docs/evidence/acceptance/U-06-api-bbe286b-with-fillings.json : phone-pii : real=0 synthetic=1 : lines=2 [REDACTED]
+marker   docs/evidence/acceptance/U-06-fix-verification-bbe286b.md : phone-pii : real=0 synthetic=2 : lines=3,86 [REDACTED]
+marker   docs/evidence/acceptance/U-06-product-card-1362744.md : phone-pii : real=0 synthetic=9 : lines=30,31,46,48,59,61,132,138 [REDACTED]
+marker   docs/evidence/acceptance/U-07-checkout-order-idempotency-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-07-fix-idempotency-0bcb79a.md : phone-pii : real=0 synthetic=2 : lines=5,93 [REDACTED]
+marker   docs/evidence/acceptance/U-08-fix-shim-id-8e67d3b.md : email-pii : real=0 synthetic=1 : lines=106 [REDACTED]
+marker   docs/evidence/acceptance/U-08-fix-shim-id-8e67d3b.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-08-ticket-issue-form-1362744.md : email-pii : real=0 synthetic=1 : lines=22 [REDACTED]
+marker   docs/evidence/acceptance/U-08-ticket-issue-form-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-09-ticket-resubmit-visibility-1362744.md : email-pii : real=0 synthetic=2 : lines=20,22 [REDACTED]
+marker   docs/evidence/acceptance/U-09-ticket-resubmit-visibility-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-10-confectioner-cabinet-1362744.md : email-pii : real=0 synthetic=1 : lines=13 [REDACTED]
+marker   docs/evidence/acceptance/U-10-confectioner-cabinet-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-11-inventory-concurrency-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-12-fix-oversize-contract-b8bdcbf.md : email-pii : real=0 synthetic=1 : lines=43 [REDACTED]
+marker   docs/evidence/acceptance/U-12-fix-oversize-contract-b8bdcbf.md : phone-pii : real=0 synthetic=1 : lines=3 [REDACTED]
+marker   docs/evidence/acceptance/U-12-upload-general-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-13-upload-services-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-14-inventory-api-rbac-1362744.md : email-pii : real=0 synthetic=2 : lines=13,14 [REDACTED]
+marker   docs/evidence/acceptance/U-14-inventory-api-rbac-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-15-health-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/acceptance/U-16-prod-auth-config-1362744.md : phone-pii : real=0 synthetic=1 : lines=6 [REDACTED]
+marker   docs/evidence/e2e-tally/TALLY.md : email-pii : real=0 synthetic=1 : lines=136 [REDACTED]
+marker   docs/evidence/e2e-tally/TALLY.md : phone-pii : real=0 synthetic=3 : lines=112,136,193 [REDACTED]
+marker   docs/evidence/e2e-tally/full-flow.prod.json : phone-pii : real=0 synthetic=1 : lines=1307 [REDACTED]
+marker   docs/evidence/e2e-tally/payment-webhook-idempotency.prod.json : phone-pii : real=0 synthetic=1 : lines=546 [REDACTED]
+marker   docs/evidence/e2e-tally/regional-pricing.prod.json : phone-pii : real=0 synthetic=1 : lines=550 [REDACTED]
+marker   docs/evidence/e2e-tally/smoke.prod.json : phone-pii : real=0 synthetic=1 : lines=359 [REDACTED]
+marker   docs/evidence/e2e-tally/tally-contract-0fca2ac.json : phone-pii : real=0 synthetic=2 : lines=363,536 [REDACTED]
+marker   docs/evidence/e2e-tally/tally-contract-9f05fef.json : phone-pii : real=0 synthetic=2 : lines=363,536 [REDACTED]
+marker   docs/evidence/e2e-tally/tally-contract-ad787ed.json : phone-pii : real=0 synthetic=2 : lines=363,536 [REDACTED]
+marker   docs/evidence/release-gate/build-v4-ad787ed.log : phone-pii : real=0 synthetic=1 : lines=22 [REDACTED]
+marker   docs/evidence/release-gate/config-reverify-v41-7bcf817.md : supabase-service-role : real=0 synthetic=1 : lines=145 [REDACTED]
+marker   docs/evidence/release-gate/docker-engine-check-671f82a.txt : phone-pii : real=0 synthetic=4 : lines=19,20,21,23 [REDACTED]
+marker   docs/evidence/release-gate/docker-static-review.md : phone-pii : real=0 synthetic=1 : lines=3 [REDACTED]
+marker   docs/evidence/release-gate/e2e-tally-verify-7a8d878.txt : phone-pii : real=0 synthetic=9 : lines=8,9,10,11,12,13,14,15 [REDACTED]
+marker   docs/evidence/release-gate/evidence-hygiene-report-d6d5f9c.md : phone-pii : real=0 synthetic=1 : lines=16 [REDACTED]
+marker   docs/evidence/release-gate/final-report-v4-ad787ed.md : phone-pii : real=0 synthetic=1 : lines=21 [REDACTED]
+marker   docs/evidence/release-gate/process-cleanup-before-a0ace2c.txt : phone-pii : real=0 synthetic=21 : lines=4,5,6,7,8,9,10,11 [REDACTED]
+marker   docs/evidence/release-gate/process-env-sync-remediation-a0ace2c.log : phone-pii : real=0 synthetic=19 : lines=21,25,44,45,46,47,48,49 [REDACTED]
+marker   docs/evidence/release-gate/runtime-final-ad787ed.log : phone-pii : real=0 synthetic=9 : lines=11,15,16,18,21,23,32,34 [REDACTED]
+marker   docs/evidence/release-gate/runtime-verify-after-desync-fix-a0ace2c.log : phone-pii : real=0 synthetic=9 : lines=11,15,16,18,21,23,32,34 [REDACTED]
+marker   docs/evidence/release-gate/runtime-verify-pass-48-7a8d878.log : phone-pii : real=0 synthetic=9 : lines=11,15,16,18,21,23,32,34 [REDACTED]
+marker   docs/evidence/release-gate/static-v4-test-9f05fef.txt : phone-pii : real=0 synthetic=26 : lines=28,31,34,37,40,43,46,49 [REDACTED]
+marker   docs/evidence/release-gate/static-v4-verifiers-9f05fef.txt : phone-pii : real=0 synthetic=9 : lines=42,43,44,45,46,47,48,49 [REDACTED]
+marker   docs/evidence/release-gate/variant-b-check-a0ace2c.txt : phone-pii : real=0 synthetic=1 : lines=1 [REDACTED]
+=== SUMMARY ===
+real findings: 0
+synthetic-test-data markers: 190
+RESULT: no real secret/PII values detected in tracked evidence (synthetic markers only).
+scan-evidence EXIT=0
+--- scan-evidence (NEW v41 files, pre-commit hygiene) ---
+=== EVIDENCE HYGIENE SCAN (redacted) ===
+scan target files: 9
+marker   docs/evidence/e2e-v41/smoke.prod.9ec40f7-run1.json : phone-pii : real=0 synthetic=1 : lines=389 [REDACTED]
+marker   docs/evidence/release-gate/v41-chat-desync-fix-9ec40f7.log : phone-pii : real=0 synthetic=4 : lines=8,23,43,47 [REDACTED]
+marker   docs/evidence/release-gate/v41-postbuild-9ec40f7.log : phone-pii : real=0 synthetic=1 : lines=17 [REDACTED]
+marker   docs/evidence/release-gate/v41-runtime-9ec40f7.log : phone-pii : real=0 synthetic=9 : lines=18,22,23,25,28,30,39,41 [REDACTED]
+=== SUMMARY ===
+real findings: 0
+synthetic-test-data markers: 15
+RESULT: no real secret/PII values detected in tracked evidence (synthetic markers only).
+scan-evidence(new-files) EXIT=0
+--- production-env-template ---
+[compose]  docker-compose.yml: 6 required var(s): CRON_SECRET, JWT_SECRET, MEILI_MASTER_KEY, N8N_ADMIN_PASSWORD, POSTGRES_PASSWORD, SIMPLEX_BRIDGE_API_KEY
+[template] .env.production.example: 63 key(s)
+OK: контракт выполнен — все required-переменные присутствуют в шаблоне
+production-env-template EXIT=0
+--- e2e-tally-contract ---
+=== E2E TALLY CONTRACT VERIFIER (DEV-07 / TZ v4.0 §8.1) ===
+HEAD: 9ec40f7  |  артефактов: 15  |  групп по идентичности: 14
+
+--- Канонический (aggregated per-spec) tally ---
+spec                         mode  projects     passed fail flaky skip  artifact
+api-v2                      prod  chromium        37    0     0    0  api-v2.prod.json
+auth-flow                   prod  chromium        14    0     0    0  auth-flow.prod.json
+full-flow                   prod  chromium        36    0     0    0  full-flow.prod.json
+integration-auth-flow       dev   chromium        17    0     0    0  integration-auth-flow.dev.f28b090-run2.json
+onboarding-flow             prod  chromium         1    0     0    1  onboarding-flow.prod.json
+payment-webhook-idempotency dev   chromium        12    0     0    0  payment-webhook-idempotency.dev.json
+recipe-purchase-flow        prod  chromium         7    0     0    0  recipe-purchase-flow.prod.json
+regional-pricing            prod  chromium        13    0     0    0  regional-pricing.prod.json
+smoke                       prod  chromium        11    0     0    0  smoke.prod.json
+
+RECOMPUTED TOTALS: passed=148 failed=0 flaky=0 skipped=1 slots=149
+CANONICAL CLAIM:   passed=148 failed=0 flaky=0 skipped=1 slots=149
+
+--- Исключённые/диагностические артефакты (правила R1–R3) ---
+full-flow.dev-chunk1-OOM-evidence.json  [R1-oom-evidence]
+    — частичный прерванный dev-прогон, сохранённый как СВИДЕТЕЛЬСТВО OOM песочницы (dmesg SIGKILL next-server); самостоятельной суммарной ценности не несёт, не канонический прогон
+    stats: passed=8 failed=2 flaky=0 skipped=0
+integration-auth-flow.prod.json  [R3-non-canonical-mode-diagnostic]
+    — записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит
+    дубликаты (побайтно идентичны → один логический прогон): integration-auth-flow.early-prod.json
+    stats: passed=17 failed=0 flaky=0 skipped=0
+payment-webhook-idempotency.prod.json  [R3-non-canonical-mode-diagnostic]
+    — записанный режим «prod» ≠ designed-mode «dev» спека — диагностический прогон (см. TALLY.md «Режимы»), в суммы не входит
+    stats: passed=3 failed=1 flaky=0 skipped=8
+corroboration: integration-auth-flow — integration-auth-flow.dev.f28b090-run1.json (startTime 2026-10-15T18:02:46.573Z) — статистика совпадает с каноном
+corroboration: integration-auth-flow — integration-auth-flow.dev.json (startTime 2026-10-14T23:36:46.378Z) — статистика совпадает с каноном
+
+VERDICT vs CLAIM: PASS
+problems: 0 (идентичность, дубликаты, skip-аудит, полнота, TALLY.md-сверка — все проверки пройдены)
+machine-readable contract: docs/evidence/e2e-tally/tally-contract-9ec40f7.json
+e2e-tally-contract EXIT=0
+RESULT: all exits 0; tally contract VERDICT PASS, canonical claim 148/0/0/1/149 UNCHANGED by D-1r work (e2e-v41/ is outside the verifier scope: EVIDENCE_DIR=docs/evidence/e2e-tally hardcoded).
+note: verifier emitted machine-readable docs/evidence/e2e-tally/tally-contract-9ec40f7.json (new, untracked, not part of D-1r commit set).

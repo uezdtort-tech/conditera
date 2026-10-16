@@ -1,0 +1,53 @@
+=== v4.1 Stage 4 — Step 6 remediation: chat secret desync (DEV-04 lifecycle) ===
+task_id: D-1
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T00:36:01Z
+--- diagnosis (fingerprints only, no secret values) ---
+chat :3030 listener pid=1202
+chat env JWT fingerprint: e3b0c44298fc (sha256 of EMPTY = secret absent in process env)
+.env.local mtime: 2026-10-15 22:10:30.960403672 +0000 (regenerated AFTER chat start)
+current .env.local JWT fingerprint: e5f96af492ff
+--- ensure-dev.sh attempt (expected: DESYNC actionable, exit 2) ---
+DESYNC: port 3030 held by unmanaged PID 1202 with different/unreadable env. Verify it is yours, then: kill 1202 — or run: kill 1202 && node scripts/lib/dev-process-manager.mjs ensure-chat --port 3030
+[ensure] chat desync (exit 2) — действуй по сообщению выше
+ensure-dev EXIT_CODE=2
+
+=== v4.1 Stage 4 — Step 6 remediation EXECUTED (D-1r): stale chat killed, MANAGED restart, secrets re-synced ===
+task_id: D-1r
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T00:55:16Z
+note: PID 1202 was killed by the orchestrator during a tool-outage; D-1r re-inspected before any action (no double-start)
+--- execution log ---
+--- post-orchestrator-kill re-inspection (UTC 00:54:22Z) ---
+port 3030: FREE
+port 3000: LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:(("next-server (v1",pid=5430,fd=22))
+PID 1202: ALIVE
+state file: absent
+chat-server pkg dev script: "dev": "bun --hot index.ts"
+.env.local JWT_SECRET fingerprint (manager convention)=766c8ee89480
+--- bash scripts/ensure-dev.sh ---
+{"action":"started","pid":20163,"fingerprint":"766c8ee89480"}
+{"action":"ok-unmanaged-aligned-probe","pid":5430,"probeStatus":404}
+health: {"app":"ok","database":"ok","n8n":"ok","auth":"unreachable","status":"ok","service":"conditera","version":"2.0.0-dev","t
+ensure-dev EXIT_CODE=0
+--- post-state verification ---
+--- fingerprint triple-check + health (UTC 00:54:46Z) ---
+state.chat: pid=20163 fingerprint=766c8ee89480
+PID 20163: cwd=/home/z/my-project/mini-services/chat-server cmdline=bun run dev 
+PID 20163: env JWT_SECRET fingerprint=766c8ee89480
+.env.local fingerprint=766c8ee89480
+TRIPLE-CHECK: MATCH (766c8ee89480)
+chat /health HTTP: 200
+next /api/health HTTP: 200
+port 3030: LISTEN 0      512                *:3030             *:*    users:(("bun",pid=20164,fd=100))          
+port 3000: LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:(("next-server (v1",pid=5430,fd=22))
+--- fingerprint method note ---
+predecessor logged e5f96af492ff for .env.local: that is sha256 of the secret value WITH trailing newline
+(raw sed pipeline). Manager convention (ensure-dev.sh command substitution strips it) = 766c8ee89480,
+which is the value the manager fingerprints and what /proc env now holds. File unchanged (mtime 2026-10-15 22:10:30).
+RESULT: desync remediated — managed chat pid/pgid 20163 (child 20164 listens), fingerprint triple-check MATCH, chat /health 200, next /api/health 200.
+
+=== remediation note (D-1r): runtime re-verified after desync fix ===
+utc: 2026-10-16T00:56:26Z
+bun scripts/verify-chat-runtime.mjs -> exit 0, PASSED: 48/48 (full log: docs/evidence/release-gate/v41-runtime-9ec40f7.log)
+chat desync closed: managed chat pid 20163 fingerprint 766c8ee89480 == .env.local manager-convention fingerprint; attempt-1 failure fully remediated.

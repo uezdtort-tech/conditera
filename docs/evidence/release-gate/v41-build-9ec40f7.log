@@ -1,0 +1,732 @@
+=== Release Gate v4.1 — Stage 4 — Step 4 (D-1r): production build ===
+task_id: D-1r
+head_full: 9ec40f729bd0f58fa9b4cfe1306cc072f7264733
+utc: 2026-10-16T01:09:51Z
+cmd: bun run build  (after DEV-04 managed stop of chat pgid 20163 + next pgid 21370 by orchestrator; ports verified FREE pre-build)
+context: build on fresh checkout state; no dev/prod server running during build
+--- output ---
+--- post-orchestrator-stop verification UTC 01:06:33Z ---
+port 3000: FREE
+port 3030: FREE
+HEAD: 9ec40f7
+MemAvailable before build: 3277 MB
+--- bun run build ---
+$ next build
+▲ Next.js 16.3.5 (Turbopack)
+- Environments: .env.local, .env
+✓ Running next.config.ts took 30ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 53s
+  Running TypeScript ...
+✓ Finished writing to filesystem cache in 10.2s
+  Finished TypeScript in 41s ...
+  Collecting page data using 1 worker ...
+⚠️ TFA_ENCRYPTION_KEY не задана — dev-ключ. НЕ для production!
+  Generating static pages using 1 worker (0/233) ...
+  Generating static pages using 1 worker (58/233) 
+  Generating static pages using 1 worker (116/233) 
+  Generating static pages using 1 worker (174/233) 
+[sitemap] Supabase query failed, fallback to mock: TypeError: fetch failed
+✓ Generating static pages using 1 worker (233/233) in 8.5s
+Turbopack build encountered 12 warnings:
+./src/app/storage/v1/[...path]/route.ts:97:26
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m 95 |[0m         }
+  [90m 96 |[0m       }
+[33m[1m>[0m [90m 97 |[0m       [36mconst[0m data = [36mawait[0m fs.readFile(absPath);
+  [90m    |[0m                          [33m[1m^^^^^^^^^^^^^^^^^^^^[0m
+  [90m 98 |[0m       [36mconst[0m ext = path.extname(absPath).toLowerCase();
+  [90m 99 |[0m       [36mconst[0m mime = [33mMIME[0m[ext] || [32m"application/octet-stream"[0m;
+  [90m100 |[0m       [36mreturn[0m [36mnew[0m [33mNextResponse[0m(isPublicRead || req.method === [32m"GET"[0m ? [36mnew[0m [33mUint8Array[0m(data)...
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.readFile(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import trace:
+  App Route:
+    ./src/app/storage/v1/[...path]/route.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:47:8
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m45 |[0m
+  [90m46 |[0m   [90m// Ensure backup directory exists[0m
+[33m[1m>[0m [90m47 |[0m   [36mif[0m (!existsSync([33mBACKUP_DIR[0m)) {
+  [90m   |[0m        [33m[1m^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m48 |[0m     mkdirSync([33mBACKUP_DIR[0m, { recursive: [36mtrue[0m });
+  [90m49 |[0m   }
+  [90m50 |[0m
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:212:8
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m210 |[0m [90m */[0m
+  [90m211 |[0m [36mexport[0m [36masync[0m [36mfunction[0m cleanupOldBackups(): [33mPromise[0m<number> {
+[33m[1m>[0m [90m212 |[0m   [36mif[0m (!existsSync([33mBACKUP_DIR[0m)) [36mreturn[0m [35m0[0m;
+  [90m    |[0m        [33m[1m^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m213 |[0m
+  [90m214 |[0m   [36mconst[0m cutoff = [36mnew[0m [33mDate[0m();
+  [90m215 |[0m   cutoff.setDate(cutoff.getDate() - [33mBACKUP_RETENTION_DAYS[0m);
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:247:8
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m245 |[0m   }>
+  [90m246 |[0m > {
+[33m[1m>[0m [90m247 |[0m   [36mif[0m (!existsSync([33mBACKUP_DIR[0m)) [36mreturn[0m [];
+  [90m    |[0m        [33m[1m^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m248 |[0m
+  [90m249 |[0m   [36mconst[0m files = readdirSync([33mBACKUP_DIR[0m);
+  [90m250 |[0m   [36mreturn[0m files
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:217:17
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m215 |[0m   cutoff.setDate(cutoff.getDate() - [33mBACKUP_RETENTION_DAYS[0m);
+  [90m216 |[0m
+[33m[1m>[0m [90m217 |[0m   [36mconst[0m files = readdirSync([33mBACKUP_DIR[0m);
+  [90m    |[0m                 [33m[1m^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m218 |[0m   [36mlet[0m deleted = [35m0[0m;
+  [90m219 |[0m
+  [90m220 |[0m   [36mfor[0m ([36mconst[0m file [36mof[0m files) {
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.readdir(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:249:17
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m247 |[0m   [36mif[0m (!existsSync([33mBACKUP_DIR[0m)) [36mreturn[0m [];
+  [90m248 |[0m
+[33m[1m>[0m [90m249 |[0m   [36mconst[0m files = readdirSync([33mBACKUP_DIR[0m);
+  [90m    |[0m                 [33m[1m^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m250 |[0m   [36mreturn[0m files
+  [90m251 |[0m     .filter((f) => f.startsWith([32m"backup-"[0m))
+  [90m252 |[0m     .map((file) => {
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.readdir(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:223:21
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m221 |[0m     [36mconst[0m filepath = join([33mBACKUP_DIR[0m, file);
+  [90m222 |[0m     [36mtry[0m {
+[33m[1m>[0m [90m223 |[0m       [36mconst[0m stats = statSync(filepath);
+  [90m    |[0m                     [33m[1m^^^^^^^^^^^^^^^^^^[0m
+  [90m224 |[0m       [36mif[0m (stats.mtime < cutoff) {
+  [90m225 |[0m         unlinkSync(filepath);
+  [90m226 |[0m         deleted++;
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.statSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:254:21
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m252 |[0m     .map((file) => {
+  [90m253 |[0m       [36mconst[0m filepath = join([33mBACKUP_DIR[0m, file);
+[33m[1m>[0m [90m254 |[0m       [36mconst[0m stats = statSync(filepath);
+  [90m    |[0m                     [33m[1m^^^^^^^^^^^^^^^^^^[0m
+  [90m255 |[0m       [36mreturn[0m {
+  [90m256 |[0m         filename: file,
+  [90m257 |[0m         sizeBytes: stats.size,
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: fs.statSync(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:221:22
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m219 |[0m
+  [90m220 |[0m   [36mfor[0m ([36mconst[0m file [36mof[0m files) {
+[33m[1m>[0m [90m221 |[0m     [36mconst[0m filepath = join([33mBACKUP_DIR[0m, file);
+  [90m    |[0m                      [33m[1m^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m222 |[0m     [36mtry[0m {
+  [90m223 |[0m       [36mconst[0m stats = statSync(filepath);
+  [90m224 |[0m       [36mif[0m (stats.mtime < cutoff) {
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/backup.ts:253:24
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m251 |[0m     .filter((f) => f.startsWith([32m"backup-"[0m))
+  [90m252 |[0m     .map((file) => {
+[33m[1m>[0m [90m253 |[0m       [36mconst[0m filepath = join([33mBACKUP_DIR[0m, file);
+  [90m    |[0m                        [33m[1m^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m254 |[0m       [36mconst[0m stats = statSync(filepath);
+  [90m255 |[0m       [36mreturn[0m {
+  [90m256 |[0m         filename: file,
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/backup.ts
+    ./src/app/api/maintenance/history/route.ts
+
+  #2 [App Route]:
+    ./src/lib/backup.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/product-media/storage.ts:49:16
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m47 |[0m [90m */[0m
+  [90m48 |[0m [36mexport[0m [36mfunction[0m absMediaPath(relPath: string): string {
+[33m[1m>[0m [90m49 |[0m   [36mconst[0m root = path.resolve([33mSTORAGE_ROOT[0m);
+  [90m   |[0m                [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m50 |[0m   [36mconst[0m abs = path.resolve(root, relPath);
+  [90m51 |[0m   [36mif[0m (abs !== root && !abs.startsWith(root + path.sep)) {
+  [90m52 |[0m     console.warn(
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.resolve(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/products/[id]/media/route.ts
+
+  #2 [App Route]:
+    ./src/lib/product-media/storage.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+./src/lib/product-media/storage.ts:154:26
+Warning: Dynamic filesystem access causes tracing of the whole project
+  [90m152 |[0m [90m */[0m
+  [90m153 |[0m [36mexport[0m [36masync[0m [36mfunction[0m ensureProductDirs(productId: string): [33mPromise[0m<[36mvoid[0m> {
+[33m[1m>[0m [90m154 |[0m   [36mconst[0m base = path.join(path.resolve([33mSTORAGE_ROOT[0m), [32m"products"[0m, productId);
+  [90m    |[0m                          [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+  [90m155 |[0m   [36mawait[0m [33mPromise[0m.all([
+  [90m156 |[0m     fsp.mkdir(path.join(base, [32m"pending"[0m, [32m"photos"[0m), { recursive: [36mtrue[0m }),
+  [90m157 |[0m     fsp.mkdir(path.join(base, [32m"pending"[0m, [32m"videos"[0m), { recursive: [36mtrue[0m }),
+
+Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+This can slow down deployments or lead to failures when size limits are exceeded.
+To resolve this, you can
+- make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+- only use them in development, or
+- opt out by adding an ignore comment to the highlighted call: path.resolve(/*turbopackIgnore: true*/ ...), or
+- remove them.
+
+Import traces:
+  #1 [App Route]:
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/products/[id]/media/route.ts
+
+  #2 [App Route]:
+    ./src/lib/product-media/storage.ts
+    ./src/lib/product-media/storage.ts
+    ./src/app/api/product-media/[mediaId]/route.ts
+
+
+  Finalizing page optimization ...
+
+Route (app)                                  Revalidate  Expire
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /about
+├ ƒ /api/admin/confectioners/approve
+├ ƒ /api/admin/confectioners/pending
+├ ƒ /api/admin/confectioners/reject
+├ ƒ /api/admin/dashboard
+├ ƒ /api/admin/fraud-monitor
+├ ƒ /api/admin/payouts
+├ ƒ /api/admin/product-media
+├ ƒ /api/admin/promo-popup
+├ ƒ /api/ai-assistant/chat
+├ ƒ /api/ai-assistant/conversations
+├ ƒ /api/ai-assistant/conversations/[id]
+├ ƒ /api/ai-assistant/feedback
+├ ƒ /api/ai-cake-finder
+├ ƒ /api/ai-dialogue/context
+├ ƒ /api/ai-dialogue/learn
+├ ƒ /api/ai-dialogue/respond
+├ ƒ /api/ai/ask
+├ ƒ /api/ai/compare
+├ ƒ /api/ai/search
+├ ƒ /api/auth/2fa/disable
+├ ƒ /api/auth/2fa/login-verify
+├ ƒ /api/auth/2fa/setup
+├ ƒ /api/auth/2fa/verify
+├ ƒ /api/auth/callback
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/oauth/[provider]
+├ ƒ /api/auth/oauth/[provider]/callback
+├ ƒ /api/auth/oauth/handoff
+├ ƒ /api/auth/refresh
+├ ƒ /api/auth/register
+├ ƒ /api/auth/session
+├ ƒ /api/b2b/catalog
+├ ƒ /api/b2b/orders
+├ ƒ /api/builder/config
+├ ƒ /api/builder/decor-shops
+├ ƒ /api/builder/partners
+├ ƒ /api/certification/applications
+├ ƒ /api/certification/applications/[id]
+├ ƒ /api/certification/confectioner/[id]
+├ ƒ /api/channel/auto-post
+├ ƒ /api/channel/follow
+├ ƒ /api/channel/posts
+├ ƒ /api/channel/posts/[id]
+├ ƒ /api/channel/posts/[id]/moderate
+├ ƒ /api/channel/stories
+├ ƒ /api/chat/auto-reply
+├ ƒ /api/chat/bot-trigger
+├ ƒ /api/chat/rooms
+├ ƒ /api/chat/rooms/[id]
+├ ƒ /api/chat/rooms/[id]/bot-message
+├ ƒ /api/chat/rooms/[id]/messages
+├ ƒ /api/chat/rooms/[id]/read
+├ ƒ /api/checkout
+├ ƒ /api/cms/banners
+├ ƒ /api/cms/media
+├ ƒ /api/cms/pages
+├ ƒ /api/cms/pages/[slug]
+├ ƒ /api/cms/settings
+├ ƒ /api/confectioner/atelier
+├ ƒ /api/confectioner/capabilities
+├ ƒ /api/confectioner/onboarding
+├ ƒ /api/confectioner/portfolio
+├ ƒ /api/confectioner/predictions
+├ ƒ /api/confectioner/recipe-acceptances
+├ ƒ /api/confectioner/recipe-stats
+├ ƒ /api/confectioner/resubmit
+├ ƒ /api/confectioner/scale
+├ ƒ /api/confectioner/status
+├ ƒ /api/confectioners
+├ ƒ /api/copywriter/tasks
+├ ƒ /api/copywriter/tasks/[id]
+├ ƒ /api/courier/assign
+├ ƒ /api/courier/available-orders
+├ ƒ /api/courier/dashboard
+├ ƒ /api/courier/deliveries
+├ ƒ /api/courier/earnings
+├ ƒ /api/courier/location
+├ ƒ /api/crm/customers/[id]
+├ ƒ /api/crm/leads
+├ ƒ /api/crm/leads/[id]
+├ ƒ /api/crm/tickets
+├ ƒ /api/crm/tickets/[id]
+├ ƒ /api/crm/tickets/[id]/messages
+├ ƒ /api/cron/abandoned-cart
+├ ƒ /api/cron/auto-approve
+├ ƒ /api/cron/backup
+├ ƒ /api/cron/certification-reminders
+├ ƒ /api/cron/cleanup
+├ ƒ /api/cron/escrow-release
+├ ƒ /api/cron/expiring-bonuses
+├ ƒ /api/cron/franchisee-reports
+├ ƒ /api/cron/holiday-reminders
+├ ƒ /api/cron/payment-reminders
+├ ƒ /api/cron/pp-certification-check
+├ ƒ /api/cron/quality-inspections
+├ ƒ /api/cron/review-analysis
+├ ƒ /api/cron/sitemap-refresh
+├ ƒ /api/cron/status
+├ ƒ /api/cron/subscriptions
+├ ƒ /api/cron/taster-assignment
+├ ƒ /api/cron/user-reenagement
+├ ƒ /api/cron/weekly-digest
+├ ƒ /api/csrf-token
+├ ƒ /api/decor/products
+├ ƒ /api/email/health
+├ ƒ /api/email/inbound
+├ ƒ /api/email/list
+├ ƒ /api/events
+├ ƒ /api/events/[id]
+├ ƒ /api/events/[id]/applications
+├ ƒ /api/events/[id]/apply
+├ ƒ /api/events/[id]/assign
+├ ƒ /api/fillings/[id]
+├ ƒ /api/fillings/[id]/slice
+├ ƒ /api/fillings/ai-generate-slice
+├ ƒ /api/fillings/create
+├ ƒ /api/fillings/list
+├ ƒ /api/fillings/moderate
+├ ƒ /api/franchise-exchange/agreements
+├ ƒ /api/franchise-exchange/buy
+├ ƒ /api/franchise-exchange/listing/[id]
+├ ƒ /api/franchise-exchange/listings
+├ ƒ /api/franchise-exchange/transfer
+├ ƒ /api/franchisee/confectioners
+├ ƒ /api/franchisee/reports
+├ ƒ /api/franchisee/stats
+├ ƒ /api/gamification/badges
+├ ƒ /api/gamification/challenges
+├ ƒ /api/gamification/challenges/[id]/claim
+├ ƒ /api/health
+├ ƒ /api/holidays
+├ ƒ /api/inquiries
+├ ƒ /api/inspector/[id]
+├ ƒ /api/inspector/confectioner/[id]
+├ ƒ /api/inspector/schedule
+├ ƒ /api/inventory/items
+├ ƒ /api/inventory/movements
+├ ƒ /api/inventory/write-off
+├ ƒ /api/lessons
+├ ƒ /api/lessons/[id]/enroll
+├ ƒ /api/live-streams
+├ ƒ /api/live-streams/[id]/chat
+├ ƒ /api/live-streams/[id]/join
+├ ƒ /api/live-streams/[id]/like
+├ ƒ /api/loyalty/cross-actions
+├ ƒ /api/loyalty/history
+├ ƒ /api/loyalty/levels
+├ ƒ /api/loyalty/partners
+├ ƒ /api/loyalty/partners/[id]
+├ ƒ /api/loyalty/redeem
+├ ƒ /api/maintenance/history
+├ ƒ /api/map/confectioners
+├ ƒ /api/moderation/queue
+├ ƒ /api/moderation/queue/[id]
+├ ƒ /api/moderation/report
+├ ƒ /api/moderation/rules
+├ ƒ /api/moderation/rules/[id]
+├ ƒ /api/moderation/stats
+├ ƒ /api/moderator/action
+├ ƒ /api/moderator/queue
+├ ƒ /api/negotiations/[id]
+├ ƒ /api/notifications
+├ ƒ /api/notifications/list
+├ ƒ /api/notifications/mark-read
+├ ƒ /api/notifications/preferences
+├ ƒ /api/notifications/push-subscribe
+├ ƒ /api/notifications/send
+├ ƒ /api/notifications/subscribe
+├ ƒ /api/notifications/unread-count
+├ ƒ /api/notifications/vapid-key
+├ ƒ /api/nutritionist/certify
+├ ƒ /api/nutritionist/products
+├ ƒ /api/nutritionist/recommendations
+├ ƒ /api/operator/assign
+├ ƒ /api/operator/escalations
+├ ƒ /api/operator/messages
+├ ƒ /api/operator/resolve
+├ ƒ /api/ops/confectioner-today
+├ ƒ /api/ops/orders-today
+├ ƒ /api/ops/summary
+├ ƒ /api/ops/tasks
+├ ƒ /api/ops/tasks/[taskId]
+├ ƒ /api/order-media/[mediaId]
+├ ƒ /api/orders
+├ ƒ /api/orders/[id]
+├ ƒ /api/orders/[id]/accept
+├ ƒ /api/orders/[id]/acceptance-check
+├ ƒ /api/orders/[id]/assign
+├ ƒ /api/orders/[id]/breakdown
+├ ƒ /api/orders/[id]/cancel
+├ ƒ /api/orders/[id]/capacity
+├ ƒ /api/orders/[id]/complete
+├ ƒ /api/orders/[id]/handoff
+├ ƒ /api/orders/[id]/lifecycle
+├ ƒ /api/orders/[id]/media
+├ ƒ /api/orders/[id]/production/complete
+├ ƒ /api/orders/[id]/production/start
+├ ƒ /api/orders/[id]/purchase-draft
+├ ƒ /api/orders/[id]/ready
+├ ƒ /api/orders/[id]/reassign
+├ ƒ /api/orders/[id]/repeat
+├ ƒ /api/orders/[id]/timeline
+├ ƒ /api/orders/availability
+├ ƒ /api/organization/cron-recheck
+├ ƒ /api/organization/history
+├ ƒ /api/organization/suggest
+├ ƒ /api/organization/verify
+├ ƒ /api/payment/create
+├ ƒ /api/payment/refund
+├ ƒ /api/payment/webhook
+├ ƒ /api/payouts/request
+├ ƒ /api/pickup-point/assign
+├ ƒ /api/pickup-point/confirm
+├ ƒ /api/pickup-point/inventory
+├ ƒ /api/pickup-point/orders
+├ ƒ /api/pricing/regional
+├ ƒ /api/product-media/[mediaId]
+├ ƒ /api/products
+├ ƒ /api/products/[id]
+├ ƒ /api/products/[id]/completeness
+├ ƒ /api/products/[id]/media
+├ ƒ /api/products/[id]/media/[mediaId]
+├ ƒ /api/products/[id]/media/reorder
+├ ƒ /api/products/[id]/similar
+├ ƒ /api/products/[id]/slice-3d-config
+├ ƒ /api/products/[id]/slices
+├ ƒ /api/products/ai-description
+├ ƒ /api/products/ai-photo
+├ ƒ /api/profile
+├ ƒ /api/profile/addresses
+├ ƒ /api/profile/avatar
+├ ƒ /api/profile/delete
+├ ƒ /api/profile/email
+├ ƒ /api/profile/password
+├ ƒ /api/promotions
+├ ƒ /api/purchase-drafts/[id]
+├ ƒ /api/quotes
+├ ƒ /api/quotes/[id]/respond
+├ ƒ /api/recipes/[id]/accept
+├ ƒ /api/recipes/[id]/acceptances
+├ ƒ /api/recipes/marketplace
+├ ƒ /api/recipes/marketplace/[id]
+├ ƒ /api/recipes/marketplace/[id]/purchase
+├ ƒ /api/recommendations
+├ ƒ /api/reviews
+├ ƒ /api/search
+├ ƒ /api/search/health
+├ ƒ /api/search/reindex
+├ ƒ /api/services
+├ ƒ /api/services/[id]
+├ ƒ /api/services/bookings
+├ ƒ /api/services/upload
+├ ƒ /api/settings/promo-popup
+├ ƒ /api/simplex/contacts
+├ ƒ /api/simplex/incoming
+├ ƒ /api/simplex/read
+├ ƒ /api/simplex/send
+├ ƒ /api/simplex/support-address
+├ ƒ /api/slice/export-png
+├ ƒ /api/stories
+├ ƒ /api/stories/[id]/like
+├ ƒ /api/stories/[id]/reply
+├ ƒ /api/stories/[id]/view
+├ ƒ /api/subscriptions
+├ ƒ /api/supplier/dashboard
+├ ƒ /api/supplier/products
+├ ƒ /api/supplier/warehouse
+├ ƒ /api/taster/sessions
+├ ƒ /api/taster/sessions/[id]
+├ ƒ /api/team/events
+├ ƒ /api/team/members
+├ ƒ /api/team/tasks
+├ ƒ /api/telegram/setup-webhook
+├ ƒ /api/telegram/webapp
+├ ƒ /api/telegram/webhook
+├ ƒ /api/tenders
+├ ƒ /api/tenders/[id]
+├ ƒ /api/tenders/[id]/bid
+├ ƒ /api/upload
+├ ƒ /api/venues
+├ ƒ /api/venues/[id]
+├ ƒ /api/venues/[id]/book
+├ ƒ /api/venues/[id]/bookings
+├ ƒ /api/venues/[id]/bookings/[bookingId]
+├ ƒ /api/venues/bookings
+├ ƒ /api/video-feed
+├ ƒ /api/video-feed/[videoId]/like
+├ ƒ /api/visual-search
+├ ƒ /api/webhooks/n8n
+├ ƒ /api/wishlist
+├ ƒ /auth/callback
+├ ○ /auth/reset-password
+├ ƒ /auth/v1/[...path]
+├ ○ /blog
+├ ○ /cake-builder
+├ ○ /catalog
+├ ○ /checkout
+├ ○ /checkout/success
+├ ○ /confectioners
+├ ƒ /confectioners/[slug]
+├ ○ /contacts
+├ ○ /corporate-events
+├ ○ /dashboard
+├ ○ /decor-shop
+├ ○ /faq
+├ ○ /for-confectioners
+├ ○ /for-suppliers
+├ ○ /gift-certificates
+├ ○ /help
+├ ƒ /login
+├ ○ /oauth/finish
+├ ○ /product
+├ ○ /promotions
+├ ○ /ready-made
+├ ƒ /recipes
+├ ƒ /rest/v1/[...path]
+├ ○ /reviews
+├ ○ /robots.txt
+├ ○ /services-shop
+├ ○ /sitemap.xml                                     1m      1y
+├ ƒ /storage/v1/[...path]
+├ ○ /supplier-shop
+├ ○ /telegram
+├ ○ /telegram-bot
+├ ○ /tenders
+└ ○ /venues
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+build EXIT_CODE=0 duration=109s
+
+METRIC: build exit=0 duration=109s; route-table rows containing ○/ƒ/●: 334 (incl. 3 legend rows) → 331 page/route entries
+exit: 0
