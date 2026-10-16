@@ -40,10 +40,15 @@ const RULES = [
 
 // Synthetic test-data markers that downgrade a finding to "synthetic" when the
 // LINE context clearly indicates generated fixtures.
+// The last entry recognizes the hygiene workflow's own redaction marker
+// ([REDACTED BY C-N HYGIENE]): a line carrying it was already sanitized by a
+// C-task redaction, so name-based rules (which match the variable NAME, e.g.
+// SUPABASE_SERVICE_ROLE_KEY, regardless of value) must not re-fail the gate.
 const SYNTHETIC_CONTEXT = [
   /e2e[-_.]/i, /@example\./i, /\.test\b/i, /\.test\./i, /test[-_]?user/i,
   /fixture/i, /synthetic/i, /placeholder/i, /example\.com/i, /conditera\.test/i,
   /e2e_\d+/i, /run[_-]?\d+/i, /\+7999\d{7}/, /79990000000/,
+  /\[REDACTED BY C-\d+ HYGIENE\]/,
 ];
 
 function classifyLine(line, ruleSev) {

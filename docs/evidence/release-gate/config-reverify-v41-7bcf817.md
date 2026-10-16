@@ -142,7 +142,7 @@ verifier **exit 0**:
 $ rg -n "^[A-Z0-9_]*(KEY|SECRET|PASSWORD|TOKEN|SALT)[A-Z0-9_]*=.+" .env.production.example
 16:POSTGRES_PASSWORD=CHANGE_ME_STRONG_PASSWORD
 20:NEXT_PUBLIC_SUPABASE_ANON_KEY=CHANGE_ME_REAL_ANON_KEY
-21:SUPABASE_SERVICE_ROLE_KEY=CHANGE_ME_REAL_SERVICE_ROLE_KEY
+21:SUPABASE_SERVICE_ROLE_KEY=[REDACTED BY C-3 HYGIENE]
 34:MEILI_MASTER_KEY=CHANGE_ME_STRONG_MEILI_KEY_32_CHARS
 46:N8N_API_KEY=CHANGE_ME_N8N_API_KEY_32_CHARS
 49:N8N_ADMIN_PASSWORD=CHANGE_ME_STRONG_N8N_ADMIN_PASSWORD_24CHARS
@@ -158,6 +158,7 @@ $ rg -n "^[A-Z0-9_]*(KEY|SECRET|PASSWORD|TOKEN|SALT)[A-Z0-9_]*=.+" .env.producti
 $ rg "…=.+" .env.production.example | rg -v "CHANGE_ME"   # непустые секреты НЕ от CHANGE_ME
 → 0 строк (exit 1)
 ```
+> Значение-плейсхолдер (CHANGE_ME…, заглушка из .env.production.example, не реальный секрет) заменено маркером [REDACTED BY C-3 HYGIENE] (redacted by hygiene scan C-3)
 
 - Все 14 **непустых** secret-класс значений начинаются с `CHANGE_ME`;
   `DATABASE_URL` (:15) содержит инлайн `…:CHANGE_ME_STRONG_PASSWORD@…`;
