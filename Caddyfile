@@ -94,9 +94,18 @@ conditera.ru, www.conditera.ru {
                 }
         }
 
-        # n8n (вебхуки автоматизации) — защищён basic auth внутри n8n
+        # n8n (вебхуки автоматизации) — защищён basic auth внутри n8n.
+        # v4.6: та же политика доверенного X-Real-IP, что для web/chat —
+        # n8n пишет client IP в логи/execution data; без перезаписи клиент
+        # подделывал бы заголовок в журналах автоматизации.
         handle /n8n/* {
-                reverse_proxy n8n:5678
+                reverse_proxy @loopback_peer n8n:5678 {
+                        header_up X-Real-IP {header.CF-Connecting-IP}
+                }
+                reverse_proxy n8n:5678 {
+                        header_up X-Real-IP {remote_host}
+                        header_up -CF-Connecting-IP
+                }
         }
 
         # Health-check endpoint для Cloudflare Tunnel / UptimeRobot
