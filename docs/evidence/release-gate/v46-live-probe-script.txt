@@ -26,7 +26,7 @@ async function attempt(ip, body, label) {
 
 const regBody = (i) => ({
   email: `probe${Date.now()}-${i}@probe.example`,
-  password: 'Probe-Not-A-Real-User-1!',
+  password: '<probe-password-redacted>', // [REDACTED BY V46 HYGIENE]
   name: 'PROBE',
   userType: 'customer',
 })

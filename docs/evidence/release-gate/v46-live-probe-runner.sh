@@ -18,12 +18,12 @@ sleep 1
 # 2) standalone server
 cd .next/standalone
 env PORT=3000 HOSTNAME=127.0.0.1 \
-  JWT_SECRET="ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa" \
+  JWT_SECRET="<ci-parity-dummy-redacted>" \ # [REDACTED BY V46 HYGIENE]
   JWT_REFRESH_SECRET="$(openssl rand -hex 32)" \
-  TFA_ENCRYPTION_KEY="ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa" \
-  CRON_SECRET="ci_test_cron_secret" \
+  TFA_ENCRYPTION_KEY="<ci-parity-dummy-redacted>" \
+  CRON_SECRET="<ci-parity-dummy-redacted>" \ # [REDACTED BY V46 HYGIENE]
   NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:54321" \
-  SUPABASE_SERVICE_ROLE_KEY="stub-service-role" \
+  SUPABASE_SERVICE_ROLE_KEY="<stub-redacted>" \ # [REDACTED BY V46 HYGIENE]
   IP_HASH_SALT="probe-salt" \
   NODE_ENV=production node server.js >> /home/z/my-project/.probe-tmp/standalone.log 2>&1 &
 SRV_PID=$!
