@@ -8992,3 +8992,22 @@ Stage Summary:
 - READY FOR OWNER REVIEW; PRODUCTION-READY: NO (CI на опубликованном кандидате, Docker-гейт, test-restore backup, OWNER-топология ingress/auth — вне sandbox)
 - daily anti-fraud live не доказуем за разумное время (часовой short-circuit) — unit-only, код-путь общий с hourly; честно в отчёте
 - временные probe-артефакты удалены (.probe-tmp), harness/scripts/raw сохранены в evidence; история не переписывалась, только добавления
+
+---
+Task ID: v4.6-resume-final
+Agent: Z.ai Code (main)
+Task: ЭТАП 1-7 директивы восстановления v4.6 — фактический checkpoint, drift #11, daily-live + fresh-bucket concurrency live-пробы, финальные гейты на текущем SHA, коммиты, финальный checkpoint.
+
+Work Log:
+- ЭТАП 1: HEAD на старте=b3c0b83 (main, дерево ЧИСТОЕ; 3 коммита прошлой сессии в истории: 2882103/4551b8e/0c92b59; отчёт+checklist+worklog на месте; origin/main=8454b3a не менялся). DRIFT #11: UUID-автокоммит b3c0b83 («716db127-…») захватил повторное удаление 4 красных upload-файлов → patch сохранён ДО (drift11-upload-deletion-b3c0b83.patch, sha256 c801fbaf…, копия в evidence) → точечный checkout b3c0b83^ -- 4 пути → блобы бит-в-бит 4/4 (cb23e5dd766b/06b49c3c3f22/f6c52a424b0d/ec9f8efcb663) → upload-тесты 15/15 → коммит 8db8a4d
+- ЭТАП 2 (live, production build 8db8a4d3 BUILD_ID Q2N7dMttmH8O8Zvz4YtxP, standalone :3100, dev :3000 не тронут, изолированный in-memory эмулятор 54321): ВСЕ 6 СЕКЦИЙ PASS — hourly 400×3→429+RA:3600, независимый IP 400; DAILY (впервые live): сид 9 попыток (теперь-22ч…-6ч, шаг 2ч → в любом 60-мин окне ≤1 сид-строка) → 10-я 400 (прошла: daily=10≤10) → 11-я 429+RA:86400+«суточный лимит» — точная граница 10/11 живым роутом; конкурентность на СВЕЖИХ бакетах 6×2 IP одновременно → прошло 0/6 и 1/6 (контракт ≤3, insert-first консервативизм, статусы строго {400,429}); изоляция: 28 строк / 0 чужих / арифметика 4+1+11+6+6 сходится; узкая очистка по ip_hash: удалено 28, остаток 0; отказ БД (shutdown эмулятора) → 400 НЕ 429 — fail-open live
+- ЭТАП 3: Caddyfile static: 11 header_up X-Real-IP, двухветвевая схема во ВСЕХ HTTP reverse_proxy (вкл. n8n), 6× -CF-Connecting-IP, @loopback_peer; compose 3000/6432/7700/8081 → 127.0.0.1; smp:5223 — TCP вне HTTP-цепочки; production-топология — BLOCKED/OWNER
+- ЭТАП 4: ci.yml static PASS (7 jobs, docker-build на PR, CANDIDATE_SHA=PR-head||push, exported-FS scan, evidence-hygiene job); Docker Engine NOT FOUND на 8db8a4d3 → BLOCKED; pre-commit сканер ЗАБЛОКИРОВАЛ коммит 2 (dummy postgres://user:pass@host из fixture http-helpers) → штатная редакция <redacted-conn-string> + [REDACTED BY V46 HYGIENE], правила НЕ ослаблены
+- ЭТАП 5: typecheck 0, lint 0, vitest 1056/1056 (54 файла), hygiene real 0/synthetic 407, verifier 14/14, env-template OK, YAML OK, caddyfile static PASS, production build exit 0 на 8db8a4d3 (первая попытка Killed OOM — разросшийся dev 1.56GB остановлен точечно; результат НЕ переписан в PASS; повтор успешен); src/-эквивалентность vs 0c97000: только 2 тест-файла, 0 runtime
+- ЭТАП 6: коммиты 8db8a4d (восстановление+drift11-патч), e951177 (evidence 15 файлов), финальный (отчёт §12 + worklog); отчёт: §3 daily ЗАКРЫТО, §10 риски, §11 вердикт, новый §12
+- ЭТАП 7: финальный checkpoint — status/diff --check/log/ls-remote; push/PR/merge/deploy НЕ выполнялись
+
+Stage Summary:
+- READY FOR OWNER REVIEW; PRODUCTION-READY: NO (CI на опубликованном кандидате, Docker-гейт, test-restore backup, OWNER-топология ingress/auth — вне sandbox)
+- Два известных live-пробела anti-fraud ЗАКРЫТЫ live-доказательствами; drift #11 восстановлен бит-в-бит; OOM-инцидент задокументирован честно
+- Evidence: docs/evidence/release-gate/v46r-*-8db8a4d3.*; синтетика: 203.0.113.0/24, IP_HASH_SALT=probe-salt, очистка 28/28
