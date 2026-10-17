@@ -8969,3 +8969,26 @@ Stage Summary:
 - READY FOR OWNER REVIEW; публичный production: NO-GO до закрытия P0 (эхо директивы)
 - коммиты: c408a20 (anti-fraud revert), 509c4e3 (CI docker-гейт на PR + compose + secret-gate + evidence-hygiene), 8f9d970 (webhook HTTP-регрессии + истёкший токен), docs — отчёт RELEASE-GATE-v4.5-REPORT.md
 - блокеры (владелец/среда): публикация→PR→CI, auth-провайдер OWNER DECISION, U-06 контент, backup/rollback/мониторинг, UI-форма возврата (добавить E2E или исключить), письменное согласование рисков
+
+---
+Task ID: v4.6-resume-completion
+Agent: Z.ai Code (main)
+Task: восстановление прерванного Release Gate v4.6 — DEV-00..DEV-09: сохранение работы, доверенная IP-схема, hourly/daily anti-fraud, CI/Docker-гейты, live-проба, production build, rollback-checklist, отчёт.
+
+Work Log:
+- DEV-00: HEAD на старте=0c97000 (НЕ 8e66f17 — автоснимок прошлой сессии уже в истории: 9f20f60+0c97000, ревизия содержимого подтвердила сохранность 6 файлов v4.6); origin/main=8454b3a, ahead 85/0; drift #10 = 4 unstaged-удаления upload-маршрутов → patch сохранён ДО (/tmp/conditera-v46-preflight-0c97000.patch sha256 416c03d1… + копия в evidence) → точечный git checkout HEAD 4 путей → SHA-256 бит-в-бит 4/4; индекс был пуст; checkpoint-файл прошлой сессии отсутствует (заменён autosnapshot-патчем)
+- DEV-01: цепочка traced по коду (extractIp/getClientIP: x-real-ip → cf-connecting-ip → XFF tail(TRUSTED_PROXY_HOPS)); топологии A (прямой: {remote_host}+удаление CF-Connecting-IP) и B (tunnel: @loopback_peer → CF-Connecting-IP); ложная тревога «сломанный branches: [main, develop]» (sed-артефакт отображения — Read подтвердил корректность, YAML js-yaml OK 7 jobs); ИСПРАВЛЕНО: n8n-блок без перезаписи → двухветвевая схема; НОВЫЙ ingress-trust.test.ts 14 тестов (loopback-bindings, запрет голых 0.0.0.0, header_up во всех web/chat reverse_proxy, парность -CF-Connecting-IP, hops 1/2/overflow); caddy validate локально запрещён песочницей (бинарь есть, exec нет) → CI job; OWNER-условие: подтвердить cloudflared→Caddy:80 на сервере
+- DEV-02: контракт 3/час+10/24ч зафиксирован тестами на макете с реальным подсчётом: 1-3 allowed/4-я 429; 10 allowed/11-я суточный; 60м01с rolling; атака 5/ч×5ч=25>20 закрыта; конкурентность: 6 параллельных → ≤3 (insert-first), независимые бакеты, mixed; fail-open документирован (не эксплуатируем — регистрация сама требует БД); Retry-After во всех callers; review в LIMITS мёртвый конфиг (безвредно)
+- DEV-03: ci.yml static PASS (CANDIDATE_SHA=PR-head||push, checkout ref, verify-SHA шаг, compose config, load:true×3, inspect+history+НОВЫЙ exported-FS secret scan, evidence-hygiene); реальные выполнения CI — BLOCKED (нет публикации)
+- DEV-04: Docker BLOCKED пере-подтверждён на 0c97000 (CLI/socket нет, evidence); движок не устанавливался
+- DEV-05: ЗАКЛИНИВШИЙ dev (95% CPU, 1.78GB RSS, 20мин) остановлен точечно по PID; production build exit 0 (BUILD_ID LMvG5s5ZS4FnMlYx83mgs) → standalone + supabase REST-emulator (head:true = HEAD-запросы count — найдено и учтено в harness); sandbox реапит фоновые процессы между вызовами → весь цикл (сервер+проба+kill) в одной shell-сессии; РЕЗУЛЬТАТ: hourly 1-3→400 / 4-я→429+Retry-After:3600; другой IP не затронут; forged x-real-ip задокументирован (свежий бакет); burst 6×→все 429; catalog 200; health 503 fail-closed; dev восстановлен штатным dev-watchdog.sh
+- DEV-06: полный vitest 1056/1056 (54 файла), typecheck 0, lint 0, build exit 0, hygiene×3 exit 0 (real 0/325, verifier 14/14, env-template OK); E2E с auth-сессиями — только CI e2e.yml (честная граница)
+- DEV-07: U-06 BLOCKED (контента нет), production auth OWNER DECISION, UI возвратов НЕ ГОТОВО (legacy dead-code, поддержка в футере), PAY-1a не тронут
+- DEV-08: RELEASE-ROLLBACK-CHECKLIST.md создан (pg_dump шаблон, test-restore гейт, откат по SHA-тегам, миграции 0060, мониторинг-таблица); неизвестная инфраструктура — OWNER INPUT REQUIRED, не выдумана
+- DEV-09: 3 коммита малыми группами с pre-commit scan-evidence exit 0 и точными путями (без add -A): 2882103 (anti-fraud/ingress: Caddyfile+2 теста, 376 строк), 4551b8e (evidence ×15), финальный (отчёт+checklist+worklog); финальная перепроверка дерева/SHA/ls-remote; push/PR/merge/deploy НЕ выполнялись; среда дважды теряла инструменты (403 broken session) — состояние перепроверялось, ничего не предполагалось
+- DEV-09-коррекция (честность): pre-commit скан перед коммитом 2 был слеп к добавляемым evidence-файлам (сканер читает tracked); сразу после 4551b8e скан surfaced 6 real-класс находок (dummy JWT/TFA/CRON/SERVICE_ROLE из probe-runner, probe-password, синтетический db-conn из vitest-лога http-helpers) — все синтетические авторские; значения заменены <redacted>-плейсхолдерами + штатные построчные маркеры [REDACTED BY V46 HYGIENE] (документированный путь сканера, правила НЕ ослаблялись); hygiene-коммит; финальный скан exit 0 (real 0 / synthetic 366)
+
+Stage Summary:
+- READY FOR OWNER REVIEW; PRODUCTION-READY: NO (CI на опубликованном кандидате, Docker-гейт, test-restore backup, OWNER-топология ingress/auth — вне sandbox)
+- daily anti-fraud live не доказуем за разумное время (часовой short-circuit) — unit-only, код-путь общий с hourly; честно в отчёте
+- временные probe-артефакты удалены (.probe-tmp), harness/scripts/raw сохранены в evidence; история не переписывалась, только добавления
