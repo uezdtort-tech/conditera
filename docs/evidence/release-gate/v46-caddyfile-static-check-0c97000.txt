@@ -1,0 +1,17 @@
+# Caddyfile static structural check — v4.6 resume, SHA 0c970002c4af12ecd5a8d0eda13bbc9ed29d771f
+date: 2026-10-17T11:35:51Z
+caddy binary present: /usr/bin/caddy but execution blocked by sandbox => 'caddy validate' NOT run locally (real validation = CI job validate-caddyfile, caddy:2.8-alpine)
+
+blocks: 32, closed properly: true
+reverse_proxy blocks found: 10
+  line 51: header_up = ["X-Real-IP {header.CF-Connecting-IP}"]
+  line 65: header_up = ["X-Real-IP {remote_host}","-CF-Connecting-IP"]
+  line 80: header_up = ["X-Real-IP {header.CF-Connecting-IP}"]
+  line 87: header_up = ["X-Real-IP {remote_host}","-CF-Connecting-IP"]
+  line 110: header_up = ["X-Real-IP {header.CF-Connecting-IP}"]
+  line 120: header_up = ["X-Real-IP {remote_host}","-CF-Connecting-IP"]
+  line 170: header_up = ["X-Real-IP {header.CF-Connecting-IP}"]
+  line 175: header_up = ["X-Real-IP {remote_host}","-CF-Connecting-IP"]
+  line 214: header_up = []
+  line 227: header_up = ["X-Real-IP {remote_host}","-CF-Connecting-IP"]
+reverse_proxy blocks WITHOUT X-Real-IP rewrite: 1 -> lines 214

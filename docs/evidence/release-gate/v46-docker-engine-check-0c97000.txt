@@ -1,0 +1,6 @@
+# Docker engine check — v4.6 resume, SHA 0c970002c4af12ecd5a8d0eda13bbc9ed29d771f
+date: 2026-10-17T11:35:30Z
+
+docker CLI: NOT FOUND
+ls: cannot access '/var/run/docker.sock': No such file or directory
+docker compose: NOT AVAILABLE (no engine/CLI)

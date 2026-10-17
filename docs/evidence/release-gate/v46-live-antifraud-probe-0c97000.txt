@@ -1,0 +1,17 @@
+# Live anti-fraud probe results — v4.6 DEV-05
+date: 2026-10-17T12:01:04Z
+server: standalone production build, BUILD_ID LMvG5s5ZS4FnMlYx83mgs, SHA 0c970002c4af12ecd5a8d0eda13bbc9ed29d771f
+upstream: supabase REST emulator (harness: v46-live-probe-harness.txt), auth fail-closed by design
+
+## Результаты
+health: 503 degraded (auth недоступен — заглушка; честный fail-closed контракт подтверждён)
+register hourly (IP 203.0.113.10): 1-3 -> 400 (валидация тела), 4 -> 429 Retry-After=3600 (Превышен лимит register 3/час)
+register different IP 203.0.113.11: 400 (независимый бакет)
+register forged x-real-ip 1.2.3.4 напрямую :3000: 400 (свежий бакет — приложение доверяет x-real-ip; в prod порт закрыт 127.0.0.1-binding + перезапись Caddy)
+parallel burst 6x с 203.0.113.12: ВСЕ 6 -> 429 (insert-first: пере-блокирование консервативно, обход невозможен)
+GET /catalog: 200
+
+## Границы доказательства
+- hourly live-доказан на production build; daily доказан unit-тестами (границы 10/11, атака maxPerHour-каждый-час) — live недостижим за разумное время: часовой short-circuit блокирует до дневной проверки
+- Caddy-перезапись X-Real-IP в live-пробе НЕ участвует (Caddy/Docker в sandbox отсутствуют) — структурные гарантии закреплены ingress-trust.test.ts + CI validate-caddyfile
+- полные E2E (Playwright, auth-сессии) — CI workflow e2e.yml nightly; локально не воспроизводимы без production auth-provider

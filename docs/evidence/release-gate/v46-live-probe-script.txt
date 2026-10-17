@@ -1,0 +1,71 @@
+/**
+ * Live anti-fraud probe — v4.6 DEV-05.
+ * production build (SHA см. evidence) + supabase REST emulator.
+ * Доказательство 429-контракта через РЕАЛЬНЫЙ route handler.
+ */
+const BASE = 'http://127.0.0.1:3000'
+
+async function attempt(ip, body, label) {
+  const t0 = Date.now()
+  const res = await fetch(`${BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+    body: JSON.stringify(body),
+  })
+  const retryAfter = res.headers.get('retry-after')
+  const json = await res.text()
+  return {
+    label,
+    ip,
+    status: res.status,
+    retryAfter: retryAfter === null ? null : Number(retryAfter),
+    ms: Date.now() - t0,
+    body: json.slice(0, 160),
+  }
+}
+
+const regBody = (i) => ({
+  email: `probe${Date.now()}-${i}@probe.example`,
+  password: 'Probe-Not-A-Real-User-1!',
+  name: 'PROBE',
+  userType: 'customer',
+})
+
+const out = { sections: [] }
+
+// ===== 1. health =====
+const h = await fetch(`${BASE}/api/health`)
+out.sections.push({ name: 'health', status: h.status })
+
+// ===== 2. hourly: попытки 1-3 не 429, 4-я → 429 + Retry-After =====
+const ipA = '203.0.113.10'
+const hourly = []
+for (let i = 1; i <= 4; i++) {
+  hourly.push(await attempt(ipA, regBody(i), `attempt-${i}`))
+}
+out.sections.push({ name: 'hourly-register', results: hourly })
+
+// ===== 3. другой IP → не 429 (независимый бакет) =====
+out.sections.push({
+  name: 'different-ip',
+  results: [await attempt('203.0.113.11', regBody(5), 'fresh-ip')],
+})
+
+// ===== 4. подделанный x-real-ip прямым запросом к :3000 (документация топологии) =====
+out.sections.push({
+  name: 'forged-x-real-ip-direct-3000',
+  results: [await attempt('1.2.3.4', regBody(6), 'forged-direct')],
+})
+
+// ===== 5. параллельный всплеск: 6 параллельно с одного IP → не-429 не больше 3 =====
+const ipB = '203.0.113.12'
+const burst = await Promise.all(
+  Array.from({ length: 6 }, (_, i) => attempt(ipB, regBody(100 + i), `burst-${i}`))
+)
+out.sections.push({ name: 'parallel-burst', results: burst })
+
+// ===== 6. публичный каталог (smoke) =====
+const cat = await fetch(`${BASE}/catalog`)
+out.sections.push({ name: 'catalog-public', status: cat.status })
+
+console.log(JSON.stringify(out, null, 2))
