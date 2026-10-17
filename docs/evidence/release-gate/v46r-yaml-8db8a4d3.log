@@ -1,0 +1,3 @@
+.github/workflows/ci.yml: YAML OK, jobs=7, triggers=["push","pull_request"]
+.github/workflows/e2e.yml: YAML OK, jobs=3, triggers=["schedule","workflow_dispatch","push","pull_request"]
+yaml exit=0

@@ -1,0 +1,4 @@
+# Docker engine check (resume) — 2026-10-17T19:58:54Z, SHA=8db8a4d3
+command -v docker: NOT FOUND
+docker.sock: ls: cannot access '/var/run/docker.sock': No such file or directory
+docker compose: /bin/bash: line 1: docker: command not found

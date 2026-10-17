@@ -1,0 +1,275 @@
+{
+  "sha": "8db8a4d3",
+  "buildId": "Q2N7dMttmH8O8Zvz4YtxP",
+  "startedAt": "2026-10-17T19:57:32.337Z",
+  "sections": {
+    "health": {
+      "status": 503,
+      "expect": 503,
+      "pass": true
+    },
+    "hourly": {
+      "results": [
+        {
+          "label": "hourly-1",
+          "ip": "203.0.113.10",
+          "status": 400,
+          "retryAfter": null,
+          "ms": 42,
+          "body": "{\"error\":\"Заполните все обязательные поля: email, password, name, phone\"}"
+        },
+        {
+          "label": "hourly-2",
+          "ip": "203.0.113.10",
+          "status": 400,
+          "retryAfter": null,
+          "ms": 34,
+          "body": "{\"error\":\"Заполните все обязательные поля: email, password, name, phone\"}"
+        },
+        {
+          "label": "hourly-3",
+          "ip": "203.0.113.10",
+          "status": 400,
+          "retryAfter": null,
+          "ms": 11,
+          "body": "{\"error\":\"Заполните все обязательные поля: email, password, name, phone\"}"
+        },
+        {
+          "label": "hourly-4",
+          "ip": "203.0.113.10",
+          "status": 429,
+          "retryAfter": 3600,
+          "ms": 8,
+          "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+        }
+      ],
+      "independent": {
+        "label": "hourly-independent-ip",
+        "ip": "203.0.113.11",
+        "status": 400,
+        "retryAfter": null,
+        "ms": 11,
+        "body": "{\"error\":\"Заполните все обязательные поля: email, password, name, phone\"}"
+      },
+      "pass": true
+    },
+    "daily": {
+      "seededCount": 9,
+      "seedStatus": 201,
+      "seededTimestamps": [
+        "2026-10-16T21:57:32.494Z",
+        "2026-10-16T23:57:32.494Z",
+        "2026-10-17T01:57:32.494Z",
+        "2026-10-17T03:57:32.494Z",
+        "2026-10-17T05:57:32.494Z",
+        "2026-10-17T07:57:32.494Z",
+        "2026-10-17T09:57:32.494Z",
+        "2026-10-17T11:57:32.494Z",
+        "2026-10-17T13:57:32.494Z"
+      ],
+      "attempt10": {
+        "label": "daily-10th-seeded9",
+        "ip": "203.0.113.20",
+        "status": 400,
+        "retryAfter": null,
+        "ms": 10,
+        "body": "{\"error\":\"Заполните все обязательные поля: email, password, name, phone\"}"
+      },
+      "attempt11": {
+        "label": "daily-11th-over-limit",
+        "ip": "203.0.113.20",
+        "status": 429,
+        "retryAfter": 86400,
+        "ms": 10,
+        "body": "{\"error\":\"Превышен суточный лимит register (10/24ч с вашего IP). Попробуйте позже.\",\"retryAfter\":86400}"
+      },
+      "pass": true
+    },
+    "concurrency": {
+      "ip1": {
+        "ip": "203.0.113.30",
+        "results": [
+          {
+            "label": "conc1-0",
+            "ip": "203.0.113.30",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 47,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc1-1",
+            "ip": "203.0.113.30",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 44,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc1-2",
+            "ip": "203.0.113.30",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 51,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc1-3",
+            "ip": "203.0.113.30",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 58,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc1-4",
+            "ip": "203.0.113.30",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 60,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc1-5",
+            "ip": "203.0.113.30",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 64,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          }
+        ],
+        "passed": 0
+      },
+      "ip2": {
+        "ip": "203.0.113.40",
+        "results": [
+          {
+            "label": "conc2-0",
+            "ip": "203.0.113.40",
+            "status": 400,
+            "retryAfter": null,
+            "ms": 77,
+            "body": "{\"error\":\"Заполните все обязательные поля: email, password, name, phone\"}"
+          },
+          {
+            "label": "conc2-1",
+            "ip": "203.0.113.40",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 72,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc2-2",
+            "ip": "203.0.113.40",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 77,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc2-3",
+            "ip": "203.0.113.40",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 78,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc2-4",
+            "ip": "203.0.113.40",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 78,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          },
+          {
+            "label": "conc2-5",
+            "ip": "203.0.113.40",
+            "status": 429,
+            "retryAfter": 3600,
+            "ms": 79,
+            "body": "{\"error\":\"Превышен лимит register (3/час с вашего IP). Попробуйте позже.\",\"retryAfter\":3600}"
+          }
+        ],
+        "passed": 1
+      },
+      "pass": true
+    },
+    "isolation": {
+      "totalRows": 28,
+      "foreignRows": 0,
+      "registerRows": 28,
+      "seededRowsSample": [
+        {
+          "ip_hash": "4c57549bc4f63a9ee9a80750c8f9312e0869e2e3480ebcbc5939ba62e441bbc5",
+          "action": "register",
+          "created_at": "2026-10-16T21:57:32.494Z",
+          "device_fp": null,
+          "user_id": null
+        },
+        {
+          "ip_hash": "4c57549bc4f63a9ee9a80750c8f9312e0869e2e3480ebcbc5939ba62e441bbc5",
+          "action": "register",
+          "created_at": "2026-10-16T23:57:32.494Z",
+          "device_fp": null,
+          "user_id": null
+        },
+        {
+          "ip_hash": "4c57549bc4f63a9ee9a80750c8f9312e0869e2e3480ebcbc5939ba62e441bbc5",
+          "action": "register",
+          "created_at": "2026-10-17T01:57:32.494Z",
+          "device_fp": null,
+          "user_id": null
+        }
+      ]
+    },
+    "cleanup": {
+      "cleanup": [
+        {
+          "ip": "203.0.113.10",
+          "deleted": 4
+        },
+        {
+          "ip": "203.0.113.11",
+          "deleted": 1
+        },
+        {
+          "ip": "203.0.113.20",
+          "deleted": 11
+        },
+        {
+          "ip": "203.0.113.30",
+          "deleted": 6
+        },
+        {
+          "ip": "203.0.113.40",
+          "deleted": 6
+        }
+      ],
+      "remainingAfterCleanup": 0,
+      "pass": true
+    },
+    "dbFailure": {
+      "shutdownStatus": 200,
+      "result": {
+        "label": "db-failure-fail-open",
+        "ip": "203.0.113.50",
+        "status": 400,
+        "retryAfter": null,
+        "ms": 8,
+        "body": "{\"error\":\"Заполните все обязательные поля: email, password, name, phone\"}"
+      },
+      "pass": true
+    }
+  },
+  "verdict": {
+    "health": true,
+    "hourly": true,
+    "daily": true,
+    "concurrency": true,
+    "cleanup": true,
+    "dbFailure": true
+  },
+  "allPass": true
+}

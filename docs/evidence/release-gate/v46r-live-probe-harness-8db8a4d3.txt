@@ -1,0 +1,105 @@
+/**
+ * Supabase REST/PostgREST emulator — resume-session live probe v4.6 (ЭТАП 2).
+ * Расширение прошлой пробы (v46-live-probe-harness.txt):
+ *   + GET  /__probe/rows   — дамп всех строк (evidence: изоляция тестов/timestamps)
+ *   + DELETE /rest/v1/order_fraud_logs?ip_hash=eq.X — узкая очистка синтетики
+ * Остальное идентично прошлой пробе: только order_fraud_logs insert/count;
+ * остальные GET → пустые списки, auth → 400. Порт 54321, только 127.0.0.1.
+ * Эфемерный процесс: kill = полная очистка (backup: узкий DELETE по ip_hash).
+ */
+import http from 'node:http'
+
+const rows = [] // { ip_hash, action, created_at, ... }
+
+const filters = (q) => {
+  const f = {}
+  for (const [k, v] of q.searchParams.entries()) {
+    if (v.startsWith('eq.')) f[k] = { op: 'eq', val: v.slice(3) }
+    else if (v.startsWith('gte.')) f[k] = { op: 'gte', val: v.slice(4) }
+  }
+  return f
+}
+
+const server = http.createServer((req, res) => {
+  const u = new URL(req.url, 'http://x')
+  const isRest = u.pathname.startsWith('/rest/v1/')
+  const table = isRest ? u.pathname.slice('/rest/v1/'.length).split('?')[0] : null
+  console.log(`[stub] ${req.method} ${u.pathname} Prefer=${req.headers.prefer || '-'}`)
+
+  if (req.method === 'GET' && u.pathname === '/__probe/rows') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ total: rows.length, rows }, null, 2))
+    return
+  }
+
+  // Управляемая остановка для сценария D (отказ БД → fail-open)
+  if (req.method === 'POST' && u.pathname === '/__probe/shutdown') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ stopping: true, rowsDiscarded: rows.length }))
+    setTimeout(() => process.exit(0), 100)
+    return
+  }
+
+  if (req.method === 'POST' && table === 'order_fraud_logs') {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body || '[]')
+        for (const row of Array.isArray(parsed) ? parsed : [parsed]) rows.push(row)
+      } catch { /* ignore */ }
+      res.writeHead(201, { 'Content-Type': 'application/json' })
+      res.end('[]')
+    })
+    return
+  }
+
+  if (req.method === 'DELETE' && table === 'order_fraud_logs') {
+    const f = filters(u)
+    const before = rows.length
+    let i = rows.length
+    while (i--) {
+      const r = rows[i]
+      if (f.ip_hash && r.ip_hash !== f.ip_hash.val) continue
+      if (f.action && r.action !== f.action.val) continue
+      rows.splice(i, 1)
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ deleted: before - rows.length, remaining: rows.length }))
+    return
+  }
+
+  if ((req.method === 'GET' || req.method === 'HEAD') && table === 'order_fraud_logs') {
+    const f = filters(u)
+    const count = rows.filter((r) => {
+      if (f.ip_hash && r.ip_hash !== f.ip_hash.val) return false
+      if (f.action && r.action !== f.action.val) return false
+      if (f.created_at && !(r.created_at >= f.created_at.val)) return false
+      return true
+    }).length
+    // head:true от supabase-js — метод HEAD, count в Content-Range
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Range': `*/${count}`,
+    })
+    res.end(req.method === 'HEAD' ? undefined : '[]')
+    return
+  }
+
+  if (req.method === 'GET' && isRest) {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Range': '*/0' })
+    res.end('[]')
+    return
+  }
+
+  if (u.pathname.startsWith('/auth/v1/')) {
+    res.writeHead(400, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ code: 400, error_code: 'stub', msg: 'stub: auth disabled in probe' }))
+    return
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ code: 404, msg: 'stub: not found' }))
+})
+
+server.listen(54321, '127.0.0.1', () => console.log('[stub] supabase-emulator on 127.0.0.1:54321'))

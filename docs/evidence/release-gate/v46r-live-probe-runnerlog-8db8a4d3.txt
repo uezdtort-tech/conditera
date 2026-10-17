@@ -1,0 +1,4 @@
+# v4.6 resume live probe — 2026-10-17T19:57:30Z, SHA=8db8a4d3
+health readiness: HTTP=503 (503=degraded expected: stub auth)
+probe exit=0
+cleanup done: 2026-10-17T19:57:32Z

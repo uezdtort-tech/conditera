@@ -1,0 +1,141 @@
+/**
+ * Live anti-fraud probe — resume session v4.6 (ЭТАП 2), SHA 8db8a4d3.
+ * production build (BUILD_ID Q2N7dMttmH8O8Zvz4YtxP) + supabase REST emulator.
+ *
+ * Закрывает три пробела прошлой пробы (0c97000):
+ *   A. hourly контракт — перепроверка НА ТЕКУЩЕМ кандидате (1-3 → 400; 4-я → 429+RA:3600; независимый IP)
+ *   B. daily live — синтетический сид 9 попыток в предыдущие 24ч (шаг 2ч > часового окна,
+ *      чтобы часовой лимит не шорт-катил раньше дневного): 10-я попытка allowed (400),
+ *      11-я → 429 суточный + Retry-After 86400. Точная граница 10/11 доказана живым роутом.
+ *   C. конкурентность на СВЕЖИХ бакетах (прошлый burst бил по исчерпанному — недоказательно):
+ *      6 параллельных × 2 независимых свежих IP; контракт: проходит ≤3 (400), остальные 429.
+ *   E1. дамп изоляции: только синтетика этой пробы, timestamps сидов.
+ *   E2. узкая очистка синтетики по ip_hash (ДО отказа БД).
+ *   D. отказ БД (shutdown эмулятора) → fail-open (не 429).
+ *
+ * 400-vs-429 различимость: лимитер в register стоит ПЕРЕД валидацией тела
+ * (route.ts шаг 1 до шага 2), тело без phone → детерминированный 400 при
+ * прохождении лимитера; 429 возможен ТОЛЬКО от лимитера.
+ */
+const BASE = 'http://127.0.0.1:3100'
+const STUB = 'http://127.0.0.1:54321'
+const { createHash } = await import('node:crypto')
+const SALT = 'probe-salt'
+const h = (ip) => createHash('sha256').update(`${SALT}:${ip}`).digest('hex')
+
+async function attempt(ip, body, label) {
+  const t0 = Date.now()
+  const res = await fetch(`${BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+    body: JSON.stringify(body),
+  })
+  const retryAfter = res.headers.get('retry-after')
+  const json = await res.text()
+  return {
+    label, ip, status: res.status,
+    retryAfter: retryAfter === null ? null : Number(retryAfter),
+    ms: Date.now() - t0,
+    body: json.slice(0, 200),
+  }
+}
+// тело БЕЗ phone → 400 валидации после прохода лимитера (различимость 400/429)
+const regBody = (i) => ({
+  email: `probe${Date.now()}-${i}@probe.example`,
+  password: 'probe-pass-<redacted>', // [REDACTED BY V46 HYGIENE]
+  name: 'PROBE',
+})
+
+const out = { sha: '8db8a4d3', buildId: 'Q2N7dMttmH8O8Zvz4YtxP', startedAt: new Date().toISOString(), sections: {} }
+const ipHourly = '203.0.113.10', ipHourly2 = '203.0.113.11'
+const ipDaily = '203.0.113.20'
+const ipConc1 = '203.0.113.30', ipConc2 = '203.0.113.40'
+const ipDbFail = '203.0.113.50'
+
+// ===== 0. health =====
+const health = await fetch(`${BASE}/api/health`)
+out.sections.health = { status: health.status, expect: 503, pass: health.status === 503 }
+
+// ===== A. hourly на текущем кандидате =====
+const hourly = []
+for (let i = 1; i <= 4; i++) hourly.push(await attempt(ipHourly, regBody(i), `hourly-${i}`))
+const diffIp = await attempt(ipHourly2, regBody(5), 'hourly-independent-ip')
+out.sections.hourly = {
+  results: hourly, independent: diffIp,
+  pass: hourly[0].status === 400 && hourly[1].status === 400 && hourly[2].status === 400
+    && hourly[3].status === 429 && hourly[3].retryAfter === 3600
+    && hourly[3].body.includes('3/час') && diffIp.status === 400,
+}
+
+// ===== B. daily live: сид 9 синтетических попыток, шаг 2ч (теперь-22ч … теперь-6ч) =====
+const now = Date.now()
+const H = 3600 * 1000
+const seeded = []
+for (let k = 9; k >= 1; k--) {
+  const created = new Date(now - (k * 2 + 4) * H).toISOString() // 22,20,…,6 часов назад
+  seeded.push({ ip_hash: h(ipDaily), action: 'register', created_at: created, device_fp: null, user_id: null })
+}
+const seedRes = await fetch(`${STUB}/rest/v1/order_fraud_logs`, {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(seeded),
+})
+const attempt10 = await attempt(ipDaily, regBody(10), 'daily-10th-seeded9')
+const attempt11 = await attempt(ipDaily, regBody(11), 'daily-11th-over-limit')
+out.sections.daily = {
+  seededCount: seeded.length, seedStatus: seedRes.status,
+  seededTimestamps: seeded.map((s) => s.created_at),
+  attempt10, attempt11,
+  pass: seedRes.status === 201 && attempt10.status === 400 && attempt11.status === 429
+    && attempt11.retryAfter === 86400 && attempt11.body.includes('суточн'),
+}
+
+// ===== C. конкурентность на СВЕЖИХ бакетах =====
+const [conc1, conc2] = await Promise.all([
+  Promise.all(Array.from({ length: 6 }, (_, i) => attempt(ipConc1, regBody(30 + i), `conc1-${i}`))),
+  Promise.all(Array.from({ length: 6 }, (_, i) => attempt(ipConc2, regBody(40 + i), `conc2-${i}`))),
+])
+const passed1 = conc1.filter((r) => r.status !== 429).length
+const passed2 = conc2.filter((r) => r.status !== 429).length
+out.sections.concurrency = {
+  ip1: { ip: ipConc1, results: conc1, passed: passed1 },
+  ip2: { ip: ipConc2, results: conc2, passed: passed2 },
+  pass: passed1 <= 3 && passed2 <= 3
+    && conc1.every((r) => r.status === 400 || r.status === 429)
+    && conc2.every((r) => r.status === 400 || r.status === 429),
+}
+
+// ===== E1. дамп изоляции: только синтетика этой пробы =====
+const dump1 = await (await fetch(`${STUB}/__probe/rows`)).json()
+const expectedHashes = new Set([ipHourly, ipHourly2, ipDaily, ipConc1, ipConc2].map(h))
+out.sections.isolation = {
+  totalRows: dump1.total,
+  foreignRows: dump1.rows.filter((r) => !expectedHashes.has(r.ip_hash)).length,
+  registerRows: dump1.rows.filter((r) => r.action === 'register').length,
+  seededRowsSample: dump1.rows.filter((r) => r.ip_hash === h(ipDaily)).slice(0, 3),
+}
+
+// ===== E2. узкая очистка синтетики по ip_hash (ДО сценария отказа БД) =====
+const cleanup = []
+for (const ip of [ipHourly, ipHourly2, ipDaily, ipConc1, ipConc2]) {
+  const r = await (await fetch(`${STUB}/rest/v1/order_fraud_logs?ip_hash=eq.${h(ip)}`, { method: 'DELETE' })).json()
+  cleanup.push({ ip, deleted: r.deleted })
+}
+const dump2 = await (await fetch(`${STUB}/__probe/rows`)).json()
+out.sections.cleanup = { cleanup, remainingAfterCleanup: dump2.total, pass: dump2.total === 0 }
+
+// ===== D. отказ БД (shutdown эмулятора) → fail-open (не 429) =====
+const shutdownRes = await fetch(`${STUB}/__probe/shutdown`, { method: 'POST' })
+const dbFail = await attempt(ipDbFail, regBody(50), 'db-failure-fail-open')
+out.sections.dbFailure = {
+  shutdownStatus: shutdownRes.status,
+  result: dbFail,
+  pass: dbFail.status !== 429, // лимитер НЕ блокирует при недоступной БД (fail-open, документирован)
+}
+
+out.verdict = Object.fromEntries(
+  Object.entries(out.sections)
+    .filter(([, v]) => typeof v.pass === 'boolean')
+    .map(([k, v]) => [k, v.pass])
+)
+out.allPass = Object.values(out.verdict).every(Boolean)
+console.log(JSON.stringify(out, null, 2))

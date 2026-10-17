@@ -1,0 +1,29 @@
+# Caddyfile static check (resume session) — 2026-10-17T19:51:14Z, tree 8db8a4d3
+
+## reverse_proxy blocks total:
+12
+## header_up X-Real-IP rewrites:
+52:                        header_up X-Real-IP {header.CF-Connecting-IP}
+66:                        header_up X-Real-IP {remote_host}
+81:                        header_up X-Real-IP {header.CF-Connecting-IP}
+88:                        header_up X-Real-IP {remote_host}
+103:                        header_up X-Real-IP {header.CF-Connecting-IP}
+106:                        header_up X-Real-IP {remote_host}
+120:                        header_up X-Real-IP {header.CF-Connecting-IP}
+130:                        header_up X-Real-IP {remote_host}
+180:                        header_up X-Real-IP {header.CF-Connecting-IP}
+185:                        header_up X-Real-IP {remote_host}
+239:                header_up X-Real-IP {remote_host}
+## -CF-Connecting-IP removals:
+67:                        header_up -CF-Connecting-IP
+89:                        header_up -CF-Connecting-IP
+107:                        header_up -CF-Connecting-IP
+131:                        header_up -CF-Connecting-IP
+186:                        header_up -CF-Connecting-IP
+240:                header_up -CF-Connecting-IP
+## loopback matcher:
+32:        # Решение — условная перезапись по peer (матчер @loopback_peer):
+43:        @loopback_peer {
+44:                remote_ip 127.0.0.1 ::1
+51:                reverse_proxy @loopback_peer web:3000 {
+80:                reverse_proxy @loopback_peer chat-service:3030 {
