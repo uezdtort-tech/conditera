@@ -9103,3 +9103,46 @@ Stage Summary:
 - Preview закрыт от индексации до решения владельца; каноникл/sitemap не тронуты (28 URL подтверждены)
 - 13 OOM-инцидентов за сессию задокументированы честно (7 до фиксов, 6 в переходных фазах; контрольный протокол после фиксов — 0)
 - Финансовая логика, upload-маршруты, auth/CSRF/rate-limit, drift-guard/secret-scan — не тронуты
+
+---
+Task ID: 10-fixes-batch1
+Agent: Z.ai Code (main)
+Task: ЭТАП 10 — Gate 10.0 + карта готовности + P0-фиксы (заказы/заявки/склад/промокоды/auth)
+
+Work Log:
+- Gate 10.0: HEAD d8efcb4, main, дерево чистое, 106 ahead/0 behind; 6 коммитов этапа 9 подтверждены; upload-маршруты blob-SHA cb23e5dd/f6c52a42 MATCH; noindex живой (robots Disallow + X-Robots-Tag); watcher'ов нет
+- Карта готовности (3 Explore-агента): возвраты PARTIAL (форма покупателя работает, admin-модерация requested — решение владельца); кондитер — decline-кнопка MISSING, write-off API без UI, PATCH без истории; checkout WORKING (идемпотентность+серверные цены); склад ядро WORKING (RPC 0048 + реестр 0049)
+- ФИКС P0 auth: getCurrentUser (GoTrue getUser → 501-стаб в локальном runtime) ломал 8 маршрутов — 401 с валидной сессией; подтверждено живым curl'ом на /api/inquiries; мигрированы на getUserFromRequest: inquiries, negotiations/[id], crm/leads ×2, admin/payouts, cms ×3 → повторный curl 200
+- ФИКС §A1: кнопка «Отклонить» PENDING-заказа (AlertDialog, PATCH PENDING→CANCELLED)
+- ФИКС §A2: PATCH /api/orders/[id] пишет order_status_history (аудит-паритет с движком); ошибка журнала не роняет переход
+- ФИКС §A3: имя покупателя в GET /api/orders (profiles.name) + confectioner-today COALESCE(customer_id, user_id)
+- ФИКС §B1: кнопка «Списать по заказу» в OrderBreakdownDialog → useWriteOffInventory → POST /api/inventory/write-off (идемпотентность 0049)
+- ФИКС §C1: per-user промокоды — validatePromoCode проверяет promo_code_usages (0005, раньше не читалась/не писалась) + applies_to='first_order'; applyPromoCodeToOrder пишет журнал (копейки); checkout передаёт userId
+- ФИКС §D1: вкладка «Заявки» на реальном API (use-real-inquiries.ts, quote/decline через negotiations, фолбэк-мок честно заблокирован); «Вывести средства»/«Сформировать чеки» disabled с пояснением; Гант без зашитой даты 2026-06-30
+- Тесты: +3 файла/+14 тестов (PATCH-история 4, промокоды 7, маппер заявок 3); Vitest 1079/1079; typecheck 0; lint 0
+- Секрет-скан диффа: 0 совпадений; upload-маршруты не тронуты (2/2 MATCH после коммитов)
+
+Stage Summary:
+- Коммиты: ff6eaac (orders), 975c142 (auth ×8), 8ae5114 (promo), 6a85667 (cabinet UX) — все тематические, без push
+- Ключевая находка: сломанный getCurrentUser = системный дефект; делал недоступными заявки/переговоры/CRM/CMS/выплаты независимо от UI
+- Осталось: browser-верификация golden path/кондитер-цикл/чат/конструктор, E2E per-spec, production build (BLOCKED политикой), отчёт
+
+---
+Task ID: 10-verify-and-report
+Agent: Z.ai Code (main)
+Task: ЭТАП 10 — browser/API-верификация, E2E-регрессия, отчёт
+
+Work Log:
+- Browser-верификация (agent-browser): логин UI → /dashboard; «Отклонить» PENDING → AlertDialog → статус CANCELLED в БД с changed_by+comment (§A1); имена покупателей в заказах (§A3); вкладка «Заявки» — реальное пустое состояние вместо мока, реальная заявка → quote 450000 коп → «Предложение: 4500₽» + status=quoted (§D1); чат — фикс списка комнат, сообщение покупателя (CLI socket.io, contract {roomId,message:{id,text}}) доставлено live кондитеру, персистентность в chat_messages, авточат-бот ответил, ответ кондитера через UI, история после reload (§5.1)
+- OOM-инциденты этапа: 4 OOM при компиляции непрогретых маршрутов с открытым браузером (checkout/dashboard/login/cake-builder чанки); перезапуски ensure-dev + стратегия «прогрев curl'ом при закрытом браузере → потом браузер»; финальная E2E-партия — 0 OOM
+- §5.2 конструктор: UI шаги 1–3 (выбор типа/события/основы, переходы, оценка) браузером; шаги 4–9 UI — BLOCKED (глобальный OOM: next 2.5GB + Chromium 0.6GB); бизнес-логика через API: checkout с custom-конфигом → серверный пересчёт 2431₽ (Бисквит/Малиновый конфитюр/Крем-чиз/10 порций), человекочитаемое описание, строгое 422 на неизвестное покрытие; клиентской цены для custom нет в схеме — подмена невозможна; гейт принятия заказа отклонил заказ с дефицитом «Ягоды» (§4.1.5 работает)
+- §6 возврат: тестовый платёж succeeded (dev-имитация итога webhook) → POST refund владельцем 201 requested; повтор с тем же ключом 200 duplicate; второй запрос на платёж с открытым возвратом → duplicate «уже открыта»; чужой платёж → 403 (§6)
+- E2E (все 9 спеков, chromium, серийно): smoke 11/11, auth-flow 14/14, integration-auth-flow 17/17, api-v2 37/37, full-flow 36/36 (по чанкам с рестартом сервера; одним прогоном — OOM-каскад ECONNREFUSED, каждый тест зелёный индивидуально), regional-pricing 13/13, payment-webhook-idempotency 12/12, recipe-purchase-flow 7/7, onboarding-flow 1+1skip → **148+1skip/149 = регрессий нет**
+- Финальные проверки: typecheck 0, lint 0, Vitest 1079/1079, секрет-скан диффов 0, upload-маршруты 2/2 MATCH после всех коммитов
+- Коммит 8c5e821 (чат-фикс + конверсия единиц); отчёт дополнен разделом «ЭТАП 10» (гейты A–E); push/PR/deploy НЕ выполнялись
+- Production build: BLOCKED политикой среды (запрет build оператором, не ресурсы); CI-проход и требования хостинга задокументированы в отчёте C.1
+
+Stage Summary:
+- Статус проекта: **READY FOR OWNER REVIEW** (разработка в доступном объёме завершена; остаются: CI-build, домен, стратегия пуша, решения по возвратам/финансам)
+- 10 дефектов этапа 10 исправлены и верифицированы (5 коммитов)
+- Все критичные пользовательские сценарии доказаны: auth, каталог→заказ, checkout (idempotent, серверные цены), кондитер-цикл (accept→prepare→ready + decline), склад (потребность→дефицит→идемпотентное списание→журнал), чат (2 стороны+персистентность+reload), конструктор (серверный пересчёт), возвраты (request-контур), заявки (quote/decline)
