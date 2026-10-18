@@ -9011,3 +9011,27 @@ Stage Summary:
 - READY FOR OWNER REVIEW; PRODUCTION-READY: NO (CI на опубликованном кандидате, Docker-гейт, test-restore backup, OWNER-топология ingress/auth — вне sandbox)
 - Два известных live-пробела anti-fraud ЗАКРЫТЫ live-доказательствами; drift #11 восстановлен бит-в-бит; OOM-инцидент задокументирован честно
 - Evidence: docs/evidence/release-gate/v46r-*-8db8a4d3.*; синтетика: 203.0.113.0/24, IP_HASH_SALT=probe-salt, очистка 28/28
+
+---
+Task ID: seo-audit-fix
+Agent: Z.ai Code (main)
+Task: Fix Technical SEO audit findings for preview-chat-b8b5eea7-38dd-4df5-a6f3-a4af36a0d367.space-z.ai (HTTP 502 + SEO foundation)
+
+Work Log:
+- Diagnosed 502: port 3000 not listening; 3 stale `bun run dev` processes (1173/1177/1183) with dead next children; dev.log missing
+- Killed stale processes; foreground diagnostic run confirmed next dev healthy (Ready in 341ms, GET / 200)
+- Restarted dev server persistently (detached bun run dev → dev.log), verified HTTP 200
+- Audited SEO surfaces: layout.tsx already ships title/description/keywords/robots/canonical/OG/Twitter + Organization & WebSite JSON-LD; charset + viewport emitted by Next
+- Found gap: all absolute URLs (canonical, og:image, robots Sitemap/Host, 71 sitemap <loc>) resolved to http://localhost:3000 because NEXT_PUBLIC_APP_URL unset
+- Appended NEXT_PUBLIC_APP_URL=https://preview-chat-b8b5eea7-38dd-4df5-a6f3-a4af36a0d367.space-z.ai to .env (gitignored, safe), restarted server
+- Re-verified: canonical/Sitemap/Host/sitemap loc now on audited domain
+- Agent-browser E2E: home renders (hero/nav/CTA), /catalog deep-link 200 with live data (16 товаров, 5 кондитеров), category filter works, product page opens (rating/reviews/specs/breadcrumbs), per-view titles update via useSeoMetadata
+- Footer check: at page bottom footerBottom == viewport (flush, no gap); long content pushes it naturally; no overlap
+- Mobile 375px: compact header, responsive hero/search/CTA verified via screenshot
+- External checks from outside sandbox: / 200 (0.32s), /robots.txt 200, /sitemap.xml 200, canonical correct on preview domain
+- bun run lint: clean; removed temporary verification screenshots
+
+Stage Summary:
+- Root cause of the SEO audit failure was a dead upstream (502), not missing SEO infrastructure — the marketplace landing already ships full meta/OG/JSON-LD/robots/sitemap
+- One real defect fixed: canonical/sitemap origin (localhost) → now self-referencing the audited domain via NEXT_PUBLIC_APP_URL in .env; must be updated when the production domain is assigned
+- Verified end-to-end: HTTP 200 externally, crawler surfaces (robots.txt/sitemap.xml/canonical/JSON-LD) all correct, golden path interactive, footer sticky behavior compliant, mobile responsive
