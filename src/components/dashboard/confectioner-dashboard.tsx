@@ -69,7 +69,24 @@ import {
   Store,
   User as UserIcon,
   MessagesSquare,
+  X,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  useRealInquiries,
+  useQuoteNegotiation,
+  useDeclineNegotiation,
+} from "@/lib/use-real-inquiries";
 import {
   ORDER_STATUS_LABELS,
   PAYMENT_STATUS_LABELS,
@@ -132,7 +149,7 @@ export function ConfectionerDashboard() {
   const confectioners = useAppStore((s) => s.confectioners);
   const orders = useAppStore((s) => s.orders);
   const allProducts = useAppStore((s) => s.products);
-  const inquiries = useAppStore((s) => s.inquiries);
+  // Этап 10 §D1: store-заявки удалены — реальные приходят из useRealInquiries() ниже
   const teamTasks = useAppStore((s) => s.teamTasks);
   const channelPosts = useAppStore((s) => s.channelPosts);
   const promotions = useAppStore((s) => s.promotions);
@@ -143,7 +160,11 @@ export function ConfectionerDashboard() {
   const negotiations = useAppStore((s) => s.negotiations);
   const logout = useAppStore((s) => s.logout);
   const updateTaskStatus = useAppStore((s) => s.updateTaskStatus);
-  const respondToInquiry = useAppStore((s) => s.respondToInquiry);
+  // Этап 10 §D1: реальные заявки из конструктора (GET /api/inquiries?filter=available)
+  // с фолбэком на store-мок при недоступности API; действия — через negotiations API.
+  const { inquiries, isStale: inquiriesStale, refetch: refetchInquiries } = useRealInquiries();
+  const quoteNegotiation = useQuoteNegotiation();
+  const declineNegotiation = useDeclineNegotiation();
 
   const [activeTab, setActiveTab] = useState(
     typeof window !== "undefined"
@@ -451,13 +472,12 @@ export function ConfectionerDashboard() {
                     {inquiries.slice(0, 3).map((inq) => (
                       <div key={inq.id} className="flex items-center gap-3 p-3 border border-border rounded-lg">
                         <Avatar className="h-9 w-9">
-                          <AvatarImage src={inq.customerAvatar} alt={inq.customerName} />
-                          <AvatarFallback>{inq.customerName[0]}</AvatarFallback>
+                          <AvatarFallback>{inq.customerName ? inq.customerName[0] : "?"}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium">{inq.customerName}</div>
+                          <div className="text-sm font-medium truncate">{inq.customerName || "Запрос"}</div>
                           <div className="text-xs text-muted-foreground">
-                            {inq.eventType} • {inq.servings} порц. • {inq.city}
+                            {inq.eventType || "—"} • {inq.servings} порц. • {inq.city || "—"}
                           </div>
                         </div>
                         <div className="text-right">
@@ -544,6 +564,44 @@ export function ConfectionerDashboard() {
                               Подтвердить
                             </Button>
                           )}
+                          {order.status === "PENDING" && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-destructive hover:text-destructive"
+                                  disabled={updateOrderStatusApi.isPending}
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Отклонить
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Отклонить заказ {order.number}?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Заказ перейдёт в статус «Отменён». Покупатель увидит это в своём кабинете; для уточнения деталей используйте чат.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Вернуться</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    onClick={() =>
+                                      updateOrderStatusApi.mutate({
+                                        orderId: order.id,
+                                        status: "CANCELLED",
+                                        comment: "Отклонён кондитером",
+                                      })
+                                    }
+                                  >
+                                    Отклонить заказ
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
                           {order.status === "CONFIRMED" && (
                             <Button
                               size="sm"
@@ -616,7 +674,17 @@ export function ConfectionerDashboard() {
                 <Card className="p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold">Транзакции</h3>
-                    <Button size="sm" variant="outline">Вывести средства</Button>
+                    {/* Этап 10 §D1: финансовый контур выплат не подключён в этой среде —
+                    кнопка честно неактивна вместо молчаливого ничего-не-делания.
+                    Подключение /api/payouts/request — решение владельца (см. отчёт §E). */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled
+                      title="Вывод средств появится после подключения платёжного провайдера"
+                    >
+                      Вывести средства
+                    </Button>
                   </div>
                   <div className="space-y-2">
                     {myOrders.map((o) => {
@@ -892,7 +960,12 @@ export function ConfectionerDashboard() {
                       </span>
                     </div>
                   </div>
-                  <Button className="w-full mt-4">
+                  <Button
+                    className="w-full mt-4"
+                    variant="outline"
+                    disabled
+                    title="Формирование фискальных документов будет доступно после подключения контура фискализации"
+                  >
                     {confectioner.legalInfo.status === "NPD"
                       ? "Сформировать чеки НПД"
                       : confectioner.legalInfo.status === "IP"
@@ -925,24 +998,40 @@ export function ConfectionerDashboard() {
 
             {activeTab === "inquiries" && (
               <div className="space-y-4">
-                <h1 className="font-display text-2xl font-bold">Заявки из конструктора</h1>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h1 className="font-display text-2xl font-bold">Заявки из конструктора</h1>
+                  <div className="flex items-center gap-2">
+                    {inquiriesStale && (
+                      <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+                        Офлайн-данные
+                      </Badge>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => refetchInquiries()}>
+                      Обновить
+                    </Button>
+                  </div>
+                </div>
+                {inquiries.length === 0 && (
+                  <Card className="p-8 text-center text-muted-foreground text-sm">
+                    Открытых заявок пока нет — новые появятся здесь автоматически
+                  </Card>
+                )}
                 <div className="space-y-3">
                   {inquiries.map((inq) => (
                     <Card key={inq.id} className="p-4">
                       <div className="flex items-start gap-3">
                         <Avatar className="h-10 w-10">
-                          <AvatarImage src={inq.customerAvatar} alt={inq.customerName} />
-                          <AvatarFallback>{inq.customerName[0]}</AvatarFallback>
+                          <AvatarFallback>{inq.customerName ? inq.customerName[0] : "?"}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold">{inq.customerName}</span>
+                            <span className="font-semibold">{inq.customerName || "Запрос"}</span>
                             <Badge variant={inq.status === "new" ? "default" : "secondary"} className="text-[10px]">
-                              {inq.status === "new" ? "Новая" : "Отвечена"}
+                              {inq.status === "new" ? "Новая" : inq.status === "quoted" ? "Отвечена" : "Отклонена"}
                             </Badge>
                           </div>
                           <div className="text-xs text-muted-foreground mb-2">
-                            {inq.eventType} • {inq.base} • {inq.filling} • {inq.servings} порц. • {inq.city}
+                            {inq.eventType || "—"} • {inq.base || "—"} • {inq.filling || "—"} • {inq.servings} порц. • {inq.city || "—"}
                           </div>
                           {inq.comment && (
                             <div className="text-sm text-muted-foreground mb-2 p-2 bg-muted/50 rounded">
@@ -957,16 +1046,75 @@ export function ConfectionerDashboard() {
                         <div className="flex flex-col gap-2 shrink-0">
                           <Button
                             size="sm"
+                            disabled={inq.status !== "new" || !inq.negotiationId || quoteNegotiation.isPending}
+                            title={
+                              !inq.negotiationId
+                                ? "Демо-данные — отклик недоступен"
+                                : `Предложить ${formatCurrency(inq.budget)}`
+                            }
                             onClick={() => {
-                              respondToInquiry(inq.id, inq.budget);
-                              toast.success("Предложение отправлено!", {
-                                description: `Цена: ${formatCurrency(inq.budget)}`,
-                              });
+                              if (!inq.negotiationId) return;
+                              quoteNegotiation.mutate(
+                                { negotiationId: inq.negotiationId, priceRub: inq.budget },
+                                {
+                                  onSuccess: () =>
+                                    toast.success("Предложение отправлено!", {
+                                      description: `Цена: ${formatCurrency(inq.budget)}`,
+                                    }),
+                                  onError: (error: Error) =>
+                                    toast.error("Не удалось отправить предложение", {
+                                      description: error.message,
+                                    }),
+                                }
+                              );
                             }}
                           >
                             Откликнуться
                           </Button>
-                          <Button size="sm" variant="outline">Отклонить</Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={inq.status !== "new" || !inq.negotiationId || declineNegotiation.isPending}
+                                title={
+                                  !inq.negotiationId
+                                    ? "Демо-данные — отклонение недоступно"
+                                    : undefined
+                                }
+                              >
+                                Отклонить
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Отклонить заявку?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Заявка {inq.customerName ? `от ${inq.customerName} ` : ""}будет отклонена — покупатель увидит, что вы не участвуете в этом запросе.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Вернуться</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => {
+                                    if (!inq.negotiationId) return;
+                                    declineNegotiation.mutate(
+                                      { negotiationId: inq.negotiationId },
+                                      {
+                                        onSuccess: () => toast.success("Заявка отклонена"),
+                                        onError: (error: Error) =>
+                                          toast.error("Не удалось отклонить заявку", {
+                                            description: error.message,
+                                          }),
+                                      }
+                                    );
+                                  }}
+                                >
+                                  Отклонить заявку
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </div>
                     </Card>

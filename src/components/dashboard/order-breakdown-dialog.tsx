@@ -12,7 +12,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Loader2, PackageSearch, RefreshCw, XCircle } from "lucide-react";
+import { ClipboardList, Download, Loader2, PackageSearch, RefreshCw, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -28,6 +28,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { csrfFetch, getCsrfToken, getSessionAuthHeaders } from "@/lib/api-client";
+import { useWriteOffInventory } from "@/lib/use-real-inventory";
 import { formatRub, type BreakdownIngredient, type OrderBreakdownResponse } from "@/lib/ops-client-types";
 
 function IngredientStatusBadge({ ing }: { ing: BreakdownIngredient }) {
@@ -115,6 +116,34 @@ export function OrderBreakdownDialog({
 
   const data = breakdownQuery.data;
   const shortages = data?.shortages ?? [];
+
+  // Этап 10 §B1: списание доступных ингредиентов по заказу. API /api/inventory/
+  // write-off идемпотентен по (order_id + сигнатура батча) — повторный клик
+  // вернёт сохранённый результат без двойного списания (миграция 0049).
+  const writableIngredients =
+    data?.ingredients.filter(
+      (ing) => ing.status === "ok" && ing.inventory_item_id && ing.required > 0
+    ) ?? [];
+  const writeOff = useWriteOffInventory();
+  const handleWriteOff = () => {
+    if (!orderId || writableIngredients.length === 0) return;
+    writeOff.mutate(
+      {
+        orderId,
+        items: writableIngredients.map((ing) => ({
+          itemId: ing.inventory_item_id as string,
+          quantity: ing.required,
+        })),
+        reason: `Списание по заказу на производство`,
+      },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: ["order-breakdown", orderId] });
+          void breakdownQuery.refetch();
+        },
+      }
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -230,6 +259,24 @@ export function OrderBreakdownDialog({
               <ClipboardList className="h-4 w-4 mr-1" />
             )}
             Создать закупку
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={writeOff.isPending || writableIngredients.length === 0}
+            title={
+              writableIngredients.length === 0
+                ? "Нет доступных к списанию ингредиентов"
+                : `Списать ${writableIngredients.length} поз. по заказу`
+            }
+            onClick={handleWriteOff}
+          >
+            {writeOff.isPending ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-1" />
+            )}
+            Списать по заказу
           </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             <XCircle className="h-4 w-4 mr-1" />

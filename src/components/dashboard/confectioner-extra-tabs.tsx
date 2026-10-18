@@ -1587,8 +1587,8 @@ export function ConfectionerGanttTab() {
 
   // Часы для отображения (8:00 - 20:00)
   const hours = Array.from({ length: 13 }, (_, i) => 8 + i);
-  // Дни недели
-  const today = new Date("2026-06-30");
+  // Дни недели — Этап 10: реальная «сегодняшняя» дата вместо зашитой 2026-06-30
+  const today = new Date();
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today);
     d.setDate(d.getDate() + i);
