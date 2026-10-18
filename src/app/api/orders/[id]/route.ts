@@ -146,6 +146,24 @@ export async function PATCH(
       return NextResponse.json({ error: "Ошибка обновления" }, { status: 500 });
     }
 
+    // Этап 10 §A2: аудит-паритет с движком lifecycle (order_status_history
+    // писался только transition-роутами P0.5, PATCH-путь историю терял).
+    // supabase-js не умеет кросс-табличные транзакции: при ошибке журнала
+    // статус уже изменён — не откатываем (статус = источник истины),
+    // фиксируем в логах; запись истории идемпотентна по смыслу (append-only).
+    const { error: historyError } = await supabaseAdmin
+      .from("order_status_history")
+      .insert({
+        order_id: orderId,
+        status_from: order.status,
+        status_to: newStatus,
+        changed_by: user.id,
+        comment: comment ?? null,
+      });
+    if (historyError) {
+      console.error("[orders/[id]] history insert failed:", historyError.message);
+    }
+
     // n8n: order.status_changed (fail-safe, после успешного обновления)
     void emitEvent("order.status_changed", {
       orderId,

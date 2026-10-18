@@ -32,6 +32,8 @@ export interface ApiOrder {
   user_id: string;
   created_at: string;
   confectioner?: { business_name: string | null; avatar: string | null } | null;
+  /** Этап 10 §A3: имя покупателя (profiles.name), обогащается сервером */
+  customer_name?: string | null;
   items?: ApiOrderItem[];
 }
 
@@ -79,7 +81,8 @@ export function mapApiOrderToStoreOrder(raw: ApiOrder): Order {
     id: raw.id,
     number: raw.number || "",
     customerId: raw.user_id,
-    customerName: "", // список API не содержит имени покупателя — дозаполнять не требуется
+    // Этап 10 §A3: API обогащает список именем профиля покупателя
+    customerName: raw.customer_name || "",
     confectionerId: raw.confectioner_id || undefined,
     confectionerName: raw.confectioner?.business_name || undefined,
     items,

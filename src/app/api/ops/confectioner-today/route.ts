@@ -56,7 +56,7 @@ const ORDER_ITEMS_LATERAL = `LEFT JOIN LATERAL (
     FROM public.order_items oi
     WHERE oi.order_id = o.id
   ) oi ON true
-  LEFT JOIN public.profiles p ON p.id = o.customer_id`;
+  LEFT JOIN public.profiles p ON p.id = COALESCE(o.customer_id, o.user_id)`;
 
 interface OrderRowFull {
   // pg требует индексную сигнатуру (QueryResultRow)

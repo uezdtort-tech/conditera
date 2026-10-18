@@ -204,9 +204,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Этап 10 §A3: имя покупателя для кондитерского скоупа (раньше UI показывал
+    // пустую строку — contact через чат не очевиден). Отдаём только имя профиля,
+    // без email/телефона — в пределах допустимой информации о покупателе.
+    // Safe enrich: ошибка не роняет список.
+    const customerIds = Array.from(
+      new Set(
+        (orders || [])
+          .map((o: any) => o.user_id)
+          .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
+      )
+    );
+    const customerNames = new Map<string, string>();
+    if (customerIds.length > 0) {
+      try {
+        const { data: profiles } = await supabaseAdmin
+          .from("profiles")
+          .select("id, name")
+          .in("id", customerIds);
+        for (const p of profiles || []) {
+          customerNames.set((p as any).id, ((p as any).name as string) || "");
+        }
+      } catch {
+        // фолбэк ниже оставит пустую строку — список заказов не блокируем
+      }
+    }
+
     const result = (orders || []).map((o: any) => ({
       ...o,
       confectioner: o.confectioner_id ? confByKey.get(o.confectioner_id) || null : null,
+      customer_name: customerNames.get(o.user_id) || "",
       items: itemsByOrder.get(o.id) || [],
     }));
 
