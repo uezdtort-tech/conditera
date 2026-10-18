@@ -13,36 +13,59 @@ import { PromoPopup } from "@/components/layout/promo-popup";
 import { CartDrawer } from "@/components/marketplace/cart-drawer";
 import { ChatWidget } from "@/components/chat/chat-widget";
 import { CakeBuilderDialog } from "@/components/cake-builder/cake-builder-dialog";
-import { HomePage } from "@/components/pages/home-page";
-import { CatalogPage } from "@/components/pages/catalog-page";
-import { ProductPage } from "@/components/pages/product-page";
-import { ConfectionersPage } from "@/components/pages/confectioners-page";
-import { ConfectionerProfilePage } from "@/components/pages/confectioner-profile-page";
-import { SupplierShopPage } from "@/components/pages/supplier-shop-page";
-import { PromotionsPage } from "@/components/pages/promotions-page";
-import { RecipesPage } from "@/components/pages/recipes-page";
-import { RecipeDetailPage } from "@/components/pages/recipe-detail-page";
-import { CorporateEventsPage } from "@/components/pages/corporate-events-page";
-import { DecorShopPage } from "@/components/pages/decor-shop-page";
-import { ServicesShopPage } from "@/components/pages/services-shop-page";
-import { VenuesPage } from "@/components/pages/venues-page";
-import { GiftCertificatesPage } from "@/components/pages/gift-certificates-page";
-import { TelegramBotPage } from "@/components/dashboard/customer-features-tabs";
-import { CakeBuilderPage } from "@/components/cake-builder/cake-builder-page";
-import {
-  ReadyMadePage,
-  TendersPage,
-  BlogPage,
-  AboutPage,
-  FaqPage,
-  CheckoutPage,
-  ReviewsPage,
-  ForConfectionersPage,
-  ForSuppliersPage,
-} from "@/components/pages/extra-pages";
-import { LegalPage } from "@/components/pages/legal-page";
 import dynamic from "next/dynamic";
 import { useSeoMetadata } from "@/lib/use-seo-metadata";
+
+// П.18: Code-splitting SPA-view (продолжение П.17 для дашбордов).
+// Каждая view — отдельный чанк: Turbopack в dev компилирует его лениво при
+// первом переключении view, а не весь граф приложения при компиляции маршрута
+// `/` (замер до фикса: компиляция `/` стоила ~1 GB RSS и была главным
+// источником OOM-kill в 4 GB sandbox). В prod это уменьшает initial JS.
+// ssr не переопределяется (true по умолчанию) — SSR-HTML активной view
+// сохраняется, поисковый робот видит тот же контент, что и до фикса.
+const HomePage = dynamic(() => import("@/components/pages/home-page").then((m) => m.HomePage), { loading: () => <PageSkeleton /> });
+const CatalogPage = dynamic(() => import("@/components/pages/catalog-page").then((m) => m.CatalogPage), { loading: () => <PageSkeleton /> });
+const ProductPage = dynamic(() => import("@/components/pages/product-page").then((m) => m.ProductPage), { loading: () => <PageSkeleton /> });
+const ConfectionersPage = dynamic(() => import("@/components/pages/confectioners-page").then((m) => m.ConfectionersPage), { loading: () => <PageSkeleton /> });
+const ConfectionerProfilePage = dynamic(() => import("@/components/pages/confectioner-profile-page").then((m) => m.ConfectionerProfilePage), { loading: () => <PageSkeleton /> });
+const SupplierShopPage = dynamic(() => import("@/components/pages/supplier-shop-page").then((m) => m.SupplierShopPage), { loading: () => <PageSkeleton /> });
+const PromotionsPage = dynamic(() => import("@/components/pages/promotions-page").then((m) => m.PromotionsPage), { loading: () => <PageSkeleton /> });
+const RecipesPage = dynamic(() => import("@/components/pages/recipes-page").then((m) => m.RecipesPage), { loading: () => <PageSkeleton /> });
+const RecipeDetailPage = dynamic(() => import("@/components/pages/recipe-detail-page").then((m) => m.RecipeDetailPage), { loading: () => <PageSkeleton /> });
+const CorporateEventsPage = dynamic(() => import("@/components/pages/corporate-events-page").then((m) => m.CorporateEventsPage), { loading: () => <PageSkeleton /> });
+const DecorShopPage = dynamic(() => import("@/components/pages/decor-shop-page").then((m) => m.DecorShopPage), { loading: () => <PageSkeleton /> });
+const ServicesShopPage = dynamic(() => import("@/components/pages/services-shop-page").then((m) => m.ServicesShopPage), { loading: () => <PageSkeleton /> });
+const VenuesPage = dynamic(() => import("@/components/pages/venues-page").then((m) => m.VenuesPage), { loading: () => <PageSkeleton /> });
+const GiftCertificatesPage = dynamic(() => import("@/components/pages/gift-certificates-page").then((m) => m.GiftCertificatesPage), { loading: () => <PageSkeleton /> });
+const TelegramBotPage = dynamic(() => import("@/components/dashboard/customer-features-tabs").then((m) => m.TelegramBotPage), { loading: () => <PageSkeleton /> });
+const CakeBuilderPage = dynamic(() => import("@/components/cake-builder/cake-builder-page").then((m) => m.CakeBuilderPage), { loading: () => <PageSkeleton /> });
+const ReadyMadePage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.ReadyMadePage), { loading: () => <PageSkeleton /> });
+const TendersPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.TendersPage), { loading: () => <PageSkeleton /> });
+const BlogPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.BlogPage), { loading: () => <PageSkeleton /> });
+const AboutPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.AboutPage), { loading: () => <PageSkeleton /> });
+const FaqPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.FaqPage), { loading: () => <PageSkeleton /> });
+const CheckoutPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.CheckoutPage), { loading: () => <PageSkeleton /> });
+const ReviewsPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.ReviewsPage), { loading: () => <PageSkeleton /> });
+const ForConfectionersPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.ForConfectionersPage), { loading: () => <PageSkeleton /> });
+const ForSuppliersPage = dynamic(() => import("@/components/pages/extra-pages").then((m) => m.ForSuppliersPage), { loading: () => <PageSkeleton /> });
+const LegalPage = dynamic(() => import("@/components/pages/legal-page").then((m) => m.LegalPage), { loading: () => <PageSkeleton /> });
+
+/** Skeleton для SPA-view на время подгрузки чанка (аналог DashboardSkeleton) */
+function PageSkeleton() {
+  return (
+    <div className="container mx-auto px-4 py-12">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 w-64 bg-muted rounded" />
+        <div className="h-4 w-96 bg-muted/70 rounded" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-32 bg-muted/50 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // П.17: Code-splitting дашбордов.
 // Каждый дашборд — это отдельный чанк, который подгружается только когда

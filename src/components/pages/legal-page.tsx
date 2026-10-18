@@ -10,7 +10,7 @@ import {
   Eye, Database, Mail, User, Trash2, Download,
 } from "lucide-react";
 
-type LegalPage = "privacy" | "terms" | "offer" | "consent" | "cookies";
+export type LegalPage = "privacy" | "terms" | "offer" | "consent" | "cookies";
 
 export function LegalPage({ page }: { page: LegalPage }) {
   const navigate = useAppStore((s) => s.navigate);

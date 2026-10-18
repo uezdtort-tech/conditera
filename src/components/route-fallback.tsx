@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useAppStore } from '@/lib/store';
 import { Header } from '@/components/layout/header';
 import { Footer } from '@/components/layout/footer';
@@ -12,8 +13,53 @@ import { PromoPopup } from '@/components/layout/promo-popup';
 import { CartDrawer } from '@/components/marketplace/cart-drawer';
 import { ChatWidget } from '@/components/chat/chat-widget';
 import { CakeBuilderDialog } from '@/components/cake-builder/cake-builder-dialog';
-import { CakeBuilderPage } from '@/components/cake-builder/cake-builder-page';
 import type { Role } from '@/lib/types';
+import type { LegalPage as LegalPageName } from '@/components/pages/legal-page';
+
+// П.18: SPA-view через lazy-чанки (зеркально app/page.tsx).
+// Раньше страницы подключались require() прямо в рендере — из-за этого граф
+// модулей КАЖДОГО stub-маршрута включал все страницы приложения и компиляция
+// любого маршрута в dev стоила сотни МБ (главный источник OOM-kill в sandbox).
+// dynamic() на уровне модуля + ssr по умолчанию (true): SSR активной view
+// сохраняется, чанки компилируются лениво.
+function PageSkeleton() {
+  return (
+    <div className="container mx-auto px-4 py-12">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 w-64 bg-muted rounded" />
+        <div className="h-4 w-96 bg-muted/70 rounded" />
+      </div>
+    </div>
+  );
+}
+
+const HomePage = dynamic(() => import('@/components/pages/home-page').then((m) => m.HomePage), { loading: () => <PageSkeleton /> });
+const CatalogPage = dynamic(() => import('@/components/pages/catalog-page').then((m) => m.CatalogPage), { loading: () => <PageSkeleton /> });
+const ProductPage = dynamic(() => import('@/components/pages/product-page').then((m) => m.ProductPage), { loading: () => <PageSkeleton /> });
+const ConfectionersPage = dynamic(() => import('@/components/pages/confectioners-page').then((m) => m.ConfectionersPage), { loading: () => <PageSkeleton /> });
+const ConfectionerProfilePage = dynamic(() => import('@/components/pages/confectioner-profile-page').then((m) => m.ConfectionerProfilePage), { loading: () => <PageSkeleton /> });
+const RecipesPage = dynamic(() => import('@/components/pages/recipes-page').then((m) => m.RecipesPage), { loading: () => <PageSkeleton /> });
+const RecipeDetailPage = dynamic(() => import('@/components/pages/recipe-detail-page').then((m) => m.RecipeDetailPage), { loading: () => <PageSkeleton /> });
+const LegalPage = dynamic(() => import('@/components/pages/legal-page').then((m) => m.LegalPage), { loading: () => <PageSkeleton /> });
+const VenuesPage = dynamic(() => import('@/components/pages/venues-page').then((m) => m.VenuesPage), { loading: () => <PageSkeleton /> });
+const CakeBuilderPage = dynamic(() => import('@/components/cake-builder/cake-builder-page').then((m) => m.CakeBuilderPage), { loading: () => <PageSkeleton /> });
+const AboutPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.AboutPage), { loading: () => <PageSkeleton /> });
+const FaqPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.FaqPage), { loading: () => <PageSkeleton /> });
+const ContactsPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.ContactsPage), { loading: () => <PageSkeleton /> });
+const ReviewsPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.ReviewsPage), { loading: () => <PageSkeleton /> });
+const BlogPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.BlogPage), { loading: () => <PageSkeleton /> });
+const CheckoutPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.CheckoutPage), { loading: () => <PageSkeleton /> });
+const PromotionsPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.PromotionsPage), { loading: () => <PageSkeleton /> });
+const ReadyMadePage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.ReadyMadePage), { loading: () => <PageSkeleton /> });
+const TendersPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.TendersPage), { loading: () => <PageSkeleton /> });
+const CorporateEventsPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.CorporateEventsPage), { loading: () => <PageSkeleton /> });
+const DecorShopPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.DecorShopPage), { loading: () => <PageSkeleton /> });
+const ServicesShopPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.ServicesShopPage), { loading: () => <PageSkeleton /> });
+const SupplierShopPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.SupplierShopPage), { loading: () => <PageSkeleton /> });
+const GiftCertificatesPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.GiftCertificatesPage), { loading: () => <PageSkeleton /> });
+const TelegramBotPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.TelegramBotPage), { loading: () => <PageSkeleton /> });
+const ForConfectionersPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.ForConfectionersPage), { loading: () => <PageSkeleton /> });
+const ForSuppliersPage = dynamic(() => import('@/components/pages/extra-pages').then((m) => m.ForSuppliersPage), { loading: () => <PageSkeleton /> });
 
 const dashboardByRole: Partial<Record<Role, string>> = {
   GUEST: 'home',
@@ -97,18 +143,6 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
   const AdminDashboard = dynamic(() => import('@/components/dashboard/other-dashboards').then((m: any) => m.AdminDashboard), { ssr: false, loading: () => <DashboardSkeleton /> });
   const ExtraDashboards = dynamic(() => import('@/components/dashboard/extra-dashboards').then((m: any) => m.ExtraDashboards), { ssr: false, loading: () => <DashboardSkeleton /> });
 
-  // Импортируем страницы
-  const pages = require('@/components/pages/extra-pages');
-  const { HomePage } = require('@/components/pages/home-page');
-  const { CatalogPage } = require('@/components/pages/catalog-page');
-  const { VenuesPage } = require('@/components/pages/venues-page');
-  const { ProductPage } = require('@/components/pages/product-page');
-  const { ConfectionersPage } = require('@/components/pages/confectioners-page');
-  const { ConfectionerProfilePage } = require('@/components/pages/confectioner-profile-page');
-  const { RecipesPage } = require('@/components/pages/recipes-page');
-  const { RecipeDetailPage } = require('@/components/pages/recipe-detail-page');
-  const { LegalPage } = require('@/components/pages/legal-page');
-
   const renderView = () => {
     switch (currentView) {
       case 'home': return <HomePage />;
@@ -119,27 +153,27 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       case 'recipes': return <RecipesPage />;
       case 'recipe-detail': return <RecipeDetailPage />;
       case 'about':
-        return effectiveParams?.legal ? <LegalPage page={effectiveParams.legal} /> : <pages.AboutPage />;
-      case 'legal': return <LegalPage page={effectiveParams?.legal || 'consent'} />;
-      case 'help': return <pages.FaqPage />;
-      case 'faq': return <pages.FaqPage />;
-      case 'contacts': return <pages.ContactsPage />;
-      case 'reviews': return <pages.ReviewsPage />;
-      case 'blog': return <pages.BlogPage />;
-      case 'checkout': return <pages.CheckoutPage />;
-      case 'promotions': return <pages.PromotionsPage />;
-      case 'ready-made': return <pages.ReadyMadePage />;
-      case 'tenders': return <pages.TendersPage />;
-      case 'corporate-events': return <pages.CorporateEventsPage />;
-      case 'decor-shop': return <pages.DecorShopPage />;
-      case 'services-shop': return <pages.ServicesShopPage />;
+        return effectiveParams?.legal ? <LegalPage page={effectiveParams.legal as LegalPageName} /> : <AboutPage />;
+      case 'legal': return <LegalPage page={(effectiveParams?.legal || 'consent') as LegalPageName} />;
+      case 'help': return <FaqPage />;
+      case 'faq': return <FaqPage />;
+      case 'contacts': return <ContactsPage />;
+      case 'reviews': return <ReviewsPage />;
+      case 'blog': return <BlogPage />;
+      case 'checkout': return <CheckoutPage />;
+      case 'promotions': return <PromotionsPage />;
+      case 'ready-made': return <ReadyMadePage />;
+      case 'tenders': return <TendersPage />;
+      case 'corporate-events': return <CorporateEventsPage />;
+      case 'decor-shop': return <DecorShopPage />;
+      case 'services-shop': return <ServicesShopPage />;
       case 'venues': return <VenuesPage />;
-      case 'supplier-shop': return <pages.SupplierShopPage />;
-      case 'gift-certificates': return <pages.GiftCertificatesPage />;
-      case 'telegram-bot': return <pages.TelegramBotPage />;
+      case 'supplier-shop': return <SupplierShopPage />;
+      case 'gift-certificates': return <GiftCertificatesPage />;
+      case 'telegram-bot': return <TelegramBotPage />;
       case 'cake-builder': return <CakeBuilderPage />;
-      case 'for-confectioners': return <pages.ForConfectionersPage />;
-      case 'for-suppliers': return <pages.ForSuppliersPage />;
+      case 'for-confectioners': return <ForConfectionersPage />;
+      case 'for-suppliers': return <ForSuppliersPage />;
       case 'dashboard-customer': return <CustomerDashboard />;
       case 'dashboard-confectioner': return <ConfectionerDashboard />;
       case 'dashboard-supplier': return <SupplierDashboard />;
