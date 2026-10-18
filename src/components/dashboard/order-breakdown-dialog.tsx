@@ -120,10 +120,22 @@ export function OrderBreakdownDialog({
   // Этап 10 §B1: списание доступных ингредиентов по заказу. API /api/inventory/
   // write-off идемпотентен по (order_id + сигнатура батча) — повторный клик
   // вернёт сохранённый результат без двойного списания (миграция 0049).
+  // Единицы: breakdown.required — в единицах РЕЦЕПТА (напр. «г»), write-off
+  // принимает единицы СКЛАДА (warehouse_unit, напр. «кг»). Конверсия по фактору
+  // stock↔warehouse_quantity (для status="ok" оба > 0).
   const writableIngredients =
     data?.ingredients.filter(
-      (ing) => ing.status === "ok" && ing.inventory_item_id && ing.required > 0
+      (ing) =>
+        ing.status === "ok" &&
+        ing.inventory_item_id &&
+        ing.required > 0 &&
+        ing.stock > 0 &&
+        (ing.warehouse_quantity ?? 0) > 0
     ) ?? [];
+  const warehouseQty = (ing: BreakdownIngredient): number => {
+    const qty = (ing.required * (ing.warehouse_quantity ?? 0)) / ing.stock;
+    return Math.round(qty * 1e6) / 1e6;
+  };
   const writeOff = useWriteOffInventory();
   const handleWriteOff = () => {
     if (!orderId || writableIngredients.length === 0) return;
@@ -132,7 +144,7 @@ export function OrderBreakdownDialog({
         orderId,
         items: writableIngredients.map((ing) => ({
           itemId: ing.inventory_item_id as string,
-          quantity: ing.required,
+          quantity: warehouseQty(ing),
         })),
         reason: `Списание по заказу на производство`,
       },

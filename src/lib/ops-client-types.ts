@@ -124,11 +124,20 @@ export type BreakdownIngredientStatus = "ok" | "shortage" | "no_stock" | "unit_m
 export interface BreakdownIngredient {
   name: string;
   unit: string;
+  /** Потребность в единицах РЕЦЕПТА (unit) */
   required: number;
+  /** Остаток, пересчитанный в единицы рецепта */
   stock: number;
   status: BreakdownIngredientStatus;
   inventory_item_id: string | null;
   estimated_cost: number;
+  /** Этап 10 §B1: склад в своих единицах (для списания через write-off) */
+  warehouse_item_name?: string | null;
+  warehouse_unit?: string | null;
+  warehouse_quantity?: number | null;
+  supplier?: string | null;
+  shortage?: number | null;
+  note?: string | null;
 }
 
 export interface OrderBreakdownResponse {

@@ -118,6 +118,24 @@ export function ChatWidget({
   const activeRoom = rooms.find((r) => r.id === activeChatRoom);
   const roomMessages = chatMessages.filter((m) => m.roomId === activeChatRoom);
 
+  // Этап 10: если активная комната (например, открытая из карточки заказа —
+  // openOrderChat создаёт её ПОСЛЕ загрузки списка при логине) отсутствует
+  // в списке — перезагружаем список. Без этого панель показывала «Выберите
+  // чат» при уже выбранной комнате (activeRoom = undefined).
+  const activeRoomMissing = activeChatRoom && apiRooms !== null && !activeRoom;
+  useEffect(() => {
+    if (!activeRoomMissing) return;
+    let cancelled = false;
+    (async () => {
+      const list = await fetchChatRooms();
+      if (cancelled) return;
+      setApiRooms((list || []).map(mapApiRoomToChatRoom));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRoomMissing]);
+
   const activeTyping = typingUsers.get(activeChatRoom || "") || [];
 
   // Загрузка реальных комнат при логине (real-first; mock — только анонимам)
