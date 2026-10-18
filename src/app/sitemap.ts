@@ -100,19 +100,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   }
 
-  // 2. Категории каталога
-  try {
-    for (const cat of CATEGORIES) {
-      entries.push({
-        url: `${APP_URL}/catalog?category=${cat.slug}`,
-        lastModified: now,
-        changeFrequency: "weekly" as const,
-        priority: 0.6,
-      });
-    }
-  } catch (e) {
-    console.warn("[sitemap] Categories failed:", (e as Error).message);
-  }
+  // 2. Категории каталога — НЕ включаем query-URL (?category=…).
+  // SPA-каноникл каталога указывает на /catalog, поэтому query-URL —
+  // дубли: sitemap должен содержать только канонические адреса
+  // (см. CLOUD-PREVIEW-SEO-REPORT.md, Этап 4).
+  void CATEGORIES;
 
   // 3. Профили верифицированных кондитеров (Supabase, fallback на mock)
   // Чистые slug-URL /confectioners/<slug> (роут src/app/confectioners/[slug]/page.tsx).
@@ -131,19 +123,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.warn("[sitemap] Confectioners failed:", (e as Error).message);
   }
 
-  // 4. Рецепты/статьи блога (пока mock — будут переведены на БД в следующем раунде)
-  try {
-    for (const r of MOCK_RECIPES) {
-      entries.push({
-        url: `${APP_URL}/recipes?id=${r.id}`,
-        lastModified: now,
-        changeFrequency: "monthly" as const,
-        priority: 0.5,
-      });
-    }
-  } catch (e) {
-    console.warn("[sitemap] Recipes failed:", (e as Error).message);
-  }
+  // 4. Рецепты/статьи блога — НЕ включаем query-URL (?id=…):
+  // тот же класс дублей, что и категории (каноникл /recipes).
+  // Вернём в sitemap, когда появятся отдельные canonical-маршруты
+  // /recipes/<slug> (см. CLOUD-PREVIEW-SEO-REPORT.md, Этап 4).
+  void MOCK_RECIPES;
 
   return entries;
 }
