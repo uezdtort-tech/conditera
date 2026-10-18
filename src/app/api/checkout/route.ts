@@ -636,6 +636,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           promoCodeId: appliedPromoId,
           orderId: order.id,
           discountRub: discount,
+          userId: user.id, // Этап 10 §C1: журнал promo_code_usages
         });
       } catch (promoErr) {
         console.warn("[checkout] promo apply failed (non-blocking):", (promoErr as Error).message);

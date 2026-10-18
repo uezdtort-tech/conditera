@@ -101,7 +101,7 @@ export async function validatePromoCode(
       .from("promo_codes")
       .select(
         `id, code, type, value, min_order_amount, max_uses, used_count,
-         valid_from, valid_to, is_active`
+         valid_from, valid_to, is_active, applies_to`
       )
       .eq("code", code)
       .maybeSingle();
@@ -131,6 +131,41 @@ export async function validatePromoCode(
           valid: false,
           reason: `Минимальная сумма заказа для этого промокода — ${promo.min_order_amount}₽`,
         };
+      }
+
+      // Этап 10 §C1: защита от повторного применения одним пользователем.
+      // Таблица promo_code_usages (миграция 0005) существовала, но кодом
+      // не читалась и не писалась — один пользователь мог использовать
+      // персональный маркетинг-код многократно. Правила (схема-консистентные):
+      //  • любой DB-промокод — один раз на пользователя (одноразовость
+      //    персональных кодов — консервативный дефолт против злоупотребления);
+      //  • applies_to='first_order' (0005) — только при отсутствии прошлых
+      //    заказов у пользователя.
+      // Статические коды (fallback вне БД) ведут себя как раньше — их
+      // повторное применение в песочнице не персонализируется.
+      if (params.userId) {
+        const { data: usedByUser } = await admin
+          .from("promo_code_usages")
+          .select("id")
+          .eq("promo_code_id", promo.id)
+          .eq("user_id", params.userId)
+          .limit(1);
+        if ((usedByUser || []).length > 0) {
+          return { valid: false, reason: "Этот промокод уже был использован" };
+        }
+      }
+      if (promo.applies_to === "first_order" && params.userId) {
+        const { data: priorOrders } = await admin
+          .from("orders")
+          .select("id")
+          .eq("user_id", params.userId)
+          .limit(1);
+        if ((priorOrders || []).length > 0) {
+          return {
+            valid: false,
+            reason: "Промокод действует только на первый заказ",
+          };
+        }
       }
 
       const type = promo.type as ValidatePromoCodeResult["discountType"];
@@ -198,6 +233,8 @@ export async function applyPromoCodeToOrder(args: {
   promoCodeId?: string | null;
   orderId: string;
   discountRub: number;
+  /** Этап 10 §C1: для журнала promo_code_usages (защита от повторного применения) */
+  userId?: string | null;
 }): Promise<void> {
   const admin = await getAdmin();
   if (!admin) return;
@@ -225,6 +262,26 @@ export async function applyPromoCodeToOrder(args: {
         .update({ used_count: (await currentUsedCount(args.promoCodeId)) + 1 })
         .eq("id", args.promoCodeId);
       if (updErr) console.warn("[promo-codes] used_count increment failed:", updErr.message);
+    }
+
+    // Этап 10 §C1: журнал использований (promo_code_usages, 0005) — источник
+    // для per-user защиты в validatePromoCode. Best-effort: 23505 (тот же
+    // code+user+order уже записан, напр. повтор checkout) — не ошибка.
+    // Колонка discount_amount документирована в КОПЕЙКАХ (0005) — скидка в
+    // orders.promo_discount хранится в рублях, здесь конвертируем ×100.
+    if (args.userId) {
+      const { error: usageErr } = await admin.from("promo_code_usages").insert({
+        promo_code_id: args.promoCodeId,
+        user_id: args.userId,
+        order_id: args.orderId,
+        discount_amount: Math.max(0, Math.round(args.discountRub)) * 100,
+      });
+      if (usageErr) {
+        const pgCode = (usageErr as { code?: string }).code;
+        if (pgCode !== "23505") {
+          console.warn("[promo-codes] usage record failed:", usageErr.message);
+        }
+      }
     }
   }
 }
