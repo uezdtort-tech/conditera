@@ -1,0 +1,11 @@
+=== v4.8 CI verification @ 2026-10-18T11:47:17.451Z ===
+jobs: lint-typecheck,test,build,docker-build,security-checks,validate-caddyfile,evidence-hygiene
+docker-build triggers: PR=["main","develop"] push=["main","develop"]
+CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+checkout ref: ${{ env.CANDIDATE_SHA }}
+docker-build steps: Verify checked-out source SHA == image tag SHA | Validate Compose configuration | Set up Docker Buildx | Build web image | Build chat-server image | Build simplex-bridge image | Image existence + layer-history + exported-fs secret-gate
+secret-gate includes exported-FS scan: true
+verify step logs github.sha (merge-SHA): true
+evidence-hygiene steps: Scan tracked evidence for real secrets/PII | Scanner downgrade-rule adversarial regression | Production env template contract
+red-line drift guard step present: true; covers 4 paths: 4
+validate-caddyfile job: Validate Caddyfile syntax

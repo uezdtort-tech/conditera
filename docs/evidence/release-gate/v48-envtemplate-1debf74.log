@@ -1,0 +1,3 @@
+[compose]  docker-compose.yml: 6 required var(s): CRON_SECRET, JWT_SECRET, MEILI_MASTER_KEY, N8N_ADMIN_PASSWORD, POSTGRES_PASSWORD, SIMPLEX_BRIDGE_API_KEY
+[template] .env.production.example: 63 key(s)
+OK: контракт выполнен — все required-переменные присутствуют в шаблоне

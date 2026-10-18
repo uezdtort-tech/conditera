@@ -1,4 +1,4 @@
-# RELEASE-ROLLBACK-CHECKLIST — Conditera (v4.6)
+# RELEASE-ROLLBACK-CHECKLIST — Conditera (v4.8)
 
 > Назначение: процедурный чек-лист отката/остановки релиза и мониторинга.
 > Статус заполнения: repository-anchored (что видно из репо) + явные `OWNER INPUT REQUIRED`
@@ -93,5 +93,26 @@ curl -sf http://127.0.0.1:3000/api/health   # healthcheck до возобнов�
 
 ## 6. Связь с release-gate
 
-- Rollback-решения принимает владелец (см. RELEASE-GATE-v4.6-REPORT.md: PRODUCTION-READY: NO — CI/Docker гейты на опубликованном кандидате не выполнены).
+- Rollback-решения принимает владелец (см. RELEASE-GATE-v4.8-REPORT.md: PRODUCTION-READY: NO — CI/Docker гейты на опубликованном кандидате не выполнены).
 - Перед первым production deploy обязательно: п.1.1 backup + п.1.2 test-restore + подтверждение владельцем.
+
+## 7. OWNER INPUT REQUIRED — сводный перечень данных инфраструктуры (v4.8)
+
+Все параметры, недоступные из sandbox, собраны в одну таблицу — владелец заполняет одним проходом до deploy. Ничего не выдумано: пустые ячейки = нет данных в репозитории.
+
+| # | Параметр | Где взять на сервере | Значение (владелец) |
+|---|---|---|---|
+| OI-1 | Ответственный за deploy/rollback (имя, канал связи) | — | |
+| OI-2 | Имя контейнера `db` (container_name в живом compose) | `docker ps --format '{{.Names}}'` | |
+| OI-3 | Частота/окно автоматических backup БД (или подтверждение «только ручной перед deploy») | crontab/система backup | |
+| OI-4 | Хранилище и ретеншн backup (где лежат, сколько хранятся) | — | |
+| OI-5 | Дата последнего УСПЕШНОГО test-restore (п.1.2) | журнал восстановлений | |
+| OI-6 | Список образов на сервере + последний green-CI SHA | `docker images \| grep conditera` | |
+| OI-7 | Алертинг-стек (UptimeRobot/Prometheus/прочее) и кто получает алерты | панель мониторинга | |
+| OI-8 | Фактический ingress cloudflared: `service:` для conditera.ru/www | `cat ~/.cloudflared/config.yml` или `systemctl cat cloudflared` | |
+| OI-9 | Слушающие адреса 3000/6432/7700/8081 (должны быть 127.0.0.1) и 80/443 (0.0.0.0) | `sudo ss -tlnp` | |
+| OI-10 | Поднимается ли на хосте supabase-стек (docker-compose.supabase.yml: Kong 8000/Studio 8100) — если да, перепривязать на 127.0.0.1 | `docker ps` | |
+| OI-11 | Контакты поддержки, показываемые покупателю в футере (для пилота — путь возвратов без онлайн-формы) | сайт/футер | |
+| OI-12 | Провайдер production-auth (GoTrue/Supabase URL) и подтверждение, что dev-stub не используется | env на сервере / AUTH.md | |
+
+Заполненная таблица + выполненные п.1.1/1.2 — обязательное условие снятия BLOCKED с backup-гейта (RELEASE-GATE-v4.8-REPORT.md).
