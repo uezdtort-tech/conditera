@@ -9077,3 +9077,29 @@ Stage Summary:
 - HTTP 200 в облачном preview ПОДТВЕРЖДЁН повторно и независимо
 - Первопричина 502: OOM-kill next dev в sandbox — доказана логами ядра, не имитирована
 - Кодовых изменений: один тематический коммит (sitemap canonical hygiene); upload-маршруты/финансы/защита не тронуты
+
+---
+Task ID: 9
+Agent: Z.ai Code (main)
+Task: ЭТАП 9 — устранение блокеров, стабилизация, Production Readiness (Gate 9.0–9.5)
+
+Work Log:
+- Gate 9.0: HEAD 13ba90f, main, дерево чистое, 100 ahead/0 behind; коммиты 61b9a24/13ba90f подтверждены; 4 красных файла hash 4/4 MATCH (cb23e5dd/f6c52a42/ec9f8efc/06b49c3c); watcher'ов нет; расхождений с отчётом этапа 0-8 не найдено
+- Gate 9.1 OOM: kernel-лог 7 инцидентов (все next-server, anon-rss 2.7-3.3GB, tokio-rt-worker Turbopack); ЭКСПЕРИМЕНТ: .next/dev=1.3GB давал 2410MB RSS idle → удаление → 240MB idle (причинность доказана). Live-воспроизведение kill #4 (3.31GB) при smoke-прогоне. Вторая первопричина: запись FS-кэша сама ест память (профилирование per-route: '/' 1.0GB, дальше 60-300MB/маршрут, плато 3.2GB). КОДОВЫЕ ФИКСЫ: experimental.turbopackFileSystemCacheForDev=false (next.config.ts; флаг принят, кэш 8KB вместо 1.3GB, плато 2.3GB) + гигиена .next/dev>512MB в ensure-dev.sh. ОТКЛОНЁН ПО ЗАМЕРАМ: code-split как OOM-фикс (Turbopack компилирует все чанки маршрута в dev — 2493≈2472MB), V8 heap cap (1864≈1854MB) — честно задокументировано
+- П.18 code-split: ~25 страниц в page.tsx + require()-в-рендере в route-fallback.tsx → module-scope dynamic() (ssr сохранён, паттерн П.17); LegalPage тип экспортирован (require-any маскировал type-error пропса page); typecheck/lint/Vitest 1065/1065 PASS; SSR-контент '/' сохранён (curl: h1+товары)
+- Gate 9.2 E2E: bunx playwright install chromium (1200→1234, штатно, lockfile цел); per-spec раннер scripts/e2e-per-spec.sh (рестарт сервера перед спеком — kill #8 на 2790MB mid-run доказал необходимость); chromium project: 148 passed + 1 designed skip / 149, все 9 спеков (частями: smoke 8+3, full-flow 7+3+20+6); mobile-chrome project BLOCKED (память); OOM за прогон: #9,#10,#11 (после тестов или между рестартами — тесты не задеты)
+- Golden path браузером (agent-browser): логин (тост+аватар) → каталог → карточка (реальный товар 4400₽+рейтинг) → добавить в корзину → drawer (товар/промокоды/итого) → «Оформить заказ» → «Оформление заказа» форма (без платежа); логин через eval-fill не срабатывал (React-стейт), через snapshot-ref fill — работает
+- Gate 9.3: .pgdata жива, миграций 59, сиды идемпотентны (re-seed: profiles 21/products 12/confectioners 5 без изменений), /rest/v1/* и /api/auth/* 200, сессия переживает рестарты, chat-server :3030; секрет-скан полными значениями: JWT_SECRET/JWT_REFRESH_SECRET/BOT_SECRET/CRON_SECRET/SERVICE_ROLE_KEY — client bundle/src/logs CLEAN (первые LEAK-флаги были артефактами: head-маскирование exit-code + 20-символьный JWT-префикс совпал с публичным anon-ключом)
+- Gate 9.4: sitemap факт 28 URL/0 query (сверено); 5 slug-кондитеров 200; SSR-«не пустая оболочка» подтверждена post-refactor; SEO-разделение preview/production: robots.txt preview → 'Disallow: /' без Sitemap/Host, next.config → X-Robots-Tag noindex,nofollow (проверено curl); production-ветка не изменена
+- Gate 9.5: иконные кнопки 3+→0 (aria-label: меню/очистить/поиск по фото/видео-стрелки), h4→h3 в marquee (H1→H2→H4×12 → H1→H2→H3×12), поиск aria-label; клавиатура 20/20 фокусируемых; контраст: браузерный lab-конвертер имел двойную гамму (ложные 3.78), Node-расчёт: graphite/cream 16.47, muted 5.71, berry 8.26, white/berry 8.18, badge 6.34 — все ≥AA, токены не менялись; 375px: без h-скролла, скриншот-проверка (временный .png удалён)
+- Production build: BLOCKED (политика sandbox — build запрещён); историческое доказательство: build exit 0 на 8db8a4d3 (v4.6) при остановленном dev; команда и хостинг-требования в отчёте E.2-E.3
+- Коммиты: bd9bd12 (code-split), a1bec00 (oom), 5347a63 (e2e runner), a05506a (seo noindex), cb4bed8 (a11y); pre-commit: git diff --check чисто, секрет-скан 0, upload-маршруты после всех коммитов hash 2/2 MATCH; push/PR/deploy НЕ выполнялись
+- Отчёт: CLOUD-PREVIEW-SEO-REPORT.md дополнен разделом «ЭТАП 9» (гates A-E, история этапов 0-8 не переписывалась)
+
+Stage Summary:
+- Статус: READY FOR OWNER REVIEW; PRODUCTION-READY: NO (prod-build не подтверждён в этой сессии, целевое окружение неизвестно)
+- Первопричина OOM устранена доказуемо (FS-кэш отключён: idle 240MB вместо 2410, плато 2.3GB вместо 3.2-3.3; 0 OOM в контрольном протоколе); безопасный режим для 4GB sandbox воспроизводим (ensure-dev гигиена + per-spec раннер)
+- E2E chromium: 148+1skip/149 PASS + браузерный golden path; mobile-chrome = BLOCKED (память), мобильность покрыта иначе
+- Preview закрыт от индексации до решения владельца; каноникл/sitemap не тронуты (28 URL подтверждены)
+- 13 OOM-инцидентов за сессию задокументированы честно (7 до фиксов, 6 в переходных фазах; контрольный протокол после фиксов — 0)
+- Финансовая логика, upload-маршруты, auth/CSRF/rate-limit, drift-guard/secret-scan — не тронуты
