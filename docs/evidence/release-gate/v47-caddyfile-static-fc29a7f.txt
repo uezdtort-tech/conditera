@@ -1,0 +1,17 @@
+Total reverse_proxy blocks: 12
+L51 [@loopback_peer] -> web:3000: header_up X-Real-IP {header.CF-Connecting-IP}
+L65 [(none)] -> web:3000: header_up X-Real-IP {remote_host} | header_up -CF-Connecting-IP
+L80 [@loopback_peer] -> chat-service:3030: header_up X-Real-IP {header.CF-Connecting-IP}
+L87 [(none)] -> chat-service:3030: header_up X-Real-IP {remote_host} | header_up -CF-Connecting-IP
+L102 [@loopback_peer] -> n8n:5678: header_up X-Real-IP {header.CF-Connecting-IP}
+L105 [(none)] -> n8n:5678: header_up X-Real-IP {remote_host} | header_up -CF-Connecting-IP
+L119 [@loopback_peer] -> web:3000: header_up X-Real-IP {header.CF-Connecting-IP}
+L129 [(none)] -> web:3000: header_up X-Real-IP {remote_host} | header_up -CF-Connecting-IP
+L179 [@loopback_peer] -> web:3000: header_up X-Real-IP {header.CF-Connecting-IP}
+L184 [(none)] -> web:3000: header_up X-Real-IP {remote_host} | header_up -CF-Connecting-IP
+L223 [(none)] -> smp-server:5223: (no header_up)
+L236 [(none)] -> web:3000: header_up X-Real-IP {remote_host} | header_up -CF-Connecting-IP
+HTTP-chain blocks: 11 | missing X-Real-IP rewrite: 0 
+loopback-branch: 5 all CF-Connecting-IP: true
+direct-branch: 6 all {remote_host}+-CF-Connecting-IP: true
+smp block header_up (non-HTTP protocol, out of trust chain): (none)

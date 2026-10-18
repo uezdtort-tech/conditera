@@ -1,0 +1,27 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.10 /home/z/my-project
+
+stderr | src/lib/anti-fraud.test.ts > checkFraudLimit — два окна (v4.6) > ошибка часового подсчёта → fail-open (allow, консистентно с прежним контрактом)
+[anti-fraud] count failed: db down
+
+stderr | src/lib/anti-fraud.test.ts > checkFraudLimit — два окна (v4.6) > ошибка дневного подсчёта → fail-open (allow)
+[anti-fraud] day-count failed: db down
+
+stderr | src/lib/anti-fraud.test.ts > checkFraudLimit — два окна (v4.6) > ошибка вставки попытки → fail-open (allow, попытка не посчитана)
+[anti-fraud] log insert failed: insert failed
+
+ ✓ src/lib/anti-fraud.test.ts (36 tests) 17ms
+ ✓ src/lib/anti-fraud.concurrency.test.ts (7 tests) 12ms
+stderr | src/lib/ingress-trust.test.ts
+[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.
+
+ ✓ src/lib/ingress-trust.test.ts (14 tests) 9ms
+
+ Test Files  3 passed (3)
+      Tests  57 passed (57)
+   Start at  10:34:57
+   Duration  3.28s (transform 162ms, setup 531ms, import 170ms, tests 39ms, environment 2.16s)
+

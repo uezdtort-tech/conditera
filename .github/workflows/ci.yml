@@ -161,9 +161,13 @@ jobs:
 
       - name: Verify checked-out source SHA == image tag SHA
         # Доказательство в логе CI: собранный исходник == тег образов.
+        # v4.7: в лог фиксируются ОБА SHA — фактический checked-out (git
+        # rev-parse HEAD) и github.sha (на pull_request это merge-коммит,
+        # НЕ исходник образов; на push совпадает с CANDIDATE_SHA).
         run: |
           CHECKED="$(git rev-parse HEAD)"
           TAGGED="${{ env.CANDIDATE_SHA }}"
+          echo "github.sha (merge-SHA on PR, NOT image source): ${{ github.sha }}"
           echo "checked-out SHA: $CHECKED"
           echo "tag SHA:         $TAGGED"
           if [ "$CHECKED" != "$TAGGED" ]; then

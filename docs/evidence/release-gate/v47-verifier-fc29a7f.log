@@ -1,0 +1,17 @@
+PASS A1 presence-only + JWT stays real
+PASS A2 presence-only + Bearer token stays real
+PASS A3 presence-only + Cookie header stays real
+PASS A4 presence-only + db-conn with creds stays real
+PASS A5 presence-only + quoted password stays real
+PASS A6 presence-only + api-key stays real
+PASS A7 prefix + KEY=value stays real
+PASS A8 plain KEY=value leak stays real
+PASS B1 motivating v4.3 inventory line → synthetic
+PASS B2 generic name-only inventory → synthetic
+PASS C1 E-1 admin-absence warning → synthetic
+PASS C2 hygiene redaction marker (env) → synthetic
+PASS C3 F-1 redacted db-conn line → no db-conn finding
+PASS C4 mixed file: legit inventory + real JWT → exit 1
+=== SCAN-RULES VERIFIER SUMMARY ===
+SUMMARY pass=14/14 fail=0
+RESULT: no false skip of real-shaped secrets; legit downgrades intact.

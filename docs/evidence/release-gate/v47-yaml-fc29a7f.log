@@ -1,0 +1,3 @@
+=== v4.7 YAML/workflow validation @ 2026-10-18T10:45:52.850Z ===
+.github/workflows/ci.yml OK — jobs: 7 ( lint-typecheck,test,build,docker-build,security-checks,validate-caddyfile,evidence-hygiene )
+.github/workflows/e2e.yml OK — jobs: 3 ( setup,test,notify )
