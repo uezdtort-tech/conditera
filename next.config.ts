@@ -19,6 +19,17 @@ const nextConfig: NextConfig = {
     root: process.cwd(),
   },
 
+  // ===== Отключение Turbopack persistent FS-кэша (этап 9.1, OOM) =====
+  // В 4 GB sandbox кэш .next/dev записывал 1+ GB за одну сессию, а его
+  // гидрация при старте давала ~2.4 GB RSS ещё ДО первого запроса — это была
+  // главная причина OOM-kill next-server (7 инцидентов, anon-rss 2.7-3.3 GB).
+  // С отключённым кэшем каждый старт чистый (~240 MB), а память
+  // ограничена одной сессией компиляции. Компромисс: холодные компиляции при
+  // каждом старте (в песочнице некритично, в prod-сборке кэш не участвует).
+  experimental: {
+    turbopackFileSystemCacheForDev: false,
+  },
+
   // ===== Dev-origin whitelist (Next 16) =====
   // Без этого Next блокирует dev-ресурсы (/_next/hmr, dev-шрифты, сегменты)
   // для любого origin кроме дефолтного localhost. Следствие для preview:

@@ -18,6 +18,19 @@ if [ ! -f .env.local ]; then
   bun run db:setup >> dev.log 2>&1
 fi
 
+# 1b. Гигиена Turbopack dev-кэша (этап 9.1, worklog): .next/dev копится между
+# сессиями (замерено до 1.1 GB); его гидрация при старте даёт ~2.4 GB RSS на
+# холостом ходу и была главной причиной OOM-kill next-server в 4 GB sandbox.
+# Чистим ТОЛЬКО пока сервер :3000 не запущен; кэш пересоздаётся автоматически.
+if ! (echo > /dev/tcp/127.0.0.1/3000) 2>/dev/null; then
+  cache_kb=$(du -sk .next/dev 2>/dev/null | cut -f1)
+  cache_kb=${cache_kb:-0}
+  if [ "$cache_kb" -gt 524288 ]; then
+    echo "[ensure] .next/dev=${cache_kb}KB > 512MB — очистка dev-кэша (профилактика OOM)"
+    rm -rf .next/dev
+  fi
+fi
+
 # Секреты чата: передаются менеджеру через окружение. Значения НИКОГДА не печатаются.
 JWT_SECRET=$(sed -n 's/^JWT_SECRET=//p' .env.local 2>/dev/null | head -1)
 BOT_SECRET=$(sed -n 's/^BOT_SECRET=//p' .env.local 2>/dev/null | head -1)
