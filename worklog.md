@@ -9035,3 +9035,45 @@ Stage Summary:
 - Root cause of the SEO audit failure was a dead upstream (502), not missing SEO infrastructure — the marketplace landing already ships full meta/OG/JSON-LD/robots/sitemap
 - One real defect fixed: canonical/sitemap origin (localhost) → now self-referencing the audited domain via NEXT_PUBLIC_APP_URL in .env; must be updated when the production domain is assigned
 - Verified end-to-end: HTTP 200 externally, crawler surfaces (robots.txt/sitemap.xml/canonical/JSON-LD) all correct, golden path interactive, footer sticky behavior compliant, mobile responsive
+
+---
+Task ID: 6-a
+Agent: general-purpose (test-suite verifier)
+Task: ЭТАП 6 — typecheck/lint/vitest/e2e/secret-scan/drift-guard for cloud preview recovery
+
+Work Log:
+- CHECK1 typecheck `bun run typecheck` → exit 0, 0 ошибок
+- CHECK2 lint `bun run lint` → exit 0, 0 замечаний
+- CHECK3 vitest `bun run test` → exit 0, один прогон без ретраев: Test Files 55 passed (55), Tests 1065 passed / 0 failed / 0 skipped, 49.9s
+- CHECK4 e2e: playwright.config.ts есть (testDir ./tests/e2e, 9 spec-файлов), кэш браузеров есть, НО @playwright/test@1.62.1 требует chromium_headless_shell-1234, установлен 1200; `timeout 480 bun run test:e2e` → exit 1: 32 passed / 298 total (244 errors + 2 failures + 20 did not run, ~2.2m). Причины: (1) global OOM-killer убил next-server (pid 16564, anon-rss ~3.0GB) посреди прогона (dmesg) → 68× ECONNREFUSED 127.0.0.1:3000 (get) + 40× (post) + 82× «fetch failed»; (2) 54× browserType.launch — отсутствует бинарь 1234; (3) 2× assertion failure integration-auth-flow «refresh-токен отсутствует» (даунстрим коннективности). Сейчас :3000 не слушает (обёртка `bun run dev` pid 12319 жива, next-server убит OOM — НЕ сабагентом); сервер НЕ перезапускался по правилам
+- CHECK5 secret scan: dirty = только M src/app/sitemap.ts (+10/−26, SEO-правка: query-дубли ?category=/?id= убраны из sitemap); untracked нет (test-results/, playwright-report/ в .gitignore); rg-скан sitemap.ts по 6 классам паттернов → 0 совпадений; `git ls-files .env .env.local` → пусто (не в трекинге)
+- CHECK6 drift guard: `git status --short -- src/app/api/upload/route.ts src/app/api/services/upload/route.ts` пусто; hash-object vs HEAD: cb23e5dd766b…=cb23e5dd766b… MATCH (upload), f6c52a424b0d…=f6c52a424b0d… MATCH (services/upload) — совпадают с blob-SHA реставрации drift #11 из worklog
+- CHECK7: .github/workflows = ci.yml, deploy.yml, e2e.yml; Dockerfile есть; docker-compose.yml + docker-compose.dev.yml + docker-compose.supabase.yml есть; выполнение CI в sandbox невозможно (нет раннера/публикации)
+
+Stage Summary:
+- typecheck PASS (0) / lint PASS (0) / vitest PASS (1065/1065, 55 файлов) / e2e FAIL-ENV (32/298; OOM-kill next-server mid-run + browsers 1200 vs 1234; 2 assertion-падения — даунстрим ECONNREFUSED, не изоляция кода) / secret-scan PASS (0 matches; .env/.env.local не в трекинге) / drift-guard PASS (2/2 hash-match, статус пуст) / CI-Docker presence PASS (3 workflows + Dockerfile + 3 compose), исполнение CI SKIPPED
+- Отклонение окружения: Next.js dev на :3000 после e2e НЕ слушает (OOM-kill во время прогона; сабагент ничего не убивал и не перезапускал) — требует перезапуска владельцем/следующим агентом
+- Изменения кода сабагентом: НЕТ (read-only верификация); единственная запись — этот worklog
+
+---
+Task ID: cloud-preview-recovery
+Agent: Z.ai Code (main)
+Task: CON DITERA — Cloud Preview Recovery & Production Readiness (этапы 0-8, gates)
+
+Work Log:
+- ЭТАП 0 checkpoint: HEAD 295283e, main, дерево чистое, upload-маршруты hash-match 2/2, watcher-ов нет, .env untracked
+- ЭТАП 1: preview GET / -> 200 (3x, 0.19-0.31s, 300016B), UA Googlebot/normal — идентично; HEAD -> 403 на edge провайдера (X-Fc-*, ограничение шлюза); redirect chain (GET) — 0 редиректов; все публичные маршруты 200
+- ЭТАП 2: ПЕРВОПРИЧИНА ПОДТВЕРЖДЕНА — kernel OOM-killer убивает next-server (anon-rss 2.9GB, cgroup oom_kill=1, 5 воспроизведений за сессию); приложение исправно (Ready 341ms после рестарта)
+- ЭТАП 2 фиксы: рестарт dev-сервера; bun run db:setup (embedded PG + 59 миграций + сиды + env-ключи в .env.local); NEXT_PUBLIC_APP_URL и NEXT_PUBLIC_SUPABASE_URL выровнены на preview-origin; /rest/v1/products отдаёт реальные строки; /api/auth/login 200
+- ЭТАП 3: UI-логин демо-аккаунтом OK, сессия персистентна (reload + рестарт сервера), logout OK, register 201, каталог/карточка/корзина/checkout-рендер/конструктор 1-9/чат/кабинет/мобильный 375px — все OK; chat-server (:3030) поднят
+- ЭТАП 4: SEO — SSR-shell един для всех URL (per-view метаданные клиентски, проверено); sitemap почищен 71->28 канонических URL (убраны query-дубли), коммит 61b9a24; JSON-LD Organization+WebSite валидны; Lighthouse: SEO 100, A11y 90, BP 88, Perf 48 (dev-искажения: TBT 14.5s, unminified 636KiB); CLS 0, TTFB 210ms
+- ЭТАП 5: дизайн соответствует направлению (крем/графит/ягода/скругления/фото); находки: 4 класса a11y-проблем Lighthouse, телефон-заглушка 8-800-000-00-00
+- ЭТАП 6 (subagent 6-a): typecheck 0, lint 0, vitest 1065/1065 passed, секрет-скан 0, drift-guard 2/2, E2E — средовый FAIL (OOM mid-run + playwright binary 1200!=1234); production build запрещён средой — задокументировано
+- ЭТАП 7: повторный аудит — все маршруты 200 через внешний URL, canonical/OG/JSON-LD на месте, sitemap 28/0 query, браузерный рендер через внешний URL (44 img, 0 ошибок)
+- ЭТАП 8: коммит 61b9a24 (sitemap), создан CLOUD-PREVIEW-SEO-REPORT.md, push НЕ выполнялся
+
+Stage Summary:
+- Статус: READY FOR OWNER REVIEW; PRODUCTION-READY: NO (нужен production-build хостинг, домен, реальные контакты, E2E-инфра)
+- HTTP 200 в облачном preview ПОДТВЕРЖДЁН повторно и независимо
+- Первопричина 502: OOM-kill next dev в sandbox — доказана логами ядра, не имитирована
+- Кодовых изменений: один тематический коммит (sitemap canonical hygiene); upload-маршруты/финансы/защита не тронуты
