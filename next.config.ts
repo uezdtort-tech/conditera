@@ -78,6 +78,15 @@ const nextConfig: NextConfig = {
   // ===== Security headers =====
   // Полная защита: CSP, HSTS, Permissions-Policy, COOP/CORP/COEP
   async headers() {
+    // Этап 9 §5.2: preview-хост (space-z.ai) закрыт от индексации заголовком
+    // X-Robots-Tag, пока владелец не подтвердит production-домен. На
+    // production (реальный домен) заголовок не ставится — поведение прежнее.
+    const isPreviewHost = /(^|\.)space-z\.ai$/i.test(
+      (process.env.NEXT_PUBLIC_APP_URL || "").replace(/^https?:\/\//, "").replace(/\/.*/, "")
+    );
+    const previewNoIndexHeaders = isPreviewHost
+      ? [{ key: "X-Robots-Tag", value: "noindex, nofollow" }]
+      : [];
     const csp = [
       "default-src 'self'",
       // Next.js требует 'unsafe-inline' для стилей в dev; в prod — nonce-based (см. ниже)
@@ -113,6 +122,7 @@ const nextConfig: NextConfig = {
       {
         source: "/(.*)",
         headers: [
+          ...previewNoIndexHeaders,
           { key: "X-Content-Type-Options", value: "nosniff" },
           // SAMEORIGIN разрешает встраивание в iframe (нужно для preview-платформы)
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
