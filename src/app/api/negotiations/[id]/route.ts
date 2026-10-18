@@ -7,7 +7,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +16,7 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const { data: negotiation, error } = await supabaseAdmin
@@ -59,7 +60,7 @@ export async function PATCH(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const body = await request.json();

@@ -9,11 +9,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const { searchParams } = request.nextUrl;
@@ -43,7 +44,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ inquiries: data });
+    // Этап 10 §D1: имя покупателя (profiles.name) для карточки заявки —
+    // только имя, без контактов (email/телефон не отдаём). Safe enrich
+    // вторым запросом (embed в локальном PostgREST-шим ненадёжен).
+    const rows = (data || []) as Array<Record<string, unknown>>;
+    const inquirerIds = Array.from(
+      new Set(rows.map((r) => r.user_id).filter((v): v is string => typeof v === "string"))
+    );
+    const namesById = new Map<string, string>();
+    if (inquirerIds.length > 0) {
+      const { data: profiles } = await supabaseAdmin
+        .from("profiles")
+        .select("id, name")
+        .in("id", inquirerIds);
+      for (const p of profiles || []) {
+        namesById.set((p as { id: string }).id, ((p as { name?: string }).name || ""));
+      }
+    }
+
+    return NextResponse.json({
+      inquiries: rows.map((r) => ({ ...r, customer_name: namesById.get(r.user_id as string) || "" })),
+    });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
@@ -54,7 +75,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const body = await request.json();

@@ -47,7 +47,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
 import { safeJsonBody, HttpError, handleRouteError, readEnumField } from "@/lib/http-helpers";
 import { resolveCompleteRace } from "@/lib/payout-complete-race";
 
@@ -91,7 +92,7 @@ function hasRole(user: { roles: string[] }, roles: readonly string[]): boolean {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     let query = supabaseAdmin.from("payout_requests").select("*");
@@ -112,7 +113,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     // pay3: выплаты — только для кондитеров (прежде POST принимал любой
@@ -221,7 +222,7 @@ async function casTransition(
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
     if (!hasRole(user, ADMIN_PAYOUT_MANAGE_ROLES)) {
       return forbiddenResponse("Только ADMIN/SUPER_ADMIN");

@@ -5,11 +5,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
+import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     const { searchParams } = request.nextUrl;
     const type = searchParams.get("type");
 
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getCurrentUser();
+    const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
     const formData = await request.formData();
