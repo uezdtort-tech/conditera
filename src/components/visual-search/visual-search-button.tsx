@@ -97,6 +97,7 @@ export function VisualSearchButton({ compact = false }: { compact?: boolean }) {
         size={compact ? "icon" : "default"}
         onClick={() => setOpen(true)}
         title="Поиск по фото"
+        aria-label="Поиск по фото"
         className={compact ? "h-10 w-10" : "gap-1.5 bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200"}
       >
         <Camera className="h-4 w-4 text-purple-600" />

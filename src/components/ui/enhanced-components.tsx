@@ -102,6 +102,7 @@ export function GlobalSearch() {
               }, 200);
             }}
             placeholder="Поиск: торт, медовик, бенто..."
+            aria-label="Поиск по каталогу"
             className="pl-10 pr-8 h-9"
           />
           {query && (
@@ -110,6 +111,7 @@ export function GlobalSearch() {
                 setQuery("");
                 setOpen(false);
               }}
+              aria-label="Очистить поиск"
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="h-4 w-4" />

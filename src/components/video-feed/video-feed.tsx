@@ -181,6 +181,7 @@ export function VideoFeed() {
         {currentIndex > 0 && (
           <button
             onClick={goPrev}
+            aria-label="Предыдущее видео"
             className="absolute top-1/2 left-3 -translate-y-1/2 h-10 w-10 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white"
           >
             <ChevronUp className="h-5 w-5" />
@@ -189,6 +190,7 @@ export function VideoFeed() {
         {currentIndex < videos.length - 1 && (
           <button
             onClick={goNext}
+            aria-label="Следующее видео"
             className="absolute top-1/2 right-3 -translate-y-1/2 h-10 w-10 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center text-white"
           >
             <ChevronDown className="h-5 w-5" />

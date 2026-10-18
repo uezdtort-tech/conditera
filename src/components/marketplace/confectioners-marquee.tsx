@@ -67,9 +67,10 @@ function MarqueeItem({ confectioner }: MarqueeItemProps) {
         {/* Имя + специализация */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <h4 className="font-medium text-sm truncate group-hover:text-primary transition-colors">
+            {/* h3, а не h4: на страницах после h2 следующая ступень — h3 (a11y, этап 9 §6) */}
+            <h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors">
               {confectioner.businessName}
-            </h4>
+            </h3>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
             <MapPin className="h-2.5 w-2.5 shrink-0" />
