@@ -303,6 +303,35 @@ jobs:
           fi
           echo "✓ Secret files check complete"
 
+      - name: Red-line drift guard (mandatory upload paths)
+        # v4.8: структурная проверка красной зоны. За историю релиза 4 раза
+        # фиксировался один класс drift (#8/#10/#11/#12): удаление upload-
+        # маршрутов и их тестов из рабочего дерева. CI падает, если любой
+        # обязательный путь удалён с диска или перестал отслеживаться Git.
+        # Второй слой защиты — unit-регрессия src/lib/redline-paths.test.ts.
+        run: |
+          FAIL=0
+          for p in \
+            src/app/api/upload/route.ts \
+            src/app/api/upload/route.test.ts \
+            src/app/api/services/upload/route.ts \
+            src/app/api/services/upload/route.test.ts; do
+            if [ ! -f "$p" ]; then
+              echo "❌ mandatory path DELETED from disk: $p"
+              FAIL=1
+            fi
+            if ! git ls-files --error-unmatch "$p" > /dev/null 2>&1; then
+              echo "❌ mandatory path NOT tracked by git: $p"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" != "0" ]; then
+            echo "Red-line drift detected — restore only the specific paths (no reset/clean)."
+          else
+            echo "✓ all 4 mandatory upload paths present and tracked"
+          fi
+          exit $FAIL
+
   # ===== 6. Validate Caddyfile =====
   validate-caddyfile:
     name: Validate Caddyfile
