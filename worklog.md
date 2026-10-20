@@ -9185,3 +9185,23 @@ Stage Summary:
 - Финальный вердикт: NO-GO (production build не доказан на кандидате; CI BLOCKED без публикации) — по обязательному правилу §9
 - Статус публикации: BLOCKED до явного разрешения владельца; единственный оставшийся путь — push 2cb877c → release-candidate/gate-15 → PR → зелёный ci.yml (включая job build) на том же SHA
 - Продуктовых дефектов не найдено; 2 фикса сессии (drift-restore + hygiene) не меняют исходников; рекомендация NOT READY — RELEASE BLOCKER REMAINS
+
+---
+Task ID: gate-16
+Agent: Z.ai Code (main)
+Task: GATE 16 — системное завершение проекта (карта проблем по первопричинам, пакет исправлений, финальная регрессия, план публикации)
+
+Work Log:
+- 16.0 checkpoint: HEAD 82e48e8 (все коммиты Gate 15 существуют), origin/main 8454b3a, protected 4/4 baseline, дерево чистое
+- 16.1: механизм drift установлен — UUID-коммиты создаёт снапшоттер платформы контейнера (вне репо; нет хуков/crontab/процессов); долговременная превенция: drift self-heal в ensure-dev.sh (шаг 1c: точечный restore из последнего коммита с существующим путём, deletion-коммиты пропускаются); regression — живая симуляция git rm → восстановление из 772b8ec, blob cb23e5dd = baseline, 16/16
+- 16.4: три фикс-коммита: 848b228 (self-heal), 954bdbb (e2e-harness: экранирование regex --grep + $SPEC/exit-код), ed6099e ('|' не экранируется для OR-паттернов — дефект первого варианта найден регрессией и не замаскирован)
+- 16.5 финальная регрессия на ed6099e: tsc 0, lint 0, Vitest 1079/1079, scan exit 0 real=0, redline 9/9, upload 15/15, chat runtime gate 48/48, E2E: smoke 11/11, auth 5/5, payment idempotency 11/11, Public pages 10/10 (OR-чанки); критические зоны diff-пусты vs 979aefb
+- 16.6: план публикации подготовлен: push ed6099e → release-candidate/gate-16 → PR → main (ci.yml 7 jobs + e2e.yml на headSHA ed6099e); push без PR не триггерит ci.yml; rollback: закрыть PR, удалить ветку; deploy.yml — dispatch only
+- 16.2/16.3: карта 18 проблем (5 FIXED, 4 ENVIRONMENTAL, 3 BLOCKED, 6 backlog); production blockers — 2 (build-доказательство + публикация), закрываются одним разрешением владельца
+- Отчёт Gate 16 (A-I) добавлен в CLOUD-PREVIEW-SEO-REPORT.md; вердикт NO-GO; рекомендация NOT READY — P0 BLOCKERS REMAIN
+
+Stage Summary:
+- Система самовосстановления drift встроена в штатный пролог сессии — класс #8/#10/#11/#12/#13 нейтрализован для будущих сессий
+- E2E-harness больше не даёт ложных красных чанков (скобки/regex/exit-код починены и покрыты регрессией)
+- Все доступные безопасные проверки выполнены; единственный оставшийся шаг к GO — разрешение владельца на push+PR (точная команда в отчёте 16.6)
+- Публикация/merge/deploy не выполнялись; после отчёта — STOP, Gate 17 не начинать

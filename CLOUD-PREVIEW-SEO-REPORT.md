@@ -445,3 +445,129 @@ DEPLOY: НЕ ВЫПОЛНЯЛСЯ (deploy.yml — dispatch only)
 ```
 
 **Рекомендация: NOT READY — RELEASE BLOCKER REMAINS** (единственный оставшийся путь: разрешение владельца → `git push origin 2cb877c:refs/heads/release-candidate/gate-15` → PR в main → зелёный ci.yml/e2e.yml на SHA 2cb877c → пересмотр вердикта).
+
+---
+
+# GATE 16 — СИСТЕМНОЕ ЗАВЕРШЕНИЕ ПРОЕКТА (FINAL)
+
+**Дата:** сессия после 82e48e8 · **BASE SHA:** 82e48e8 · **FINAL SHA:** ed6099e · **Модель:** обнаружение → классификация → группировка по первопричине → пакет исправлений → повторные проверки → единый отчёт.
+
+## 16.0 Checkpoint (факт, не отчётные данные)
+
+```text
+ACTUAL HEAD: 82e48e8 → ed6099e (после фиксов сессии)
+ACTUAL BRANCH: main
+ORIGIN MAIN: 8454b3a (ls-remote)
+RELEASE CANDIDATE: отсутствует на remote (не публиковался — нет разрешения)
+WORKTREE: чистый на всех шагах
+PRE-EXISTING CHANGES: нет
+PROTECTED FILES: 4/4 baseline (cb23e5dd766b, 06b49c3c3f22, f6c52a424b0d, ec9f8efcb663)
+```
+
+Коммиты Gate 15 (772b8ec, 2cb877c, 82e48e8) существуют в object database; утверждения Gate 15 перепроверены и подтверждены (Vitest 1079, scan exit 0, blobs).
+
+## 16.1 Целостность и механизм drift (первопричина)
+
+Найден источник UUID-коммитов: **снапшоттер платформы контейнера** (вне репозитория): author совпадает с системным (`Z User <z@container>`), нерегулярные интервалы (19:24/10:52/11:59/14:26/23:42), в репо — ни хуков (`core.hooksPath` пуст, hooks только *.sample), ни crontab, ни процессов-watcher, ни supervisor/pm2. Сценарий: между сессиями внешние процессы среды удаляют файлы → снапшоттер коммитит рабочее дерево как есть → deletion попадает в историю. Минимальное долговременное исправление — **drift self-heal в ensure-dev.sh** (шаг 1c): при старте любой сессии отсутствующий защищённый путь восстанавливается точечно из последнего коммита, где он существовал (deletion-коммиты пропускаются перебором `git rev-list` + `git cat-file -e`). Regression: живая симуляция (`git rm -f` без коммита) → восстановление из 772b8ec, blob = baseline, 16/16 тестов. Commit `848b228`.
+
+## 16.2/16.3 Единая карта проблем (по всем evidence в репо)
+
+| ID | Категория | Симптом → первопричина | Severity | Статус |
+|---|---|---|---|---|
+| P-01 | GIT/DRIFT | 5 повторов удаления защищённых файлов (#8/#10/#11/#12/#13) → снапшоттер платформы коммитит deletion | HIGH | FIXED (772b8ec) + превенция (848b228) |
+| P-02 | ENVIRONMENT | hygiene-finding выжил: exit-код скана маскировался пайпом `\| tail` | MEDIUM | FIXED (2cb877c) + правило «scan без пайпа» |
+| P-03 | ENVIRONMENT | Playwright 1.62.1 ↔ кэш браузеров 1200 → ложные падения browser-тестов | MEDIUM | ENVIRONMENTAL (chromium 1234 установлен) |
+| P-04 | ENVIRONMENT | OOM-kill next-server (2.5–2.8 GB RSS) в 4 GB sandbox → ложные ECONNREFUSED | MEDIUM | ENVIRONMENTAL (чанковый раннер; полное устранение = production build) |
+| P-05 | BUILD/CI | Production build не доказан на кандидате; локальный build запрещён политикой | HIGH | BLOCKED (разрешение владельца) |
+| P-06 | RELEASE/PERMISSION | 120 коммитов ahead, release-candidate ветки нет | HIGH | BLOCKED (разрешение владельца) |
+| P-07 | DOCUMENTATION | Отчёты Gate 12–14 ссылаются на несуществующие SHA (d345a28, 48bf831, 0d8a9ea, 45e1095, c603494) | MEDIUM | CONFIRMED — причина: другая рабочая копия/сброс sandbox (доказуемо только с доступом к той среде); к текущему репо неприменимы |
+| P-08 | BUILD/CI | Harness-баги: `--grep` без экранирования → «No tests found»; `$spec` unbound → ложный exit=1 | MEDIUM | FIXED (954bdbb + ed6099e) |
+| P-09 | GIT/DRIFT | Отсутствие самовосстановления при старте сессии | HIGH | FIXED (848b228) |
+| P-10 | ENVIRONMENT | Stale unmanaged-процесс на :3030 (desync) | LOW | ENVIRONMENTAL (dev-only; менеджер даёт actionable-сообщение; устранён штатно) |
+| P-11 | FINANCIAL | Модерация requested-возвратов (approve/reject UI/endpoint) отсутствует | MEDIUM | CONFIRMED — P1, требует решения владельца (изменение правил возврата) |
+| P-12 | FINANCIAL | Выплаты/фискализация/YooKassa-ключи | HIGH | BLOCKED (owner scope) |
+| P-13 | PRODUCT | Статические промо-коды вне БД (не per-user) | LOW | ACCEPTED RISK (P2) |
+| P-14 | PRODUCT | Вертикали decor/аниматоры/venues недостроены | LOW | NOT APPLICABLE для MVP (owner decision) |
+| P-15 | DATA | Тестовые данные этапа 10 в dev-БД (UK-2026-*, test-e10-payment-1) | LOW | CONFIRMED — P2 (пересоздать через db:setup перед demo) |
+| P-16 | UX/MOBILE | mobile-chrome E2E-проект не прогонялся (память) | LOW | ENVIRONMENTAL (покрыто responsive-тестами + 375px) |
+| P-17 | PRODUCT | Placeholder телефона в футере/JSON-LD | LOW | CONFIRMED — P1 owner data |
+| P-18 | PRODUCT | SSR-метаданные категорий/товаров, zustand↔cart_items dead code | LOW | P2 backlog |
+
+Сводка: подтверждено 18, исправлено 5 (P-01, P-02, P-08, P-09 + harness-надстройка ed6099e), инфраструктурных 4 (P-03, P-04, P-10, P-16), заблокировано разрешениями 3 (P-05, P-06, P-12), принято в backlog 6. **Production blockers: 2** (P-05 build-доказательство, P-06 публикация — оба закрываются одним разрешением владельца + зелёным CI).
+
+## 16.4 Исправления (минимальное изменение, один дефект — один коммит)
+
+1. **`848b228` fix(dev-infra): drift self-heal в ensure-dev.sh** — Problem/Root cause/Files/Regression: см. 16.1. Файлы: scripts/ensure-dev.sh. Regression: симуляция drift → blob baseline, 16/16.
+2. **`954bdbb` fix(e2e-harness): экранирование regex в --grep + итоговый echo** — Files: scripts/e2e-chunked-verify.sh. Regression: чанк со скобками → 2 passed, exit 0.
+3. **`ed6099e` fix(e2e-harness): '|' не экранируется** — OR-чанки работают. Regression: Public pages 5+5=10 passed.
+
+## 16.5 Финальная регрессия (SHA ed6099e)
+
+| Проверка | Результат | Доказательство |
+|---|---|---|
+| typecheck | PASS | tsc --noEmit exit 0 |
+| lint | PASS | eslint . exit 0 |
+| Vitest (unit+integration) | PASS | 1079/1079, 58 файлов |
+| Protected-file drift guard | PASS | redline 9/9; blobs 4/4 baseline |
+| Upload tests | PASS | 7+8 = 15/15 |
+| Secret/evidence scan | PASS | exit 0, real findings 0 (без пайпа) |
+| Chat/realtime runtime gate | PASS | **48/48** (socket, rooms, персистенция, bot, typing, reconnect, courier-трекинг) |
+| E2E: smoke | PASS | 11/11 |
+| E2E: auth register/login | PASS | 5/5 |
+| E2E: payment webhook idempotency (финансы) | PASS | 11/11 (escrow→повторы→refund→без дублей side-effects) |
+| E2E: Public pages (10 страниц) | PASS | 10/10 (2 OR-чанка) |
+| bash -n обоих изменённых скриптов | PASS | синтаксис OK |
+| Критические зоны vs baseline 979aefb | PASS | diff пуст (auth/payments/webhooks/orders/lib) |
+
+Транзиентные события сессии: 1 OOM рестарта next-server между чанками (dmesg; чанк после ensure-dev зелёный — первоначальная причина зафиксирована, повторный результат PASS); 1 over-escaping дефект моего же фикса (найден регрессией, исправлен ed6099e — не замаскирован).
+
+## 16.6 Production build и CI — план публикации (БАРЬЕР: разрешение владельца)
+
+```text
+VALIDATED SHA: ed6099e (src/ байт-в-байт = 2cb877c = 979aefb; изменены только harness-скрипты и документация)
+BRANCH TO PUBLISH: release-candidate/gate-16
+EXACT PUSH COMMAND: git push origin ed6099e:refs/heads/release-candidate/gate-16
+PR SOURCE: release-candidate/gate-16
+PR TARGET: main
+EXPECTED WORKFLOWS: ci.yml (push/PR main), e2e.yml (PR main)
+EXPECTED REQUIRED JOBS: ci.yml → lint-typecheck, test, build, docker-build, security-checks, validate-caddyfile, evidence-hygiene; e2e.yml → setup, test
+EXPECTED EVIDENCE: headSHA каждого run == ed6099e; все required jobs conclusion=success; артефакты build/E2E
+ROLLBACK/ABORT PLAN: закрыть PR и удалить release-candidate/gate-16 (deploy.yml — только workflow_dispatch, авто-деплоя нет; merge не выполняется → production не затрагивается)
+```
+
+Примечание: push ветки БЕЗ PR не триггерит ci.yml (branches: main, develop) — PR обязателен. Локальный `next build` не запускался (запрет политики среды, не нарушен).
+
+## 16.7 Оценка завершённости по ролям
+
+**Покупатель:** register/login PASS · catalog PASS · product detail PASS · whole cake + cutaway PASS · constructor PASS · quote PASS · cart PASS · checkout PASS · order PASS · payment PASS (sandbox-provider) · chat/support PASS · refund request PASS (создание; модерация = P-11).
+**Кондитер:** login PASS · profile/onboarding PASS (1 skip designed) · portfolio PASS · inventory PASS (concurrency в Vitest + RPC) · recipe PASS · incoming order PASS · order status PASS · buyer chat PASS.
+**Платформа:** auth/authorization PASS · database/migrations PASS (59 файлов, ledger) · payments/webhooks PASS (sandbox) · refunds PASS (request-контур) · inventory concurrency PASS · chat/realtime PASS (48/48) · storage/upload PASS (15/15 + drift-guard) · n8n/events PASS (health ok) · secrets PASS (scan real=0) · rate limiting PASS (ingress-trust) · error handling PASS · logging PASS · mobile/browser PASS (chromium; mobile-chrome = P-16) · clean setup PASS (db:setup восстанавливает env+seed) · **production build BLOCKED** · **CI BLOCKED**.
+
+## 15.A Verdict
+
+**NO-GO** — production build не доказан на точном SHA; публикация не разрешена. Оба оставшихся блокера закрываются одним действием владельца (см. 16.6) и зелёным CI.
+
+## 15.H Git report
+
+```text
+BASE SHA: 82e48e8
+FINAL SHA: ed6099e
+WORKING BRANCH: main (120 ahead / 0 behind)
+COMMITS CREATED: 848b228 (drift self-heal), 954bdbb (harness grep+echo), ed6099e (harness pipe), + docs-коммит отчёта Gate 16
+PRE-EXISTING CHANGES: нет
+PROTECTED FILES: 4/4 baseline
+WORKTREE: чистый
+PUSH: НЕ ВЫПОЛНЯЛСЯ · PR: НЕ СОЗДАН · MERGE: НЕ ВЫПОЛНЯЛСЯ · DEPLOY: НЕ ВЫПОЛНЯЛСЯ
+```
+
+## 15.G Предложения владельцу (5, по приоритету)
+
+| Priority | Problem group | Evidence | Recommended action | Effort | Risk if deferred | Owner decision |
+|---|---|---|---|---|---|---|
+| P0 | Build/CI (P-05+P-06) | build-гейт не доказан ни на одном SHA из 120 ahead | Разрешить: `git push origin ed6099e:refs/heads/release-candidate/gate-16` + PR в main; проверить 7 jobs ci.yml + e2e.yml на headSHA ed6099e | ~0 (CI сам) | Продолжение NO-GO; риск накопления расхождений с origin/main | ДА — push+PR |
+| P0 | Production env | домен/NEXT_PUBLIC_APP_URL неизвестны | Указать домен → включить robots/canonical/noindex-переключение (одно значение env) | минуты | noindex на проде = нет органики | ДА |
+| P1 | FINANCIAL (P-11) | requested-возвраты не модерятся (rejected недостижим) | Дифф-план admin-модерации возвратов (по запросу; правила менять нельзя без владельца) | 1-2 дня | Ручная обработка возвратов через БД | ДА — скоуп |
+| P1 | DATA (P-15) | Тестовые данные этапа 10 в dev-БД | Перед показом владельцу: `bun run db:setup` (чистый seed) | минуты | Путаница демо-данных | НЕТ (можно после запуска) |
+| P2 | PRODUCT (P-13/P-14/P-17/P-18) | Статические промо, недостроенные вертикали, placeholder-телефон, SSR-метаданные | Backlog после запуска; приоритет по фактической аналитике | 1-5 дней каждый | Не блокируют MVP-маркетплейс | Частично |
+
+**Однозначная рекомендация: NOT READY — P0 BLOCKERS REMAIN** (единственный путь к снятию: разрешение публикации → зелёный CI на ed6099e → пересмотр вердикта).
