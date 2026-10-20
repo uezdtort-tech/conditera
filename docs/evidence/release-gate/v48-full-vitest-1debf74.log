@@ -191,7 +191,7 @@ stderr | src/lib/http-helpers.test.ts > handleRouteError > возвращает 
     at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64
 
 stderr | src/lib/http-helpers.test.ts > handleRouteError > не раскрывает детали для не-HttpError
-[route] unhandled error: DB connection string postgres://user:pass@host Error: DB connection string postgres://user:pass@host
+[route] unhandled error: DB connection string [REDACTED BY V48 HYGIENE] <redacted-conn-string> Error: DB connection string [REDACTED BY V48 HYGIENE] <redacted-conn-string>
     at /home/z/my-project/src/lib/http-helpers.test.ts:133:17
     at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
     at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
