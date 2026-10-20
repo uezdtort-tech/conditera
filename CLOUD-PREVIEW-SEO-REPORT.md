@@ -315,3 +315,133 @@
 3. Product-дефектов не найдено; финансовые файлы, upload-маршруты, auth/CSRF/rate-limit — не тронуты; push/PR/deploy не выполнялись.
 
 **Статус после повторной верификации: READY FOR OWNER REVIEW (подтверждён вторым прогоном).**
+
+---
+
+# GATE 15 — FINAL CI VERIFICATION AND PROJECT RELEASE CLOSURE
+
+**Дата:** сессия после 979aefb/371e975 · **RELEASE_VALIDATION_SHA:** 2cb877c · **Цель:** доказать production build на точном SHA и завершить release readiness assessment.
+
+## 15.0 — Checkpoint и критическое расхождение с входными данными
+
+Зафиксировано (read-only):
+
+```text
+CURRENT HEAD (на входе сессии): 371e975 (UUID-watcher коммит)
+CURRENT BRANCH: main
+ORIGIN MAIN: 8454b3a (ls-remote подтверждён)
+AHEAD/BEHIND: 115 ahead / 0 behind
+WORKTREE: чистый
+RELEASE-CANDIDATE REMOTE SHA: отсутствует (release-candidate/gate-13 и gate-15 не существуют на remote)
+PROTECTED FILES: на входе сессии — 0/4 (УДАЛЕНЫ, см. drift #13); после восстановления — 4/4 baseline
+```
+
+**Расхождение с входными сведениями Gate 15:** заявленные SHA `d345a28` (кандидат Gate 13/14) и `48bf831` (отчёт Gate 14), а также `0d8a9ea`, `45e1095`, `c603494` — **не существуют в этом репозитории** (`git cat-file -t` → fatal). Фактическая история: v4.5–v4.8 + Этапы 0–10 + 10-RV; последние верифицированные SHA — `20fce1c` (код) и `979aefb` (документы 10-RV, E2E 152+1skip, Vitest 1079). Вывод: входное описание соответствовало другому состоянию/сессии и было отклонено в пользу фактически проверенного (инструкция Gate 15 §2: «перепроверь фактический HEAD»).
+
+## Drift #13 — восстановление защищённых файлов (коммит 772b8ec)
+
+UUID-watcher коммит `371e975` (23:42:56) захватил удаление всех 4 защищённых upload-файлов из рабочего дерева — известный класс drift (#8/#10/#11/#12 → **#13**).
+
+- **REPRODUCE:** `redline-paths.test.ts` на 371e975 — RED 8/8 (файлы отсутствуют на диске и в индексе)
+- **ROOT CAUSE:** внешние авто-процессы среды удалили файлы; watcher закоммитил удаление
+- **MINIMAL FIX:** точечный `git restore --source=979aefb --staged --worktree -- <4 пути>`; blobs bit-for-bit равны baseline: `cb23e5dd766b`, `06b49c3c3f22`, `f6c52a424b0d`, `ec9f8efcb663`
+- **EVIDENCE:** патч удаления сохранён до восстановления — `docs/evidence/release-gate/v48-drift13-upload-deletions-371e975.patch` (sha256 `31119cceac8280dc`)
+- **REGRESSION:** после восстановления drift-guard + оба upload-набора — GREEN 24/24
+- **SECURITY NOTE:** секрет-скан восстановленных файлов — только синтетические маркеры (совпадает с ранее подтверждённым)
+
+## Hygiene — real finding в v48-логе (коммит 2cb877c)
+
+`scan-evidence.mjs` (запуск БЕЗ пайпа — ранее exit-код маскировался `tail`) обнаружил **real=1**: `db-conn-with-credentials` в `docs/evidence/release-gate/v48-full-vitest-1debf74.log:194` (строка попала в коммит 1debf74). Источник — синтетическая фикстура `postgres://user:pass@host` из `src/lib/http-helpers.test.ts:133` (не реальный секрет, ротация не требуется). Применено редактирование в стиле прецедентов 0c92b59/4db68da: `[REDACTED BY V48 HYGIENE] <redacted-conn-string>`. После фикса: scan exit 0, real findings 0, 481 synthetic markers. Изменён только evidence-лог — исходники не тронуты.
+
+## 15.1 — Определение RELEASE_VALIDATION_SHA
+
+```text
+RELEASE_VALIDATION_SHA = 2cb877c
+```
+
+Обоснование: (1) исходное дерево `2cb877c` байт-в-байт совпадает с `979aefb` по `src/` (diff пуст), отличается только evidence-логом (1 строка) и восстановленными 4 файлами (содержимое = baseline 979aefb); (2) `371e975` дисквалифицирован — на нём red-line файлы отсутствуют (drift-guard и CI-step упадут); (3) на `2cb877c` все локальные обязательные gates зелёные (см. 15.5). История кандидата: `20fce1c` (последний кодовый коммит) → `979aefb` (док 10-RV) → `371e975` (drift, дисквалифицирован) → `772b8ec` (восстановление) → `2cb877c` (hygiene).
+
+## 15.5 — Верификация на точном кандидате 2cb877c
+
+| Проверка | Статус | SHA | Доказательство |
+|---|---|---|---|
+| TypeScript | PASS | 2cb877c | `tsc --noEmit` exit 0 |
+| ESLint | PASS | 2cb877c | `eslint .` exit 0 |
+| Vitest | PASS | 2cb877c | 1079/1079, 58 файлов (дважды: на 772b8ec и 2cb877c) |
+| Production build | **BLOCKED** | — | запрет `next build` политикой среды (C.1, без изменений); CI-прогон недоступен без push |
+| Docker build | **BLOCKED** | — | только CI (без push недоступен) |
+| E2E (критическое подмножество) | PASS | 2cb877c | 95 passed / 0 failed, см. ниже |
+| Secret scan | PASS | 2cb877c | scan-evidence exit 0, real=0 (после 2cb877c) |
+| Protected-file guard | PASS | 2cb877c | drift-guard 9/9 + blobs 4/4 = baseline |
+| Финансовые регрессии | PASS | 2cb877c | webhook idempotency E2E 12/12 + Vitest payout-race/checkout-idempotency в 1079 |
+| Auth/authorization | PASS | 2cb877c | auth-flow 14/14, integration-auth 17/17, Security headers 7/7, Sensitive endpoints 1/1 |
+
+Критические зоны Gate 15.5 (auth/authorization/payments/webhooks/refunds/inventory/orders/idempotency/chat/storage/upload/secrets): `git diff 979aefb..2cb877c` — **пусто**; baseline этапа 10-RV остаётся действительным без повторного полного прогона (инструкция §8 соблюдена: полное E2E 152+1skip уже доказано на идентичном дереве).
+
+E2E-детализация (scripts/e2e-chunked-verify.sh, рестарт сервера на чанк):
+- auth-flow 14/14 (register/login 5, 2FA 6, session&logout 2, health 1)
+- payment-webhook-idempotency 12/12 (serial idempotency 11: escrow→повторы→refund→нет дублирования side-effects; edge cases 1)
+- recipe-purchase-flow 7/7
+- integration-auth-flow 17/17 (full auth flow 7, public API 10)
+- full-flow 34/34 (Public pages 10, Security headers 7, Sensitive endpoints 1, API endpoints 7, SEO 2, Cake builder 1, Navigation 2, Login page 4)
+- smoke 11/11
+
+Инфраструктурные события (не продукт): (1) отсутствовал браузерный бинарь Playwright (1.62.1 → build 1234; в кэше был 1200) — установлен `bunx playwright install chromium`, все «падения» browser-тестов до установки были `browserType.launch` — не продукт; (2) OOM-kill next-server (anon-rss 2.84GB) посреди чанка Public pages — перепрогон contacts/checkout на свежем сервере 2/2 (dmesg-доказательство: `Out of memory: Killed process 10584`); (3) desync :3030 (stale unmanaged PID 1221) разрешён штатно по сообщению менеджера; (4) 2 «No tests found» — неэкранированные скобки в `--grep` (regex), перезапущены с безопасными подстроками.
+
+## 15.2/15.3 — Публикация: БАРЬЕР
+
+Явного разрешения владельца на push/PR в этой сессии **нет** → публикация не выполнялась, CI на SHA запустить невозможно (gh CLI отсутствует; push — единственный триггер). Подготовленная команда (НЕ ИСПОЛНЕНА):
+
+```bash
+# Шаг 1: публикация кандидата (ТОЛЬКО после явного разрешения владельца)
+git push origin 2cb877c:refs/heads/release-candidate/gate-15
+# Шаг 2: PR release-candidate/gate-15 → main (GitHub UI или gh pr create)
+```
+
+Ожидаемые CI-workflows на PR (HEAD SHA = 2cb877c):
+- **ci.yml** (PR → main): jobs `lint-typecheck`, `test`, `build` (production build — ключевой недостающий gate), `docker-build`, `security-checks`, `validate-caddyfile`, `evidence-hygiene`
+- **e2e.yml** (PR → main): jobs `setup`, `test`, `notify`
+- `deploy.yml` — workflow_dispatch only, не запустится
+
+Примечание: push ветки БЕЗ PR не триггерит ci.yml (branches: main, develop) — PR обязателен.
+
+## 15.6 — Финальный вердикт
+
+```text
+GATE 15 — FINAL REPORT
+
+RELEASE_VALIDATION_SHA: 2cb877c
+ORIGIN MAIN: 8454b3a
+RELEASE-CANDIDATE SHA: 2cb877c (remote-ветка НЕ создана — нет разрешения)
+WORKTREE: чистый (main, 117 ahead / 0 behind после коммитов сессии)
+PROTECTED FILES: 4/4 baseline (cb23e5dd766b, 06b49c3c3f22, f6c52a424b0d, ec9f8efcb663)
+
+PRODUCTION BUILD: BLOCKED — не доказан на кандидате (запрет локального build политикой среды; CI недоступен без push)
+CI: BLOCKED — не запускался на кандидате (публикация запрещена; точная команда подготовлена)
+E2E: PASS — 95/0 на кандидате; полный прогон 152+1skip на идентичном дереве (979aefb)
+SECURITY SCAN: PASS — exit 0, real findings 0 (после 2cb877c), 481 synthetic
+FINANCIAL REGRESSION: PASS — webhook idempotency 12/12 E2E + payout-race/checkout в Vitest 1079; критические файлы не менялись
+AUTHORIZATION: PASS — auth/integration/RBAC/headers/no-store E2E зелёные; защищённые файлы = baseline
+FINAL VERDICT: NO-GO
+
+GO / GO WITH CONDITIONS / NO-GO → NO-GO
+```
+
+По правилам Gate 15 §9 отсутствие доказанного production build на точном SHA = обязательный NO-GO; статус проверки публикации — BLOCKED (разрешение не выдано), общий вердикт остаётся NO-GO до прогона CI-гейта.
+
+```text
+BLOCKERS:
+  1. Production build не доказан на 2cb877c (нужен CI-прогон: push + PR после разрешения владельца)
+  2. CI не выполнялся на кандидате (зависит от блокера 1)
+FIXES:
+  - 772b8ec — drift #13: восстановление 4 защищённых upload-файлов (RED 8/8 → GREEN 24/24, evidence-патч сохранён)
+  - 2cb877c — hygiene: редактирование синтетической db-conn фикстуры в v48-логе (scan real 1 → 0)
+  - (окружение, без коммитов: playwright chromium 1234 установлен; stale chat PID 1221 устранён)
+COMMITS CREATED: 772b8ec, 2cb877c, + docs-коммит отчёта Gate 15
+PUSH: НЕ ВЫПОЛНЯЛСЯ (нет разрешения)
+PR: НЕ СОЗДАН (нет разрешения)
+MERGE: НЕ ВЫПОЛНЯЛСЯ
+DEPLOY: НЕ ВЫПОЛНЯЛСЯ (deploy.yml — dispatch only)
+```
+
+**Рекомендация: NOT READY — RELEASE BLOCKER REMAINS** (единственный оставшийся путь: разрешение владельца → `git push origin 2cb877c:refs/heads/release-candidate/gate-15` → PR в main → зелёный ci.yml/e2e.yml на SHA 2cb877c → пересмотр вердикта).

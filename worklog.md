@@ -9165,3 +9165,23 @@ Stage Summary:
 - Все ключевые сценарии перепроверены независимо и зелёные: порядок владельца соблюдён (покупатель/кондитер → чат/конструктор/остатки → возвраты → регрессия)
 - Вывод: заявления этапа 10 подтверждены «вторым прогоном» — статус READY FOR OWNER REVIEW сохраняется; PRODUCTION-READY упирается только в CI-build + решения владельца (домен, пуш 113 коммитов, финансовый контур, модерация возвратов)
 - Единственная новая находка — док-гэп seed-test-users (внесён в отчёт, код не менялся)
+
+---
+Task ID: gate-15
+Agent: Z.ai Code (main)
+Task: GATE 15 — FINAL CI VERIFICATION AND PROJECT RELEASE CLOSURE (build-доказательство на точном SHA + финальный вердикт)
+
+Work Log:
+- 15.0 checkpoint: HEAD на входе 371e975 (UUID-watcher), origin/main 8454b3a, 115 ahead/0 behind, release-candidate веток на remote нет; заявленные входные SHA (d345a28, 48bf831, 0d8a9ea, 45e1095, c603494) НЕ существуют в репозитории — входные сведения отклонены, работа по фактическому состоянию
+- Обнаружен drift #13: 371e975 удалил 4 защищённых upload-файла; drift-guard RED 8/8 → точечный restore с 979aefb (blobs bit-for-bit baseline: cb23e5dd/06b49c3c/f6c52a42/ec9f8efc) → GREEN 24/24; evidence-патч v48-drift13 saved (sha256 31119cce); коммит 772b8ec
+- Hygiene: scan-evidence при честном запуске (без пайпа) дал real=1 (db-conn в v48-full-vitest-1debf74.log:194, источник — синтетическая фикстура http-helpers.test.ts:133, ротация не нужна); редактирование по прецеденту 4db68da → scan exit 0 real=0; коммит 2cb877c
+- RELEASE_VALIDATION_SHA = 2cb877c: src/ байт-в-байт = 979aefb; 371e975 дисквалифицирован (red-line файлы отсутствуют)
+- Локальные gate на 2cb877c: tsc 0, eslint 0, Vitest 1079/1079 (дважды), redline+upload 24/24, scan exit 0, protected 4/4
+- E2E критическое подмножество на кандидате: 95 passed/0 failed (auth-flow 14, payment-webhook-idempotency 12, recipe-purchase 7, integration-auth 17, full-flow 34, smoke 11); инфра-события: playwright chromium 1234 доустановлен, OOM-kill next-server посреди чанка (dmesg) перепроверен 2/2, stale chat PID 1221 устранён штатно
+- Публикация: разрешения НЕТ → push/PR не выполнялись; подготовлена точная команда (git push origin 2cb877c:refs/heads/release-candidate/gate-15 + PR → main; push без PR не триггерит ci.yml)
+- Отчёт Gate 15 добавлен в CLOUD-PREVIEW-SEO-REPORT.md
+
+Stage Summary:
+- Финальный вердикт: NO-GO (production build не доказан на кандидате; CI BLOCKED без публикации) — по обязательному правилу §9
+- Статус публикации: BLOCKED до явного разрешения владельца; единственный оставшийся путь — push 2cb877c → release-candidate/gate-15 → PR → зелёный ci.yml (включая job build) на том же SHA
+- Продуктовых дефектов не найдено; 2 фикса сессии (drift-restore + hygiene) не меняют исходников; рекомендация NOT READY — RELEASE BLOCKER REMAINS
