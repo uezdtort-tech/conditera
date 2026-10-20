@@ -29,8 +29,9 @@ for c in "${CHUNKS[@]}"; do
   curl -s -o /dev/null --max-time 90 http://127.0.0.1:3000/ || { echo "SERVER FAILED TO START (see dev.log)"; TOTAL_F=$((TOTAL_F+1)); continue; }
   safe=$(echo "$c" | tr -c 'a-zA-Z0-9' '_' | cut -c1-40)
   logf="/tmp/e2e-chunk-${SPEC}-${safe}.log"
-  # Экранирование regex-метасимволов: ( ) [ ] . * + ? ^ $ { } | \
-  grep_escaped=$(printf '%s' "$c" | sed -e 's/[][\.*^$()+?{|}]/\\&/g')
+  # Экранирование regex-метасимволов, КРОМЕ | (чередование разрешено для OR-паттернов):
+  # ( ) [ ] . * + ? ^ $ { } \
+  grep_escaped=$(printf '%s' "$c" | sed -e 's/[][\.*^$()+?{}]/\\&/g')
   bunx playwright test --project=chromium "tests/e2e/$SPEC.spec.ts" --grep "$grep_escaped" > "$logf" 2>&1
   rc=$?
   summary=$(grep -E "[0-9]+ (passed|failed|skipped|flaky)" "$logf" | tail -1 | tr '\n' ' ')
