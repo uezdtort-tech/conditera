@@ -9225,3 +9225,23 @@ Stage Summary:
 - Gate 21 технически признан недоказуемым; все критические проверки повторены на итоговом SHA
 - Закрыты: TFA fail-open, timing-сравнения, Storage privacy (реализована впервые), двойное списание бонусов, утрата replay, /tenders дезинформация, потеря /catalog?q=
 - Следующие шаги — решения владельца: push+CI, боевые ключи, R1 ledger
+
+---
+Task ID: local-deployment
+Agent: Z.ai Code (main)
+Task: Local Deployment Readiness — production build, финансовый журнал, recovery, бэкап, docs/deployment
+
+Work Log:
+- HEAD 028b6f8 подтверждён; резерв: backup/local-deploy-readiness + tag
+- production build: ПЕРВЫЙ УСПЕШНЫЙ (exit 0, 233 pages, standalone 201MB); фикс — TFA-ключ лениво (module-load throw ронял collect page data); NODE_OPTIONS=2800 воспроизводимо без OOM
+- журнал баланса кондитера: 0064 (журнал в транзакции каждой money-RPC) + touch-точки + GET /api/confectioner/transactions + верификаторы; инвариант sum(журнал)==balance GREEN; сквозной escrow cron→RPC→журнал PASS
+- recovery: 0065 + 2 эндпоинта + CSRF-исключение; 7/7 живой цикл; антифрод-лимит логина персистентен в БД (20/час) — задокументировано
+- backup: COPY-дамп + restore через pg-copy-streams + ЕДИНЫЙ TRUNCATE (каскадный по-табличный стирал восстановленное через FK); живой цикл VERIFY PASS 231/231
+- E2E против PRODUCTION BUILD: 250/0 (smoke 20, auth 28, full 70, integration 18, regional 26, recipe 14, api-v2 74); payment-webhook 6/8 (prod-отклонение неподписанных — by design); onboarding — тестовый долг (hardcoded :3000)
+- находка: NEXT_PUBLIC_SUPABASE_URL инлайнится при сборке (задокументировано)
+- docs/deployment/ 5 документов + smoke-скрипт (9/9); финальный HEAD 9395f4b-цепочка → отчёт LOCAL-DEPLOYMENT-READINESS-REPORT.md
+- финальное состояние: prod standalone :3000 SMOKE PASS, chat :3030, receiver :5678, PG 64/64
+- push/merge/deploy не выполнялись
+
+Stage Summary:
+- Готовность: разработка GO, приёмка GO, ограниченный запуск GO WITH CONDITIONS, публичный production NOT READY (чек-лист владельца готов)
