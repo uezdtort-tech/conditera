@@ -9205,3 +9205,23 @@ Stage Summary:
 - E2E-harness больше не даёт ложных красных чанков (скобки/regex/exit-код починены и покрыты регрессией)
 - Все доступные безопасные проверки выполнены; единственный оставшийся шаг к GO — разрешение владельца на push+PR (точная команда в отчёте 16.6)
 - Публикация/merge/deploy не выполнялись; после отчёта — STOP, Gate 17 не начинать
+
+---
+Task ID: gate-22
+Agent: Z.ai Code (main)
+Task: GATE 22 — post-Gate-21 adaptation: сверка итогового состояния, закрытие релизных рисков, P2-фиксы, план адаптации (команда 2+AI), регрессия
+
+Work Log:
+- Этап 0 (drift #14): UUID-amend eadd7d3 на main захватил deletion 4 защищённых upload-файлов → восстановлены из 5ad34c6 (blobs baseline cb23e5dd/06b49c3c/f6c52a42/ec9f8efc), коммит 5dedadc
+- Этап 1: заявленный HEAD Gate 21 4227ee1 и все коммиты Gate 20.2 (a47dd85…7b735e2) НЕ существуют (рефы/reflog/dangling); артефактов Gate 21 нет; итоговое состояние = release-candidate/gate-20 @ c200642; worktree пересоздан, среда поднята (PG :54329, next :3000, chat :3030, receiver :5678)
+- Этап 2: верификация 4 агентами (финансы/Storage/конфиг/n8n, read-only) + закрывающие фиксы 2220842: TFA fail-closed (R1), cron-auth и receiver timing-safe (R2), Storage privacy fix (флаг bucket.public, staff-only приватные, 13 тестов), миграция 0063 + RPC redeem_bonus_for_order (живая гонка двойного списания — 2 прогона PASS), dead-letter replay восстановлен (дедуп eventId end-to-end); outbox отложен с обоснованием, персистентный дедуп не оправдан для dev-стаба
+- Этап 3: 88fdc53 — /tenders честное пустое состояние (8 демо-тендеров/фейковые метрики/форма удалены), /catalog?q= — StrictMode-затирание nav.params устранено (PARAM_KEYS_BY_VIEW.catalog + гард RouteFallback + синк searchQuery); браузерно доказано (фильтр 1/12, F5 и URL сохраняют q); +3 теста view-url
+- Этап 4: 321644f — docs/product/: ADAPTATION_BASELINE, PRODUCT_CORE (5 контуров ядра + заморозка хвоста), CONFECTIONER_WORKFLOW_AUDIT (главный пробел — ledger баланса не пишется), ADAPTATION_ROADMAP (R1-R11, оценки S-XL)
+- Этап 5 (на 8d705f2): tsc 0, lint 0, Vitest 78 файлов 1274/1274, chat gate 48/48, E2E 217 passed/0 failed/10 honest skip (api-v2 74/74 чанками из-за 4 OOM-kill next-server 2.2-2.7GB — средовые), scan-evidence real=0, protected 4/4; production build не доказан (запрет среды + 4GB + CI только через push) — причина зафиксирована
+- Отчёт: RELEASE-GATE-22-REPORT.md (028b6f8); вердикт GO WITH CONDITIONS (условия вне кода: push+CI с build, боевые ключи YooKassa/TFA/N8N, постоянный PG)
+- Push/merge/deploy не выполнялись
+
+Stage Summary:
+- Gate 21 технически признан недоказуемым; все критические проверки повторены на итоговом SHA
+- Закрыты: TFA fail-open, timing-сравнения, Storage privacy (реализована впервые), двойное списание бонусов, утрата replay, /tenders дезинформация, потеря /catalog?q=
+- Следующие шаги — решения владельца: push+CI, боевые ключи, R1 ledger
