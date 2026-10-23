@@ -9245,3 +9245,21 @@ Work Log:
 
 Stage Summary:
 - Готовность: разработка GO, приёмка GO, ограниченный запуск GO WITH CONDITIONS, публичный production NOT READY (чек-лист владельца готов)
+
+---
+Task ID: social-auth-recovery
+Agent: Z.ai Code (main)
+Task: CONDITERA — SOCIAL AUTH: RECOVERY AND FINAL VERIFICATION (восстановление состояния, окружение, аудит, реализация, проверки, отчёт)
+
+Work Log:
+- Восстановление: e675931 существует (LOCAL DEPLOYMENT финал, вершина release-candidate/gate-20); backup/pre-social-auth-e675931 и tag snapshot/social-auth-baseline указывают на e675931 — базовая точка защищена; main @ a12d235 чист
+- Находка: изменения Social Auth из потерянной сессии НЕ сохранились нигде — reflog ветки обрывается на e675931, fsck unreachable — старые stash'и, worktree /home/z/gate20 уничтожен (prunable), tar-бэкапов нет; в дереве был только старый v3 Yandex OAuth (93b3cbd) с нарушением анти-мерж (перехват парольного аккаунта по email + сброс пароля)
+- Окружение: PG :54329 пересоздан (db:setup идемпотентен, 64 миграции + сиды, .env.local сгенерирован setup'ом), next :3000 + chat :3030 + receiver :5678 подняты из worktree; встречен LIVE-drift: внешний HEAD-переключатель вернул my-project на main — работа переведена в пересозданный worktree /home/z/gate20 @ release-candidate/gate-20
+- Реализация (a7e169a): серверный мост Яндекс ID (OAuth 2.0) + VK ID (OIDC+PKCE S256) поверх app-JWT (cd_session/cd_refresh — паритет с login); state timing-safe + double TTL; next — safeNextPath allowlist; анти-мерж — миграция 0066 profiles.auth_provider + логика callback (отказ при чужом email, без сброса пароля; гонка 23505 той же политикой); отсутствие email — fail-closed; кнопки «Войти через Яндекс ID»/«Войти через VK ID» на вкладках Вход+Регистрация с mode=check; устаревший handoff удалён; .env.example local+prod; docs/social-auth.md
+- Проверки: OAuth unit 44/44; Vitest полный 1318/1318 (81 файл, +44 к 1274); tsc 0; lint 0; E2E smoke+auth-flow+integration 39/39 (playwright chromium 1234 доустановлен после drift-уничтожения кэша); живые отрицательные сценарии curl: mode=check {configured:false}, initiation 501, google 400, callback без/с чужим state → 302 /oauth/finish?error, access_denied → «Вход отменён»; браузер: кнопки в обеих вкладках, честный тост незаведённого провайдера, /oauth/finish рендерит ошибку; 1 OOM-kill next-server (2.89GB) — рестарт ensure-next с очисткой dev-кэша
+- Защищённые upload-файлы: blobs cb23e5dd/06b49c3c/f6c52a42/ec9f8efc MATCH до и после коммита; секрет-скан диффа чист; tsconfig-шум dev-сервера откачен; push/merge/deploy не выполнялись
+
+Stage Summary:
+- Финал: release-candidate/gate-20 @ a7e169a (поверх e675931), дерево чистое; возврат к базовой точке: git checkout backup/pre-social-auth-e675931 или snapshot/social-auth-baseline
+- Статус ТЗ: реализовано в коде ✅ / настроено локально ⚠️ (stub_* — нужны Client ID/Secret владельца в кабинетах Яндекса и VK) / проверено через реальных провайдеров ❌ (заблокировано отсутствием credentials)
+- Владельцу: заполнить YANDEX_CLIENT_ID/SECRET, VK_CLIENT_ID (redirect URI в docs/social-auth.md); после env вход заработает без изменения кода
