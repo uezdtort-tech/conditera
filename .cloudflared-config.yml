@@ -1,0 +1,67 @@
+# ~/.cloudflared/config.yml — Конфигурация Cloudflare Tunnel для conditera.ru
+# ============================================================================
+# Этот файл должен быть размещён на сервере в ~/.cloudflared/config.yml
+# (или /etc/cloudflared/config.yml если запускаете как systemd-сервис).
+#
+# Создание туннеля:
+#   1. Установите cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/install/
+#   2. Войдите: cloudflared tunnel login
+#   3. Создайте туннель: cloudflared tunnel create conditera2
+#   4. Скопируйте tunnel-id в этот файл
+#   5. Настройте DNS: cloudflared tunnel route dns conditera2 conditera.ru
+#   6. Запустите: cloudflared tunnel run conditera2
+#      Или как сервис: sudo cloudflared service install
+#
+# Стабильность туннеля (для решения "разрывы каждые 3-4 мин"):
+#   - protocol: http2 (надёжнее чем quic при плохом интернете)
+#   - reconnect-session: автоматическое переподключение при разрыве
+#   - grace-period: 30s (даём время на drain соединений)
+#   - retention: 30m (хранить сессии 30 минут для быстрого reconect'а)
+# ============================================================================
+
+tunnel: <tunnel-id-замените-на-реальный>
+credentials-file: /root/.cloudflared/<tunnel-id>.json
+
+# Протокол http2 — стабильнее чем quic при плохом интернете.
+# QUIC может разрывать соединения каждые 3-4 минуты если есть MTU проблемы.
+protocol: http2
+
+# Автоматическое переподключение при разрывах
+reconnect-session: true
+grace-period: 30s
+retention: 30m
+
+# Логи
+loglevel: info
+transport-loglevel: warn
+metrics: 0.0.0.0:36500
+
+# Origin requests — таймауты к Caddy
+origin-request:
+  connect-timeout: 10s
+  tls-timeout: 10s
+  tcp-keepalive: 30s
+  keep-alive-timeout: 90s
+  http2-origin: true
+  no-happy-eyeballs: true
+
+# Маршрутизация (ingress rules)
+ingress:
+  # Основной домен → Caddy (НЕ напрямую к web:3000!)
+  # Caddy даёт health check, fallback на 503, и правильную обработку WebSocket.
+  - hostname: conditera.ru
+    service: http://localhost:80
+    originRequest:
+      connectTimeout: 10s
+      noTLSVerify: true
+      http2Origin: true
+
+  # www → Caddy (Caddy сделает редирект на conditera.ru)
+  - hostname: www.conditera.ru
+    service: http://localhost:80
+    originRequest:
+      connectTimeout: 10s
+      noTLSVerify: true
+
+  # Catch-all → 404
+  - service: http_status:404

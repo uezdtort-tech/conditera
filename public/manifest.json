@@ -1,0 +1,22 @@
+{
+  "name": "Уездный кондитер — маркетплейс кондитеров",
+  "short_name": "Уездный кондитер",
+  "description": "Закажите авторские торты, десерты и сладости напрямую у частных кондитеров.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#faf7f2",
+  "theme_color": "#c2410c",
+  "categories": ["food", "shopping", "lifestyle"],
+  "lang": "ru",
+  "scope": "/",
+  "icons": [
+    { "src": "/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Каталог", "url": "/?view=catalog" },
+    { "name": "Конструктор торта", "url": "/?view=cake-builder" },
+    { "name": "Корзина", "url": "/?view=cart" }
+  ]
+}
