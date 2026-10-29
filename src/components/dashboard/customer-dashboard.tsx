@@ -80,13 +80,15 @@ import {
   type RefundRow,
   type OrderPaymentInfo,
 } from "@/lib/use-real-orders";
-import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
+import { getSessionAuthHeaders, getCsrfToken, serverLogout } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
 import { ensureChatRoom } from "@/components/chat/chat-api";
 import { openChatForOrder } from "@/components/chat/chat-order-bridge";
 import { RotateCcw, AlertTriangle, ShoppingCart, X, Loader2, ImagePlus, Clock } from "lucide-react";
 import type { Product } from "@/lib/types";
 
 export function CustomerDashboard() {
+  const router = useRouter();
   const navigate = useAppStore((s) => s.navigate);
   const nav = useAppStore((s) => s.nav);
   const user = useAppStore((s) => s.user);
@@ -96,6 +98,24 @@ export function CustomerDashboard() {
   const products = useAppStore((s) => s.products);
   const logout = useAppStore((s) => s.logout);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
+
+  // Единый logout (как в header.tsx): serverLogout() чистит httpOnly cookies
+  // (POST /api/auth/logout), затем сбрасываем store и редиректим на главную.
+  const [loggingOut, setLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await serverLogout();
+    } catch {
+      toast.error("Не удалось выйти. Попробуйте ещё раз.");
+    } finally {
+      logout();
+      setLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
+  };
 
   // Реальные заказы (GET /api/orders). Fallback на store-заказы только если API недоступен.
   const { orders: realOrders, isStale: ordersStale } = useRealOrders();
@@ -483,7 +503,8 @@ export function CustomerDashboard() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={logout}
+                  onClick={handleLogout}
+                  disabled={loggingOut}
                   className="w-full justify-start text-destructive"
                 >
                   <LogOut className="h-4 w-4 mr-2" />
