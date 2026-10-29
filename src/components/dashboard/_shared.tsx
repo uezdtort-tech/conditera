@@ -21,6 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { LucideIcon } from "lucide-react";
 import { LogOut, ChevronLeft } from "lucide-react";
+import { toast } from "sonner";
+import { serverLogout } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
 
 // ==================== Types ====================
 export interface UserLike {
@@ -39,6 +42,29 @@ export interface TabItem {
 
 export interface NavigateFn {
   (view: string): void;
+}
+
+// ==================== Единый logout (как в header.tsx / customer-dashboard) ====================
+// serverLogout() чистит httpOnly cookies (POST /api/auth/logout), затем
+// сбрасываем store (проп logout) и редиректим на главную.
+function useServerLogout(logout: () => void): { handleLogout: () => Promise<void>; loggingOut: boolean } {
+  const router = useRouter();
+  const [loggingOut, setLoggingOut] = React.useState(false);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await serverLogout();
+    } catch {
+      toast.error("Не удалось выйти. Попробуйте ещё раз.");
+    } finally {
+      logout();
+      setLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
+  };
+  return { handleLogout, loggingOut };
 }
 
 // ==================== DashboardShell (для таб-стиля) ====================
@@ -65,6 +91,7 @@ export function DashboardShell({
   onTab: (t: string) => void;
   children: React.ReactNode;
 }): React.JSX.Element {
+  const { handleLogout, loggingOut } = useServerLogout(logout);
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
       {/* Шапка */}
@@ -81,7 +108,7 @@ export function DashboardShell({
             <Badge variant="outline">{role}</Badge>
           </div>
         </div>
-        <Button variant="outline" onClick={logout}>
+        <Button variant="outline" onClick={handleLogout} disabled={loggingOut}>
           <LogOut className="w-4 h-4 mr-2" />Выйти
         </Button>
       </Card>
@@ -248,6 +275,7 @@ export function DashboardSidebarLayout({
   onTab: (t: string) => void;
   children: React.ReactNode;
 }): React.JSX.Element {
+  const { handleLogout, loggingOut } = useServerLogout(logout);
   return (
     <div className="min-h-screen bg-muted/30">
       <div className="container mx-auto px-4 py-6">
@@ -285,7 +313,7 @@ export function DashboardSidebarLayout({
                 ))}
               </div>
               <div className="pt-4 mt-4 border-t">
-                <Button variant="ghost" size="sm" onClick={logout} className="w-full justify-start text-destructive">
+                <Button variant="ghost" size="sm" onClick={handleLogout} disabled={loggingOut} className="w-full justify-start text-destructive">
                   <LogOut className="h-4 w-4 mr-2" /> Выйти
                 </Button>
               </div>

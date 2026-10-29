@@ -22,13 +22,34 @@ import { SERVICE_CATEGORIES, PRICE_UNIT_LABELS } from "@/lib/mock-data-services"
 import { ServicesManager } from "@/components/dashboard/services-manager";
 import { VenueBookingsManager } from "@/components/dashboard/venue-bookings-manager";
 import { toast } from "sonner";
+import { serverLogout } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
 
 type Tab = "overview" | "venue" | "services" | "listings" | "priceLists" | "bookings" | "earnings" | "settings";
 
 export function VenueOwnerDashboard() {
+  const router = useRouter();
   const navigate = useAppStore((s) => s.navigate);
   const user = useAppStore((s) => s.user);
   const logout = useAppStore((s) => s.logout);
+
+  // Единый logout (как в header.tsx): serverLogout() чистит httpOnly cookies
+  // (POST /api/auth/logout), затем сбрасываем store и редиректим на главную.
+  const [loggingOut, setLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await serverLogout();
+    } catch {
+      toast.error("Не удалось выйти. Попробуйте ещё раз.");
+    } finally {
+      logout();
+      setLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
+  };
   const venue = useAppStore((s) => s.getVenueByOwner(user?.id || ""));
   const services = useAppStore((s) => s.venueServices);
   const priceLists = useAppStore((s) => s.priceLists);
@@ -104,7 +125,7 @@ export function VenueOwnerDashboard() {
                 ))}
               </div>
               <div className="pt-4 mt-4 border-t">
-                <Button variant="ghost" size="sm" onClick={logout} className="w-full justify-start text-destructive">
+                <Button variant="ghost" size="sm" onClick={handleLogout} disabled={loggingOut} className="w-full justify-start text-destructive">
                   <LogOut className="h-4 w-4 mr-2" /> Выйти
                 </Button>
               </div>

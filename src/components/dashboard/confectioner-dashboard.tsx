@@ -142,8 +142,11 @@ import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-s
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
 import { ConfectionerChatTab } from "@/components/dashboard/confectioner-chat-tab";
 import { ensureChatRoom } from "@/components/chat/chat-api";
+import { serverLogout } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
 
 export function ConfectionerDashboard() {
+  const router = useRouter();
   const navigate = useAppStore((s) => s.navigate);
   const user = useAppStore((s) => s.user);
   const confectioners = useAppStore((s) => s.confectioners);
@@ -160,6 +163,24 @@ export function ConfectionerDashboard() {
   const negotiations = useAppStore((s) => s.negotiations);
   const logout = useAppStore((s) => s.logout);
   const updateTaskStatus = useAppStore((s) => s.updateTaskStatus);
+
+  // Единый logout (как в header.tsx): serverLogout() чистит httpOnly cookies
+  // (POST /api/auth/logout), затем сбрасываем store и редиректим на главную.
+  const [loggingOut, setLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await serverLogout();
+    } catch {
+      toast.error("Не удалось выйти. Попробуйте ещё раз.");
+    } finally {
+      logout();
+      setLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
+  };
   // Этап 10 §D1: реальные заявки из конструктора (GET /api/inquiries?filter=available)
   // с фолбэком на store-мок при недоступности API; действия — через negotiations API.
   const { inquiries, isStale: inquiriesStale, refetch: refetchInquiries } = useRealInquiries();
@@ -326,7 +347,7 @@ export function ConfectionerDashboard() {
               </div>
 
               <div className="pt-4 mt-4 border-t">
-                <Button variant="ghost" size="sm" onClick={logout} className="w-full justify-start text-destructive">
+                <Button variant="ghost" size="sm" onClick={handleLogout} disabled={loggingOut} className="w-full justify-start text-destructive">
                   <LogOut className="h-4 w-4 mr-2" />
                   Выйти
                 </Button>

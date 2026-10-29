@@ -24,6 +24,32 @@ import {
   PenLine, Image as ImageIcon, Flag, ThumbsUp, Gift, Leaf, Building2,
   Microscope, Stethoscope, Briefcase, CheckCircle2, X, ChevronRight,
 } from "lucide-react";
+import { toast } from "sonner";
+import { serverLogout } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
+
+// ==================== Единый logout (как в header.tsx / customer-dashboard) ====================
+// serverLogout() чистит httpOnly cookies (POST /api/auth/logout), затем
+// сбрасываем store (проп logout) и редиректим на главную.
+function useServerLogout(logout: () => void): { handleLogout: () => Promise<void>; loggingOut: boolean } {
+  const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await serverLogout();
+    } catch {
+      toast.error("Не удалось выйти. Попробуйте ещё раз.");
+    } finally {
+      logout();
+      setLoggingOut(false);
+      router.push("/");
+      router.refresh();
+    }
+  };
+  return { handleLogout, loggingOut };
+}
 
 // ==================== Базовая обёртка ====================
 function DashboardShell({
@@ -41,6 +67,7 @@ function DashboardShell({
   onTab: (t: string) => void;
   children: React.ReactNode;
 }) {
+  const { handleLogout, loggingOut } = useServerLogout(logout);
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
       {/* Шапка */}
@@ -57,7 +84,7 @@ function DashboardShell({
             <Badge variant="outline">{role}</Badge>
           </div>
         </div>
-        <Button variant="outline" onClick={logout}>
+        <Button variant="outline" onClick={handleLogout} disabled={loggingOut}>
           <LogOut className="w-4 h-4 mr-2" />Выйти
         </Button>
       </Card>
