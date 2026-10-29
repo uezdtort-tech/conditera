@@ -464,7 +464,13 @@ export function ConfectionerDashboard() {
                         const status = ORDER_STATUS_LABELS[order.status];
                         return (
                           <div key={order.id} className="flex items-center gap-3 p-3 border border-border rounded-lg">
-                            <img src={order.items[0].image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" decoding="async" />
+                            {order.items[0]?.image ? (
+                              <img src={order.items[0].image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" decoding="async" />
+                            ) : (
+                              <div className="h-10 w-10 rounded bg-muted flex items-center justify-center text-muted-foreground shrink-0" aria-hidden>
+                                <Package className="h-4 w-4" />
+                              </div>
+                            )}
                             <div className="flex-1 min-w-0">
                               <div className="font-medium text-sm truncate">{order.number}</div>
                               <div className="text-xs text-muted-foreground">
@@ -563,7 +569,13 @@ export function ConfectionerDashboard() {
                         <div className="space-y-2 mb-3">
                           {order.items.map((item, i) => (
                             <div key={i} className="flex items-center gap-3 text-sm">
-                              <img src={item.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" decoding="async" />
+                              {item.image ? (
+                                <img src={item.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" decoding="async" />
+                              ) : (
+                                <div className="h-10 w-10 rounded bg-muted flex items-center justify-center text-muted-foreground shrink-0" aria-hidden>
+                                  <Package className="h-4 w-4" />
+                                </div>
+                              )}
                               <div className="flex-1">
                                 <div className="truncate">{item.title}</div>
                                 {item.customization && (

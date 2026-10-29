@@ -17,7 +17,7 @@ import { formatDateTime } from "@/lib/finance";
 import type { QuickReply, ChatMessage, ChatRoom } from "@/lib/types";
 import { useVoiceRecorder, formatDuration } from "@/hooks/useVoiceRecorder";
 import { VoiceMessagePlayer } from "@/components/chat/voice-message-player";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getSessionAuthHeaders, getCsrfToken, getStoredAccessToken } from "@/lib/api-client";
 import { useSocketIO, type ChatMessage as SocketChatMessage } from "@/lib/use-socket-io";
 import {
@@ -117,6 +117,49 @@ export function ChatWidget({
 
   const activeRoom = rooms.find((r) => r.id === activeChatRoom);
   const roomMessages = chatMessages.filter((m) => m.roomId === activeChatRoom);
+
+  // D-CHAT: превью последнего сообщения в списке комнат. room.lastMessage
+  // приходит из GET /api/chat/rooms на момент загрузки списка и НЕ обновляется,
+  // когда тред продолжает жить (оптимистичная отправка, real-time, ответы
+  // FAQ-бота) — список показывал «Нет сообщений» для тредов с сообщениями,
+  // хотя сам список сообщений корректен. Дополняем превью последним сообщением
+  // из store (загружено существующим GET /api/chat/rooms/:id/messages и
+  // доставляется по real-time) — новых эндпоинтов и запросов не нужно.
+  const lastMessageByRoom = useMemo(() => {
+    const byRoom = new Map<string, ChatMessage>();
+    for (const m of chatMessages) {
+      const prev = byRoom.get(m.roomId);
+      if (
+        !prev ||
+        new Date(m.createdAt).getTime() > new Date(prev.createdAt).getTime()
+      ) {
+        byRoom.set(m.roomId, m);
+      }
+    }
+    return byRoom;
+  }, [chatMessages]);
+
+  const roomPreview = useCallback(
+    (room: ChatRoom): string => {
+      const storeLast = lastMessageByRoom.get(room.id);
+      const storeTs = storeLast
+        ? new Date(storeLast.createdAt).getTime()
+        : 0;
+      const roomTs = room.lastMessageAt
+        ? new Date(room.lastMessageAt).getTime()
+        : 0;
+      // Сообщение из store новее снимка списка комнат — оно и есть последнее
+      if (storeLast && storeTs >= roomTs) {
+        const text = storeLast.text.trim();
+        if (text) return text;
+        if (storeLast.voice) return "Вложение";
+      }
+      const apiText = room.lastMessage?.trim();
+      if (apiText) return apiText;
+      return "Нет сообщений";
+    },
+    [lastMessageByRoom]
+  );
 
   // Этап 10: если активная комната (например, открытая из карточки заказа —
   // openOrderChat создаёт её ПОСЛЕ загрузки списка при логине) отсутствует
@@ -585,7 +628,7 @@ export function ChatWidget({
                         <div className="flex-1 min-w-0">
                           <div className="text-xs font-medium truncate">{room.name}</div>
                           <div className="text-[10px] text-muted-foreground truncate">
-                            {room.lastMessage || "Нет сообщений"}
+                            {roomPreview(room)}
                           </div>
                         </div>
                         {room.unreadCount > 0 && (

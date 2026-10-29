@@ -230,6 +230,18 @@ export function CatalogPage() {
     return counts;
   }, [products]);
 
+  // D-BADGE: счётчики категорий — по ТЕМ ЖЕ данным и тому же предикату, что
+  // использует фильтр ниже (result.filter((p) => p.category === activeCategory),
+  // т.е. PRIMARY-категория товара), а не по статическим mock-значениям
+  // CATEGORIES[].count — они расходились с реальной выдачей фильтра.
+  const categoryCounts = useMemo(() => {
+    const counts = {} as Record<string, number>;
+    for (const cat of CATEGORIES) {
+      counts[cat.slug] = products.filter((p) => p.category === cat.slug).length;
+    }
+    return counts;
+  }, [products]);
+
   const toggleRestriction = (key: AllergenKey) => {
     setRestrictions((prev) =>
       prev.includes(key) ? prev.filter((r) => r !== key) : [...prev, key]
@@ -297,7 +309,7 @@ export function CatalogPage() {
               <span>{cat.icon}</span>
               {cat.name}
               <Badge variant="secondary" className="ml-auto text-[10px]">
-                {cat.count}
+                {categoryCounts[cat.slug] ?? 0}
               </Badge>
             </button>
           ))}
