@@ -236,6 +236,7 @@ BEGIN
   RETURN 1;
 END
 $pay2fn$;
+$fn$;
 BEGIN
   EXECUTE v_body;
 END;
