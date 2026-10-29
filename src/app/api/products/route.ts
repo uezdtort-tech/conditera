@@ -7,6 +7,9 @@
  *  - category:       slug категории (или "all")
  *  - q:              поиск по title/description (ILIKE)
  *  - confectionerId: фильтр по кондитеру
+ *  - mine:           "1" — личный каталог кондитера из сессии (auth обязателен):
+ *                    свои published + draft (archived скрыт), без публичного
+ *                    фильтра «только published». Для кабинета кондитера.
  *  - sort:           popular | price-asc | price-desc | rating (по умолчанию popular)
  *  - limit:          1-100 (по умолчанию 20)
  *  - offset:         по умолчанию 0
@@ -151,6 +154,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const search = searchParams.get("q");
     const confectionerId = searchParams.get("confectionerId");
     const sort = searchParams.get("sort") || "popular";
+
+    // mine=1 — личный каталог кондитера: владелец резолвится ТОЛЬКО из сессии
+    // (confectionerId-параметр клиентов не доверенный). Видны свои published+draft.
+    let mineUserId: string | null = null;
+    if (searchParams.get("mine") === "1") {
+      const me = await getUserFromRequest(request);
+      if (!me) {
+        return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+      }
+      mineUserId = me.id;
+    }
     const limit = Math.min(
       parseInt(searchParams.get("limit") || String(DEFAULT_LIMIT), 10),
       MAX_LIMIT
@@ -298,10 +312,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (advanced) {
       // ==== Поисковый движок: кандидаты ≤500 → фильтры/скоринг → страница ====
-      let candidatesQuery = supabaseAdmin
-        .from("products")
-        .select(PRODUCT_SELECT)
-        .eq("status", "published");
+      let candidatesQuery = supabaseAdmin.from("products").select(PRODUCT_SELECT);
+      if (mineUserId) {
+        candidatesQuery = candidatesQuery
+          .eq("confectioner_id", mineUserId)
+          .in("status", ["published", "draft"]);
+      } else {
+        candidatesQuery = candidatesQuery.eq("status", "published");
+      }
       if (categoryIds) candidatesQuery = candidatesQuery.in("category_id", categoryIds);
       if (confectionerId) candidatesQuery = candidatesQuery.eq("confectioner_id", confectionerId);
       candidatesQuery = candidatesQuery.range(0, SEARCH_CANDIDATES_CAP - 1);
@@ -369,14 +387,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // ==== Обычный путь (без q/advanced) — прежние PostgREST-фильтры ====
-    let query = supabaseAdmin.from("products").select(PRODUCT_SELECT).eq("status", "published");
+    let query = supabaseAdmin.from("products").select(PRODUCT_SELECT);
 
     // total — ОБЩЕЕ число товаров с теми же фильтрами (не размер страницы).
     // head:true + count:exact — один COUNT без передачи строк.
     let countQuery = supabaseAdmin
       .from("products")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "published");
+      .select("id", { count: "exact", head: true });
+    if (mineUserId) {
+      query = query
+        .eq("confectioner_id", mineUserId)
+        .in("status", ["published", "draft"]);
+      countQuery = countQuery
+        .eq("confectioner_id", mineUserId)
+        .in("status", ["published", "draft"]);
+    } else {
+      query = query.eq("status", "published");
+      countQuery = countQuery.eq("status", "published");
+    }
     if (categoryIds) countQuery = countQuery.in("category_id", categoryIds);
     if (confectionerId) countQuery = countQuery.eq("confectioner_id", confectionerId);
     const { count: totalCount, error: countError } = await countQuery;

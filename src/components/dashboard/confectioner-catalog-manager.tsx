@@ -1,16 +1,20 @@
 "use client";
 
 /**
- * Confectioner catalog manager — full CRUD for products.
+ * Confectioner catalog manager — управление РЕАЛЬНЫМ каталогом кондитера.
+ *
+ * Источник данных: GET /api/products?mine=1 (свои товары из сессии,
+ * TanStack Query, см. use-real-products.ts). НЕ store.products (mock).
  *
  * Features:
- *   - Product list with edit/delete buttons
- *   - Add/Edit modal with all fields: title, description, price, category,
- *     images (URL input), weight, servings, prepTime, tags,
- *     fillings, coatings, decorations, composition (ingredients, allergens,
- *     nutritional value, storage), detail images
- *   - Delete with confirmation
- *   - Product detail view with full description and composition
+ *   - Product list with edit/delete buttons + availability switch
+ *     (PATCH /api/products/{id} {isAvailable}, optimistic + refetch)
+ *   - Add/Edit modal: title, description, price, oldPrice, category,
+ *     weight, servings, tags, composition — персистится через PATCH/POST
+ *     /api/products. Images/fillings/prepTime ВНЕ контракта API — не
+ *     отправляются (медиа управляется через /api/products/{id}/media)
+ *   - Delete = PATCH {status:"archived"} (DELETE-роута в API нет)
+ *   - После мутаций список refetch'ится с сервера
  */
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -46,9 +50,21 @@ import {
   AlertCircle,
   Info,
   Eye,
+  Loader2,
 } from "lucide-react";
-import { useAppStore } from "@/lib/store";
-import type { Product } from "@/lib/types";
+import { Switch } from "@/components/ui/switch";
+import { useCategories } from "@/lib/supabase/use-marketplace";
+import {
+  useRealProducts,
+  useToggleProductAvailability,
+  useUpdateProductCard,
+  useCreateProduct,
+  useArchiveProduct,
+  weightText,
+  weightToGrams,
+  normalizeComposition,
+  type RealProduct,
+} from "@/lib/use-real-products";
 import { formatCurrency } from "@/lib/finance";
 import { toast } from "sonner";
 import { AiDescriptionGenerator } from "@/components/ai/ai-description-generator";
@@ -124,47 +140,82 @@ const EMPTY_FORM: ProductFormData = {
 };
 
 export function ConfectionerCatalogManager({ confectionerId }: { confectionerId: string }) {
-  const products = useAppStore((s) => s.products);
-  const addProduct = useAppStore((s) => s.addProduct);
-  const updateProduct = useAppStore((s) => s.updateProduct);
-  const deleteProduct = useAppStore((s) => s.deleteProduct);
-  const confectioners = useAppStore((s) => s.confectioners);
+  // Реальные данные: GET /api/products?mine=1 — владелец резолвится СЕРВЕРОМ
+  // из сессии (products.confectioner_id = auth-UUID пользователя), поэтому
+  // confectionerId-проп дашборда (id из mock-стора кондитеров) не используется.
+  void confectionerId;
+
+  const { products: myProducts, isLoading, error, refetch } = useRealProducts();
+  const categoriesData = useCategories();
+  const categories = categoriesData.data ?? [];
+
+  const toggleAvailability = useToggleProductAvailability();
+  const updateProduct = useUpdateProductCard();
+  const createProduct = useCreateProduct();
+  const archiveProduct = useArchiveProduct();
 
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingProduct, setEditingProduct] = useState<RealProduct | null>(null);
   const [form, setForm] = useState<ProductFormData>(EMPTY_FORM);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const myProducts = products.filter((p) => p.confectionerId === confectionerId);
-  const confectioner = confectioners.find((c) => c.id === confectionerId);
-
   const handleAdd = () => {
     setForm(EMPTY_FORM);
-    setEditingId(null);
+    setEditingProduct(null);
     setShowModal(true);
   };
 
-  const handleEdit = (product: Product) => {
+  const handleEdit = (product: RealProduct) => {
     setForm({
       title: product.title,
       description: product.description,
       price: product.price,
-      oldPrice: product.oldPrice,
-      category: product.category,
-      images: product.images || [],
-      weight: product.weight || "",
-      servings: product.servings || 0,
-      prepTime: product.prepTime || "",
-      tags: product.tags || [],
-      fillings: product.fillings || [],
-      coatings: product.coatings || [],
-      decorations: product.decorations || [],
-      composition: product.composition || { ingredients: [], allergens: [] },
-      detailImages: product.detailImages || [],
+      oldPrice: product.oldPrice ?? undefined,
+      category: product.categorySlug ?? "cakes",
+      images: product.images,
+      weight: weightText(product.weightGrams),
+      servings: product.servings ?? 0,
+      prepTime: "",
+      tags: product.tags,
+      fillings: [],
+      coatings: [],
+      decorations: [],
+      composition: product.composition ?? { ingredients: [], allergens: [] },
+      detailImages: [],
     });
-    setEditingId(product.id);
+    setEditingProduct(product);
     setShowModal(true);
+  };
+
+  /**
+   * Diff формы с серверным снимком → PATCH-тело.
+   * Отправляются ТОЛЬКО поля контракта PATCH /api/products/{id}
+   * (карточка 0052). Images/fillings/coatings/decorations/prepTime в
+   * контракте отсутствуют — не изобретаем бэкенд-поля.
+   */
+  const buildEditBody = (): Record<string, unknown> | null => {
+    const p = editingProduct;
+    if (!p) return null;
+    const body: Record<string, unknown> = {};
+    if (form.title.trim() !== p.title.trim()) body.title = form.title.trim();
+    if (form.description.trim() !== p.description.trim()) body.description = form.description.trim();
+    if (Math.round(form.price) !== Math.round(p.price)) body.price = Math.round(form.price);
+    if ((form.oldPrice ?? null) !== (p.oldPrice ?? null)) body.oldPrice = form.oldPrice ?? null;
+    if (form.category !== (p.categorySlug ?? "")) {
+      // Категория: slug → UUID (контракт PATCH принимает только categoryId)
+      const uuid = categories.find((c) => c.slug === form.category)?.id;
+      if (uuid) body.categoryId = uuid;
+    }
+    const grams = weightToGrams(form.weight);
+    if (grams !== null && grams !== (p.weightGrams ?? null)) body.weightGrams = grams;
+    if ((form.servings || null) !== (p.servings ?? null)) body.servings = form.servings || null;
+    if (JSON.stringify(form.tags) !== JSON.stringify(p.tags)) body.tags = form.tags;
+    const formComposition = normalizeComposition(form.composition);
+    if (JSON.stringify(formComposition) !== JSON.stringify(p.composition)) {
+      body.composition = formComposition ?? {};
+    }
+    return Object.keys(body).length > 0 ? body : null;
   };
 
   const handleSave = () => {
@@ -176,39 +227,49 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
       toast.error("Укажите цену больше 0");
       return;
     }
-    if (form.images.length === 0) {
+    if (!editingProduct && form.images.length === 0) {
       toast.error("Добавьте хотя бы одно изображение");
       return;
     }
 
-    const slug = form.title.toLowerCase().replace(/[^a-z0-9а-я]+/gi, "-");
-
-    if (editingId) {
-      updateProduct(editingId, {
-        ...form,
-        slug,
-      } as Partial<Product>);
-      toast.success("Товар обновлён");
+    if (editingProduct) {
+      const body = buildEditBody();
+      if (!body) {
+        toast.info("Нет изменений для сохранения");
+        setShowModal(false);
+        return;
+      }
+      // PATCH /api/products/{id} — персист на сервере, список refetch'ится
+      updateProduct.mutate(
+        { id: editingProduct.id, body },
+        { onSuccess: () => setShowModal(false) }
+      );
     } else {
-      addProduct({
-        ...form,
-        slug,
-        confectionerId,
-        confectionerName: confectioner?.businessName || "",
-        confectionerAvatar: confectioner?.avatar,
-        isPopular: false,
-        isNew: true,
-        isHit: false,
-      } as Omit<Product, "id" | "rating" | "reviewsCount" | "createdAt">);
-      toast.success("Товар добавлен в каталог");
+      const grams = weightToGrams(form.weight);
+      const composition = normalizeComposition(form.composition);
+      // POST /api/products (ветка CONFECTIONER): category — slug (легаси)
+      createProduct.mutate(
+        {
+          title: form.title.trim(),
+          price: Math.round(form.price),
+          description: form.description.trim(),
+          category: form.category,
+          images: form.images, // используется авто-модерацией контента
+          ...(form.oldPrice !== undefined ? { oldPrice: form.oldPrice } : {}),
+          ...(grams !== null ? { weightGrams: grams } : {}),
+          ...(form.servings ? { servings: form.servings } : {}),
+          ...(form.tags.length > 0 ? { tags: form.tags } : {}),
+          ...(composition ? { composition } : {}),
+        },
+        { onSuccess: () => setShowModal(false) }
+      );
     }
-    setShowModal(false);
   };
 
   const handleDelete = (id: string) => {
-    deleteProduct(id);
     setDeleteConfirmId(null);
-    toast.success("Товар удалён");
+    // DELETE /api/products/{id} в API нет — персистим архивацией (PATCH status:"archived")
+    archiveProduct.mutate(id);
   };
 
   return (
@@ -217,7 +278,9 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
         <div>
           <h1 className="font-display text-2xl font-bold">Каталог продукции</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {myProducts.length} товаров · добавляйте, редактируйте и удаляйте
+            {isLoading
+              ? "Загрузка…"
+              : `${myProducts.length} товаров · добавляйте, редактируйте и удаляйте`}
           </p>
         </div>
         <Button onClick={handleAdd}>
@@ -227,11 +290,23 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
       </div>
 
       {/* Product list */}
-      {myProducts.length === 0 ? (
+      {isLoading ? (
+        <Card className="p-12 text-center">
+          <Loader2 className="h-8 w-8 text-muted-foreground mx-auto mb-3 animate-spin" />
+          <p className="text-sm text-muted-foreground">Загрузка каталога…</p>
+        </Card>
+      ) : error ? (
+        <Card className="p-12 text-center">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-3" />
+          <p className="text-sm text-destructive mb-1">Не удалось загрузить каталог</p>
+          <p className="text-xs text-muted-foreground mb-4">{error.message}</p>
+          <Button onClick={() => refetch()}>Повторить</Button>
+        </Card>
+      ) : myProducts.length === 0 ? (
         <Card className="p-12 text-center">
           <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm text-muted-foreground mb-4">
-            В каталоге пока нет товаров
+            Нет товаров — добавьте первый
           </p>
           <Button onClick={handleAdd}>
             <Plus className="h-4 w-4 mr-1" />
@@ -267,23 +342,42 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
                           {product.oldPrice && (
                             <span className="line-through ml-1 opacity-60">{formatCurrency(product.oldPrice)}</span>
                           )}
-                          {product.weight && ` · ${product.weight}`}
+                          {product.weightGrams ? ` · ${weightText(product.weightGrams)}` : ""}
                           {product.servings ? ` · ${product.servings} порц.` : ""}
                         </div>
                         <div className="flex flex-wrap gap-1 mt-1">
                           <Badge variant="outline" className="text-[10px]">
-                            {CATEGORIES.find((c) => c.value === product.category)?.label || product.category}
+                            {CATEGORIES.find((c) => c.value === product.categorySlug)?.label || product.categorySlug || "—"}
                           </Badge>
-                          {product.isHit && <Badge className="text-[10px] bg-primary">Хит</Badge>}
-                          {product.isNew && <Badge className="text-[10px] bg-emerald-600">Новинка</Badge>}
+                          {product.status === "draft" && (
+                            <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-600">Черновик</Badge>
+                          )}
+                          {product.isFeatured && <Badge className="text-[10px] bg-primary">Хит</Badge>}
                           {product.tags?.slice(0, 2).map((t) => (
                             <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
                           ))}
                         </div>
                       </div>
 
-                      {/* Actions */}
+                      {/* Availability + Actions */}
                       <div className="flex items-center gap-1 flex-shrink-0">
+                        <div className="flex items-center gap-1.5 mr-1">
+                          <span
+                            className={`text-[10px] whitespace-nowrap ${
+                              product.isAvailable ? "text-emerald-600" : "text-muted-foreground"
+                            }`}
+                          >
+                            {product.isAvailable ? "В продаже" : "Скрыт"}
+                          </span>
+                          <Switch
+                            checked={product.isAvailable}
+                            disabled={toggleAvailability.isPending}
+                            onCheckedChange={(checked) =>
+                              toggleAvailability.mutate({ id: product.id, isAvailable: checked })
+                            }
+                            aria-label={`Доступность: ${product.title}`}
+                          />
+                        </div>
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setExpandedProduct(isExpanded ? null : product.id)}>
                           {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </Button>
@@ -366,29 +460,8 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
                       </div>
                     )}
 
-                    {/* Customization options */}
-                    {(product.fillings?.length || 0) > 0 || (product.coatings?.length || 0) > 0 || (product.decorations?.length || 0) > 0 ? (
-                      <div>
-                        <div className="text-xs font-semibold text-muted-foreground mb-1">Опции кастомизации</div>
-                        <div className="flex flex-wrap gap-2">
-                          {product.fillings?.map((f, i) => (
-                            <Badge key={`f${i}`} variant="secondary" className="text-[10px]">
-                              🍰 {f.name}{f.priceModifier > 0 ? ` +${formatCurrency(f.priceModifier)}` : ""}
-                            </Badge>
-                          ))}
-                          {product.coatings?.map((c, i) => (
-                            <Badge key={`c${i}`} variant="secondary" className="text-[10px]">
-                              🎨 {c.name}{c.priceModifier > 0 ? ` +${formatCurrency(c.priceModifier)}` : ""}
-                            </Badge>
-                          ))}
-                          {product.decorations?.map((d, i) => (
-                            <Badge key={`d${i}`} variant="secondary" className="text-[10px]">
-                              ✨ {d.name}{d.priceModifier > 0 ? ` +${formatCurrency(d.priceModifier)}` : ""}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
+                    {/* Опции кастомизации (fillings/coatings/decorations) в контракте
+                        API списка нет — показываются только из карточки товара */}
 
                     {/* All images */}
                     {product.images.length > 1 && (
@@ -416,7 +489,8 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
           setForm={setForm}
           onSave={handleSave}
           onClose={() => setShowModal(false)}
-          isEditing={!!editingId}
+          isEditing={!!editingProduct}
+          saving={updateProduct.isPending || createProduct.isPending}
         />
       )}
 
@@ -427,7 +501,7 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
             <DialogHeader>
               <DialogTitle>Удалить товар?</DialogTitle>
               <DialogDescription>
-                Товар будет удалён из каталога без возможности восстановления.
+                Товар будет удалён из каталога (перемещён в архив на сервере).
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -451,12 +525,14 @@ function ProductEditDialog({
   onSave,
   onClose,
   isEditing,
+  saving,
 }: {
   form: ProductFormData;
   setForm: (f: ProductFormData) => void;
   onSave: () => void;
   onClose: () => void;
   isEditing: boolean;
+  saving?: boolean;
 }) {
   const [imageUrl, setImageUrl] = useState("");
   const [detailImageUrl, setDetailImageUrl] = useState("");
@@ -893,9 +969,9 @@ function ProductEditDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Отмена</Button>
-          <Button onClick={onSave}>
-            {isEditing ? "Сохранить" : "Добавить товар"}
+          <Button variant="outline" onClick={onClose} disabled={saving}>Отмена</Button>
+          <Button onClick={onSave} disabled={saving}>
+            {isEditing ? (saving ? "Сохранение…" : "Сохранить") : "Добавить товар"}
           </Button>
         </DialogFooter>
       </DialogContent>
