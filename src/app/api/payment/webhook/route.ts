@@ -497,6 +497,21 @@ export async function POST(request: NextRequest) {
             .from("orders")
             .update({ payment_status: "cancelled", status: "CANCELLED" })
             .eq("id", orderId);
+          // История перехода (системная отмена): актёра-пользователя нет —
+          // changed_by NULL, причина в comment.
+          // FIX-TL: раньше строку писал триггер orders_log_status (0006,
+          // changed_by=NULL); триггер удалён (0061) — пишем сами.
+          const { error: historyError } = await supabaseAdmin
+            .from("order_status_history")
+            .insert({
+              order_id: orderId,
+              status_from: order.status,
+              status_to: "CANCELLED",
+              comment: "Отменён автоматически: платёж отменён (webhook)",
+            });
+          if (historyError) {
+            console.error("[webhook] order history insert failed:", historyError.message);
+          }
         }
         // P1: клиенту — платёж не прошёл (ТЗ §10; metadata.orderId, fail-safe).
         // P1.1: гейт тем же условием, что и обновление заказа выше — повторный

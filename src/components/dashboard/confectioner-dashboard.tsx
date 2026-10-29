@@ -140,6 +140,8 @@ import { useRealInventory } from "@/lib/use-real-inventory";
 import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
 import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-scale-settings";
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
+import { OrderTimeline } from "@/components/dashboard/order-timeline";
+import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { ConfectionerChatTab } from "@/components/dashboard/confectioner-chat-tab";
 import { ensureChatRoom } from "@/components/chat/chat-api";
 import { serverLogout } from "@/lib/api-client";
@@ -667,6 +669,13 @@ export function ConfectionerDashboard() {
                             Чат
                           </Button>
                         </div>
+                        {/* Таймлайн статуса + история переходов заказа.
+                            OrderTimeline — тот же компонент, что в customer-дашборде;
+                            OrderTimelineEvents — ленивая подгрузка GET /api/orders/[id]/timeline */}
+                        <div className="mt-3">
+                          <OrderTimeline status={order.status} createdAt={order.createdAt} small />
+                        </div>
+                        <OrderTimelineEvents orderId={order.id} />
                       </Card>
                     );
                   })}

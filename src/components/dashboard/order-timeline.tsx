@@ -3,11 +3,11 @@
 /**
  * OrderTimeline — визуальная timeline статусов заказа.
  *
- * Показывает все этапы: PENDING → CONFIRMED → IN_PROGRESS → READY → DELIVERING → COMPLETED
+ * Показывает все этапы: PENDING → CONFIRMED → PREPARING → READY → IN_DELIVERY → COMPLETED
  * Подсвечивает текущий статус, для пройденных — зелёная галочка.
  * Для отменённых — красный X.
  *
- * Используется в customer-дашборде и в чате заказа.
+ * Используется в customer-дашборде, кабинете кондитера и в чате заказа.
  */
 
 import { Card } from "@/components/ui/card";
@@ -32,14 +32,24 @@ interface OrderTimelineProps {
   small?: boolean;
 }
 
+// Шаги — по реальному enum order_status (миграция 0001): PREPARING и
+// IN_DELIVERY (а не легаси-алиасы IN_PROGRESS/DELIVERING из types.ts).
 const TIMELINE_STEPS = [
   { key: "PENDING", label: "Заказ создан", icon: Clock, color: "text-amber-500" },
   { key: "CONFIRMED", label: "Кондитер принял", icon: CheckCircle2, color: "text-blue-500" },
-  { key: "IN_PROGRESS", label: "Готовится", icon: ChefHat, color: "text-purple-500" },
+  { key: "PREPARING", label: "Готовится", icon: ChefHat, color: "text-purple-500" },
   { key: "READY", label: "Готов", icon: Package, color: "text-cyan-500" },
-  { key: "DELIVERING", label: "В пути", icon: Truck, color: "text-orange-500" },
+  { key: "IN_DELIVERY", label: "В пути", icon: Truck, color: "text-orange-500" },
   { key: "COMPLETED", label: "Доставлен", icon: Home, color: "text-emerald-500" },
 ];
+
+// Легаси-алиасы OrderStatus (types.ts) сводим к шагам выше, иначе findIndex
+// = -1 и бар молча не рендерится (FIX-TL: PREPARING-заказ не показывал таймлайн).
+const STATUS_ALIASES: Record<string, string> = {
+  IN_PROGRESS: "PREPARING",
+  DELIVERING: "IN_DELIVERY",
+  DELIVERED: "COMPLETED",
+};
 
 export function OrderTimeline({
   status,
@@ -81,8 +91,23 @@ export function OrderTimeline({
     );
   }
 
-  // Находим индекс текущего статуса
-  const currentIndex = TIMELINE_STEPS.findIndex((s) => s.key === status);
+  if (status === "REFUNDED") {
+    return (
+      <Card className={`${small ? "p-3" : "p-4"} border-orange-200 bg-orange-50/50`}>
+        <div className="flex items-center gap-3">
+          <XCircle className="h-5 w-5 text-orange-500" />
+          <div>
+            <div className="font-medium text-sm text-orange-700">Возврат оформлен</div>
+            <div className="text-xs text-orange-600/70">Средства возвращены покупателю</div>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // Находим индекс текущего статуса (с учётом легаси-алиасов)
+  const normalizedStatus = STATUS_ALIASES[status] ?? status;
+  const currentIndex = TIMELINE_STEPS.findIndex((s) => s.key === normalizedStatus);
   if (currentIndex === -1) return null;
 
   return (

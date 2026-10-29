@@ -558,6 +558,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           })
           .eq("id", order.id);
 
+        // История системной отмены (заказ только что создан в PENDING).
+        // FIX-TL: раньше строку писал триггер orders_log_status (0006,
+        // changed_by=NULL); триггер удалён (0061) — пишем сами.
+        await supabaseAdmin
+          .from("order_status_history")
+          .insert({
+            order_id: order.id,
+            status_from: "PENDING",
+            status_to: "CANCELLED",
+            comment: `Отмена: недостаточно бонусов (${e?.message || "unknown"})`,
+          });
+
         // Откатить инкремент промокода если был
         if (promoCodeId) {
           const { data: promo } = await supabaseAdmin

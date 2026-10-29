@@ -173,6 +173,9 @@ export function useRealUpdateOrderStatus(options?: { onSuccess?: () => void }) {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["orders-real"] });
+      // FIX-TL: история статусов в карточках (OrderTimelineEvents / админский
+      // order-workspace-dialog) обновляется сразу после перехода
+      queryClient.invalidateQueries({ queryKey: ["order-timeline", variables.orderId] });
       toast.success(`Статус заказа изменён: ${variables.status}`);
       options?.onSuccess?.();
     },

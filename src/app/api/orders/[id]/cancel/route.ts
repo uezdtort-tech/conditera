@@ -92,14 +92,24 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     // n8n: order.cancelled (fail-safe, после успешной CAS-отмены)
     void emitEvent("order.cancelled", { orderId }).catch(() => {});
 
-    // Status history
-    await supabaseAdmin.from("order_status_history").insert({
-      order_id: orderId,
-      status: "CANCELLED",
-      changed_by: user.id,
-      comment: reason || null,
-      created_at: new Date().toISOString(),
-    });
+    // Status history.
+    // FIX-TL: раньше вставка использовала несуществующую колонку `status`
+    // (в схеме 0006 — status_from/status_to) и молча падала — строку писал
+    // триггер orders_log_status с changed_by=NULL. Триггер удалён (0061) —
+    // пишем сами, с атрибуцией актёра (отмена своим заказом / админом).
+    const { error: historyError } = await supabaseAdmin
+      .from("order_status_history")
+      .insert({
+        order_id: orderId,
+        status_from: order.status,
+        status_to: "CANCELLED",
+        changed_by: user.id,
+        comment: reason || null,
+      });
+    if (historyError) {
+      // История не роняет отмену (статус = источник истины), но фиксируем.
+      console.error("[orders/:id/cancel] history insert failed:", historyError.message);
+    }
 
     // Refund if paid (non-blocking) — только по реальному платежу провайдера
     // (статуса "paid" не существует; деньги получены = escrow | succeeded)

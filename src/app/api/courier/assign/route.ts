@@ -167,6 +167,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // История перехода READY → IN_DELIVERY.
+    // FIX-TL: раньше историю писал триггер orders_log_status (0006) строкой
+    // с changed_by=NULL; триггер удалён (0061) — пишем сами с атрибуцией
+    // актёра-курьера. Повторный assign (уже IN_DELIVERY) историю не засоряет.
+    if (order.status !== "IN_DELIVERY") {
+      const { error: historyError } = await supabaseAdmin
+        .from("order_status_history")
+        .insert({
+          order_id: orderId,
+          status_from: order.status,
+          status_to: "IN_DELIVERY",
+          changed_by: courierId,
+          comment: null,
+        });
+      if (historyError) {
+        // История не роняет назначение (статус = источник истины), но фиксируем.
+        console.error("[courier/assign] history insert failed:", historyError.message);
+      }
+    }
+
     // Инкремент deliveries_count в courier_profiles (non-blocking)
     try {
       // Получить текущее значение

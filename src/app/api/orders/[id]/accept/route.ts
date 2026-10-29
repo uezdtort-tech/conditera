@@ -60,13 +60,25 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       .update({ status: "CONFIRMED", updated_at: new Date().toISOString() })
       .eq("id", orderId);
 
-    // Status history
-    await supabaseAdmin.from("order_status_history").insert({
-      order_id: orderId,
-      status: "CONFIRMED",
-      changed_by: user.id,
-      created_at: new Date().toISOString(),
-    });
+    // Status history.
+    // FIX-TL: раньше вставка использовала несуществующую колонку `status`
+    // (в схеме 0006 — status_from/status_to) и молча падала (ошибка не
+    // проверялась) — строку писал триггер orders_log_status с
+    // changed_by=NULL. Триггер удалён (0061) — пишем сами, с атрибуцией
+    // актёра (PENDING → CONFIRMED).
+    const { error: historyError } = await supabaseAdmin
+      .from("order_status_history")
+      .insert({
+        order_id: orderId,
+        status_from: order.status,
+        status_to: "CONFIRMED",
+        changed_by: user.id,
+        comment: null,
+      });
+    if (historyError) {
+      // История не роняет переход (статус = источник истины), но фиксируем.
+      console.error("[orders/:id/accept] history insert failed:", historyError.message);
+    }
 
     // Notify customer (non-blocking)
     try {
