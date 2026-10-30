@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,6 +31,7 @@ import {
   Check, Pencil, Trash2, UserCog, Images, Gauge, BellRing,
 } from "lucide-react";
 import { formatCurrency, ORDER_STATUS_LABELS } from "@/lib/finance";
+import { csrfFetch } from "@/lib/api-client";
 import { BlacklistTab } from "@/components/dashboard/blacklist-tab";
 import {
   AdminCmsHomeTab, AdminBannersTab, AdminCmsPagesTab,
@@ -127,13 +128,175 @@ const TAB_GROUPS = [
 // Бейдж «Операционного центра» динамический (критические задачи) —
 // подставляется в компоненте, поэтому ALL_TABS собирается в рендере.
 
+interface AdminUserRow {
+  id: string;
+  email: string;
+  name: string;
+  city: string | null;
+  phone: string | null;
+  is_blocked: boolean;
+  blocked_reason: string | null;
+  is_verified: boolean;
+  deleted_at: string | null;
+  roles: string[];
+  orders_count: number;
+}
+
+/**
+ * Реальный раздел «Пользователи»: данные из /api/admin/users (profiles + user_roles),
+ * блокировка/удаление — серверные PATCH/DELETE с проверкой прав (ранее был мок-список).
+ */
+function AdminUsersSection() {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+
+  const usersQuery = useQuery({
+    queryKey: ["admin-users", search],
+    queryFn: async (): Promise<{ users: AdminUserRow[]; total: number }> => {
+      const qs = search ? `?search=${encodeURIComponent(search)}` : "";
+      const res = await csrfFetch(`/api/admin/users${qs}`);
+      if (!res.ok) throw new Error(`Не удалось загрузить пользователей (HTTP ${res.status})`);
+      return res.json();
+    },
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-v2"] });
+  };
+
+  const blockMutation = useMutation({
+    mutationFn: async ({ userId, action }: { userId: string; action: "block" | "unblock" }) => {
+      const res = await csrfFetch("/api/admin/users", {
+        method: "PATCH",
+        body: JSON.stringify({ userId, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    },
+    onSuccess: (_d, vars) => {
+      toast.success(vars.action === "block" ? "Пользователь заблокирован" : "Пользователь разблокирован");
+      invalidate();
+    },
+    onError: (e: Error) => toast.error("Не удалось изменить статус", { description: e.message }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await csrfFetch(`/api/admin/users?userId=${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Пользователь удалён (мягкое удаление, заказы сохранены)");
+      invalidate();
+    },
+    onError: (e: Error) => toast.error("Не удалось удалить", { description: e.message }),
+  });
+
+  const users = usersQuery.data?.users || [];
+
+  return (
+    <div className="space-y-4">
+      <h1 className="font-display text-2xl font-bold">Пользователи</h1>
+      <Card className="p-4">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Поиск по имени, email или телефону…"
+          aria-label="Поиск пользователей"
+          className="w-full mb-3 px-3 py-2 text-sm border border-border rounded-md bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        {usersQuery.isLoading && (
+          <p className="text-sm text-muted-foreground py-6 text-center">Загружаем пользователей…</p>
+        )}
+        {usersQuery.error && (
+          <div className="text-sm text-destructive py-4">
+            Ошибка загрузки: {(usersQuery.error as Error).message}
+            <Button size="sm" variant="outline" className="ml-3" onClick={() => usersQuery.refetch()}>
+              Повторить
+            </Button>
+          </div>
+        )}
+        {!usersQuery.isLoading && !usersQuery.error && users.length === 0 && (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            {search ? "Ничего не найдено по запросу" : "Пользователей пока нет"}
+          </p>
+        )}
+        <div className="space-y-2 max-h-96 overflow-y-auto">
+          {users.map((u) => {
+            const blocked = u.is_blocked || Boolean(u.deleted_at);
+            return (
+              <div
+                key={u.id}
+                className={`flex items-center gap-3 p-3 border rounded ${blocked ? "border-red-300 bg-red-50/50" : "border-border"}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm flex items-center gap-2">
+                    <span className="truncate">{u.name || "(без имени)"}</span>
+                    {u.deleted_at && <Badge className="text-[9px] bg-red-500">Удалён</Badge>}
+                    {!u.deleted_at && u.is_blocked && <Badge className="text-[9px] bg-red-500">Заблокирован</Badge>}
+                    {u.is_verified && <Badge variant="outline" className="text-[9px]">Проверен</Badge>}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {u.email} • {u.city || "—"}{u.blocked_reason ? ` • ${u.blocked_reason}` : ""}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {(u.roles.length ? u.roles : ["CUSTOMER"]).slice(0, 2).map((r) => (
+                    <Badge key={r} variant="secondary" className="text-[10px]">{r}</Badge>
+                  ))}
+                </div>
+                <div className="text-xs text-muted-foreground whitespace-nowrap">{u.orders_count} зак.</div>
+                <div className="flex gap-1">
+                  {u.deleted_at ? (
+                    <span className="text-[10px] text-muted-foreground px-1">только чтение</span>
+                  ) : (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-amber-600"
+                        disabled={blockMutation.isPending}
+                        title={u.is_blocked ? "Разблокировать" : "Заблокировать"}
+                        aria-label={u.is_blocked ? `Разблокировать ${u.email}` : `Заблокировать ${u.email}`}
+                        onClick={() => blockMutation.mutate({ userId: u.id, action: u.is_blocked ? "unblock" : "block" })}
+                      >
+                        {u.is_blocked ? <Check className="h-3.5 w-3.5" /> : <UserX className="h-3.5 w-3.5" />}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-destructive"
+                        disabled={deleteMutation.isPending}
+                        title="Удалить (мягко)"
+                        aria-label={`Удалить ${u.email}`}
+                        onClick={() => { if (confirm(`Удалить ${u.name || u.email}? Заказы будут сохранены.`)) deleteMutation.mutate(u.id); }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export function AdminDashboard() {
   const navigate = useAppStore((s) => s.navigate);
   const user = useAppStore((s) => s.user);
   const logout = useAppStore((s) => s.logout);
   const orders = useAppStore((s) => s.orders);
   const [activeTab, setActiveTab] = useState("overview");
-
   const { data, isLoading, error, refetch } = useAdminDashboard();
 
   // Операционный центр: те же query-ключи, что и внутри AdminOpsCenter —
@@ -274,45 +437,7 @@ export function AdminDashboard() {
         return <AdminOpsCenter onNavigateTab={setActiveTab} />;
 
       case "users":
-        return (
-          <div className="space-y-4">
-            <h1 className="font-display text-2xl font-bold">Пользователи</h1>
-            <Card className="p-4">
-              <div className="space-y-2">
-                {[
-                  { id: "u1", name: "Анна Соколова", email: "customer@demo.ru", role: "CUSTOMER", city: "Москва", orders: 12, blocked: false },
-                  { id: "u2", name: "Мария Уездная", email: "confectioner@demo.ru", role: "CONFECTIONER", city: "Тула", orders: 1248, blocked: false },
-                  { id: "u3", name: "Андрей Поляков", email: "supplier@demo.ru", role: "SUPPLIER", city: "Москва", orders: 0, blocked: false },
-                  { id: "u4", name: "Иван Курьеров", email: "courier@demo.ru", role: "COURIER", city: "Москва", orders: 156, blocked: false },
-                  { id: "u5", name: "Спамер Спамович", email: "spammer@spam.ru", role: "CUSTOMER", city: "—", orders: 0, blocked: true },
-                ].map((u) => (
-                  <div key={u.id} className={`flex items-center gap-3 p-3 border rounded ${u.blocked ? "border-red-300 bg-red-50/50" : "border-border"}`}>
-                    <div className="flex-1">
-                      <div className="font-medium text-sm flex items-center gap-2">
-                        {u.name}
-                        {u.blocked && <Badge className="text-[9px] bg-red-500">Заблокирован</Badge>}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{u.email} • {u.city}</div>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px]">{u.role}</Badge>
-                    <div className="text-xs text-muted-foreground">{u.orders} зак.</div>
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => toast.info(`Редактирование ${u.name}`)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-amber-600" onClick={() => toast.success(u.blocked ? "Разблокирован" : "Заблокирован", { description: u.name })}>
-                        {u.blocked ? <Check className="h-3.5 w-3.5" /> : <UserX className="h-3.5 w-3.5" />}
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => { if (confirm(`Удалить ${u.name}?`)) toast.success("Пользователь удалён"); }}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        );
+        return <AdminUsersSection />;
 
       case "orders": return <AdminOrdersManager />;
       case "products": return <AdminProductsManager />;

@@ -20,6 +20,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { csrfFetch } from "@/lib/api-client";
 
 // ==================== Types ====================
 export interface CustomerDashboardData {
@@ -525,114 +526,45 @@ export function useCourierDashboard() {
   });
 }
 
-/** Admin dashboard — KPI, последние заказы, рост платформы */
+/** Admin dashboard — KPI, последние заказы, рост платформы.
+ * Данные берутся с серверного /api/admin/dashboard (service_role на сервере):
+ * прямой браузерный запрос к Supabase упирался в RLS и показывал нули.
+ * Сервер — единственный источник правды (мастер-промпт §4/§17.2).
+ */
 export function useAdminDashboard() {
   return useQuery<AdminDashboardData>({
     queryKey: ["admin-dashboard-v2"],
     queryFn: async () => {
-      // Admin видит все данные через RLS (profile admin_all policy)
-      const today = new Date(new Date().setHours(0, 0, 0, 0));
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-
-      const [usersCountRes, newUsersRes, ordersCountRes, revenueTodayRes, revenueMonthRes, recentOrdersRes] = await Promise.all([
-        // Всего пользователей
-        supabaseBrowser.from("profiles").select("id", { count: "exact", head: true }),
-
-        // Новых сегодня
-        supabaseBrowser.from("profiles").select("id", { count: "exact", head: true })
-          .gte("created_at", today.toISOString()),
-
-        // Всего заказов
-        supabaseBrowser.from("orders").select("id", { count: "exact", head: true }),
-
-        // Доход за сегодня
-        supabaseBrowser.from("payments")
-          .select("amount")
-          .eq("status", "succeeded")
-          .gte("created_at", today.toISOString()),
-
-        // Доход за месяц
-        supabaseBrowser.from("payments")
-          .select("amount")
-          .eq("status", "succeeded")
-          .gte("created_at", monthStart.toISOString()),
-
-        // Последние заказы
-        supabaseBrowser
-          .from("orders")
-          .select(`
-            id, number, total, status, created_at,
-            user:profiles!orders_user_id_fkey(email)
-          `)
-          .order("created_at", { ascending: false })
-          .limit(10),
-      ]);
-
-      const revenueToday = (revenueTodayRes.data || []).reduce(
-        (sum: number, p: { amount: number }) => sum + (p.amount || 0),
-        0
-      );
-      const revenueMonth = (revenueMonthRes.data || []).reduce(
-        (sum: number, p: { amount: number }) => sum + (p.amount || 0),
-        0
-      );
-
-      // Рост платформы за 6 месяцев
-      const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1);
-      const { data: monthlyUsers } = await supabaseBrowser
-        .from("profiles")
-        .select("created_at")
-        .gte("created_at", sixMonthsAgo.toISOString());
-
-      const { data: monthlyOrders } = await supabaseBrowser
-        .from("orders")
-        .select("created_at")
-        .gte("created_at", sixMonthsAgo.toISOString());
-
-      const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
-      const platformGrowth: Array<{ month: string; users: number; orders: number }> = [];
-      for (let i = 5; i >= 0; i--) {
-        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-        const nextDate = new Date(today.getFullYear(), today.getMonth() - i + 1, 1);
-        const monthLabel = monthNames[date.getMonth()];
-
-        const usersCount = (monthlyUsers || []).filter(
-          (u: { created_at: string }) => {
-            const d = new Date(u.created_at);
-            return d >= date && d < nextDate;
-          }
-        ).length;
-
-        const ordersCount = (monthlyOrders || []).filter(
-          (o: { created_at: string }) => {
-            const d = new Date(o.created_at);
-            return d >= date && d < nextDate;
-          }
-        ).length;
-
-        platformGrowth.push({ month: monthLabel, users: usersCount, orders: ordersCount });
+      const res = await csrfFetch("/api/admin/dashboard");
+      if (!res.ok) {
+        throw new Error(`Не удалось загрузить статистику (HTTP ${res.status})`);
       }
+      const raw = (await res.json()) as {
+        stats: AdminDashboardData["stats"];
+        recentOrders?: Array<{
+          id: string;
+          number: string;
+          customer?: string;
+          customer_email?: string;
+          total: number;
+          status: string;
+          date?: string;
+          created_at?: string;
+        }>;
+        platformGrowth?: AdminDashboardData["platformGrowth"];
+      };
 
       return {
-        stats: {
-          totalUsers: usersCountRes.count || 0,
-          newUsersToday: newUsersRes.count || 0,
-          totalOrders: ordersCountRes.count || 0,
-          revenueToday,
-          revenueMonth,
-          activeTickets: 0, // TODO: из CRM миграции
-          pendingPayouts: 0, // TODO: из payouts
-          fraudAlerts: 0, // TODO: из fraud_logs
-        },
-        recentOrders: (recentOrdersRes.data || []).map((o: Record<string, unknown>) => ({
-          id: o.id as string,
-          number: o.number as string,
-          customer_email: (o.user as { email?: string })?.email || "—",
-          total: o.total as number,
-          status: o.status as string,
-          created_at: o.created_at as string,
+        stats: raw.stats,
+        recentOrders: (raw.recentOrders || []).map((o) => ({
+          id: o.id,
+          number: o.number,
+          customer_email: o.customer_email || o.customer || "—",
+          total: Number(o.total),
+          status: o.status,
+          created_at: o.created_at || o.date || "",
         })) as AdminDashboardData["recentOrders"],
-        platformGrowth,
+        platformGrowth: raw.platformGrowth || [],
       };
     },
     staleTime: 30 * 1000,

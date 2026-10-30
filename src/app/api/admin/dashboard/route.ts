@@ -50,6 +50,14 @@ const STUB_DATA = {
     { month: "Июл", value: 1750000 },
     { month: "Авг", value: 1840000 },
   ],
+  platformGrowth: [
+    { month: "Мар", users: 210, orders: 56 },
+    { month: "Апр", users: 232, orders: 61 },
+    { month: "Май", users: 255, orders: 67 },
+    { month: "Июн", users: 281, orders: 74 },
+    { month: "Июл", users: 305, orders: 82 },
+    { month: "Авг", users: 331, orders: 90 },
+  ],
   stub: true,
 };
 
@@ -92,11 +100,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     try {
       const today = new Date(new Date().setHours(0, 0, 0, 0));
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1);
 
       // === ПАРАЛЛЕЛЬНЫЕ ЗАПРОСЫ ===
       // Раньше было 5 последовательных запросов (activeTickets, pendingPayouts,
       // fraudAlerts, recentOrders + 2 revenue reduce-запроса) = 7 round-trips.
-      // Теперь: 1 Promise.all с 8 запросами в параллель = 1 round-trip (по latency).
+      // Теперь: 1 Promise.all с 10 запросами в параллель = 1 round-trip (по latency).
       const [
         totalUsersResult,
         newUsersTodayResult,
@@ -109,6 +118,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         // загрузки всех строк платежей за период (экономия O(N) памяти).
         revenueTodayResult,
         revenueMonthResult,
+        growthUsersResult,
+        growthOrdersResult,
       ] = await Promise.all([
         supabaseAdmin.from("profiles").select("*", { count: "exact", head: true }),
         supabaseAdmin
@@ -130,11 +141,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           .eq("status", "open"),
         supabaseAdmin
           .from("orders")
-          .select("id, number, total, status, created_at, user_id")
+          .select("id, number, total, status, created_at, user_id, profiles(email)")
           .order("created_at", { ascending: false })
           .limit(5),
         supabaseAdmin.rpc("revenue_today"),
         supabaseAdmin.rpc("revenue_month"),
+        // Рост платформы за 6 месяцев: created_at профилей и заказов,
+        // агрегация в JS — объёмы малы, лишний RPC не требуется.
+        supabaseAdmin
+          .from("profiles")
+          .select("created_at")
+          .gte("created_at", sixMonthsAgo.toISOString()),
+        supabaseAdmin
+          .from("orders")
+          .select("created_at")
+          .gte("created_at", sixMonthsAgo.toISOString()),
       ]);
 
       const revenueToday = typeof revenueTodayResult.data === "number"
@@ -145,6 +166,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         : 0;
 
       const recentOrders = (recentOrdersResult.data || []) as RecentOrder[];
+
+      // Рост платформы по месяцам (последние 6 месяцев)
+      const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+      const monthlyUsers = ((growthUsersResult.data || []) as Array<{ created_at: string }>);
+      const monthlyOrders = ((growthOrdersResult.data || []) as Array<{ created_at: string }>);
+      const platformGrowth: Array<{ month: string; users: number; orders: number }> = [];
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const nextDate = new Date(today.getFullYear(), today.getMonth() - i + 1, 1);
+        platformGrowth.push({
+          month: monthNames[date.getMonth()],
+          users: monthlyUsers.filter((u) => {
+            const d = new Date(u.created_at);
+            return d >= date && d < nextDate;
+          }).length,
+          orders: monthlyOrders.filter((o) => {
+            const d = new Date(o.created_at);
+            return d >= date && d < nextDate;
+          }).length,
+        });
+      }
 
       return NextResponse.json({
         stats: {
@@ -160,12 +202,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         recentOrders: recentOrders.map((o) => ({
           id: o.id,
           number: o.number,
-          customer: o.user_id?.slice(0, 8) || "—",
+          // Оба варианта ключей: совместимость со старым UI (customer/date)
+          // и контрактом фронта (customer_email/created_at)
+          customer: (o as unknown as { profiles?: { email?: string } }).profiles?.email || o.user_id?.slice(0, 8) || "—",
+          customer_email: (o as unknown as { profiles?: { email?: string } }).profiles?.email || "—",
           total: Number(o.total),
           status: o.status,
           date: o.created_at,
+          created_at: o.created_at,
         })),
         revenue: [], // можно заполнить через RPC по месяцам
+        platformGrowth,
         stub: false,
       });
     } catch (dbError) {
