@@ -8,7 +8,8 @@
  *   generatedAt,
  *   today: { orders, inProduction, deliveries, newCustomers, revenueToday, revenueMonth } | null,
  *   attention: { critical, important, info } | null,   // ops_tasks (open, видимые админу = все)
- *   system: { db: 'ok'|'fail', payments: {configured}, automation: {configured}, storage: 'ok'|'fail' }
+ *   system: { db, payments: {configured}, automation: {configured}, storage,
+ *             integrations: { oauth: {yandex,google,vk}, email, telegram } }
  * }
  *
  * Fallback-безопасно: ошибка блока → null (system-флаги всегда заполняются).
@@ -21,6 +22,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
 import { getPool } from "@/lib/postgrest/pool";
 import { isYookassaConfigured } from "@/lib/yookassa";
+import { getIntegrationsStatus } from "@/lib/integrations-status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,6 +136,9 @@ export async function GET(request: NextRequest) {
       payments: { configured: isYookassaConfigured() },
       automation: { configured: n8nBase.length > 0 },
       storage,
+      // Статусы внешних интеграций (дополнение к master prompt §9):
+      // только факт наличия конфигурации, без значений секретов.
+      integrations: getIntegrationsStatus(),
     },
     ...(errors.length > 0 ? { errors } : {}),
   });

@@ -21,8 +21,8 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle, BellOff, CheckCircle2, Coins, Database, Gauge,
-  Loader2, Radar, RefreshCw, ShoppingCart, Truck, UserPlus, UtensilsCrossed,
-  Wallet, Zap,
+  KeyRound, Loader2, Mail, Radar, RefreshCw, Send, ShoppingCart,
+  Truck, UserPlus, UtensilsCrossed, Wallet, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -597,6 +597,58 @@ export function AdminOpsCenter({ onNavigateTab }: { onNavigateTab?: (tabId: stri
             state={system ? { ok: system.automation.configured, text: system.automation.configured ? "настроен" : "не настроен", muted: !system.automation.configured } : { ok: false, text: "нет данных", muted: true }}
           />
           <SystemRow icon={Truck} label="Хранилище (storage)" state={storageState} />
+          {summaryQuery.data?.system.integrations && (
+            <>
+              <div className="pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Внешние интеграции
+              </div>
+              <SystemRow
+                icon={KeyRound}
+                label="Вход Яндекс ID"
+                state={
+                  summaryQuery.data.system.integrations.oauth.yandex
+                    ? { ok: true, text: "настроен" }
+                    : { ok: false, text: "не настроен", muted: true }
+                }
+              />
+              <SystemRow
+                icon={KeyRound}
+                label="Вход Google"
+                state={
+                  summaryQuery.data.system.integrations.oauth.google
+                    ? { ok: true, text: "настроен" }
+                    : { ok: false, text: "не настроен", muted: true }
+                }
+              />
+              <SystemRow
+                icon={KeyRound}
+                label="Вход VK ID"
+                state={
+                  summaryQuery.data.system.integrations.oauth.vk
+                    ? { ok: true, text: "настроен" }
+                    : { ok: false, text: "не настроен", muted: true }
+                }
+              />
+              <SystemRow
+                icon={Mail}
+                label="Почта (SMTP)"
+                state={
+                  summaryQuery.data.system.integrations.email
+                    ? { ok: true, text: "настроен" }
+                    : { ok: false, text: "не настроен", muted: true }
+                }
+              />
+              <SystemRow
+                icon={Send}
+                label="Telegram-уведомления"
+                state={
+                  summaryQuery.data.system.integrations.telegram
+                    ? { ok: true, text: "настроен" }
+                    : { ok: false, text: "не настроен", muted: true }
+                }
+              />
+            </>
+          )}
           {summaryQuery.data?.generatedAt && (
             <p className="text-[11px] text-muted-foreground pt-1">
               Сводка сформирована: {new Date(summaryQuery.data.generatedAt).toLocaleString("ru-RU")}

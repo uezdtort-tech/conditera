@@ -73,6 +73,12 @@ export interface OpsSummaryResponse {
     automation: { configured: boolean };
     /** Контракт свободный — рендерим по наличию/полю ok. */
     storage: unknown;
+    /** Статусы внешних интеграций (только факт конфигурации, без секретов). */
+    integrations?: {
+      oauth: { yandex: boolean; google: boolean; vk: boolean };
+      email: boolean;
+      telegram: boolean;
+    };
   };
 }
 
