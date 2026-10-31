@@ -8,8 +8,11 @@
  *   • JWT-токен для handshake берётся из /api/auth/session (единый
  *     auth-контракт: сервер читает httpOnly cookie cd_session и возвращает
  *     accessToken). localStorage НЕ используется.
- *   • socket.io-client — опциональная зависимость: если пакет не установлен,
- *     хук работает в stub-режиме (все функции no-op).
+ *   • socket.io-client — обязательная зависимость (в package.json, major v4
+ *     совпадает с socket.io@^4.7.5 чат-сервера) и импортируется СТАТИЧЕСКИ:
+ *     динамический import() создаёт отдельный чанк, который при HMR/инвалации
+ *     в dev-режиме периодически падал и уводил чат в stub-режим. Фолбэк на
+ *     polling в chat-widget сохранён независимо от этого хука.
  *
  * События: room:join/leave, message:send/sent/receive, typing:start/stop,
  * message:read, message:react, order:notify.
@@ -17,6 +20,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { io } from "socket.io-client";
 import { useAppStore } from "@/lib/store";
 
 // URL чат-сервера: относительный через gateway (порт 3030) или из env.
@@ -110,9 +114,9 @@ export function useSocketIO() {
           : null);
       if (disposed) return;
 
-      // Dynamic import — если socket.io-client не установлен, fallback на stub.
+      // socket.io-client импортирован статически (см. шапку файла): живой
+      // realtime без chunk-load сбоев динамического import().
       try {
-        const { io } = await import("socket.io-client");
         if (disposed) return;
 
         socket = io(CHAT_SERVER_URL, {
@@ -242,8 +246,11 @@ export function useSocketIO() {
         });
       } catch (err) {
         if (!disposed) {
+          // Сюда попадаем только при ошибках инициализации socket.io
+          // (например, невалидный URL) — НЕ при отсутствии пакета: он
+          // статический dependency и падает ещё на сборке.
           console.warn(
-            "[Socket.IO] socket.io-client не установлен — чат работает в stub-режиме.",
+            "[Socket.IO] не удалось инициализировать socket — чат работает на polling-фолбэке.",
             err instanceof Error ? err.message : err
           );
         }
