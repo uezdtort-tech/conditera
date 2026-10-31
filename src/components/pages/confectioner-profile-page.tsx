@@ -51,6 +51,8 @@ export function ConfectionerProfilePage() {
   const navigate = useAppStore((s) => s.navigate);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
   const openChatWithRoom = useAppStore((s) => s.openChatWithRoom);
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated);
+  const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
 
   const confectioner = confectioners.find((c) => c.id === nav.params?.id);
 
@@ -71,15 +73,20 @@ export function ConfectionerProfilePage() {
 
   // D-CHAT: «Написать» — прямой диалог покупатель↔кондитер:
   // find-or-create direct-комнаты по confectioner.userId (POST /api/chat/rooms),
-  // затем фокус ChatWidget на этой комнате. 401 → прежнее поведение (виджет
-  // сам покажет auth-модалку анониму); прочие ошибки → toast.
+  // затем фокус ChatWidget на этой комнате. 401: у гостя (нет аутентификации)
+  // открываем модалку входа вместо пустого виджета чата; у аутентифицированного
+  // (истёкший токен) — прежнее поведение (виджет). Прочие ошибки → toast.
   const openDirectChat = async () => {
     try {
       const room = await ensureDirectRoom(confectioner.userId);
       openChatWithRoom(room.id);
     } catch (err) {
       if (err instanceof Error && err.message === "unauthorized") {
-        setChatOpen(true);
+        if (!isAuthenticated) {
+          setAuthModalOpen(true);
+        } else {
+          setChatOpen(true);
+        }
       } else {
         toast.error("Не удалось открыть диалог с кондитером");
       }
