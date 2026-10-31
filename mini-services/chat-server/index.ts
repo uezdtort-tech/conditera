@@ -17,6 +17,9 @@
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { jwtVerify } from "jose";
+import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const PORT = process.env.CHAT_PORT || 3030;
 const CORS_ORIGIN = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -246,24 +249,56 @@ async function verifyRoomAccess(
 // ровно тот баг, что чиним: Next подписывает токен AUTH_SECRET'ом (или пропустив
 // CHANGE_ME-заглушку), а чат-сервер проверяет dev-ключом → каждый handshake
 // отбивается "auth: unauthorized".
+// Заглушки CHANGE_ME*/fallback-*/dev-* считаются отсутствующим секретом
+// (та же логика, что в Next @/lib/auth getSecretEnv).
+function jwtValueLooksUsable(v: string | undefined): v is string {
+  return (
+    !!v &&
+    !v.startsWith("CHANGE_ME") &&
+    !v.startsWith("fallback-") &&
+    !v.startsWith("dev-") &&
+    !v.startsWith("dev_")
+  );
+}
+
 function resolveJwtSecretEnv(): string | null {
   for (const name of ["JWT_SECRET", "AUTH_SECRET"]) {
     const v = process.env[name]?.trim();
-    if (
-      v &&
-      !v.startsWith("CHANGE_ME") &&
-      !v.startsWith("fallback-") &&
-      !v.startsWith("dev-") &&
-      !v.startsWith("dev_")
-    ) {
-      return v;
+    if (jwtValueLooksUsable(v)) return v;
+  }
+  return null;
+}
+
+// Фолбэк: в окружении секрета нет (или это заглушка) → читаем JWT_SECRET /
+// AUTH_SECRET из корневого .env.local проекта. Супервизор стартует chat-server
+// раньше, чем в песочнице появляется .env.local → в process.env пусто/заглушка,
+// и каждый handshake отбивался "auth: unauthorized". bun не подхватывает
+// .env.local выше директории сервиса — парсим файл сами, без dotenv-зависимости.
+function resolveJwtSecretFromProjectEnvLocal(): string | null {
+  try {
+    const envPath =
+      typeof import.meta.dir === "string"
+        ? path.resolve(import.meta.dir, "../../.env.local")
+        : fileURLToPath(new URL("../../.env.local", import.meta.url));
+    const src = readFileSync(envPath, "utf8");
+    for (const name of ["JWT_SECRET", "AUTH_SECRET"]) {
+      const v = src
+        .match(new RegExp(`^${name}=(.*)$`, "m"))?.[1]
+        ?.trim()
+        .replace(/^["']+|["']+$/g, "");
+      if (jwtValueLooksUsable(v)) {
+        console.info("chat-server: JWT secret loaded from project .env.local");
+        return v;
+      }
     }
+  } catch {
+    // .env.local ещё не создан — остаёмся на прежней ветке (dev-ключ / throw в prod)
   }
   return null;
 }
 
 function getJwtSecret(): Uint8Array {
-  const secret = resolveJwtSecretEnv();
+  const secret = resolveJwtSecretEnv() ?? resolveJwtSecretFromProjectEnvLocal();
   if (!secret) {
     if (process.env.NODE_ENV === "production") {
       throw new Error("КРИТИЧНО: JWT_SECRET/AUTH_SECRET не задан. Socket.IO-сервер не может проверить токены.");
