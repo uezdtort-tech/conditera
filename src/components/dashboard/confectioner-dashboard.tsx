@@ -99,7 +99,12 @@ import {
   calculateConfectionerPayout,
   calculateTaxByLegalStatus,
 } from "@/lib/finance";
-import { CONFECTIONER_ANALYTICS } from "@/lib/mock-data";
+import {
+  computeMonthlyRevenue,
+  computeOrdersByStatus,
+  computeTopProducts,
+  STATUS_CHART_META,
+} from "@/lib/analytics-compute";
 import {
   ConfectionerInventoryTab,
   ConfectionerGanttTab,
@@ -205,7 +210,13 @@ export function ConfectionerDashboard() {
   const [breakdownOrderId, setBreakdownOrderId] = useState<string | null>(null);
   // Реальные заказы (GET /api/orders — скоуп кондитера решает сервер: user_id ИЛИ confectioner_id).
   // Fallback на store-заказы (mock) только если API недоступен (isStale=true).
-  const { orders: apiOrders, isStale: ordersStale, refetch: refetchOrders } = useRealOrders();
+  const {
+    orders: apiOrders,
+    realOrders,
+    isLoading: ordersLoading,
+    isStale: ordersStale,
+    refetch: refetchOrders,
+  } = useRealOrders();
   // Реальный склад (GET /api/inventory/items) — бейдж «Склад» считает низкие остатки
   // из БД; store-инвентарь (mock) остаётся только офлайн-фолбэком при сбое API.
   const { realItems, isStale: inventoryStale } = useRealInventory();
@@ -246,6 +257,27 @@ export function ConfectionerDashboard() {
   const storeMyOrders = orders.filter((o) => o.confectionerId === confectioner.id);
   // API-заказы уже скоупнуты ролью на сервере; фильтр по store-id ('c0' vs uuid) не нужен
   const myOrders = ordersStale ? storeMyOrders : apiOrders || storeMyOrders;
+
+  // === Реальная аналитика (замена мока CONFECTIONER_ANALYTICS) ===
+  // Только реальные заказы из GET /api/orders; store/mock-фолбэк (isStale) в
+  // графики не попадает — вместо фейковых чисел честный empty-state.
+  const realAnalyticsOrders = realOrders ?? [];
+  const monthlyRevenue = computeMonthlyRevenue(realAnalyticsOrders, 6);
+  const revenueChartData = monthlyRevenue.map((p) => ({ month: p.label, value: p.revenue }));
+  const statusChartData = computeOrdersByStatus(realAnalyticsOrders).map((s) => ({
+    name: STATUS_CHART_META[s.status]?.label ?? s.status,
+    value: s.count,
+    color: STATUS_CHART_META[s.status]?.color ?? "oklch(0.55 0.05 70)",
+  }));
+  // Топ товаров: отменённые заказы не считаем продажами
+  const topProductsData = computeTopProducts(
+    realAnalyticsOrders.filter((o) => o.status !== "CANCELLED"),
+    5
+  );
+  const hasRealOrders = realAnalyticsOrders.length > 0;
+  const revenueHasData = monthlyRevenue.some((p) => p.revenue > 0);
+  // Пока заказы грузятся — «Загрузка…», после загрузки без данных — честный empty-state
+  const analyticsEmptyNote = ordersLoading ? "Загрузка данных…" : "Нет данных за период";
   const myProducts = allProducts.filter(
     (p) => p.confectionerId === confectioner.id
   );
@@ -374,7 +406,7 @@ export function ConfectionerDashboard() {
                 tariff={tariff}
                 trust={trust}
                 setActiveTab={setActiveTab}
-                revenueData={CONFECTIONER_ANALYTICS.revenue}
+                revenueData={revenueChartData}
               />
             )}
 
@@ -430,8 +462,13 @@ export function ConfectionerDashboard() {
                 {/* Revenue chart */}
                 <Card className="p-4">
                   <h3 className="font-semibold mb-3">Доход за 6 месяцев</h3>
+                  {!revenueHasData && (
+                    <p className="text-sm text-muted-foreground mb-2" role="status">
+                      {analyticsEmptyNote}
+                    </p>
+                  )}
                   <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={CONFECTIONER_ANALYTICS.revenue}>
+                    <BarChart data={revenueChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.90 0.015 70)" />
                       <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="oklch(0.50 0.025 50)" />
                       <YAxis tick={{ fontSize: 12 }} stroke="oklch(0.50 0.025 50)" tickFormatter={(v) => `${v / 1000}k`} />
@@ -1265,8 +1302,13 @@ export function ConfectionerDashboard() {
                 <div className="grid lg:grid-cols-2 gap-4">
                   <Card className="p-4">
                     <h3 className="font-semibold mb-3">Доход по месяцам</h3>
+                    {!revenueHasData && (
+                      <p className="text-sm text-muted-foreground mb-2" role="status">
+                        {analyticsEmptyNote}
+                      </p>
+                    )}
                     <ResponsiveContainer width="100%" height={240}>
-                      <BarChart data={CONFECTIONER_ANALYTICS.revenue}>
+                      <BarChart data={revenueChartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.90 0.015 70)" />
                         <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                         <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `${v / 1000}k`} />
@@ -1277,17 +1319,22 @@ export function ConfectionerDashboard() {
                   </Card>
                   <Card className="p-4">
                     <h3 className="font-semibold mb-3">Заказы по статусам</h3>
+                    {!hasRealOrders && (
+                      <p className="text-sm text-muted-foreground mb-2" role="status">
+                        {analyticsEmptyNote}
+                      </p>
+                    )}
                     <ResponsiveContainer width="100%" height={240}>
                       <PieChart>
                         <Pie
-                          data={CONFECTIONER_ANALYTICS.ordersByStatus}
+                          data={statusChartData}
                           cx="50%"
                           cy="50%"
                           outerRadius={80}
                           dataKey="value"
                           label={(entry) => `${entry.name}: ${entry.value}`}
                         >
-                          {CONFECTIONER_ANALYTICS.ordersByStatus.map((entry, i) => (
+                          {statusChartData.map((entry, i) => (
                             <Cell key={i} fill={entry.color} />
                           ))}
                         </Pie>
@@ -1299,15 +1346,20 @@ export function ConfectionerDashboard() {
 
                 <Card className="p-4">
                   <h3 className="font-semibold mb-3">Топ товаров</h3>
+                  {topProductsData.length === 0 && (
+                    <p className="text-sm text-muted-foreground mb-2" role="status">
+                      {analyticsEmptyNote}
+                    </p>
+                  )}
                   <div className="space-y-2">
-                    {CONFECTIONER_ANALYTICS.topProducts.map((p, i) => (
+                    {topProductsData.map((p, i) => (
                       <div key={i} className="flex items-center gap-3 p-2 border border-border rounded">
                         <div className="font-display font-bold text-lg text-muted-foreground w-6">
                           {i + 1}
                         </div>
                         <div className="flex-1">
                           <div className="font-medium text-sm">{p.name}</div>
-                          <div className="text-xs text-muted-foreground">{p.sold} продаж</div>
+                          <div className="text-xs text-muted-foreground">{p.count} продаж</div>
                         </div>
                         <div className="font-semibold text-sm">{formatCurrency(p.revenue)}</div>
                       </div>
