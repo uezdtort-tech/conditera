@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -8,6 +8,7 @@ import {
   Star, Truck, CreditCard, Info, Heart,
 } from "lucide-react";
 import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
+import { useAppStore } from "@/lib/store";
 
 interface NotificationMetadata {
   orderId?: string;
@@ -48,24 +49,36 @@ const NOTIF_COLORS: Record<string, string> = {
 };
 
 export function NotificationsBell() {
-  // Local state — self-contained, doesn't depend on Zustand store
+  // Список — локальный стейт; аутентификация — из Zustand store (s.user):
+  // единственный источник сессии, который реактивно обновляется при SPA-логине
+  // (SupabaseAuthSync / auth-modal) и гидратится из persist для вернувшихся.
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [open, setOpen] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const user = useAppStore((s) => s.user);
 
-  // Load from /api/notifications + лёгкий поллинг раз в 60с: бейдж непрочитанных
-  // обновляется без перезагрузки страницы (фолбэк живой доставки сообщений).
+  // Гейт поллинга: гость (store.user === null) НЕ ходит в /api/notifications —
+  // нет 401-шума в консоли. Поллинг стартует только при активной сессии;
+  // 401 (истёкший токен) останавливает его до появления новой сессии.
+  const pollEnabled = !!user && !sessionExpired;
+
+  // Новая сессия (SPA-логин) — сбрасываем флаг истечения
   useEffect(() => {
-    loadNotifications();
-    const timer = setInterval(loadNotifications, 60_000);
-    return () => clearInterval(timer);
-  }, []);
+    if (user) setSessionExpired(false);
+  }, [user]);
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     try {
       const res = await fetch("/api/notifications", {
         headers: await getSessionAuthHeaders(),
       });
+      if (res.status === 401) {
+        // Сессия невалидна — прекращаем поллинг (иначе 401 каждые 60с)
+        setSessionExpired(true);
+        setNotifications([]);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications || []);
@@ -73,7 +86,20 @@ export function NotificationsBell() {
     } catch {
       // Silent fail — notifications are non-critical
     }
-  };
+  }, []);
+
+  // Load from /api/notifications + лёгкий поллинг раз в 60с: бейдж непрочитанных
+  // обновляется без перезагрузки страницы (фолбэк живой доставки сообщений).
+  useEffect(() => {
+    if (!pollEnabled) {
+      // Вышли из сессии — не держим устаревший бейдж
+      setNotifications([]);
+      return;
+    }
+    loadNotifications();
+    const timer = setInterval(loadNotifications, 60_000);
+    return () => clearInterval(timer);
+  }, [pollEnabled, loadNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
