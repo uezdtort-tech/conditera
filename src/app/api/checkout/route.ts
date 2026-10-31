@@ -33,6 +33,7 @@ import { calculateDelivery } from "@/lib/finance";
 import { checkAcceptance } from "@/lib/ops/acceptance"; // P0.5 §29: capacity/inventory/deadline gate
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { loadConfectionerOrderSnapshot } from "@/lib/confectioner-tariff";
 import {
   validatePromoCode,
   applyPromoCodeToOrder,
@@ -400,6 +401,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ? productsMap.get(productItems[0].product_id)?.confectioner_id ?? null
         : null) ?? null;
 
+    // 3a-1. Тарифная/комиссионная/legal снапшоты кондитера (ЕДИНЫЙ хелпер с
+    // POST /api/orders): ищем confectioners по "userId" (auth.users UUID) и
+    // только approved; иначе payout-math падает в дефолт вместо тарифа.
+    const snapshot = await loadConfectionerOrderSnapshot(confectionerId);
+
     // 3.5 P0.5 §29: Acceptance Engine — проверка выполнимости ДО создания заказа.
     // Блокируем ТОЛЬКО недоступность; предупреждения не блокируют оплату.
     // Custom-позиции конструктора не имеют product_id — в гейт не попадают.
@@ -521,6 +527,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         payment_method: paymentMethod || "card",
         promo_code: appliedPromoCode,
         promo_discount: discount,
+        tariff_snapshot: snapshot.tariffSnapshot,
+        commission_rate_snapshot: snapshot.commissionRateSnapshot,
+        legal_status_snapshot: snapshot.legalStatusSnapshot,
         metadata: {
           cart_items: cartItems.map((c) => c.id ?? c.product_id ?? "custom").slice(0, 50),
           idempotency_key: idempotencyKey ?? null,

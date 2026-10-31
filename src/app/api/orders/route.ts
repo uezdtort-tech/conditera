@@ -38,6 +38,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
+import { loadConfectionerOrderSnapshot } from "@/lib/confectioner-tariff";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
 import { emitEvent } from "@/lib/n8n";
 import { recordEvent } from "@/lib/ops/events";
@@ -59,15 +60,7 @@ interface OrderItemRecord {
   customization: Record<string, unknown> | null;
 }
 
-const TARIFF_RATES: Record<string, number> = {
-  START: 0.15,
-  PROFI: 0.10,
-  PREMIUM: 0.05,
-  BASIC: 0.15,
-  BUSINESS: 0.08,
-};
-
-const DEFAULT_COMMISSION_RATE = 0.15;
+// Ставки комиссии — в lib/confectioner-tariff.ts (ЕДИНЫЙ источник с checkout)
 
 /**
  * GET /api/orders — список заказов текущего пользователя.
@@ -392,18 +385,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       confectionerId = product?.confectioner_id || null;
 
       if (confectionerId) {
-        const { data: conf } = await supabaseAdmin
-          .from("confectioners")
-          .select("tariff, legalInfo")
-          .eq("id", confectionerId)
-          .maybeSingle();
-
-        if (conf) {
-          tariffSnapshot = String(conf.tariff || "BASIC");
-          commissionRateSnapshot = TARIFF_RATES[tariffSnapshot] ?? DEFAULT_COMMISSION_RATE;
-          const legalInfo = (conf.legalInfo as { status?: string } | null) || null;
-          legalStatusSnapshot = legalInfo?.status || null;
-        }
+        // products.confectioner_id — UUID пользователя (auth.users), а
+        // confectioners.id — TEXT legacy-сид ('c0'…). Раньше искали по id и
+        // ВСЕГДА промахивались → tariff/commission snapshot были null у ВСЕХ
+        // заказов этого пути. Единый хелпер (checkout использует тот же):
+        // поиск по "userId" + только approved.
+        const snapshot = await loadConfectionerOrderSnapshot(confectionerId);
+        tariffSnapshot = snapshot.tariffSnapshot;
+        commissionRateSnapshot = snapshot.commissionRateSnapshot;
+        legalStatusSnapshot = snapshot.legalStatusSnapshot;
       }
     }
 

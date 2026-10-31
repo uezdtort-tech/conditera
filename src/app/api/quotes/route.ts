@@ -70,6 +70,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(400, "Укажите город");
     }
 
+    // Валидация целей: confectioners.id — TEXT legacy ('c0'…), id приходят из UI
+    // (шаг 8 конструктора). Раньше ЛЮБЫЕ строки сохранялись, а уведомления писались
+    // с user_id: null (мёртвые письма — кондитер не получал ни звонок, ни запрос в
+    // кабинете). Теперь: id обязаны существовать и быть verified; уведомления —
+    // по userId (auth.users) реальных кондитеров.
+    const uniqueIds = [...new Set(body.confectioner_ids)];
+    const { data: targets, error: targetsError } = await supabaseAdmin
+      .from("confectioners")
+      .select("id, userId, businessName")
+      .in("id", uniqueIds)
+      .eq("verified", true);
+    if (targetsError) {
+      throw new HttpError(500, "DB error", targetsError.message);
+    }
+    const foundIds = new Set((targets || []).map((t: { id: string }) => t.id));
+    const unknownIds = uniqueIds.filter((id) => !foundIds.has(id));
+    if (unknownIds.length > 0) {
+      throw new HttpError(
+        400,
+        `Некоторые кондитеры недоступны: ${unknownIds.slice(0, 5).join(", ")}`
+      );
+    }
+    const confectionerTargets = (targets || []) as Array<{ id: string; userId: string | null; businessName: string | null }>; // verified-цели
+
     // Создать запрос
     const { data: quoteRequest, error: insertError } = await supabaseAdmin
       .from("quote_requests")
@@ -110,14 +134,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(500, "DB error", insertError.message);
     }
 
-    // Уведомить кондитеров (non-blocking)
-    body.confectioner_ids.forEach((confId) => {
+    // Уведомить кондитеров (non-blocking) — по РЕАЛЬНОМУ userId (auth.users).
+    // Раньше user_id: null → колокол не приходил никому.
+    confectionerTargets.forEach((conf) => {
+      if (!conf.userId) return;
       supabaseAdmin.from("notifications").insert({
-        user_id: null,
+        user_id: conf.userId,
         type: "new_quote_request",
         title: "Новый запрос на торт!",
         body: `Запрос от ${user.name || "покупателя"} в г. ${body.city}. Срок: ${body.delivery_date || "не указан"}`,
-        data: { quote_request_id: quoteRequest.id, confectioner_id: confId },
+        data: { quote_request_id: quoteRequest.id, confectioner_id: conf.id },
       }).then(() => {}, () => {});
     });
 
