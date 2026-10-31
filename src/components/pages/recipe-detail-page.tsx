@@ -27,11 +27,19 @@ import {
   Search,
   Zap,
   X,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/finance";
 import { csrfFetch } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  mapMarketplaceRowToRecipe,
+  type ApiRecipeMarketplaceRow,
+} from "@/lib/recipe-view-model";
 
 const RECIPE_DIFFICULTY = {
   easy: { label: "Легко", color: "bg-emerald-100 text-emerald-800", stars: "★☆☆" },
@@ -42,9 +50,8 @@ const RECIPE_DIFFICULTY = {
 export function RecipeDetailPage() {
   const navigate = useAppStore((s) => s.navigate);
   const nav = useAppStore((s) => s.nav);
-  const recipes = useAppStore((s) => s.recipes);
+  const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
   const user = useAppStore((s) => s.user);
-  const confectioners = useAppStore((s) => s.confectioners);
   const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
   const [servings, setServings] = useState(4);
   const [acceptances, setAcceptances] = useState<any[]>([]);
@@ -56,7 +63,60 @@ export function RecipeDetailPage() {
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
 
-  const recipe = recipes.find((r) => r.id === nav.params?.id);
+  const recipeId = nav.params?.id;
+
+  // Живой рецепт из маркетплейса (GET /api/recipes/marketplace/[id]) —
+  // вместо mock-поиска в store.recipes. 404 → null («не найден»), ошибка → error state.
+  const recipeQuery = useQuery({
+    queryKey: ["recipe-marketplace", recipeId],
+    enabled: Boolean(recipeId),
+    queryFn: async (): Promise<ApiRecipeMarketplaceRow | null> => {
+      const res = await csrfFetch(`/api/recipes/marketplace/${recipeId}`);
+      if (res.status === 404) return null;
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || "Не удалось загрузить рецепт");
+      }
+      return json?.data ?? null;
+    },
+  });
+  const recipe = useMemo(
+    () => (recipeQuery.data ? mapMarketplaceRowToRecipe(recipeQuery.data) : null),
+    [recipeQuery.data]
+  );
+
+  const [purchased, setPurchased] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
+
+  // Покупка доступа: POST /api/recipes/marketplace/[id]/purchase (идемпотентен —
+  // повторная покупка возвращает 200 «уже куплен»). Неавторизованным — модалка входа.
+  const handlePurchase = async () => {
+    if (!recipe) return;
+    if (!user) {
+      toast.info("Войдите, чтобы приобрести рецепт");
+      setAuthModalOpen(true);
+      return;
+    }
+    setPurchasing(true);
+    try {
+      const res = await csrfFetch(`/api/recipes/marketplace/${recipe.id}/purchase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setPurchased(true);
+        toast.success(json?.message || "Рецепт приобретён");
+      } else {
+        toast.error(json?.error || "Не удалось приобрести рецепт");
+      }
+    } catch {
+      toast.error("Ошибка сети");
+    } finally {
+      setPurchasing(false);
+    }
+  };
 
   // Загружаем сохранённую геолокацию из localStorage
   useEffect(() => {
@@ -183,7 +243,55 @@ export function RecipeDetailPage() {
     }
   };
 
-  if (!recipe) {
+  // Ошибка API — честное сообщение + повтор (приоритетнее прочих состояний)
+  if (recipeQuery.isError) {
+    return (
+      <div className="container mx-auto px-4 py-20 text-center" role="alert">
+        <AlertTriangle className="h-12 w-12 mx-auto mb-3 text-destructive" />
+        <h2 className="font-display text-2xl font-bold mb-2">Не удалось загрузить рецепт</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          {recipeQuery.error instanceof Error
+            ? recipeQuery.error.message
+            : "Попробуйте ещё раз позже."}
+        </p>
+        <div className="flex gap-2 justify-center">
+          <Button onClick={() => recipeQuery.refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Повторить
+          </Button>
+          <Button variant="outline" onClick={() => navigate("recipes")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            К рецептам
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Загрузка — skeleton в структуре страницы
+  if (recipeId && recipeQuery.isPending) {
+    return (
+      <div className="container mx-auto px-4 py-6 lg:py-10" aria-busy="true" aria-label="Загрузка рецепта">
+        <Skeleton className="aspect-[16/9] w-full rounded-2xl mb-6" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))}
+        </div>
+        <div className="grid lg:grid-cols-[1fr_2fr] gap-6">
+          <Skeleton className="h-72 rounded-xl" />
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 rounded-xl" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Нет id в параметрах либо API вернул 404
+  if (!recipeId || !recipe) {
     return (
       <div className="container mx-auto px-4 py-20 text-center">
         <ChefHat className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
@@ -225,13 +333,19 @@ export function RecipeDetailPage() {
 
       {/* Hero */}
       <div className="relative rounded-2xl overflow-hidden mb-6 aspect-[16/9]">
-        <img
-          src={recipe.coverImage}
-          alt={recipe.title}
-          className="w-full h-full object-cover"
-          loading="lazy"
-          decoding="async"
-        />
+        {recipe.coverImage ? (
+          <img
+            src={recipe.coverImage}
+            alt={recipe.title}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-purple-100 via-background to-accent/40 flex items-center justify-center">
+            <ChefHat className="h-16 w-16 text-muted-foreground/50" />
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         <div className="absolute bottom-4 left-4 right-4">
           <div className="flex items-center gap-2 mb-2">
@@ -310,6 +424,27 @@ export function RecipeDetailPage() {
           <Bookmark className="h-4 w-4" />
           Сохранить
         </Button>
+        {/* Покупка доступа к рецепту — реальный API маркетплейса */}
+        {recipe.access === "paid" && recipe.price ? (
+          <Button
+            size="sm"
+            onClick={handlePurchase}
+            disabled={purchasing || purchased}
+            className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+          >
+            <ShoppingBag className="h-4 w-4" />
+            {purchased
+              ? "Приобретено ✓"
+              : purchasing
+                ? "Покупаем…"
+                : `Купить за ${formatCurrency(recipe.price)}`}
+          </Button>
+        ) : (
+          <Button size="sm" onClick={handlePurchase} disabled={purchasing || purchased} className="gap-2">
+            <Check className="h-4 w-4" />
+            {purchased ? "Доступ открыт" : purchasing ? "Открываем…" : "Получить бесплатно"}
+          </Button>
+        )}
       </div>
 
       <div className="grid lg:grid-cols-[1fr_2fr] gap-6">

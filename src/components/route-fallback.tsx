@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useAppStore } from '@/lib/store';
 import { Header } from '@/components/layout/header';
@@ -102,7 +102,13 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
   const navigate = useAppStore((s) => s.navigate);
   const currentView = useAppStore((s) => s.nav.view);
   const navParams = useAppStore((s) => s.nav.params);
-  const isDashboard = currentView.startsWith('dashboard-');
+
+  // Фикс «/recipes показывает главную»: store изначально в дефолтном view 'home',
+  // а navigate() вызывается только в useEffect (на клиенте) — из-за этого SSR
+  // и первый кадр до гидрации рендерили HomePage для ЛЮБОГО stub-маршрута.
+  // Пока store не синхронизирован с URL — рендерим запрошенный view из пропса;
+  // после синхронизации следуем за store (SPA-переходы внутри страницы работают).
+  const [syncedWithStore, setSyncedWithStore] = useState(false);
 
   useEffect(() => {
     // Читаем URL params на клиенте
@@ -115,7 +121,12 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
     } else {
       navigate(view as never, params);
     }
+    setSyncedWithStore(true);
   }, [view, navigate, params]);
+
+  // Активный view: до синхронизации — запрошенный из URL, после — из store.
+  const activeView = syncedWithStore ? currentView : view;
+  const isDashboard = activeView.startsWith('dashboard-');
 
   // Используем navParams из store (устанавливается navigate)
   const effectiveParams = navParams || params;
@@ -123,7 +134,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
   // Рендерим полный app shell — тот же что и в app/page.tsx
   // Контент берётся из store (currentView)
   const { useSeoMetadata } = require('@/lib/use-seo-metadata');
-  useSeoMetadata(currentView);
+  useSeoMetadata(activeView as never);
 
   // Lazy import дашбордов
   const dynamic = require('next/dynamic').default;
@@ -144,7 +155,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
   const ExtraDashboards = dynamic(() => import('@/components/dashboard/extra-dashboards').then((m: any) => m.ExtraDashboards), { ssr: false, loading: () => <DashboardSkeleton /> });
 
   const renderView = () => {
-    switch (currentView) {
+    switch (activeView) {
       case 'home': return <HomePage />;
       case 'catalog': return <CatalogPage />;
       case 'product': return <ProductPage />;
@@ -183,7 +194,7 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       default:
         // Нераспознанные dashboard-view нишевых ролей → их дашборд (roleMap),
         // а не HomePage
-        if (view.startsWith('dashboard-')) return <ExtraDashboards />;
+        if (activeView.startsWith('dashboard-')) return <ExtraDashboards />;
         return <HomePage />;
     }
   };
