@@ -16,6 +16,7 @@
  */
 
 import { useAppStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,8 @@ import {
   DialogHeader,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
 import { FillingSlicePreview } from "@/components/cake-slice/cake-slice-visualizer";
 import {
   CAKE_BUILDER_OPTIONS,
@@ -55,6 +58,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
+import { format, parseISO } from "date-fns";
+import { ru } from "date-fns/locale";
 import type { CakeBuilderState } from "@/lib/types";
 import { csrfFetch } from "@/lib/api-client";
 
@@ -130,6 +135,7 @@ export function CakeBuilderPage() {
   const [discountComment, setDiscountComment] = useState("");
   const [detailModal, setDetailModal] = useState<OptionDetail | null>(null);
   const [showConditionsModal, setShowConditionsModal] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   // Начинки загружаются из БД (45+ начинок, добавляются кондитерами)
   const [dbFillings, setDbFillings] = useState<DbFilling[]>([]);
@@ -986,12 +992,45 @@ export function CakeBuilderPage() {
                         <Calendar className="h-3.5 w-3.5 inline mr-1" />
                         Дата доставки
                       </Label>
-                      <Input
-                        type="date"
-                        value={cakeBuilder.deliveryDate || ""}
-                        onChange={(e) => updateCakeBuilder({ deliveryDate: e.target.value })}
-                        placeholder="Выберите дату"
-                      />
+                      {/* Кастомный календарь в Popover — реальный DOM вместо нативного
+                          popup браузера: клики по дням не проходят сквозь к шапке/навигации
+                          и больше не уводят пользователя из конструктора. */}
+                      <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            aria-label="Выбрать дату доставки"
+                            className={cn(
+                              "w-full justify-start font-normal h-9",
+                              !cakeBuilder.deliveryDate && "text-muted-foreground"
+                            )}
+                          >
+                            <Calendar className="h-3.5 w-3.5 mr-1" />
+                            {cakeBuilder.deliveryDate
+                              ? format(parseISO(cakeBuilder.deliveryDate), "d MMMM yyyy", { locale: ru })
+                              : "Выберите дату"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <DatePickerCalendar
+                            mode="single"
+                            locale={ru}
+                            defaultMonth={
+                              cakeBuilder.deliveryDate ? parseISO(cakeBuilder.deliveryDate) : new Date()
+                            }
+                            selected={
+                              cakeBuilder.deliveryDate ? parseISO(cakeBuilder.deliveryDate) : undefined
+                            }
+                            onSelect={(day) => {
+                              if (day) {
+                                updateCakeBuilder({ deliveryDate: format(day, "yyyy-MM-dd") });
+                              }
+                              setDatePickerOpen(false);
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   </div>
                   <div className="space-y-2">
