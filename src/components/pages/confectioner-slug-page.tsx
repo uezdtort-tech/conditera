@@ -19,12 +19,14 @@ export function ConfectionerSlugPage({ confectioner }: { confectioner: Confectio
 
   useEffect(() => {
     // Пушим профиль в store — ConfectionerProfilePage ищет кондитера в store
-    // по nav.params.id. Если профиль уже в store (SPA-переход) — не трогаем.
+    // по nav.params.id. Апсертим SSR-данные (authoritative для этого slug):
+    // store при холодной загрузке сидирован MOCK_CONFECTIONERS с теми же id,
+    // но фейковым userId ("u0") — прежний guard "уже есть — не трогаем"
+    // оставлял мок, и «Написать» падало: POST /api/chat/rooms → 400
+    // «peerId должен быть UUID». Замена записи с тем же id безопасна —
+    // данные из server component (revalidate 60) всегда актуальнее мока.
     const store = useAppStore.getState();
-    const exists = store.confectioners.some((c) => c.id === confectioner.id);
-    if (!exists) {
-      setConfectioners([confectioner, ...store.confectioners]);
-    }
+    setConfectioners([confectioner, ...store.confectioners.filter((c) => c.id !== confectioner.id)]);
     store.navigate("confectioner-profile", { id: confectioner.id });
   }, [confectioner.id]);
 
