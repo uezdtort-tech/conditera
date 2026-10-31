@@ -53,9 +53,12 @@ export function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Load from /api/notifications
+  // Load from /api/notifications + лёгкий поллинг раз в 60с: бейдж непрочитанных
+  // обновляется без перезагрузки страницы (фолбэк живой доставки сообщений).
   useEffect(() => {
     loadNotifications();
+    const timer = setInterval(loadNotifications, 60_000);
+    return () => clearInterval(timer);
   }, []);
 
   const loadNotifications = async () => {

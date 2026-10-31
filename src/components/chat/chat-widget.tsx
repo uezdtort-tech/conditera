@@ -203,6 +203,26 @@ export function ChatWidget({
     };
   }, [isAuthenticated, user?.id]);
 
+  // Живой список комнат: пока виджет открыт — рефетч каждые 20с (unread-счётчики
+  // и превью последнего сообщения обновляются без перезагрузки; фолбэк на случай
+  // недоступности real-time канала). Локально созданные комнаты (direct/order,
+  // ещё не попавшие в ответ сервера) сохраняются в списке.
+  useEffect(() => {
+    if (!chatOpen || !isAuthenticated || !user?.id) return;
+    const refresh = async () => {
+      const list = await fetchChatRooms();
+      if (!list) return;
+      setApiRooms((prev) => {
+        const mapped = list.map(mapApiRoomToChatRoom);
+        const known = new Set(mapped.map((r) => r.id));
+        const extras = (prev || []).filter((r) => !known.has(r.id));
+        return [...mapped, ...extras];
+      });
+    };
+    const timer = setInterval(refresh, 20_000);
+    return () => clearInterval(timer);
+  }, [chatOpen, isAuthenticated, user?.id]);
+
   // При открытии виджета: залогиненным — реальная support-комната из БД
   // (find-or-create, идемпотентно), анонимам — легаси mock-комната r3.
   // p1-b: при заданном initialOrderId у залогиненного приоритет у order-комнаты
@@ -338,10 +358,19 @@ export function ChatWidget({
     };
   }, [activeChatRoom, isAuthenticated, user?.id]);
 
-  // Отметить комнату прочитанной при открытии (POST /read) + сбросить бейдж
+  // Отметить комнату прочитанной (POST /read): при открытии комнаты с
+  // непрочитанными И когда в уже открытой комнате появились непрочитанные
+  // (поллинг/рефетч списка добрали сообщения). Один POST на батч — guard
+  // по ref (ключ roomId:unread), чтобы не спамить на каждый рендер.
+  const markReadBatchRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!isAuthenticated || !activeChatRoom) return;
+    if (!chatOpen || !isAuthenticated || !activeChatRoom) return;
     if (activeChatRoom === SUPPORT_ROOM_ID) return;
+    const unread = activeRoom?.unreadCount ?? 0;
+    if (unread <= 0) return;
+    const batchKey = `${activeChatRoom}:${unread}`;
+    if (markReadBatchRef.current === batchKey) return;
+    markReadBatchRef.current = batchKey;
     markChatRoomRead(activeChatRoom);
     setApiRooms((prev) =>
       prev
@@ -350,7 +379,7 @@ export function ChatWidget({
           )
         : prev
     );
-  }, [activeChatRoom, isAuthenticated]);
+  }, [chatOpen, isAuthenticated, activeChatRoom, activeRoom]);
 
   // Real-time: подписка на входящие сообщения → append в store (с дедупом)
   useEffect(() => {
@@ -384,6 +413,56 @@ export function ChatWidget({
     joinRoom(activeChatRoom);
     return () => leaveRoom(activeChatRoom);
   }, [isConnected, activeChatRoom, joinRoom, leaveRoom]);
+
+  // === Live-fallback: поллинг сообщений активной комнаты ===
+  // Real-time канал (socket.io за gateway) может не подключиться — доставка
+  // остаётся на HTTP-поллинге: GET /api/chat/rooms/:id/messages?after=<курсор>
+  // (инкрементально, только новые). Интервал: 5с при отключённом socket,
+  // 15с при живом (страховка от пропусков). Дедуп по id + мягкое окно 15с
+  // против client-uuid-копий; append только новых — скролл-поведение прежнее
+  // (существующий эффект реагирует на roomMessages.length).
+  useEffect(() => {
+    if (!chatOpen || !isAuthenticated || !user?.id) return;
+    if (!activeChatRoom || activeChatRoom === SUPPORT_ROOM_ID) return;
+    const roomId = activeChatRoom;
+    const currentUserId = user.id;
+    // Начальный курсор — created_at последнего известного сообщения комнаты
+    let cursor: string | null = null;
+    for (const m of useAppStore.getState().chatMessages) {
+      if (m.roomId === roomId && (!cursor || m.createdAt > cursor)) cursor = m.createdAt;
+    }
+
+    const poll = async () => {
+      const fresh = await fetchChatMessages(roomId, undefined, cursor || undefined);
+      if (!fresh || fresh.length === 0) return;
+      // ASC-порядок → последний элемент самый свежий; курсор двигаем только
+      // по серверным timestamp (created_at), не по клиентским часам.
+      cursor = fresh[fresh.length - 1].createdAt;
+      const mapped = fresh.map((m) => mapApiMessageToChatMessage(m, currentUserId));
+      useAppStore.setState((s) => {
+        const byId = new Set(s.chatMessages.map((m) => m.id));
+        const isDup = (incoming: ChatMessage) =>
+          s.chatMessages.some(
+            (m) =>
+              m.senderId === incoming.senderId &&
+              m.text === incoming.text &&
+              Math.abs(
+                new Date(m.createdAt).getTime() - new Date(incoming.createdAt).getTime()
+              ) < 15_000
+          );
+        const newMsgs = mapped.filter((m) => !byId.has(m.id) && !isDup(m));
+        if (newMsgs.length === 0) return s;
+        const merged = [...s.chatMessages, ...newMsgs].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        return { chatMessages: merged };
+      });
+    };
+
+    const intervalMs = isConnected ? 15_000 : 5_000;
+    const timer = setInterval(poll, intervalMs);
+    return () => clearInterval(timer);
+  }, [chatOpen, activeChatRoom, isAuthenticated, user?.id, isConnected]);
 
   // Скроллинг вниз при появлении новых сообщений И при переключении комнаты
   useEffect(() => {

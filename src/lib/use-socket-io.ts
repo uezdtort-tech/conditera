@@ -31,6 +31,7 @@ interface SocketLike {
   off(event: string, listener?: (...args: unknown[]) => void): void;
   emit(event: string, ...args: unknown[]): void;
   disconnect(): void;
+  connect(): void;
   connected: boolean;
 }
 
@@ -98,10 +99,15 @@ export function useSocketIO() {
     let disposed = false;
 
     (async () => {
+      // Свежий токен из /api/auth/session (httpOnly cookie) — первичный
+      // источник: кеш в sessionStorage мог протухнуть с прошлой сессии, тогда
+      // handshake отбивался бы "auth: unauthorized". Кеш — только фолбэк,
+      // если session-endpoint недоступен.
       const accessToken =
+        (await fetchSocketToken()) ||
         (typeof window !== "undefined"
           ? sessionStorage.getItem("cd_access_token")
-          : null) || (await fetchSocketToken());
+          : null);
       if (disposed) return;
 
       // Dynamic import — если socket.io-client не установлен, fallback на stub.
@@ -135,14 +141,33 @@ export function useSocketIO() {
           setIsConnected(false);
         });
 
+        let authRetried = false;
         socket.on("connect_error", (err: unknown) => {
           const msg = (err as Error).message || "";
           console.warn("[Socket.IO] Ошибка подключения:", msg);
           setIsConnected(false);
-          if (msg === "auth: unauthorized" || msg === "auth: token required") {
-            console.warn("[Socket.IO] Аутентификация отклонена.");
-            socket?.disconnect();
+          if (msg !== "auth: unauthorized" && msg !== "auth: token required") return;
+          if (!authRetried) {
+            // Разовый retry: кеш в sessionStorage мог протухнуть — берём свежий
+            // accessToken из /api/auth/session и переподключаемся с ним.
+            authRetried = true;
+            try {
+              sessionStorage.removeItem("cd_access_token");
+            } catch {}
+            void fetchSocketToken().then((fresh) => {
+              if (disposed) return;
+              if (!fresh) {
+                socket?.disconnect();
+                return;
+              }
+              const s = socket as unknown as { auth: Record<string, unknown> };
+              s.auth = { ...s.auth, token: fresh };
+              socket?.connect();
+            });
+            return;
           }
+          console.warn("[Socket.IO] Аутентификация отклонена повторно — отключаемся.");
+          socket?.disconnect();
         });
 
         socket.on("message:receive", (data: unknown) => {

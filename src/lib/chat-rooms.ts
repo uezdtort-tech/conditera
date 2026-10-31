@@ -129,7 +129,7 @@ export interface ApiChatMessage {
 /** Сообщения + имена отправителей (профили догружаются вручную — shim-безопасно). */
 export async function fetchRoomMessages(
   channelId: string,
-  opts: { limit: number; before?: string | null }
+  opts: { limit: number; before?: string | null; after?: string | null }
 ): Promise<ApiChatMessage[]> {
   let q = supabaseAdmin
     .from("chat_messages")
@@ -138,6 +138,8 @@ export async function fetchRoomMessages(
     .order("created_at", { ascending: true })
     .limit(opts.limit);
   if (opts.before) q = q.lt("created_at", opts.before);
+  // after — инкрементальный курсор поллинга (сообщения СТРОГО новее курсора)
+  if (opts.after) q = q.gt("created_at", opts.after);
 
   const { data, error } = await q as { data: MessageRow[] | null; error: SupabaseError | null };
   if (error) {

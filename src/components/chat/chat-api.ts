@@ -139,10 +139,14 @@ export async function ensureDirectRoom(peerId: string): Promise<ChatRoom> {
 
 export async function fetchChatMessages(
   roomId: string,
-  before?: string
+  before?: string,
+  after?: string
 ): Promise<ApiChatMessage[] | null> {
   try {
-    const qs = before ? `?before=${encodeURIComponent(before)}` : "";
+    const params = new URLSearchParams();
+    if (before) params.set("before", before);
+    if (after) params.set("after", after); // инкрементальный поллинг: новее курсора
+    const qs = params.toString() ? `?${params.toString()}` : "";
     const res = await fetch(`/api/chat/rooms/${roomId}/messages${qs}`, {
       headers: authHeaders(),
     });

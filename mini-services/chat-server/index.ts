@@ -240,17 +240,36 @@ async function verifyRoomAccess(
 }
 
 // === КРИТИЧНО: JWT_SECRET без unsafe-default ===
+// Разрешение секрета ДОЛЖНО совпадать с Next (@/lib/auth getSecretEnv):
+// первичное имя JWT_SECRET, фолбэк AUTH_SECRET (каноничное имя в .env.example);
+// заглушки CHANGE_ME*/fallback-*/dev-* пропускаются. Иначе расхождение даёт
+// ровно тот баг, что чиним: Next подписывает токен AUTH_SECRET'ом (или пропустив
+// CHANGE_ME-заглушку), а чат-сервер проверяет dev-ключом → каждый handshake
+// отбивается "auth: unauthorized".
+function resolveJwtSecretEnv(): string | null {
+  for (const name of ["JWT_SECRET", "AUTH_SECRET"]) {
+    const v = process.env[name]?.trim();
+    if (
+      v &&
+      !v.startsWith("CHANGE_ME") &&
+      !v.startsWith("fallback-") &&
+      !v.startsWith("dev-") &&
+      !v.startsWith("dev_")
+    ) {
+      return v;
+    }
+  }
+  return null;
+}
+
 function getJwtSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET;
+  const secret = resolveJwtSecretEnv();
   if (!secret) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("КРИТИЧНО: JWT_SECRET не задан. Socket.IO-сервер не может проверить токены.");
+      throw new Error("КРИТИЧНО: JWT_SECRET/AUTH_SECRET не задан. Socket.IO-сервер не может проверить токены.");
     }
     console.warn("⚠️ JWT_SECRET не задан — dev-режим с тестовым ключом. НЕ для production!");
     return new TextEncoder().encode("dev_jwt_secret_change_me_in_production_32_chars");
-  }
-  if (secret.startsWith("CHANGE_ME") && process.env.NODE_ENV === "production") {
-    throw new Error("КРИТИЧНО: JWT_SECRET содержит заглушку CHANGE_ME*. Установите реальное значение.");
   }
   return new TextEncoder().encode(secret);
 }

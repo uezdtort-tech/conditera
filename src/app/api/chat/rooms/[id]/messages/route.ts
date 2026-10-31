@@ -1,7 +1,8 @@
 /**
  * /api/chat/rooms/[id]/messages — история и отправка сообщений комнаты.
  *
- * GET  — история (order by created_at ASC, limit≤200, ?before= курсор).
+ * GET  — история (order by created_at ASC, limit≤200, ?before= курсор назад,
+ *        ?after= инкрементальный курсор вперёд — поллинг новых сообщений).
  * POST — отправка: { content } (+ Idempotency-Key из тела или заголовка).
  *        Колонка контента — chat_messages.text (0004, НЕ content/message).
  *        Идемпотентность (0040): уникальный индекс uq_chat_messages_idem по
@@ -53,8 +54,9 @@ export async function GET(
     const sp = request.nextUrl.searchParams;
     const limit = Math.min(Math.max(parseInt(sp.get("limit") || "100", 10) || 100, 1), 200);
     const before = sp.get("before");
+    const after = sp.get("after");
 
-    const messages = await fetchRoomMessages(id, { limit, before });
+    const messages = await fetchRoomMessages(id, { limit, before, after });
     return NextResponse.json({ messages, total: messages.length });
   } catch (error) {
     return handleRouteError(error);
