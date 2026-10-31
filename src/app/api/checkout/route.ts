@@ -34,6 +34,7 @@ import { checkAcceptance } from "@/lib/ops/acceptance"; // P0.5 §29: capacity/i
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { loadConfectionerOrderSnapshot } from "@/lib/confectioner-tariff";
+import { recordFinancialEntrySafe } from "@/lib/financial-ledger";
 import {
   validatePromoCode,
   applyPromoCodeToOrder,
@@ -682,8 +683,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       paymentUrl = paymentResult.payment.confirmation.confirmation_url;
     }
 
-    // 7. Запись в payments (существующие колонки 0002) + проверка ошибки
-    const { error: paymentError } = await supabaseAdmin
+    // 7. Запись в payments (существующие колонки 0002) + проверка ошибки.
+    // PAY-2: забираем id записи — нужен для журнала financial_ledger.
+    const { data: paymentRow, error: paymentError } = await supabaseAdmin
       .from("payments")
       .insert({
         order_id: order.id,
@@ -693,12 +695,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         status: "pending",
         method: "yookassa",
         metadata: { confirmation_url: paymentUrl },
-      });
+      })
+      .select("id")
+      .single();
 
     if (paymentError) {
       // Платёж у провайдера уже создан; webhook найдёт заказ по
       // metadata.orderId (fallback), поэтому не откатываем — но логируем.
       console.error("[checkout] Payment create error:", paymentError.message);
+    } else {
+      // PAY-2: журнал — платёж создан (lifecycle-запись, amount 0 — деньги
+      // ещё не двигались; финальное +amount напишет webhook payment.succeeded)
+      void recordFinancialEntrySafe({
+        entryType: "payment_created",
+        amount: 0,
+        paymentId: paymentRow?.id ?? null,
+        orderId: order.id,
+        actorId: user.id,
+        idempotencyKey: `pay-created:${yookassaPaymentId ?? paymentRow?.id ?? order.id}`,
+        metadata: {
+          provider: isYookassaConfigured() ? "yookassa" : "stub",
+          mode: process.env.NODE_ENV,
+          total,
+        },
+      });
     }
 
     // 8. Корзину чистим только после успешного создания платежа

@@ -312,6 +312,26 @@ export async function POST(request: NextRequest) {
         // P1: Эскроу релизуется через cron /api/cron/escrow-release (каждые 30 минут)
         console.info(`[webhook] Order ${orderId} → escrow. Will be released by cron in 24h.`);
 
+        // PAY-2: журнал — деньги ПРИШЛИ (+amount, только у победителя CAS —
+        // идемпотентно по payment id: повторная доставка дедупится и CAS'ом выше,
+        // и уникальным idempotency_key журнала)
+        if (dbStatus === "succeeded") {
+          void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
+            recordFinancialEntrySafe({
+              entryType: "payment_succeeded",
+              amount: Number(payment ? payment.amount : order.total),
+              paymentId: payment?.id ?? null,
+              orderId,
+              idempotencyKey: `pay-succeeded:${payment?.id ?? orderId}`,
+              metadata: {
+                provider: "yookassa",
+                provider_payment_id: providerPaymentId,
+                mode: process.env.NODE_ENV,
+              },
+            })
+          );
+        }
+
         // n8n: order.paid (fail-safe, после CAS-победы — только у победителя)
         try {
           const { emitEvent } = await import("@/lib/n8n");
@@ -490,6 +510,18 @@ export async function POST(request: NextRequest) {
             .from("payments")
             .update({ status: "cancelled", updated_at: new Date().toISOString() })
             .eq("id", payment.id);
+          // PAY-2: журнал — платёж отменён (lifecycle-запись, amount 0: деньги
+          // не захватывались; дедуп по provider payment id)
+          void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
+            recordFinancialEntrySafe({
+              entryType: "payment_canceled",
+              amount: 0,
+              paymentId: payment.id,
+              orderId,
+              idempotencyKey: `pay-canceled:${payment.id}`,
+              metadata: { provider: "yookassa", provider_payment_id: providerPaymentId },
+            })
+          );
         }
         // P0: отмена ≠ возврат — раньше писалось payment_status="refunded"
         if (order.payment_status !== "cancelled" && order.status !== "CANCELLED") {
@@ -591,14 +623,32 @@ export async function POST(request: NextRequest) {
         }
 
         // Наш refund-рекорд (если возврат создан через /api/payment/refund)
+        let ourRefundId: string | null = null;
         try {
-          await supabaseAdmin
+          const { data: refundRows } = await supabaseAdmin
             .from("refunds")
             .update({ status: "processed", processed_at: new Date().toISOString() })
-            .eq("yookassa_refund_id", object.id);
+            .eq("yookassa_refund_id", object.id)
+            .select("id");
+          ourRefundId = (refundRows as Array<{ id: string }> | null)?.[0]?.id ?? null;
         } catch (e) {
           console.warn("[webhook] refunds row update failed:", e);
         }
+
+        // PAY-2: журнал — возврат ПОДТВЕРЖДЁН провайдером (−amount, авторитетная
+        // запись денег). Дедуп по PROVIDER refund id — повторная доставка
+        // вебхука не задвоит ни RPC 0039, ни запись журнала.
+        void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
+          recordFinancialEntrySafe({
+            entryType: "refund_confirmed",
+            amount: -(wireKop ?? 0) / 100,
+            paymentId: payment?.id ?? null,
+            orderId,
+            refundId: ourRefundId,
+            idempotencyKey: `refund-confirmed:${object.id}`,
+            metadata: { provider: "yookassa", provider_refund_id: object.id },
+          })
+        );
 
         // P1: клиенту — возврат обработан (ТЗ §10; metadata.orderId, fail-safe)
         try {

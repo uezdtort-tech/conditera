@@ -34,6 +34,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import { refundPayment } from "@/lib/yookassa";
 import { emitEvent } from "@/lib/n8n";
+import { recordFinancialEntrySafe } from "@/lib/financial-ledger";
 
 export const runtime = "nodejs";
 
@@ -292,6 +293,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         amount,
       }).catch(() => {});
 
+      // PAY-2: журнал — заявка создана (lifecycle, amount 0: деньги не двигались;
+      // исполнение решит админ)
+      void recordFinancialEntrySafe({
+        entryType: "refund_requested",
+        amount: 0,
+        paymentId,
+        orderId: payment.order_id,
+        refundId: refund.id,
+        actorId: user.id,
+        idempotencyKey: `refund-requested:${refund.id}`,
+        metadata: { reason, mode: process.env.NODE_ENV },
+      });
+
       return NextResponse.json(
         {
           refund,
@@ -392,6 +406,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .from("payments")
           .update({ refund_amount: alreadyRefunded })
           .eq("id", paymentId);
+        // PAY-2: журнал — провайдер ОТКАЗАЛ (след компенсации резерва)
+        void recordFinancialEntrySafe({
+          entryType: "refund_send_failed",
+          amount: 0,
+          paymentId,
+          orderId: payment.order_id,
+          refundId: refund.id,
+          actorId: user.id,
+          idempotencyKey: `refund-send-failed:${refund.id}`,
+          metadata: { provider: "yookassa", error: result.error ?? null },
+        });
         return NextResponse.json(
           { error: result.error || "Ошибка возврата у провайдера", refundId: refund.id },
           { status: 502 }
@@ -432,6 +457,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           status: "processing",
         })
         .eq("id", refund.id);
+
+      // PAY-2: журнал — провайдер ПРИНЯЛ возврат (lifecycle, amount 0:
+      // авторитетную −amount запишет webhook refund.succeeded дедупом по
+      // provider refund id)
+      void recordFinancialEntrySafe({
+        entryType: "refund_sent",
+        amount: 0,
+        paymentId,
+        orderId: payment.order_id,
+        refundId: refund.id,
+        actorId: user.id,
+        idempotencyKey: `refund-sent:${refund.id}`,
+        metadata: {
+          provider: "yookassa",
+          provider_refund_id: result.refund?.id ?? null,
+        },
+      });
     } else {
       // Mock/legacy платёж без provider id — фиксируем только в БД
       console.warn("[payment/refund] платёж без yookassa_payment_id — DB-only refund");
@@ -439,6 +481,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .from("refunds")
         .update({ status: "processed", processed_at: new Date().toISOString() })
         .eq("id", refund.id);
+
+      // PAY-2: журнал — DB-only возврат ПОДТВЕРЖДЁН (−amount; provider db-only:
+      // реального провайдера нет — это легаси/mock-dev платёж, production
+      // новый платёж всегда имеет provider id)
+      void recordFinancialEntrySafe({
+        entryType: "refund_confirmed",
+        amount: -amount,
+        paymentId,
+        orderId: payment.order_id,
+        refundId: refund.id,
+        actorId: user.id,
+        idempotencyKey: `refund-confirmed:${refund.id}`,
+        metadata: { provider: "db-only", mode: process.env.NODE_ENV },
+      });
 
       // P1: webhook refund.succeeded не придёт (провайдера нет) — уведомляем
       // клиента отсюда (ТЗ §10; metadata.orderId, fail-safe)
