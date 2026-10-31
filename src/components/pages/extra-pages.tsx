@@ -1373,7 +1373,13 @@ export function FaqPage() {
         <Accordion type="single" collapsible className="w-full">
           {filteredFaqs.map((faq, i) => (
             <AccordionItem key={`${activeCategory}-${i}`} value={`item-${i}`} className="px-4">
-              <AccordionTrigger className="text-left font-medium hover:no-underline">
+              {/* min-w-0: flex-item триггера обязан ужиматься под контейнер
+                  (min-width:auto иначе держит ширину длинного неразрывного
+                  токена NEW/VERIFIED/MASTER/EXPERT и выталкивает его за
+                  вьюпорт на 375px); overflow-wrap:anywhere рвёт этот токен
+                  по-месту и снижает min-content (break-words не влияет на
+                  min-content, поэтому не годится). */}
+              <AccordionTrigger className="text-left font-medium hover:no-underline min-w-0 [overflow-wrap:anywhere]">
                 {faq.q}
               </AccordionTrigger>
               <AccordionContent className="text-muted-foreground leading-relaxed">
