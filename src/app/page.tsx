@@ -11,6 +11,7 @@ import { LiveServicesHydrator } from "@/components/marketplace/live-services-hyd
 import { LiveDecorHydrator } from "@/components/marketplace/live-decor-hydrator";
 import { PromoPopup } from "@/components/layout/promo-popup";
 import { CartDrawer } from "@/components/marketplace/cart-drawer";
+import { CartSyncHydrator } from "@/components/marketplace/cart-sync-hydrator";
 import { ChatWidget } from "@/components/chat/chat-widget";
 import { CakeBuilderDialog } from "@/components/cake-builder/cake-builder-dialog";
 import dynamic from "next/dynamic";
@@ -278,6 +279,7 @@ export default function Home() {
       <AuthModal />
       <PromoPopup />
       <CartDrawer />
+      <CartSyncHydrator />
       <ChatWidget />
       <CakeBuilderDialog />
       <CommandPalette open={commandPalette.open} onOpenChange={commandPalette.setOpen} />

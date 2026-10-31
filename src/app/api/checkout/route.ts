@@ -693,7 +693,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 8. Корзину чистим только после успешного создания платежа
-    //    (раньше корзина стиралась даже если платёж не создался)
+    //    (раньше корзина стиралась даже если платёж не создался).
+    //    P1 «серверная корзина»: id от клиента — это client_ref позиции
+    //    (itemId Zustand-корзины), НЕ uuid cart_items. Удаление строго
+    //    в владении пользователя: .eq("user_id", user.id) — иначе admin-клиент
+    //    (RLS bypass) мог бы удалить ЧУЖИЕ строки по перебору uuid.
     const cartItemIds = cartItems
       .map((c) => c.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
@@ -701,7 +705,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const { error: cartClearError } = await supabaseAdmin
         .from("cart_items")
         .delete()
-        .in("id", cartItemIds);
+        .in("client_ref", cartItemIds)
+        .eq("user_id", user.id);
 
       if (cartClearError) {
         console.warn("[checkout] Cart clear error:", cartClearError.message);
