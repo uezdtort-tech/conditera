@@ -274,6 +274,8 @@ interface AppState {
   isFavorite: (productId: string) => boolean;
 
   setChatOpen: (open: boolean) => void;
+  /** Открыть чат-виджет сразу на конкретной комнате (direct-диалог из карточек). */
+  openChatWithRoom: (roomId: string) => void;
   setMobileMenuOpen: (open: boolean) => void;
   setActiveChatRoom: (roomId: string | null) => void;
   sendMessage: (roomId: string, text: string) => void;
@@ -974,6 +976,7 @@ export const useAppStore = create<AppState>()(
         get().tastingLocations.filter((tl) => tl.city === city && tl.status === "active"),
 
       setChatOpen: (open) => set({ chatOpen: open }),
+      openChatWithRoom: (roomId) => set({ chatOpen: true, activeChatRoom: roomId }),
       setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
       setActiveChatRoom: (roomId) => set({ activeChatRoom: roomId }),
 

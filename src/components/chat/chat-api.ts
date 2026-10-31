@@ -105,6 +105,38 @@ export async function ensureChatRoom(payload: {
   }
 }
 
+/**
+ * ensureDirectRoom — find-or-create прямого диалога покупатель↔кондитер
+ * (POST /api/chat/rooms {type:'direct', peerId}, идемпотентно на сервере).
+ *
+ * В отличие от ensureChatRoom НЕ глотает ошибки:
+ *   - 401 → Error('unauthorized') — вызывающий код открывает auth-модалку
+ *     (или сохраняет прежнее поведение);
+ *   - прочие не-2xx → Error с текстом сервера или generic-сообщением
+ *     (не-JSON ответ тоже безопасно превращается в generic Error).
+ */
+export async function ensureDirectRoom(peerId: string): Promise<ChatRoom> {
+  const res = await fetch("/api/chat/rooms", {
+    method: "POST",
+    headers: await mutationHeaders(),
+    body: JSON.stringify({ type: "direct", peerId }),
+  });
+  if (res.status === 401) throw new Error("unauthorized");
+  if (!res.ok) {
+    let message = `Не удалось открыть диалог (${res.status})`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data?.error) message = data.error;
+    } catch {
+      // не-JSON тело (прокси/HTML-ошибка) — оставляем generic-текст
+    }
+    throw new Error(message);
+  }
+  const data = (await res.json()) as { room?: ApiChatRoom };
+  if (!data.room) throw new Error(`Не удалось открыть диалог: пустой ответ API`);
+  return mapApiRoomToChatRoom(data.room);
+}
+
 export async function fetchChatMessages(
   roomId: string,
   before?: string

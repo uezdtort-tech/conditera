@@ -1,6 +1,8 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
+import { ensureDirectRoom } from "@/components/chat/chat-api";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -48,6 +50,7 @@ export function ConfectionerProfilePage() {
   const userLocation = useAppStore((s) => s.userLocation);
   const navigate = useAppStore((s) => s.navigate);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
+  const openChatWithRoom = useAppStore((s) => s.openChatWithRoom);
 
   const confectioner = confectioners.find((c) => c.id === nav.params?.id);
 
@@ -65,6 +68,23 @@ export function ConfectionerProfilePage() {
   const trust = TRUST_LEVELS[confectioner.trustLevel] ?? TRUST_LEVELS.NEW;
   const tariff = TARIFFS[confectioner.tariff];
   const legal = LEGAL_STATUS_INFO[confectioner.legalInfo.status];
+
+  // D-CHAT: «Написать» — прямой диалог покупатель↔кондитер:
+  // find-or-create direct-комнаты по confectioner.userId (POST /api/chat/rooms),
+  // затем фокус ChatWidget на этой комнате. 401 → прежнее поведение (виджет
+  // сам покажет auth-модалку анониму); прочие ошибки → toast.
+  const openDirectChat = async () => {
+    try {
+      const room = await ensureDirectRoom(confectioner.userId);
+      openChatWithRoom(room.id);
+    } catch (err) {
+      if (err instanceof Error && err.message === "unauthorized") {
+        setChatOpen(true);
+      } else {
+        toast.error("Не удалось открыть диалог с кондитером");
+      }
+    }
+  };
 
   // Расчёт расстояния
   const distance =
@@ -205,7 +225,7 @@ export function ConfectionerProfilePage() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => setChatOpen(true)}>
+                <Button onClick={() => openDirectChat()}>
                   <MessageCircle className="h-4 w-4 mr-2" />
                   Написать
                 </Button>

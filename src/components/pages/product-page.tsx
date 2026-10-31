@@ -1,6 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
+import { ensureDirectRoom } from "@/components/chat/chat-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -192,6 +193,7 @@ export function ProductPage() {
   const isFavorite = useAppStore((s) => s.favorites.includes(nav.params?.id || ""));
   const navigate = useAppStore((s) => s.navigate);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
+  const openChatWithRoom = useAppStore((s) => s.openChatWithRoom);
 
   const productId = nav.params?.id;
   const storeProduct = products.find((p) => p.id === productId);
@@ -323,6 +325,25 @@ export function ProductPage() {
   }
 
   const confectioner = confectioners.find((c) => c.id === product.confectionerId);
+
+  // D-CHAT: кнопка «Чат» у карточки кондитера — прямой диалог
+  // покупатель↔кондитер: find-or-create direct-комнаты по confectioner.userId
+  // (POST /api/chat/rooms), затем фокус ChatWidget на этой комнате.
+  // 401 → прежнее поведение (открываем виджет: анониму он покажет auth);
+  // прочие ошибки (в т.ч. mock-preview с не-UUID userId) → toast.
+  const openDirectChatWithConfectioner = async () => {
+    if (!confectioner) return;
+    try {
+      const room = await ensureDirectRoom(confectioner.userId);
+      openChatWithRoom(room.id);
+    } catch (err) {
+      if (err instanceof Error && err.message === "unauthorized") {
+        setChatOpen(true);
+      } else {
+        toast.error("Не удалось открыть диалог с кондитером");
+      }
+    }
+  };
 
   const filling = product.fillings?.[selectedFilling];
   const coating = product.coatings?.[selectedCoating];
@@ -672,7 +693,7 @@ export function ProductPage() {
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setChatOpen(true);
+                    openDirectChatWithConfectioner();
                   }}
                 >
                   <MessageCircle className="h-4 w-4 mr-1" />
