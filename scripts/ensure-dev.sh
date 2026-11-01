@@ -31,31 +31,10 @@ if ! (echo > /dev/tcp/127.0.0.1/3000) 2>/dev/null; then
   fi
 fi
 
-# 1c. Drift self-heal (Gate 16; класс drift #8/#10/#11/#12/#13): авто-процессы среды
-# удаляют защищённые upload-маршруты между сессиями, а UUID-snapshotter контейнера
-# фиксирует удаление коммитом (371e975, b3c0b83 и др.). Штатный redline-paths.test.ts
-# детектирует это ПОСЛЕ факта; здесь — точечное восстановление ДО старта сессии из
-# последнего коммита, где путь ещё существовал (только целевые пути, без reset/checkout).
-MANDATORY_PATHS=(
-  "src/app/api/upload/route.ts"
-  "src/app/api/upload/route.test.ts"
-  "src/app/api/services/upload/route.ts"
-  "src/app/api/services/upload/route.test.ts"
-)
-for p in "${MANDATORY_PATHS[@]}"; do
-  if [ ! -f "$p" ] || ! git ls-files --error-unmatch "$p" >/dev/null 2>&1; then
-    last=""
-    for c in $(git rev-list HEAD -- "$p" 2>/dev/null | head -30); do
-      if git cat-file -e "$c:$p" 2>/dev/null; then last="$c"; break; fi
-    done
-    if [ -n "$last" ]; then
-      echo "[ensure] DRIFT SELF-HEAL: '$p' отсутствует — точечное восстановление из ${last:0:12}"
-      git restore --source="$last" --staged --worktree -- "$p"
-    else
-      echo "[ensure] DRIFT WARNING: '$p' отсутствует и не найден в истории HEAD — требуется ручное восстановление"
-    fi
-  fi
-done
+# 1c. Drift self-heal (Gate 16; инциденты #8–#17): авто-процессы среды удаляют защищённые
+# upload-маршруты между сессиями. Список путей и логика — единый источник истины:
+# scripts/protected-paths.sh (repair + skip-worktree + pre-commit hook-guard).
+bash scripts/protected-paths.sh repair || echo "[ensure] protected-paths repair сообщил проблему — см. выше"
 
 # Секреты чата: передаются менеджеру через окружение. Значения НИКОГДА не печатаются.
 JWT_SECRET=$(sed -n 's/^JWT_SECRET=//p' .env.local 2>/dev/null | head -1)

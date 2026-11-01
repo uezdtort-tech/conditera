@@ -1,0 +1,3 @@
+#!/bin/bash
+# Drift-предохранитель (инциденты #13–#17): коммит не должен захватывать удаление защищённых путей.
+exec bash "$(git rev-parse --show-toplevel)/scripts/protected-paths.sh" hook-guard
