@@ -25,6 +25,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { loadBuilderFillingsForValidation } from "@/lib/builder-fillings-server";
+import type { BuilderFillingOption } from "@/lib/cake-builder-pricing";
 import {
   CartMergeInputSchema,
   cartContentKey,
@@ -144,10 +146,28 @@ async function validateItems(
     }
   }
 
-  // Custom-конфиги: та же валидация, что в checkout (ЕДИНАЯ формула)
+  // Custom-конфиги: та же валидация, что в checkout (ЕДИНАЯ формула).
+  // Начинки — DB (APPROVED + is_active) слитый с mock-каталогом; загрузка ленивая
+  // (только когда в запросе есть custom-позиции) и ОДИН раз на запрос (memoized
+  // promise). Ошибка БД → 503 (fail-closed, без даунгрейда до mock — см.
+  // loadBuilderFillingsForValidation).
+  let fillingsPromise: Promise<BuilderFillingOption[]> | null = null;
+  const getFillings = () => (fillingsPromise ??= loadBuilderFillingsForValidation(supabaseAdmin));
+
   for (const item of items) {
     if (item.custom_config) {
-      const customError = validateCustomConfigError(item.custom_config);
+      let customError: string | null;
+      try {
+        customError = validateCustomConfigError(item.custom_config, { fillings: await getFillings() });
+      } catch (e) {
+        console.error("[cart] fillings catalog unavailable:", (e as Error).message);
+        return {
+          error: NextResponse.json(
+            { error: "Каталог начинок временно недоступен, попробуйте позже" },
+            { status: 503 }
+          ),
+        };
+      }
       if (customError) {
         return {
           error: NextResponse.json(

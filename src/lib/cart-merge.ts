@@ -26,6 +26,7 @@ import { z } from "zod";
 import {
   validateBuilderConfig,
   calculateBuilderPrice,
+  type BuilderPricingOptions,
   type CakeBuilderConfig,
 } from "@/lib/cake-builder-pricing";
 
@@ -128,24 +129,31 @@ export interface CartProductSnapshot {
 
 /**
  * Валидация custom-конфига (ЕДИНАЯ формула с checkout: validateBuilderConfig).
+ * opts (BuilderPricingOptions) пробрасывается в валидацию/цену: серверные маршруты
+ * передают { fillings } — DB-справочник, слитый с mock (loadBuilderFillingsForValidation);
+ * без opts — mock-справочник (обратная совместимость, клиент/легаси-конфиги).
  * Возвращает ошибку-строку или null (валиден).
  */
 export function validateCustomConfigError(
-  customConfig: Record<string, unknown>
+  customConfig: Record<string, unknown>,
+  opts?: BuilderPricingOptions
 ): string | null {
-  const validation = validateBuilderConfig(customConfig as CakeBuilderConfig);
+  const validation = validateBuilderConfig(customConfig as CakeBuilderConfig, opts);
   if (!validation.valid) return validation.reason || "Некорректная конфигурация конструктора";
-  const price = validateBuilderPrice(customConfig as CakeBuilderConfig);
+  const price = validateBuilderPrice(customConfig as CakeBuilderConfig, opts);
   if (price === null || !Number.isFinite(price) || price < 0) {
     return "Не удалось рассчитать цену конфигурации конструктора";
   }
   return null;
 }
 
-function validateBuilderPrice(config: CakeBuilderConfig): number | null {
+function validateBuilderPrice(
+  config: CakeBuilderConfig,
+  opts?: BuilderPricingOptions
+): number | null {
   // lib чистая и без side effects — используется и на клиенте (store.ts),
   // поэтому статический импорт безопасен для обоих окружений.
-  return calculateBuilderPrice(config);
+  return calculateBuilderPrice(config, opts);
 }
 
 export interface MergeOpUpdate {

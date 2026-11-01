@@ -45,9 +45,10 @@ import {
   validateBuilderConfig,
   calculateBuilderPrice,
   describeBuilderConfig,
-  mergeBuilderFillings,
+  type BuilderFillingOption,
   type CakeBuilderConfig,
 } from "@/lib/cake-builder-pricing";
+import { loadBuilderFillingsForValidation } from "@/lib/builder-fillings-server";
 
 /** Разрешённые ключи кастомизации товара (product-page: filling/coating/decoration/inscription). */
 const ALLOWED_ATTR_KEYS = new Set(["filling", "coating", "decoration", "inscription"]);
@@ -257,18 +258,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       for (const p of products) productsMap.set(p.id, p);
     }
 
-    // 3a. Начинки конструктора: DB (APPROVED) + mock — единый справочник с клиентом
-    let builderFillings = mergeBuilderFillings(null);
+    // 3a. Начинки конструктора: DB (APPROVED + is_active) + mock — ЕДИНЫЙ справочник
+    // с /api/cart (loadBuilderFillingsForValidation). Fail-closed: ошибка БД → 503,
+    // молчаливого даунгрейда до mock нет — иначе cart↔checkout расходятся (cart
+    // отклонит начинку, checkout примет, или наоборот). Лениво: только когда
+    // в запросе есть custom-позиции.
+    let builderFillings: BuilderFillingOption[] = [];
     if (customItems.length > 0) {
       try {
-        const { data: dbFillings } = await supabaseAdmin
-          .from("fillings")
-          .select("id, name, price_multiplier")
-          .eq("status", "APPROVED")
-          .limit(500);
-        builderFillings = mergeBuilderFillings(dbFillings || []);
+        builderFillings = await loadBuilderFillingsForValidation(supabaseAdmin);
       } catch (e) {
-        console.warn("[checkout] fillings load failed, using mock catalog:", (e as Error).message);
+        console.error("[checkout] fillings catalog unavailable:", (e as Error).message);
+        return NextResponse.json(
+          { error: "Каталог начинок временно недоступен, попробуйте позже" },
+          { status: 503 }
+        );
       }
     }
 

@@ -43,10 +43,21 @@ const PROD_1: Row = {
 };
 const PROD_DRAFT: Row = { ...PROD_1, id: "22222222-2222-2222-2222-222222222222", title: "Draft", status: "draft" };
 
+// --- fillings (0062/валидация custom-позиций по БД) ---
+/** Начинка, существующая ТОЛЬКО в БД (APPROVED + is_active), multiplier 1.5 → price 500. */
+const FILL_DB_ONLY = "f1000000-0000-0000-0000-000000000001";
+/** APPROVED, но is_active=false — валидным считаться НЕ должен. */
+const FILL_INACTIVE = "f2000000-0000-0000-0000-000000000002";
+let fillingsFail: boolean;
+const FILLINGS_ROWS: Row[] = [
+  { id: FILL_DB_ONLY, name: "Фисташка-мусс (из БД)", price_multiplier: 1.5, status: "APPROVED", is_active: true },
+  { id: FILL_INACTIVE, name: "Скрытая начинка", price_multiplier: 1.2, status: "APPROVED", is_active: false },
+];
+
 let cartItems: Row[];
 let cartSeq: number;
 
-const INTRO_TABLES = [{ table_name: "cart_items" }, { table_name: "products" }];
+const INTRO_TABLES = [{ table_name: "cart_items" }, { table_name: "products" }, { table_name: "fillings" }];
 
 const INTRO_COLUMNS: Row[] = [];
 for (const [column_name, data_type, udt_name, is_nullable] of [
@@ -72,6 +83,15 @@ for (const [column_name, data_type, udt_name, is_nullable] of [
   ["status", "text", "text", "NO"],
 ] as [string, string, string, string][]) {
   INTRO_COLUMNS.push({ table_name: "products", column_name, data_type, udt_name, is_nullable });
+}
+for (const [column_name, data_type, udt_name, is_nullable] of [
+  ["id", "uuid", "uuid", "NO"],
+  ["name", "text", "text", "NO"],
+  ["price_multiplier", "numeric", "numeric", "YES"],
+  ["status", "text", "text", "NO"],
+  ["is_active", "boolean", "bool", "NO"],
+] as [string, string, string, string][]) {
+  INTRO_COLUMNS.push({ table_name: "fillings", column_name, data_type, udt_name, is_nullable });
 }
 
 const INTRO_PKS = [
@@ -232,6 +252,18 @@ function fakeQuery(sql: string, params: unknown[] = []): { rows: Row[] } {
     return { rows: out.map((r) => project(r, selectedFields(q, "products"))) };
   }
 
+  // --- SELECT fillings (валидация custom-позиций по реальному каталогу БД) ---
+  if (q.startsWith("SELECT") && q.includes(`FROM "fillings"`)) {
+    if (fillingsFail) throw new Error("fillings catalog down (simulated)");
+    let out: Row[] = FILLINGS_ROWS;
+    for (const [c, v] of parseWhere(q, params)) {
+      out = out.filter((r) => r[c] === v);
+    }
+    const limitM = q.match(/ LIMIT (\d+)/);
+    if (limitM) out = out.slice(0, Number(limitM[1]));
+    return { rows: out.map((r) => project(r, selectedFields(q, "fillings"))) };
+  }
+
   throw new Error(`fake pgrst pool: unexpected SQL: ${sql}`);
 }
 
@@ -288,6 +320,7 @@ const DRAFT_PID = PROD_DRAFT.id as string;
 function resetDb(): void {
   cartItems = [];
   cartSeq = 0;
+  fillingsFail = false;
 }
 
 async function call(
@@ -399,6 +432,42 @@ describe("POST /api/cart — идемпотентный upsert", () => {
   it("невалидный custom-конфиг → 422 (не молчаливое игнорирование)", async () => {
     const r = await call("POST", USER_A, { client_ref: "ci_bad", quantity: 1, custom_config: { productType: "ufo" } });
     expect(r.status).toBe(422);
+    expect(cartItems).toHaveLength(0);
+  });
+
+  it("custom-конфиг с DB-only начинкой — валидация по реальному каталогу БД: 200", async () => {
+    const cfg = { productType: "cake", base: "biscuit", tiers: 2, filling: FILL_DB_ONLY };
+    const r = await call("POST", USER_A, { client_ref: "ci_db", quantity: 1, custom_config: cfg });
+    expect(r.status).toBe(200);
+    expect(cartItems[0].custom_config).toEqual(cfg);
+  });
+
+  it("APPROVED-начинка с is_active=false — 422 (недостаточно статуса без активности)", async () => {
+    const cfg = { productType: "cake", base: "biscuit", tiers: 2, filling: FILL_INACTIVE };
+    const r = await call("POST", USER_A, { client_ref: "ci_off", quantity: 1, custom_config: cfg });
+    expect(r.status).toBe(422);
+    expect(cartItems).toHaveLength(0);
+  });
+
+  it("начинка, отсутствующая и в БД, и в mock — 422 (клиентский UUID не доказательство)", async () => {
+    const cfg = { productType: "cake", base: "biscuit", tiers: 2, filling: "no_such_filling" };
+    const r = await call("POST", USER_A, { client_ref: "ci_unk", quantity: 1, custom_config: cfg });
+    expect(r.status).toBe(422);
+    expect(cartItems).toHaveLength(0);
+  });
+
+  it("legacy mock-начинка остаётся валидной (слияние mock+DB)", async () => {
+    const cfg = { productType: "cake", base: "biscuit", tiers: 2, filling: "chocolate_ganache" };
+    const r = await call("POST", USER_A, { client_ref: "ci_legacy", quantity: 1, custom_config: cfg });
+    expect(r.status).toBe(200);
+    expect(cartItems[0].custom_config).toEqual(cfg);
+  });
+
+  it("ошибка загрузки каталога начинок — 503 fail-closed, НЕ даунгрейд до mock", async () => {
+    fillingsFail = true;
+    const cfg = { productType: "cake", base: "biscuit", tiers: 2, filling: "chocolate_ganache" };
+    const r = await call("POST", USER_A, { client_ref: "ci_503", quantity: 1, custom_config: cfg });
+    expect(r.status).toBe(503);
     expect(cartItems).toHaveLength(0);
   });
 
