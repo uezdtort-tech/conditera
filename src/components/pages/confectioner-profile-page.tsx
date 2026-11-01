@@ -78,7 +78,7 @@ export function ConfectionerProfilePage() {
   // (истёкший токен) — прежнее поведение (виджет). Прочие ошибки → toast.
   const openDirectChat = async () => {
     try {
-      const room = await ensureDirectRoom(confectioner.userId);
+      const room = await ensureDirectRoom(confectioner.id);
       openChatWithRoom(room.id);
     } catch (err) {
       if (err instanceof Error && err.message === "unauthorized") {

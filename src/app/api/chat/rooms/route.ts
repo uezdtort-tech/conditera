@@ -6,7 +6,10 @@
  *        все support-комнаты. С последним сообщением и счётчиком непрочитанных.
  * POST — find-or-create комнаты (идемпотентно: существующая возвращается
  *        вместо дубликата):
- *          { type:'direct',  peerId }  — диалог покупатель↔кондитер
+ *          { type:'direct',  peerId | confectionerId } — диалог покупатель↔кондитер.
+ *            confectionerId — id профиля кондитера (confectioners.id, напр. 'c2'):
+ *            сервер сам резолвит userId из БД (истина на сервере — клиентский
+ *            store может держать mock-снимок с фиктивным userId).
  *          { type:'support', ticketId? } — комната поддержки (мост к
  *            support_tickets: если у пользователя есть открытый тикет,
  *            support_ticket_id проставляется автоматически; staff-участник
@@ -300,6 +303,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { data: body, error: parseErr } = await safeJsonBody<{
       type?: "direct" | "order" | "support";
       peerId?: string;
+      confectionerId?: string;
       orderId?: string;
       ticketId?: string;
     }>(request);
@@ -313,7 +317,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ---- direct: покупатель ↔ кондитер (или любые два пользователя) ----
     if (type === "direct") {
-      const peerId = body?.peerId || "";
+      let peerId = typeof body?.peerId === "string" ? body.peerId : "";
+      const confectionerId =
+        typeof body?.confectionerId === "string" ? body.confectionerId.trim() : "";
+
+      // confectionerId → peerId: резолвим userId профиля кондитера на сервере.
+      // Первопричина 400 'peerId должен быть UUID': профиль-страница берёт
+      // кондитера из store, где в dev сидят mock-снимки (userId 'u0'..'u8')
+      // с теми же id ('c0'..'c4'), что и в реальной БД. Теперь клиент шлёт
+      // стабильный confectionerId, а UUID-пира определяет сервер.
+      if (!peerId && confectionerId) {
+        const { data: confRow } = await supabaseAdmin
+          .from("confectioners")
+          .select("userId")
+          .eq("id", confectionerId)
+          .limit(1)
+          .maybeSingle() as { data: { userId: string } | null };
+        peerId = confRow?.userId || "";
+        if (!peerId) {
+          throw new HttpError(404, "Кондитер не найден");
+        }
+      }
       if (!UUID_RE.test(peerId)) throw new HttpError(400, "peerId должен быть UUID");
       if (peerId === user.id) throw new HttpError(400, "Нельзя создать диалог с самим собой");
 

@@ -19,6 +19,7 @@ import {
 import {
   Package, Coins, TrendingUp, Settings, LogOut,
   MessageSquare, ShoppingBag, Star, Plus, Calendar, Cake, Sunrise, ClipboardList,
+  Check, X,
 } from "lucide-react";
 import { formatCurrency, formatDate, ORDER_STATUS_LABELS } from "@/lib/finance";
 import {
@@ -28,6 +29,12 @@ import { useConfectionerDashboard } from "@/lib/supabase/use-dashboards";
 import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
 import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-scale-settings";
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
+import { useRealUpdateOrderStatus } from "@/lib/use-real-orders";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const TABS = [
   { id: "today", label: "Сегодня", icon: Sunrise },
@@ -47,6 +54,14 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
   const [breakdownOrderId, setBreakdownOrderId] = React.useState<string | null>(null);
 
   const { data, isLoading, error, refetch } = useConfectionerDashboard();
+
+  // Бизнес-действие кондитера: PENDING → CONFIRMED / CANCELLED.
+  // Тот же контракт, что и в v1 (PATCH /api/orders/{id} — сервер проверяет
+  // роль, verified, владение и статус); после успеха перезагружаем данные
+  // дашборда (query key confectioner-dashboard).
+  const updateOrderStatusApi = useRealUpdateOrderStatus({
+    onSuccess: () => void refetch(),
+  });
 
   if (!user) {
     return (
@@ -228,6 +243,51 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
                         <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-600">
                           Новый
                         </Badge>
+                        <div className="flex gap-1.5 mt-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            disabled={updateOrderStatusApi.isPending}
+                            onClick={() =>
+                              updateOrderStatusApi.mutate({ orderId: order.id, status: "CONFIRMED" })
+                            }
+                          >
+                            <Check className="h-4 w-4 mr-1" /> Подтвердить
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-destructive hover:text-destructive"
+                                disabled={updateOrderStatusApi.isPending}
+                              >
+                                <X className="h-4 w-4 mr-1" /> Отклонить
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Отклонить заказ {order.number}?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Заказ перейдёт в статус «Отменён». Покупатель увидит это в своём кабинете; для уточнения деталей используйте чат.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Вернуться</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  onClick={() => {
+                                    updateOrderStatusApi.mutate({ orderId: order.id, status: "CANCELLED", comment: "Отклонено кондитером" });
+                                    toast.info(`Заказ ${order.number}: заявка на отклонение отправлена`);
+                                  }}
+                                >
+                                  Отклонить заказ
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                         <Button
                           size="sm"
                           variant="outline"

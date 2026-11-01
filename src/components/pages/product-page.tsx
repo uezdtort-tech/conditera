@@ -329,16 +329,16 @@ export function ProductPage() {
   const confectioner = confectioners.find((c) => c.id === product.confectionerId);
 
   // D-CHAT: кнопка «Чат» у карточки кондитера — прямой диалог
-  // покупатель↔кондитер: find-or-create direct-комнаты по confectioner.userId
-  // (POST /api/chat/rooms), затем фокус ChatWidget на этой комнате.
+  // покупатель↔кондитер: find-or-create direct-комнаты по confectioner.id
+  // (POST /api/chat/rooms, сервер резолвит userId из БД — store может
+  // держать mock-снимок с фиктивным userId), затем фокус ChatWidget.
   // 401: у гостя (нет аутентификации) открываем модалку входа, а не пустой
   // виджет чата; у аутентифицированного (истёкший токен) — прежнее
-  // поведение (виджет). Прочие ошибки (в т.ч. mock-preview с не-UUID
-  // userId) → toast.
+  // поведение (виджет). Прочие ошибки → toast.
   const openDirectChatWithConfectioner = async () => {
     if (!confectioner) return;
     try {
-      const room = await ensureDirectRoom(confectioner.userId);
+      const room = await ensureDirectRoom(confectioner.id);
       openChatWithRoom(room.id);
     } catch (err) {
       if (err instanceof Error && err.message === "unauthorized") {

@@ -107,7 +107,14 @@ export async function ensureChatRoom(payload: {
 
 /**
  * ensureDirectRoom — find-or-create прямого диалога покупатель↔кондитер
- * (POST /api/chat/rooms {type:'direct', peerId}, идемпотентно на сервере).
+ * (POST /api/chat/rooms, идемпотентно на сервере).
+ *
+ * Аргумент — стабильный ключ кондитера:
+ *   - UUID → шлётся как peerId (прямая ссылка на пользователя);
+ *   - не-UUID (id профиля кондитера, напр. 'c2') → шлётся как confectionerId,
+ *     сервер сам резолвит userId из БД. Первопричина дефекта «Написать» → 400:
+ *     клиентский store может держать mock-снимок кондитера (userId 'u0'..'u8'),
+ *     совпадающий по id с реальным — доверять его userId нельзя.
  *
  * В отличие от ensureChatRoom НЕ глотает ошибки:
  *   - 401 → Error('unauthorized') — вызывающий код открывает auth-модалку
@@ -115,11 +122,18 @@ export async function ensureChatRoom(payload: {
  *   - прочие не-2xx → Error с текстом сервера или generic-сообщением
  *     (не-JSON ответ тоже безопасно превращается в generic Error).
  */
-export async function ensureDirectRoom(peerId: string): Promise<ChatRoom> {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function ensureDirectRoom(confectionerOrPeerId: string): Promise<ChatRoom> {
+  const isPeerUuid = UUID_RE.test(confectionerOrPeerId);
   const res = await fetch("/api/chat/rooms", {
     method: "POST",
     headers: await mutationHeaders(),
-    body: JSON.stringify({ type: "direct", peerId }),
+    body: JSON.stringify(
+      isPeerUuid
+        ? { type: "direct", peerId: confectionerOrPeerId }
+        : { type: "direct", confectionerId: confectionerOrPeerId }
+    ),
   });
   if (res.status === 401) throw new Error("unauthorized");
   if (!res.ok) {
