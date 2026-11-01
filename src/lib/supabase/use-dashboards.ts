@@ -20,7 +20,52 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { csrfFetch } from "@/lib/api-client";
+import {
+  csrfFetch,
+  fetchWithAuthRetry,
+  getSessionAuthHeaders,
+  getStoredAccessToken,
+} from "@/lib/api-client";
+
+// ==================== App-session helpers (единый app-JWT контракт) ====================
+
+/**
+ * Идентичность из app-JWT (sessionStorage): userId/email/sub.
+ * supabaseBrowser.auth.getUser() (GoTrue) в локальном runtime не работает —
+ * сессия приложения живёт в cd_session cookie + cd_access_token Bearer.
+ */
+function appSessionUser(): { id: string; email: string } | null {
+  const token = getStoredAccessToken();
+  if (!token) return null;
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+    const payload = JSON.parse(json) as { userId?: string; sub?: string; email?: string };
+    const id = payload.userId || payload.sub;
+    if (!id) return null;
+    return { id, email: payload.email || "" };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GET /rest/v1/<table> под app-JWT (PostgREST-шим, роль authenticated, sub=auth.uid()).
+ * fetchWithAuthRetry: один авто-refresh при 401 и один повтор с новым Bearer.
+ */
+async function pgrstGet<T>(table: string, search: string): Promise<T[]> {
+  const headers = await getSessionAuthHeaders(undefined, { json: false });
+  const res = await fetchWithAuthRetry(`/rest/v1/${table}?${search}`, {
+    credentials: "include",
+    headers,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`${table}: HTTP ${res.status}${body ? ` — ${body.slice(0, 120)}` : ""}`);
+  }
+  return (await res.json()) as T[];
+}
 
 // ==================== Types ====================
 export interface CustomerDashboardData {
@@ -81,6 +126,17 @@ export interface ConfectionerDashboardData {
     user?: { id: string };
   }>;
   activeOrders: Array<{
+    id: string;
+    number: string;
+    user_id: string;
+    total: number;
+    status: string;
+    delivery_date: string | null;
+    delivery_address: string | null;
+    items?: Array<{ product_title: string; quantity: number }>;
+  }>;
+  /** Новые заказы (PENDING) — требуют подтверждения кондитером (Acceptance Engine). */
+  pendingOrders: Array<{
     id: string;
     number: string;
     user_id: string;
@@ -276,95 +332,74 @@ export function useConfectionerDashboard() {
   return useQuery<ConfectionerDashboardData>({
     queryKey: ["confectioner-dashboard"],
     queryFn: async () => {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
+      // Аутентификация: единый app-JWT (sessionStorage, @/lib/api-client).
+      // supabaseBrowser.auth.getUser() (GoTrue) в локальном runtime всегда
+      // пуст → вкладки дашборда показывали «Не авторизован» при живой
+      // сессии (подтверждено браузерной приёмкой: заказ UK-2026-985818
+      // существовал, кабинет был недоступен).
+      const user = appSessionUser();
       if (!user) throw new Error("Не авторизован");
 
-      const [inquiriesRes, negotiationsRes, activeOrdersRes, productsRes] = await Promise.all([
-        // Входящие inquiries (открытые в городе кондитера)
-        supabaseBrowser
-          .from("inquiries")
-          .select(`
-            id, event_type, base, filling, servings, city, delivery_date,
-            estimated_price, expires_at, user_id
-          `)
-          .eq("status", "open")
-          .order("submitted_at", { ascending: false })
-          .limit(10),
-
-        // Активные negotiations для этого кондитера
-        supabaseBrowser
-          .from("negotiations")
-          .select("id, status, quoted_price, inquiry_id")
-          .eq("confectioner_id", user.id)
-          .in("status", ["pending_confectioner", "quoted", "counter_offered"])
-          .order("created_at", { ascending: false }),
-
-        // Активные заказы (где confectioner_id = user.id)
-        supabaseBrowser
-          .from("orders")
-          .select(`
-            id, number, user_id, total, status, delivery_date, delivery_address,
-            items:order_items(product_title, quantity)
-          `)
-          .eq("confectioner_id", user.id)
-          .in("status", ["CONFIRMED", "PREPARING", "READY", "IN_DELIVERY"])
-          .order("delivery_date", { ascending: true, nullsFirst: false })
-          .limit(10),
-
-        // Товары кондитера
-        supabaseBrowser
-          .from("products")
-          .select("id, title, price, status, is_featured")
-          .eq("confectioner_id", user.id)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false }),
+      // Те же PostgREST-запросы (тот же шим /rest/v1, та же SQL-семантика),
+      // но с Bearer app-JWT: supabaseBrowser шлёт только anon-key → роль anon
+      // → пустые выборки даже после замены гейта.
+      const [inquiries, negotiations, activeOrders, pendingOrders, products] = await Promise.all([
+        pgrstGet<ConfectionerDashboardData["incomingInquiries"][number]>("inquiries",
+          `select=${encodeURIComponent("id,event_type,base,filling,servings,city,delivery_date,estimated_price,expires_at,user_id")}` +
+          `&status=eq.open&order=submitted_at.desc&limit=10`),
+        pgrstGet<{ id: string; status: string; quoted_price: number | null; inquiry_id: string }>("negotiations",
+          `select=id,status,quoted_price,inquiry_id&confectioner_id=eq.${user.id}` +
+          `&status=${encodeURIComponent('in.("pending_confectioner","quoted","counter_offered")')}&order=created_at.desc`),
+        pgrstGet<ConfectionerDashboardData["activeOrders"][number]>("orders",
+          `select=${encodeURIComponent("id,number,user_id,total,status,delivery_date,delivery_address,items:order_items(product_title,quantity)")}` +
+          `&confectioner_id=eq.${user.id}&status=${encodeURIComponent('in.("CONFIRMED","PREPARING","READY","IN_DELIVERY")')}` +
+          `&order=${encodeURIComponent("delivery_date.asc.nullsfirst")}&limit=10`),
+        // Новые заказы (PENDING) — без них новая заявка не видна нигде в кабинете
+        pgrstGet<ConfectionerDashboardData["pendingOrders"][number]>("orders",
+          `select=${encodeURIComponent("id,number,user_id,total,status,delivery_date,delivery_address,items:order_items(product_title,quantity)")}` +
+          `&confectioner_id=eq.${user.id}&status=eq.PENDING&order=created_at.desc&limit=10`),
+        pgrstGet<{ id: string; title: string; price: number; status: string; is_featured: boolean | null }>("products",
+          `select=id,title,price,status,is_featured&confectioner_id=eq.${user.id}&deleted_at=is.null&order=created_at.desc`),
       ]);
 
-      // Получаем платежи для активных заказов (отдельный запрос, т.к. зависит от orderIds)
-      const orderIds = (activeOrdersRes.data || []).map((o: { id: string }) => o.id);
-      let paymentsRes = { data: [] as Array<{ id: string; amount: number; status: string; created_at: string; order?: { number: string } }> };
+      // Платежи по активным заказам (отдельный запрос, зависит от orderIds).
+      // number НЕ встраиваем (orders!inner — шим не резолвит связь из payments);
+      // номер берём из уже загруженных activeOrders (Map по id).
+      const orderIds = activeOrders.map((o) => o.id);
+      const numberByOrderId = new Map(activeOrders.map((o) => [o.id, o.number] as const));
+      let recentEarnings: ConfectionerDashboardData["recentEarnings"] = [];
       if (orderIds.length > 0) {
-        const { data: payData } = await supabaseBrowser
-          .from("payments")
-          .select(`
-            id, amount, status, created_at,
-            order:orders!inner(number)
-          `)
-          .eq("status", "succeeded")
-          .in("order_id", orderIds)
-          .order("created_at", { ascending: false })
-          .limit(10);
-        paymentsRes.data = (payData || []) as unknown as Array<{ id: string; amount: number; status: string; created_at: string; order?: { number: string } }>;
+        const pays = await pgrstGet<{ id: string; amount: number; status: string; created_at: string; order_id: string }>("payments",
+          `select=id,amount,status,created_at,order_id` +
+          `&status=eq.succeeded&order_id=${encodeURIComponent(`in.(${orderIds.join(",")})`)}` +
+          `&order=created_at.desc&limit=10`);
+        recentEarnings = pays.map((p) => {
+          const num = numberByOrderId.get(p.order_id);
+          return { ...p, order: num ? { number: num } : undefined };
+        });
       }
 
-      // Считаем completed + total earnings
-      const completedOrdersRes = await supabaseBrowser
-        .from("orders")
-        .select("id, total, status", { count: "exact", head: false })
-        .eq("confectioner_id", user.id)
-        .in("status", ["COMPLETED", "DELIVERED"]);
-
-      const totalEarnings = (completedOrdersRes.data || []).reduce(
-        (sum: number, o: { total: number }) => sum + (o.total || 0),
-        0
-      );
+      // Завершённые заказы + суммарный доход
+      const completedOrders = await pgrstGet<{ id: string; total: number; status: string }>("orders",
+        `select=id,total,status&confectioner_id=eq.${user.id}` +
+        `&status=${encodeURIComponent('in.("COMPLETED","DELIVERED")')}`);
+      const totalEarnings = completedOrders.reduce((sum, o) => sum + (o.total || 0), 0);
 
       return {
         stats: {
-          activeNegotiations: negotiationsRes.data?.length || 0,
-          pendingInquiries: inquiriesRes.data?.length || 0,
-          activeOrders: activeOrdersRes.data?.length || 0,
-          completedOrders: completedOrdersRes.count || 0,
+          activeNegotiations: negotiations.length,
+          pendingInquiries: inquiries.length,
+          activeOrders: activeOrders.length,
+          completedOrders: completedOrders.length,
           totalEarnings,
           rating: 0, // TODO: считать из reviews
-          productsCount: productsRes.data?.length || 0,
-          publishedProducts: (productsRes.data || []).filter(
-            (p: { status: string }) => p.status === "published"
-          ).length,
+          productsCount: products.length,
+          publishedProducts: products.filter((p) => p.status === "published").length,
         },
-        incomingInquiries: (inquiriesRes.data || []) as unknown as ConfectionerDashboardData["incomingInquiries"],
-        activeOrders: (activeOrdersRes.data || []) as unknown as ConfectionerDashboardData["activeOrders"],
-        recentEarnings: (paymentsRes.data || []) as unknown as ConfectionerDashboardData["recentEarnings"],
+        incomingInquiries: inquiries,
+        activeOrders,
+        pendingOrders,
+        recentEarnings,
       };
     },
     staleTime: 30 * 1000,

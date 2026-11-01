@@ -198,6 +198,50 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
         return (
           <div className="space-y-4">
             <h1 className="font-display text-2xl font-bold">Активные заказы</h1>
+            {/* Новые заказы (PENDING) — требуют подтверждения кондитером.
+                Без этой секции новая заявка не видна нигде в кабинете
+                (в «Сегодня» попадают только заказы на текущую дату). */}
+            {(data?.pendingOrders || []).length > 0 && (
+              <div className="space-y-3">
+                <h2 className="font-display text-lg font-semibold text-amber-600">
+                  Требуют подтверждения ({data?.pendingOrders.length})
+                </h2>
+                {(data?.pendingOrders || []).map((order) => (
+                  <Card key={order.id} className="p-4 border-amber-300">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">{order.number}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {order.delivery_date ? formatDate(order.delivery_date) : "Срок не указан"}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {order.delivery_address || "—"}
+                        </div>
+                        {order.items && order.items.length > 0 && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {order.items.map((i) => `${i.product_title} ×${i.quantity}`).join(", ")}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="font-display font-bold">{formatCurrency(order.total)}</div>
+                        <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-600">
+                          Новый
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="mt-2 w-full"
+                          onClick={() => setBreakdownOrderId(order.id)}
+                        >
+                          <ClipboardList className="h-4 w-4 mr-1" /> Состав
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
             <div className="space-y-3">
               {orders.map((order) => (
                 <Card key={order.id} className="p-4">
