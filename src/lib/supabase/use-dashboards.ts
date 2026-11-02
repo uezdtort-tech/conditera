@@ -199,6 +199,8 @@ export interface CourierDashboardData {
     estimated_time: string | null;
     cost: number;
     courier_earnings: number;
+    /** Реальный номер заказа из orders.number (Этап 5: не UUID) */
+    orderNumber: string | null;
   }>;
   recentCompleted: Array<{
     id: string;
@@ -206,6 +208,7 @@ export interface CourierDashboardData {
     address: string;
     delivered_at: string;
     courier_earnings: number;
+    orderNumber: string | null;
   }>;
 }
 
@@ -501,6 +504,25 @@ export function useCourierDashboard() {
           `&delivered_at=gte.${encodeURIComponent(monthStart.toISOString())}`),
       ]);
 
+      // Этап 5: реальные номера заказов (orders.number, формат 'UK-YYYY-NNNNNN')
+      // вместо UUID deliveries.order_id в UI. Один батч-запрос по всем order_id.
+      const orderIds = [...new Set(
+        [...activeDeliveries, ...todayCompleted].map((d) => d.order_id).filter(Boolean)
+      )];
+      let numberById = new Map<string, string>();
+      if (orderIds.length > 0) {
+        try {
+          const orderRows = await pgrstGet<{ id: string; number: string | null }>("orders",
+            `select=id,number&id=${encodeURIComponent(`in.(${orderIds.join(",")})`)}`);
+          numberById = new Map(orderRows.map((o) => [o.id, o.number || ""]));
+        } catch (e) {
+          // номера — cosmetic-дополнение: провал не роняет дашборд (упадём на UUID)
+          console.warn("[courier-dashboard] order numbers fetch:", (e as Error)?.message);
+        }
+      }
+      const withNumber = <T extends { order_id: string }>(rows: T[]): (T & { orderNumber: string | null })[] =>
+        rows.map((r) => ({ ...r, orderNumber: numberById.get(r.order_id) || null }));
+
       const earningsToday = todayCompleted.reduce(
         (sum, d) => sum + (d.courier_earnings || 0),
         0
@@ -518,8 +540,8 @@ export function useCourierDashboard() {
           earningsMonth,
           rating: 0, // TODO: считать из reviews
         },
-        activeDeliveries,
-        recentCompleted: todayCompleted,
+        activeDeliveries: withNumber(activeDeliveries),
+        recentCompleted: withNumber(todayCompleted),
       };
     },
     staleTime: 30 * 1000,

@@ -90,15 +90,29 @@ export async function PATCH(
       return forbiddenResponse(`Роль ${userRoles.join(", ")} не может менять статус ${order.status} → ${newStatus}`);
     }
 
-    // Дополнительная проверка: CUSTOMER может менять только свой заказ
-    if (userRoles.includes("CUSTOMER") && !userRoles.includes("ADMIN")) {
+    // Дополнительная проверка: CUSTOMER может менять только свой заказ.
+    // Сужение применяется ТОЛЬКО если CUSTOMER входит в роли ЭТОГО перехода:
+    // у каждого пользователя в токене есть базовая роль CUSTOMER (login), и
+    // раньше courier (roles [CUSTOMER, COURIER]) на переходе IN_DELIVERY →
+    // DELIVERED (roles COURIER/ADMIN) попадал под «Можно менять только свои
+    // заказы» раньше курьерского guard'а — завершение чужой доставки было
+    // невозможно для любого курьера.
+    if (
+      transition.roles.includes("CUSTOMER") &&
+      userRoles.includes("CUSTOMER") &&
+      !userRoles.includes("ADMIN")
+    ) {
       if (order.user_id !== user.id) {
         return forbiddenResponse("Можно менять только свои заказы");
       }
     }
 
     // Дополнительная проверка: CONFECTIONER может менять только свои заказы
-    if (userRoles.includes("CONFECTIONER") && !userRoles.includes("ADMIN")) {
+    if (
+      transition.roles.includes("CONFECTIONER") &&
+      userRoles.includes("CONFECTIONER") &&
+      !userRoles.includes("ADMIN")
+    ) {
       if (order.confectioner_id !== user.id) {
         return forbiddenResponse("Можно менять только заказы, назначенные вам");
       }
@@ -181,6 +195,48 @@ export async function PATCH(
       actorId: user.id,
       payload: { from: order.status, to: newStatus },
     });
+
+    // P1 (courier): синхронизация строки deliveries у перехода в DELIVERED.
+    // Первопричина рассинхрона: courier/assign ставил orders.status=IN_DELIVERY,
+    // но deliveries.status навсегда оставался 'assigned' — кабинет курьера
+    // (фильтр deliveries.status='delivered') и API (orders.status) показывали
+    // разные цифры, у доставки не заполнялись delivered_at/courier_earnings.
+    // Fail-safe: статус заказа = источник истины; сбой синхронизации не роняет
+    // переход (логируем), повтор PATCH невозможен (CAS по статусам ниже).
+    if (newStatus === "DELIVERED") {
+      try {
+        const nowIso = new Date().toISOString();
+        const { data: dRow } = await supabaseAdmin
+          .from("deliveries")
+          .select("id, status, cost")
+          .eq("order_id", orderId)
+          .in("status", ["assigned", "picked_up", "on_the_way"])
+          .maybeSingle() as {
+          data: { id: string; status: string; cost: number | null } | null;
+        };
+        if (dRow) {
+          const { error: dErr } = await supabaseAdmin
+            .from("deliveries")
+            .update({
+              status: "delivered",
+              delivered_at: nowIso,
+              // курьер получает стоимость доставки (схема 0002: courier_earnings)
+              courier_earnings: Number(dRow.cost || 0),
+              updated_at: nowIso,
+            })
+            .eq("id", dRow.id)
+            .in("status", ["assigned", "picked_up", "on_the_way"]);
+          if (dErr) {
+            console.error("[orders/[id]] deliveries sync failed:", dErr.message);
+          }
+        }
+      } catch (syncErr) {
+        console.error(
+          "[orders/[id]] deliveries sync error:",
+          (syncErr as Error)?.message
+        );
+      }
+    }
 
     return NextResponse.json({
       order: updatedOrder,
