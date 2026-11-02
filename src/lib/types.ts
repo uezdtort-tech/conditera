@@ -1169,6 +1169,8 @@ export interface ChatMessage {
   createdAt: string;
   isSystem?: boolean;
   isOwn?: boolean;
+  /** Состояние доставки собственного сообщения: failed — POST не удался, нужна повторная отправка */
+  deliveryState?: "sending" | "failed";
   reactions?: { emoji: string; count: number }[];
   // === Bot / Auto-chat ===
   isBot?: boolean;

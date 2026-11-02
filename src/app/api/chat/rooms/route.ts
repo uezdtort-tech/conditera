@@ -22,7 +22,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
-import { BOT_USER_ID, ensureOrderChatChannel } from "@/lib/chat-rooms";
+import { BOT_USER_ID, ensureOrderChatChannel, resolveDirectPeer } from "@/lib/chat-rooms";
 
 export const runtime = "nodejs";
 
@@ -317,27 +317,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ---- direct: покупатель ↔ кондитер (или любые два пользователя) ----
     if (type === "direct") {
-      let peerId = typeof body?.peerId === "string" ? body.peerId : "";
-      const confectionerId =
-        typeof body?.confectionerId === "string" ? body.confectionerId.trim() : "";
-
-      // confectionerId → peerId: резолвим userId профиля кондитера на сервере.
-      // Первопричина 400 'peerId должен быть UUID': профиль-страница берёт
-      // кондитера из store, где в dev сидят mock-снимки (userId 'u0'..'u8')
-      // с теми же id ('c0'..'c4'), что и в реальной БД. Теперь клиент шлёт
-      // стабильный confectionerId, а UUID-пира определяет сервер.
-      if (!peerId && confectionerId) {
-        const { data: confRow } = await supabaseAdmin
-          .from("confectioners")
-          .select("userId")
-          .eq("id", confectionerId)
-          .limit(1)
-          .maybeSingle() as { data: { userId: string } | null };
-        peerId = confRow?.userId || "";
-        if (!peerId) {
-          throw new HttpError(404, "Кондитер не найден");
-        }
-      }
+      // peerId (UUID) или confectionerId профиля → резолв userId на сервере
+      // (см. resolveDirectPeer — клиентский store может держать mock-снимок
+      // кондитера с фиктивным userId).
+      const peerId = await resolveDirectPeer({
+        peerId: body?.peerId,
+        confectionerId: body?.confectionerId,
+      });
       if (!UUID_RE.test(peerId)) throw new HttpError(400, "peerId должен быть UUID");
       if (peerId === user.id) throw new HttpError(400, "Нельзя создать диалог с самим собой");
 

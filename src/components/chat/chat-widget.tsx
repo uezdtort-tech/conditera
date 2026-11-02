@@ -12,7 +12,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
-import { Send, MessageCircle, Phone, Video, MoreVertical, Bot, Sparkles, Mic, Square, X, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Send, MessageCircle, Phone, Video, MoreVertical, Bot, Sparkles, Mic, Square, X, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react";
 import { formatDateTime } from "@/lib/finance";
 import type { QuickReply, ChatMessage, ChatRoom } from "@/lib/types";
 import { useVoiceRecorder, formatDuration } from "@/hooks/useVoiceRecorder";
@@ -90,6 +90,11 @@ export function ChatWidget({
   } = useSocketIO();
 
   const [messageText, setMessageText] = useState("");
+  // p1-chat: состояния отправки — «отправляется», ошибка доставки с повтором.
+  // Первопричина: doSend был fire-and-forget — при неудаче POST оптимистичная
+  // копия оставалась без пометки, повтор был невозможен, состояние не видно.
+  const [sendPending, setSendPending] = useState(false);
+  const [failedMessage, setFailedMessage] = useState<ChatMessage | null>(null);
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -407,6 +412,14 @@ export function ChatWidget({
     return unsubscribe;
   }, [onMessageReceive, user?.id]);
 
+  // p1-chat: смена комнаты — сбрасываем ввод и состояния отправки (одно поле
+  // ввода на все комнаты: без очистки текст предыдущей комнаты уезжал в следующую).
+  useEffect(() => {
+    setMessageText("");
+    setSendPending(false);
+    setFailedMessage(null);
+  }, [activeChatRoom]);
+
   // Socket: вход в активную комнату (получать real-time сообщения)
   useEffect(() => {
     if (!isConnected || !activeChatRoom) return;
@@ -495,32 +508,21 @@ export function ChatWidget({
   );
 
   /** Единая отправка: оптимистичный append + идемпотентный POST в БД +
-   *  socket-доставка другим участникам (real-time путь). */
+   *  socket-доставка другим участникам (real-time путь).
+   *  reuseId — повторная отправка недоставленного: используется ТОТ ЖЕ
+   *  idempotency-key (клиентский uuid), иначе socket.io-буфер исходной
+   *  попытки (доставка при реконнекте) и retry запишут в БД две строки.
+   *  Возвращает успех доставки в БД — для состояния отправки в UI. */
   const doSend = useCallback(
-    (text: string) => {
-      if (!activeChatRoom) return;
+    async (text: string, options?: { reuseId?: string }): Promise<boolean> => {
+      if (!activeChatRoom) return false;
       const clientId =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        options?.reuseId ||
+        (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
-          : `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          : `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
 
       appendOwnMessage(clientId, text);
-
-      // Real-first: сообщение персистится в БД через /api/chat (idempotencyKey
-      // = клиентский uuid → повтор возвращает ту же строку, дублей нет).
-      sendChatMessage(activeChatRoom, text, clientId)
-        .then((saved) => {
-          if (!saved) return; // сеть/API недоступны — остаётся оптимистичная копия
-          const savedMsg = mapApiMessageToChatMessage(saved, user?.id);
-          useAppStore.setState((s) => ({
-            chatMessages: s.chatMessages.map((m) =>
-              m.id === clientId ? savedMsg : m
-            ),
-          }));
-        })
-        .catch(() => {
-          // доставка не состоялась — оптимистичное сообщение остаётся локально
-        });
 
       // Socket-путь: real-time доставка другим участникам (чат-сервер сам
       // персистит сообщение, форвардя наш JWT — история переживёт рестарт).
@@ -533,8 +535,37 @@ export function ChatWidget({
           senderAvatar: user?.avatar,
           type: "text",
         });
-        stopTyping(activeChatRoom);
       }
+
+      // Real-first: сообщение персистится в БД через /api/chat (idempotencyKey
+      // = клиентский uuid → повтор возвращает ту же строку, дублей нет).
+      const saved = await sendChatMessage(activeChatRoom, text, clientId);
+      if (!saved) {
+        // Доставка не состоялась: помечаем optimistic-копию как недоставленную —
+        // повтор доступен кнопкой «Повторить» над полем ввода.
+        setFailedMessage({
+          id: clientId,
+          roomId: activeChatRoom,
+          senderId: user?.id || "me",
+          senderName: user?.name || "Я",
+          text,
+          createdAt: new Date().toISOString(),
+          deliveryState: "failed",
+        });
+        useAppStore.setState((s) => ({
+          chatMessages: s.chatMessages.map((m) =>
+            m.id === clientId ? { ...m, deliveryState: "failed" as const } : m
+          ),
+        }));
+        return false;
+      }
+      const savedMsg = mapApiMessageToChatMessage(saved, user?.id);
+      useAppStore.setState((s) => ({
+        chatMessages: s.chatMessages.map((m) =>
+          m.id === clientId ? savedMsg : m
+        ),
+      }));
+      return true;
     },
     [
       activeChatRoom,
@@ -542,14 +573,13 @@ export function ChatWidget({
       socketEnabled,
       isConnected,
       socketSendMessage,
-      stopTyping,
       user?.id,
       user?.name,
       user?.avatar,
     ]
   );
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = messageText.trim();
     if (!text || !activeChatRoom) return;
@@ -558,9 +588,41 @@ export function ChatWidget({
       setAuthModalOpen(true);
       return;
     }
+    if (sendPending) return; // защита от двойной отправки
 
-    doSend(text);
+    setSendPending(true);
+    setFailedMessage(null);
     setMessageText("");
+    try {
+      await doSend(text);
+    } finally {
+      setSendPending(false);
+    }
+
+    if (socketEnabled && isConnected) {
+      stopTyping(activeChatRoom);
+    }
+  };
+
+  // p1-chat: повторная отправка недоставленного сообщения — с тем же
+  // idempotency-key (идемпотентный повтор: socket-буфер исходной попытки,
+  // доставленный при реконнекте, и retry дают одну строку в БД).
+  const handleRetrySend = async () => {
+    if (!failedMessage || !activeChatRoom || sendPending) return;
+    const text = failedMessage.text;
+    const staleId = failedMessage.id;
+    setSendPending(true);
+    setFailedMessage(null);
+    // Убираем недоставленную копию — повтор переиспользует её id как
+    // idempotency-key, поэтому в БД вернётся одна строка.
+    useAppStore.setState((s) => ({
+      chatMessages: s.chatMessages.filter((m) => m.id !== staleId),
+    }));
+    try {
+      await doSend(text, { reuseId: staleId });
+    } finally {
+      setSendPending(false);
+    }
   };
 
   const handleQuickReply = (reply: QuickReply) => {
@@ -870,6 +932,11 @@ export function ChatWidget({
                                 }`}
                               >
                                 {formatDateTime(msg.createdAt)}
+                                {msg.isOwn && msg.deliveryState === "failed" && (
+                                  <span className="ml-1 font-medium text-red-200">
+                                    · не доставлено
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1000,16 +1067,39 @@ export function ChatWidget({
                       <Button
                         type="submit"
                         size="icon"
-                        disabled={!messageText.trim()}
+                        disabled={!messageText.trim() || sendPending}
                         className="h-10 w-10 shrink-0"
+                        title={sendPending ? "Отправляется…" : "Отправить"}
                       >
-                        <Send className="h-4 w-4" />
+                        {sendPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
                       </Button>
                     </form>
                   )}
                   {recorder.error && (
                     <div className="px-3 pb-2 text-xs text-destructive">
                       {recorder.error}
+                    </div>
+                  )}
+                  {failedMessage && (
+                    <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                      <span className="flex-1 truncate text-xs text-destructive">
+                        Сообщение не доставлено
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={sendPending}
+                        onClick={handleRetrySend}
+                        className="h-6 shrink-0 px-2 text-[11px]"
+                      >
+                        {sendPending ? "Отправляется…" : "Повторить"}
+                      </Button>
                     </div>
                   )}
                 </>

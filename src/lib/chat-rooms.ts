@@ -113,6 +113,45 @@ export async function canAccessRoom(
   return false;
 }
 
+/**
+ * Резолв пира для direct-комнаты: peerId (UUID пользователя) ИЛИ confectionerId
+ * профиля кондитера (confectioners.id, напр. 'c2').
+ *
+ * Первопричина дефекта «Написать» → 400 'peerId должен быть UUID': профиль-страница
+ * берёт кондитера из store, где в dev сидят mock-снимки (userId 'u0'..'u8') с теми
+ * же id ('c0'..'c4'), что и в реальной БД — доверять клиентскому userId нельзя.
+ * UUID-пира определяет сервер по confectioners.userId.
+ *
+ * Ошибки: 404 — профиль не найден; 500 — сбой БД (fail-closed, не угадываем).
+ */
+export async function resolveDirectPeer(params: {
+  peerId?: string | null;
+  confectionerId?: string | null;
+}): Promise<string> {
+  let peerId = typeof params.peerId === "string" ? params.peerId : "";
+  const confectionerId =
+    typeof params.confectionerId === "string" ? params.confectionerId.trim() : "";
+
+  if (!peerId && confectionerId) {
+    const { data, error } = await supabaseAdmin
+      .from("confectioners")
+      .select("userId")
+      .eq("id", confectionerId)
+      .limit(1)
+      .maybeSingle() as {
+      data: { userId: string } | null;
+      error: SupabaseError | null;
+    };
+    if (error) {
+      console.warn("[chat] confectioner resolve:", error.message);
+      throw new HttpError(500, "Не удалось определить кондитера");
+    }
+    peerId = data?.userId || "";
+    if (!peerId) throw new HttpError(404, "Кондитер не найден");
+  }
+  return peerId;
+}
+
 export interface ApiChatMessage {
   id: string;
   roomId: string;
