@@ -6,12 +6,25 @@
  * Auth: GET — публичный (гостям системные праздники, user: []),
  *       POST/DELETE — AUTHENTICATED.
  *
+ * Схема (первопричина бага 'user_holidays.user_id does not exist'):
+ *   Роут был написан под фантомную схему (user_id/month/day/active) таблицы
+ *   user_holidays. Фактически:
+ *     • user_holidays (0017) — legacy mock-эпохи: camelCase колонки, userId TEXT,
+ *       ни один runtime-читатель её не использует;
+ *     • holiday_reminders (0010) — реальная таблица пользовательских праздников:
+ *       id UUID, user_id UUID FK → auth.users, name, type, date DATE,
+ *       remind_days_before, is_recurring, last_notified_at; RLS own-политики;
+ *       её же читает cron /api/cron/holiday-reminders.
+ *   Личные праздники храним в holiday_reminders: date = ближайшая годовщина
+ *   (месяц/день из формы), is_recurring=true. GET маппит date → month/day для
+ *   клиента (HolidayCalendar ждёт {id,name,month,day,remind_days_before}).
+ *
  * Безопасность:
- *   • POST: парсинг JSON безопасен (safeJsonBody).
- *   • POST: month — целое 1-12, day — целое 1-31.
- *   • POST: name — строка 1..100 символов.
- *   • POST: remindDaysBefore — целое 1..60.
- *   • DELETE: ownership check через .eq("user_id", user.userId).
+ *   • POST: парсинг JSON безопасен (safeJsonBody); валидация name/month/day/
+ *     remindDaysBefore; type — из preferredCategory либо 'custom';
+ *   • DELETE: ownership через .eq("user_id", user.userId) + .delete() — чужой
+ *     праздник удалить нельзя (0 строк → 404);
+ *   • GET: без сессии — только системные (гостевой шум не ломаем).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -41,6 +54,43 @@ const SYSTEM_HOLIDAYS = [
   { name: "Предновогодний", month: 12, day: 31, category: "newyear" },
 ];
 
+/** holiday_reminders → клиентский шейп {id,name,month,day,remind_days_before}. */
+interface ReminderRow {
+  id: string;
+  name: string;
+  type: string | null;
+  date: string; // DATE 'YYYY-MM-DD'
+  remind_days_before: number | null;
+}
+
+function toClientHoliday(r: ReminderRow) {
+  // Шим/PG возвращают DATE как ISO-строку ('2026-03-08' или
+  // '2026-03-08T00:00:00.000Z') — new Date() покрывает оба формата.
+  const d = new Date(r.date);
+  return {
+    id: r.id,
+    name: r.name,
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    remind_days_before: r.remind_days_before ?? 7,
+    type: r.type,
+  };
+}
+
+/** Дата ближайшей годовщины month/day (год — текущий или следующий). */
+function nextOccurrenceDate(month: number, day: number): string {
+  const now = new Date();
+  const make = (year: number) =>
+    new Date(Date.UTC(year, month - 1, Math.min(day, 28), 12));
+  // 28-дневный клэмп защищает 29.02 от Date.UTC-rollover на не-високосный год
+  let target = make(now.getUTCFullYear());
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  if (target.getTime() < todayUtc) {
+    target = make(now.getUTCFullYear() + 1);
+  }
+  return target.toISOString().slice(0, 10);
+}
+
 interface CreateHolidayBody {
   name?: string;
   month?: number;
@@ -53,19 +103,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // GET публичный: системные праздники — маркетинговый контент для гостей
     // (виджет календаря на главной); личные праздники — только для владельца.
-    // Раньше GET требовал auth → каждый гость получал 401 в логах на каждый заход.
     const user = await getUserFromRequest(request);
 
     if (!user) {
       return NextResponse.json({ system: SYSTEM_HOLIDAYS, user: [] });
     }
 
-    const { data: userHolidays, error } = await supabaseAdmin
-      .from("user_holidays")
-      .select("*")
+    const { data: reminders, error } = await supabaseAdmin
+      .from("holiday_reminders")
+      .select("id, name, type, date, remind_days_before")
       .eq("user_id", user.userId)
-      .eq("active", true)
-      .order("month", { ascending: true });
+      .order("date", { ascending: true }) as {
+      data: ReminderRow[] | null;
+      error: { message: string } | null;
+    };
 
     if (error) {
       console.warn("[holidays] GET error:", error.message);
@@ -73,7 +124,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       system: SYSTEM_HOLIDAYS,
-      user: userHolidays || [],
+      user: (reminders || []).map(toClientHoliday),
     });
   } catch (error) {
     return handleRouteError(error);
@@ -126,25 +177,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const preferredCategory = typeof body.preferredCategory === "string" ? body.preferredCategory : null;
 
     const { data, error } = await supabaseAdmin
-      .from("user_holidays")
+      .from("holiday_reminders")
       .insert({
         user_id: user.userId,
         name: body.name,
-        month: body.month,
-        day: body.day,
+        type: preferredCategory || "custom",
+        date: nextOccurrenceDate(body.month, body.day),
         remind_days_before: remindDaysBefore,
-        preferred_category: preferredCategory,
-        active: true,
-        created_at: new Date().toISOString(),
+        is_recurring: true,
       })
-      .select()
-      .single();
+      .select("id, name, type, date, remind_days_before")
+      .single() as { data: ReminderRow | null; error: { message: string } | null };
 
-    if (error) {
-      console.error("[holidays] insert failed:", error.message);
+    if (error || !data) {
+      console.error("[holidays] insert failed:", error?.message);
       throw new HttpError(500, "Не удалось создать праздник");
     }
-    return NextResponse.json({ holiday: data }, { status: 201 });
+    return NextResponse.json({ holiday: toClientHoliday(data) }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);
   }
@@ -159,16 +208,24 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     const id = searchParams.get("id");
     if (!id) throw new HttpError(400, "Укажите id");
 
-    // Ownership check через .eq("user_id", user.userId) — нельзя удалить чужой праздник
-    const { error } = await supabaseAdmin
-      .from("user_holidays")
-      .update({ active: false })
+    // Ownership: delete строго своей строки (user_id в фильтре) — чужой
+    // праздник удалить нельзя; 0 строк → 404 (id не существует или чужой).
+    const { data: deleted, error } = await supabaseAdmin
+      .from("holiday_reminders")
+      .delete()
       .eq("id", id)
-      .eq("user_id", user.userId);
+      .eq("user_id", user.userId)
+      .select("id") as {
+      data: { id: string }[] | null;
+      error: { message: string } | null;
+    };
 
     if (error) {
       console.error("[holidays] delete failed:", error.message);
       throw new HttpError(500, "Не удалось удалить праздник");
+    }
+    if (!deleted || deleted.length === 0) {
+      throw new HttpError(404, "Праздник не найден");
     }
     return NextResponse.json({ success: true });
   } catch (error) {

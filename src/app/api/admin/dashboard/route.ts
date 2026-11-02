@@ -2,12 +2,16 @@
  * GET /api/admin/dashboard — сводная статистика админ-панели.
  *
  * Возвращает: totalUsers, newUsersToday, totalOrders, revenueToday, revenueMonth,
- * activeTickets, pendingPayouts, fraudAlerts + recentOrders + revenue по месяцам.
+ * activeTickets, pendingPayouts, fraudAlerts + recentOrders + рост платформы.
  *
- * Stub mode: в dev (NODE_ENV=development) или если БД недоступна —
- * возвращает demo-данные со stub: true флагом, чтобы UI мог рендериться.
+ * Auth: ADMIN или SUPER_ADMIN.
  *
- * Auth: ADMIN или SUPER_ADMIN
+ * FIX (P2 dev-stub): раньше в dev роут возвращал фиктивные KPI (STUB_DATA)
+ * анониму и не-администратору — фальшивые 1248 юзеров / 1.84M выручки
+ * рендерились в кабинете с бейджем LIVE как настоящие. Теперь:
+ *   • 401/403 — в ЛЮБОМ окружении (проверки доступа не обходятся);
+ *   • недоступность БД → 503 (UI показывает ErrorState с повтором),
+ *     фиктивные данные не маскируются под живые.
  *
  * Оптимизация:
  *   • Все count-запросы выполняются параллельно через Promise.all (вместо 5
@@ -23,43 +27,6 @@ import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
 
 export const runtime = "nodejs";
-
-const STUB_DATA = {
-  stats: {
-    totalUsers: 1248,
-    newUsersToday: 24,
-    totalOrders: 342,
-    revenueToday: 84700,
-    revenueMonth: 1840000,
-    activeTickets: 8,
-    pendingPayouts: 12,
-    fraudAlerts: 3,
-  },
-  recentOrders: [
-    { id: "o1", number: "ORD-2026-0042", customer: "Мария С.", total: 4500, status: "PAID", date: "2026-08-17T14:30:00" },
-    { id: "o2", number: "ORD-2026-0041", customer: "Иван П.", total: 6800, status: "PENDING", date: "2026-08-17T14:00:00" },
-    { id: "o3", number: "ORD-2026-0040", customer: "Елена В.", total: 12000, status: "PAID", date: "2026-08-17T13:15:00" },
-    { id: "o4", number: "ORD-2026-0039", customer: "Пётр И.", total: 3500, status: "DELIVERED", date: "2026-08-17T12:45:00" },
-    { id: "o5", number: "ORD-2026-0038", customer: "Анна К.", total: 8200, status: "PAID", date: "2026-08-17T12:00:00" },
-  ],
-  revenue: [
-    { month: "Мар", value: 1240000 },
-    { month: "Апр", value: 1380000 },
-    { month: "Май", value: 1520000 },
-    { month: "Июн", value: 1680000 },
-    { month: "Июл", value: 1750000 },
-    { month: "Авг", value: 1840000 },
-  ],
-  platformGrowth: [
-    { month: "Мар", users: 210, orders: 56 },
-    { month: "Апр", users: 232, orders: 61 },
-    { month: "Май", users: 255, orders: 67 },
-    { month: "Июн", users: 281, orders: 74 },
-    { month: "Июл", users: 305, orders: 82 },
-    { month: "Авг", users: 331, orders: 90 },
-  ],
-  stub: true,
-};
 
 interface RecentOrder {
   id: string;
@@ -77,20 +44,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await getUserFromRequest(request);
 
-    // Stub mode в dev без авторизации
+    // FIX (P2 dev-stub): 401 в любом окружении — фиктивные KPI больше не
+    // отдаются анониму.
     if (!user) {
-      if (process.env.NODE_ENV === "development") {
-        return NextResponse.json(STUB_DATA);
-      }
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
     }
 
-    // Проверка роли — ADMIN или SUPER_ADMIN
+    // Проверка роли — ADMIN или SUPER_ADMIN (403 в любом окружении)
     const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
     if (guard) {
-      if (process.env.NODE_ENV === "development") {
-        return NextResponse.json(STUB_DATA);
-      }
       return new NextResponse(guard.body, {
         status: guard.status,
         headers: guard.headers,
@@ -217,15 +179,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     } catch (dbError) {
       const errMsg = dbError instanceof Error ? dbError.message : String(dbError);
-      console.warn("[admin/dashboard] DB unavailable, returning stub:", errMsg);
-      return NextResponse.json(STUB_DATA);
+      console.warn("[admin/dashboard] DB unavailable:", errMsg);
+      // FIX (P2 dev-stub): недоступность БД больше не маскируется демо-данными —
+      // админ видит честную ошибку (UI: ErrorState + «Повторить»).
+      return NextResponse.json(
+        { error: "Статистика временно недоступна", details: errMsg },
+        { status: 503 }
+      );
     }
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error("GET /api/admin/dashboard error:", errMsg);
-    if (process.env.NODE_ENV === "development") {
-      return NextResponse.json(STUB_DATA);
-    }
     return NextResponse.json(
       { error: "Внутренняя ошибка" },
       { status: 500 }

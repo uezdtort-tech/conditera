@@ -44,11 +44,9 @@ interface HolidayReminder {
   id: string;
   user_id: string;
   name: string;
-  month: number;
-  day: number;
-  remind_days_before: number;
-  preferred_category?: string | null;
-  active: boolean;
+  type: string | null;
+  date: string; // DATE 'YYYY-MM-DD' (год — ближайшая годовщина)
+  remind_days_before: number | null;
   last_notified_at: string | null;
 }
 
@@ -67,11 +65,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const now = new Date();
     let notificationsSent = 0;
 
-    // 1. Загрузить активные пользовательские праздники
+    // 1. Загрузить пользовательские праздники (holiday_reminders, схема 0010:
+    //    user_id/name/type/date/remind_days_before/is_recurring/last_notified_at).
+    //    FIX (holidays): раньше запрос читал фантомные колонки active/month/day —
+    //    PostgREST возвращал ошибку схемы и напоминания молча не работали.
+    //    Мягкое удаление не используется: DELETE /api/holidays удаляет строку.
     const { data: userHolidays, error: holidaysErr } = await supabaseAdmin
       .from("holiday_reminders")
-      .select("*")
-      .eq("active", true);
+      .select("id, user_id, name, type, date, remind_days_before, last_notified_at");
 
     if (holidaysErr) {
       console.warn("[cron/holiday-reminders] query error (non-fatal):", holidaysErr.message);
@@ -81,8 +82,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 2. Обработать каждый пользовательский праздник
     for (const holiday of holidays) {
-      // Целевая дата в этом году
-      const targetDate = new Date(now.getFullYear(), holiday.month - 1, holiday.day);
+      // Месяц/день — из date (шим/PG отдают DATE как ISO-строку, возможно
+      // с временем); год игнорируем: напоминание ежегодное. Целевая дата — в этом году.
+      const d = new Date(holiday.date);
+      const month = d.getUTCMonth() + 1;
+      const day = d.getUTCDate();
+      const targetDate = new Date(now.getFullYear(), month - 1, day);
       const daysUntil = Math.ceil(
         (targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
       );
@@ -109,7 +114,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           data: {
             type: "holiday_reminder",
             holidayId: holiday.id,
-            preferredCategory: holiday.preferred_category,
+            preferredCategory: holiday.type,
           },
         });
 
