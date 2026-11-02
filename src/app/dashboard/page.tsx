@@ -17,8 +17,9 @@
  * отдельным chunk'ом, что уменьшает initial bundle size.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAppStore } from "@/lib/store";
+import { dashboardViewByRole } from "@/lib/primary-role";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { AuthModal } from "@/components/layout/auth-modal";
@@ -91,43 +92,12 @@ function DashboardSkeleton(): React.JSX.Element {
 }
 
 /**
- * Маппинг роли пользователя → view id (используется в store.navigate).
- * Добавлены 2 новые роли v2.0 (RECIPE_DEVELOPER, LOYALTY_PARTNER).
+ * Главная роль пользователя → view id (используется в store.navigate).
+ * Маппинг — единый источник в primary-role.ts (dashboardViewByRole):
+ * store.setSupabaseUser пересчитывает view при смене пользователя
+ * тем же маппингом — рассинхрон невозможен.
  */
-const dashboardByRole: Record<user_role, string> = {
-  CUSTOMER: "dashboard-customer",
-  CONFECTIONER: "dashboard-confectioner",
-  STUDIO: "dashboard-confectioner",
-  SUPPLIER: "dashboard-supplier",
-  COURIER: "dashboard-courier",
-  ADMIN: "dashboard-admin",
-  SUPER_ADMIN: "dashboard-admin",
-  // NEW v2.0 — отдельные дашборды для новых ролей
-  RECIPE_DEVELOPER: "dashboard-recipe-developer",
-  LOYALTY_PARTNER: "dashboard-loyalty-partner",
-  // Все расширенные и нишевые роли → через ExtraDashboards
-  MODERATOR: "dashboard-extra",
-  SUPPORT: "dashboard-extra",
-  BLOGGER: "dashboard-extra",
-  TASTER: "dashboard-extra",
-  FRANCHISEE: "dashboard-extra",
-  NUTRITIONIST: "dashboard-extra",
-  CORPORATE_CLIENT: "dashboard-extra",
-  COPYWRITER: "dashboard-extra",
-  FOOD_SERVICE: "dashboard-extra",
-  EVENT_ORGANIZER: "dashboard-extra",
-  PICKUP_POINT: "dashboard-extra",
-  WHOLESALER: "dashboard-extra",
-  QUALITY_INSPECTOR: "dashboard-extra",
-  CERTIFICATION_AGENT: "dashboard-extra",
-  VENUE_OWNER: "dashboard-extra",
-  ANIMATOR_AGENCY: "dashboard-extra",
-  RECREATION_CENTER: "dashboard-extra",
-  KIDS_CLUB: "dashboard-extra",
-  INSPECTOR: "dashboard-extra",
-  GUEST: "dashboard-customer",
-  AI_ASSISTANT: "dashboard-extra",
-};
+const dashboardByRole = dashboardViewByRole;
 
 export default function DashboardPage(): React.JSX.Element {
   const navigate = useAppStore((s) => s.navigate);
@@ -141,14 +111,23 @@ export default function DashboardPage(): React.JSX.Element {
 
   useSeoMetadata(view || "dashboard-customer");
 
+  // Первопричина «кабинет не той роли после reload»: nav.view персистится
+  // (zustand persist), и при старте вкладки, когда пользователь в storage —
+  // уже другой, старое условие (!view.startsWith("dashboard-")) пропускало
+  // пересчёт. Отслеживаем смену пользователя явно: при новом user.id
+  // view выставляется по роли, даже если это «dashboard-*».
+  const lastUserIdRef = useRef<string | null>(null);
   useEffect(() => {
     // Если пользователь не авторизован — открываем модалку логина
     if (!user) {
+      lastUserIdRef.current = null;
       setAuthModalOpen(true);
       return;
     }
-    // Если view ещё не установлен на дашборд — выставляем по роли
-    if (!view || !view.startsWith("dashboard-")) {
+    const userChanged = lastUserIdRef.current !== user.id;
+    lastUserIdRef.current = user.id;
+    // Если view не дашборд ИЛИ пользователь сменился — выставляем по роли
+    if (!view || !view.startsWith("dashboard-") || userChanged) {
       const role = (activeRole || user?.roles?.[0] || "CUSTOMER") as user_role;
       const targetView = dashboardByRole[role] || "dashboard-customer";
       navigate(targetView as never);

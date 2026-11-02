@@ -19,6 +19,7 @@
 
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { user_role } from "@/lib/supabase/types";
+import { ROLE_PRIORITY } from "@/lib/primary-role";
 
 /**
  * Получить все активные роли пользователя (по user_id).
@@ -195,41 +196,9 @@ export async function getPrimaryRole(userId: string): Promise<user_role | null> 
   const roles = await getUserRoles(userId);
   if (roles.length === 0) return null;
 
-  // Приоритет ролей (от высокого к низкому)
-  const PRIORITY: user_role[] = [
-    "SUPER_ADMIN",
-    "ADMIN",
-    "INSPECTOR",
-    "FRANCHISEE",
-    "CERTIFICATION_AGENT",
-    "QUALITY_INSPECTOR",
-    "NUTRITIONIST",
-    "MODERATOR",
-    "SUPPORT",
-    "CORPORATE_CLIENT",
-    "WHOLESALER",
-    "FOOD_SERVICE",
-    "EVENT_ORGANIZER",
-    "PICKUP_POINT",
-    "VENUE_OWNER",
-    "ANIMATOR_AGENCY",
-    "RECREATION_CENTER",
-    "KIDS_CLUB",
-    "STUDIO",
-    "SUPPLIER",
-    "RECIPE_DEVELOPER",
-    "LOYALTY_PARTNER",
-    "CONFECTIONER",
-    "COURIER",
-    "BLOGGER",
-    "TASTER",
-    "COPYWRITER",
-    "AI_ASSISTANT",
-    "CUSTOMER",
-    "GUEST",
-  ];
-
-  for (const role of PRIORITY) {
+  // Иерархия — единый источник в primary-role.ts (клиентский pickPrimaryRole
+  // использует тот же массив: рассинхрон невозможен).
+  for (const role of ROLE_PRIORITY) {
     if (roles.includes(role)) return role;
   }
   return roles[0];

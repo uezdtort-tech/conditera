@@ -95,6 +95,7 @@ import {
   MOCK_VIDEO_REVIEWS,
   MOCK_COURIER_TRACKING,
 } from "./mock-data-features";
+import { pickPrimaryRole, dashboardViewByRole } from "@/lib/primary-role";
 import {
   MOCK_CMS_PAGES,
   MOCK_CMS_BLOCKS,
@@ -755,11 +756,27 @@ export const useAppStore = create<AppState>()(
           set({ user: null, activeRole: null, isAuthenticated: false });
           return;
         }
+        // Первопричина «кабинет не той роли после смены аккаунта»: раньше
+        // activeRole = roles[0] (у курьера roles = [CUSTOMER, COURIER] →
+        // CUSTOMER), а персистенный nav.view оставался от прежнего
+        // пользователя. Теперь:
+        //   • главная роль — по канонической иерархии (pickPrimaryRole):
+        //     курьер попадает в свой кабинет;
+        //   • при СМЕНЕ пользователя (другой id) персистенный dashboard-view
+        //     пересчитывается по роли нового пользователя — иначе после
+        //     выхода покупателя и входа курьером открывался кабинет клиента.
+        const prev = get();
+        const primaryRole = pickPrimaryRole(user.roles);
+        const isUserSwitch = prev.user?.id !== user.id;
+        const nextNav = isUserSwitch && prev.nav?.view?.startsWith("dashboard-")
+          ? { ...prev.nav, view: dashboardViewByRole[primaryRole] ?? "dashboard-customer" }
+          : prev.nav;
         set({
           user,
-          activeRole: user.roles[0] ?? null,
+          activeRole: primaryRole,
           isAuthenticated: true,
           authModalOpen: false,
+          ...(nextNav !== prev.nav ? { nav: nextNav } : {}),
         });
       },
 

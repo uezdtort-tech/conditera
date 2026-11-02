@@ -27,7 +27,13 @@ export type Role =
   | "ANIMATOR_AGENCY"
   | "RECREATION_CENTER"
   | "KIDS_CLUB"
-  | "INSPECTOR";
+  | "INSPECTOR"
+  // Роли v2.0 («Архитектура ролевой экосистемы») — уже используются
+  // дашбордами/схемой user_role, но отсутствовали в клиентском типе,
+  // из-за чего pickPrimaryRole(user_role) не присваивался activeRole.
+  | "RECIPE_DEVELOPER"
+  | "LOYALTY_PARTNER"
+  | "AI_ASSISTANT";
 
 export interface User {
   id: string;
