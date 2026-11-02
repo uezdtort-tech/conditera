@@ -12,6 +12,8 @@ import { useEffect } from "react";
 import type { Confectioner } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { ConfectionerProfilePage } from "@/components/pages/confectioner-profile-page";
+import { AuthModal } from "@/components/layout/auth-modal";
+import { ChatWidget } from "@/components/chat/chat-widget";
 
 export function ConfectionerSlugPage({ confectioner }: { confectioner: Confectioner }) {
   const setConfectioners = useAppStore((s) => s.setConfectioners);
@@ -30,5 +32,17 @@ export function ConfectionerSlugPage({ confectioner }: { confectioner: Confectio
     store.navigate("confectioner-profile", { id: confectioner.id });
   }, [confectioner.id]);
 
-  return <ConfectionerProfilePage />;
+  // AuthModal + ChatWidget — те же инстансы, что в SPA-shell (src/app/page.tsx).
+  // Первопричина: slug-роут рендерит профиль БЕЗ shell, где смонтированы эти
+  // глобальные виджеты — «Написать» у гостя вызывал setAuthModalOpen(true),
+  // но слушателей не было (мёртвый клик); у аутентифицированного тем же
+  // страдал setChatOpen(true). Монтируем те же компоненты на этом дереве —
+  // состояние по-прежнему одно (Zustand store), второй системы нет.
+  return (
+    <>
+      <ConfectionerProfilePage />
+      <AuthModal />
+      <ChatWidget />
+    </>
+  );
 }

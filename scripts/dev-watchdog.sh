@@ -1,35 +1,33 @@
 #!/bin/bash
-# scripts/dev-watchdog.sh — авторестарт dev-сервера, если среда его убила.
-# Появился из-за особенности песочницы: фоновые процессы периодически
-# умирают между командами (см. worklog: OOM-класс + sandbox process reaping).
-# Запуск: setsid nohup bash scripts/dev-watchdog.sh > .zscripts/watchdog.log 2>&1 &
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$PROJECT_DIR"
+# dev-watchdog.sh — рестарт Next dev при тихой смерти песочницы (reaper/daemon-killer).
+# Режимы:
+#   ./dev-watchdog.sh loop  — вечный цикл проверки (для ручного запуска)
+#   ./dev-watchdog.sh once  — одна проверка: поднять dev, если мёртв, дождаться 200
+# Диагноз 2026-11-02: процесс умирает молча (без dmesg-OOM и без лога) за ~минуту
+# даже в простое; chat-server (bun --hot) при этом живёт — периодический reaper песочницы.
+
+cd "$(dirname "$0")/.." || exit 1
+
+ensure_dev() {
+  if ! pgrep -f "next dev" > /dev/null 2>&1; then
+    echo "[$(date +%H:%M:%S)] next dev отсутствует — рестарт" >> /tmp/watchdog.log
+    NODE_OPTIONS="--max-old-space-size=1792" setsid bun run dev >> /tmp/next-dev.log 2>&1 < /dev/null &
+  fi
+  # Дождаться готовности (до ~60с)
+  for i in $(seq 1 20); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health --max-time 5 2>/dev/null)
+    [ "$code" = "200" ] && return 0
+    sleep 3
+  done
+  return 1
+}
+
+if [ "${1:-loop}" = "once" ]; then
+  ensure_dev
+  exit $?
+fi
 
 while true; do
-  # deploy-gate: пока идёт деплой (маркер от .zscripts/start.sh, TTL 20 мин),
-  # watchdog не трогает порт 3000 — иначе гонка с production server.js
-  if [ -f /tmp/.deploy-in-progress ]; then
-    now=$(date +%s); mark=$(stat -c %Y /tmp/.deploy-in-progress 2>/dev/null || echo 0)
-    if [ $((now - mark)) -lt 1200 ]; then
-      sleep 15; continue
-    fi
-    rm -f /tmp/.deploy-in-progress
-  fi
-  if ! curl -sf -o /dev/null --max-time 5 http://localhost:3000/; then
-    echo "[$(date '+%F %T')] dev server down — restarting (dev:local)"
-    # Убрать зомби на порту, если есть (fuser отсутствует в контейнере — lsof)
-    for p in $(lsof -ti tcp:3000 2>/dev/null || true); do kill -KILL "$p" 2>/dev/null || true; done
-    sleep 1
-    setsid nohup bun run dev:local >> dev.log 2>&1 < /dev/null &
-    # Ждать готовности до ~90с (первая компиляция turbopack медленная)
-    for i in $(seq 1 45); do
-      sleep 2
-      curl -sf -o /dev/null --max-time 5 http://localhost:3000/ && break
-    done
-    curl -sf -o /dev/null --max-time 5 http://localhost:3000/ \
-      && echo "[$(date '+%F %T')] dev server UP" \
-      || echo "[$(date '+%F %T')] dev server STILL DOWN"
-  fi
-  sleep 15
+  ensure_dev
+  sleep 5
 done
