@@ -10,10 +10,10 @@
 - **Симптом (живое воспроизведение, agent-browser):** logout customer → login `courier@demo.ru` → `/dashboard` рендерит **покупательский** кабинет («Обзор», «Мои заказы») при store `roles=["CUSTOMER","COURIER"]`. Дополнительно `activeRole` был `CUSTOMER`.
 - **Root cause (2 независимые причины):**
   1. `store.setSupabaseUser` ставил `activeRole: user.roles[0]` — у мультит-рольных аккаунтов первая роль CUSTOMER (курьер: `["CUSTOMER","COURIER"]`).
-  2. `nav.view` персистится (zustand persist). Эффект в `/dashboard/page.tsx` пересчитывал view только когда view ещё не `dashboard-*` — после смены пользователя старый персистенный `dashboard-customer` пропускал пересчёт.
+  2. ~~`nav.view` персистится (zustand persist).~~ **ИСПРАВЛЕНО 2026-11-02 (A-4, приёмка 7392403): nav НЕ входит в `partialize` (store.ts) — после reload view всегда «home» и пересчитывается по activeRole (он персистится). Старая формулировка неверна; фактический механизм фикса — пересчёт activeRole + lastUserIdRef на маунте.** Изначальная формулировка: `nav.view` персистится; эффект в `/dashboard/page.tsx` пересчитывал view только когда view ещё не `dashboard-*`.
 - **Фикс:**
   - `src/lib/primary-role.ts` (новый) — client-safe `ROLE_PRIORITY` + `pickPrimaryRole` + `dashboardViewByRole` (единый источник иерархии).
-  - `src/lib/store.ts` `setSupabaseUser` — `activeRole = pickPrimaryRole(roles)`; при смене `user.id` персистенный `dashboard-*` view пересчитывается по роли.
+  - `src/lib/store.ts` `setSupabaseUser` — `activeRole = pickPrimaryRole(roles)`; при смене `user.id` ТЕКУЩИЙ (SPA, в памяти) `dashboard-*` view пересчитывается по роли. **Уточнение A-4: не «персистенный» — nav не персистится.**
   - `src/app/dashboard/page.tsx` — `lastUserIdRef`, при новом `user.id` view выставляется по роли, даже если view уже `dashboard-*`; маппинг импортирован (дубль удалён).
   - `src/lib/types.ts` — `Role` дополнен ролями v2.0 (`RECIPE_DEVELOPER`, `LOYALTY_PARTNER`, `AI_ASSISTANT`), которые сервер уже отдавал.
   - `src/lib/role-guards.ts` — `getPrimaryRole` импортирует `ROLE_PRIORITY` (устранение дублированной иерархии).
@@ -48,7 +48,9 @@
 | Proxy-trust | PRESENT — `ingress-trust.test.ts` (14), `TRUSTED_PROXY_HOPS` |
 | useSocketIO | PRESENT + подключён (`chat-widget.tsx`) |
 | IDOR ai-dialogue | PRESENT — `ai-dialogue-access.test.ts` (7, fail-closed) |
-| CSV-экспорт, VK OAuth callback, split-payments, аудит-лог | NOT FOUND в runtime-коде — трактовать как deferred/продуктовые решения, не регрессии (были перечнем рекомендаций, не реализацией) |
+| CSV-экспорт, split-payments | NOT FOUND в runtime-коде — трактовать как deferred/продуктовые решения, не регрессии (были перечнем рекомендаций, не реализацией) |
+| VK OAuth callback | **УТОЧНЕНО 2026-11-02 (A-4):** generic OAuth callback существует (`/api/auth/callback`, Supabase createServerClient, provider-agnostic) — отсутствует не callback как класс, а VK-специфичный flow/конфиг провайдера |
+| Аудит-лог | **ИСПРАВЛЕНО 2026-11-02 (A-4):** формулировка «NOT FOUND» была результатом поиска по символу без проверки вызовов. Таблица `audit_log` ИСПОЛЬЗУЕТСЯ в `src/app/api/franchise-exchange/{listings,agreements,transfer}/route.ts` (записи при transfer/buy/изменении листингов). Корректная формулировка: единой подсистемы аудита безопасности (auth/payments/admin) НЕТ; точечные записи в franchise-exchange ЕСТЬ |
 
 ## Открытые дефекты
 

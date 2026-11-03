@@ -120,21 +120,94 @@ export async function PATCH(
 
     // P1.1 §15: COURIER меняет только назначенные ему доставки. Раньше любой
     // курьер мог перевести ЛЮБОЙ заказ READY → IN_DELIVERY → DELIVERED.
+    // A-2: массив-запрос вместо .maybeSingle() — при аномалии из двух строк
+    // (order+courier) maybeSingle вернул бы ошибку, assignment=null и легитимный
+    // курьер получил бы 403. Ошибка БД — fail-closed 500 (не 403: «не назначен»
+    // было бы ложью при недоступности данных).
     if (
       userRoles.includes("COURIER") &&
       !userRoles.includes("ADMIN") &&
       !userRoles.includes("SUPER_ADMIN") &&
       (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")
     ) {
-      const { data: assignment } = await supabaseAdmin
+      const { data: assignments, error: assignmentError } = await supabaseAdmin
         .from("deliveries")
         .select("id")
         .eq("order_id", orderId)
         .eq("courier_id", user.id)
-        .maybeSingle();
-      if (!assignment) {
+        .limit(1);
+      if (assignmentError) {
+        console.error(
+          "[orders/[id]] assignment check failed:",
+          assignmentError.message
+        );
+        return NextResponse.json(
+          { error: "Не удалось проверить назначение доставки" },
+          { status: 500 }
+        );
+      }
+      if (!assignments || assignments.length === 0) {
         return forbiddenResponse("Можно менять только назначенные вам доставки");
       }
+    }
+
+    // P1 (courier): синхронизация строки deliveries у перехода в DELIVERED.
+    // Первопричина рассинхрона: courier/assign ставил orders.status=IN_DELIVERY,
+    // но deliveries.status навсегда оставался 'assigned' — кабинет курьера
+    // (фильтр deliveries.status='delivered') и API (orders.status) показывали
+    // разные цифры, у доставки не заполнялись delivered_at/courier_earnings.
+    //
+    // A-2 (первопричина молчаливого пропуска синхронизации): раньше sync-чтение
+    // шло через .maybeSingle() без деструктуризации error — при двух активных
+    // доставках одного заказа PostgREST возвращал ошибку «multiple rows»,
+    // data=null, sync молча пропускался (доставки навсегда активны,
+    // courier_earnings=0) без единой записи в логе.
+    //
+    // Теперь инвариант «≤ 1 активной доставки на заказ» проверяется ДО
+    // необратимого обновления заказа:
+    //   • 0 активных — легально (самовывоз/заказы без доставки) → переход без sync;
+    //   • 1 активная — штатный sync после обновления (CAS по активным статусам;
+    //     повторный DELIVERED невозможен картой переходов; начисление НЕ
+    //     суммируется — courier_earnings присваивается, а не инкрементируется);
+    //   • >1 — аномалия данных: 409 с диагностикой ДО обновления заказа
+    //     (частично завершённый процесс не создаётся); уникальный индекс /
+    //     чистка данных — отдельным согласованием (не вслепую);
+    //   • ошибка чтения — fail-closed 500 до обновления заказа.
+    // Отчёт клиенту: поле deliverySync — честный статус синхронизации. Ошибка
+    // sync-записи не роняет уже выполненный переход (статус заказа = источник
+    // истины), но и не маскируется под успех.
+    let deliverySync: "ok" | "skipped_no_delivery" | "failed" = "skipped_no_delivery";
+    let activeDelivery: { id: string; status: string; cost: number | null } | null = null;
+    if (newStatus === "DELIVERED") {
+      const { data: activeRows, error: activeError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, status, cost")
+        .eq("order_id", orderId)
+        .in("status", ["assigned", "picked_up", "on_the_way"]);
+      if (activeError) {
+        console.error(
+          "[orders/[id]] active deliveries read failed:",
+          activeError.message
+        );
+        return NextResponse.json(
+          { error: "Не удалось проверить доставки заказа (синхронизация отменена)" },
+          { status: 500 }
+        );
+      }
+      const rows = (activeRows || []) as { id: string; status: string; cost: number | null }[];
+      if (rows.length > 1) {
+        console.error(
+          `[orders/[id]] DELIVERED blocked: ${rows.length} active deliveries for order ${orderId}:`,
+          JSON.stringify(rows.map((d) => d.id))
+        );
+        return NextResponse.json(
+          {
+            error: `Нарушен инвариант данных: у заказа ${rows.length} активных доставок (допустимо 0 или 1). Переход отменён — требуется исправление данных.`,
+          },
+          { status: 409 }
+        );
+      }
+      activeDelivery = rows[0] ?? null;
     }
 
     // Обновляем заказ
@@ -196,41 +269,35 @@ export async function PATCH(
       payload: { from: order.status, to: newStatus },
     });
 
-    // P1 (courier): синхронизация строки deliveries у перехода в DELIVERED.
-    // Первопричина рассинхрона: courier/assign ставил orders.status=IN_DELIVERY,
-    // но deliveries.status навсегда оставался 'assigned' — кабинет курьера
-    // (фильтр deliveries.status='delivered') и API (orders.status) показывали
-    // разные цифры, у доставки не заполнялись delivered_at/courier_earnings.
-    // Fail-safe: статус заказа = источник истины; сбой синхронизации не роняет
-    // переход (логируем), повтор PATCH невозможен (CAS по статусам ниже).
-    if (newStatus === "DELIVERED") {
+    // P1 (courier) / A-2: sync-запись единственной активной доставки.
+    // Инвариант и диагностика — выше (до обновления заказа); здесь — только
+    // CAS-запись с честным отчётом deliverySync.
+    if (activeDelivery) {
       try {
         const nowIso = new Date().toISOString();
-        const { data: dRow } = await supabaseAdmin
+        const { error: dErr } = await supabaseAdmin
           .from("deliveries")
-          .select("id, status, cost")
-          .eq("order_id", orderId)
-          .in("status", ["assigned", "picked_up", "on_the_way"])
-          .maybeSingle() as {
-          data: { id: string; status: string; cost: number | null } | null;
-        };
-        if (dRow) {
-          const { error: dErr } = await supabaseAdmin
-            .from("deliveries")
-            .update({
-              status: "delivered",
-              delivered_at: nowIso,
-              // курьер получает стоимость доставки (схема 0002: courier_earnings)
-              courier_earnings: Number(dRow.cost || 0),
-              updated_at: nowIso,
-            })
-            .eq("id", dRow.id)
-            .in("status", ["assigned", "picked_up", "on_the_way"]);
-          if (dErr) {
-            console.error("[orders/[id]] deliveries sync failed:", dErr.message);
-          }
+          .update({
+            status: "delivered",
+            delivered_at: nowIso,
+            // курьер получает стоимость доставки (схема 0002: courier_earnings).
+            // A-3: канонический источник заработка — снимок на момент доставки;
+            // присваивание (не инкремент) — повторная обработка не удваивает сумму.
+            courier_earnings: Number(activeDelivery.cost || 0),
+            updated_at: nowIso,
+          })
+          .eq("id", activeDelivery.id)
+          .in("status", ["assigned", "picked_up", "on_the_way"]);
+        if (dErr) {
+          // A-2: ошибка деструктурирована и залогирована; статус перехода
+          // честно помечен failed (не маскируем под успешную синхронизацию).
+          deliverySync = "failed";
+          console.error("[orders/[id]] deliveries sync failed:", dErr.message);
+        } else {
+          deliverySync = "ok";
         }
       } catch (syncErr) {
+        deliverySync = "failed";
         console.error(
           "[orders/[id]] deliveries sync error:",
           (syncErr as Error)?.message
@@ -241,6 +308,10 @@ export async function PATCH(
     return NextResponse.json({
       order: updatedOrder,
       transition: { from: order.status, to: newStatus },
+      // A-2: честный статус синхронизации доставки (ok / skipped_no_delivery /
+      // failed) — отсутствие ошибки в ответе больше не выдаёт пропущенный sync
+      // за успешный.
+      ...(newStatus === "DELIVERED" ? { deliverySync } : {}),
     });
   } catch (error) {
     console.error("[orders/[id]] Unexpected:", (error as Error).message);

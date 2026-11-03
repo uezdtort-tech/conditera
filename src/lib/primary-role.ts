@@ -69,9 +69,36 @@ export function pickPrimaryRole(roles: readonly string[] | null | undefined): us
 }
 
 /**
+ * Кабинеты, которые РЕАЛЬНО рендерит /dashboard/page.tsx (switch по view).
+ * Единый источник для тестов карты: любой view из dashboardViewByRole обязан
+ * входить в этот набор, иначе переход роли ведёт на «мёртвый» view
+ * (page.tsx default → вечный skeleton). НЕ расширять без страницы-рендера.
+ */
+export const RENDERABLE_DASHBOARD_VIEWS = [
+  "dashboard-customer",
+  "dashboard-confectioner",
+  "dashboard-supplier",
+  "dashboard-courier",
+  "dashboard-admin",
+  "dashboard-recipe-developer",
+  "dashboard-loyalty-partner",
+  "dashboard-extra",
+] as const satisfies readonly ViewKey[];
+
+export type RenderableDashboardView = (typeof RENDERABLE_DASHBOARD_VIEWS)[number];
+
+/**
  * Главная роль → view личного кабинета. Единый источник для:
  *   • store.setSupabaseUser (пересчёт view при смене пользователя);
- *   • /dashboard/page.tsx (первичная установка view по роли).
+ *   • /dashboard/page.tsx (первичная установка view по роли);
+ *   • header.tsx goToDashboard (раньше был локальный DASHBOARD_MAP,
+ *     расходившийся с этим маппингом: v2.0-роли уезжали в «home»,
+ *     MODERATOR/SUPPORT/BLOGGER — в несуществующие dashboard-*) —
+ *     A-5: дублирующая карта удалена, все точки перехода используют её.
+ *
+ * Exhaustiveness-guard: Record<user_role, ViewKey> обязывает иметь ключ для
+ * КАЖДОЙ роли из union user_role — новая роль без кабинета = ошибка tsc,
+ * а не молчаливый «home» в рантайме.
  */
 export const dashboardViewByRole: Record<user_role, ViewKey> = {
   CUSTOMER: "dashboard-customer",
@@ -106,3 +133,28 @@ export const dashboardViewByRole: Record<user_role, ViewKey> = {
   GUEST: "dashboard-customer",
   AI_ASSISTANT: "dashboard-extra",
 };
+
+/**
+ * Роль → view кабинета (runtime-безопасный доступор для точек перехода).
+ * TS гарантирует полноту Record, но данные из персиста/БД могут быть
+ * битыми — fallback на кабинет покупателя вместо undefined-навигации.
+ * ЕДИНСТВЕННАЯ точка выбора кабинета: store, /dashboard, header.
+ */
+export function dashboardViewForRole(role: string | null | undefined): RenderableDashboardView {
+  if (!role) return "dashboard-customer";
+  const view = (dashboardViewByRole as Record<string, ViewKey>)[role];
+  return (RENDERABLE_DASHBOARD_VIEWS as readonly string[]).includes(view)
+    ? (view as RenderableDashboardView)
+    : "dashboard-customer";
+}
+
+/**
+ * Compile-time exhaustiveness: если в user_role добавлена роль, отсутствующая
+ * в dashboardViewByRole, tsc падает на `never`-несовместимости (A-5: карта
+ * не может «забыть» роль — TypeScript фиксирует пропуск до рантайма).
+ */
+type _EveryRoleHasDashboardView = Exclude<user_role, keyof typeof dashboardViewByRole> extends never
+  ? true
+  : never;
+const _EXHAUSTIVE_ROLES_CHECK: _EveryRoleHasDashboardView = true;
+void _EXHAUSTIVE_ROLES_CHECK;

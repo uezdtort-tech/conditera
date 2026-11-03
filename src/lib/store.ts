@@ -95,7 +95,7 @@ import {
   MOCK_VIDEO_REVIEWS,
   MOCK_COURIER_TRACKING,
 } from "./mock-data-features";
-import { pickPrimaryRole, dashboardViewByRole } from "@/lib/primary-role";
+import { pickPrimaryRole, dashboardViewForRole } from "@/lib/primary-role";
 import {
   MOCK_CMS_PAGES,
   MOCK_CMS_BLOCKS,
@@ -758,29 +758,61 @@ export const useAppStore = create<AppState>()(
         }
         // Первопричина «кабинет не той роли после смены аккаунта»: раньше
         // activeRole = roles[0] (у курьера roles = [CUSTOMER, COURIER] →
-        // CUSTOMER), а персистенный nav.view оставался от прежнего
-        // пользователя. Теперь:
+        // CUSTOMER). Теперь:
         //   • главная роль — по канонической иерархии (pickPrimaryRole):
         //     курьер попадает в свой кабинет;
-        //   • при СМЕНЕ пользователя (другой id) персистенный dashboard-view
-        //     пересчитывается по роли нового пользователя — иначе после
-        //     выхода покупателя и входа курьером открывался кабинет клиента.
+        //   • при СМЕНЕ пользователя (другой id) ТЕКУЩИЙ dashboard-view
+        //     пересчитывается по роли нового пользователя — иначе при
+        //     SPA-входе (без reload) под другим аккаунтом оставался кабинет
+        //     прежнего (nav НЕ персистится: после reload view всегда «home»
+        //     и пересчитывается ниже по activeRole — A-4: прежний комментарий
+        //     про «персистентный nav.view» был неверен);
+        //   • при ре-синке ТОГО ЖЕ пользователя (SupabaseAuthSync на маунте/
+        //     фокусе) ручной выбор роли СОХРАНЯЕТСЯ (A-1): раньше каждый
+        //     ре-синк принудительно сбрасывал activeRole на primary, и после
+        //     ручного «Сменить роль» activeRole и view разъезжались.
         const prev = get();
-        const primaryRole = pickPrimaryRole(user.roles);
         const isUserSwitch = prev.user?.id !== user.id;
-        const nextNav = isUserSwitch && prev.nav?.view?.startsWith("dashboard-")
-          ? { ...prev.nav, view: dashboardViewByRole[primaryRole] ?? "dashboard-customer" }
-          : prev.nav;
+        const primaryRole = pickPrimaryRole(user.roles);
+        // Ручной выбор валиден, только если это та же сессия и роль всё ещё
+        // входит в роли пользователя (роли могли изменить на сервере).
+        // Клиентское состояние прав не расширяет: серверные role-guards —
+        // единственный источник полномочий.
+        const manualRoleValid =
+          !isUserSwitch &&
+          prev.activeRole !== null &&
+          user.roles.includes(prev.activeRole);
+        const nextActiveRole = manualRoleValid ? prev.activeRole : primaryRole;
+        const nextNav =
+          isUserSwitch && prev.nav?.view?.startsWith("dashboard-")
+            ? { ...prev.nav, view: dashboardViewForRole(nextActiveRole) }
+            : prev.nav;
         set({
           user,
-          activeRole: primaryRole,
+          activeRole: nextActiveRole,
           isAuthenticated: true,
           authModalOpen: false,
           ...(nextNav !== prev.nav ? { nav: nextNav } : {}),
         });
       },
 
-      setActiveRole: (role) => set({ activeRole: role }),
+      // A-1: единая точка смены активной роли. Раньше менялся только
+      // activeRole, а nav.view оставался кабинетом прежней роли — при возврате
+      // на /dashboard (SPA) рендерился чужой кабинет. Пока пользователь в
+      // dashboard-разделе, view следует за activeRole атомарно; вне кабинетов
+      // (каталог и т.д.) навигацию не дёргаем — кабинет откроется по
+      // goToDashboard/dashboard-эффекту уже по новой роли.
+      setActiveRole: (role) => {
+        const prev = get();
+        if (prev.nav?.view?.startsWith("dashboard-")) {
+          set({
+            activeRole: role,
+            nav: { ...prev.nav, view: dashboardViewForRole(role) },
+          });
+          return;
+        }
+        set({ activeRole: role });
+      },
 
       setConfectioners: (confectioners) => set({ confectioners }),
 

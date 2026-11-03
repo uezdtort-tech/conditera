@@ -40,6 +40,7 @@ import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { GlobalSearch } from "@/components/ui/enhanced-components";
 import { VisualSearchButton } from "@/components/visual-search/visual-search-button";
 import type { ViewKey, Role } from "@/lib/types";
+import { dashboardViewForRole } from "@/lib/primary-role";
 
 // ===== Навигация: основные разделы =====
 const NAV_MAIN: { label: string; view: ViewKey; icon: typeof Cake }[] = [
@@ -128,35 +129,14 @@ function TopPromoBar({ onNavigate }: { onNavigate: (view: ViewKey) => void }) {
   );
 }
 
-// ===== Dashboard map для всех 26 ролей =====
-const DASHBOARD_MAP: Record<string, ViewKey> = {
-  GUEST: "home",
-  CUSTOMER: "dashboard-customer",
-  CONFECTIONER: "dashboard-confectioner",
-  STUDIO: "dashboard-confectioner",
-  SUPPLIER: "dashboard-supplier",
-  COURIER: "dashboard-courier",
-  ADMIN: "dashboard-admin",
-  SUPER_ADMIN: "dashboard-admin",
-  MODERATOR: "dashboard-moderator",
-  SUPPORT: "dashboard-support",
-  COPYWRITER: "dashboard-copywriter",
-  FOOD_SERVICE: "dashboard-food-service",
-  EVENT_ORGANIZER: "dashboard-event-organizer",
-  BLOGGER: "dashboard-blogger",
-  PICKUP_POINT: "dashboard-pickup-point",
-  WHOLESALER: "dashboard-wholesaler",
-  TASTER: "dashboard-taster",
-  FRANCHISEE: "dashboard-franchisee",
-  NUTRITIONIST: "dashboard-nutritionist",
-  CORPORATE_CLIENT: "dashboard-corporate-client",
-  QUALITY_INSPECTOR: "dashboard-quality-inspector",
-  CERTIFICATION_AGENT: "dashboard-certification-agent",
-  VENUE_OWNER: "dashboard-venue-owner",
-  ANIMATOR_AGENCY: "dashboard-animator-agency",
-  RECREATION_CENTER: "dashboard-recreation-center",
-  KIDS_CLUB: "dashboard-kids-club",
-};
+// ===== Кабинеты ролей — ЕДИНЫЙ источник (A-5) =====
+// Раньше здесь был локальный DASHBOARD_MAP, расходившийся с
+// dashboardViewByRole (primary-role.ts): роли v2.0 (RECIPE_DEVELOPER,
+// LOYALTY_PARTNER, AI_ASSISTANT) отсутствовали → goToDashboard вёл в «home»;
+// MODERATOR/SUPPORT/BLOGGER направлялись в dashboard-moderator/support/blogger,
+// которые /dashboard/page.tsx НЕ рендерит (default → вечный skeleton).
+// Дублирующая карта удалена: переход по кабинету использует
+// dashboardViewForRole — тот же маппинг, что store и /dashboard.
 
 const ROLE_LABELS: Record<string, string> = {
   GUEST: "Главная",
@@ -185,6 +165,10 @@ const ROLE_LABELS: Record<string, string> = {
   ANIMATOR_AGENCY: "Агентство аниматоров",
   RECREATION_CENTER: "Развлекательный центр",
   KIDS_CLUB: "Детский клуб",
+  // Роли v2.0 (A-5: раньше отсутствовали → показывался сырой код роли)
+  RECIPE_DEVELOPER: "Кабинет разработчика рецептов",
+  LOYALTY_PARTNER: "Кабинет партнёра лояльности",
+  AI_ASSISTANT: "AI-ассистент",
 };
 
 export function Header() {
@@ -214,7 +198,9 @@ export function Header() {
 
   const goToDashboard = () => {
     if (!activeRole) return;
-    navigate(DASHBOARD_MAP[activeRole] || "home");
+    // A-5: единая карта ролей→кабинетов (та же, что store и /dashboard);
+    // локальная DASHBOARD_MAP удалена — расходилась и вела v2.0-роли в «home».
+    navigate(dashboardViewForRole(activeRole));
   };
 
   // Единый logout: сервер чистит httpOnly cookies (cd_session/cd_refresh) +

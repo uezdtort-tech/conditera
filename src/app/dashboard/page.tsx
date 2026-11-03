@@ -19,7 +19,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAppStore } from "@/lib/store";
-import { dashboardViewByRole } from "@/lib/primary-role";
+import { dashboardViewByRole, pickPrimaryRole } from "@/lib/primary-role";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { AuthModal } from "@/components/layout/auth-modal";
@@ -111,11 +111,15 @@ export default function DashboardPage(): React.JSX.Element {
 
   useSeoMetadata(view || "dashboard-customer");
 
-  // Первопричина «кабинет не той роли после reload»: nav.view персистится
-  // (zustand persist), и при старте вкладки, когда пользователь в storage —
-  // уже другой, старое условие (!view.startsWith("dashboard-")) пропускало
-  // пересчёт. Отслеживаем смену пользователя явно: при новом user.id
-  // view выставляется по роли, даже если это «dashboard-*».
+  // Первопричина «кабинет не той роли при входе на /dashboard» (A-4: прежний
+  // комментарий ошибочно ссылался на персист nav.view — на самом деле nav НЕ
+  // входит в partialize, после reload view всегда «home»). Оба сценария
+  // обрабатываются здесь:
+  //   • после reload view = «home» → пересчёт по activeRole (он персистится);
+  //   • SPA-вход под другим пользователем: view мог остаться dashboard-* от
+  //     прежнего пользователя → пересчёт при смене user.id (lastUserIdRef);
+  //     при том же пользователе view не трогаем — ручной выбор роли
+  //     сохраняется (синхронизацию activeRole↔view делает store.setActiveRole).
   const lastUserIdRef = useRef<string | null>(null);
   useEffect(() => {
     // Если пользователь не авторизован — открываем модалку логина
@@ -126,9 +130,11 @@ export default function DashboardPage(): React.JSX.Element {
     }
     const userChanged = lastUserIdRef.current !== user.id;
     lastUserIdRef.current = user.id;
-    // Если view не дашборд ИЛИ пользователь сменился — выставляем по роли
+    // Если view не дашборд ИЛИ пользователь сменился — выставляем по роли.
+    // Fallback — pickPrimaryRole (каноническая иерархия), НЕ roles[0]:
+    // у мультит-рольных аккаунтов roles[0] возрождал бы D-01-баг.
     if (!view || !view.startsWith("dashboard-") || userChanged) {
-      const role = (activeRole || user?.roles?.[0] || "CUSTOMER") as user_role;
+      const role = (activeRole || pickPrimaryRole(user.roles)) as user_role;
       const targetView = dashboardByRole[role] || "dashboard-customer";
       navigate(targetView as never);
     }

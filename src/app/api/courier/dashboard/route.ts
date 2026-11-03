@@ -7,8 +7,16 @@
  * Auth: COURIER role (или stub в dev).
  *
  * Соответствует таблицам:
- *  - orders (доставки курьера по courier_id)
+ *  - orders (активные доставки по статусам READY/IN_DELIVERY)
+ *  - deliveries (завершённые доставки, заработок — courier_earnings)
  *  - courier_profiles (rating, deliveries_count)
+ *
+ * A-3 (канонический источник заработка): earningsToday/Month и история считаются
+ * по deliveries.courier_earnings — снимку выплаты, зафиксированному при переходе
+ * DELIVERED (присваивание, не инкремент — повторная обработка не удваивает).
+ * orders.delivery_cost — клиентская ЦЕНА доставки, заработком не является.
+ * Legacy-строки с courier_earnings=NULL показываются по deliveries.cost БЕЗ
+ * перезаписи финансовых данных (backfill — отдельная миграция по согласованию).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -17,6 +25,11 @@ import { requireRole } from "@/lib/role-guards";
 import { getCourierOrderIds } from "@/lib/courier-assignments";
 
 export const runtime = "nodejs";
+
+/** Заработок строки доставки: зафиксированная выплата или снимок на момент назначения. */
+function rowEarnings(d: { courier_earnings: number | null; cost: number | null }): number {
+  return Number(d.courier_earnings ?? d.cost ?? 0);
+}
 
 const STUB_DATA = {
   stats: {
@@ -89,33 +102,49 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           .select(select, opts)
           .in("id", myOrderIds.length > 0 ? myOrderIds : [UUID0]);
 
-      const [activeResult, completedTodayResult, earningsTodayResult, earningsMonthResult] =
+      // A-3: KPI заработка и история — из deliveries (courier_earnings,
+      // снимок выплаты), а не из orders.delivery_cost (клиентская цена).
+      // completedToday — по deliveries.delivered_at (та же семантика,
+      // что у клиентского хука useCourierDashboard).
+      const deliveredRowsIn = (fromIso: string, select: string) =>
+        supabaseAdmin
+          .from("deliveries")
+          .select(select)
+          .eq("courier_id", courierId)
+          .eq("status", "delivered")
+          .gte("delivered_at", fromIso);
+
+      const [activeResult, todayDeliveriesResult, monthDeliveriesResult] =
         await Promise.all([
-          // Активные доставки
+          // Активные доставки (заказы в пути)
           ordersIn("*", { count: "exact", head: true })
             .in("status", ["READY", "IN_DELIVERY"]),
-          // Завершено сегодня
-          ordersIn("*", { count: "exact", head: true })
-            .in("status", ["DELIVERED", "COMPLETED"])
-            .gte("updated_at", today.toISOString()),
-          // Заработок сегодня (сумма delivery_cost по завершённым)
-          ordersIn("delivery_cost")
-            .in("status", ["DELIVERED", "COMPLETED"])
-            .gte("updated_at", today.toISOString()),
+          // Завершено сегодня (заработок + счётчик)
+          deliveredRowsIn(
+            today.toISOString(),
+            "id, order_id, cost, courier_earnings, delivered_at"
+          ),
           // Заработок за месяц
-          ordersIn("delivery_cost")
-            .in("status", ["DELIVERED", "COMPLETED"])
-            .gte("updated_at", monthStart.toISOString()),
+          deliveredRowsIn(
+            monthStart.toISOString(),
+            "id, cost, courier_earnings, delivered_at"
+          ),
         ]);
 
-      const earningsToday = (earningsTodayResult.data || []).reduce(
-        (sum: number, o: any) => sum + Number(o.delivery_cost || 0),
-        0
-      );
-      const earningsMonth = (earningsMonthResult.data || []).reduce(
-        (sum: number, o: any) => sum + Number(o.delivery_cost || 0),
-        0
-      );
+      const todayDeliveries = ((todayDeliveriesResult.data || []) as unknown) as {
+        id: string;
+        order_id: string;
+        cost: number | null;
+        courier_earnings: number | null;
+        delivered_at: string | null;
+      }[];
+      const monthDeliveries = ((monthDeliveriesResult.data || []) as unknown) as {
+        cost: number | null;
+        courier_earnings: number | null;
+      }[];
+
+      const earningsToday = todayDeliveries.reduce((sum, d) => sum + rowEarnings(d), 0);
+      const earningsMonth = monthDeliveries.reduce((sum, d) => sum + rowEarnings(d), 0);
 
       // Получить рейтинг курьера из courier_profiles
       let rating = 5.0;
@@ -153,15 +182,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         }
       }
 
-      // Получить последние завершённые (история)
-      const { data: historyOrders } = await ordersIn(
-        "id, number, delivery_cost, total, updated_at, user_id"
-      )
-        .in("status", ["DELIVERED", "COMPLETED"])
-        .order("updated_at", { ascending: false })
+      // Получить последние завершённые (история) — A-3: из deliveries
+      // (courier_earnings, снимок выплаты), номера заказов — батчем из orders.
+      const UUID0b = "00000000-0000-0000-0000-000000000001";
+      const { data: historyDeliveries, error: historyError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id, order_id, delivered_at, cost, courier_earnings")
+        .eq("courier_id", courierId)
+        .eq("status", "delivered")
+        .order("delivered_at", { ascending: false })
         .limit(10);
+      if (historyError) {
+        console.error("[courier/dashboard] history query error:", historyError.message);
+        throw historyError;
+      }
 
-      const historyUserIds = (historyOrders || []).map((o: any) => o.user_id).filter(Boolean);
+      const historyOrderIds = [...new Set((historyDeliveries || []).map((d: any) => d.order_id).filter(Boolean))];
+      const orderInfo = new Map<string, { number: string | null; user_id: string | null }>();
+      if (historyOrderIds.length > 0) {
+        const { data: historyOrders } = await supabaseAdmin
+          .from("orders")
+          .select("id, number, user_id")
+          .in("id", historyOrderIds.length > 0 ? historyOrderIds : [UUID0b]);
+        for (const o of historyOrders || []) {
+          orderInfo.set(o.id, { number: o.number ?? null, user_id: o.user_id ?? null });
+        }
+      }
+
+      const historyUserIds = (historyDeliveries || [])
+        .map((d: any) => orderInfo.get(d.order_id)?.user_id)
+        .filter((id: string | null | undefined): id is string => !!id);
       if (historyUserIds.length > 0 && historyUserIds.some((id: string) => !customerMap.has(id))) {
         const { data: extraCustomers } = await supabaseAdmin
           .from("profiles")
@@ -175,7 +225,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({
         stats: {
           activeDeliveries: activeResult.count || 0,
-          completedToday: completedTodayResult.count || 0,
+          completedToday: todayDeliveries.length,
           earningsToday: Number(earningsToday.toFixed(2)),
           earningsMonth: Number(earningsMonth.toFixed(2)),
           rating,
@@ -189,12 +239,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           deliveryTime: o.delivery_time || "—",
           distance: "—", // пока не считаем; в v2.1 добавим через Yandex Maps API
         })),
-        history: (historyOrders || []).map((o: any) => ({
-          id: o.id,
-          orderId: o.number,
-          customer: customerMap.get(o.user_id) || "—",
-          completedAt: o.updated_at,
-          earnings: Number(o.delivery_cost || 0),
+        history: (historyDeliveries || []).map((d: any) => ({
+          id: d.id,
+          orderId: orderInfo.get(d.order_id)?.number || d.order_id,
+          customer: customerMap.get(orderInfo.get(d.order_id)?.user_id || "") || "—",
+          completedAt: d.delivered_at,
+          // A-3: канонический источник — courier_earnings (legacy NULL → cost)
+          earnings: rowEarnings(d),
           rating: 5, // в v2.1 добавим таблицу courier_ratings
         })),
         stub: false,

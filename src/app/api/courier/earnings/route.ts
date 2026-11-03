@@ -1,22 +1,40 @@
 /**
  * GET /api/courier/earnings — сводка по заработку курьера.
  *
- * Считает:
- *   - totalEarnings: сумма delivery_cost по всем доставленным заказам
- *   - monthlyEarnings: то же за текущий месяц
- *   - deliveries: количество доставленных заказов
+ * A-3 (канонический источник заработка): суммы считаются по
+ * deliveries.courier_earnings — снимку, зафиксированному в момент перехода
+ * DELIVERED (CAS-присваивание, не инкремент — повторная обработка не удваивает
+ * сумму). Раньше API суммировал orders.delivery_cost — ЦЕНА доставки для
+ * покупателя, которая может быть изменена после назначения; из-за этого KPI
+ * расходился с историей доставок и записями deliveries.
+ *
+ * Семантика величин (зафиксирована):
+ *   • orders.delivery_cost  — клиентская цена доставки (продуктовая величина);
+ *   • deliveries.cost       — стоимость доставки на момент назначения (снимок);
+ *   • deliveries.courier_earnings — заработок курьера (выплата), канонический
+ *     источник для всех KPI/историй/сверок.
+ *
+ * Legacy-строки (delivered до появления sync) с courier_earnings=NULL
+ * показываются по deliveries.cost (снимок на момент назначения) — БЕЗ
+ * скрытой перезаписи финансовых данных; обратная заливка (backfill) истории —
+ * отдельная миграция по согласованию.
+ *
+ * Суммы — в рублях с дробной частью (как устроена существующая модель
+ * numeric-колонок), округление ответа — до копеек (toFixed(2)).
  *
  * Auth: COURIER role.
- *
- * Соответствует таблице: orders (фильтр по courier_id и status IN DELIVERED/COMPLETED)
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
-import { getCourierOrderIds } from "@/lib/courier-assignments";
 
 export const runtime = "nodejs";
+
+/** Заработок строки доставки: зафиксированная выплата или снимок на момент назначения. */
+function rowEarnings(d: { courier_earnings: number | null; cost: number | null }): number {
+  return Number(d.courier_earnings ?? d.cost ?? 0);
+}
 
 /**
  * GET /api/courier/earnings — получить сводку по заработку курьера.
@@ -42,16 +60,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const courierId = user.id;
 
-    // Получить все доставленные заказы курьера.
-    // P1 (courier-schema): назначение — deliveries.courier_id (orders.courier_id
-    // в реальной схеме нет) → сначала id назначенных заказов.
-    const myOrderIds = await getCourierOrderIds(courierId);
-    const { data: deliveredOrders, error } = await supabaseAdmin
-      .from("orders")
-      .select("id, number, delivery_cost, total, status, created_at")
-      .in("id", myOrderIds.length > 0 ? myOrderIds : ["00000000-0000-0000-0000-000000000000"])
-      .in("status", ["DELIVERED", "COMPLETED"])
-      .order("created_at", { ascending: false });
+    // A-3: все завершённые доставки курьера — источник сумм deliveries
+    // (courier_earnings), а не orders.delivery_cost.
+    const { data: deliveredRows, error } = await supabaseAdmin
+      .from("deliveries")
+      .select("id, order_id, cost, courier_earnings, delivered_at")
+      .eq("courier_id", courierId)
+      .eq("status", "delivered")
+      .order("delivered_at", { ascending: false });
 
     if (error) {
       console.error("[courier/earnings] query error:", error.message);
@@ -61,33 +77,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const orders = deliveredOrders || [];
+    const deliveries = deliveredRows || [];
 
-    // Total earnings — сумма delivery_cost по всем доставленным заказам
-    const totalEarnings = orders.reduce(
-      (sum: number, o: any) => sum + Number(o.delivery_cost || 0),
+    // Total earnings — сумма зафиксированных выплат по всем доставленным
+    const totalEarnings = deliveries.reduce(
+      (sum: number, d: { courier_earnings: number | null; cost: number | null }) =>
+        sum + rowEarnings(d),
       0
     );
 
-    // Monthly earnings — за текущий месяц
+    // Monthly earnings — за текущий месяц (по дате доставки)
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthStartIso = monthStart.toISOString();
 
-    const monthlyEarnings = orders
-      .filter((o: any) => new Date(o.created_at) >= monthStart)
-      .reduce((sum: number, o: any) => sum + Number(o.delivery_cost || 0), 0);
+    const monthlyRows = deliveries.filter(
+      (d: { delivered_at: string | null }) =>
+        !!d.delivered_at && new Date(d.delivered_at) >= monthStart
+    );
 
-    // Кол-во доставленных заказов за месяц
-    const monthlyDeliveries = orders.filter(
-      (o: any) => new Date(o.created_at) >= monthStart
-    ).length;
+    const monthlyEarnings = monthlyRows.reduce(
+      (sum: number, d: { courier_earnings: number | null; cost: number | null }) =>
+        sum + rowEarnings(d),
+      0
+    );
 
     return NextResponse.json({
       totalEarnings: Number(totalEarnings.toFixed(2)),
       monthlyEarnings: Number(monthlyEarnings.toFixed(2)),
-      deliveries: orders.length,
-      monthlyDeliveries,
+      deliveries: deliveries.length,
+      monthlyDeliveries: monthlyRows.length,
     });
   } catch (error: any) {
     console.error("GET /api/courier/earnings error:", error?.message);

@@ -208,6 +208,8 @@ export interface CourierDashboardData {
     address: string;
     delivered_at: string;
     courier_earnings: number;
+    /** Снимок стоимости на момент назначения — fallback для legacy-строк без courier_earnings (A-3) */
+    cost: number | null;
     orderNumber: string | null;
   }>;
 }
@@ -493,14 +495,14 @@ export function useCourierDashboard() {
 
         // Сегодня завершённые
         pgrstGet<CourierDashboardData["recentCompleted"][number]>("deliveries",
-          `select=${encodeURIComponent("id,order_id,address,delivered_at,courier_earnings")}` +
+          `select=${encodeURIComponent("id,order_id,address,delivered_at,cost,courier_earnings")}` +
           `&courier_id=eq.${user.id}&status=eq.delivered` +
           `&delivered_at=gte.${encodeURIComponent(today.toISOString())}` +
           `&order=delivered_at.desc`),
 
         // За месяц завершённые (для подсчёта earnings)
-        pgrstGet<{ courier_earnings: number | null }>("deliveries",
-          `select=courier_earnings&courier_id=eq.${user.id}&status=eq.delivered` +
+        pgrstGet<{ courier_earnings: number | null; cost: number | null }>("deliveries",
+          `select=courier_earnings,cost&courier_id=eq.${user.id}&status=eq.delivered` +
           `&delivered_at=gte.${encodeURIComponent(monthStart.toISOString())}`),
       ]);
 
@@ -523,12 +525,17 @@ export function useCourierDashboard() {
       const withNumber = <T extends { order_id: string }>(rows: T[]): (T & { orderNumber: string | null })[] =>
         rows.map((r) => ({ ...r, orderNumber: numberById.get(r.order_id) || null }));
 
+      // A-3: каноническое правило заработка — зафиксированная выплата
+      // (courier_earnings); для legacy-строк (delivered до появления sync,
+      // courier_earnings=NULL) — снимок deliveries.cost. Данные НЕ перезаписываем.
+      const earningsOf = (d: { courier_earnings: number | null; cost?: number | null }) =>
+        d.courier_earnings ?? d.cost ?? 0;
       const earningsToday = todayCompleted.reduce(
-        (sum, d) => sum + (d.courier_earnings || 0),
+        (sum, d) => sum + earningsOf(d),
         0
       );
       const earningsMonth = monthCompleted.reduce(
-        (sum, d) => sum + (d.courier_earnings || 0),
+        (sum, d) => sum + earningsOf(d),
         0
       );
 
@@ -541,7 +548,12 @@ export function useCourierDashboard() {
           rating: 0, // TODO: считать из reviews
         },
         activeDeliveries: withNumber(activeDeliveries),
-        recentCompleted: withNumber(todayCompleted),
+        // A-3: UI показывает эффективный заработок (courier_earnings ?? cost),
+        // чтобы legacy-строки без зафиксированной выплаты не рендерились как null.
+        recentCompleted: withNumber(todayCompleted).map((d) => ({
+          ...d,
+          courier_earnings: earningsOf(d),
+        })),
       };
     },
     staleTime: 30 * 1000,
