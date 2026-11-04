@@ -39,10 +39,8 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
     "vitest.config.ts",
-    "vitest.setup.ts",
-    ".next/dev/dev/types/**/*.ts"
+    "vitest.setup.ts"
   ],
   "exclude": [
     "node_modules",
