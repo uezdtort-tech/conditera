@@ -292,3 +292,18 @@ DB-ошибка чтения/записи и частичный отказ: по
 ### 11.8. Публикация
 
 Публикация выполняется владельцем или при наличии безопасного действующего секрета (см. §11.2): локальный `main` — чистый fast-forward над `origin/main` (`8454b3a`, ahead 170 / behind 0); force push и обход защиты не требуются и не применялись. Точный SHA фиксируется `git log -1` после коммита этого сеанса.
+
+**Факт попытки публикации этим сеансом:** `git push --dry-run origin main` → `fatal: could not read Username for 'https://github.com'` — в среде отсутствуют любые учётные данные (§11.2); push не выполнен, локальные коммиты сохранены.
+
+**Инструкция публикации владельцу (после ротации PAT):**
+
+```bash
+cd <репозиторий conditera>
+git fetch origin
+git rev-list --left-right --count main...origin/main   # ожидание: 171 0 (behind 0 → fast-forward)
+git log --oneline origin/main..main | tail -5          # обзор публикуемых коммитов
+git push origin main                                    # обычный push, force не нужен
+git ls-remote origin refs/heads/main                    # удалённый SHA должен стать c5305ff…
+```
+
+Если после `fetch` behind > 0 или upstream изменился — остановиться и не пушить без ревью (чужие коммиты на origin). Токен передавать только через безопасный канал (credential manager / stdin), не в URL и не в аргументы команд.
