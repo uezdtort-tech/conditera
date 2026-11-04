@@ -48,6 +48,7 @@
     "mobile-app",
     "mini-services",
     "examples",
-    "scripts"
+    "scripts",
+    ".next/dev/types/**/*.ts"
   ]
 }

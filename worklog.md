@@ -9263,3 +9263,22 @@ Stage Summary:
 - Финал: release-candidate/gate-20 @ a7e169a (поверх e675931), дерево чистое; возврат к базовой точке: git checkout backup/pre-social-auth-e675931 или snapshot/social-auth-baseline
 - Статус ТЗ: реализовано в коде ✅ / настроено локально ⚠️ (stub_* — нужны Client ID/Secret владельца в кабинетах Яндекса и VK) / проверено через реальных провайдеров ❌ (заблокировано отсутствием credentials)
 - Владельцу: заполнить YANDEX_CLIENT_ID/SECRET, VK_CLIENT_ID (redirect URI в docs/social-auth.md); после env вход заработает без изменения кода
+
+---
+Task ID: a1-a5-reverify-push-prep
+Agent: Z.ai Code (main)
+Task: CONDITERA — реверификация A-1…A-5 после UUID-коммита, проверка инцидента с ключом, qwentopt-дельта, подготовка к публикации
+
+Work Log:
+- Восстановление: HEAD eb2af604 (UUID-snapshotter поверх eabf28a), main ahead 170/behind 0 от origin/main (8454b3a, merge-base=origin/main → чистый fast-forward); рабочее дерево чистое, stash пуст; 4 защищённых upload-файла на месте (skip-worktree S×4, diff к HEAD пуст, SHA256: 9f90f9ab/12bbad4e/3860e29f/7742ae13); core.hooksPath=scripts/hooks
+- Находка: eb2af604 вернул `.next/dev/types/**/*.ts` в tsconfig include — первопричина: `next dev` сам дописывает паттерн при старте, snapshotter закоммитил авто-правку; живого дефекта нет (tsc --noEmit 0 ошибок на артефактах Next 16.3.5, подтверждено дважды). Структурный фикс: паттерн добавлен в `exclude` (exclude побеждает include — авто-правки dev-сервера теперь безвредны); удаление строки из include признано бесполезным (вернётся при каждом рестарте dev)
+- Инцидент с ключом (без раскрытия значения): PAT ghp_ (частично ghp_qCaK…) раскрывался в IM-чате прошлых раундов; в git-истории и дереве токена НЕТ (секрет-сканы прошлых сессий + повторный скан дерева — 0 находок); в среде сейчас нет credential-helper/gh CLI/токенов env — push без свежего токена владельца невозможен; обходные credentials не искались; владелец: ротировать PAT в GitHub Settings
+- Среда: embedded PG реинициализирован (пустой) → bun run db:seed идемпотентно (63 миграции, 6 демо-аккаунтов); создан мультиролевой courier@demo.ru (CUSTOMER+COURIER) по шаблону сида — оставлен для будущих A-1 проверок; chat-server :3030 без node_modules → bun install + запуск, Socket.IO OK
+- Динамическая реверификация A-1…A-5 (все фиксы живы, регрессии нет): A-1 браузер 6/6 (мультироль→курьерский кабинет, ручной выбор, reload, logout-очистка store, чужой пользователь без следов, повторный вход свежим primary); A-2 HTTP 6/6 (S1a 200, S1b 200+sync=ok+courier_earnings=300+delivered_at, S2 повтор→400 без удвоения, S3 0 активных→skipped_no_delivery, S4 2 активных→409+заказ НЕ изменён, S5 чужой курьер→403); A-3 трёхсторонне (earnings total/monthly == независимый пересчёт из БД по courier_earnings ?? cost; dashboard KPI == earnings; UI «Заработок» == те же 1500/2400₽; строка-дискриминатор cost=300 vs delivery_cost=400 доказала источник); A-4 persist-ключи живьём — nav отсутствует; A-5 SUPPORT → «Оператор поддержки» реальным контентом
+- Регрессия: Vitest 1299/1299 (81 файл); tsc --noEmit 0; eslint 0; production build rc=0 (NODE_OPTIONS=2560, dev остановлен); тестовые записи T-A2-*/T-A3-* (21 доставка/18 заказов) удалены из демо-БД после проверки
+- qwentopt: fetch — origin/main 7d5a789, новых коммитов после контрольной точки НЕТ; дельта c4ae0268..7d5a789 = 1c0f762+merge; AIAssistantPage/AdvancedAnalyticsPage перепроверены — client-store без fetch//api//supabase; остальные 4 проблемных файла не тронуты; решения «Не переносить» в силе
+- Отчёт: docs/audit/FIX_A1_A5_REPORT.md §11 (реверификация, инцидент, среда, qwentopt, публикация)
+- push/merge/deploy не выполнялись (безопасный способ авторизации отсутствует — см. выше)
+
+Stage Summary:
+- A-1…A-5 подтверждены динамически свежими доказательствами; tsconfig-регресс snapshotter'а закрыт структурно; инцидент с ключом задокументирован (ротация PAT — за владельцем); main готов к fast-forward push при выдаче владельцем действующего токена
