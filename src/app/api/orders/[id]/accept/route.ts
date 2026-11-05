@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
+import { checkOrderAcceptance } from "@/lib/ops/acceptance";
 
 export const runtime = "nodejs";
 
@@ -54,11 +55,56 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       return NextResponse.json({ error: `Заказ уже ${order.status}` }, { status: 400 });
     }
 
-    // Update status
-    await supabaseAdmin
+    // === Acceptance Engine (ТЗ §8/§40) — гейт принятия =====================
+    // Сценарии A/D приёмки (Z-v12): при нехватке ингредиентов (canProduce=false)
+    // и при позиции без рецепта (RECIPE_MISSING) заказ НЕ должен молча переходить
+    // в CONFIRMED (состояние «принято к производству»); пользователь получает
+    // список причин и нехватающих ингредиентов. Склад не изменяется (accept не
+    // списывает — списание отдельный идемпотентный write-off в PREPARING).
+    let feasibility: Awaited<ReturnType<typeof checkOrderAcceptance>>;
+    try {
+      feasibility = await checkOrderAcceptance(orderId);
+    } catch (err) {
+      console.error("[orders/:id/accept] acceptance check failed:", err instanceof Error ? err.message : err);
+      return NextResponse.json(
+        { error: "FEASIBILITY_CHECK_FAILED", message: "Проверка выполнимости недоступна — принятие отклонено (fail-closed)." },
+        { status: 503 }
+      );
+    }
+    if (!feasibility) {
+      return NextResponse.json(
+        { error: "FEASIBILITY_CHECK_FAILED", message: "Не удалось проверить выполнимость заказа." },
+        { status: 503 }
+      );
+    }
+    const inventoryBlocked = feasibility.owners.some((o) => !o.inventory.canProduce);
+    if (!feasibility.canAccept || inventoryBlocked) {
+      return NextResponse.json(
+        {
+          error: "ORDER_NOT_FEASIBLE",
+          message: `Заказ не выполним: ${feasibility.reasons.map((r) => r.message).join(" ")}`.trim(),
+          reasons: feasibility.reasons,
+          shortages: feasibility.owners.flatMap((o) => o.inventory.shortages),
+        },
+        { status: 409 }
+      );
+    }
+
+    // Conditional update: параллельные/повторные запросы на принятие — статус
+    // меняется ровно один раз (who loses: rowCount=0 → 409, без дублей истории).
+    const { data: updatedRows } = await supabaseAdmin
       .from("orders")
       .update({ status: "CONFIRMED", updated_at: new Date().toISOString() })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("status", "PENDING")
+      .select("id");
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return NextResponse.json(
+        { error: "Заказ уже обработан другим запросом" },
+        { status: 409 }
+      );
+    }
 
     // Status history.
     // FIX-TL: раньше вставка использовала несуществующую колонку `status`

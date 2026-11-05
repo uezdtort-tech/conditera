@@ -38,6 +38,22 @@ import {
 const SUPPORT_ROOM_ID = "r3";
 
 /**
+ * Дедуп-сравнение отправителя. У bot-сообщений идентичности различаются по
+ * каналам: socket-копия несёт senderId="bot", а строка из БД — uuid бот-юзера
+ * (aaaa…b07); обе копии помечены isBot:true. Строгое сравнение senderId
+ * разваливало мягкий дедуп (15с-окно) → бот-ответ дублировался баблом
+ * (socket-копия + DB-копия из поллинга/истории). Для bot-сообщений сравниваем
+ * флаг isBot, для остальных — senderId как раньше.
+ */
+function sameSenderForDedup(
+  a: Pick<ChatMessage, "senderId" | "isBot">,
+  b: Pick<ChatMessage, "senderId" | "isBot">
+): boolean {
+  if (a.isBot || b.isBot) return Boolean(a.isBot) && Boolean(b.isBot);
+  return a.senderId === b.senderId;
+}
+
+/**
  * p1-b (B4): быстрые действия для order-чатов (ТЗ §9). Вставляют текст-шаблон
  * в поле ввода (НЕ отправляют сразу). «Отправить фото» НЕ реализовано:
  * механизм вложений в реальном чате отсутствует (POST /api/chat/rooms/:id/
@@ -344,7 +360,7 @@ export function ChatWidget({
         const isDup = (fresh: ChatMessage) =>
           s.chatMessages.some(
             (m) =>
-              m.senderId === fresh.senderId &&
+              sameSenderForDedup(m, fresh) &&
               m.text === fresh.text &&
               Math.abs(
                 new Date(m.createdAt).getTime() - new Date(fresh.createdAt).getTime()
@@ -457,7 +473,7 @@ export function ChatWidget({
         const isDup = (incoming: ChatMessage) =>
           s.chatMessages.some(
             (m) =>
-              m.senderId === incoming.senderId &&
+              sameSenderForDedup(m, incoming) &&
               m.text === incoming.text &&
               Math.abs(
                 new Date(m.createdAt).getTime() - new Date(incoming.createdAt).getTime()

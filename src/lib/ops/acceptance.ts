@@ -32,7 +32,7 @@ import type { RiskLevel, RiskReasonCode } from "./lifecycle-config";
 export type Availability = "available" | "available_with_warning" | "unavailable";
 
 export interface AcceptanceReason {
-  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING";
+  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING" | "RECIPE_MISSING" | "LOW_STOCK";
   message: string;
 }
 
@@ -338,6 +338,18 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
   for (const group of groups) {
     const ownerId = group.ownerId;
 
+    // --- Рецепт (сценарий D приёмки): позиция без привязанного рецепта не
+    // должна молча приниматься без расчёта потребности в ингредиентах.
+    const noRecipeItems = group.items.filter((i) => !i.recipeId);
+    if (noRecipeItems.length > 0) {
+      reasons.push({
+        code: "RECIPE_MISSING",
+        message: `«${noRecipeItems
+          .map((i) => i.title)
+          .join(", ")}": нет привязанного рецепта — потребность в ингредиентах не рассчитана.`,
+      });
+    }
+
     // --- Оценка времени производства (ТЗ §10) ---
     const estimateInputs: OrderItemForEstimate[] = group.items.map((i) => ({
       quantity: i.quantity,
@@ -574,6 +586,11 @@ const BLOCKING_CODES = new Set<string>([
   "PURCHASE_ETA_AFTER_DEADLINE",
   "PURCHASE_ETA_MISSING",
   "DEADLINE_TOO_CLOSE",
+  // Сценарии A/D приёмки (Z-v12): нехватка ингредиентов и отсутствие рецепта
+  // запрещают переход в состояние «принято к производству». LOW_STOCK — код
+  // движка для нехватки; RECIPE_MISSING — позиция без расчёта потребности.
+  "LOW_STOCK",
+  "RECIPE_MISSING",
 ]);
 
 function dedupeReasons(reasons: AcceptanceReason[]): AcceptanceReason[] {

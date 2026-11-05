@@ -77,7 +77,11 @@ async function runOrderAction(orderId: string, code: string): Promise<void> {
     }
   }
 
-  if (!res.ok && res.status !== 409) {
+  // 409 больше НЕ проглатывается: сервер возвращает конкретную причину отказа
+  // (ORDER_NOT_FEASIBLE с дефицитами/RECIPE_MISSING, «уже обработан другим
+  // запросом» при гонке) — пользователь обязан видеть отказ, а не ложный «✓»
+  // (дефект приёмки Z-v12, Этап 7).
+  if (!res.ok) {
     if (body?.error === "READY_PHOTO_REQUIRED") throw new ReadyPhotoNeededError();
     throw new Error(body?.message || `Не получилось (HTTP ${res.status})`);
   }
@@ -149,6 +153,8 @@ function SimpleOrderCardView({
         return;
       }
       toast.error(err.message || "Что-то пошло не так");
+      // Обновляем ленту и при отказе: сервер мог частично применить действие
+      void queryClient.invalidateQueries({ queryKey: ["ops-today"] });
     },
   });
 

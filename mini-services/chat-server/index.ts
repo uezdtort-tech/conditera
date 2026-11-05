@@ -106,11 +106,11 @@ async function persistBotMessage(
   text: string,
   botKind: "faq" | "escalation",
   quickReplies?: QuickReply[]
-): Promise<void> {
-  if (!BOT_SECRET || !text) return;
+): Promise<{ id: string; createdAt: string; senderId: string } | null> {
+  if (!BOT_SECRET || !text) return null;
   try {
     const pair = await fetchCsrfPair();
-    if (!pair) return;
+    if (!pair) return null;
     const idemKey = `bot-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const doPost = (p: CsrfPair) =>
       fetch(`${NEXT_API_BASE}/api/chat/rooms/${roomId}/bot-message`, {
@@ -131,9 +131,21 @@ async function persistBotMessage(
     }
     if (!res.ok) {
       console.warn(`[bot-persist] POST bot-message ${roomId} → ${res.status}`);
+      return null;
     }
+    // Возвращаем сохранённую строку: socket-копия бота получает ТОТ ЖЕ id,
+    // что и строка в БД — иначе клиентский дедуп по id не связывает каналы
+    // и бот-ответ дублируется баблом при поллинге/истории (дефект приёмки Z-v12).
+    const data = (await res.json()) as { message?: { id?: string; createdAt?: string; senderId?: string } };
+    if (!data?.message?.id) return null;
+    return {
+      id: data.message.id,
+      createdAt: data.message.createdAt || new Date().toISOString(),
+      senderId: data.message.senderId || "bot",
+    };
   } catch (err) {
     console.warn("[bot-persist] Next API недоступен:", (err as Error).message);
+    return null;
   }
 }
 
@@ -484,26 +496,39 @@ function handleAutoReply(roomId: string, userMessage: string, _userId: string, a
       }
     }
 
-    const botMsg = {
-      id: `bot_${Date.now()}`,
-      text: botText,
-      senderId: "bot",
-      senderName: "Уездный помощник",
-      senderAvatar: "/logo.png",
-      timestamp: new Date().toISOString(),
-      status: "sent" as const,
-      isBot: true,
-      botKind,
-      quickReplies,
+    const emitBot = (id: string, timestamp: string, senderId: string) => {
+      const botMsg = {
+        id,
+        text: botText,
+        senderId,
+        senderName: "Уездный помощник",
+        senderAvatar: "/logo.png",
+        timestamp,
+        status: "sent" as const,
+        isBot: true,
+        botKind,
+        quickReplies,
+      };
+      io.to(roomId).emit("message:receive", { roomId, message: botMsg });
+      console.log(`🤖 bot → ${roomId}: ${botText.slice(0, 50)}...`);
     };
-    io.to(roomId).emit("message:receive", { roomId, message: botMsg });
-    console.log(`🤖 bot → ${roomId}: ${botText.slice(0, 50)}...`);
 
-    // Персистенция: легаси-комнату (r3) маппим в реальную, реальные пишем как есть
+    // Персистенция → рассылка с единой идентичностью (id/senderId/timestamp
+    // из сохранённой строки): socket-копия == DB-копия → дедуп по id у клиента
+    // работает при поллинге, переоткрытии панели и после F5.
+    // Персистенция легаси-комнату (r3) маппим в реальную, реальные пишем как есть.
+    const fallbackEmit = () =>
+      emitBot(`bot_${Date.now()}`, new Date().toISOString(), "bot");
     if (authToken) {
       resolveRoomId(roomId, authToken, _userId)
         .then((realRoomId) => persistBotMessage(realRoomId, botText, botKind, quickReplies))
-        .catch(() => {});
+        .then((saved) => {
+          if (saved) emitBot(saved.id, saved.createdAt, saved.senderId);
+          else fallbackEmit();
+        })
+        .catch(() => fallbackEmit());
+    } else {
+      fallbackEmit();
     }
   }, 800);
 }
