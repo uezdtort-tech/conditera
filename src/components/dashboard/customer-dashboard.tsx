@@ -53,6 +53,7 @@ import {
 } from "@/components/dashboard/customer-loyalty-notifications-tabs";
 import { CustomerNegotiationTab } from "@/components/dashboard/negotiation-tabs";
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
+import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { OrderSimilarStrip } from "@/components/dashboard/order-similar-strip";
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -786,6 +787,10 @@ export function CustomerDashboard() {
                               createdAt={order.createdAt}
                               small
                             />
+                            {/* История переходов с датами (GET /api/orders/[id]/timeline,
+                                ленивая подгрузка по раскрытию) — покупатель видит,
+                                когда кондитер принял заказ и что было дальше */}
+                            <OrderTimelineEvents orderId={order.id} />
                           </div>
                           <div className="mt-3 flex gap-2 flex-wrap">
                             <Button

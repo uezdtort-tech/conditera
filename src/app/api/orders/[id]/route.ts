@@ -254,6 +254,29 @@ export async function PATCH(
       console.error("[orders/[id]] history insert failed:", historyError.message);
     }
 
+    // FIX-ZV13: уведомление покупателю о принятии заказа. Раньше ORDER_CONFIRMED
+    // отправлял только POST /accept, а реальный UI кондитера («Подтвердить»)
+    // ходит через PATCH — покупатель оставался без уведомления.
+    // Семантика та же, что в accept: ровно один раз после успешного серверного
+    // перехода PENDING → CONFIRMED; при ошибке API переход не уведомляет;
+    // сбой отправки не откатывает статус (fail-safe).
+    if (newStatus === "CONFIRMED" && order.status === "PENDING") {
+      try {
+        const { sendNotification } = await import("@/lib/notifications");
+        await sendNotification({
+          userId: order.user_id,
+          template: "ORDER_CONFIRMED",
+          vars: { orderNumber: order.number || orderId },
+          data: { type: "order_confirmed", orderId },
+        });
+      } catch (notifyError) {
+        console.error(
+          "[orders/[id]] ORDER_CONFIRMED notification failed:",
+          notifyError instanceof Error ? notifyError.message : notifyError
+        );
+      }
+    }
+
     // n8n: order.status_changed (fail-safe, после успешного обновления)
     void emitEvent("order.status_changed", {
       orderId,

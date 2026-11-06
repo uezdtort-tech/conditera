@@ -12,7 +12,7 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Order, OrderItem, OrderStatus } from "@/lib/types";
-import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
+import { getSessionAuthHeaders, getCsrfToken, csrfFetch } from "@/lib/api-client";
 import { useAppStore } from "@/lib/store";
 
 /** Сырой заказ из GET /api/orders (snake_case, как в БД) */
@@ -137,6 +137,10 @@ export function useRealOrders(): RealOrdersResult {
     staleTime: 30_000,
     retry: 1,
     enabled: !!user,
+    // Живой статус у покупателя: кондитер принял/начал готовить — карточка
+    // обновляется сама, без ручного F5 (ТЗ: покупатель видит ход заказа).
+    // refetchIntervalInBackground=false по умолчанию — в скрытой вкладке пауза.
+    refetchInterval: 15_000,
   });
 
   const realOrders = query.data ?? null;
@@ -158,10 +162,14 @@ export function useRealUpdateOrderStatus(options?: { onSuccess?: () => void }) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: { orderId: string; status: string; comment?: string }) => {
-      const headers = await getSessionAuthHeaders(await getCsrfToken());
-      const res = await fetch(`/api/orders/${input.orderId}`, {
+      // FIX-ZV13: параллельные мутации (кондитер быстро подтверждает несколько
+      // заказов) гоняли GET /api/csrf-token — каждый ответ перезаписывал
+      // httpOnly-куку csrf_token, и часть PATCH уходила с чужим токеном →
+      // 403 CSRF. csrfFetch берёт токен из кэша (10 мин) и ретраит один раз
+      // при CSRF-отказе — гонки больше нет.
+      const res = await csrfFetch(`/api/orders/${input.orderId}`, {
         method: "PATCH",
-        headers,
+        headers: await getSessionAuthHeaders(),
         credentials: "include",
         body: JSON.stringify({ status: input.status, comment: input.comment }),
       });
