@@ -221,17 +221,34 @@ export async function PATCH(
     if (newStatus === "COMPLETED") updateData.completed_at = new Date().toISOString();
     if (newStatus === "CANCELLED") updateData.cancelled_at = new Date().toISOString();
 
-    const { data: updatedOrder, error: updateError } = await supabaseAdmin
+    // Z-v14 FIX: CAS по статусу (тот же паттерн, что в POST /accept) — UPDATE
+    // применяется только если статус не изменился с момента чтения. Раньше без
+    // этого два параллельных PATCH (или PATCH+accept) оба проходили переход
+    // PENDING→CONFIRMED: дубль в order_status_history, повторная запись
+    // confirmed_at и два события ORDER_CONFIRMED (проверено на ZV14-H1:
+    // history=2, notifRows=6). Проигравший гонку получает честный 409 без
+    // записи истории и без уведомления.
+    const { data: updatedRows, error: updateError } = await supabaseAdmin
       .from("orders")
       .update(updateData)
       .eq("id", orderId)
-      .select()
-      .single();
+      .eq("status", order.status)
+      .select();
 
     if (updateError) {
       console.error("[orders/[id]] Update error:", updateError.message);
       return NextResponse.json({ error: "Ошибка обновления" }, { status: 500 });
     }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      // CAS не совпал: статус уже изменён другим запросом. Ничего не пишем
+      // (история/уведомление — только у победителя) и честно сообщаем клиенту.
+      return NextResponse.json(
+        { error: "Статус заказа изменён другим запросом. Обновите данные и повторите действие." },
+        { status: 409 }
+      );
+    }
+    const updatedOrder = updatedRows[0];
 
     // Этап 10 §A2: аудит-паритет с движком lifecycle (order_status_history
     // писался только transition-роутами P0.5, PATCH-путь историю терял).
@@ -263,11 +280,18 @@ export async function PATCH(
     if (newStatus === "CONFIRMED" && order.status === "PENDING") {
       try {
         const { sendNotification } = await import("@/lib/notifications");
+        // Z-v14 FIX: dedupKey включает UNIQUE (user_id, channel,
+        // metadata->>'dedup_key') из миграции 0060 — уникальность события
+        // гарантируется БД, а не только условием order.status === "PENDING".
+        // Ключ на заказ: возврата CONFIRMED→PENDING в матрице переходов нет,
+        // повторный accept уже-подтверждённого заказа отклоняется до уведомления.
+        // Повтор события (23505) в sendNotification молча пропускается.
         await sendNotification({
           userId: order.user_id,
           template: "ORDER_CONFIRMED",
           vars: { orderNumber: order.number || orderId },
           data: { type: "order_confirmed", orderId },
+          dedupKey: `order-confirmed:${orderId}`,
         });
       } catch (notifyError) {
         console.error(

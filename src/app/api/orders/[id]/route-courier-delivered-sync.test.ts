@@ -61,12 +61,13 @@ vi.mock("@/lib/supabase/admin", () => ({
               single: () => Promise.resolve({ data: { ...orderRow }, error: null }),
             }),
           }),
+          // Z-v14: CAS-цепочка update().eq("id",...).eq("status",...).select() → массив
           update: () => ({
             eq: () => ({
-              select: () => ({
-                single: () =>
+              eq: () => ({
+                select: () =>
                   Promise.resolve({
-                    data: { ...orderRow, status: "DELIVERED" },
+                    data: [{ ...orderRow, status: "DELIVERED" }],
                     error: null,
                   }),
               }),

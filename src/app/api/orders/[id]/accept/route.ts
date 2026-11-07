@@ -126,7 +126,11 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       console.error("[orders/:id/accept] history insert failed:", historyError.message);
     }
 
-    // Notify customer (non-blocking)
+    // Notify customer (non-blocking).
+    // Z-v14 FIX: dedupKey — тот же ключ, что и в PATCH-переходе PENDING→CONFIRMED
+    // (миграция 0060: UNIQUE (user_id, channel, metadata->>'dedup_key')).
+    // Пересечение PATCH+accept теперь даёт ровно одно событие на уровне БД,
+    // даже если оба пути прошли свои проверки до CAS-обновления другого.
     try {
       const { sendNotification } = await import("@/lib/notifications");
       await sendNotification({
@@ -134,6 +138,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
         template: "ORDER_CONFIRMED",
         vars: { orderNumber: order.number || orderId },
         data: { type: "order_confirmed", orderId },
+        dedupKey: `order-confirmed:${orderId}`,
       });
     } catch {}
 
