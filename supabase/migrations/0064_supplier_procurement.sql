@@ -81,12 +81,16 @@ CREATE INDEX IF NOT EXISTS idx_supplier_reviews_profile
 
 ALTER TABLE public.supplier_profile_reviews ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "supplier_reviews_select_parties" ON public.supplier_profile_reviews;
+-- supplier_profiles."userId" — TEXT (историческая модель идентификаторов 0017,
+-- как у всех profile-таблиц), поэтому сравниваем с auth.uid()::text —
+-- канонический паттерн проекта (0014/0022/0023/0026/0027).
+-- auth.users-UUID-колонки (actor_id, supplier_id, buyer_id) сравниваются напрямую.
 CREATE POLICY "supplier_reviews_select_parties" ON public.supplier_profile_reviews
   FOR SELECT USING (
     EXISTS (
       SELECT 1 FROM "supplier_profiles" sp
       WHERE sp.id = supplier_profile_reviews.profile_id
-        AND (sp."userId" = auth.uid()
+        AND (sp."userId" = auth.uid()::text
           OR EXISTS (
             SELECT 1 FROM public.user_roles ur
             WHERE ur.user_id = auth.uid()
