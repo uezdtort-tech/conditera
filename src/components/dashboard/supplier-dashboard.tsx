@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import {
   Package, Coins, TrendingUp, Settings, LogOut,
-  ShoppingCart, Star, MapPin, Clock,
+  ShoppingCart, Star, MapPin, Clock, Boxes, Building2,
   FileText, ShieldAlert, UserCheck, LayoutDashboard, Plus,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/finance";
@@ -25,6 +25,9 @@ import { AdminConfectionerVerification } from "@/components/dashboard/admin-conf
 import { toast } from "sonner";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
 import { SupplierProductsManager } from "@/components/dashboard/supplier-products-manager";
+import { SupplierProfileForm } from "@/components/dashboard/supplier-profile-form";
+import { SupplierCatalogManager } from "@/components/dashboard/supplier-catalog-manager";
+import { SupplierProcurementOrders } from "@/components/dashboard/supplier-procurement-orders";
 import {
   DashboardSidebarLayout, SidebarStat, LoadingState, ErrorState,
 } from "@/components/dashboard/_shared";
@@ -32,8 +35,11 @@ import { useSupplierDashboard } from "@/lib/supabase/use-dashboards";
 
 const TABS = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
-  { id: "orders", label: "Заказы", icon: ShoppingCart },
-  { id: "products", label: "Товары", icon: Package },
+  { id: "profile", label: "Профиль компании", icon: Building2 },
+  { id: "procurement", label: "Закупочные заказы", icon: ShoppingCart },
+  { id: "catalog", label: "Каталог и остатки", icon: Package },
+  { id: "products", label: "Внутренний склад", icon: Boxes },
+  { id: "orders", label: "Заказы покупателей", icon: FileText },
   { id: "finance", label: "Финансы", icon: Coins },
   { id: "analytics", label: "Аналитика", icon: TrendingUp },
   { id: "fraud", label: "Anti-fraud", icon: ShieldAlert },
@@ -137,6 +143,15 @@ export function SupplierDashboard() {
             </div>
           </div>
         );
+
+      case "profile":
+        return <SupplierProfileForm />;
+
+      case "procurement":
+        return <SupplierProcurementOrders />;
+
+      case "catalog":
+        return <SupplierCatalogManager canPublish />;
 
       case "products":
         return <SupplierProductsManager />;

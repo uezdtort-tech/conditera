@@ -149,6 +149,7 @@ import { OrderTimeline } from "@/components/dashboard/order-timeline";
 import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { ConfectionerChatTab } from "@/components/dashboard/confectioner-chat-tab";
 import { ensureChatRoom } from "@/components/chat/chat-api";
+import { ConfectionerProcurement } from "@/components/dashboard/confectioner-procurement";
 import { serverLogout } from "@/lib/api-client";
 import { useRouter } from "next/navigation";
 
@@ -360,6 +361,7 @@ export function ConfectionerDashboard() {
                 <SidebarTab icon={Trophy} label="Бейджи и челленджи" active={activeTab === "gamification"} onClick={() => setActiveTab("gamification")} />
                 <SidebarTab icon={ShieldCheck} label="SimpleX (E2E)" active={activeTab === "simplex"} onClick={() => setActiveTab("simplex")} />
                 <SidebarTab icon={Boxes} label="Склад" badge={String(lowStockCount)} active={activeTab === "inventory"} onClick={() => setActiveTab("inventory")} />
+                <SidebarTab icon={Truck} label="Закупки" active={activeTab === "procurement"} onClick={() => setActiveTab("procurement")} />
                 <SidebarTab icon={Calendar} label="Производство" badge={String(activeOrdersCount)} active={activeTab === "gantt"} onClick={() => setActiveTab("gantt")} />
                 <SidebarTab icon={BellRing} label="Напоминания" badge={String(unreadRemindersCount)} active={activeTab === "reminders"} onClick={() => setActiveTab("reminders")} />
                 <SidebarTab icon={MessageCircle} label="Заявки" badge={String(inquiries.length)} active={activeTab === "inquiries"} onClick={() => setActiveTab("inquiries")} />
@@ -1066,6 +1068,8 @@ export function ConfectionerDashboard() {
             {activeTab === "inventory" && (
               <ConfectionerInventoryTab confectionerId={confectioner.id} />
             )}
+
+            {activeTab === "procurement" && <ConfectionerProcurement />}
 
             {activeTab === "gantt" && <ConfectionerGanttTab />}
 

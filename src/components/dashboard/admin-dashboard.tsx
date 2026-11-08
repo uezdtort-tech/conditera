@@ -47,6 +47,7 @@ import { AdminMaintenanceTab } from "@/components/dashboard/admin-maintenance-ta
 import { AdminFillingsTab } from "@/components/dashboard/admin-fillings-tab";
 import { AdminFraudMonitor } from "@/components/dashboard/admin-fraud-monitor";
 import { AdminConfectionerVerification } from "@/components/dashboard/admin-confectioner-verification";
+import { AdminSupplierVerification } from "@/components/dashboard/admin-supplier-verification";
 import { AdminProductsManager } from "@/components/dashboard/admin-products-manager";
 import { AdminMediaModerationTab } from "@/components/dashboard/admin-media-moderation-tab";
 import { AdminOrdersManager } from "@/components/dashboard/admin-orders-manager";
@@ -80,6 +81,7 @@ const TAB_GROUPS = [
       { id: "orders", label: "Заказы", icon: ShoppingCart },
       { id: "products", label: "Товары", icon: Package },
       { id: "moderation", label: "Модерация", icon: Flag, badge: "2" },
+      { id: "supplier-verification", label: "Поставщики", icon: Building2 },
       { id: "media-moderation", label: "Медиа-модерация", icon: Images },
       { id: "blacklist", label: "Чёрный список", icon: ShieldAlert },
       { id: "audit", label: "Аудит", icon: ScrollText },
@@ -442,6 +444,7 @@ export function AdminDashboard() {
       case "orders": return <AdminOrdersManager />;
       case "products": return <AdminProductsManager />;
       case "moderation": return <AdminReviewsModerationTab />;
+      case "supplier-verification": return <AdminSupplierVerification />;
       case "media-moderation": return <AdminMediaModerationTab />;
       case "blacklist": return <BlacklistTab />;
       case "cms-home": return <AdminCmsHomeTab />;

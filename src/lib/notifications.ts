@@ -56,6 +56,11 @@ export type Template =
   | "ABANDONED_CART"
   | "VERIFICATION_APPROVED"
   | "VERIFICATION_REJECTED"
+  | "SUPPLIER_SUBMITTED"
+  | "SUPPLIER_PROFILE_SUBMITTED"
+  | "SUPPLIER_APPROVED"
+  | "SUPPLIER_CHANGES_REQUESTED"
+  | "SUPPLIER_SUSPENDED"
   | "PAYOUT_REQUEST_RECEIVED"
   | "PAYOUT_PROCESSED"
   | "PAYOUT_REJECTED"
@@ -296,6 +301,41 @@ export const TEMPLATES: Record<Template, TemplateDef> = {
     title: () => `Профиль кондитера: нужна доработка`,
     body: (v) =>
       `Профиль не прошёл модерацию. Причина: ${v.reason || "не указана"}. Внесите правки и отправьте на проверку снова.`,
+    defaultChannels: ["in_app", "push", "email"],
+  },
+  SUPPLIER_SUBMITTED: {
+    category: "orderUpdates",
+    title: (v) => `Заявка поставщика «${v.companyName}»`,
+    body: () =>
+      `Новая заявка поставщика ждёт проверки в панели модерации.`,
+    defaultChannels: ["in_app"],
+  },
+  SUPPLIER_PROFILE_SUBMITTED: {
+    category: "orderUpdates",
+    title: () => `Профиль отправлен на проверку`,
+    body: () =>
+      `Заявка на статус поставщика отправлена. Решение появится в кабинете и в этом разделе.`,
+    defaultChannels: ["in_app", "push"],
+  },
+  SUPPLIER_APPROVED: {
+    category: "orderUpdates",
+    title: () => `Профиль поставщика одобрен ✓`,
+    body: () =>
+      `Поздравляем! Ваш профиль поставщика прошёл модерацию. Теперь вы можете публиковать товары и получать закупочные заказы.`,
+    defaultChannels: ["in_app", "push", "email"],
+  },
+  SUPPLIER_CHANGES_REQUESTED: {
+    category: "orderUpdates",
+    title: () => `Профиль поставщика: требуются исправления`,
+    body: (v) =>
+      `Администратор запросил исправления: ${v.comment || "без комментария"}. Внесите правки и отправьте на проверку снова.`,
+    defaultChannels: ["in_app", "push", "email"],
+  },
+  SUPPLIER_SUSPENDED: {
+    category: "orderUpdates",
+    title: () => `Деятельность поставщика приостановлена`,
+    body: (v) =>
+      `Профиль приостановлен администратором. Причина: ${v.reason || "не указана"}. Каталог скрыт из продажи до возобновления.`,
     defaultChannels: ["in_app", "push", "email"],
   },
   PAYOUT_REQUEST_RECEIVED: {
