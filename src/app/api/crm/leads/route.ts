@@ -15,11 +15,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const user = await getUserFromRequest(request);
     if (!user) return unauthorizedResponse();
 
-    // Только CRM роли
+    // Только staff-CRM роли. Z-v16 (безопасность): CONFECTIONER удалён —
+    // таблица `leads` не имеет колонки владельца (assigned_to — только
+    // назначение), поэтому скоупить лиды по кондитеру невозможно; выдача
+    // всего платформенного CRM-списка кондитеру была утечкой данных
+    // (контакты и переписка клиентов других продавцов).
     if (!user.roles.some((r: string) =>
-      ["ADMIN", "SUPER_ADMIN", "SUPPORT", "MODERATOR", "CONFECTIONER"].includes(r)
+      ["ADMIN", "SUPER_ADMIN", "SUPPORT", "MODERATOR"].includes(r)
     )) {
-      return forbiddenResponse("Только CRM роли могут просматривать лиды");
+      return forbiddenResponse("Только CRM-персонал может просматривать лиды");
     }
 
     const { searchParams } = request.nextUrl;

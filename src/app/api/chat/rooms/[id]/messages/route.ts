@@ -21,9 +21,11 @@ import {
   canAccessRoom,
   fetchChannel,
   fetchRoomMessages,
+  isStaffUser,
   type ApiChatMessage,
   type SupabaseError,
 } from "@/lib/chat-rooms";
+import { createChatEscalation, looksLikeOperatorRequest } from "@/lib/chat-escalations";
 
 export const runtime = "nodejs";
 
@@ -205,6 +207,30 @@ export async function POST(
           "[chat/messages] notify block failed:",
           notifyErr instanceof Error ? notifyErr.message : notifyErr
         );
+      }
+
+      // Z-v16 (SUPPORT-1): явный запрос оператора в support-канале —
+      // создаём эскалацию в chat_escalations (единственная точка —
+      // lib/chat-escalations). Staff/бот не эскалируют; дедуп pending-записи
+      // на уровне хелпера. Fail-safe: сбой эскалации не влияет на отправку.
+      if (
+        channel.type === "support" &&
+        user.id !== BOT_USER_ID &&
+        !isStaffUser(user) &&
+        looksLikeOperatorRequest(content)
+      ) {
+        const esc = await createChatEscalation({
+          chatRoomId: id,
+          userId: user.id,
+          userName: user.name,
+          reason: "manual_request",
+          priority: "high",
+          messagePreview: content,
+          source: "chat_messages_post",
+        });
+        if (esc.error) {
+          console.warn("[chat/messages] escalation failed:", esc.error);
+        }
       }
     }
 
