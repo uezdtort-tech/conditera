@@ -1049,3 +1049,553 @@ notes text, created_at/updated_at timestamptz NOT NULL DEFAULT now()
 **Критерий завершения RECIPE-01A:** архитектура не содержит известных противоречий и двойных источников истины; каждое решение подкреплено фактами (Ф-xx) или явно помечено как проектное (ПР-x); критические вопросы вынесены в Q-1..Q-10. RECIPE-01A **не** создаёт миграций/кода и не разрешает RECIPE-02 до отдельного согласования владельцем.
 
 *Раздел RECIPE-01A добавлен без изменений кода, миграций, БД и Git-состояния. Единственный артефакт этапа — данный документ (добавленный раздел; исходный аудит сохранён полностью).*
+
+---
+
+# RECIPE-01B — Независимая проверка RECIPE-01A, закрытие архитектурных вопросов и итоговое ТЗ RECIPE-02
+
+**Статус:** независимая проверка + финализация архитектуры. **Не разрешает переход к RECIPE-02** — старт только после отдельного решения владельца.
+**Основание:** RECIPE-01 (строки 1–517) и RECIPE-01A (строки 518–1051) сохранены без изменений; RECIPE-01A оспаривается по существу, но не удаляется.
+**Git HEAD на момент RECIPE-01B:** `21c3dd829b558d9b800233b516d8f2afdeb46aee` (main; ahead 190 / behind 0 vs `origin/main` `8a31081`).
+**Обозначения:** «НФ-x» — новый факт этой сессии (код/DDL, file:line); «УТ-x» — уточнение координат/формулировки RECIPE-01A без смены сути; «ОПР-x» — опровержение утверждения RECIPE-01/01A; «РЕШ-x» — финальное решение RECIPE-01B (заменяет соответствующее ПР-x, если помечено); «SEC-x» — запись security-backlog. Статусы вопросов: RESOLVED / PROPOSED / OWNER DECISION REQUIRED / BLOCKED BY FACTS.
+
+## RB.0. Состояние Git и среды (Этап 0)
+
+| Объект | Фактическое состояние | Источник проверки | Вывод |
+|---|---|---|---|
+| Ветка / HEAD | `main` / `21c3dd8` «d3d335b2-a9cd-4c54-81a1-fde53325794d» | `git branch`, `git rev-parse HEAD` | не совпадает ни с одним значением из старых отчётов (3733db4 / fe8beb0 / 30793a6) — все старые значения недействительны, использован только фактический |
+| Цепочка коммитов | `3733db4` (Z-v17) → `fe8beb0` (**пустой**: tree идентичен родителю, UUID-именованный) → `831ee40` (doc +514 = RECIPE-01) → `30793a6` (fix B1: 0064, 6 строк + отчёт 296 строк) → `21c3dd8` (doc +537 = RECIPE-01A) | `git log -20`, `git show --stat`, `git diff fe8beb0^ fe8beb0` (пусто) | подтверждено: после 30793a6 ровно один новый коммит 21c3dd8, затрагивает **только** архитектурный документ (+537), код/миграции не менялись — прежний отчёт Z подтверждён |
+| Upstream | `origin/main` = `8a31081f…`; ahead 190 / behind 0 | `git rev-parse @{u}`, `rev-list --left-right --count` | публикация по-прежнему не выполнялась |
+| Рабочее дерево | **чистое** (0 записей porcelain) | `git status --porcelain=v2` | отличие от RA.0 RECIPE-01A (тогда 4 записи ` D`): защищённые upload-файлы между сессиями восстановлены внешним процессом; содержимое = HEAD |
+| Stash | пустой | `git stash list` | — |
+| Git flags / hooks | skip-worktree: 0 файлов; assume-unchanged: 0 файлов; `core.hooksPath = scripts/hooks` | `git ls-files -v` (полный скан), `git config` | не изменялись |
+| Защищённые upload-файлы | 4 файла: на диске ПРИСУТСТВУЮТ, в HEAD ПРИСУТСТВУЮТ, флаг `H`, размеры git-объектов 3158/8479/3175/8367 B | `test -f`, `git cat-file -e/-s HEAD:…` | присутствуют и совпадают с HEAD (из чистого дерева); содержимое с диска не читалось, ничего не изменялось |
+| PostgreSQL (порт 54329) | **НЕ запущен** — TCP-проба `ECONNREFUSED`; подъём (`runtime.mjs start` / `ensure-dev.sh`) правилами RECIPE-01B запрещён | TCP-проба `127.0.0.1:54329`, `scripts/ensure-dev.sh:13` | live-интроспекция БД в этой сессии невозможна — все схемные факты взяты из DDL миграций и кода; row-counts RECIPE-01 (live от PostgreSQL 18.4) перенесены как исторические, с пометкой |
+| Dev-сервер | работает (`GET /` → 200) — не останавливался, не изменялся | `curl` | — |
+| Архитектурный документ | 1051 строка, 163 783 B: RECIPE-01 (1–517) + RECIPE-01A (518–1051, RA.0–RA.20); содержимое = HEAD | `wc`, `git diff HEAD -- …` (пусто) | исходный аудит и RECIPE-01A не повреждены |
+| `.env` / секреты | `.env` существует (1 переменная DATABASE_URL → `file:` SQLite-legacy); `.env.local` отсутствует; значения не выводились | имена переменных, протокол URL | секреты не затронуты |
+| Миграции | 64 файла (0001–0064) в `supabase/migrations/`; `recipe_steps`/`recipe_versions`/`recipe_production*`/`tech_card` — **0 вхождений** во всех 64 файлах | `ls`, `rg` | ledger = 64; следующая — 0065 |
+
+**УТ-0 (происхождение fe8beb0):** «противоречие HEAD» между старыми отчётами (fe8beb0 vs 3733db4) снято — fe8beb0 это пустой UUID-коммит поверх 3733db4, создан автоматизацией сессии; разницы в дереве нет, все координаты кода RECIPE-01/01A действительны для 21c3dd8.
+
+## RB.1. Методика проверки
+
+1. Шесть независимых read-only доменных проверок на HEAD `21c3dd8`, каждая с координатами file:line: (a) рецептурные сущности/миграции; (b) RLS/GRANT/SECURITY DEFINER; (c) платежи/деньги; (d) склад/производство/себестоимость; (e) роли/идентичность/auth; (f) UI/store/тесты/медиа. Седьмая — контур мигратора (dev/prod).
+2. Дословные спот-проверки ключевых утверждений (выполнены этой сессией напрямую): отсутствие `GRANT` в 0053/0054; `0034:76-77` (рубли); `0035:9-10` (дословно); `0049:25` UNIQUE без `NULLS NOT DISTINCT`; webhook CAS (`webhook/route.ts:294-312`); `0025:14-16`; `compat/0000_supabase_compat.sql:197-202`; `supabase/init-scripts/01-apply-migrations.sh:57-62` (psql autocommit); 10 политик USING(true) 0053/0054 (все 10 прочитаны дословно); FK `recipe_purchases.recipe_id → recipe_marketplace` (0012:99).
+3. Ограничение: живая БД недоступна (RB.0). Любой факт, требующий интроспекции, помечен «НЕ ПРОВЕРЕН (live)» — предположений не делается.
+
+## RB.2. Независимая проверка RECIPE-01A: сводные вердикты
+
+| Решение/факт RECIPE-01A | Вердикт RECIPE-01B | Доказательство (file:line) | Корректировка |
+|---|---|---|---|
+| ПР-1: единственный источник коммерции — оффер; `recipes.access_type` не создаётся | **ПОДТВЕРЖДЕНО** | `recipe_id` в 0012 в `recipe_marketplace` отсутствует (grep по файлу: только :99/:111/:345 — purchases); `access_type` в схеме отсутствует | — |
+| ПР-2: `qty numeric(12,3)` + `unit` + `display_qty`, без `amount` | **ПОДТВЕРЖДЕНО** | `0053:136` `qty numeric(12,3) NOT NULL` | — |
+| ПР-3: мост orders+payments; запрет клиентского payment_id | **ПОДТВЕРЖДЕНО** | `purchase/route.ts:107-116` payment_id из body без единой проверки; `0002:255` `order_id UUID NOT NULL REFERENCES orders` | координата RECIPE-01A «0002:249» уточнена: :249 — создание enum, NOT NULL на :255 |
+| ПР-4: `recipe_production_card_versions` | **ПОДТВЕРЖДЕНО** | 0 вхождений `production_card` во всех 64 миграциях; дефект согласованности F.11 подтверждён | — |
+| ПР-5: партии + `batch_id` + `idempotency_key` + частичные UNIQUE + батч-RPC | **ПОДТВЕРЖДЕНО с уточнениями** | RB.7 (INVOKER-семантика RPC, поиск пути, GRANT-дисциплина) | — |
+| ПР-6: SUPPLIER без производственных данных | **ПОДТВЕРЖДЕНО** | RB.3 SEC-1/SEC-2 | — |
+| ПР-7: владелец = UUID auth.users; `confectioners.id` — витрина | **ПОДТВЕРЖДЕНО** | `0002:183` `orders.confectioner_id UUID REFERENCES auth.users`; `0027:6-13` фиксирует split-brain; `0017:1379` UNIQUE(userId); RLS confectioners: `0026:135-182` (FORCE ROW LEVEL SECURITY, мост `«userId» = auth.uid()::text`) | УТ: RECIPE-01A ссылался на «0017:441-456» как на RLS — на самом деле это DDL `supplier_profiles` (RLS confectioners живёт в 0026); `0025:14-16` — GRANT-ы на recipe-таблицы (anon, authenticated, service_role), не «мост RLS» |
+| ПР-8: составной FK медиа `(step_id, recipe_id)` | **ПОДТВЕРЖДЕНО (реализуемо)** | стандарт SQL/PostgreSQL: FK может ссылаться на составной UNIQUE; в 0066 создаётся `UNIQUE (id, recipe_id)` на `recipe_steps` | верификация на чистой PG18 — в тест-плане RB.19 |
+| ПР-9: `rights_confirmed DEFAULT FALSE` + гейт публикации/оффера | **ПОДТВЕРЖДЕНО** | импорт отсутствует: `rg 'recipes/import\|extractRecipe\|recipe_import'` по src/ = 0 | — |
+| ПР-10: подписки не включаются | **ПОДТВЕРЖДЕНО** | `rg recurrent\|recurring\|saved_card\|autocharge` в `src/lib/yookassa.ts` = 0; рекуррентного биллинга YooKassa не существует | — |
+| ПР-11: без второго склада | **ПОДТВЕРЖДЕНО** | RB.7 | — |
+| Ф-1: полная платёжная инфраструктура | **ПОДТВЕРЖДЕНО дословно** | IP-allowlist `yookassa.ts:297-305` (prod-only, CIDR v4/v6); re-verification `webhook/route.ts:78-143` (fail-closed, mock_* в prod запрещён); CAS `webhook/route.ts:294-312` (`.neq("payment_status","escrow")`, side-effects только у победителя); сверка сумм `:263-284`; ledger `0063` с `uq_financial_ledger_idem_key`; дедуп возвратов по PK `yookassa_refund_events.refund_id` `0039:109-112` | — |
+| Ф-2: `payments.order_id NOT NULL` | **ПОДТВЕРЖДЕНО** | `0002:255` | координата :249 → :255 |
+| Ф-3: purchases: payment_id nullable без FK; без UNIQUE(recipe_id,buyer_id) | **ПОДТВЕРЖДЕНО** | `0012:104` `payment_id UUID,` без REFERENCES; `0012:111-113` только обычные индексы | — |
+| Ф-4: royalty+commission могут превысить цену | **ПОДТВЕРЖДЕНО + УТ** | CHECK `chk_recipe_purchase_payment` (≥0) — `0012:108`, на **суммах purchases**; на `royalty_rate` CHECK **нет** (0012:73, только NUMERIC(3,2)); валидация 0..1 — только app-level в POST (`marketplace/route.ts:212-246`); commission 10% захардкожена `purchase/route.ts:105` | УТ формулировки RECIPE-01A («royalty_rate валидируется до 1.0» — это app-валидация POST, не DDL) |
+| Ф-5: `orders.type TEXT` без CHECK | **ПОДТВЕРЖДЕНО** | `0002:192` | — |
+| Ф-6: order_id=null не дедуплицируется; реестр после движений; нет общей транзакции | **ПОДТВЕРЖДЕНО дословно** | `0049:14-15` «Списания без order_id / не дедуплицируются (нет бизнес-ключа)»; `0049:25` UNIQUE без `NULLS NOT DISTINCT` → PostgreSQL-дефолт NULLS DISTINCT; `write-off/route.ts:153` signature только при orderId; движения `:183-207`, реестр `:218-225`, 23505→«idempotent» `:226-241`; «Батч уже применён; не откатываем» `:242-246`; батч = N отдельных RPC-вызовов | — |
+| Ф-7: movements POST — одиночный OUT мимо реестра | **ПОДТВЕРЖДЕНО** | `movements/route.ts:122-132` (order_id даже не валидируется как UUID) | — |
+| Ф-8: items POST без IN-движения; PATCH quantity напрямую | **ПОДТВЕРЖДЕНО** | `items/route.ts:120-134`, `:198-204`; триггерной защиты нет (единственный триггер — `0010:563` updated_at) | — |
+| Ф-9: поставщик использует ту же `inventory_items`, enum-единицы | **ПОДТВЕРЖДЕНО** | `supplier/products/route.ts:53` `["kg","g","l","ml","pcs","pack","box"]`; PATCH `:260-265` → `:285-290` мимо журнала | — |
+| Ф-10: «7 политик USING(true)» | **УТ + ИСПРАВЛЕНО** | см. RB.3 | их **28 по проекту**, в 0053/0054 — **10** (не 7): RECIPE-01A пропустил `domain_events` (0053:37), `ops_tasks` (0053:79) и считал purchase_drafts+items за одну. Главное уточнение: **GRANT-дисциплина делает большинство политик латентными** (RB.3) |
+| Ф-11: публичная экспозиция recipe_id/production_time_hours; ingredients_json без пейволла | **ПОДТВЕРЖДЕНО** | `products/route.ts:78-88` (GET без auth); `products/[id]/route.ts:47-56`; `marketplace/[id]/route.ts:55-59` select("*") | координаты [id]: 47-56 |
+| Ф-12: каталог через service_role; `recipes_select_public` без TO → anon видит published; acceptances USING(TRUE) → anon | **ПОДТВЕРЖДЕНО** | `0012:303-306` TO authenticated; `0010:453` без TO + блок-гранты `0010:566` → **политика активна для anon**; `0010:459` `acceptances_select_public USING(TRUE)` без TO — **активна: anon читает ВСЕ acceptances** | RB.3 SEC-4/SEC-5 |
+| Ф-13: все /api/recipes/* через supabaseAdmin | **ПОДТВЕРЖДЕНО** | 5 route-файлов импортируют supabaseAdmin; `admin.ts:22` service_role key | — |
+| Ф-14: JWT-аутентификация; supplier/dashboard доверяет claim | **ПОДТВЕРЖДЕНО** | `auth.ts:79,142-146,184-244,264-273`; `supplier/dashboard/route.ts:109` (не 110) | НФ-6: блокировка fail-open (RB.3 SEC-11) |
+| Ф-15: двойная модель ID | **ПОДТВЕРЖДЕНО** | `0017:34-36` confectioners(id TEXT, userId TEXT без FK); `0017:441-456` supplier_profiles(id TEXT, userId TEXT); мост RLS в `0026:169-182` | координата «0025:14-16» в RECIPE-01A — GRANT-ы, не мост |
+| Ф-16: организаций как сущности нет | **ПОДТВЕРЖДЕНО** | `rg organizations\|branches` по миграциям = 0; `organization_verifications` (0010:376-390, верификация ИНН) и `franchise_networks` (0011:80-82) — не организационные единицы | — |
+| Ф-17: SUPPLIER видит каталог; склад закрыт; supplier_profiles без RLS | **ПОДТВЕРЖДЕНО + УТ** | `0012:303-306,350-353`; `0010:480` inventory_own; supplier_profiles DDL `0017:441-456` **без RLS** (grep = 0); supplier_products RLS `0019:454+`, но GRANT для anon/authenticated отсутствует → напрямую через PostgREST недостижим | — |
+| Ф-18..Ф-25 | **ПОДТВЕРЖДЕНО** | production/start `src/app/api/orders/[id]/production/start/route.ts:77-81`, complete `:68-72`; batchFactor `production-duration.ts:105`; рубли `0034:76-77` дословно + `0035:9-10` дословно; cleanup `cleanup.ts:412-413` (`lt("date",…)`, колонка не существует — `0010:242` только created_at); e2e без реальной покупки (`recipe-purchase-flow.spec.ts:229-231,254-270`, роялти — локальная арифметика); тест дедупа `write-off.idempotency.test.ts:204-209`; доход-фикция `confectioner-extra-tabs.tsx:684-686` (не 692-694); subscriptions мёртвая | косметические координаты |
+
+**ОПР-1 (новое опровержение RECIPE-01):** формулировка «покупка (201 по e2e-протоколу)» в §A.2.3 — **не подтверждается своим же evidence-файлом**: `docs/evidence/e2e-tally/recipe-purchase-flow.prod.json` фиксирует passed-статусы контрактных тестов и **401**, вхождение строки «201» в файле = 0. Реальная успешная покупка (201) нигде не документирована. Суть факта (purchase-маршрут работает и пишет в БД при валидном запросе) остаётся верной по коду (`purchase/route.ts:119-131`), но доказательная ссылка заменяется на код.
+
+**Новые факты RECIPE-01B (НФ):**
+
+| # | Факт | Координаты |
+|---|---|---|
+| НФ-1 | Таблицы, созданные в миграциях 0012+ (включая весь 0053/0054-контур: `order_production`, `order_production_checklist`, `order_media`, `capacity_reservations`, `confectioner_capacity`, `purchase_drafts(+items)`, `recipe_ingredients`, `domain_events`, `ops_tasks`, `inventory_movements`, `inventory_write_offs`, `supplier_profiles`, `supplier_products`), **не имеют GRANT для anon/authenticated** | rg `GRANT` по 0053/0054/0046/0049/0017/0019 = 0; блочные GRANT-ы существуют только до 0011 (0001:293 … 0011:314); исключение — 0025:14-16 для трёх recipe-таблиц marketplace-контура |
+| НФ-2 | compat-заготовка выдаёт **только service_role**: `GRANT ALL ON ALL TABLES … TO service_role` + `ALTER DEFAULT PRIVILEGES … TO service_role`; комментарий файла фиксирует семантику «миграции дают точечные гранты anon/authenticated» | `compat/0000_supabase_compat.sql:195-202` |
+| НФ-3 | Прод-мигратор применяет каждый файл **в psql autocommit стейтмент-за-стейтментом** (`psql -v ON_ERROR_STOP=1 -f`), ledger-отметка после успеха; при падении — «схема в частично применённом состоянии»; повторный прогон пропускает отмеченные файлы и перезапускает упавший с нуля | `supabase/init-scripts/01-apply-migrations.sh:33-40,57-70`; deploy.yml:126-131 (ledger-migrator image, fail-fast) |
+| НФ-4 | Dev-мигратор (`setup.mjs`) имеет **противоположную семантику**: файл в одной транзакции, **кроме** файлов с `ALTER TYPE … ADD VALUE` (autocommit); SQLSTATE «already exists» (42P07/42710/42701/42723 и др.) глотаются как idempotent-skip | `scripts/db/setup.mjs:610-627`, список IDEMPOTENT_SQLSTATES `:38-44` |
+| НФ-5 | `apply_inventory_movement_atomic` — **SECURITY INVOKER** (SECURITY-клауза отсутствует), **без `SET search_path`**, GRANT в 0048 нет → EXECUTE доступен PUBLIC, но фактически работает только через service_role (на inventory_movements у остальных ролей прав нет — НФ-1) | `0048:41-96`; DDL процитирован в RB.7 |
+| НФ-6 | 31 SECURITY DEFINER функция **без `SET search_path`** (весь 0013-атомарный-счётчик-набор 29 шт. + 0045 повторные bonus-функции) — search-path hijack риск | `0013:22-613`; `0045:17,49` |
+| НФ-7 | В `recipe_acceptances` колонки `confectioner_id` **не существует вообще** (только `user_id UUID` + UNIQUE(recipe_id,user_id)) → два из трёх accept-маршрутов (`recipe-acceptances`, `recipe-stats`) фильтруют по несуществующей колонке (потому и деградируют в мок/audit_logs) | `0010:146-155`; `recipe-acceptances/route.ts:42-43`; `recipe-stats/route.ts:115` |
+| НФ-8 | Канон денег зафиксирован в DDL-комментариях дословно: «Единицы денег: суммы В РУБЛЯХ (целые рубли), комментарии 0002/0009/0019 „в копейках" ложные»; провайдеру — строка `toFixed(2)`; webhook сверяет wire-копейки = amount*100. При этом `recipe_purchases.*` — `NUMERIC(10,2)` (дробные рубли), а сателлитные домены (services, supplier warehouse, purchase-orders, venues) реально работают в **копейках** | `0034:76-77,80-81`; `0002:260` (легаси-комментарий); `0012:101-103`; `services/route.ts:211`; `supplier/warehouse/route.ts:44-45`; `purchase-orders/route.ts:70` |
+| НФ-9 | Блокировка пользователя: `auth.ts` проверяет `profiles.is_blocked` с 60s-кэшем, но **fail-open** при ошибке БД; `deleted_at` в auth-пути не проверяется | `auth.ts:284-301` (fail-open :293-297), `0001:95-97,110` |
+| НФ-10 | Комментарий в purchase-маршруте «(атомарный инкремент через RPC)» противоречит коду: инкремент `views` и `purchases_count` — read-modify-write | `marketplace/[id]/route.ts:87-92`; `purchase/route.ts:141-147` |
+| НФ-11 | Приложения `/api/upload`: multipart-поле `category` (не query-param); реестр `uploads` (0015:5-19) с политикой `uploads_read_all USING(true)` **для public** — метаданные всех загруженных файлов читает любой (файлы в Storage — по URL) | `upload-service.ts:6,78,106`; `0015:27-30`; вызовы `customer-dashboard.tsx:1407`, `confectioner-atelier-tab.tsx:49`, `confectioner-lessons-tab.tsx:123` |
+| НФ-12 | `financial_ledger` — append-only **конвенцией** (RLS+REVOKE+service_role-only), DB-триггера, запрещающего UPDATE/DELETE, нет | `0063:36-37,70-85` |
+| НФ-13 | `confectioners.userId` — UNIQUE (`confectioners_userId_key`), но без FK и без CHECK-формата → строки-сироты допустимы (сид `('c0','u0',…)` признаёт это в комментарии) | `0017:1379`; `seed_confectioners.sql:12,21` |
+| НФ-14 | ERD-факт: `recipe_purchases.recipe_id → recipe_marketplace(id) ON DELETE CASCADE` (0012:99) — hard-delete оффера сносит историю покупок; сегодня защищает только soft-delete-ветка маршрута (`purchases_count > 0 → is_published=false`, `marketplace/[id]/route.ts:256-260`) | `0012:99`; `marketplace/[id]/route.ts:256-260` |
+
+## RB.3. SECURITY-аудит RLS/GRANT (Этап 2 — приоритетный)
+
+**Инвентаризация `USING (true)` / `WITH CHECK (true)`: 28 политик.** Все — PERMISSIVE (restrictive в проекте нет).
+
+| # | Таблица | Команда | TO | Статус доступности anon/authenticated | file:line |
+|---|---|---|---|---|---|
+| 1-5 | product_images, product_attributes, product_videos, product_variants, design_settings | SELECT | public | **активны** (гранты до 0011) | 0002:356, 0002:376, 0006:107, 0006:117, 0009:152 |
+| 6 | **recipe_acceptances** | SELECT | public | **активна — anon читает ВСЕ acceptances** | 0010:459 |
+| 7-8 | permissions, role_permissions | SELECT | public | активны | 0011:205, 0011:211 |
+| 9-11 | builder_config, builder_partner_offers, builder_decor_shops | SELECT | public | активны | 0014:29,66,99 |
+| 12 | **uploads** | SELECT | public | **активна — метаданные всех аплоадов** | 0015:30 |
+| 13-15 | fraud_alerts, abandoned_cart_logs, fraud_log | INSERT (WITH CHECK) | public | активны | 0019:405,541,584 |
+| 16 | holidays | SELECT | public | активна | 0021:68 |
+| 17 | confectioner_capabilities | SELECT | public | активна | 0022:115 |
+| 18 | domain_events | SELECT | authenticated | **латентная** (GRANT нет, НФ-1) | 0053:37 |
+| 19 | ops_tasks | SELECT | authenticated | латентная | 0053:79 |
+| 20 | **purchase_drafts** | SELECT | authenticated | **латентная** (владелец `owner_id` не проверяется) | 0053:118 |
+| 21 | **purchase_draft_items** | SELECT | authenticated | латентная | 0053:125 |
+| 22 | **recipe_ingredients** | SELECT | authenticated | **латентная** (нормы рецептов) | 0053:152 |
+| 23 | confectioner_capacity | SELECT | authenticated | латентная (user_id не проверяется) | 0054:53 |
+| 24 | capacity_reservations | SELECT | authenticated | латентная | 0054:110 |
+| 25 | **order_production** | SELECT | authenticated | **латентная** (производственные метки чужих заказов) | 0054:149 |
+| 26 | **order_production_checklist** | SELECT | authenticated | латентная | 0054:178 |
+| 27 | **order_media** | SELECT | authenticated | **латентная** (QC-фото чужих заказов) | 0054:216 |
+| 28 | financial_ledger | ALL | **service_role** | эталон закрытия (REVOKE anon/authenticated) | 0063:82 |
+
+**Классификация по RECIPE-01B §5.2 (без автоматического объявления всех USING(true) уязвимостями):**
+
+| ID | Таблица/политика | Классификация | Риск | Доказательство | Рекомендуемое исправление | Регрессии |
+|---|---|---|---|---|---|---|
+| SEC-1 | 10 политик 0053/0054 (№18–27) | **подтверждённая уязвимость в латентной форме** (environment-dependent): в текущих конфигурациях (local embedded + docker ledger-migrator) политики недостижимы — у anon/authenticated **нет GRANT** (НФ-1/НФ-2); в облачной конфигурации с дефолтными привилегиями провайдера — станут активны (НЕ ПРОВЕРЕНО в облаке) | при выдаче GRANT любой authenticated через PostgREST читает: черновики закупок с `estimated_cost` (purchase_drafts+items), производственные метки/чеклисты чужих заказов, QC-фото (order_media), мощности, нормы рецептов; `owner_id`/`user_id` колонки существуют, но не проверяются | DDL политик выше; rg GRANT = 0; `compat/0000:195-202` | миграция 0073 (в конце файла): переписать все 10 на «участники+админы» (`order_id IN (SELECT … user_id)`, `owner_id = auth.uid()::text` и т.п.); **GRANT не выдавать** до/после сужения | очередь модерации/ops-UI читают через service_role — не затронуты; e2e-контракты на PostgREST-прямой доступ отсутствуют |
+| SEC-2 | `inventory_movements` (0046), `inventory_write_offs` (0049), `supplier_profiles` (0017) | **избыточная политика отсутствия защиты**: RLS не включён вовсе | защита де-факто = отсутствие GRANT (НФ-1); любой будущий блочный `GRANT … TO anon, authenticated` мгновенно раскроет журнал движений, реестр списаний и профили поставщиков | grep `ENABLE ROW LEVEL SECURITY` по трём миграциям = 0 | ENABLE RLS + owner/service-политики в RECIPE-02 (0071-блок) | существующий путь write-off идёт через supabaseAdmin — не затронут |
+| SEC-3 | `recipe_acceptances` USING(TRUE) public | **подтверждённая утечка (активная, но low-impact)** | anon читает все acceptances (рейтинг/комментарий/фото_url), включая к будущим приватным отзывам | `0010:459` + гранты 0010:566 | сузить до `user_id = auth.uid() OR recipe author` / published-only; либо оставить публичным по продуктовому решению (rating/отзывы публичны по смыслу карточки) — **требует 1 решения владельца** | карточка рецепта читает acceptances через API (service_role) — не затронута |
+| SEC-4 | `recipes_select_public` без TO | **допустимый публичный доступ** (витрина) | anon видит published-рецепты — это продуктовая витрина | `0010:453,566` | сохранить (фиксируется как решение RECIPE-01B) | — |
+| SEC-5 | `uploads_read_all` USING(true) public | **подтверждённая утечка (низкая)** | метаданные всех аплоадов (filename/mime/size/category/owner id) читает любой; сами файлы — по URL без ACL | `0015:27-30`; НФ-11 | сузить: SELECT own + админам; медиа рецептов — по доступу родительского рецепта | текущие потребители читают свои/свои категории через service_role — не затронуты |
+| SEC-6 | Прямые UPDATE `inventory_items.quantity` (items PATCH, supplier/products PATCH) | **подтверждённая уязвимость целостности** (не RLS) | обход журнала движений; триггерной защиты нет | `items/route.ts:198-204`; `supplier/products/route.ts:260-265,285-290`; триггер только updated_at `0010:563` | app-инвариант RECIPE-03 (RA.11.5.2-4) + опционально DB-триггер (решение владельца, Q-10) | клиентские формы изменения остатка — переводятся на ADJUST-движение |
+| SEC-7 | POST `/api/inventory/movements` — произвольный OUT с невалидированным order_id | **подтверждённая уязвимость** | одиночные списания мимо реестра идемпотентности | `movements/route.ts:122-132` | RECIPE-03: лишить POST права принимать order_id/batch_id (ручные IN/ADJUST остаются) | ручные корректировки оператора сохраняются (reason обязателен) |
+| SEC-8 | `payments`/`orders`/`refunds` политики | **корректны** | покупки/платежи видят только участники/админы | `0002:426-437,464`; `0009:177-195` | не менять | — |
+| SEC-9 | 31 SECURITY DEFINER без `SET search_path` | **подтверждённый харденинг-дефект** | search-path hijack для 0013/0045-функций | `0013:22-613`; `0045:17,49` | добавить `SET search_path = public` (как сделано в 0036-0039/0063) — отдельной миграцией вне RECIPE-02 (не рецептурная зона) | вызовы идут по public-схеме — не затронуты |
+| SEC-10 | RPC 0048 INVOKER без search_path/GRANT | **харденинг-дефект, работа корректна** | EXECUTE у PUBLIC, но реальные операции недоступны без грантов на inventory_* (НФ-1/НФ-5) | `0048:41` (без SECURITY-клаузы) | в 0071: `SET search_path = public` + явный `GRANT EXECUTE … TO service_role` + `REVOKE … FROM PUBLIC` для нового batch-RPC (и опционально для 0048) | существующий write-off через service_role — не затронут |
+| SEC-11 | `profiles.is_blocked` fail-open | **подтверждённый дефект auth** | при ошибке БД заблокированный пользователь проходит | `auth.ts:293-297` | RECIPE-03: fail-closed для мутаций (публикация/покупка/продажа) | требует корректной обработки временных ошибок БД |
+| SEC-12 | `supplier/dashboard` доверяет JWT-claim roles | **подтверждённое расхождение ролей** | роль из подписанного токена, не из `user_roles` (живость роли не проверяется) | `supplier/dashboard/route.ts:109` | RECIPE-03: перевести на `requireRole` | dashboard поставщика — после перевода прогнать e2e-роли |
+
+**Вывод RB.3:** подтверждённых активных утечек, критичных для рецептурного контура, нет (контент маркетплейс-таблиц защищён GRANT+RLS корректно для anon; покупные записи — RLS участника). Основной риск — **латентный SEC-1** (10 политик без owner-условий) и **отсутствие RLS на складском журнале** (SEC-2) — оба закрываются миграциями 0071/0073 до RECIPE-05. Требуется SECURITY-RECIPE-01 (RB.18).
+
+## RB.4. Платежи и денежная единица (Этап 3)
+
+**Верифицированная цепочка существующего контура (факты, без изменений кода):**
+
+| Звено | Факт | Координаты |
+|---|---|---|
+| Создание платежа | REST v3 YooKassa, Basic auth, `capture: true`, `RUB`, `value = toFixed(2)`, детерминированные Idempotence-Key `uezd_konditer:*`; dev-stub отключён в prod (guard-тест) | `yookassa.ts:13-14,30-32,136-141,60-62,96-121,100-103`; `payment-prod-guard.test.ts:29-43` |
+| Связь платежа с заказом | `payments.order_id NOT NULL REFERENCES orders(id) ON DELETE CASCADE` | `0002:255` |
+| Webhook: источник | IP-allowlist провайдера (prod-only, CIDR v4/v6, X-Real-IP/TRUSTED_PROXY_HOPS) | `yookassa.ts:297-305,410-443`; `webhook/route.ts:148-150` |
+| Webhook: re-verification | GET /payments/{id} / /refunds/{id} у провайдера, сверка статуса и суммы, fail-closed; mock_* в prod запрещён | `webhook/route.ts:78-143,199-209,85-94` |
+| Webhook: сверка суммы | `expectedKop = Math.round(payment.amount*100)` vs wire; mismatch → skipped `amount_mismatch`, платёж не зачисляется | `webhook/route.ts:263-284` |
+| Webhook: CAS | переход заказа `payment_status → escrow` с `.neq("payment_status","escrow")`; side-effects (бонусы/письма/telegram/метрика) — только у победителя CAS | `webhook/route.ts:294-312,336-429` |
+| Журнал | append-only `financial_ledger`, idempotency_key UNIQUE, entry_type CHECK (8 значений), только service_role | `0063:36-37,52-56,62-63,70-85,101-126` |
+| Возвраты | заявка покупателя (деньги не двигаются) → админ → RPC `reserve_refund` (атомарный лимит) → провайдер → webhook `refund.succeeded` → RPC `apply_yookassa_refund` с дедупом по PK `refund_id`; частичные возвраты (amount ≤ остаток) | `refund/route.ts:8-10,215-252,322-341,392-459`; `0035:24-33`; `0039:109-136` |
+| Отмены | `payment.canceled` → payment_status cancelled, заказ CANCELLED | `webhook/route.ts:513-524` |
+| Entitlement рецептов | **отсутствует** — `recipe_purchases` пишется покупочным POST без связи с платежами (D3/Ф-3) | `purchase/route.ts:107-131` |
+| Подписки/рекуррент | нет (0 вхождений) | `rg` по yookassa.ts / src/app/api |
+
+**РЕШ-4 (каноническая денежная модель рецептурного контура — однозначное решение):**
+
+| Аспект | Решение |
+|---|---|
+| Единица хранения (БД) | **целые рубли INTEGER** — как в `orders.total`/`payments.amount`/`refunds.amount`/`financial_ledger` (0034:76-77). Все НОВЫЕ денежные поля RECIPE-02 (cost history, нормативная/фактическая себестоимость) — INTEGER рублей |
+| Существующие поля | `recipe_marketplace.base_price NUMERIC(10,2)` и `recipe_purchases.price_paid/royalty_amount/commission_amount NUMERIC(10,2)` сохраняют DDL-типы (совместимость), но семантически хранят целые рубли (дробная часть 0); новые дробные денежные поля не создаются |
+| Единица передачи по API | целые рубли (JS number); провайдеру — существующая конвертация `toFixed(2)` |
+| Единица расчёта | рубли; промежуточные значения себестоимости допускают копейки **только** внутри breakdown-JSONB для воспроизводимости расчёта; финальные сохранённые суммы — целые рубли |
+| Правила округления | per-item `Math.round`, итог = сумма округлённых позиций (воспроизводимо, без скрытого округления); провайдерская сверка — существующая `amount*100` |
+| Точность себестоимости | история себестоимости хранит per-item цены и количества в breakdown JSONB (восстановим расчёт), финальные поля — целые рубли |
+| Формат отображения | «N ₽», форматирование в UI-слое |
+| Запрет | копейки в рецептурном контуре не вводятся; переход money-path на копейки — OWNER DECISION (Q-9), вне RECIPE-02..07; сателлитные копеечные домены (services/supplier warehouse/purchase-orders/venues) не трогаются |
+
+## RB.5. Модель владения и роли (Этап 4)
+
+**Фактический словарь идентичностей (все проверены):**
+
+| Идентификатор | Тип | Где живёт | Роль во владении |
+|---|---|---|---|
+| `auth.users.id` | UUID | GoTrue | **единственная основа владения** (ПР-7 подтверждён) |
+| `profiles.id` | UUID = auth.users.id | `0001:87-88` (CASCADE) | профиль: `name`, `is_blocked`, `deleted_at`; `display_name` НЕ существует (УТ) |
+| `user_roles` | (user_id UUID, role enum), UNIQUE(user_id, role) | `0001:117-127`; RLS 0030:18-20 | источник ролей для `requireRole` (`role-guards.ts:41-45`) |
+| `confectioners.id` | **TEXT** (cuid, сид `'c0'`) | `0017:34-36`; UNIQUE(userId) `0017:1379`; RLS 0026:135-182 (мост `«userId»=auth.uid()::text`) | **витрина**, владением не является |
+| `supplier_profiles.id` | TEXT, `userId` TEXT без FK | `0017:441-456`; **без RLS** | витрина поставщика |
+| `orders.confectioner_id` | UUID → auth.users | `0002:183` | заказы ссылаются на пользователя, не на витрину |
+| enum `user_role` | 30 значений | 27 в `0001:26-54` + 3 в `0012:34,41,48` | HOME/BUSINESS/ENTERPRISE — **не роли**, а `confectioners.business_scale` (`0055:20-30`) |
+| Организация | отсутствует | `rg organizations\|branches` = 0; `organization_verifications`/`franchise_networks` — не организационные единицы | точка расширения РЕШ-5 |
+
+**РЕШ-5 (владение, v1):** (a) единственный критерий ownership рецепта — `recipes.author_id UUID auth.users`; карты — `recipe_production_cards.owner_id UUID auth.users`; (b) `confectioners.id`/`supplier_profiles.id` в ownership/FK-цели не включаются никогда; (c) точка расширения под организации: все новые таблицы получают **nullable `org_id UUID NULL`**-колонку-заготовку БЕЗ логики (заполняется только после появления сущности организаций) — либо, если колонка окажется преждевременной, остаётся правило «owner_id только UUID auth.users», которое переносимо на org_id без переписывания моделей; v1 использует второе (YAGNI, колонка не создаётся); (d) редактирование чужих/делегирование — не существует в v1 (Q-1 OWNER DECISION при появлении организаций).
+
+**Первая версия — обязательные правила (RB.11 — полная матрица):**
+- Создаёт черновик: CUSTOMER, RECIPE_DEVELOPER, CONFECTIONER, ADMIN (SUPPLIER — нет).
+- Редактирует/архивирует: владелец (`author_id`), ADMIN.
+- Публикует: RECIPE_DEVELOPER, CONFECTIONER, ADMIN — после фикса D6 через модерацию (`pending_review`); до фикса D6 публикация остаётся прямой (Завис-2 RECIPE-01A).
+- Продаёт (создаёт платный оффер): RECIPE_DEVELOPER, ADMIN; CONFECTIONER — Q-6 (OWNER DECISION, рекомендация «нет в v1»).
+- Покупает: все authenticated, кроме автора оффера (self-purchase блок уже есть, `purchase/route.ts:78-83`); SUPPLIER — на общих основаниях (Q-4, рекомендация «да»), производственные данные — никогда.
+- Блокированный/удалённый пользователь: публикация/покупка/продажа запрещены (is_blocked, fail-closed для мутаций — SEC-11); существующие entitlement не отзываются при блокировке покупателя; при блокировке продавца его активные офферы снимаются с публикации (админ-операция), купленный доступ сохраняется — OWNER default, может быть пересмотрен.
+- Передача прав/удалённые аккаунты: удаление аккаунта (deleted_at) не проверяется auth-путём (НФ-9) — v1: контент остаётся, помечается «автор недоступен»; перелив владения — OWNER DECISION при необходимости.
+
+## RB.6. Версии, покупки и entitlement (Этап 5)
+
+**Разделение сущностей (подтверждает RA.8, детализирует):**
+
+| Сущность | Природа | Иммутабельность |
+|---|---|---|
+| `recipe_versions` | снапшот публичного рецепта на момент publish | полная (без UPDATE/DELETE политик; запись — service_role) |
+| `recipe_production_card_versions` | снапшот норм/привязок/выхода карты на момент approve | полная |
+| запись `recipe_purchases` | **entitlement/состояние доступа** (РЕШ-6) | мутабельна только в контролируемых переходах (RB.15) |
+| `payments`/`refunds`/`orders`/`ledger` | финансовая история | append-only/событийная, существующая |
+
+**РЕШ-6 (замена решения RECIPE-01A RA.10.3 — устранение риска «UNIQUE(recipe_id,buyer_id) уничтожает историю»):**
+
+1. `recipe_purchases` переосмысляется как **таблица entitlement-состояния**: одна строка на пару (recipe_id, buyer_id) — `UNIQUE (recipe_id, buyer_id)` добавляется в 0072. Финансовая история каждого акта покупки живёт в **уже существующих** `orders(type='recipe') → payments → refunds → financial_ledger` — ничего не теряется, история повторных покупок/возвратов сохраняется полностью в платёжном контуре.
+2. Выдача entitlement происходит **только** в обработчике подтверждения платежа (CAS-победитель webhook): платная покупка — `INSERT … ON CONFLICT (recipe_id, buyer_id) DO NOTHING` (первая покупка); при отсутствии строки и подтверждённом новом платеже — INSERT; при существующей revoked-строке и новом платеже — **реактивация** (`UPDATE … SET is_active=true, payment_id=<новый>, recipe_version_id=<новая>, price_paid/royalty/commission=<новые>`) — осознанный контракт «reactivate» (RB.15).
+3. `payment_id` получает **FK → payments(id)** (nullable — не ломает 0 существующих строк и бесплатные покупки); состояние доступа берётся Resolver'ом из пары (entitlement + платежи), не дублируется в purchases.
+4. Повторные webhook/ретраи не создают ни повторных прав, ни повторных начислений: side-effects уже защищены CAS + ledger-idempotency + PK refund_id (Ф-1); INSERT entitlement идемпотентен UNIQUE.
+
+**Обязательные ответы (10 вопросов ТЗ RECIPE-01B §8):**
+
+| # | Вопрос | Решение |
+|---|---|---|
+| 1 | Что фиксируется при покупке | order(type='recipe', total=base_price) + payment + после подтверждения: entitlement-строка с `recipe_version_id` (версия, зафиксированная на момент выдачи), price_paid/royalty/commission (сервер, от base_price БД), payment_id FK |
+| 2 | Можно ли редактировать опубликованную версию | нет: правка работает на черновом состоянии корня; publish создаёт новую версию; существующие версии не изменяются |
+| 3 | Как выпускается новая версия | `pending_review → published` модератором/автором (по Завис-2 — пока без обязательной модерации): version_no = max+1 в одной транзакции со сменой статуса; UNIQUE(recipe_id, version_no) |
+| 4 | Получает ли покупатель новые версии автоматически | **нет** (default): доступ зафиксирован на `recipe_version_id` покупки; Resolver отдаёт содержание зафиксированной версии — OWNER DECISION (Q-3.2) для будущих изменений политики |
+| 5 | Полный возврат | webhook refund.succeeded (полный) → entitlement `is_active=false` (REVOKED_REFUND); Resolver → preview |
+| 6 | Частичный возврат | доступ сохраняется (default Q-3.1); факт частичного возврата виден в payments.refund_amount; политика может быть переопределена в оффере — OWNER DECISION |
+| 7 | Удаление/блокировка рецепта | hard DELETE рецепта/оффера при наличии покупок запрещён (RESTRICT на новом FK + soft-archive); блокировка модерацией: каталог скрывает, entitlement сохраняется (купленное не отзывается) |
+| 8 | Блокировка продавца | активные офферы снимаются с публикации; entitlement сохраняется; Resolver продолжает отдавать full по зафиксированной версии |
+| 9 | Закрытие marketplace offer | выданные entitlement живут своим контуром (RA.14 offer active→hidden); новые покупки невозможны, старый доступ работает |
+| 10 | Доказательство приобретённой версии | `recipe_purchases.recipe_version_id` + связанный `payments` + `financial_ledger payment_succeeded` — тройное основание; для исторических строк (их 0) recipe_version_id = NULL |
+
+**Роялти-инвариант (закрытие Ф-4):** новый CHECK в 0072: `royalty_amount + commission_amount <= price_paid`; расчёт — сервером от `base_price` БД (не от клиента); commission_rate остаётся серверной константой 10% (`purchase/route.ts:105`) до появления тарифной политики (OWNER).
+
+## RB.7. Склад и производственные списания (Этап 6)
+
+**Верификация существующего механизма (все факты подтверждены):**
+
+| Элемент | Факт | Координаты |
+|---|---|---|
+| Журнал движений | `inventory_movements(item_id FK CASCADE, user_id → profiles, type CHECK IN/OUT/ADJUST, quantity>0, order_id UUID **без FK**)`; RLS не включён | `0046:17-26`; НФ-1 |
+| Атомарный примитив | RPC `apply_inventory_movement_atomic`: INVOKER, plpgsql, без search_path; FOR UPDATE на inventory_items; insufficient-guard; UPDATE quantity + INSERT movement; возвращает ok/code/available/new_qty/movement/item | `0048:41-96` (полный DDL в аудите агентов, подтверждён дословно) |
+| Реестр списаний | `inventory_write_offs(owner_id, order_id NULL, signature, items JSONB, result JSONB)`; `UNIQUE(owner_id, order_id, signature)` — **NULLS DISTINCT** (без NULLS NOT DISTINCT); RLS не включён | `0049:17-26`; `0049:14-15` комментарий дословно |
+| Route write-off | signature только при order_id (:153); N отдельных RPC-вызовов (:183-207) → INSERT реестра (:218-225); 23505 → «idempotent:true» (:226-241); «Батч уже применён; не откатываем» (:242-246) — **общей транзакции нет**, гонка успевает списать | `write-off/route.ts:60-66,153,183-246` |
+| Обходные пути | POST movements — OUT мимо реестра с невалидированным order_id; items POST — начальный остаток без IN; items PATCH / supplier PATCH — прямой UPDATE quantity; триггерной защиты нет | `movements/route.ts:122-132`; `items/route.ts:120-134,198-204`; `supplier/products/route.ts:260-265,285-290` |
+| Тест дедупа | фиксирует «order_id=null → без дедупликации, реестр не пишется» как ожидаемое поведение | `write-off.idempotency.test.ts:204-209` |
+
+**РЕШ-7 (партии — уточнение RA.11 по НФ-1/НФ-5):** спецификация RA.11.1–RA.11.4 подтверждается (сущность `recipe_production_batches`, расширение `inventory_write_offs` на `batch_id`+`idempotency_key`, 2 частичных UNIQUE, батч-RPC «реестр-первым, всё в одной транзакции»). Уточнения RECIPE-01B:
+
+1. **Батч-RPC** (`apply_inventory_write_off_batch`) создаётся по образцу 0048, но: `LANGUAGE plpgsql` + **явно `SET search_path = public`**; SECURITY INVOKER (как 0048 — вызов идёт из API через supabaseAdmin; SECURITY DEFINER не требуется и не нужен); `GRANT EXECUTE … TO service_role` + `REVOKE EXECUTE … FROM PUBLIC` — делаем де-факто существующую грантовую дисциплину явной (SEC-10).
+2. Шаг 1 (INSERT реестра `ON CONFLICT … DO NOTHING RETURNING`) → конфликт = replay сохранённого result без движений; шаг 3 — те же `FOR UPDATE`-семантики по каждой позиции; шаг 4 — RAISE → полный откат (ни движений, ни реестра). Матрица RA.11.4 сохраняется дословно (повтор/ретрай/конкурент/частичная ошибка/повторный запуск/недостаток).
+3. `idempotency_key` задаёт **сервер** (`pb:{batch_id}` или `pb:{batch_id}:{attempt}` при докатке новых позиций); клиентский ключ игнорируется. Область уникальности: частичный UNIQUE на `inventory_write_offs.idempotency_key`; владелец/тип/партия входят в состав ключа детерминированно.
+4. **Начальные остатки (проверка RECIPE-01B §9.3):** миграция 0071 **не начисляет и не переносит остатки** — только ADD COLUMN + частичные UNIQUE + RPC; повторное начисление исключено. Ликвидация Ф-8 («создание позиции без IN-движения») — кодовое изменение RECIPE-03 (items POST создаёт IN-движение через батч-RPC/ADJUST), не миграционное; исторические 12 позиций inventory_items (row-count RECIPE-01) не трогаются.
+5. Инварианты склада RA.11.5 подтверждаются в полном объёме (ликвидация D11/Ф-7/Ф-8 в RECIPE-03; «любое изменение остатка — только через RPC → журнал движений»); DB-триггер на UPDATE quantity — опция владельца (Q-10), не требуется для корректности batch-контура.
+6. Поставщик использует ту же `inventory_items` (Ф-9): правила журнала применяются к нему так же; enum-единицы поставщика (`kg/g/l/ml/pcs/pack/box`) не смешиваются со словарём `units.ts` — конвертация между системами единиц остаётся явной и не вводится в v1 (разные владельцы складов).
+
+## RB.8. Себестоимость и единицы измерения (Этап 7)
+
+**Подтверждённые конкурирующие расчёты (D9 — все 5):** `breakdown.ts:351-360` (закупка дефицита: ceil(shortage в складской единице)×cost_per_unit, через convertQty), `rules.ts:509-513` (авточерновик: `max(min*2−qty, min)`, другая база), `supplier/dashboard/route.ts:152-155` (стоимость склада, сервер), `confectioner-extra-tabs.tsx:1050` (та же формула на клиенте — дубли), `order-breakdown-dialog.tsx:135-138` (пропорциональная аппроксимация — третий алгоритм единиц).
+
+**РЕШ-8 (калькулятор):** RA.12 подтверждается: единый серверный модуль `src/lib/costing/`, три вида (ориентировочная — display-only; нормативная — card_version снапшот + цены на момент → `recipe_card_cost_history`; фактическая — реальные списания партии из `inventory_write_offs.items/result` → history с basis='actual_batch'). Цены фиксируются в записи history (сценарий №13). Денежные поля — RB.4 (целые рубли; копейки только в breakdown-JSONB промежуточно).
+
+**Единицы (проверено):** канон `units.ts` — масса (г/кг, factor 1000), объём (мл/л, ×1000 к мл), шт, дес=шт×10 (`units.ts:27-64`); `convertQty` возвращает **null** для несовместимых/неизвестных — масса↔объём невозможна по построению (Ф-подтверждено, Q-2 закрыт фактом). В целевой модели: канон г/мл/шт; «ложка/стакан/упаковка/порция/по вкусу» — display-only (`display_qty TEXT`), не конвертируются, в производственном контуре требуют явной привязки к складской позиции с канонической единицей.
+
+**Проверка «двух конкурирующих величин» (RECIPE-01B §10):** `qty NUMERIC(12,3) NULLABLE` — единственное вычислимое значение; `display_qty TEXT` — только презентация, **никогда** не участвует в расчётах/агрегациях/конвертациях; SQL breakdown использует только `qty IS NOT NULL`. Двух источников числа нет (колонка `amount` не создаётся — ПР-2 подтверждён).
+
+**Производственная карта (дополнение к RA.12):** нормативный выход `batch_yield_qty/unit`, допустимые потери `waste_pct`, фактический выход — из партии, отклонения — расчётные (в сравнении карточек); технологические операции — `recipe_steps` рецепта + время карты; время не масштабируется линейно (Ф-19 batchFactor подтверждён `production-duration.ts:105`). Себестоимость производства и коммерческая цена оффера — разные контуры, никогда не смешиваются.
+
+## RB.9. Медиа и импорт (Этап 8)
+
+**Медиа (проверено):** единая инфраструктура — таблица `uploads` (0015:5-19, category, uploaded_by, metadata) + `/api/upload` (защищённый файл, не трогается; multipart-поле `category`, сохранение `<category>/<uuid>.<ext>`, НФ-11). Таблица `recipe_media` (0066) наследует доступ родительского рецепта; **составной FK реализуем**: `UNIQUE (id, recipe_id)` на `recipe_steps` + `FK recipe_media (step_id, recipe_id) → recipe_steps (id, recipe_id)` — PostgreSQL-стандарт, верифицируется тестом RECIPE-02 на чистой PG18 (RB.19). Ownership медиа: insert проверяет авторство рецепта сервером; удаление/замена — только автор/админ; привязка к версии — через снапшот `recipe_versions` (манифест медиа в снимке); orphan-очистка — существующий `cleanup` контур, расширение — RECIPE-04 (не в RECIPE-02). Мети происхождения (`origin author_upload/imported/ai_generated`, `ai_generated BOOL`) сохраняются как в RA.16.
+
+**Импорт (проверено):** `/api/recipes/import` и LLM-извлечение **отсутствуют** (rg = 0) — RECIPE-06 проектируется с нуля на спроектированной `recipe_sources` (ПР-9 подтверждён): `rights_confirmed BOOLEAN NOT NULL DEFAULT FALSE` + `rights_confirmed_by/at` (явная процедура, отдельный endpoint); серверный гейт: `source_type != 'manual'` запрещает publish и платный оффер до подтверждения; импортированный рецепт живёт как draft и не публикуется/не продаётся автоматически; рекламные блоки/cookies/навигация — только в `raw_payload`, никогда в steps/ingredients/media; provenance-метки `source|extracted|user_corrected|unknown`, придумывание значений запрещено. SSRF-инварианты RA.13 (https-only, блокировка private/loopback/link-local на каждом редиректе ≤3, DNS-check, таймаут, лимит размера, whitelist MIME, не-follow не-HTML) сохраняются без изменений.
+
+## RB.10. Access Resolver (Этап 9)
+
+RA.9 подтверждается как архитектура; финальная матрица RECIPE-01B (серверная проверка **до формирования ответа**; preview-ответ = whitelist-сериализация: никогда не включает steps/ingredients/нормы/себестоимость ни в поля, ни в JSON-хвосты):
+
+| Роль/состояние | Public metadata (каталог/карточка) | Ingredients | Steps | Production card | Purchase (создание заказа) |
+|---|---|---|---|---|---|
+| anonymous | ✔ (каталог published через API; RLS-прямой доступ к офферам закрыт TO authenticated) | free: ✔ / paid: — | free: ✔ / paid: — | — | — (401) |
+| CUSTOMER | ✔ | free: ✔ / paid: по entitlement | то же | — | ✔ |
+| CONFECTIONER (scale=home/business/enterprise) | ✔ | free: ✔ / paid: по entitlement | то же | свои: ✔ (создание) | ✔ |
+| SUPPLIER | ✔ (ПР-6: витрина) | free: ✔ / paid: по entitlement (Q-4) | то же | — **никогда** (чужие) | ✔ (рекомендация) |
+| RECIPE_DEVELOPER | ✔ | free: ✔ / paid: свои ✔, чужие по entitlement | свои ✔ | — (не производственная роль) | ✔ (не своё) |
+| MODERATOR | ✔ (очередь) | ✔ (модерация) | ✔ | — | — |
+| ADMIN / SUPER_ADMIN | ✔ | ✔ | ✔ | ✔ (все) | ✔ (не своё) |
+| SUPPORT | ✔ (read-only очередь) | — (не полный) | — | — | — |
+| Автор рецепта | ✔ | ✔ | ✔ | свои карты ✔ | своё — 422 (существующий блок) |
+
+Правила Resolver'а RA.9 (первое совпадение: NOT_PUBLISHED → AUTHOR → STAFF → FREE_CONTENT → PURCHASED(+verified payment) → PAID_NOT_PURCHASED → REVOKED_REFUND) сохраняются. Инварианты: (1) единственная точка решения — `src/lib/recipe-access.ts`; (2) проверка платежа только по серверным данным (`payments.status IN ('succeeded','escrow','released')` + `refund_amount < amount`); (3) выдача entitlement — только webhook-обработчик (РА.10); (4) RLS покупок (`buyer_id = auth.uid()`, 0012:350-353) — вторая линия; пейволл — API-слой; (5) кэш отсутствует (correctness first); (6) SSR/hydration: клиент получает уже обрезанный payload — закрытые поля физически не покидают сервер (ликвидация D4, никаких «скрыть на фронте»).
+
+**Проверка путей утечки (все проверены в коде):** GET marketplace — отдаёт только выбранные метаданные-колонки (`marketplace/route.ts:76-86`, steps_json/ingredients_json в SELECT не входят) — ✔; GET detail — `select("*")` (D4) → переписывается на Resolver; авторизационные API (`/api/auth/*`) рецептурных полей не содержат; PostgREST — офферы закрыты TO authenticated, карточка рецепта корня — published-only для anon (SEC-4, витрина); service_role-запросы — только внутри серверных API; JSON-утечки через «расширенные» ответы — запрещены whitelist-правилом; масштабирование (`/scale`) — display-only, работает на preview-данных без раскрытия.
+
+## RB.11. Итоговая матрица ролей (полная)
+
+Базируется на фактическом словаре (30 ролей; HOME/BUSINESS/ENTERPRISE = `business_scale`); enforcement — сервер (`requireRole`+ownership), RLS — вторая линия. Отличия от RA.7: добавлена строка блокировок, SUPPORT уточнён, «покупать платный контент» разделён на покупку и чтение.
+
+| Действие | anon | CUSTOMER | RECIPE_DEVELOPER | CONFECTIONER | SUPPLIER | MODERATOR | ADMIN/SUPER_ADMIN | SUPPORT |
+|---|---|---|---|---|---|---|---|---|
+| Читать каталог/published метаданные | ✔ (API) | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
+| Читать free-состав (ingredients/steps) | — (нет сессии → preview-уровень по Resolver: free-контент отдаётся) | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | — |
+| Читать платный состав | — | по entitlement | по entitlement (чужие) | по entitlement | по entitlement (Q-4) | ✔ | ✔ | — |
+| Создавать черновики | — | ✔ | ✔ | ✔ | — | — | ✔ | — |
+| Редактировать/архивировать свои | — | ✔ | ✔ | ✔ | — | — | ✔ все | — |
+| Публиковать бесплатный (после модерации) | — | — | ✔ | ✔ | — | — | ✔ | — |
+| Создавать платный оффер | — | — | ✔ | Q-6 (default: нет) | — | — | ✔ | — |
+| Покупать платные | — | ✔ | ✔ (не своё) | ✔ (не своё) | Q-4 (default: ✔) | — | ✔ (не своё) | — |
+| Создавать/править производственные карты | — | — | — | ✔ свои | — | — | ✔ | — |
+| Approve карты (→ версия) | — | — | — | ✔ владелец | — | — | ✔ | — |
+| Видеть чужие карты/нормы/себестоимость | — | — | — | — | **— никогда** | — | ✔ | — |
+| Списывать сырьё/менять нормы склада | — | — | — | владелец склада | свой склад поставщика | — | ✔ | — |
+| Запускать/завершать партии | — | — | — | ✔ владелец | — | — | ✔ | — |
+| Модерировать рецепты | — | — | — | — | — | ✔ (после D6) | ✔ | read-only очередь |
+| Импортировать (создание черновика) | — | ✔ | ✔ | ✔ | — | — | ✔ | — |
+| Подтверждать права на импорт | — | свой | свой | свой | — | — | ✔ | — |
+
+Блокировки (действуют на все строки матрицы): `profiles.is_blocked=true` → все мутации запрещены (fail-closed, SEC-11); покупатель с блокировкой сохраняет чтение купленного; продавец с блокировкой — офферы снимаются с витрины.
+
+## RB.12. Финальная таблица вопросов Q-1…Q-10 (Этап 10)
+
+| Вопрос | Факт из проекта | Рекомендация | Риск | Нужно решение владельца? | Статус |
+|---|---|---|---|---|---|
+| **Q-1** Организации/ENTERPRISE | сущности нет (Ф-16/RB.5); `business_scale` — атрибут | v1 без организаций; владение через `owner_id UUID auth.users` (переносимо на org_id без переписывания); фиктивный ENTERPRISE не создавать | низкий (точка расширения заложена) | да — при появлении организационной модели | RESOLVED (v1) + OWNER DECISION при расширении |
+| **Q-2** Плотность/конверсия масса↔объём | `convertQty` возвращает null для несовместимых (`units.ts:87-93`) | запрет автоконверсии сохраняется; плотностей в схеме нет | нет | нет | RESOLVED (факт) |
+| **Q-3.1** Частичный возврат | refunds поддерживают частичные (`0035:24-33`) | доступ сохраняется; фиксируется в оффере | средний (спорные кейсы) | **да** | PROPOSED (default: доступ сохраняется) |
+| **Q-3.2** Новые версии купившим | `recipe_version_id` фиксируется в entitlement (РЕШ-6) | доступ на зафиксированную версию; авто-выдача новых — нет | средний (удовлетворённость покупателей) | **да** | PROPOSED (default: зафиксированная версия) |
+| **Q-4** Покупка SUPPLIER | технически возможна (RLS buyer_id = auth.uid(); гранты 0025:15) | разрешить на общих основаниях; производственные данные — никогда (ПР-6/SEC-1) | низкий | **да** (продуктовая политика) | PROPOSED (default: разрешено) |
+| **Q-5** Полнота вопросов RECIPE-01A | все Q-1..Q-10 + Завис-1/Завис-2 перенесены, ни один не потерян | — | — | — | RESOLVED (проверено) |
+| **Q-6** Продажа CONFECTIONER | роль существует; офферы сегодня только RECIPE_DEVELOPER (`marketplace/route.ts:200-207`) | v1: только RECIPE_DEVELOPER; модерация платных офферов обязательна; самопокупка запрещена (есть, :78-83); конфликт интересов: оффер на чужой рецепт запрещён (author_id = владелец оффера) | средний (лицензионные споры) | **да** | PROPOSED (default: нет в v1) |
+| **Q-7** Сужение RLS USING(true) | 10 политик без owner-условий, латентные (SEC-1, НФ-1) | миграция 0073 в конце ledger; GRANT не выдавать; SECURITY-RECIPE-01 до RECIPE-05 | высокий при выдаче GRANT без сужения | **да** (меняет поведение прямого PostgREST-доступа) | PROPOSED (план готов) |
+| **Q-8** Подписки | `recipe_subscriptions` мёртвая (Ф-25); рекуррентного биллинга нет | не включать в RECIPE-02..07; таблица не трогается; оффер без значения 'subscription' | нет | да — отдельный этап при появлении рекуррента | RESOLVED (факт) + OWNER при будущем |
+| **Q-9** Копейки | канон money-path = целые рубли (0034:76-77); NUMERIC(10,2) в recipe-покупках | РЕШ-4: целые рубли; копейки только в breakdown-JSONB промежуточно | нет (несмешение зафиксировано) | **да** — только если владелец захочет переход на копейки | RESOLVED (для RECIPE-02..07) |
+| **Q-10** Защита quantity на уровне БД | прямые UPDATE существуют, триггеров нет (SEC-6) | app-инварианты RECIPE-03 достаточны; DB-триггер — опция | низкий | **да** (опция) | PROPOSED (default: app-инварианты) |
+
+Зависимости (из RECIPE-01A, подтверждены): Завис-1 — приёмка миграций только на чистой PG18 владельцем/CI (БД песочницы не поднимается — RB.0); Завис-2 — D6 должен быть закрыт до обязательной модерации публикации. **BLOCKED BY FACTS: ни один вопрос не помечен** — блокеров с неустранимым дефицитом фактов нет; БД-недоступность (RB.0) относится к среде проверки, не к архитектуре.
+
+## RB.13. Итоговая ERD целевой модели (Mermaid)
+
+Изменения против RA.6: (1) `recipe_purchases.recipe_id` ссылается на `recipe_marketplace` (существующий FK, 0012:99) — связь Purchases↔Marketplace уточнена как владельческая; (2) добавлен мост ORDERS↔RECIPE_PURCHASES через payments (РЕШ-6); (3) помечена иммутабельность версий; (4) добавлены `products.production_card_id` (RECIPE-05).
+
+```mermaid
+erDiagram
+    AUTH_USERS ||--|| PROFILES : "id = profiles.id (0001:87)"
+    AUTH_USERS ||--o{ USER_ROLES : "user_id (0001:117)"
+    AUTH_USERS ||--o{ RECIPES : "author_id (0010:108)"
+    RECIPES ||--o{ RECIPE_VERSIONS : "publish-снапшот, immutable"
+    RECIPES ||--o{ RECIPE_STEPS : "recipe_id (новая, 0066)"
+    RECIPES ||--o{ RECIPE_MEDIA : "recipe_id (новая, 0066)"
+    RECIPE_STEPS ||--o{ RECIPE_MEDIA : "составной FK (step_id, recipe_id)"
+    RECIPES ||--o{ RECIPE_INGREDIENTS : "recipe_id (0053:132)"
+    RECIPE_INGREDIENTS ||--o{ RECIPE_INGREDIENT_SUBSTITUTES : "ingredient_id (новая)"
+    RECIPES ||--o{ RECIPE_VARIANTS : "recipe_id (новая)"
+    RECIPES ||--o{ RECIPE_SOURCES : "recipe_id, rights_confirmed (новая)"
+    RECIPES ||--o{ RECIPE_MARKETPLACE : "recipe_id FK RESTRICT (новый, 0068)"
+    RECIPE_MARKETPLACE ||--o{ RECIPE_PURCHASES : "recipe_id CASCADE (0012:99)"
+    AUTH_USERS ||--o{ RECIPE_PURCHASES : "buyer_id (0012:100)"
+    RECIPE_PURCHASES }o--o| PAYMENTS : "payment_id FK (новый, 0072)"
+    ORDERS ||--o{ PAYMENTS : "order_id NOT NULL (0002:255)"
+    ORDERS ||--o{ RECIPE_PURCHASES : "мост type=recipe, 1:1 акт покупки"
+    PAYMENTS ||--o{ REFUNDS : "payment_id (0009)"
+    AUTH_USERS ||--o{ RECIPE_PRODUCTION_CARDS : "owner_id (новая)"
+    RECIPES ||--o{ RECIPE_PRODUCTION_CARDS : "recipe_id (новая)"
+    RECIPE_VERSIONS ||--o{ RECIPE_PRODUCTION_CARDS : "recipe_version_id (норма зафиксирована)"
+    RECIPE_PRODUCTION_CARDS ||--o{ RECIPE_PRODUCTION_INGREDIENTS : "card_id (нормы)"
+    RECIPE_PRODUCTION_CARDS ||--o{ RECIPE_PRODUCTION_CARD_VERSIONS : "card_id, immutable"
+    RECIPE_PRODUCTION_INGREDIENTS }o--|| INVENTORY_ITEMS : "inventory_item_id RESTRICT"
+    RECIPE_PRODUCTION_CARD_VERSIONS ||--o{ RECIPE_CARD_COST_HISTORY : "card_version_id RESTRICT"
+    RECIPE_PRODUCTION_CARD_VERSIONS ||--o{ RECIPE_PRODUCTION_BATCHES : "card_version_id RESTRICT"
+    RECIPE_PRODUCTION_BATCHES }o--o| ORDERS : "order_id nullable"
+    RECIPE_PRODUCTION_BATCHES ||--o| INVENTORY_WRITE_OFFS : "batch_id UNIQUE"
+    AUTH_USERS ||--o{ INVENTORY_ITEMS : "owner_id (0010:220)"
+    INVENTORY_ITEMS ||--o{ INVENTORY_MOVEMENTS : "item_id (0046:19)"
+    AUTH_USERS ||--o{ INVENTORY_WRITE_OFFS : "owner_id (0049:19)"
+    RECIPE_PRODUCTION_CARDS }o--o| PRODUCTS : "production_card_id (RECIPE-05, nullable)"
+```
+
+Технические примечания (продолжение примечаний RA.6, приоритет у RECIPE-01B):
+
+1. Уникальности: `UNIQUE (recipe_id, version_no)` на обеих версионных таблицах; `UNIQUE (recipe_id) WHERE is_published` на оффере; `UNIQUE (recipe_id, buyer_id)` на purchases (РЕШ-6); `UNIQUE (batch_id) WHERE batch_id IS NOT NULL` и `UNIQUE (idempotency_key) WHERE idempotency_key IS NOT NULL` на write_offs; существующий `UNIQUE (owner_id, order_id, signature)` сохраняется.
+2. `ON DELETE`: новый FK оффера — RESTRICT (запрет hard-delete рецепта с оффером); purchases→marketplace остаётся CASCADE (0012:99), но hard-delete оффера с покупками блокируется RESTRICT-цепочкой через recipes и soft-delete веткой маршрута (НФ-14); `inventory_item_id` норм карты — RESTRICT (защита норм); `inventory_write_offs.batch_id` — RESTRICT.
+3. Все пользовательские FK — `auth.users(id)` (ПР-7); TEXT-модели не расширяются; `orders.confectioner_id` (UUID) демонстрирует канон (0002:183).
+4. `recipe_versions`/`recipe_production_card_versions` — без UPDATE/DELETE политик вообще; снапшоты включают манифест медиа и цены на момент (история воспроизводима).
+5. Ссылки RECIPE_PURCHASES→PAYMENTS и ORDERS→RECIPE_PURCHASES: 1 акт покупки = 1 order(type='recipe') + 1 payment (мост Ф-2); entitlement может переживать несколько платежей (реактивация — РЕШ-6.2).
+
+## RB.14. API-контракты (Этап 11.3)
+
+Правило: существующие API расширяются, новые создаются только при отсутствии носителя. Все мутации — через серверные API (requireAuth/requireRole/ownership + supabaseAdmin); RLS — вторая линия. Идемпотентность и транзакционные требования обязательны для каждого мутатора.
+
+| Endpoint | Метод | Роль/ownership | Payload (валидация) | Ответ / ошибки | Идемпотентность / транзакция |
+|---|---|---|---|---|---|
+| `/api/recipes/marketplace` (сущ.) | GET | публично | query: sort/limit/offset/q/tag/difficulty | метаданные без steps/ingredients (уже так) / 400 | — |
+| `/api/recipes/marketplace` (сущ.) | POST | RECIPE_DEVELOPER/ADMIN (ownership рецепта для нового FK) | title 3-200, description, base_price ≥0 целые рубли, royalty_rate 0-1, steps/ingredients DTO | 201 с id / 403/409(slug)/422 | slug-проверка; одна INSERT |
+| `/api/recipes/marketplace/[id]` (сущ.) | GET | Resolver (RB.10) | — | preview: метаданные; full: +состав по entitlement / 404 | — |
+| `/api/recipes/marketplace/[id]` (сущ.) | PATCH/DELETE | автор/ADMIN | PATCH: поля карточки; DELETE: soft при покупках | 200 / 403/404 | atomic update; счётчики через SQL-инкремент (закрытие D12) |
+| `/api/recipes/marketplace/[id]/purchase` (перепис.) | POST | authenticated, не автор, is_blocked=false | без payment_id (запрещён) | 200 {orderId, confirmationUrl} / 401/403/409(закрыт)/422 | создание order(type='recipe')+payment — идемпотентность через yookassa Idempotence-Key; повторный POST → тот же order в pending |
+| `/api/payment/webhook` (сущ.) | POST | провайдер (IP-allowlist + re-verification) | — | 200/500 | CAS escrow (сущ.); **добавка RECIPE-03**: у победителя — выдача entitlement (INSERT/reactivate, РЕШ-6) + ledger (сущ.) |
+| `/api/payment/refund` (сущ.) | POST | заявка: владелец заказа; исполнение: ADMIN | amount ≤ остаток | 200/400/403 | reserve_refund + дедуп refund_id (сущ.); **добавка**: полный возврат → entitlement revoked (webhook) |
+| `/api/recipes` (новый) | POST | authenticated (CUSTOMER/RECIPE_DEVELOPER/CONFECTIONER/ADMIN) | title/описание; состав DTO; без цен | 201 draft / 403/422 | одна INSERT (корень+дети в одной транзакции) |
+| `/api/recipes/[id]` (новый) | GET/PATCH/DELETE | автор/ADMIN | PATCH: контент+состав | preview/full по Resolver (для чужих) / 200 / 403/404 | DELETE = soft (archived); состав одним DTO-запросом (атомарно) |
+| `/api/recipes/[id]/publish` (новый) | POST | автор/ADMIN (модерация по Завис-2) | — | 200 {versionNo} / 403/409 | повтор → 200 без новой версии; version_no в одной транзакции со статусом; rights-гейт для импорта |
+| `/api/recipes/[id]/rights-confirm` (новый) | POST | автор/ADMIN | подтверждение прав (note) | 200 / 403 | фиксирует by/at, одноразово (повтор → 200) |
+| `/api/recipes/[id]/versions` (новый) | GET | автор/ADMIN/покупатель (свою) | — | список снапшотов (без полного payload чужим) / 403 | — |
+| `/api/recipes/[id]/scale` (новый) | GET | preview+ | servings | пересчёт display-only; qty NULL не масштабируется / 422 | — |
+| `/api/recipes/[id]/accept*` (сущ., RECIPE-03) | POST/GET | authenticated | rating/comment | 201/200 на фактических колонках (`user_id`) / 400/404 | UNIQUE(recipe_id,user_id) — upsert; мок-фолбэк удалён |
+| `/api/production/cards` (новый, RECIPE-05) | POST/GET | CONFECTIONER/ADMIN | recipe_id, нормы с inventory_item_id | 201 / 403/422 | UNIQUE(owner,product) partial |
+| `/api/production/cards/[id]/approve` (новый) | POST | владелец | — | 200 {cardVersionNo, cost} / 403/422 (нормы без привязок) | создание card_version + history в одной транзакции; повтор → та же версия |
+| `/api/production/batches` (новый) | POST/GET/PATCH | владелец карты | planned_qty/unit/status переходы | 201/200 / 403/422 | статусные переходы RB.15 |
+| `/api/inventory/write-off` (перепис., RECIPE-03/05) | POST | владелец склада | batch_id или order_id; items[] | 200 {idempotent?} / 400/403/422 | батч-RPC РЕШ-7 (реестр-первым, одна транзакция) |
+| `/api/recipes/import` (новый, RECIPE-06) | POST | authenticated | url/текст | 201 draft + provenance / 400/422 (SSRF/MIME/размер) | raw_payload сохраняется; публикация гейтится rights_confirmed |
+
+Запрещено создавать: `/api/recipes/[id]/like`, отдельный payments-контур для рецептов, второй upload API, отдельный календарь/архив версий вне `/versions`.
+
+## RB.15. Состояния и переходы (state machines, Этап 11.4)
+
+| Сущность | Состояния | Разрешённые переходы (инициатор) | Запрещённые переходы |
+|---|---|---|---|
+| Recipe | draft → pending_review → published / rejected; published → archived; archived → draft (автор) | автор: draft→pending_review, published→archived, archived→draft; модератор/ADMIN: pending_review→published/rejected (D6-фикс); импорт: pending_review→published только при rights_confirmed | draft→published напрямую (кроме периода Завис-2); archived→published; чужие переходы |
+| Offer | (нет) → draft → active(is_published) ↔ hidden | RECIPE_DEVELOPER/ADMIN; active→hidden — автор/ADMIN | скрытие/закрытие оффера не отзывает entitlement; два активных оффера на рецепт — запрещено (частичный UNIQUE) |
+| Purchase (entitlement) | active / revoked / expired | active→revoked: сервер (webhook полного возврата); active→expired: сервер lazy (expires_at); revoked→active: сервер (реактивация новым платежом, РЕШ-6.2) | клиентские переходы запрещены; revoked без полного возврата — запрещён; ручное «подтвердить покупку» не существует |
+| Payment | сущ. enum payment_status (pending→waiting_for_capture→succeeded/escrow→released/cancelled/refunded) | сервер/webhook (CAS) | — (существующий автомат, не дублируется в purchases) |
+| Production card | draft → approved → archived; approved → draft (правки) | владелец; approve создаёт card_version (version_no+1) + history | approve при непривязанных нормах (inventory_item_id NULL); правка существующих версий |
+| Batch | planned → in_progress → completed; planned/in_progress → cancelled | владелец; completed требует ровно одного списания (batch_id UNIQUE) | повторное списание completed-партии; списание без card_version; cancelled → in_progress |
+| Write-off (order-путь) | сущ.: реестр+движения в одной транзакции (после RECIPE-03 — батч-RPC) | — | OUT мимо реестра (SEC-7 ликвидируется) |
+| Moderation | pending_review очередь | approve/reject модератором (type="recipe", D6-фикс) | автор не может сам approve свой pending_review |
+| Refund | requested → approved → processing → processed / rejected | заявка: владелец; approve/send: ADMIN; processed: webhook | деньги не двигаются на requested; client-initiated исполнение запрещено |
+
+## RB.16. RLS-план для новых таблиц (Этап 11.5)
+
+Правило GRANT-дисциплины (из НФ-1/НФ-2, обязательное для 0065+): **каждая миграция явно объявляет привилегии**; дефолт — только service_role (compat-дефолты уже дают ALL service_role); anon/authenticated получают GRANT только если таблица предназначена для прямого PostgREST-доступа (в рецептурном контуре — НИКАКИХ: весь доступ через API-слой).
+
+| Таблица (миграция) | GRANT | RLS | SELECT | INSERT | UPDATE | DELETE | service_role | SECURITY DEFINER |
+|---|---|---|---|---|---|---|---|---|
+| recipe_steps (0066) | не выдаётся | ENABLE | по родительскому рецепту (published/author) | автор рецепта | автор рецепта | автор рецепта | ALL (дефолт compat) | нет |
+| recipe_media (0066) | не выдаётся | ENABLE | как родительский рецепт (cover — публично) | автор | автор | автор/админ | ALL | нет |
+| recipe_ingredient_substitutes (0066) | не выдаётся | ENABLE | по родителю | автор | автор | автор | ALL | нет |
+| recipe_variants (0066) | не выдаётся | ENABLE | по родителю | автор | автор | автор | ALL | нет |
+| recipe_sources (0066) | не выдаётся | ENABLE | author+ADMIN (raw_payload закрыт всем прочим) | автор | автор (до publish) | автор | ALL | нет |
+| recipe_versions (0066) | не выдаётся | ENABLE | **SELECT-only**: author/ADMIN/покупатель (свою версию) | **политик INSERT/UPDATE/DELETE нет** (только service_role) | нет | нет | ALL | нет |
+| recipe_marketplace: новый FK (0068) | сущ. (0025:14) | сущ. (0012:292-337) | сущ. | сущ. | сущ. | сущ. | сущ. | нет |
+| recipe_purchases: UNIQUE+FK (0072) | сущ. (0025:15) | сущ. (0012:342-361) | сущ. | сущ. (только webhook-сервис фактически) | сущ. | сущ. | сущ. | нет |
+| recipe_production_cards/_ingredients (0070) | не выдаётся | ENABLE | owner/ADMIN | owner | owner | owner | ALL | нет |
+| recipe_production_card_versions (0070) | не выдаётся | ENABLE | owner/ADMIN SELECT-only | нет политик мутации | нет | нет | ALL | нет |
+| recipe_card_cost_history (0070) | не выдаётся | ENABLE | owner/ADMIN SELECT-only | нет политик (service_role) | нет | нет | ALL | нет |
+| recipe_production_batches (0070) | не выдаётся | ENABLE | owner/ADMIN | owner | owner (статусные поля) | owner (до списания) | ALL | нет |
+| inventory_write_offs: колонки (0071) | не выдаётся (НФ-1) | **ENABLE RLS добавляется** (SEC-2) | owner/service | только через батч-RPC (service) | нет | нет | ALL | RPC: INVOKER + search_path + GRANT EXECUTE service_role (SEC-10) |
+| inventory_movements (0071, SEC-2) | не выдаётся | ENABLE | owner/service | только через RPC | нет | нет | ALL | нет |
+| supplier_profiles (0071, SEC-2) | не выдаётся | ENABLE | по модели confectioners (0026) | own (userId мост) | own | нет | ALL | нет |
+| RLS-сужение (0073) | — | переписываются 10 политик SEC-1 | «участники+админы» | — | — | — | — | — |
+
+Инварианты: (1) у мутационных таблиц браузерного пути быть не должно — всё через API (Ф-13 сохраняется как принцип); (2) иммутабельные версии — без мутационных политик; (3) CHECK/UNIQUE — в RB.13-примечаниях; (4) все новые RLS-выражения для TEXT-моделей — только `= auth.uid()::text` (урок B1: `0064:93`).
+
+## RB.17. Миграционный план 0065–0073 (Этап 11.6 — переработан под НФ-3/НФ-4)
+
+Диапазон 0065–0073 RECIPE-01A **подтверждается по составу**, но каждое требование уточняется под два разных мигратора: прод — **psql autocommit стейтмент-за-стейтментом** (НФ-3), dev — транзакция-на-файл с глотанием «already exists» (НФ-4). Следствие (обязательное):
+
+1. **Каждый файл 0065+ должен быть rerun-safe на уровне стейтмента**: `CREATE TABLE IF NOT EXISTS`, `CREATE UNIQUE INDEX IF NOT EXISTS` (или `CREATE INDEX IF NOT EXISTS`), `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, DO-гварды для политик (прецедент 0053/0054), функции — `CREATE OR REPLACE` + поиск по `pg_proc` для GRANT/REVOKE-веток; constraint-добавление — только через DO-гварду `pg_constraint` (не голый `ADD CONSTRAINT`: после частичного autocommit-применения голый стейтмент уронит повторный прогон).
+2. **`ALTER TYPE … ADD VALUE` в 0065+ не использовать** — в проде файл целиком уходит в autocommit (setup.mjs-эвристика неприменима), частичное применение становится вероятным; новых значений ролей/статусов не требуется (РЕШ-5, enum достаточен).
+3. **Recovery после частичного прод-сбоя** (прямое закрытие требования RECIPE-01B §14.6): повторный прогон пропускает отмеченные файлы и перезапускает упавший с нуля — поэтому (a) запрещены стейтменты, меняющие данные без `WHERE NOT EXISTS`/`ON CONFLICT`; (b) бэкфиллы — только идемпотентные скрипты (см. 0068/0069); (c) файл, в котором CREATE TABLE выполнен, а индекс упал, обязан при повторе пересоздать недостающее (`IF NOT EXISTS`-цепочка) и не упасть на существующем объекте; (d) ledger-отметка — только после полного успеха файла (существующее поведение, `01-apply-migrations.sh:60-62`); (e) `-- ROLLBACK PLAN` блок обязателен в каждом файле (RA.17 сохраняется).
+4. Порядок сохранён; 0073 (RLS-сужение) — последним в ledger, с комментарием отката (восстановление прежних политик).
+
+| # | Миграция | Назначение / сущности | Перенос данных | Совместимость / индексы / ограничения | RLS / GRANT | Rollback / повторное применение |
+|---|---|---|---|---|---|---|
+| 0065 | recipes-расширение | `subtitle/allergens/equipment/yield_text/storage_note/legacy_content_mdx` + CHECK-словарь статусов (draft/pending_review/published/rejected/archived, бэкфилл 'published'/'draft'/'archived' сохраняются) | нет (бэкфилл статусов WHERE NOT IN) | ADD COLUMN IF NOT EXISTS; CHECK через DO-гварду `pg_constraint` (имя `recipes_status_check`); индексы `status,published_at DESC`/GIN tags/pg_trgm — IF NOT EXISTS | RLS сущ.; политика админа (UPDATE any) — DO-гварда | DROP COLUMN/индексы; CHECK — DROP CONSTRAINT IF EXISTS |
+| 0066 | дети рецепта | `recipe_steps` (с `UNIQUE(id, recipe_id)`), `recipe_media` (составной FK ПР-8), `recipe_ingredient_substitutes`, `recipe_variants`, `recipe_sources` | нет | все CREATE IF NOT EXISTS; составной FK — после UNIQUE; индексы `(recipe_id, position)` | RLS по RB.16; GRANT не выдаётся | DROP TABLE CASCADE (droppable) |
+| 0067 | расширение recipe_ingredients | `qty DROP NOT NULL`, `CHECK (qty IS NULL OR qty > 0)`, `display_qty`, `is_optional`, `prep_note`, `group_title`, `position` | нет | DROP NOT NULL идемпотентен (проверка `pg_attribute.attnotnull`); регресс-фильтр `qty IS NOT NULL` в breakdown — код RECIPE-02 | RLS сущ. (латентная политика сохраняется до 0073) | ADD NOT NULL (после очистки)/DROP COLUMN |
+| 0068 | оффер | `recipe_marketplace.recipe_id FK RESTRICT` + `UNIQUE (recipe_id) WHERE is_published` | **бэкфилл**: 3 live-строки офферов → `recipes` (author/title/description/difficulty/servings/tags/category/image), затем UPDATE офферов SET recipe_id — скрипт `WHERE recipe_id IS NULL` (идемпотентен); ingredients_json/steps_json помечаются legacy | FK через DO-гварду; частичный UNIQUE — CREATE UNIQUE INDEX IF NOT EXISTS | RLS сущ. | открутка: FK/индекс DROP; бэкфилл-строки помечены legacy_content_mdx=true |
+| 0069 | нормализация JSONB→дети | скрипт двойной записи для строк с recipe_id; `quality_flag='stub'` для D5-заглушек | **идемпотентно**: обрабатывает только строки без детей (WHERE NOT EXISTS по children) | без DDL-изменений | RLS 0066 | повторный прогон — no-op |
+| 0070 | production-контур | `recipe_production_cards`, `recipe_production_ingredients`, `recipe_production_card_versions`, `recipe_card_cost_history`, `recipe_production_batches` (+`card_version_id`/`batch_id`-FK RESTRICT) | нет | CREATE IF NOT EXISTS; partial UNIQUE(owner,product) WHERE product_id NOT NULL | RLS owner-only (RB.16) | DROP CASCADE |
+| 0071 | склад-идемпотентность + RLS-закрытие | `inventory_write_offs`: +`batch_id`, +`idempotency_key`, 2 частичных UNIQUE; RPC `apply_inventory_write_off_batch` (РЕШ-7: INVOKER, SET search_path, GRANT EXECUTE service_role, REVOKE PUBLIC); **ENABLE RLS** на inventory_movements/inventory_write_offs/supplier_profiles (SEC-2) | **нет** (никаких начислений остатков) | ADD COLUMN IF NOT EXISTS; уникальности IF NOT EXISTS; RPC CREATE OR REPLACE | политики owner/service (RB.16) | DROP колонок/индексов; RPC — DROP FUNCTION IF EXISTS; RLS — восстановление прежнего отсутствия |
+| 0072 | purchases | `UNIQUE (recipe_id, buyer_id)`, `recipe_version_id FK NULL`, `payment_id FK → payments(id)`, CHECK `royalty_amount + commission_amount <= price_paid` | нет (0 строк; исторические NULL-версии допустимы) | уникальности через CREATE UNIQUE INDEX IF NOT EXISTS (конфликт невозможен на 0 строках, но гварда всё равно ставится); FK через DO-гварду | RLS сущ. | DROP CONSTRAINT/INDEX/COLUMN |
+| 0073 | RLS-сужение SEC-1 | переписать 10 политик (RB.3) на «участники+админы»; **в конце ledger**, блок `-- ROLLBACK PLAN` (восстановление USING(true) — явный список) | нет | политики через DROP POLICY IF EXISTS + CREATE под DO-гвардой | — | откат = восстановление прежних DDL (включено в файл) |
+
+Проверка предпосылки RECIPE-01B «production migrator использует psql autocommit»: **подтверждена** (НФ-3, `01-apply-migrations.sh:57-62` — «НЕ в транзакции целиком… psql применяет стейтменты последовательно»); дополнение RECIPE-01B: dev-мигратор семантически противоположен (НФ-4) — следовательно, миграции проектируются под **строжайший** контракт (rerun-safe autocommit), который удовлетворяет обоим миграторам.
+
+## RB.18. Security backlog — SECURITY-RECIPE-01 (отдельная задача, до RECIPE-05)
+
+| Приоритет | ID | Объём | Критерий закрытия |
+|---|---|---|---|
+| P0 | SEC-1 | миграция 0073: сужение 10 политик + запрет выдачи GRANT (Q-7) | PostgREST-прямой доступ authenticated к 0053/0054-таблицам возвращает 0 строк/ошибку; негатив-тесты в RECIPE-02 |
+| P0 | SEC-6+SEC-7 | RECIPE-03: ликвидация D11 (PATCH quantity), Ф-7 (movements OUT с order_id), Ф-8 (начальный остаток без IN) | rg-проверка: 0 прямых UPDATE quantity в src/; тесты отрицательных остатков/повтора |
+| P0 | SEC-11 | RECIPE-03: fail-closed is_blocked для мутаций | тест: блокированный не может publish/purchase/offer |
+| P1 | SEC-2 | миграция 0071: ENABLE RLS на inventory_movements/inventory_write_offs/supplier_profiles | RLS-негативы под реальными ролями |
+| P1 | SEC-3 | решение владельца + сужение recipe_acceptances (может быть включено в 0073) | anon получает published-only/свои |
+| P1 | SEC-5 | сужение uploads_read_all (в 0073 или отдельной миграцией вне RECIPE-02) | anon читает только свои/публичные категории |
+| P1 | SEC-12 | RECIPE-03: supplier/dashboard на requireRole | e2e-роли зелёные |
+| P2 | SEC-9 | отдельная миграция вне RECIPE-02: SET search_path для 31 SD-функции | pg_proc-проверка search_path |
+| P2 | SEC-10 | в составе 0071 (РЕШ-7.1) | EXECUTE только service_role |
+
+Правило RECIPE-01B §15: security-работы не смешиваются с бизнес-функциональностью без необходимости — SEC-1/SEC-2/SEC-9/SEC-10/SEC-3/SEC-5 идут миграциями (RECIPE-02/SECURITY-RECIPE-01), SEC-6/7/11/12 — кодом RECIPE-03 (там же, где переписываются затронутые маршруты).
+
+## RB.19. Тестируемость и критерии приёмки (Этап приёмки, расширяет RA.18)
+
+**База данных (обязательный блок RECIPE-01B):**
+1. Чистая PostgreSQL 18: последовательные 0001→0073 зелёные (ledger 73/73), прецедент B1-отчёта.
+2. Повторное применение: полный ре-прогон мигратора — 0 изменений, 0 ошибок (rerun-safe НФ-3).
+3. **Частичное выполнение и recovery**: искусственный сбой (fail-injection на стейтменте N файла 0068/0070/0071) → прод-мигратор останавливается → повторный прогон достраивает схему без ошибок индексов/констрейнтов (закрытие требования RECIPE-01B §16).
+4. FK/UNIQUE/CHECK: интроспекция после прогона = RB.13-примечаниям (включая `UNIQUE(id, recipe_id)` и составной FK медиа).
+5. Конкурентные транзакции: два параллельных batch-RPC одной партии → ровно одно списание; конкурентный publish → одна версия; конкурентный webhook → один entitlement.
+6. RLS под реальными ролями (anon/authenticated/service_role через GoTrue-сессии): матрица RB.16, включая SUPPLIER-негативы (SEC-1/ПР-6).
+7. Отсутствие отрицательных остатков: стохастический тест на 0048/батч-RPC (insufficient-guard).
+
+**API:** авторизация/ownership (чужой id → 403/404); закрытый контент (preview без steps/ingredients — побайтовая проверка ответа на вхождение полей); подтверждение платежей (mock-webhook → entitlement → Resolver full); повторные webhook (2× → 1 право, 1 ledger-запись); возвраты (полный → revoked; частичный → active); повторные запросы (idempotent:true без движений); конфликтующие изменения (PATCH-гонки → SQL-инкремент); конкурентные списания (партии).
+
+**UI:** создание/редактирование/сохранение/публикация/покупка/открытие купленного/производственная карта/партия/списание/ошибки и отмена (сценарии RA.18 №1–18 сохраняются).
+
+**Регрессия:** существующий marketplace (каталог/карточка), checkout, YooKassa (prod-guard-тесты), чат, кабинет кондитера, склад (order-путь идемпотентности — существующий тест не регрессирует), заказы, роли, модерация; e2e-контракт `recipe-purchase-flow` (поля ответов не переименовываются до RECIPE-04).
+
+Правило: не заявлять тесты пройденными, если не запущены; приёмка миграций — владельцем/CI на чистой PG18 (Завис-1).
+
+## RB.20. План реализации RECIPE-02…07 + SECURITY-RECIPE-01 (Этап 12)
+
+| Задача | Входные зависимости | Точный scope | Запрещённые изменения | Acceptance (доказательства) | Критерии остановки |
+|---|---|---|---|---|---|
+| **SECURITY-RECIPE-01** | решение владельца Q-7/Q-3.1; RB.18 | миграции 0073 (10 политик), SEC-3/SEC-5 сужения, SEC-9 (search_path) — вне RECIPE-02; негатив-тесты RLS | код API, платежи, склад-логика | RLS-негативы под реальными ролями зелёные; ре-прогон мигратора чистый | расхождение фактических политик с RB.3 — остановка и сверка |
+| **RECIPE-02** (БД) | согласование ТЗ владельцем; B1 уже закрыт (30793a6) | 0065–0072 (RB.17) + типы supabase (`types.ts`/`types.generated.ts`); **без кода API** | код src/ (кроме типов), RLS-сужение (оно в SECURITY), платёжные таблицы | setup чистой PG18 (73/73), recovery-тест RB.19.3, бэкфилл 3 офферов, vitest зелёные (breakdown qty NULL) | любой конфликт с live-схемой/миграциями — остановка |
+| **RECIPE-03** (сервер) | RECIPE-02; решения Q-3.1/Q-3.2/Q-4/Q-6 | Resolver; покупка-мост (RA.10+РЕШ-6); фиксы D1–D4, D6, D12, D13, НФ-7; batch-RPC + переписать write-off (РЕШ-7); ликвидация SEC-6/7/11/12; удаление моков и store-слоя | миграции (кроме 0073, если он не отработал SECURITY-задачей), UI-редизайн | сценарии ТЗ 2–6, 15, 18; юнит-покрытие всех мутаций (Ф-22 закрыт); e2e-контракты зелёные | невозможность сохранить контракт e2e — остановка и решение |
+| **RECIPE-04** (UI) | RECIPE-03 | каталог/детальная/редактор/вкладка кондитера на API; фиксы словаря сложности и фикций; мобильные фиксы J | миграции, платежи | сценарий №1 + §17 UX (карточка: изделие/разрез/описание/сложность/время/выход/цена/автор/доступность); Lighthouse-мобилька | — |
+| **RECIPE-05** (производство) | RECIPE-03; решения Q-10 (триггер), автосписание при complete | карты+approve(версии)+калькулятор (РЕШ-8)+партии+списание через batch-RPC+`products.production_card_id` | второй склад, прямые UPDATE quantity | сценарии 7–14; повторное списание невозможно; история воспроизводима | конфликт со складским контуром — остановка |
+| **RECIPE-06** (импорт/ИИ) | RECIPE-04; решение владельца Q-5-политики | `/api/recipes/import` с SSRF-инвариантами, provenance, rights-гейт | публикация без прав | сценарий №17; XSS-фильтрация; e2e «Жареный сыр» | SSRF-инвариант не выполняется — остановка |
+| **RECIPE-07** (приёмка) | RECIPE-02..06 + SECURITY-RECIPE-01 | полный набор RB.19 + security-ревизия + регрессия | — | все 18 сценариев + миграции чистой PG18 + pre-push gate | — |
+
+Порядок и запрет старта RECIPE-02 без отдельного согласования архитектуры владельцем — без изменений (RECIPE-01A RA.20 + финальное указание RECIPE-01B).
+
+## RB.21. Ограничения проверки (что НЕ ПРОВЕРЕНО и почему)
+
+| # | Ограничение | Причина | Компенсация |
+|---|---|---|---|
+| 1 | Live-интроспекция БД (row-counts, pg_policies, pg_constraint фактические) | кластер 54329 не запущен; подъём запрещён правилами (RB.0) | все схемные факты — из DDL миграций и кода; row-counts RECIPE-01 — исторические; приёмка RECIPE-02 — на чистой PG18 владельцем/CI |
+| 2 | Дефолтные привилегии облачного Supabase (активация латентных политик SEC-1 в облаке) | облачная БД недоступна из песочницы | классифицировано как environment-dependent с явной пометкой «НЕ ПРОВЕРЕНО (cloud)»; рекомендация независима от окружения |
+| 3 | Реальный webhook-трафик YooKassa / re-verification живым вызовом | мутация/внешние вызовы запрещены | вся цепочка проверена по коду+тестам (Ф-1); интеграционная проверка — RECIPE-03 |
+| 4 | Поведение составного FK на живом PG18 | БД недоступна | стандарт SQL; включено в обязательные тесты RB.19.4 |
+| 5 | Правовые аспекты прав на импортированный контент | вне технического аудита | поля спроектированы; политика — владелец (Q-5-политика в RB.20) |
+| 6 | Производительность (индексы под нагрузкой, planner) | нет живой БД/данных | индексы в RB.17; нагрузочное — вне RECIPE-02..07 |
+
+## RB.22. Executive summary и итоговый вердикт
+
+**Проверка RECIPE-01A:** 12/12 архитектурных решений (ПР-1…ПР-11 + ПР-8-реализуемость) **подтверждены**; 25 фактов (Ф-1…Ф-25) подтверждены, 2 уточнены по координатам (:249→:255; «0017:441-456» — DDL supplier_profiles, а RLS confectioners в 0026), 1 существенно исправлен (Ф-10: USING(true) — 28 по проекту / 10 в 0053+0054, не 7) и 1 переосмыслен по существу (Ф-10+НФ-1: политики **латентны** из-за GRANT-дисциплины — не активная утечка, а доказуемый latent-риск). Опровергнуты: доказательная ссылка «201» RECIPE-01 (ОПР-1) и предложение RA.10.3 в части потери истории покупок (РЕШ-6). Новых опровергнутых архитектурных решений RECIPE-01A нет.
+
+**Критические находки RECIPE-01B:** (1) GRANT-дисциплина и латентный SEC-1; (2) два разных контракта миграторов (autocommit vs транзакция) → обязательный rerun-safe стандарт 0065+ и recovery-тесты; (3) канон денег = целые рубли зафиксирован дословно в DDL (0034:76-77), сателлитные копеечные домены не смешиваются с рецептурным контуром; (4) `recipe_acceptances` без `confectioner_id` (НФ-7) объясняет деградацию accept-семейства в мок; (5) финансовая история покупок переносится в существующий платёжный контур (РЕШ-6) — UNIQUE(recipe_id, buyer_id) больше не угрожает истории; (6) RPC 0048 — INVOKER без search_path (SEC-10) и 31 SD-функция без search_path (SEC-9) — харденинг backlog.
+
+**Источник истины (финальная архитектура):** контент+состав — `recipes`(+дети); коммерция — `recipe_marketplace` (оффер, FK recipe_id RESTRICT, активный оффер один); доступ — entitlement `recipe_purchases` (UNIQUE(recipe_id,buyer_id), recipe_version_id, payment_id FK) + Resolver в API-слое; финансовая история — orders(type='recipe')+payments+refunds+financial_ledger; версии — immutable снапшоты (рецепт и карта раздельно); производство — карты+нормы+партии; склад — единственный существующий контур (items/movements/write_offs/RPC/батч-RPC); роли — фактический enum + user_roles; владение — UUID auth.users; деньги — целые рубли; единицы — г/мл/шт-канон с display-only расширениями.
+
+**Решения владельца (краткий список):** Q-3.1 (частичный возврат), Q-3.2 (новые версии купившим), Q-4 (SUPPLIER-покупка), Q-6 (продажа CONFECTIONER), Q-7 (сужение RLS/SEC-3/SEC-5), Q-10 (DB-триггер quantity); отложенные: Q-1 (организации), Q-9 (копейки), Q-8 (подписки). Все остальные вопросы RESOLVED на фактах.
+
+**Ограничения:** RB.21 (БД недоступна, облако не проверено, webhook-трафик не эмулировался).
+
+**Статус: ARCHITECTURE READY WITH OPEN DECISIONS** — архитектура внутренне непротиворечива и подкреплена фактами; старт RECIPE-02 возможен только после отдельного решения владельца по шести PROPOSED-вопросам выше.
+
+`CODE CHANGES: NOT EXECUTED`
+`DATABASE CHANGES: NOT EXECUTED`
+`MIGRATIONS: NOT CREATED`
+`COMMIT: NOT CREATED`
+`PUSH: NOT EXECUTED`
+`DEPLOY: NOT EXECUTED`
+
+*Раздел RECIPE-01B добавлен без изменений кода, миграций, БД и Git-состояния. Единственный артефакт этапа — данный документ (добавленный раздел; RECIPE-01 и RECIPE-01A сохранены полностью).*
