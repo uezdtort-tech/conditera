@@ -307,3 +307,16 @@ git ls-remote origin refs/heads/main                    # удалённый SHA
 ```
 
 Если после `fetch` behind > 0 или upstream изменился — остановиться и не пушить без ревью (чужие коммиты на origin). Токен передавать только через безопасный канал (credential manager / stdin), не в URL и не в аргументы команд.
+
+**Обновление (сеанс публикации по команде владельца):** upstream изменился (origin/main +14 чужих коммитов — Dependabot PR #1–#11: node 20→26, postgres 16→18, upload-artifact v4→v7, cache v4→v6, setup-buildx v3→v4, login-action v3→v4, ssh-action 1.2.2→1.2.5; файлы: Dockerfile, Dockerfile.simplex-bridge, workflows ci/e2e/deploy). Ревью выполнено — только бампы зависимостей, смерженные владельцем. Выполнена интеграция: merge-коммит `54ff3a5` (parents `26947c5` × `8a31081`), конфликты FROM-строк решены объединением намерений (ECR-зеркало + bun сохранены, версии подняты), hygiene-скан `node scripts/scan-evidence.mjs` → exit 0 (real 0 / 481 synthetic), защищённые upload-пути в merge не вошли (4 удаления остались незастейдженными). `git push origin main` → `fatal: could not read Username for 'https://github.com'` — учётных данных в среде по-прежнему нет (§11.2); также отсутствуют SSH-ключи и сам ssh-бинарь. Состояние: `main` ahead 183 / behind 0 — обычный fast-forward push, force не требуется.
+
+**Инструкция владельцу (актуальна после merge `54ff3a5`):**
+
+```bash
+cd <репозиторий conditera>
+git fetch origin
+git rev-list --left-right --count main...origin/main   # ожидание: 184 0 (behind 0 → fast-forward)
+git log --oneline origin/main..main | tail -5          # обзор: merge 54ff3a5 + локальная линия
+git push origin main                                    # обычный push, force не нужен
+git ls-remote origin refs/heads/main                    # удалённый SHA должен стать 54ff3a5+ (HEAD локального main)
+```
