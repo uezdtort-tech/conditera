@@ -16,7 +16,8 @@
 # пользователь node — конвенция web (USER nextjs) и chat-server (USER chat).
 # Оценка и чек-лист владельца T1–T6:
 #   docs/evidence/release-gate/simplex-bridge-nonroot-assessment-001c4ff.md
-FROM public.ecr.aws/docker/library/node:20-alpine
+# merge с origin/main (Dependabot PR #9): node 20 → 26, зеркало ECR сохранено.
+FROM public.ecr.aws/docker/library/node:26-alpine
 
 WORKDIR /app
 
