@@ -9,6 +9,10 @@ import {
   type CakeBuilderConfig,
 } from "@/lib/cake-builder-pricing";
 import { calculateRegionalPriceSync } from "@/lib/regional-pricing";
+
+// Глубина истории undo/redo конструктора тортов (cake-builder)
+export const CAKE_BUILDER_HISTORY_LIMIT = 50;
+
 import type {
   User,
   Role,
@@ -150,6 +154,11 @@ interface AppState {
   // Cake Builder
   cakeBuilder: CakeBuilderState;
   cakeBuilderOpen: boolean;
+  // История изменений конфигурации конструктора (undo/redo,
+  // паттерн VisualConstructorV2 из qwentopt, адаптирован под Zustand-слайс).
+  // В persist (partialize) не входит — живёт только в рамках сессии.
+  cakeBuilderPast: CakeBuilderState[];
+  cakeBuilderFuture: CakeBuilderState[];
 
   // User location (для фильтра «рядом»)
   userLocation: Location | null;
@@ -285,6 +294,8 @@ interface AppState {
 
   setCakeBuilderOpen: (open: boolean) => void;
   updateCakeBuilder: (state: Partial<CakeBuilderState>) => void;
+  undoCakeBuilder: () => boolean;
+  redoCakeBuilder: () => boolean;
   resetCakeBuilder: () => void;
 
   // Location
@@ -556,6 +567,8 @@ export const useAppStore = create<AppState>()(
 
       cakeBuilder: { step: 0, decorations: [], dietary: [], productType: undefined, servings: undefined, quantity: undefined },
       cakeBuilderOpen: false,
+      cakeBuilderPast: [],
+      cakeBuilderFuture: [],
 
       // По умолчанию — Москва
       userLocation: {
@@ -1215,10 +1228,45 @@ export const useAppStore = create<AppState>()(
       },
 
       setCakeBuilderOpen: (open) => set({ cakeBuilderOpen: open }),
-      updateCakeBuilder: (state) =>
-        set({ cakeBuilder: { ...get().cakeBuilder, ...state } }),
+      updateCakeBuilder: (state) => {
+        const current = get().cakeBuilder;
+        const past = get().cakeBuilderPast;
+        // Ограничиваем глубину истории, чтобы не расти бесконечно за сессию
+        const nextPast = [...past, current].slice(-CAKE_BUILDER_HISTORY_LIMIT);
+        set({
+          cakeBuilder: { ...current, ...state },
+          cakeBuilderPast: nextPast,
+          cakeBuilderFuture: [], // новое действие обрывает redo-ветку
+        });
+      },
+      undoCakeBuilder: () => {
+        const past = get().cakeBuilderPast;
+        if (past.length === 0) return false;
+        const previous = past[past.length - 1];
+        set({
+          cakeBuilder: previous,
+          cakeBuilderPast: past.slice(0, -1),
+          cakeBuilderFuture: [get().cakeBuilder, ...get().cakeBuilderFuture].slice(0, CAKE_BUILDER_HISTORY_LIMIT),
+        });
+        return true;
+      },
+      redoCakeBuilder: () => {
+        const future = get().cakeBuilderFuture;
+        if (future.length === 0) return false;
+        const next = future[0];
+        set({
+          cakeBuilder: next,
+          cakeBuilderPast: [...get().cakeBuilderPast, get().cakeBuilder].slice(-CAKE_BUILDER_HISTORY_LIMIT),
+          cakeBuilderFuture: future.slice(1),
+        });
+        return true;
+      },
       resetCakeBuilder: () =>
-        set({ cakeBuilder: { step: 0, decorations: [], dietary: [], productType: undefined, servings: undefined, quantity: undefined } }),
+        set({
+          cakeBuilder: { step: 0, decorations: [], dietary: [], productType: undefined, servings: undefined, quantity: undefined },
+          cakeBuilderPast: [],
+          cakeBuilderFuture: [],
+        }),
 
       setUserLocation: (location) => set({ userLocation: location }),
       setUserCity: (city) => {

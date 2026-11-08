@@ -19,6 +19,7 @@ import {
 } from "@/lib/mock-data";
 import { formatCurrency, calculateDelivery } from "@/lib/finance";
 import { calculateRegionalPriceSync } from "@/lib/regional-pricing";
+import { useCakeBuilderHistory } from "@/lib/use-cake-builder-history";
 import Image from "next/image";
 import {
   Cake,
@@ -34,6 +35,8 @@ import {
   X,
   PartyPopper,
   Percent,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
@@ -63,6 +66,8 @@ export function CakeBuilderDialog() {
   const confectioners = useAppStore((s) => s.confectioners);
   const negotiations = useAppStore((s) => s.negotiations);
   const user = useAppStore((s) => s.user);
+  // Undo/redo: хоткеи активны только пока диалог открыт
+  const { canUndo, canRedo, undo, redo } = useCakeBuilderHistory(cakeBuilderOpen);
 
   const [submitted, setSubmitted] = useState(false);
   const [selectedConfectioners, setSelectedConfectioners] = useState<string[]>([]);
@@ -299,6 +304,26 @@ export function CakeBuilderDialog() {
                   {STEP_LABELS[step]}
                 </p>
               </div>
+            </div>
+            <div className="flex items-center gap-1 mr-2">
+              <button
+                onClick={undo}
+                disabled={!canUndo}
+                aria-label="Отменить последнее действие (Ctrl+Z)"
+                title="Отменить (Ctrl+Z)"
+                className="h-8 w-8 rounded-full hover:bg-accent flex items-center justify-center disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <Undo2 className="h-4 w-4" />
+              </button>
+              <button
+                onClick={redo}
+                disabled={!canRedo}
+                aria-label="Повторить действие (Ctrl+Y)"
+                title="Повторить (Ctrl+Y)"
+                className="h-8 w-8 rounded-full hover:bg-accent flex items-center justify-center disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <Redo2 className="h-4 w-4" />
+              </button>
             </div>
             <button
               onClick={handleClose}

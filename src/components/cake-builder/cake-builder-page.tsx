@@ -16,6 +16,7 @@
  */
 
 import { useAppStore } from "@/lib/store";
+import { useCakeBuilderHistory } from "@/lib/use-cake-builder-history";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +56,8 @@ import {
   Percent,
   Eye,
   Info,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
@@ -127,6 +130,8 @@ export function CakeBuilderPage() {
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
   const confectioners = useAppStore((s) => s.confectioners);
+  // Undo/redo: страница смонтирована — хоткеи активны
+  const { canUndo, canRedo, undo, redo } = useCakeBuilderHistory(true);
 
   const [submitted, setSubmitted] = useState(false);
   const [selectedConfectioners, setSelectedConfectioners] = useState<string[]>([]);
@@ -527,6 +532,28 @@ export function CakeBuilderPage() {
                 </p>
               </div>
             </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={undo}
+              disabled={!canUndo}
+              aria-label="Отменить последнее действие (Ctrl+Z)"
+              title="Отменить (Ctrl+Z)"
+            >
+              <Undo2 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={redo}
+              disabled={!canRedo}
+              aria-label="Повторить действие (Ctrl+Y)"
+              title="Повторить (Ctrl+Y)"
+            >
+              <Redo2 className="h-4 w-4" />
+            </Button>
           </div>
           <Button variant="ghost" size="sm" onClick={handleClose}>
             <X className="h-4 w-4" />
