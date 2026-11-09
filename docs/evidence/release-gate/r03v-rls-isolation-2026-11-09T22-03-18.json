@@ -1,0 +1,101 @@
+{
+  "gate": "RLS isolation probes",
+  "stamp": "2026-11-09T22-03-18",
+  "probes": [
+    {
+      "name": "A читает свои recipe_purchases → 1 строка",
+      "pass": true,
+      "actual": "1"
+    },
+    {
+      "name": "B видит только покупки СВОИХ рецептов (0078)",
+      "pass": true,
+      "actual": "1 rows"
+    },
+    {
+      "name": "B-автор видит покупки своего рецепта → 1",
+      "pass": true,
+      "actual": "1"
+    },
+    {
+      "name": "B UPDATE чужой покупки → отказ",
+      "pass": true,
+      "actual": "42501"
+    },
+    {
+      "name": "B INSERT своей покупки → отказ (0077 GRANT)",
+      "pass": true,
+      "actual": "42501"
+    },
+    {
+      "name": "A самоповышение до ADMIN через user_roles → отказ RLS",
+      "pass": true,
+      "actual": "42501/42501"
+    },
+    {
+      "name": "A читает user_roles → только свои",
+      "pass": true,
+      "actual": "1 rows"
+    },
+    {
+      "name": "B (кондитер чужого заказа ВИДИТ платеж по заказу A; по другим — нет)",
+      "pass": true,
+      "actual": "1 rows: 725b778a"
+    },
+    {
+      "name": "C не видит заказ A",
+      "pass": true,
+      "actual": "0"
+    },
+    {
+      "name": "C не видит платёж A",
+      "pass": true,
+      "actual": "0"
+    },
+    {
+      "name": "C не видит покупку A",
+      "pass": true,
+      "actual": "0"
+    },
+    {
+      "name": "C видит только published-рецепты",
+      "pass": true,
+      "actual": "1"
+    },
+    {
+      "name": "C SELECT recipe_versions → отказ (нет GRANT, server-only)",
+      "pass": true,
+      "actual": "42501"
+    },
+    {
+      "name": "C INSERT заказа с чужим user_id → отказ RLS",
+      "pass": true,
+      "actual": "42501"
+    },
+    {
+      "name": "C INSERT заказа со своим user_id (легаси-путь остаётся)",
+      "pass": true,
+      "actual": "inserted (legacy)"
+    },
+    {
+      "name": "C INSERT payments → отказ (нет GRANT)",
+      "pass": true,
+      "actual": "42501"
+    },
+    {
+      "name": "C INSERT acceptance с чужим user_id → отказ RLS",
+      "pass": true,
+      "actual": "42703"
+    },
+    {
+      "name": "C SELECT audit_log → отказ (нет GRANT)",
+      "pass": true,
+      "actual": "42501"
+    },
+    {
+      "name": "C INSERT fraud_log → отказ (нет GRANT, несмотря на WITH CHECK(true))",
+      "pass": true,
+      "actual": "42703"
+    }
+  ]
+}

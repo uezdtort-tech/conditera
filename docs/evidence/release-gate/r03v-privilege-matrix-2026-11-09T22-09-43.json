@@ -1,0 +1,650 @@
+{
+  "gate": "RELEASE-03 VERIFICATION — privilege matrix + functional probes",
+  "startedAt": "2026-11-09T22:09:43.731Z",
+  "port": 54361,
+  "pgdata": "/tmp/r03v-priv-2026-11-09T22-09-43",
+  "matrix": [
+    {
+      "role": "anon",
+      "object": "inventory_items",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "anon",
+      "object": "inventory_items",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "inventory_items",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "inventory_items",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "inventory_movements",
+      "privilege": "SELECT",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "inventory_movements",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "inventory_movements",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "inventory_movements",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "stock_movements",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "anon",
+      "object": "stock_movements",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "stock_movements",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "stock_movements",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipe_purchases",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "anon",
+      "object": "recipe_purchases",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipe_purchases",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipe_purchases",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipes",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "anon",
+      "object": "recipes",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipes",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipes",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipe_marketplace",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "anon",
+      "object": "recipe_marketplace",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipe_marketplace",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "recipe_marketplace",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "public.apply_inventory_movement_atomic(uuid, text, numeric, uuid, text, uuid)",
+      "privilege": "EXECUTE",
+      "granted": false
+    },
+    {
+      "role": "anon",
+      "object": "public.apply_inventory_write_off_batch(uuid, jsonb, uuid, uuid, text, text)",
+      "privilege": "EXECUTE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_items",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_items",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_items",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_items",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_movements",
+      "privilege": "SELECT",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_movements",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_movements",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "inventory_movements",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "stock_movements",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "authenticated",
+      "object": "stock_movements",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "stock_movements",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "stock_movements",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_purchases",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_purchases",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_purchases",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_purchases",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipes",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "authenticated",
+      "object": "recipes",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipes",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipes",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_marketplace",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_marketplace",
+      "privilege": "INSERT",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_marketplace",
+      "privilege": "UPDATE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "recipe_marketplace",
+      "privilege": "DELETE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "public.apply_inventory_movement_atomic(uuid, text, numeric, uuid, text, uuid)",
+      "privilege": "EXECUTE",
+      "granted": false
+    },
+    {
+      "role": "authenticated",
+      "object": "public.apply_inventory_write_off_batch(uuid, jsonb, uuid, uuid, text, text)",
+      "privilege": "EXECUTE",
+      "granted": false
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_items",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_items",
+      "privilege": "INSERT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_items",
+      "privilege": "UPDATE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_items",
+      "privilege": "DELETE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_movements",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_movements",
+      "privilege": "INSERT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_movements",
+      "privilege": "UPDATE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "inventory_movements",
+      "privilege": "DELETE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "stock_movements",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "stock_movements",
+      "privilege": "INSERT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "stock_movements",
+      "privilege": "UPDATE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "stock_movements",
+      "privilege": "DELETE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_purchases",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_purchases",
+      "privilege": "INSERT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_purchases",
+      "privilege": "UPDATE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_purchases",
+      "privilege": "DELETE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipes",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipes",
+      "privilege": "INSERT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipes",
+      "privilege": "UPDATE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipes",
+      "privilege": "DELETE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_marketplace",
+      "privilege": "SELECT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_marketplace",
+      "privilege": "INSERT",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_marketplace",
+      "privilege": "UPDATE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "recipe_marketplace",
+      "privilege": "DELETE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "public.apply_inventory_movement_atomic(uuid, text, numeric, uuid, text, uuid)",
+      "privilege": "EXECUTE",
+      "granted": true
+    },
+    {
+      "role": "service_role",
+      "object": "public.apply_inventory_write_off_batch(uuid, jsonb, uuid, uuid, text, text)",
+      "privilege": "EXECUTE",
+      "granted": true
+    }
+  ],
+  "probes": [
+    {
+      "name": "authenticated UPDATE inventory_items.quantity → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table inventory_items"
+    },
+    {
+      "name": "authenticated DELETE inventory_items → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table inventory_items"
+    },
+    {
+      "name": "authenticated INSERT inventory_movements → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table inventory_movements"
+    },
+    {
+      "name": "authenticated UPDATE inventory_movements → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table inventory_movements"
+    },
+    {
+      "name": "authenticated DELETE inventory_movements → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table inventory_movements"
+    },
+    {
+      "name": "authenticated INSERT stock_movements → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table stock_movements"
+    },
+    {
+      "name": "authenticated INSERT recipe_purchases → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table recipe_purchases"
+    },
+    {
+      "name": "authenticated EXECUTE apply_inventory_movement_atomic → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for function apply_inventory_movement_atomic"
+    },
+    {
+      "name": "authenticated EXECUTE apply_inventory_write_off_batch → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for function apply_inventory_write_off_batch"
+    },
+    {
+      "name": "anon UPDATE inventory_items → 42501",
+      "pass": true,
+      "actual": "42501",
+      "message": "permission denied for table inventory_items"
+    }
+  ],
+  "functional": [
+    {
+      "name": "RPC OUT при недостатке → insufficient, остаток не изменился (10)",
+      "pass": true,
+      "actual": "ok=false code=insufficient qty=10.00"
+    },
+    {
+      "name": "RPC IN → атомарно: остаток 15, движение создано",
+      "pass": true,
+      "actual": "qty=15.00 movements=1"
+    },
+    {
+      "name": "Прямой отрицательный UPDATE → CHECK 23514",
+      "pass": true,
+      "actual": "23514"
+    },
+    {
+      "name": "batch-RPC чужая позиция → forbidden_item",
+      "pass": true,
+      "actual": "[write_off_batch] forbidden_item:e400c8f7-b956-48f1-8fed-ad24815fc85d"
+    },
+    {
+      "name": "Повтор с тем же idempotency_key → replay, двойного списания нет",
+      "pass": true,
+      "actual": "first.idempotent=false second.idempotent=true qty 13.00==13.00"
+    },
+    {
+      "name": "Конкурентный двойной OUT(6) при остатке 8 → ровно 1 успех, итог 2",
+      "pass": true,
+      "actual": "ok1=true ok2=false qty=2"
+    },
+    {
+      "name": "Согласованность: quantity == реплей журнала от initial(10)",
+      "pass": true,
+      "actual": "qty=2 replay=2 movements=4"
+    },
+    {
+      "name": "RPC OUT точного остатка → 0; OUT(0+1) → insufficient",
+      "pass": true,
+      "actual": "out(2)→0, extra→insufficient"
+    }
+  ],
+  "owners": [
+    {
+      "object": "inventory_items",
+      "relkind": "r",
+      "owner": "postgres"
+    },
+    {
+      "object": "stock_movements",
+      "relkind": "r",
+      "owner": "postgres"
+    },
+    {
+      "object": "recipe_marketplace",
+      "relkind": "r",
+      "owner": "postgres"
+    },
+    {
+      "object": "recipe_purchases",
+      "relkind": "r",
+      "owner": "postgres"
+    },
+    {
+      "object": "inventory_movements",
+      "relkind": "r",
+      "owner": "postgres"
+    },
+    {
+      "object": "recipes",
+      "relkind": "r",
+      "owner": "postgres"
+    },
+    {
+      "object": "apply_inventory_movement_atomic (fn)",
+      "relkind": "f",
+      "owner": "postgres"
+    },
+    {
+      "object": "apply_inventory_write_off_batch (fn)",
+      "relkind": "f",
+      "owner": "postgres"
+    }
+  ],
+  "errors": [],
+  "rls": [
+    {
+      "relname": "inventory_items",
+      "relrowsecurity": true
+    },
+    {
+      "relname": "stock_movements",
+      "relrowsecurity": true
+    },
+    {
+      "relname": "recipe_marketplace",
+      "relrowsecurity": true
+    },
+    {
+      "relname": "recipe_purchases",
+      "relrowsecurity": true
+    },
+    {
+      "relname": "inventory_movements",
+      "relrowsecurity": true
+    },
+    {
+      "relname": "recipes",
+      "relrowsecurity": true
+    }
+  ],
+  "finishedAt": "2026-11-09T22:09:45.427Z"
+}
