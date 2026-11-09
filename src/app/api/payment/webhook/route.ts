@@ -331,6 +331,47 @@ export async function POST(request: NextRequest) {
                 .eq("id", offerId)
                 .maybeSingle();
               if (offer && offer.recipe_id === recipeId) {
+                // PAY-1b: платёжная строка может отсутствовать (dev-stub без
+                // шлюза / legacy-платежи без yookassa_payment_id). Раньше
+                // передавался paymentId="" → FK recipe_purchases.payment_id
+                // падал «invalid input syntax for type uuid: ""» и покупатель
+                // НИКОГДА не получал доступ. Создаём строку по каноническим
+                // данным события (сумма — order.total, уже сверена выше),
+                // идемпотентно по UNIQUE yookassa_payment_id (0002).
+                let paymentIdForEntitlement = payment?.id ?? null;
+                if (!payment) {
+                  const { data: byProvider } = await supabaseAdmin
+                    .from("payments")
+                    .select("id")
+                    .eq("yookassa_payment_id", object.id)
+                    .maybeSingle();
+                  if (byProvider) {
+                    paymentIdForEntitlement = String((byProvider as { id: string }).id);
+                  } else {
+                    const { data: created, error: payCreateErr } = await supabaseAdmin
+                      .from("payments")
+                      .insert({
+                        order_id: orderId,
+                        yookassa_payment_id: object.id,
+                        amount: Number(order.total),
+                        currency: "RUB",
+                        status: dbStatus,
+                        method: "yookassa",
+                        metadata: { order_id: orderId },
+                      })
+                      .select("id")
+                      .single();
+                    if (!payCreateErr && created) {
+                      paymentIdForEntitlement = String((created as { id: string }).id);
+                      console.info(`[webhook] fallback payments row created for order ${orderId}`);
+                    } else {
+                      console.error(
+                        "[webhook] fallback payments insert failed:",
+                        payCreateErr?.message
+                      );
+                    }
+                  }
+                }
                 const { data: latestVersion } = await supabaseAdmin
                   .from("recipe_versions")
                   .select("id")
@@ -341,7 +382,7 @@ export async function POST(request: NextRequest) {
                 const grant = await grantEntitlement({
                   recipeId,
                   buyerId: order.user_id || order.customer_id,
-                  paymentId: payment?.id ?? "",
+                  paymentId: paymentIdForEntitlement,
                   pricePaid: Number(offer.base_price),
                   royaltyRate: Number(offer.royalty_rate),
                   recipeVersionId: latestVersion?.[0]?.id ?? null,

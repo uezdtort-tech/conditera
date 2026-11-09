@@ -27,6 +27,8 @@ import { formatCurrency, formatDate } from "@/lib/finance";
 interface PurchasedRecipeRow {
   id: string;
   recipe_id: string;
+  /** id активного оффера (мост 0068) — детальный маршрут адресуется им */
+  offer_id: string | null;
   recipe_title: string;
   recipe_slug: string;
   recipe_image: string | null;
@@ -139,7 +141,7 @@ export function MyPurchasedRecipes() {
           <Card key={row.id} className="overflow-hidden">
             <button
               type="button"
-              onClick={() => navigate("recipe-detail", { id: row.recipe_id })}
+              onClick={() => navigate("recipe-detail", { id: row.offer_id ?? row.recipe_id })}
               className="w-full flex items-center gap-3 p-3 sm:p-4 text-left min-h-11 hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={`Открыть рецепт: ${title}`}
             >

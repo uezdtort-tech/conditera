@@ -17,7 +17,10 @@ const PLATFORM_COMMISSION_RATE = 0.1; // 10% платформе (канон су
 interface GrantInput {
   recipeId: string;
   buyerId: string;
-  paymentId: string;
+  /** UUID платежа; null — платёжная строка не создалась (fallback-вставка
+   *  упала). Колонка nullable (0072): право выдаётся, финансовая трассировка
+   *  восстанавливается reconciliation. */
+  paymentId: string | null;
   /** Серверная цена из recipe_marketplace (NOT client); рубли, NUMERIC(10,2) */
   pricePaid: number;
   royaltyRate: number;

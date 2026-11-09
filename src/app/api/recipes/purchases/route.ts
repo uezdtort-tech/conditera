@@ -8,10 +8,12 @@
  * refund_amount < amount). Клиентские флаги/статусы игнорируются.
  *
  * Ответ: 200 { data: Array<{
- *   id, recipe_id, recipe_title, recipe_slug, recipe_image,
+ *   id, recipe_id, offer_id, recipe_title, recipe_slug, recipe_image,
  *   price_paid, is_active, payment_status, refund_amount,
  *   recipe_version_id, purchased_at, access: "full"|"revoked_refund"|"pending"
  * }> }
+ * offer_id — id активного оффера (мост 0068): детальный маршрут
+ * /api/recipes/marketplace/[id] адресуется id оффера, не корня recipes.
  * access: full = активный entitlement + подтверждённый платёж;
  *         revoked_refund = возврат средств (Resolver → preview);
  *         pending = оплата ещё не подтверждена (чекаут не завершён).
@@ -70,7 +72,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const recipeIds = [...new Set(rows.map((r) => r.recipe_id))];
     const paymentIds = [...new Set(rows.map((r) => r.payment_id).filter(Boolean))] as string[];
 
-    const [recipesRes, paymentsRes] = await Promise.all([
+    // Мост 0068: активный оффер — цель навигации UI (детальный маршрут
+    // /api/recipes/marketplace/[id] адресуется id оффера, не корня recipes)
+    const [recipesRes, paymentsRes, offersRes] = await Promise.all([
       supabaseAdmin
         .from("recipes")
         .select("id, title, slug, image_url, status")
@@ -81,6 +85,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             .select("id, status, refund_amount, amount")
             .in("id", paymentIds)
         : Promise.resolve({ data: [] as unknown[], error: null }),
+      supabaseAdmin
+        .from("recipe_marketplace")
+        .select("id, recipe_id, is_published")
+        .in("recipe_id", recipeIds),
     ]);
 
     const recipeById = new Map<string, Record<string, unknown>>();
@@ -90,6 +98,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const paymentById = new Map<string, Record<string, unknown>>();
     for (const p of (paymentsRes.data ?? []) as Array<Record<string, unknown>>) {
       paymentById.set(String(p.id), p);
+    }
+    // Приоритет активному офферу (детерминизм при нескольких офферах)
+    const offerByRecipe = new Map<string, string>();
+    for (const o of (offersRes.data ?? []) as Array<{
+      id: string;
+      recipe_id: string;
+      is_published: boolean | null;
+    }>) {
+      const prev = offerByRecipe.get(o.recipe_id);
+      if (!prev || o.is_published) offerByRecipe.set(o.recipe_id, o.id);
     }
 
     const data = rows.map((row) => {
@@ -112,6 +130,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return {
         id: row.id,
         recipe_id: row.recipe_id,
+        offer_id: offerByRecipe.get(row.recipe_id) ?? null,
         recipe_title: recipe ? String(recipe.title ?? "") : "",
         recipe_slug: recipe ? String(recipe.slug ?? "") : "",
         recipe_image: recipe ? ((recipe.image_url as string | null) ?? null) : null,

@@ -15,7 +15,8 @@
  *   • Все 6 источников загружаются параллельно через Promise.all (было последовательно).
  *   • Type-safe interfaces для каждого типа контента.
  *   • При сбое одного источника — продолжаем, не блокируем остальные.
- *   • Если все источники пусты — возвращаем mock-данные для UI.
+ *   • Пустая очередь — честный пустой ответ (mock-данные удалены: RECIPE-03
+ *     «禁 mock»; фейковые элементы модерации вводили оператора в заблуждение).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -270,55 +271,6 @@ async function loadBanners(statusFilter: string): Promise<ModerationItem[]> {
   }));
 }
 
-/**
- * Get mock items when DB is empty (for UI development without DB).
- */
-function getMockItems(): ModerationItem[] {
-  return [
-    {
-      id: "mock-1", type: "review", title: "Отзыв 5★ на «Свадебный торт»",
-      author: "Анна К.", status: "pending",
-      createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-      preview: "Отличный торт, но доставка задержалась на 30 минут. Сам торт — шедевр!",
-      meta: { rating: 5 }, actions: ["approve", "reject"],
-    },
-    {
-      id: "mock-2", type: "filling", title: "Начинка: Авокадо-манго",
-      author: "Мария Десерт", status: "pending",
-      createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
-      preview: "Постная начинка из авокадо и манго с кокосовым кремом. Без молока, без яиц.",
-      meta: { category: "FRUIT", allergens: [] }, actions: ["approve", "reject"],
-    },
-    {
-      id: "mock-3", type: "recipe", title: "Рецепт: Постный торт «Авокадо-манго»",
-      author: "Мария Десерт", status: "pending",
-      createdAt: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
-      preview: "Веганский торт без молока и яиц. Основа из миндальной муки, начинка из авокадо.",
-      meta: { difficulty: "medium" }, actions: ["approve", "reject"],
-    },
-    {
-      id: "mock-4", type: "confectioner", title: "Верификация: Сладкая мастерская",
-      author: "u_new", status: "pending",
-      createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-      preview: "Кондитер из г. Казань, тариф: START, уровень: NEW. ИНН не указан.",
-      meta: { city: "Казань", tariff: "START" }, actions: ["approve", "reject", "request_revision"],
-    },
-    {
-      id: "mock-5", type: "organization", title: "Организация: ООО «Сладость»",
-      author: "u_b2b", status: "pending",
-      createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-      preview: "ИНН: 7701234567, ООО «Сладость», г. Москва. Запрос верификации для B2B-аккаунта.",
-      meta: { inn: "7701234567" }, actions: ["approve", "reject"],
-    },
-    {
-      id: "mock-6", type: "banner", title: "Баннер: Летняя распродажа",
-      author: "Система", status: "active",
-      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      preview: "Летняя распродажа тортов! Скидки до 30% на все летние коллекции.",
-      meta: { image: "" }, actions: ["deactivate"],
-    },
-  ];
-}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -384,21 +336,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         published: items.filter((i) => i.status === "published").length,
       },
     };
-
-    // Если БД недоступна — возвращаем mock-данные для UI
-    if (items.length === 0) {
-      items = getMockItems();
-      stats = {
-        total: 6,
-        byType: {
-          review: 1, filling: 1, recipe: 1,
-          confectioner: 1, organization: 1, banner: 1,
-        },
-        byStatus: {
-          pending: 5, approved: 0, rejected: 0, published: 0,
-        },
-      };
-    }
 
     return NextResponse.json({ items, stats });
   } catch (error) {
