@@ -98,6 +98,107 @@ INSERT INTO public.recipe_marketplace (
 ON CONFLICT (slug) DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────────────
+-- 1b. Мост «оффер → корневой рецепт» (RECIPE-02, ПР-1 RECIPE-01A).
+--     Seed вставляет офферы напрямую; каждый оффер ОБЯЗАН ссылаться на
+--     корневую строку recipes (recipe_id, 0068) — иначе Access Resolver
+--     и покупочный контур не видят связку. Логика = детерминированный
+--     CTE из 0068 (slug = 'offer-' || marketplace.slug), идемпотентен.
+-- ─────────────────────────────────────────────────────────────────────
+WITH ins AS (
+  INSERT INTO public.recipes
+    (author_id, title, description, content, difficulty,
+     cook_time_minutes, tags, image_url,
+     status, published_at, slug, legacy_content_mdx)
+  SELECT
+    m.author_id,
+    m.title,
+    m.description,
+    '',
+    CASE
+      WHEN m.difficulty BETWEEN 1 AND 2 THEN 'easy'
+      WHEN m.difficulty = 3     THEN 'medium'
+      WHEN m.difficulty >= 4    THEN 'hard'
+      ELSE NULL
+    END,
+    m.cooking_time_min,
+    COALESCE(m.tags, '{}'),
+    m.preview_image,
+    CASE WHEN m.is_published THEN 'published' ELSE 'draft' END,
+    m.published_at,
+    'offer-' || m.slug,
+    true
+  FROM public.recipe_marketplace m
+  WHERE m.recipe_id IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM public.recipes r
+       WHERE r.slug = 'offer-' || m.slug
+    )
+  RETURNING id, slug
+)
+UPDATE public.recipe_marketplace m
+   SET recipe_id = ins.id
+  FROM ins
+ WHERE ins.slug = 'offer-' || m.slug;
+
+UPDATE public.recipe_marketplace m
+   SET recipe_id = r.id
+  FROM public.recipes r
+ WHERE m.recipe_id IS NULL
+   AND r.slug = 'offer-' || m.slug
+   AND r.legacy_content_mdx = true;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 1c. Двойная запись: JSONB-состав офферов → дети (фазы 1/3 миграции 0069,
+--     идемпотентно по WHERE NOT EXISTS) — чтобы свежая БД соответствовала
+--     целевой модели без ручного прогона 0069.
+-- ─────────────────────────────────────────────────────────────────────
+INSERT INTO public.recipe_steps (recipe_id, position, title, description)
+SELECT
+  m.recipe_id,
+  s.ord,
+  NULL,
+  s.e->>'description'
+FROM public.recipe_marketplace m
+CROSS JOIN LATERAL (
+  SELECT e, ord
+  FROM jsonb_array_elements(COALESCE(m.steps_json, '[]'::jsonb))
+       WITH ORDINALITY AS t(e, ord)
+) s
+WHERE m.recipe_id IS NOT NULL
+  AND NULLIF(btrim(COALESCE(s.e->>'description', '')), '') IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM public.recipe_steps rs
+     WHERE rs.recipe_id = m.recipe_id
+  );
+
+INSERT INTO public.recipe_ingredients
+  (recipe_id, name, qty, unit, sort_order, position)
+SELECT
+  m.recipe_id,
+  i.e->>'name',
+  CASE
+    WHEN i.e->>'qty' IS NULL THEN NULL
+    WHEN btrim(i.e->>'qty') ~ '^[0-9]+([.,][0-9]+)?$'
+      THEN replace(btrim(i.e->>'qty'), ',', '.')::numeric
+    ELSE NULL
+  END,
+  COALESCE(NULLIF(btrim(COALESCE(i.e->>'unit', '')), ''), 'шт'),
+  i.ord - 1,
+  i.ord
+FROM public.recipe_marketplace m
+CROSS JOIN LATERAL (
+  SELECT e, ord
+  FROM jsonb_array_elements(COALESCE(m.ingredients_json, '[]'::jsonb))
+       WITH ORDINALITY AS t(e, ord)
+) i
+WHERE m.recipe_id IS NOT NULL
+  AND NULLIF(btrim(COALESCE(i.e->>'name', '')), '') IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM public.recipe_ingredients ri
+     WHERE ri.recipe_id = m.recipe_id
+  );
+
+-- ─────────────────────────────────────────────────────────────────────
 -- 2. Внешние партнёры лояльности (демо-партнёры)
 -- ─────────────────────────────────────────────────────────────────────
 INSERT INTO public.loyalty_partners (

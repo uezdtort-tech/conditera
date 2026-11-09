@@ -344,7 +344,7 @@ export async function POST(request: NextRequest) {
                   paymentId: payment?.id ?? "",
                   pricePaid: Number(offer.base_price),
                   royaltyRate: Number(offer.royalty_rate),
-                  recipeVersionId: latestVersion?.id ?? null,
+                  recipeVersionId: latestVersion?.[0]?.id ?? null,
                 });
                 console.info(
                   `[webhook] recipe entitlement ${grant.granted ? "granted" : "FAILED"} recipe=${recipeId} buyer=${order.user_id ?? order.customer_id}`

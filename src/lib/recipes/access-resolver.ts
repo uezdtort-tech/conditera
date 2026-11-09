@@ -118,14 +118,24 @@ export async function resolveRecipeAccess(
     const p = purchase?.[0];
     if (p) {
       // Проверка платежа — только серверные данные (RA.9.2)
-      let payment: { status: string; amount: number; refund_amount: number | null } | null = null;
+      type ConfirmedPaymentRow = { status: string; amount: number; refund_amount: number | null };
+      let payment: ConfirmedPaymentRow | null = null;
       if (p.payment_id) {
         const { data: pay } = await supabaseAdmin
           .from("payments")
           .select("status, amount, refund_amount")
           .eq("id", p.payment_id)
           .maybeSingle();
-        payment = (pay as typeof payment) ?? null;
+        payment = pay
+          ? {
+              status: String(pay.status),
+              amount: Number(pay.amount),
+              refund_amount:
+                pay.refund_amount === null || pay.refund_amount === undefined
+                  ? null
+                  : Number(pay.refund_amount),
+            }
+          : null;
       }
 
       const paymentConfirmed =

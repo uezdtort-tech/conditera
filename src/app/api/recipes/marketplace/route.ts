@@ -262,12 +262,59 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Создать рецепт
+    // ПР-1 (RECIPE-01A): каждый оффер обязан ссылаться на корневой рецепт.
+    // 1) создаём корневую строку recipes (content='' — MDX-тела нет, состав
+    //    живёт в steps_json/ingredients_json + детях двойной записи);
+    // 2) создаём оффер с recipe_id;
+    // 3) при ошибке оффера — откат корневой строки (только что создана).
+    const rootSlug = slug;
+    const { data: rootRecipe, error: rootErr } = await supabaseAdmin
+      .from("recipes")
+      .insert({
+        author_id: user.id,
+        title: body.title,
+        description: body.description,
+        content: "",
+        difficulty:
+          typeof body.difficulty === "number"
+            ? body.difficulty <= 2
+              ? "easy"
+              : body.difficulty === 3
+                ? "medium"
+                : "hard"
+            : null,
+        cook_time_minutes: body.cooking_time_min ?? null,
+        tags: Array.isArray(body.tags) ? body.tags : [],
+        image_url: body.preview_image ?? null,
+        status: body.is_published ? "published" : "draft",
+        published_at: body.is_published ? new Date().toISOString() : null,
+        slug: rootSlug,
+      })
+      .select("id")
+      .single();
+
+    if (rootErr || !rootRecipe) {
+      // 23505 = recipes.slug UNIQUE — та же UX-семантика, что и у оффер-слага
+      const isSlugConflict = (rootErr as { code?: string } | null)?.code === "23505";
+      console.error("[recipes/marketplace] root recipe insert failed:", rootErr?.message);
+      return NextResponse.json(
+        {
+          error: isSlugConflict
+            ? "Рецепт с похожим названием уже существует — измените title"
+            : "Ошибка при создании рецепта",
+          details: rootErr?.message,
+        },
+        { status: isSlugConflict ? 409 : 500 }
+      );
+    }
+
+    // Создать оффер, связанный с корневым рецептом (0068-модель)
     const insertData = {
       author_id: user.id,
       title: body.title,
       slug,
       description: body.description,
+      recipe_id: rootRecipe.id,
       base_price: body.base_price,
       is_premium: Boolean(body.is_premium),
       premium_price: body.premium_price ?? null,
@@ -288,12 +335,61 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .select()
       .single();
 
-    if (error) {
-      console.error("[recipes/marketplace] POST error:", error.message);
+    if (error || !created) {
+      // Откат корневой строки (детей ещё нет; оффер не создан)
+      await supabaseAdmin.from("recipes").delete().eq("id", rootRecipe.id);
+      console.error("[recipes/marketplace] POST error:", error?.message ?? "no row returned");
       return NextResponse.json(
-        { error: "Ошибка при создании рецепта", details: error.message },
+        { error: "Ошибка при создании рецепта", details: error?.message ?? "no row returned" },
         { status: 500 }
       );
+    }
+
+    // Двойная запись (RA.17.4): JSONB → дети (recipe_steps/recipe_ingredients),
+    // best-effort: при сбое остаётся замороженный JSONB-носитель (0069-семантика)
+    try {
+      const stepsDto = Array.isArray(body.steps_json) ? body.steps_json : [];
+      if (stepsDto.length > 0) {
+        const stepRows = stepsDto
+          .map((s: { description?: unknown; step_number?: unknown }, i: number) => ({
+            recipe_id: rootRecipe.id,
+            position: Number(s.step_number) || i + 1,
+            description:
+              typeof s.description === "string" && s.description.trim() ? s.description.trim() : null,
+          }))
+          .filter((r: { description: string | null }) => r.description !== null);
+        if (stepRows.length > 0) {
+          const { error: stepsErr } = await supabaseAdmin.from("recipe_steps").insert(stepRows);
+          if (stepsErr) console.error("[recipes/marketplace] steps double-write failed:", stepsErr.message);
+        }
+      }
+      const ingDto = Array.isArray(body.ingredients_json) ? body.ingredients_json : [];
+      if (ingDto.length > 0) {
+        const ingRows = ingDto
+          .map((i: { name?: unknown; qty?: unknown; unit?: unknown }, idx: number) => {
+            const rawQty = i.qty;
+            let qty: number | null = null;
+            if (typeof rawQty === "number" && Number.isFinite(rawQty) && rawQty > 0) qty = rawQty;
+            else if (typeof rawQty === "string" && rawQty.trim().match(/^[0-9]+([.,][0-9]+)?$/)) {
+              qty = Number(rawQty.trim().replace(",", "."));
+            }
+            return {
+              recipe_id: rootRecipe.id,
+              name: typeof i.name === "string" && i.name.trim() ? i.name.trim() : null,
+              qty,
+              unit: typeof i.unit === "string" && i.unit.trim() ? i.unit.trim() : "шт",
+              sort_order: idx,
+              position: idx + 1,
+            };
+          })
+          .filter((r: { name: string | null }) => r.name !== null);
+        if (ingRows.length > 0) {
+          const { error: ingErr } = await supabaseAdmin.from("recipe_ingredients").insert(ingRows);
+          if (ingErr) console.error("[recipes/marketplace] ingredients double-write failed:", ingErr.message);
+        }
+      }
+    } catch (dwError) {
+      console.error("[recipes/marketplace] double-write unexpected:", (dwError as Error)?.message);
     }
 
     return NextResponse.json(
