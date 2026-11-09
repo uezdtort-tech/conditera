@@ -1,0 +1,14 @@
+RELEASE-03 VERIFICATION (R03V) — независимый повторный прогон E2E
+Date (UTC): 2026-11-09 22:12
+Repo: /home/z/my-project @ main (после R03V-фиксов a6d468d, db393a4)
+
+[1] bunx playwright test tests/e2e/payment-webhook-idempotency.spec.ts --reporter=line → exit 0
+    24 passed (12 тестов × 2 проекта chromium+mobile-chrome) — совпадает с заявлением RELEASE-03
+[2] bunx playwright test tests/e2e/recipe-purchase-flow.spec.ts --workers=1 --reporter=line → exit 0
+    14 passed, 0 skipped (у предыдущего прогона было 8 skipped — guard'ы «нет данных»;
+    в текущей БД seed-данные присутствуют, все контракт-тесты выполнились)
+[3] bunx playwright test tests/e2e/smoke.spec.ts --reporter=line → exit 0
+    10 passed
+
+Dev-сервер: my-project (один инстанс, port 3000, не останавливался).
+Защищённые upload-файлы не читались и не изменялись.
