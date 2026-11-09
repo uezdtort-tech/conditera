@@ -11,9 +11,13 @@
  *     (ensureRecipeVersionPublished — неизменяемая версия version_no=max+1,
  *     идемпотентность, порядок «версия → статус»); гейт RA.13:
  *     recipe_sources с rights_confirmed=false → 403;
- *   • reject: pending_review → rejected (терминальный статус RB.15;
- *     reason фиксируется в ответе/логе — колонки moderation_reason в
- *     recipes нет, миграции рецептурного контура завершены).
+ *   • reject: pending_review → rejected (терминальный статус RB.15); UPDATE
+ *     CAS .eq("status","pending_review") — 0 строк → 409; reason обязателен
+ *     (400) и персистентен в recipes.moderation_reason (миграция 0076).
+ *   • RELEASE-02 §7/RELEASE-03 (аудит 5-b/b88714b): самоодобрение запрещено
+ *     (author_id === user.id → 403 для approve и reject); решения пишутся в
+ *     audit_log (fail-safe, колонки — миграция 0018); персистентность решения
+ *     — recipes.moderated_by/moderated_at/moderation_reason (0076).
  * Остальные типы — прежняя generic-ветка (is_approved/moderation_status).
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -68,12 +72,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       const recipeRow = recipe as unknown as {
         id: string;
+        author_id: string;
         title: string;
         slug: string | null;
         status: string;
         published_at: string | null;
         updated_at: string | null;
       };
+
+      // RELEASE-03 (аудит 5-b/b88714b): модератор не модерирует собственный
+      // рецепт (конфликт интересов) — одинаково для approve и reject.
+      if (recipeRow.author_id === user.id) {
+        return NextResponse.json(
+          { error: "Модератор не может модерировать собственный рецепт" },
+          { status: 403 }
+        );
+      }
+
       if (recipeRow.status !== "pending_review") {
         return NextResponse.json(
           {
@@ -84,16 +99,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
 
       if (action === "reject") {
-        const { error: rejErr } = await supabaseAdmin
+        // RELEASE-03 (аудит 5-b): персистентный reason — без него reject нет смысла
+        if (!reason || !reason.trim()) {
+          return NextResponse.json(
+            { error: "reason обязателен для отклонения" },
+            { status: 400 }
+          );
+        }
+        const nowIso = new Date().toISOString();
+        // CAS: UPDATE применяется только пока status="pending_review" —
+        // защита от гонки с параллельным решением другого модератора.
+        const { data: rejectedRows, error: rejErr } = await supabaseAdmin
           .from("recipes")
-          .update({ status: "rejected", updated_at: new Date().toISOString() })
-          .eq("id", id);
+          .update({
+            status: "rejected",
+            updated_at: nowIso,
+            moderated_by: user.id,
+            moderated_at: nowIso,
+            moderation_reason: reason.trim(),
+          })
+          .eq("id", id)
+          .eq("status", "pending_review")
+          .select("id");
         if (rejErr) {
           console.error("[moderator/action] recipe reject failed:", rejErr.message);
           return NextResponse.json({ error: "DB error", details: rejErr.message }, { status: 500 });
         }
+        if (!rejectedRows || rejectedRows.length === 0) {
+          return NextResponse.json(
+            { error: "Статус изменился, повторите" },
+            { status: 409 }
+          );
+        }
+        await writeRecipeAuditLog(user.id, "recipe_reject", id, reason.trim(), recipeRow.title);
         console.log(
-          `[moderator/action] recipe rejected: id=${id} reason=${reason ?? "—"} moderator=${user.id}`
+          `[moderator/action] recipe rejected: id=${id} reason=${reason} moderator=${user.id}`
         );
         return NextResponse.json({ success: true, type, id, action, status: "rejected" });
       }
@@ -130,6 +170,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (!core.ok) {
         return NextResponse.json({ error: core.error, details: core.details }, { status: 500 });
       }
+
+      // RELEASE-03 (аудит 5-b/b88714b, миграция 0076): персистентность решения —
+      // отдельный UPDATE после публикации (публикация не должна падать из-за аудита;
+      // сбой метаданных логируется, но не откатывает решение).
+      const { error: modMetaErr } = await supabaseAdmin
+        .from("recipes")
+        .update({
+          moderated_by: user.id,
+          moderated_at: new Date().toISOString(),
+          moderation_reason: reason ?? null,
+        })
+        .eq("id", id);
+      if (modMetaErr) {
+        console.error("[moderator/action] moderation meta persist failed:", modMetaErr.message);
+      }
+      await writeRecipeAuditLog(user.id, "recipe_approve", id, reason ?? null, recipeRow.title);
+
       return NextResponse.json({
         success: true,
         type,
@@ -175,5 +232,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, type, id, action });
   } catch (error: any) {
     return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
+  }
+}
+
+/**
+ * RELEASE-03 (аудит 5-b/b88714b): запись модераторского решения в audit_log.
+ * Колонки — реальная схема из миграции 0018 (snake_case): user_id / action /
+ * entity_type / entity_id / metadata (actor_id/details — НЕ существуют).
+ * Fail-safe: сбой аудита не ломает уже применённое решение.
+ */
+async function writeRecipeAuditLog(
+  actorId: string,
+  action: "recipe_approve" | "recipe_reject",
+  recipeId: string,
+  reason: string | null,
+  title: string | null
+): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.from("audit_log").insert({
+      user_id: actorId,
+      action,
+      entity_type: "recipe",
+      entity_id: String(recipeId),
+      metadata: { reason: reason ?? null, title: title ?? null },
+    });
+    if (error) {
+      console.error("[moderator/action] audit_log insert failed:", error.message);
+    }
+  } catch (auditError) {
+    console.error(
+      "[moderator/action] audit_log unexpected:",
+      (auditError as Error)?.message
+    );
   }
 }

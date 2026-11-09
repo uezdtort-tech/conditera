@@ -150,7 +150,7 @@ export async function PATCH(
     // Найти рецепт и проверить авторство
     const { data: recipe, error: fetchErr } = await supabaseAdmin
       .from("recipe_marketplace")
-      .select("id, author_id, slug, title, is_published")
+      .select("id, author_id, slug, title, is_published, recipe_id")
       .eq("id", id)
       .maybeSingle();
 
@@ -201,6 +201,26 @@ export async function PATCH(
         );
       }
       allowed.slug = newSlug;
+    }
+
+    // RELEASE-02 §7/RELEASE-03 (аудит 5-b/b88714b): клиентский is_published=true
+    // НЕ включает оффер, пока корень recipes не опубликован через publish-core/
+    // модерацию. Fail-closed: нет корня / ошибка чтения → 409.
+    if (body.is_published === true) {
+      const { data: root, error: rootErr } = await supabaseAdmin
+        .from("recipes")
+        .select("id, status")
+        .eq("id", (recipe as { recipe_id: string | null }).recipe_id)
+        .maybeSingle();
+      if (rootErr) {
+        console.error("[recipes/:id] PATCH root read failed:", rootErr.message);
+      }
+      if (rootErr || !root || root.status !== "published") {
+        return NextResponse.json(
+          { error: "Рецепт не опубликован — включение оффера невозможно до публикации рецепта" },
+          { status: 409 }
+        );
+      }
     }
 
     // Если is_published меняется с false на true — установить published_at

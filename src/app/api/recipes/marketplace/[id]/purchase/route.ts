@@ -66,6 +66,20 @@ export async function POST(
     if (!offer.is_published) {
       return NextResponse.json({ error: "Рецепт не опубликован" }, { status: 409 });
     }
+    // RELEASE-02 §7/RELEASE-03 (аудит 5-b/b88714b): включённый оффер ещё не
+    // гарантирует публикацию — статус корня recipes обязателен (fail-closed):
+    // draft/rejected/archived корень → покупка запрещена.
+    const { data: purchaseRoot, error: rootErr } = await supabaseAdmin
+      .from("recipes")
+      .select("id, status")
+      .eq("id", offer.recipe_id)
+      .maybeSingle();
+    if (rootErr) {
+      console.error("[recipes/purchase] root read failed:", rootErr.message);
+    }
+    if (!purchaseRoot || purchaseRoot.status !== "published") {
+      return NextResponse.json({ error: "Рецепт не опубликован" }, { status: 409 });
+    }
     // Защита от самопокупки (RB.14)
     if (offer.author_id === user.id) {
       return NextResponse.json(

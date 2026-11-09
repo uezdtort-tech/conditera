@@ -186,6 +186,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  *    "ingredients_json": [{name:"Мука", qty:"300", unit:"г"}],
  *    "is_published": false
  *  }
+ *
+ * RELEASE-02 §7/RELEASE-03 (аудит 5-b/b88714b): клиентский is_published
+ * ИГНОРИРУЕТСЯ — корень всегда создаётся draft, оффер всегда выключен;
+ * публикация только через POST /api/recipes/{id}/publish (publish-core/
+ * модерация), включение оффера — PATCH после публикации.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -286,8 +291,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         cook_time_minutes: body.cooking_time_min ?? null,
         tags: Array.isArray(body.tags) ? body.tags : [],
         image_url: body.preview_image ?? null,
-        status: body.is_published ? "published" : "draft",
-        published_at: body.is_published ? new Date().toISOString() : null,
+        // RELEASE-02 §7/RELEASE-03: публикация только через publish-core/модерацию.
+        // Клиентский is_published игнорируется — иначе обход модерации
+        // (аудит 5-b/b88714b): корень создаётся черновиком.
+        status: "draft",
+        published_at: null,
         slug: rootSlug,
       })
       .select("id")
@@ -325,8 +333,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       preview_image: body.preview_image ?? null,
       steps_json: body.steps_json,
       ingredients_json: body.ingredients_json,
-      is_published: Boolean(body.is_published),
-      published_at: body.is_published ? new Date().toISOString() : null,
+      // RELEASE-02 §7/RELEASE-03: оффер всегда создаётся выключенным;
+      // включение — PATCH /api/recipes/marketplace/{offerId} после публикации.
+      is_published: false,
+      published_at: null,
     };
 
     const { data: created, error } = await supabaseAdmin
@@ -393,7 +403,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json(
-      { data: created as RecipeMarketplace, message: "Рецепт создан" },
+      {
+        data: created as RecipeMarketplace,
+        message: "Рецепт создан",
+        warning:
+          "Рецепт создан черновиком: публикация через POST /api/recipes/{id}/publish, оффер включается PATCH /api/recipes/marketplace/{offerId} после публикации",
+      },
       { status: 201 }
     );
   } catch (error: any) {
