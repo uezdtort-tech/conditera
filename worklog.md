@@ -9282,3 +9282,24 @@ Work Log:
 
 Stage Summary:
 - A-1…A-5 подтверждены динамически свежими доказательствами; tsconfig-регресс snapshotter'а закрыт структурно; инцидент с ключом задокументирован (ротация PAT — за владельцем); main готов к fast-forward push при выдаче владельцем действующего токена
+
+---
+Task ID: release-completion
+Agent: Z.ai Code (main)
+Task: CONDITERA — RELEASE COMPLETION MISSION: четырёхролевой рецептурный контур, верификация золотых путей, гейты
+
+Work Log:
+- Вход: HEAD d6253c1 (после сессий RECIPE-02 Этап B: миграции 0065–0072+0074, серверный контур 223e22c/d6253c1); drift #15 — 4 защищённых upload-файла удалены в worktree → восстановлены из HEAD, blobs bit-for-bit baseline (cb23e5dd/06b49c3c/f6c52a42/ec9f8efc); дерево чистое
+- Серверная склейка (f519846): publish-core.ts (ядро «неизменяемая версия + статус» извлечено из publish, переиспользуется модерацией); /api/moderator/action type=recipe (approve pending_review→published через ядро, гейт RA.13; reject→rejected) — D6-фикс; /api/moderator/queue pending=eq(pending_review); GET /api/recipes (список автора с мостом оффера 0068 и правами RA.13); GET /api/recipes/purchases (entitlements покупателя); GET /api/production/batches/[id] (expected_items из снапшота card_version); latest_card_version_id в serializeCard
+- UI четырёх ролей (647778e, 3 параллельных агента 4-b/4-c/4-d): покупатель — paywall по meta.access_level/access_reason (сервер = единственный источник истины), «Мои рецепты» в обоих кабинетах; автор — RecipeAuthorManager (draft→rights→publish→versions→archive; черновик/редактор состава/источника; «Продать через оффер» сохранён), RECIPE_DEVELOPER подключён к roleMap; кондитер — «Карты и партии» (карты+нормы+approve+себестоимость от сервера, партии, списание batch-режимом с prefill из снапшота), вкладка «Рецепты» v1 переведена с mock-store на реальный менеджер (RECIPE_01 §448), бейдж mock-счётчика удалён
+- Дефекты, найденные браузерной верификацией золотого пути (77c3a8d): (1) legacy FK recipe_purchases_recipe_id_fkey (0012) → recipe_marketplace.id — КАЖДАЯ выдача entitlement падала; миграция 0075: новый FK → recipes(id) ON DELETE RESTRICT (РЕШ-6 п.7), fail-fast, rerun-safe; (2) webhook payment.succeeded передавал paymentId='' (dev-stub/legacy без платёжной строки) → «invalid input syntax for type uuid» → доступ никогда не выдавался; фикс: fallback-вставка payments по каноническим данным события (идемпотентно по UNIQUE yookassa_payment_id), GrantInput.paymentId: string|null; (3) «Мои рецепты» навигировались по recipes.id, а детальный маршрут адресуется id оффера → offer_id в ответе purchases; (4) mock-фолбэк пустой очереди модерации удалён (6 фейковых элементов дезинформировали оператора)
+- Браузерная верификация (agent-browser, real API+DB, evidence docs/evidence/recipe-release/): гость/покупатель paywall → покупка (500₽) → dev-stub редирект → webhook → payments-строка + entitlement (royalty 25₽+commission 50₽≤500₽) → полный доступ; «Мои рецепты» с купленным; автор: черновик через UI (root+дети в БД) → publish (версия 1) → статус published; кондитер: карта (норма привязана к складу) → approve (версия 1, себестоимость 19500₽/ед сервером) → партия → «В работе» → списание: честный 409 «Недостаточно остатка» (full rollback) → после пополнения склада: success (реестр+RPC, OUT 3000кг) → «Завершена» (гейт); модератор: pending_review → approve API → published + версия 2; reject → rejected; пустая очередь честная; возврат: webhook refund.succeeded → entitlement is_active=false, refund_amount=500 → Resolver REVOKED_REFUND (verified Bearer-запросом)
+- Гейты: tsc 0 (после каждого этапа); eslint 0; Vitest 92 файла 1421/1421; E2E: payment-webhook-idempotency 11/12 (1 падение — средовой OOM-kill next-server 2.4GB, dmesg, 3 ретрая; сам тест допускает 404 — guard «не-UUID orderId» отработал и залогирован до убийства), recipe-purchase-flow: все 7 прошли в чанках (workers=1 из-за OOM); production build: EXIT=0 ДВАЖДЫ (247 страниц, BUILD_ID VdH-tYH8okALSVXnEp74h; NODE_OPTIONS=2400; dev остановлен на время сборки, перезапущен — 200)
+- Среда: PG :54329 пересоздан db:setup (74 миграции, включая 0075), demo-фикстуры (пополнение склада для UI-верификации списания) помечены в movement-журнале как dev-test fixture
+- Push/merge/deploy НЕ выполнялись (нет credentials — см. a1-a5-reverify-push-prep: ротация PAT за владельцем)
+
+Stage Summary:
+- Рецептурный контур (миграции 0065–0075) закрыт с четырёх сторон: покупатель/автор/кондитер/модератор — реальными данными, без mock в затронутых зонах
+- Золотой путь «покупка → платёж → доступ» теперь работает end-to-end и защищён идемпотентностью (CAS + UNIQUE + fallback-платёж)
+- Отклонения: утверждение «72/72 RLS/RPC» сессии d33ed50 не покрывало дефект FK 0075 (проверялась применимость миграций, а не семантика insert) — закрыто 0075 + живой прогон
+- Владельцу: ротация PAT + push 198 коммитов; решения Q-3.1/Q-3.2/Q-4/Q-6/Q-7/Q-10 (таблица отправлена отдельным сообщением)
