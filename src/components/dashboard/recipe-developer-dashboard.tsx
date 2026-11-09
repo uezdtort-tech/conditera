@@ -111,25 +111,36 @@ function useRecentPurchases() {
   return useQuery<PurchaseWithRecipe[]>({
     queryKey: ["recipe-developer", "recent-purchases"],
     queryFn: async () => {
-      // Сначала получаем свои recipe_id
-      const { data: recipes } = await supabaseBrowser
+      // С 0075 recipe_purchases.recipe_id = recipes.id (КОРЕНЬ рецепта),
+      // а не id оффера. Берём из своих офферов recipe_id корней и фильтруем
+      // по ним; заголовки маппим и по корню, и по id оффера.
+      const { data: offers } = await supabaseBrowser
         .from("recipe_marketplace")
-        .select("id, title");
-      const recipeMap = new Map((recipes || []).map((r) => [r.id, r.title]));
+        .select("id, title, recipe_id");
+      const titleByRoot = new Map<string, string>();
+      const titleByOffer = new Map<string, string>();
+      const rootIds = new Set<string>();
+      for (const o of offers || []) {
+        titleByOffer.set(o.id, o.title);
+        if (o.recipe_id) {
+          rootIds.add(o.recipe_id);
+          if (!titleByRoot.has(o.recipe_id)) titleByRoot.set(o.recipe_id, o.title);
+        }
+      }
 
-      if (recipeMap.size === 0) return [];
+      if (rootIds.size === 0) return [];
 
       const { data, error } = await supabaseBrowser
         .from("recipe_purchases")
         .select("*")
-        .in("recipe_id", Array.from(recipeMap.keys()))
+        .in("recipe_id", Array.from(rootIds))
         .order("created_at", { ascending: false })
         .limit(50);
       if (error) throw new Error(error.message);
 
       return ((data || []) as RecipePurchase[]).map((p) => ({
         ...p,
-        recipe_title: recipeMap.get(p.recipe_id) || "Без названия",
+        recipe_title: titleByRoot.get(p.recipe_id) || titleByOffer.get(p.recipe_id) || "Без названия",
       }));
     },
   });

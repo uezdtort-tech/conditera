@@ -15,8 +15,8 @@
  *      файл → split на statements (dollar-quote-aware сплиттер setup.mjs) → каждый statement
  *      ОТДЕЛЬНЫМ autocommit-запросом через node-postgres (each statement commits separately).
  *      STRICT: любая ошибка = падение с кодом 1 и логом файла/стейтмента.
- *   4. Ledger-проверка: public.schema_migrations — сверка с файлами на диске + lineage 0001..0077.
- *   5. STRICT RERUN: 0075, 0076, 0077 целиком повторно → 0 ошибок (идемпотентность).
+ *   4. Ledger-проверка: public.schema_migrations — сверка с файлами на диске + lineage 0001..0078.
+ *   5. STRICT RERUN: 0075..0078 целиком повторно → 0 ошибок (идемпотентность).
  *   6. PARTIAL FAILURE: первые 2 statement 0076/0077 отдельно → затем весь файл целиком → успех.
  *   7. GRANT-assertions (доказательство 0077) + прямые пробы SET ROLE authenticated.
  *   8. Модерация 0076: колонки moderated_by/moderated_at/moderation_reason у recipes.
@@ -70,7 +70,7 @@ const DATA_DIR = process.env.PRODPATH_PGDATA || `/tmp/prodpath-r03-${STAMP}`;
 const PG_LOG = path.join(DATA_DIR, "server.log");
 
 const DEV_PORT = 54329; // живой dev-кластер — ЗАПРЕЩЕНО трогать
-const RERUN_FILES = ["0075_recipe_purchases_recipe_fk_fix.sql", "0076_recipe_moderation_fields.sql", "0077_release_security_closures.sql"];
+const RERUN_FILES = ["0075_recipe_purchases_recipe_fk_fix.sql", "0076_recipe_moderation_fields.sql", "0077_release_security_closures.sql", "0078_recipe_purchases_author_read_policy_fix.sql"];
 const PARTIAL_PLAN = [
   { file: "0077_release_security_closures.sql", firstStatements: 2 },
   { file: "0076_recipe_moderation_fields.sql", firstStatements: 2 },
@@ -79,9 +79,9 @@ const PARTIAL_PLAN = [
 //   0056 — отсутствует в репо (пропуск нумерации);
 //   0073 — зарезервирована за SECURITY-RECIPE-01 (Q-7), см. 0077:20;
 //   0016 — существует только как 0016b_prisma_enums.sql (с начального коммита).
-const RESERVED_ABSENT = new Set(["0056", "0073"]);
+const RESERVED_ABSENT = new Set(["0056", "0073"]); // 0073 — SECURITY-RECIPE-01 (Q-7, не применено)
 const CONSOLIDATED = { "0016": "0016b" };
-const EXPECTED_TOTAL_LINEAGE_NUMBERS = 77; // 0001..0077
+const EXPECTED_TOTAL_LINEAGE_NUMBERS = 78; // 0001..0078 (R03V: +0078 policy fix)
 
 // ============================================================================
 // Служебное: лог + отчёт
@@ -94,7 +94,7 @@ const report = {
   cluster: { port: PG_PORT, database: PG_DB, user: PG_USER, dataDir: DATA_DIR, pgMajorVersion: null, configNote: "fsync=off/synchronous_commit=off только для скорости на временной директории; семантика применения не меняется" },
   compat: { file: "supabase/compat/0000_supabase_compat.sql", statements: 0, applied: 0, txControlSkipped: 0, preprocessSkips: [], errors: [] },
   migrations: { dir: "supabase/migrations", files: 0, totalStatements: 0, applied: 0, txControlSkipped: 0, preprocessSkips: 0, perFile: [], errors: [] },
-  ledger: { table: "public.schema_migrations", expected: null, actual: null, setEqualsDisk: null, missingFromLedger: [], extraInLedger: [], lineage: { range: "0001..0077", reservedAbsent: [...RESERVED_ABSENT], consolidatedSuffix: Object.entries(CONSOLIDATED).map(([k, v]) => `${k}→${v}`), absentOnDisk: [], ok: null, note: "в задании указано «77 файлов (0001..0077 без 0056/0073)»; фактическая линейка репо: 0016 существует только как 0016b → 76 файлов на диске. Гейт сверяет ledger == диск == линейка." } },
+  ledger: { table: "public.schema_migrations", expected: null, actual: null, setEqualsDisk: null, missingFromLedger: [], extraInLedger: [], lineage: { range: "0001..0078", reservedAbsent: [...RESERVED_ABSENT], consolidatedSuffix: Object.entries(CONSOLIDATED).map(([k, v]) => `${k}→${v}`), absentOnDisk: [], ok: null, note: "в задании указано «77 файлов (0001..0077 без 0056/0073)»; линейка репо: 0016 существует только как 0016b; R03V добавил 0078 (fix RLS-политики покупок автора). Гейт сверяет ledger == диск == линейка." } },
   rerun: {},
   partial: {},
   grants: { tableChecks: [], functionChecks: [], probes: [], allPassed: null },
@@ -471,7 +471,7 @@ function checkLineage(files) {
   report.ledger.lineage.absentOnDisk = absentOnDisk;
   report.ledger.lineage.ok = unexpected.length === 0;
   if (unexpected.length > 0) {
-    throw new Error(`Lineage 0001..0077 broken: numbers missing on disk and not reserved: ${unexpected.join(", ")}`);
+    throw new Error(`Lineage 0001..0078 broken: numbers missing on disk and not reserved: ${unexpected.join(", ")}`);
   }
   return byNumber;
 }
@@ -612,9 +612,9 @@ async function main() {
     if (!report.ledger.setEqualsDisk) {
       throw new Error(`Ledger mismatch: missing=${JSON.stringify(missingFromLedger)} extra=${JSON.stringify(extraInLedger)}`);
     }
-    log(`✔ ledger: ${ledgerSet.size} файлов == диску (${files.length}); линейка 0001..0077: отсутствуют только зарезервированные [${report.ledger.lineage.absentOnDisk.join(", ")}]`);
-    if (ledgerSet.size !== 76) {
-      throw new Error(`Expected 76 migration files on disk/ledger (0001..0077 minus {0016,0056,0073} plus {0016b,0017b}), got ${ledgerSet.size}`);
+    log(`✔ ledger: ${ledgerSet.size} файлов == диску (${files.length}); линейка 0001..0078: отсутствуют только зарезервированные [${report.ledger.lineage.absentOnDisk.join(", ")}]`);
+    if (ledgerSet.size !== 77) { // 76 (до R03V) + 0078
+      throw new Error(`Expected 77 migration files on disk/ledger (0001..0078 minus {0016,0056,0073} plus {0016b,0017b}), got ${ledgerSet.size}`);
     }
 
     // ---- 6. STRICT RERUN 0075/0076/0077 ----
@@ -715,6 +715,57 @@ async function main() {
     report.moderation.ok = cols.rowCount === 3;
     if (!report.moderation.ok) throw new Error(`Expected 3 moderation columns on recipes, got ${cols.rowCount}: ${cols.rows.map((r) => r.column_name).join(", ")}`);
     log(`✔ recipes.moderation columns: ${report.moderation.columns.join(", ")} (3/3)`);
+
+    // ---- 9-b. R03V: политика покупок автора (фикс 0078) ----
+    // Дефект 0012/0075: подзапрос политики возвращал id ОФФЕРОВ (recipe_marketplace.id)
+    // вместо recipe_id корней — авторская ветка SELECT-политики была мертва.
+    log("\n─── R03V: recipe_purchases_buyer_or_author_read (фикс 0078) ───");
+    // Сид (от postgres, RLS не применяется): автор + покупатель + рецепт + оффер + покупка
+    const seedAuthor = (await client.query(`INSERT INTO auth.users (email) VALUES ('r03v-author@prodpath.test') RETURNING id`)).rows[0].id;
+    const seedBuyer = (await client.query(`INSERT INTO auth.users (email) VALUES ('r03v-buyer@prodpath.test') RETURNING id`)).rows[0].id;
+    const seedRecipe = (await client.query(
+      `INSERT INTO public.recipes (author_id, title, slug, description, content, status) VALUES ($1, 'R03V Policy Recipe', 'r03v-policy-recipe', 'd', 'c', 'published') RETURNING id`,
+      [seedAuthor]
+    )).rows[0].id;
+    await client.query(
+      `INSERT INTO public.recipe_marketplace (author_id, title, slug, description, base_price, is_published, steps_json, ingredients_json, recipe_id)
+       VALUES ($1, 'R03V Offer', 'r03v-offer', 'd', 100, true, '[]', '[]', $2)`,
+      [seedAuthor, seedRecipe]
+    );
+    await client.query(
+      `INSERT INTO public.recipe_purchases (recipe_id, buyer_id, price_paid, royalty_amount, commission_amount, is_active)
+       VALUES ($1, $2, 100, 5, 10, true)`,
+      [seedRecipe, seedBuyer]
+    );
+    const USER_AUTHOR_ID = seedAuthor;
+    const polQ = await client.query(
+      `SELECT qual FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'recipe_purchases'
+          AND policyname = 'recipe_purchases_buyer_or_author_read'`
+    );
+    const qualText = String(polQ.rows?.[0]?.qual ?? "");
+    const norm = qualText.replace(/\s+/g, " ");
+    const policyFixed = /recipe_marketplace\.recipe_id/.test(norm);
+    const policyStale = /recipe_marketplace\.id(?![\w_])/.test(norm);
+    if (!policyFixed || policyStale) {
+      throw new Error(`0078 policy check failed: fixed=${policyFixed} stale=${policyStale} qual=${qualText.slice(0, 200)}`);
+    }
+    log("✔ политика читает recipe_id корней (recipe_marketplace.recipe_id), старое выражение устранено");
+
+    // Функциональная проба: автор видит покупку СВОЕГО рецепта через RLS
+    {
+      await client.query("SELECT set_config('request.jwt.claims', $1, false)", [JSON.stringify({ sub: USER_AUTHOR_ID, role: "authenticated" })]);
+      await client.query("SET ROLE authenticated");
+      try {
+        const seen = await client.query(`SELECT count(*)::int AS c FROM public.recipe_purchases`);
+        const cnt = seen.rows[0].c;
+        if (cnt < 1) throw new Error(`0078 probe: author sees ${cnt} purchases, expected >= 1`);
+        log(`✔ автор видит покупки своего рецепта через RLS (${cnt}/1)`);
+      } finally {
+        await client.query("RESET ROLE");
+        await client.query("SELECT set_config('request.jwt.claims', '', false)");
+      }
+    }
 
     // ---- Финал ----
     report.durationMs = Date.now() - t0;
