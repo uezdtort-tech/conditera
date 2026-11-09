@@ -9,6 +9,7 @@ import { OperatorDashboard } from "@/components/dashboard/operator-dashboard";
 import { ModeratorDashboardFull } from "@/components/dashboard/moderator-dashboard";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
 import { VenueOwnerDashboard } from "@/components/dashboard/venue-owner-dashboard";
+import { RecipeDeveloperDashboard } from "@/components/dashboard/recipe-developer-dashboard";
 import { ServicesManager } from "@/components/dashboard/services-manager";
 import {
   AnimatorAgencyDashboard,
@@ -895,6 +896,9 @@ export function ExtraDashboards() {
     INSPECTOR: () => <InspectorDashboard />,
     // ВЛАДЕЛЕЦ ПЛОЩАДКИ — полноценный дашборд с CRUD услуг/прайсов (был осиротевшим)
     VENUE_OWNER: () => <VenueOwnerDashboard />,
+    // РАЗРАБОТЧИК РЕЦЕПТОВ — был осиротевшим в этом роутере (монт был только
+    // на /dashboard); тот же паттерн, что у остальных ролей карты
+    RECIPE_DEVELOPER: () => <RecipeDeveloperDashboard />,
   };
 
   const DashboardComponent = roleMap[role];

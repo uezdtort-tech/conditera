@@ -19,6 +19,7 @@ import {
 import {
   Package, Heart, Coins, TrendingUp, Clock, Star, Settings, LogOut,
   ChevronLeft, ShoppingBag, Gift, MessageSquare, Calendar, CalendarDays,
+  BookOpen,
 } from "lucide-react";
 import { formatCurrency, formatDate, ORDER_STATUS_LABELS } from "@/lib/finance";
 import {
@@ -26,10 +27,12 @@ import {
 } from "@/components/dashboard/_shared";
 import { useCustomerDashboard } from "@/lib/supabase/use-dashboards";
 import { VenueBookingsManager } from "@/components/dashboard/venue-bookings-manager";
+import { MyPurchasedRecipes } from "@/components/dashboard/my-purchased-recipes";
 
 const TABS = [
   { id: "overview", label: "Обзор", icon: Package },
   { id: "orders", label: "Заказы", icon: ShoppingBag },
+  { id: "myRecipes", label: "Мои рецепты", icon: BookOpen },
   { id: "favorites", label: "Избранное", icon: Heart },
   { id: "inquiries", label: "Запросы", icon: MessageSquare, badge: "0" },
   { id: "bonuses", label: "Бонусы", icon: Coins },
@@ -191,6 +194,15 @@ export function CustomerDashboardV2(): React.JSX.Element {
                 </Card>
               )}
             </div>
+          </div>
+        );
+
+      case "myRecipes":
+        return (
+          <div className="space-y-4">
+            <h1 className="font-display text-2xl font-bold">Мои рецепты</h1>
+            <p className="text-sm text-muted-foreground">Купленные авторские рецепты с полным доступом</p>
+            <MyPurchasedRecipes />
           </div>
         );
 

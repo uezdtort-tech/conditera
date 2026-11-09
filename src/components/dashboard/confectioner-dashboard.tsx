@@ -55,6 +55,7 @@ import {
   Gift,
   ChefHat,
   Boxes,
+  Factory,
   BellRing,
   Bell,
   CreditCard,
@@ -117,8 +118,9 @@ import { ConfectionerTastingTab } from "@/components/dashboard/confectioner-tast
 import { ConfectionerCatalogManager } from "@/components/dashboard/confectioner-catalog-manager";
 import {
   ConfectionerPromotionsManager,
-  ConfectionerRecipesManager,
 } from "@/components/dashboard/confectioner-promotions-recipes-manager";
+import { RecipeAuthorManager } from "@/components/recipes/recipe-author-manager";
+import { ConfectionerProductionTab } from "@/components/dashboard/confectioner-production-tab";
 import { ConfectionerCalendarManager } from "@/components/dashboard/confectioner-calendar-manager";
 import { TfaSettings } from "@/components/dashboard/tfa-settings";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
@@ -164,7 +166,6 @@ export function ConfectionerDashboard() {
   const teamTasks = useAppStore((s) => s.teamTasks);
   const channelPosts = useAppStore((s) => s.channelPosts);
   const promotions = useAppStore((s) => s.promotions);
-  const recipes = useAppStore((s) => s.recipes);
   const inventory = useAppStore((s) => s.inventory);
   const ganttTasks = useAppStore((s) => s.ganttTasks);
   const reminders = useAppStore((s) => s.reminders);
@@ -291,7 +292,8 @@ export function ConfectionerDashboard() {
   const promotionsCount = promotions.filter(
     (p) => p.confectionerId === confectioner.id && p.status === "active"
   ).length;
-  const recipesCount = recipes.filter((r) => r.confectionerId === confectioner.id).length;
+  // Рецепты: считаются на сервере (GET /api/recipes) — бейдж из store-счётчика
+  // mock-данных удалён (RECIPE_01 §448)
   // Низкие остатки: из реального API; при сбое — фолбэк на store (mock, честно помечен в UI вкладки)
   const lowStockCount = inventoryStale
     ? inventory.filter(
@@ -353,7 +355,7 @@ export function ConfectionerDashboard() {
                 <SidebarTab icon={Coins} label="Финансы" active={activeTab === "finance"} onClick={() => setActiveTab("finance")} />
                 <SidebarTab icon={Calculator} label="НПД и налоги" active={activeTab === "tax"} onClick={() => setActiveTab("tax")} />
                 <SidebarTab icon={Gift} label="Акции" badge={String(promotionsCount)} active={activeTab === "promotions"} onClick={() => setActiveTab("promotions")} />
-                <SidebarTab icon={ChefHat} label="Рецепты" badge={String(recipesCount)} active={activeTab === "recipes"} onClick={() => setActiveTab("recipes")} />
+                <SidebarTab icon={ChefHat} label="Рецепты" active={activeTab === "recipes"} onClick={() => setActiveTab("recipes")} />
                 <SidebarTab icon={Target} label="Статистика рецептов" active={activeTab === "recipe-stats"} onClick={() => setActiveTab("recipe-stats")} />
                 <SidebarTab icon={Cake} label="Срезы тортов" active={activeTab === "slices"} onClick={() => setActiveTab("slices")} />
                 <SidebarTab icon={Brain} label="Прогноз спроса (AI)" active={activeTab === "predictions"} onClick={() => setActiveTab("predictions")} />
@@ -363,6 +365,7 @@ export function ConfectionerDashboard() {
                 <SidebarTab icon={Boxes} label="Склад" badge={String(lowStockCount)} active={activeTab === "inventory"} onClick={() => setActiveTab("inventory")} />
                 <SidebarTab icon={Truck} label="Закупки" active={activeTab === "procurement"} onClick={() => setActiveTab("procurement")} />
                 <SidebarTab icon={Calendar} label="Производство" badge={String(activeOrdersCount)} active={activeTab === "gantt"} onClick={() => setActiveTab("gantt")} />
+                <SidebarTab icon={Factory} label="Карты и партии" active={activeTab === "production"} onClick={() => setActiveTab("production")} />
                 <SidebarTab icon={BellRing} label="Напоминания" badge={String(unreadRemindersCount)} active={activeTab === "reminders"} onClick={() => setActiveTab("reminders")} />
                 <SidebarTab icon={MessageCircle} label="Заявки" badge={String(inquiries.length)} active={activeTab === "inquiries"} onClick={() => setActiveTab("inquiries")} />
                 <SidebarTab icon={FileText} label="Согласование" badge={String(negotiationsPendingCount)} active={activeTab === "negotiations"} onClick={() => setActiveTab("negotiations")} />
@@ -1061,9 +1064,9 @@ export function ConfectionerDashboard() {
               <ConfectionerPromotionsManager confectionerId={confectioner.id} />
             )}
 
-            {activeTab === "recipes" && (
-              <ConfectionerRecipesManager confectionerId={confectioner.id} />
-            )}
+            {activeTab === "recipes" && <RecipeAuthorManager />}
+
+            {activeTab === "production" && <ConfectionerProductionTab />}
 
             {activeTab === "inventory" && (
               <ConfectionerInventoryTab confectionerId={confectioner.id} />

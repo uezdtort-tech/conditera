@@ -29,6 +29,8 @@ import {
   X,
   AlertTriangle,
   RefreshCw,
+  Lock,
+  Loader2,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -36,6 +38,7 @@ import { toast } from "sonner";
 import { formatCurrency } from "@/lib/finance";
 import { csrfFetch } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   mapMarketplaceRowToRecipe,
   type ApiRecipeMarketplaceRow,
@@ -46,6 +49,27 @@ const RECIPE_DIFFICULTY = {
   medium: { label: "Средне", color: "bg-amber-100 text-amber-800", stars: "★★☆" },
   hard: { label: "Сложно", color: "bg-red-100 text-red-800", stars: "★★★" },
 };
+
+/**
+ * RECIPE-03: доступ решает СЕРВЕР (Access Resolver, src/lib/recipes/access-resolver.ts).
+ * GET /api/recipes/marketplace/[id] возвращает { data, meta: { access_level, access_reason } };
+ * состав (steps_json/ingredients_json) отдаётся только при level="full".
+ * Клиентские флаги доступа/оплаты запрещены — только meta от сервера.
+ */
+type RecipeAccessLevel = "full" | "preview" | "none";
+type RecipeAccessReason =
+  | "FREE_CONTENT"
+  | "AUTHOR"
+  | "STAFF"
+  | "PURCHASED"
+  | "PAID_NOT_PURCHASED"
+  | "NOT_PUBLISHED"
+  | "REVOKED_REFUND";
+
+interface RecipeDetailMeta {
+  access_level?: RecipeAccessLevel;
+  access_reason?: RecipeAccessReason;
+}
 
 export function RecipeDetailPage() {
   const navigate = useAppStore((s) => s.navigate);
@@ -67,29 +91,45 @@ export function RecipeDetailPage() {
 
   // Живой рецепт из маркетплейса (GET /api/recipes/marketplace/[id]) —
   // вместо mock-поиска в store.recipes. 404 → null («не найден»), ошибка → error state.
+  // meta.access_level/access_reason — решение Access Resolver (RECIPE-03);
+  // meta может отсутствовать (оффер без связи с корневым рецептом) → считаем полным доступом.
   const recipeQuery = useQuery({
     queryKey: ["recipe-marketplace", recipeId],
     enabled: Boolean(recipeId),
-    queryFn: async (): Promise<ApiRecipeMarketplaceRow | null> => {
+    queryFn: async (): Promise<{
+      row: ApiRecipeMarketplaceRow | null;
+      meta: RecipeDetailMeta | null;
+    }> => {
       const res = await csrfFetch(`/api/recipes/marketplace/${recipeId}`);
-      if (res.status === 404) return null;
+      if (res.status === 404) return { row: null, meta: null };
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(json?.error || "Не удалось загрузить рецепт");
       }
-      return json?.data ?? null;
+      return {
+        row: (json?.data ?? null) as ApiRecipeMarketplaceRow | null,
+        meta: (json?.meta ?? null) as RecipeDetailMeta | null,
+      };
     },
   });
   const recipe = useMemo(
-    () => (recipeQuery.data ? mapMarketplaceRowToRecipe(recipeQuery.data) : null),
+    () => (recipeQuery.data?.row ? mapMarketplaceRowToRecipe(recipeQuery.data.row) : null),
     [recipeQuery.data]
   );
 
-  const [purchased, setPurchased] = useState(false);
+  // Единственный источник истины о доступе — meta от Access Resolver
+  const accessLevel: RecipeAccessLevel = recipeQuery.data?.meta?.access_level ?? "full";
+  const accessReason: RecipeAccessReason | null =
+    recipeQuery.data?.meta?.access_reason ?? null;
+  const hasFullAccess = accessLevel === "full";
+  const isPurchased = accessReason === "PURCHASED";
   const [purchasing, setPurchasing] = useState(false);
 
-  // Покупка доступа: POST /api/recipes/marketplace/[id]/purchase (идемпотентен —
-  // повторная покупка возвращает 200 «уже куплен»). Неавторизованным — модалка входа.
+  // Покупка доступа: POST /api/recipes/marketplace/[id]/purchase (RA.10).
+  // 201 + paymentUrl → редирект на платёжный шлюз; entitlement выдаёт ТОЛЬКО
+  // webhook после подтверждения платежа, поэтому после ответа без paymentUrl
+  // (идемпотентная покупка «уже куплен») просто перезапрашиваем карточку —
+  // сервер вернёт full, если платёж подтверждён. Неавторизованным — модалка входа.
   const handlePurchase = async () => {
     if (!recipe) return;
     if (!user) {
@@ -105,12 +145,25 @@ export function RecipeDetailPage() {
         body: JSON.stringify({}),
       });
       const json = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setPurchased(true);
-        toast.success(json?.message || "Рецепт приобретён");
-      } else {
-        toast.error(json?.error || "Не удалось приобрести рецепт");
+      if (res.status === 401) {
+        toast.info("Войдите, чтобы приобрести рецепт");
+        setAuthModalOpen(true);
+        return;
       }
+      if (res.ok) {
+        if (typeof json?.paymentUrl === "string" && json.paymentUrl.length > 0) {
+          toast.info("Переадресация на оплату…");
+          window.location.assign(json.paymentUrl);
+          return;
+        }
+        // Идемпотентная покупка (idempotent: true / data) или ответ без редиректа:
+        // сообщение сервера + refetch — сервер сам вернёт актуальный доступ.
+        toast.success(json?.message || "Рецепт приобретён");
+        await recipeQuery.refetch();
+        return;
+      }
+      // 403/409/429/422/5xx — показываем текст ошибки сервера
+      toast.error(json?.error || "Не удалось приобрести рецепт");
     } catch {
       toast.error("Ошибка сети");
     } finally {
@@ -348,9 +401,16 @@ export function RecipeDetailPage() {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         <div className="absolute bottom-4 left-4 right-4">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <Badge className={diff.color}>{diff.stars} {diff.label}</Badge>
             <Badge variant="secondary">{recipe.type === "recipe" ? "Рецепт" : "Статья"}</Badge>
+            {/* RECIPE-03: факт покупки подтверждает сервер (access_reason = PURCHASED) */}
+            {isPurchased && (
+              <Badge className="bg-emerald-500 text-white border-transparent gap-1">
+                <Check className="h-3 w-3" />
+                Куплено
+              </Badge>
+            )}
             {recipe.tags.slice(0, 3).map((tag) => (
               <Badge key={tag} variant="outline" className="text-white border-white/30">
                 {tag}
@@ -424,29 +484,10 @@ export function RecipeDetailPage() {
           <Bookmark className="h-4 w-4" />
           Сохранить
         </Button>
-        {/* Покупка доступа к рецепту — реальный API маркетплейса */}
-        {recipe.access === "paid" && recipe.price ? (
-          <Button
-            size="sm"
-            onClick={handlePurchase}
-            disabled={purchasing || purchased}
-            className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
-          >
-            <ShoppingBag className="h-4 w-4" />
-            {purchased
-              ? "Приобретено ✓"
-              : purchasing
-                ? "Покупаем…"
-                : `Купить за ${formatCurrency(recipe.price)}`}
-          </Button>
-        ) : (
-          <Button size="sm" onClick={handlePurchase} disabled={purchasing || purchased} className="gap-2">
-            <Check className="h-4 w-4" />
-            {purchased ? "Доступ открыт" : purchasing ? "Открываем…" : "Получить бесплатно"}
-          </Button>
-        )}
+        {/* RECIPE-03: CTA покупки перенесён в paywall-блок ниже — доступ решает сервер */}
       </div>
 
+      {hasFullAccess ? (
       <div className="grid lg:grid-cols-[1fr_2fr] gap-6">
         {/* Ingredients */}
         <div>
@@ -579,6 +620,63 @@ export function RecipeDetailPage() {
           )}
         </div>
       </div>
+      ) : (
+        /* RECIPE-03: paywall вместо состава — сервер не отдал steps/ingredients при level=preview */
+        <Card className="p-6 sm:p-8 text-center border-dashed">
+          <div className="h-14 w-14 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4">
+            <Lock className="h-7 w-7" />
+          </div>
+          <h2 className="font-display text-xl font-bold mb-2">
+            Полный рецепт доступен после покупки
+          </h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Оплатив рецепт, вы получите полный список ингредиентов с пропорциями и
+            пошаговую технологию приготовления.
+          </p>
+
+          {accessReason === "PAID_NOT_PURCHASED" && (
+            <Button
+              size="lg"
+              onClick={handlePurchase}
+              disabled={purchasing}
+              className="mt-5 min-h-11 gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              {purchasing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ShoppingBag className="h-4 w-4" />
+              )}
+              {purchasing
+                ? "Создаём платёж…"
+                : recipe.price
+                  ? `Купить за ${formatCurrency(recipe.price)}`
+                  : "Купить рецепт"}
+            </Button>
+          )}
+
+          {accessReason === "REVOKED_REFUND" && (
+            <>
+              <Alert variant="destructive" className="mt-5 text-left max-w-md mx-auto">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Доступ отозван</AlertTitle>
+                <AlertDescription>
+                  По этому рецепту оформлен возврат средств.
+                </AlertDescription>
+              </Alert>
+              <Button size="lg" disabled className="mt-4 min-h-11 gap-2">
+                <Lock className="h-4 w-4" />
+                Покупка недоступна
+              </Button>
+            </>
+          )}
+
+          {accessReason !== "PAID_NOT_PURCHASED" && accessReason !== "REVOKED_REFUND" && (
+            <p className="text-xs text-muted-foreground mt-4">
+              Этот рецепт пока недоступен для просмотра и покупки.
+            </p>
+          )}
+        </Card>
+      )}
 
       {/* === Кондитеры готовы испечь по этому рецепту === */}
       <div className="mt-8">

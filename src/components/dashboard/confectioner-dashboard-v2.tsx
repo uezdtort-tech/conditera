@@ -19,8 +19,9 @@ import {
 import {
   Package, Coins, TrendingUp, Settings, LogOut,
   MessageSquare, ShoppingBag, Star, Plus, Calendar, Cake, Sunrise, ClipboardList,
-  Check, X,
+  Check, X, Factory,
 } from "lucide-react";
+import { ConfectionerProductionTab } from "@/components/dashboard/confectioner-production-tab";
 import { formatCurrency, formatDate, ORDER_STATUS_LABELS } from "@/lib/finance";
 import {
   DashboardSidebarLayout, SidebarStat, LoadingState, ErrorState,
@@ -42,6 +43,7 @@ const TABS = [
   { id: "inquiries", label: "Запросы", icon: MessageSquare },
   { id: "orders", label: "Заказы", icon: ShoppingBag },
   { id: "products", label: "Товары", icon: Package },
+  { id: "production", label: "Карты и партии", icon: Factory },
   { id: "earnings", label: "Финансы", icon: Coins },
   { id: "settings", label: "Настройки", icon: Settings },
 ];
@@ -402,6 +404,9 @@ export function ConfectionerDashboardV2(): React.JSX.Element {
             </Card>
           </div>
         );
+
+      case "production":
+        return <ConfectionerProductionTab />;
 
       case "settings":
         return (

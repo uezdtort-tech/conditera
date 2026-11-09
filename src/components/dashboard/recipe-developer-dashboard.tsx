@@ -5,16 +5,19 @@
  *
  * Функциональность:
  *   - Обзор: KPI карточки (всего рецептов, покупок, доход от роялти, средний рейтинг)
- *   - Мои рецепты: список с возможностью создать/редактировать/удалить
- *   - Доход от роялти: график по месяцам + детализация по каждому рецепту
+ *   - Мои рецепты: RecipeAuthorManager — новый нормализованный контур
+ *     /api/recipes (draft → rights → publish → versions → archive)
+ *   - Продажа через оффер: legacy CreateRecipeDialog (POST /api/recipes/marketplace)
+ *     — ЕДИНСТВЕННЫЙ путь создания оффера (рецепт+оффер атомарно)
  *   - Покупки: список последних покупок (кто, какой рецепт, сколько роялти)
  *   - Подписки: премиум-подписчики на мои рецепты
  *   - Настройки: профиль автора, ставка роялти по умолчанию
  *
  * Использует:
  *   - @tanstack/react-query для кэширования данных
- *   - supabaseBrowser для запросов (RLS защищает по user_id)
- *   - role-guards.ts (косвенно, через API routes)
+ *   - RecipeAuthorManager — список/создание/публикация/версии/архив (запросы
+ *     идут через csrfFetch на /api/recipes*, статус/цены задаёт сервер)
+ *   - supabaseBrowser — только чтение для овервью-статистики и покупок
  *   - shadcn/ui компоненты
  */
 
@@ -22,8 +25,8 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  BookOpen, DollarSign, Users, Star, Plus, Edit3, Trash2,
-  TrendingUp, Eye, ShoppingCart, Settings, LogOut, Crown,
+  BookOpen, DollarSign, Star, Plus,
+  TrendingUp, ShoppingCart, Settings, Crown,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -47,6 +50,10 @@ import {
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { RecipeMarketplace, RecipePurchase } from "@/lib/supabase/types";
 import { csrfFetch } from "@/lib/api-client";
+import {
+  RecipeAuthorManager,
+  MY_RECIPES_QUERY_KEY,
+} from "@/components/recipes/recipe-author-manager";
 
 const TABS = [
   { id: "overview", label: "Обзор", icon: TrendingUp },
@@ -78,7 +85,9 @@ interface DashboardStats {
 }
 
 /**
- * Загрузить свои рецепты автора.
+ * Загрузить свои рецепты автора (только для овервью-статистики —
+ * таб «Мои рецепты» рендерит RecipeAuthorManager со своим
+ * серверным контуром /api/recipes?scope=mine).
  */
 function useMyRecipes() {
   return useQuery<RecipeMarketplace[]>({
@@ -160,36 +169,12 @@ function useCreateRecipe() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recipe-developer"] });
-      toast.success("Рецепт создан");
+      // Рецепт+оффер созданы — обновляем и серверный список менеджера
+      queryClient.invalidateQueries({ queryKey: MY_RECIPES_QUERY_KEY });
+      toast.success("Рецепт создан (вместе с оффером маркетплейса)");
     },
     onError: (err: Error) => {
       toast.error("Ошибка создания рецепта", { description: err.message });
-    },
-  });
-}
-
-/**
- * Удалить рецепт (soft-delete через PATCH is_published=false).
- */
-function useDeleteRecipe() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (recipeId: string) => {
-      const response = await csrfFetch(`/api/recipes/marketplace/${recipeId}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${response.status}`);
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["recipe-developer"] });
-      toast.success("Рецепт удалён");
-    },
-    onError: (err: Error) => {
-      toast.error("Ошибка удаления", { description: err.message });
     },
   });
 }
@@ -275,6 +260,30 @@ export function RecipeDeveloperDashboard(): React.JSX.Element {
   const stats = computeStats(recipesQ.data || [], purchasesQ.data || []);
 
   const content = (): React.JSX.Element => {
+    // Таб «Мои рецепты» — серверный контур /api/recipes (draft → rights →
+    // publish → versions → archive). Рендерим сразу, не дожидаясь
+    // legacy supabase-запросов овервью. Над менеджером — отдельная точка
+    // входа legacy sell-flow: CreateRecipeDialog (рецепт+оффер атомарно,
+    // единственный путь создания оффера).
+    if (activeTab === "recipes") {
+      return (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <h2 className="text-xl font-bold">Мои рецепты</h2>
+            <Button variant="outline" onClick={() => setCreateOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Продать через оффер
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            «Продать через оффер» создаёт рецепт сразу с оффером маркетплейса (единственный
+            путь создания оффера). Обычные черновики, публикация, версии и архив — в менеджере ниже.
+          </p>
+          <RecipeAuthorManager />
+        </div>
+      );
+    }
+
     if (recipesQ.isLoading || purchasesQ.isLoading) {
       return <LoadingState message="Загружаем данные рецептов..." />;
     }
@@ -364,34 +373,6 @@ export function RecipeDeveloperDashboard(): React.JSX.Element {
                 />
               )}
             </Card>
-          </div>
-        );
-
-      case "recipes":
-        return (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold">Мои рецепты ({recipesQ.data?.length || 0})</h2>
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />Новый рецепт
-              </Button>
-            </div>
-
-            {(recipesQ.data || []).length === 0 ? (
-              <EmptyState
-                icon={BookOpen}
-                title="У вас ещё нет рецептов"
-                text="Создайте первый авторский рецепт — он появится в маркетплейсе"
-                action="Создать рецепт"
-                onAction={() => setCreateOpen(true)}
-              />
-            ) : (
-              <div className="grid md:grid-cols-2 gap-3">
-                {(recipesQ.data || []).map((r) => (
-                  <RecipeCard key={r.id} recipe={r} />
-                ))}
-              </div>
-            )}
           </div>
         );
 
@@ -495,96 +476,8 @@ export function RecipeDeveloperDashboard(): React.JSX.Element {
 }
 
 /**
- * Карточка рецепта с действиями.
- */
-function RecipeCard({ recipe }: { recipe: RecipeMarketplace }): React.JSX.Element {
-  const deleteMutation = useDeleteRecipe();
-  const [confirmDelete, setConfirmDelete] = React.useState(false);
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1">
-          <h3 className="font-semibold text-sm">{recipe.title}</h3>
-          {recipe.is_premium && (
-            <Badge variant="secondary" className="bg-amber-100 text-amber-800 mt-1">
-              <Crown className="w-3 h-3 mr-1" />Premium
-            </Badge>
-          )}
-        </div>
-        <div className="flex gap-1">
-          <Button size="sm" variant="ghost">
-            <Edit3 className="w-4 h-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-destructive"
-            onClick={() => setConfirmDelete(true)}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-
-      <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{recipe.description}</p>
-
-      <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1">
-            <Eye className="w-3 h-3" />{recipe.views}
-          </span>
-          <span className="flex items-center gap-1">
-            <ShoppingCart className="w-3 h-3" />{recipe.purchases_count}
-          </span>
-          <span className="flex items-center gap-1">
-            <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-            {Number(recipe.rating).toFixed(1)}
-          </span>
-        </div>
-        <Badge variant="outline">
-          {formatCurrency(Number(recipe.base_price))}
-        </Badge>
-      </div>
-
-      <div className="mt-2 text-xs text-muted-foreground">
-        Роялти: {(Number(recipe.royalty_rate) * 100).toFixed(0)}% •
-        Опубликован: {recipe.is_published ? "✓" : "✗"}
-      </div>
-
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Удалить рецепт?</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            {recipe.purchases_count > 0
-              ? "Рецепт будет снят с публикации. Покупатели сохранят доступ. Полное удаление недоступно для рецептов с покупками."
-              : "Рецепт будет полностью удалён. Действие необратимо."}
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                deleteMutation.mutate(recipe.id);
-                setConfirmDelete(false);
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Удаление..." : "Удалить"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
-  );
-}
-
-/**
- * Диалог создания нового рецепта.
+ * Диалог создания нового рецепта (legacy sell-flow: рецепт + оффер
+ * маркетплейса атомарно через POST /api/recipes/marketplace).
  */
 function CreateRecipeDialog({
   open,

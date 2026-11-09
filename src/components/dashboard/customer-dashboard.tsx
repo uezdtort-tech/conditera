@@ -31,6 +31,7 @@ import {
   Navigation,
   FileText,
   Bell,
+  BookOpen,
 } from "lucide-react";
 import { ProductCard } from "@/components/marketplace/product-card";
 import { VenueBookingsManager } from "@/components/dashboard/venue-bookings-manager";
@@ -55,6 +56,7 @@ import { CustomerNegotiationTab } from "@/components/dashboard/negotiation-tabs"
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
 import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { OrderSimilarStrip } from "@/components/dashboard/order-similar-strip";
+import { MyPurchasedRecipes } from "@/components/dashboard/my-purchased-recipes";
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
@@ -413,6 +415,12 @@ export function CustomerDashboard() {
                   badge={String(myOrders.length)}
                   active={activeTab === "orders"}
                   onClick={() => setActiveTab("orders")}
+                />
+                <SidebarTab
+                  icon={BookOpen}
+                  label="Мои рецепты"
+                  active={activeTab === "myRecipes"}
+                  onClick={() => setActiveTab("myRecipes")}
                 />
                 <SidebarTab
                   icon={Heart}
@@ -920,6 +928,16 @@ export function CustomerDashboard() {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === "myRecipes" && (
+              <div className="space-y-4">
+                <h1 className="font-display text-2xl font-bold">Мои рецепты</h1>
+                <p className="text-sm text-muted-foreground -mt-2">
+                  Купленные авторские рецепты с полным доступом
+                </p>
+                <MyPurchasedRecipes />
               </div>
             )}
 
