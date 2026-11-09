@@ -26,7 +26,7 @@ const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 60;
 
 /** Роли, которым разрешено размещать объявления услуг. */
-export const SERVICE_PROVIDER_ROLES: user_role[] = [
+const SERVICE_PROVIDER_ROLES: user_role[] = [
   "ANIMATOR_AGENCY",
   "RECREATION_CENTER",
   "KIDS_CLUB",

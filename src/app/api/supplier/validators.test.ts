@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 
-import { validateProduct } from "@/app/api/supplier/warehouse/route";
+import { validateProduct } from "@/lib/supplier-warehouse-validation";
 import { validateForSubmit } from "@/app/api/supplier/profile/route";
 
 describe("validateProduct (каталог поставщика)", () => {

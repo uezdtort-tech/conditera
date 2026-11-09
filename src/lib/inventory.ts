@@ -279,6 +279,67 @@ export function parseItemName(raw: unknown): string | null {
   return name;
 }
 
+/** Парс опционального текстового поля (trim + ограничение длины) */
+export function parseOptionalText(raw: unknown, maxLen = 200): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
+  if (!value) return null;
+  return value.slice(0, maxLen);
+}
+
+/** Парс неотрицательного конечного числа; null — невалидно/не передано как число */
+export function parseNonNegativeNumber(raw: unknown): number | null {
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+/**
+ * Whitelist метаданных позиции для PATCH .update().
+ * quantity/id/owner_id сознательно ИСКЛЮЧЕНЫ: остаток меняется только через
+ * журнал движений (setQuantityViaMovement, RELEASE-02 §9), а id/owner_id
+ * иммутабельны. Невалидные значения полей пропускаются (не попадают в update).
+ *
+ * Вынесено из src/app/api/inventory/items/route.ts (R03V-фикс): Next.js
+ * route-файлам разрешены только handler-экспорты — прочие экспорты ломают
+ * генерируемую route-type проверку (TS2344).
+ */
+export function extractItemUpdates(body: Record<string, unknown>): Record<string, unknown> {
+  const updates: Record<string, unknown> = {};
+
+  if (body.name !== undefined) {
+    const name = parseItemName(body.name);
+    if (name) updates.name = name;
+  }
+  if (body.category !== undefined) {
+    const category = parseOptionalText(body.category);
+    if (category !== undefined) updates.category = category;
+  }
+  if (body.unit !== undefined) {
+    const unit = parseOptionalText(body.unit, 50);
+    if (unit !== undefined) updates.unit = unit || "шт";
+  }
+  if (body.min_quantity !== undefined) {
+    const minQuantity = parseNonNegativeNumber(body.min_quantity);
+    if (minQuantity !== null) updates.min_quantity = minQuantity;
+  }
+  if (body.cost_per_unit !== undefined) {
+    const cost = parseNonNegativeNumber(body.cost_per_unit);
+    if (cost !== null) updates.cost_per_unit = Math.round(cost);
+  }
+  if (body.supplier !== undefined) {
+    const supplier = parseOptionalText(body.supplier);
+    if (supplier !== undefined) updates.supplier = supplier;
+  }
+  if (body.is_active !== undefined) {
+    if (typeof body.is_active === "boolean") updates.is_active = body.is_active;
+  }
+
+  return updates;
+}
+
 /**
  * Нормализовать строку inventory_items для JSON-ответа:
  * numeric-колонки (quantity/min_quantity/cost_per_unit) pg-драйвер отдаёт

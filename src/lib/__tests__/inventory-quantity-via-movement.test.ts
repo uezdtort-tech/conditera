@@ -45,7 +45,7 @@ import {
   type InventoryItemRow,
   type InventoryMovementRow,
 } from "@/lib/inventory";
-import { extractItemUpdates } from "@/app/api/inventory/items/route";
+import { extractItemUpdates } from "@/lib/inventory";
 
 const ACTOR: InventoryActor = { id: "user-1", roles: ["CONFECTIONER"] };
 

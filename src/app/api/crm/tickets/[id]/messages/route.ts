@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { z } from "zod";
+import { mapTicketMessage } from "@/lib/crm/ticket-messages";
 
 export const runtime = "nodejs";
 
@@ -85,27 +86,3 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
  * sender_name не хранится — выводим из контекста: владелец тикета = клиент,
  * прочие sender'ы (staff) = оператор.
  */
-export function mapTicketMessage(
-  row: {
-    id: string;
-    ticket_id: string;
-    sender_id: string;
-    text: string;
-    is_internal: boolean | null;
-    is_system: boolean | null;
-    created_at: string;
-  },
-  ticketOwnerId: string
-) {
-  const isOwner = row.sender_id === ticketOwnerId;
-  return {
-    id: row.id,
-    ticketId: row.ticket_id,
-    authorId: row.sender_id,
-    authorName: isOwner ? "Клиент" : "Оператор поддержки",
-    authorRole: row.is_system ? "system" : isOwner ? "customer" : "admin",
-    message: row.text,
-    isInternal: Boolean(row.is_internal),
-    createdAt: row.created_at,
-  };
-}

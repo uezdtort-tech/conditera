@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
-import { mapTicketMessage } from "./messages/route";
+import { mapTicketMessage } from "@/lib/crm/ticket-messages";
 
 export async function GET(
   request: NextRequest,
@@ -51,7 +51,7 @@ export async function GET(
 
     // Маппинг сообщений в UI-контракт (author*/message — см. mapTicketMessage)
     ticket.messages = (ticket.messages || []).map((m: Record<string, unknown>) =>
-      mapTicketMessage(m as Parameters<typeof mapTicketMessage>[0], ticket.user_id)
+      mapTicketMessage(m as unknown as Parameters<typeof mapTicketMessage>[0], ticket.user_id)
     );
 
     return NextResponse.json({ ticket });
