@@ -80,7 +80,11 @@ async function verifyEventWithProvider(
   object: YooKassaPaymentObject,
   wireKop: number | null
 ): Promise<{ ok: boolean; skip?: string }> {
-  if (!isYookassaConfigured()) return { ok: true }; // dev/mock — сверки нет
+  // RELEASE-02 §5: безусловный dev-guard «!configured → ok:true» (бывш. :83)
+  // удалён — он перехватывал отсутствие кредов раньше fail-closed-блока ниже
+  // и мёртвил PAY-1a skip-ветку. Обработка «шлюз не настроен» консолидирована
+  // в единственной ветке после expectedStatus; mock_* идентификаторы
+  // по-прежнему исключены из сверки отдельной проверкой ниже.
   const providerPaymentId = object.payment_id || object.id;
   if (providerPaymentId.startsWith("mock_") || object.id.startsWith("mock_")) {
     // pay4: mock_* в production — подделка (defense-in-depth поверх IP-allowlist):
@@ -119,11 +123,14 @@ async function verifyEventWithProvider(
           : null;
   if (!expectedStatus) return { ok: true }; // прочие события не сверяем
 
-  // PAY-1a: если YooKassa не настроена (E2E/staging без кредитов) — сверку
-  // провести нечем. Аутентичность вызова уже обеспечена webhook-секретом;
-  // раньше отсутствие кредитов приводило к network-error → fail-closed 500
-  // на ВСЕ вебхуки и ломало платёжный конвейер в необслуживаемых окружениях.
+  // RELEASE-02 §5: в production отсутствие кредов шлюза — fail-closed:
+  // вебхук валиден только с re-fetch-сверкой; без кредов сверка невозможна
+  // → {ok:false} → 500 (YooKassa повторит доставку после настройки).
   if (!isYookassaConfigured()) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[webhook] YooKassa not configured in production — fail-closed 500");
+      return { ok: false };
+    }
     console.warn(
       `[webhook] YooKassa not configured — provider verification skipped (event=${event})`
     );
@@ -172,7 +179,12 @@ export async function POST(request: NextRequest) {
     // === 2. Legacy fallback: metadata.orderId → последний платёж заказа ===
     // (для платежей, записанных до pay0-2 без yookassa_payment_id)
     const metaOrderId = object.metadata?.orderId;
-    if (!payment && metaOrderId) {
+    // RELEASE-02 §5: legacy-фолбэк по metadata.orderId отключён в production —
+    // матчинг строго по yookassa_payment_id; фолбэк только для dev/legacy-данных.
+    // Если фолбэк отключён и metadata.orderId нет — orderId останется null и
+    // существующая ветка «if (!orderId) return 400» отклонит событие (NPE нет:
+    // все использования payment ниже null-guarded).
+    if (!payment && metaOrderId && process.env.NODE_ENV !== "production") {
       const { data: latest } = await supabaseAdmin
         .from("payments")
         .select("id, order_id, amount, status, refund_amount")
