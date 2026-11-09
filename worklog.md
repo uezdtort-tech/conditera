@@ -9303,3 +9303,20 @@ Stage Summary:
 - Золотой путь «покупка → платёж → доступ» теперь работает end-to-end и защищён идемпотентностью (CAS + UNIQUE + fallback-платёж)
 - Отклонения: утверждение «72/72 RLS/RPC» сессии d33ed50 не покрывало дефект FK 0075 (проверялась применимость миграций, а не семантика insert) — закрыто 0075 + живой прогон
 - Владельцу: ротация PAT + push 198 коммитов; решения Q-3.1/Q-3.2/Q-4/Q-6/Q-7/Q-10 (таблица отправлена отдельным сообщением)
+
+---
+Task ID: release-03
+Agent: Z.ai Code (main)
+Task: CONDITERA — RELEASE-03: ре-применение RELEASE-02 после полного отката среды, миграция 0077, prodpath-харнесс, восстановление утраченного пропозала SECURITY-RECIPE-01 (DOC-1) + worklog
+
+Work Log:
+- Вход: среда пережила ПОЛНЫЙ откат (uptime reset): HEAD eb4fd1a; 8 коммитов RELEASE-02 (d43d029, b88714b, 93c42c8, 6390a98, ad1b8ea, 0b0009f, bbed571, 80e5c43) утрачены БЕЗВОВЗАТНО (git cat-file: not valid objects, reflog чист); drift #18 — 4 защищённых upload-файла удалены в worktree (index=HEAD, не восстанавливались по запрету); ветка release-candidate/gate-20 сохранилась, worktree /home/z/gate20 и conditera-pay3.bundle утрачены
+- Фиксация метаданных до-ресетного состояния (аудит 1-a): все 8 коммитов RELEASE-02 верифицированы в пред-ресетной среде (списки файлов, пустой UUID-коммит 80e5c43, чистый скан секретов)
+- Ре-применение RELEASE-02: 85394d8 (OAuth анти-мерж/timing-safe/VK 501), 43d8149 (inventory журнал движений + setQuantityViaMovement), 191b1f2 (модерация: marketplace draft-only, PATCH/purchase гейт корнем, самоодобрение 403, CAS reject, audit_log, миграция 0076), 02e70fb (webhook fail-closed prod без кредов, legacy-фолбэк off в prod)
+- Новое в RELEASE-03: eda05e9 миграция 0077 — REVOKE I/U/D: inventory_items/stock_movements/recipe_purchases/recipes/recipe_marketplace от anon+authenticated (аудит: клиентских записей нет, только SELECT-дашборды), EXECUTE apply_inventory_movement_atomic/add-deduct_bonus_balance/revenue_*/auto_assign_confectioner → service_role, CHECK quantity>=0 (гвард); search_products оставлен клиенту (документировано); 0722dad prodpath-харнесс — чистая PG18 :54351, 76 файлов/2310 statements/0 ошибок, STRICT rerun 0075/0076/0077, partial-failure восстановление, GRANT-assertions + прямые пробы 42501, evidence r03-prodpath-*.json
+- DOC-1: восстановлен утраченный пропозал docs/product/SECURITY_RECIPE_01_PROPOSAL.md (оригинал коммита 0b0009f погиб при откате) — строго по факту ledger: grep 'USING (true)' по 0053/0054 = РОВНО 10 политик (0053:37/79/118/125/152, 0054:53/110/149/178/216, все FOR SELECT TO authenticated); таблица «что читает в коде» (все — getPool()/supabaseAdmin = service_role, клиентских чтений нет); предлагаемые условия «участники+админы» через public.is_platform_admin() (0074:33-53); риски минимальны; план миграции 0073 (зарезервирована: 0074:26-27, 0077:184) + откат; дисклеймер «ПРИМЕНЯЕТСЯ ТОЛЬКО ПОСЛЕ УТВЕРЖДЕНИЯ Q-7 ВЛАДЕЛЬЦЕМ; GRANT anon/authenticated не выдаются до/после; латентность в текущей GRANT-конфигурации; environment-dependent»
+- (Место зарезервировано) Гейты TS/ESLint/Vitest/E2E/build и итог — см. финальный отчёт RELEASE-03
+
+Stage Summary:
+- Технические дефекты, не требующие решений владельца, закрыты повторно (RELEASE-02 ре-применён: 85394d8/43d8149/191b1f2/02e70fb; новое: 0077 + prodpath-харнесс 0722dad; пропозал SECURITY-RECIPE-01 восстановлен как документ-план, не применён)
+- Q-3.1/Q-3.2/Q-4/Q-6/Q-7/Q-10 не применялись; protected-файлы не тронуты; push/merge/deploy нет
