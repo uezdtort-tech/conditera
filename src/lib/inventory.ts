@@ -209,6 +209,61 @@ export async function applyInventoryMovement(
   };
 }
 
+/**
+ * Установить абсолютный остаток ЧЕРЕЗ ЖУРНАЛ движений (RELEASE-02 §9).
+ * target > 0 → ADJUST (new_qty = target); target = 0 → OUT текущего остатка
+ * (если > 0; иначе no-op). Прямые UPDATE quantity в API запрещены.
+ */
+export async function setQuantityViaMovement(
+  actor: InventoryActor,
+  itemId: string,
+  targetQty: number,
+  reason: string
+): Promise<ApplyMovementResult> {
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("quantity")
+    .eq("id", itemId)
+    .maybeSingle();
+  if (loadErr) {
+    console.error("[inventory] setQuantityViaMovement load failed:", loadErr.message);
+    return { ok: false, error: { kind: "db", message: loadErr.message } };
+  }
+  if (!row) return { ok: false, error: { kind: "not_found" } };
+
+  const current = Number((row as { quantity: number | string }).quantity) || 0;
+  const target = Number(targetQty) || 0;
+
+  if (target > 0) {
+    return applyInventoryMovement(actor, { item_id: itemId, type: "ADJUST", quantity: target, reason });
+  }
+  if (current > 0) {
+    return applyInventoryMovement(actor, { item_id: itemId, type: "OUT", quantity: current, reason });
+  }
+  const { data: fresh, error: freshErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("*")
+    .eq("id", itemId)
+    .maybeSingle();
+  if (freshErr || !fresh) {
+    return { ok: false, error: { kind: "db", message: freshErr?.message || "item read failed" } };
+  }
+  return {
+    ok: true,
+    item: fresh as InventoryItemRow,
+    movement: {
+      id: "",
+      item_id: itemId,
+      user_id: actor.id,
+      type: "ADJUST",
+      quantity: 0,
+      reason: "no-op (остаток уже 0)",
+      order_id: null,
+      created_at: new Date().toISOString(),
+    },
+  };
+}
+
 /** Строгий парс количества движения: конечное число > 0 */
 export function parseMovementQuantity(raw: unknown): number | null {
   const n = typeof raw === "string" ? Number(raw) : raw;

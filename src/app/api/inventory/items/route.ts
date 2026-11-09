@@ -4,7 +4,11 @@
  * GET    — список позиций текущего пользователя (owner_id = user.id), по имени.
  * POST   — создать позицию { name, category?, quantity?, unit?, min_quantity?,
  *          cost_per_unit?, supplier? } → 201 { item }.
+ *          quantity создаётся с 0; начальный остаток — движением через журнал
+ *          (setQuantityViaMovement, RELEASE-02 §9). Прямой INSERT quantity запрещён.
  * PATCH  — обновить позицию по body.id (только whitelist-поля), владение 403.
+ *          quantity в whitelist НЕ входит: остаток меняется только через журнал
+ *          движений (setQuantityViaMovement). id/owner_id иммутабельны.
  * DELETE — soft-delete: is_active=false (владение), { success: true }.
  *
  * Auth: getUserFromRequest (Bearer + cookie cd_session). Владение:
@@ -19,7 +23,9 @@ import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import {
   canManageInventoryItem,
   parseItemName,
+  parseMovementQuantity,
   serializeInventoryItem,
+  setQuantityViaMovement,
   type InventoryActor,
   type InventoryItemRow,
 } from "@/lib/inventory";
@@ -43,6 +49,46 @@ function parseNonNegativeNumber(raw: unknown): number | null {
   const n = typeof raw === "string" ? Number(raw) : raw;
   if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
   return n;
+}
+
+/**
+ * Whitelist метаданных позиции для PATCH .update().
+ * quantity/id/owner_id сознательно ИСКЛЮЧЕНЫ: остаток меняется только через
+ * журнал движений (setQuantityViaMovement, RELEASE-02 §9), а id/owner_id
+ * иммутабельны. Невалидные значения полей пропускаются (не попадают в update).
+ */
+export function extractItemUpdates(body: Record<string, unknown>): Record<string, unknown> {
+  const updates: Record<string, unknown> = {};
+
+  if (body.name !== undefined) {
+    const name = parseItemName(body.name);
+    if (name) updates.name = name;
+  }
+  if (body.category !== undefined) {
+    const category = parseOptionalText(body.category);
+    if (category !== undefined) updates.category = category;
+  }
+  if (body.unit !== undefined) {
+    const unit = parseOptionalText(body.unit, 50);
+    if (unit !== undefined) updates.unit = unit || "шт";
+  }
+  if (body.min_quantity !== undefined) {
+    const minQuantity = parseNonNegativeNumber(body.min_quantity);
+    if (minQuantity !== null) updates.min_quantity = minQuantity;
+  }
+  if (body.cost_per_unit !== undefined) {
+    const cost = parseNonNegativeNumber(body.cost_per_unit);
+    if (cost !== null) updates.cost_per_unit = Math.round(cost);
+  }
+  if (body.supplier !== undefined) {
+    const supplier = parseOptionalText(body.supplier);
+    if (supplier !== undefined) updates.supplier = supplier;
+  }
+  if (body.is_active !== undefined) {
+    if (typeof body.is_active === "boolean") updates.is_active = body.is_active;
+  }
+
+  return updates;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -123,7 +169,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         owner_id: user.id,
         name,
         category: category ?? null,
-        quantity,
+        // начальный остаток — движением IN ниже (RELEASE-02 §9)
+        quantity: 0,
         unit,
         min_quantity: minQuantity,
         cost_per_unit: costPerUnit,
@@ -138,8 +185,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Не удалось создать позицию склада" }, { status: 500 });
     }
 
+    let item = data as InventoryItemRow;
+
+    // Начальный остаток — только через журнал движений (RELEASE-02 §9):
+    // quantity: 0 при вставке, затем ADJUST на целевое значение.
+    const initialQty = parseMovementQuantity(body.quantity);
+    if (initialQty !== null) {
+      const actor: InventoryActor = { id: user.id, roles: (user.roles as string[]) || [] };
+      const applied = await setQuantityViaMovement(
+        actor,
+        item.id,
+        initialQty,
+        "Начальный остаток при создании позиции"
+      );
+      if (!applied.ok) {
+        // Компенсация: позиция без корректного начального остатка не нужна
+        await supabaseAdmin.from("inventory_items").delete().eq("id", item.id);
+        console.error(
+          "[inventory/items] initial quantity movement failed:",
+          applied.error.kind
+        );
+        return NextResponse.json(
+          { error: "Не удалось применить начальный остаток" },
+          { status: 500 }
+        );
+      }
+      item = applied.item;
+    }
+
     return NextResponse.json(
-      { item: serializeInventoryItem(data as InventoryItemRow) },
+      { item: serializeInventoryItem(item) },
       { status: 201 }
     );
   } catch (error) {
@@ -178,83 +253,68 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       return forbiddenResponse("Нет доступа к этой позиции склада");
     }
 
-    // Whitelist полей
-    const updates: Record<string, unknown> = {};
+    // Whitelist метаданных БЕЗ quantity/id/owner_id (RELEASE-02 §9):
+    // остаток меняется только через журнал движений, см. ниже.
+    const updates = extractItemUpdates(body);
+    const hasQuantity = body.quantity !== undefined;
 
-    if (body.name !== undefined) {
-      const name = parseItemName(body.name);
-      if (!name) {
-        return NextResponse.json({ error: "name: 1..200 символов" }, { status: 400 });
-      }
-      updates.name = name;
-    }
-    if (body.category !== undefined) {
-      const category = parseOptionalText(body.category);
-      if (category === undefined) {
-        return NextResponse.json({ error: "category должен быть строкой" }, { status: 400 });
-      }
-      updates.category = category;
-    }
-    if (body.quantity !== undefined) {
-      const quantity = parseNonNegativeNumber(body.quantity);
-      if (quantity === null) {
-        return NextResponse.json({ error: "quantity должно быть числом ≥ 0" }, { status: 400 });
-      }
-      updates.quantity = quantity;
-    }
-    if (body.unit !== undefined) {
-      const unit = parseOptionalText(body.unit, 50);
-      if (unit === undefined) {
-        return NextResponse.json({ error: "unit должен быть строкой" }, { status: 400 });
-      }
-      updates.unit = unit || "шт";
-    }
-    if (body.min_quantity !== undefined) {
-      const minQuantity = parseNonNegativeNumber(body.min_quantity);
-      if (minQuantity === null) {
-        return NextResponse.json({ error: "min_quantity должно быть числом ≥ 0" }, { status: 400 });
-      }
-      updates.min_quantity = minQuantity;
-    }
-    if (body.cost_per_unit !== undefined) {
-      const cost = parseNonNegativeNumber(body.cost_per_unit);
-      if (cost === null) {
-        return NextResponse.json({ error: "cost_per_unit должно быть числом ≥ 0" }, { status: 400 });
-      }
-      updates.cost_per_unit = Math.round(cost);
-    }
-    if (body.supplier !== undefined) {
-      const supplier = parseOptionalText(body.supplier);
-      if (supplier === undefined) {
-        return NextResponse.json({ error: "supplier должен быть строкой" }, { status: 400 });
-      }
-      updates.supplier = supplier;
-    }
-    if (body.is_active !== undefined) {
-      if (typeof body.is_active !== "boolean") {
-        return NextResponse.json({ error: "is_active должен быть boolean" }, { status: 400 });
-      }
-      updates.is_active = body.is_active;
-    }
-
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && !hasQuantity) {
       return NextResponse.json({ error: "Нет полей для обновления" }, { status: 400 });
     }
-    updates.updated_at = new Date().toISOString();
 
-    const { data, error } = await supabaseAdmin
-      .from("inventory_items")
-      .update(updates)
-      .eq("id", itemId)
-      .select("*")
-      .single();
+    let item = existing as InventoryItemRow;
 
-    if (error || !data) {
-      console.error("[inventory/items] update failed:", error?.message);
-      return NextResponse.json({ error: "Не удалось обновить позицию" }, { status: 500 });
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString();
+
+      const { data, error } = await supabaseAdmin
+        .from("inventory_items")
+        .update(updates)
+        .eq("id", itemId)
+        .select("*")
+        .single();
+
+      if (error || !data) {
+        console.error("[inventory/items] update failed:", error?.message);
+        return NextResponse.json({ error: "Не удалось обновить позицию" }, { status: 500 });
+      }
+      item = data as InventoryItemRow;
     }
 
-    return NextResponse.json({ item: serializeInventoryItem(data as InventoryItemRow) });
+    // Остаток — только через журнал движений (RELEASE-02 §9):
+    // target > 0 → ADJUST, target = 0 → OUT текущего остатка.
+    if (hasQuantity) {
+      const targetQty = parseNonNegativeNumber(body.quantity);
+      if (targetQty === null) {
+        return NextResponse.json({ error: "quantity должно быть числом ≥ 0" }, { status: 400 });
+      }
+      const applied = await setQuantityViaMovement(
+        actor,
+        itemId,
+        targetQty,
+        "Корректировка остатка (PATCH)"
+      );
+      if (!applied.ok) {
+        const err = applied.error;
+        if (err.kind === "not_found") {
+          return NextResponse.json({ error: "Позиция не найдена" }, { status: 404 });
+        }
+        if (err.kind === "forbidden") {
+          return forbiddenResponse("Нет доступа к этой позиции склада");
+        }
+        if (err.kind === "insufficient") {
+          return NextResponse.json(
+            { error: "Недостаточно остатка для списания", available: err.available },
+            { status: 409 }
+          );
+        }
+        console.error("[inventory/items] quantity movement failed:", err.message);
+        return NextResponse.json({ error: "Не удалось обновить остаток" }, { status: 500 });
+      }
+      item = applied.item;
+    }
+
+    return NextResponse.json({ item: serializeInventoryItem(item) });
   } catch (error) {
     console.error("[inventory/items] PATCH error:", (error as Error).message);
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });

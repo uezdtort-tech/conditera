@@ -15,12 +15,16 @@
  *   • GET: требует роль SUPPLIER + ownership через .eq("owner_id", userId).
  *   • POST: safeJsonBody + валидация полей (name, category обязательны).
  *   • POST: проверка supplier_profile.is_active перед insert.
+ *   • quantity: вставка с 0, начальный остаток — движением через журнал
+ *     (setQuantityViaMovement, RELEASE-02 §9); PATCH — quantity вне whitelist
+ *     .update(), корректировка только движением (ADJUST/OUT).
  *   • При DB error не возвращаем детали БД клиенту.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError, readEnumField } from "@/lib/http-helpers";
+import { parseMovementQuantity, setQuantityViaMovement } from "@/lib/inventory";
 
 export const runtime = "nodejs";
 
@@ -175,14 +179,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // id, owner_id, name, category, quantity, unit, min_quantity, cost_per_unit,
     // supplier, is_active, created_at, updated_at) — поля тела игнорируются.
 
-    const { data: product, error: insertErr } = await supabaseAdmin
+    const { data: productData, error: insertErr } = await supabaseAdmin
       .from("inventory_items")
       .insert({
         owner_id: user.userId, // ownerId — поставщик
         name: body.name,
         category: body.category,
         unit,
-        quantity,
+        // начальный остаток — движением IN ниже (RELEASE-02 §9)
+        quantity: 0,
         min_quantity: minQuantity,
         cost_per_unit: costPerUnit,
         supplier: supplier.companyName,
@@ -191,9 +196,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .select()
       .single() as { data: InventoryItemRow | null; error: SupabaseError | null };
 
-    if (insertErr || !product) {
+    if (insertErr || !productData) {
       console.error("[supplier/products] insert failed:", insertErr?.message);
       throw new HttpError(500, "Не удалось создать товар");
+    }
+
+    let product = productData;
+
+    // Начальный остаток — только через журнал движений (RELEASE-02 §9):
+    // quantity: 0 при вставке, затем движение ADJUST на целевое значение.
+    const initialQty = parseMovementQuantity(quantity);
+    if (initialQty !== null) {
+      const applied = await setQuantityViaMovement(
+        { id: user.userId, roles: user.roles },
+        product.id,
+        initialQty,
+        "Начальный остаток при создании товара"
+      );
+      if (!applied.ok) {
+        // Компенсация: товар без корректного начального остатка не нужен
+        await supabaseAdmin.from("inventory_items").delete().eq("id", product.id);
+        console.error(
+          "[supplier/products] initial quantity movement failed:",
+          applied.error.kind
+        );
+        throw new HttpError(500, "Не удалось применить начальный остаток");
+      }
+      product = applied.item as InventoryItemRow;
     }
 
     return NextResponse.json({ product }, { status: 201 });
@@ -206,6 +235,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  * PATCH — обновление товара поставщика.
  * Body: { id, name?, category?, unit?, quantity?, minQuantity?, costPerUnit? }
  * Ownership: inventory_items.owner_id === userId.
+ * quantity НЕ входит в whitelist .update() — остаток меняется только
+ * через журнал движений (setQuantityViaMovement, RELEASE-02 §9).
  */
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
@@ -257,11 +288,13 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       updates.unit = unitResult.value;
     }
 
+    // quantity вне whitelist (RELEASE-02 §9): корректировка — движением ниже
+    let patchQty: number | null = null;
     if (body.quantity !== undefined) {
       if (typeof body.quantity !== "number" || !Number.isFinite(body.quantity) || body.quantity < 0) {
         throw new HttpError(422, "quantity должен быть неотрицательным числом");
       }
-      updates.quantity = Math.min(body.quantity, MAX_QUANTITY);
+      patchQty = Math.min(body.quantity, MAX_QUANTITY);
     }
 
     if (body.minQuantity !== undefined) {
@@ -278,20 +311,50 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       updates.cost_per_unit = Math.min(body.costPerUnit, MAX_COST);
     }
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && patchQty === null) {
       throw new HttpError(400, "Нет полей для обновления");
     }
 
-    const { data: product, error: updateErr } = await supabaseAdmin
-      .from("inventory_items")
-      .update(updates)
-      .eq("id", body.id)
-      .select()
-      .single() as { data: InventoryItemRow | null; error: SupabaseError | null };
+    let product: InventoryItemRow | null = null;
 
-    if (updateErr || !product) {
-      console.error("[supplier/products] update failed:", updateErr?.message);
-      throw new HttpError(500, "Не удалось обновить товар");
+    if (Object.keys(updates).length > 0) {
+      const { data, error: updateErr } = await supabaseAdmin
+        .from("inventory_items")
+        .update(updates)
+        .eq("id", body.id)
+        .select()
+        .single() as { data: InventoryItemRow | null; error: SupabaseError | null };
+
+      if (updateErr || !data) {
+        console.error("[supplier/products] update failed:", updateErr?.message);
+        throw new HttpError(500, "Не удалось обновить товар");
+      }
+      product = data;
+    }
+
+    // Остаток — только через журнал движений (RELEASE-02 §9):
+    // target > 0 → ADJUST, target = 0 → OUT текущего остатка.
+    if (patchQty !== null) {
+      const applied = await setQuantityViaMovement(
+        { id: user.userId, roles: user.roles },
+        body.id,
+        patchQty,
+        "Корректировка остатка (PATCH)"
+      );
+      if (!applied.ok) {
+        const err = applied.error;
+        if (err.kind === "not_found") throw new HttpError(404, "Товар не найден");
+        if (err.kind === "forbidden") throw new HttpError(403, "Нет доступа к этому товару");
+        if (err.kind === "insufficient") {
+          return NextResponse.json(
+            { error: "Недостаточно остатка для списания", available: err.available },
+            { status: 409 }
+          );
+        }
+        console.error("[supplier/products] quantity movement failed:", err.message);
+        throw new HttpError(500, "Не удалось обновить остаток");
+      }
+      product = applied.item as InventoryItemRow;
     }
 
     return NextResponse.json({ product });
