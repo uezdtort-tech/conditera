@@ -240,7 +240,9 @@ export async function POST(request: NextRequest) {
         status,
         customer_id,
         user_id,
-        confectioner_id
+        confectioner_id,
+        type,
+        metadata
       `
       )
       .eq("id", orderId)
@@ -311,6 +313,53 @@ export async function POST(request: NextRequest) {
 
         // P1: Эскроу релизуется через cron /api/cron/escrow-release (каждые 30 минут)
         console.info(`[webhook] Order ${orderId} → escrow. Will be released by cron in 24h.`);
+
+        // RECIPE-03 (RA.10.3): выдача entitlement для заказов type='recipe' —
+        // ТОЛЬКО у победителя CAS (идемпотентность двойной защиты: CAS +
+        // UNIQUE(recipe_id,buyer_id)); цена/роялти — с серверного оффера,
+        // НИКОГДА из metadata клиента. Частичный/отложенный pay не выдаёт право:
+        // метод вызывается только при dbStatus='succeeded' (waiting_for_capture →
+        // отдельная доставка выдаст при succeeded).
+        if (dbStatus === "succeeded" && order.type === "recipe") {
+          try {
+            const offerId = order.metadata?.recipe_offer_id;
+            const recipeId = order.metadata?.recipe_id;
+            if (offerId && recipeId) {
+              const { data: offer } = await supabaseAdmin
+                .from("recipe_marketplace")
+                .select("id, recipe_id, royalty_rate, base_price")
+                .eq("id", offerId)
+                .maybeSingle();
+              if (offer && offer.recipe_id === recipeId) {
+                const { data: latestVersion } = await supabaseAdmin
+                  .from("recipe_versions")
+                  .select("id")
+                  .eq("recipe_id", recipeId)
+                  .order("version_no", { ascending: false })
+                  .limit(1);
+                const { grantEntitlement } = await import("@/lib/recipes/entitlement");
+                const grant = await grantEntitlement({
+                  recipeId,
+                  buyerId: order.user_id || order.customer_id,
+                  paymentId: payment?.id ?? "",
+                  pricePaid: Number(offer.base_price),
+                  royaltyRate: Number(offer.royalty_rate),
+                  recipeVersionId: latestVersion?.id ?? null,
+                });
+                console.info(
+                  `[webhook] recipe entitlement ${grant.granted ? "granted" : "FAILED"} recipe=${recipeId} buyer=${order.user_id ?? order.customer_id}`
+                );
+              } else {
+                console.error(`[webhook] recipe order ${orderId}: offer mismatch, entitlement NOT granted`);
+              }
+            }
+          } catch (e) {
+            // Не 500: заказ уже в escrow, повторная доставка webhook даст
+            // idempotent-ветку CAS… но entitlement не будет выдан — поэтому
+            // логируем как CRITICAL для монитора; резервирование — reconciliation.
+            console.error("[webhook] recipe entitlement grant failed (CRITICAL):", e);
+          }
+        }
 
         // PAY-2: журнал — деньги ПРИШЛИ (+amount, только у победителя CAS —
         // идемпотентно по payment id: повторная доставка дедупится и CAS'ом выше,
@@ -619,6 +668,23 @@ export async function POST(request: NextRequest) {
               .update({ payment_status: "refunded" })
               .eq("id", orderId);
             if (ordUpdErr) console.error("[webhook] refund order update failed:", ordUpdErr.message);
+          }
+
+          // RECIPE-03 (RA.10): хук отзыва entitlement при ПОЛНОМ возврате
+          // заказа type='recipe' (Q-3.1 default: частичный возврат доступ
+          // сохраняет — revoke только при fully_refunded).
+          if (refundRes.fully_refunded && order.type === "recipe") {
+            try {
+              const recipeId = order.metadata?.recipe_id;
+              const buyerId = order.user_id || order.customer_id;
+              if (recipeId && buyerId) {
+                const { revokeEntitlement } = await import("@/lib/recipes/entitlement");
+                const revoked = await revokeEntitlement(recipeId, buyerId);
+                console.info(`[webhook] recipe entitlement ${revoked ? "revoked" : "revoke-failed"} (full refund) recipe=${recipeId} buyer=${buyerId}`);
+              }
+            } catch (e) {
+              console.error("[webhook] recipe entitlement revoke failed (CRITICAL):", e);
+            }
           }
         }
 

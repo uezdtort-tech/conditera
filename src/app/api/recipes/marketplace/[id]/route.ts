@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
+import { resolveRecipeAccess, gateRecipeContent } from "@/lib/recipes/access-resolver";
 import type { RecipeMarketplace } from "@/lib/supabase/types";
 
 /**
@@ -84,7 +85,6 @@ export async function GET(
       }
     } else {
       // Увеличить счётчик просмотров (асинхронно, не блокируя ответ)
-      // Используем Supabase RPC для атомарного инкремента
       supabaseAdmin
         .from("recipe_marketplace")
         .update({ views: (recipe.views || 0) + 1 })
@@ -92,7 +92,33 @@ export async function GET(
         .then(() => { /* fire-and-forget */ });
     }
 
-    return NextResponse.json({ data: coerceRecipeNumbers(recipe as unknown as Record<string, unknown>) as unknown as RecipeMarketplace });
+    // RECIPE-03 (RA.9/фикс D4): гейт платного содержимого через единый
+    // Access Resolver. Состав (steps_json/ingredients_json) отдаётся только
+    // при level='full' (автор/стафф/бесплатный/купивший с подтверждённым
+    // платежом). Клиентские флаги не учитываются.
+    const responseData = coerceRecipeNumbers(recipe as unknown as Record<string, unknown>) as unknown as Record<string, unknown>;
+    if (recipe.recipe_id) {
+      const { data: root } = await supabaseAdmin
+        .from("recipes")
+        .select("id, author_id, status")
+        .eq("id", recipe.recipe_id)
+        .maybeSingle();
+      if (root) {
+        const user = await getUserFromRequest(request);
+        const access = await resolveRecipeAccess(user, {
+          id: root.id,
+          author_id: root.author_id,
+          status: root.status,
+        });
+        const gated = gateRecipeContent(access, responseData);
+        return NextResponse.json({
+          data: gated as unknown as RecipeMarketplace,
+          meta: { access_level: access.level, access_reason: access.reason },
+        });
+      }
+    }
+
+    return NextResponse.json({ data: responseData as unknown as RecipeMarketplace });
   } catch (error: any) {
     console.error("[recipes/:id] GET unexpected:", error?.message);
     return NextResponse.json(
