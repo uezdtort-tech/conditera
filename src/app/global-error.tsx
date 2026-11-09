@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/diagnostics/capture";
 
 /**
  * Global Error boundary — перехватывает ошибки ВНЕ основного layout
@@ -22,6 +23,11 @@ export default function GlobalError({
     console.error("[Global Error Boundary]", error, {
       digest: error.digest,
       stack: error.stack,
+    });
+    // DEPLOY-01 §3: неблокирующая регистрация (message/digest only)
+    reportClientError(error, {
+      errorCode: "react_global_error_boundary",
+      correlationId: error.digest || undefined,
     });
   }, [error]);
 

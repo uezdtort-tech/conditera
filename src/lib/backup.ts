@@ -2,15 +2,14 @@
  * Backup service — full database backup.
  *
  * Two modes:
- *   1. PostgreSQL (production): runs `pg_dump` via child_process, saves .sql.gz
- *   2. PGlite (dev): exports all tables as JSON to a .json.gz file
+ *   1. PostgreSQL (pg_dump available): runs `pg_dump` via child_process, saves .sql.gz
+ *   2. Any PostgreSQL (dev embedded / Supabase): JSON export of real rows via pg pool
  *
  * Backups are saved to BACKUP_DIR (default: ./backups/ relative to project root).
  * Old backups are automatically cleaned up (keep last 30 days).
  *
  * Each backup is recorded in MaintenanceLog table.
  */
-import { db } from "./db";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
@@ -35,12 +34,16 @@ interface BackupResult {
 
 /**
  * Run a full database backup.
- * Uses pg_dump for PostgreSQL, JSON export for PGlite.
+ * DEPLOY-01 §10:
+ *   1. pg_dump — если доступен бинарь и DATABASE_URL postgresql:// (любая среда);
+ *   2. JSON-export через pg-пул — рабочая альтернатива (ранее fallback был
+ *      на Prisma-синтаксисе и на supabase-js всегда возвращал пустые таблицы
+ *      с status "success" — баг закрыт: записи реально читаются из БД).
+ * Итог честный: если ни один путь не смог прочитать данные — success:false.
  */
 export async function runFullBackup(): Promise<BackupResult> {
   const startTime = Date.now();
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const isProd = process.env.NODE_ENV === "production";
   const databaseUrl = process.env.DATABASE_URL;
 
   // Ensure backup directory exists
@@ -48,8 +51,8 @@ export async function runFullBackup(): Promise<BackupResult> {
     mkdirSync(BACKUP_DIR, { recursive: true });
   }
 
-  // Try pg_dump for real PostgreSQL
-  if (isProd && databaseUrl && databaseUrl.startsWith("postgresql://")) {
+  // Try pg_dump for real PostgreSQL (если бинарь доступен)
+  if (databaseUrl && databaseUrl.startsWith("postgresql://") && (await hasPgDump())) {
     try {
       return await pgDumpBackup(databaseUrl, timestamp, startTime);
     } catch (e) {
@@ -57,8 +60,18 @@ export async function runFullBackup(): Promise<BackupResult> {
     }
   }
 
-  // Fallback: JSON export (works with PGlite and any Prisma-compatible DB)
+  // Fallback: JSON export через pg-пул (реальные строки)
   return await jsonExportBackup(timestamp, startTime);
+}
+
+/** Проверка доступности бинаря pg_dump (без shell-инъекции — только which). */
+async function hasPgDump(): Promise<boolean> {
+  try {
+    await execAsync("which pg_dump", { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -102,9 +115,51 @@ async function pgDumpBackup(
 }
 
 /**
- * JSON export backup — works with PGlite and any Prisma DB.
- * Exports all tables as a JSON object, gzipped.
+ * JSON export backup — реальные строки через pg-пул (Supabase/embedded PG).
+ *
+ * DEPLOY-01: предыдущая реализация использовала Prisma-синтаксис
+ * (client.user.findMany()) на supabase-js shim — каждая таблица падала в
+ * catch и экспорт завершался «успехом» с 0 записей. Теперь — SQL SELECT
+ * по явному списку таблиц; таблица, которой нет в схеме, честно помечается
+ * skipped в warnings, а итоговый success зависит от того, прочитана ли
+ * хотя бы часть данных.
  */
+const BACKUP_TABLES = [
+  "profiles",
+  "user_roles",
+  "confectioners",
+  "products",
+  "orders",
+  "order_items",
+  "cart_items",
+  "reviews",
+  "video_reviews",
+  "promotions",
+  "recipes",
+  "recipe_marketplace",
+  "recipe_purchases",
+  "chat_rooms",
+  "chat_messages",
+  "payments",
+  "financial_audit_log",
+  "inventory_items",
+  "inventory_movements",
+  "stock_movements",
+  "cms_pages",
+  "cms_blocks",
+  "banners",
+  "site_settings",
+  "nav_menu_items",
+  "loyalty_transactions",
+  "notifications",
+  "audit_log",
+  "domain_events",
+  "ops_tasks",
+  "maintenance_logs",
+  "app_incidents",
+  "app_error_events",
+] as const;
+
 async function jsonExportBackup(
   timestamp: string,
   startTime: number
@@ -114,76 +169,54 @@ async function jsonExportBackup(
 
   console.info(`[backup] Starting JSON export → ${filepath}`);
 
-  // Get the Prisma client
-  const client = await getDbSafe();
-  if (!client) {
-    throw new Error("Database client not available");
-  }
+  const { getPool } = await import("@/lib/postgrest/pool");
+  const pool = getPool();
 
-  // Export each table
   const tables: Record<string, unknown[]> = {};
+  const warnings: string[] = [];
   let totalRecords = 0;
+  let successfulTables = 0;
 
-  const tableExporters: Array<{ name: string; query: () => Promise<unknown[]> }> = [
-    { name: "users", query: () => client.user.findMany() },
-    { name: "confectioners", query: () => client.confectioner.findMany() },
-    { name: "products", query: () => client.product.findMany() },
-    { name: "orders", query: () => client.order.findMany({ include: { items: true } }) },
-    { name: "order_items", query: () => client.orderItem.findMany() },
-    { name: "cart_items", query: () => client.cartItem.findMany() },
-    { name: "reviews", query: () => client.review.findMany() },
-    { name: "video_reviews", query: () => client.videoReview.findMany() },
-    { name: "promotions", query: () => client.promotion.findMany() },
-    { name: "recipes", query: () => client.recipe.findMany() },
-    { name: "chat_rooms", query: () => client.chatRoom.findMany() },
-    { name: "chat_messages", query: () => client.chatMessage.findMany() },
-    { name: "referrals", query: () => client.referral.findMany() },
-    { name: "gift_certificates", query: () => client.giftCertificate.findMany() },
-    { name: "user_holidays", query: () => client.userHoliday.findMany() },
-    { name: "payments", query: () => client.payment.findMany() },
-    { name: "blacklist", query: () => client.blacklistEntry.findMany() },
-    { name: "semaphores", query: () => client.semaphore.findMany() },
-    { name: "inventory_items", query: () => client.inventoryItem.findMany() },
-    { name: "stock_movements", query: () => client.stockMovement.findMany() },
-    { name: "cms_pages", query: () => client.cmsPage.findMany({ include: { blocks: true } }) },
-    { name: "cms_blocks", query: () => client.cmsBlock.findMany() },
-    { name: "banners", query: () => client.banner.findMany() },
-    { name: "site_settings", query: () => client.siteSetting.findMany() },
-    { name: "nav_menu_items", query: () => client.navMenuItem.findMany() },
-    { name: "loyalty_transactions", query: () => client.loyaltyTransaction.findMany() },
-    { name: "notifications", query: () => client.notification.findMany() },
-    { name: "notification_preferences", query: () => client.notificationPreferences.findMany() },
-    { name: "organization_verifications", query: () => client.organizationVerification.findMany() },
-    { name: "maintenance_logs", query: () => client.maintenanceLog.findMany() },
-  ];
-
-  for (const { name, query } of tableExporters) {
+  for (const name of BACKUP_TABLES) {
     try {
-      const records = await query();
+      const res = await pool.query(`SELECT * FROM public."${name}" LIMIT 200000`);
+      const records = (res.rows ?? []) as unknown[];
       tables[name] = records;
       totalRecords += records.length;
+      successfulTables += 1;
       console.info(`  ✓ ${name}: ${records.length} records`);
     } catch (e) {
-      console.warn(`  ⚠ ${name}: skipped (${(e as Error).message})`);
+      const msg = e instanceof Error ? e.message : String(e);
+      warnings.push(`${name}: skipped (${msg.slice(0, 120)})`);
+      console.warn(`  ⚠ ${name}: skipped`);
       tables[name] = [];
     }
+  }
+
+  // Честный итог (§19): если ни одна таблица не прочитана — failure
+  if (successfulTables === 0) {
+    throw new Error(
+      `JSON backup failed: no tables readable (${warnings.slice(0, 3).join("; ")})`
+    );
   }
 
   // Write gzipped JSON
   const jsonData = JSON.stringify({
     metadata: {
       timestamp: new Date().toISOString(),
-      version: "1.0",
-      tablesCount: tableExporters.length,
+      version: "2.0",
+      format: "json-tables",
+      tablesCount: successfulTables,
+      tablesRequested: BACKUP_TABLES.length,
       totalRecords,
-      databaseType: isProd ? "postgresql" : "pglite",
+      databaseType: "postgresql",
+      warnings,
     },
     tables,
   });
 
   const gzip = createGzip();
   const writeStream = createWriteStream(filepath);
-  // Write JSON data through gzip to file
   const { Readable } = await import("stream");
   await pipeline(Readable.from(jsonData), gzip, writeStream);
 
@@ -198,7 +231,7 @@ async function jsonExportBackup(
     success: true,
     backupPath: filepath,
     backupSizeBytes: stats.size,
-    tablesCount: tableExporters.length,
+    tablesCount: successfulTables,
     recordsExported: totalRecords,
     durationMs,
   };
@@ -260,49 +293,3 @@ export async function listBackups(): Promise<
     })
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
-
-// ===== Helper: safely get the DB client =====
-async function getDbSafe(): Promise<
-  | {
-      user: { findMany: () => Promise<unknown[]> };
-      confectioner: { findMany: () => Promise<unknown[]> };
-      product: { findMany: () => Promise<unknown[]> };
-      order: { findMany: (opts?: unknown) => Promise<unknown[]> };
-      orderItem: { findMany: () => Promise<unknown[]> };
-      cartItem: { findMany: () => Promise<unknown[]> };
-      review: { findMany: () => Promise<unknown[]> };
-      videoReview: { findMany: () => Promise<unknown[]> };
-      promotion: { findMany: () => Promise<unknown[]> };
-      recipe: { findMany: () => Promise<unknown[]> };
-      chatRoom: { findMany: () => Promise<unknown[]> };
-      chatMessage: { findMany: () => Promise<unknown[]> };
-      referral: { findMany: () => Promise<unknown[]> };
-      giftCertificate: { findMany: () => Promise<unknown[]> };
-      userHoliday: { findMany: () => Promise<unknown[]> };
-      payment: { findMany: () => Promise<unknown[]> };
-      blacklistEntry: { findMany: () => Promise<unknown[]> };
-      semaphore: { findMany: () => Promise<unknown[]> };
-      inventoryItem: { findMany: () => Promise<unknown[]> };
-      stockMovement: { findMany: () => Promise<unknown[]> };
-      cmsPage: { findMany: (opts?: unknown) => Promise<unknown[]> };
-      cmsBlock: { findMany: () => Promise<unknown[]> };
-      banner: { findMany: () => Promise<unknown[]> };
-      siteSetting: { findMany: () => Promise<unknown[]> };
-      navMenuItem: { findMany: () => Promise<unknown[]> };
-      loyaltyTransaction: { findMany: () => Promise<unknown[]> };
-      notification: { findMany: () => Promise<unknown[]> };
-      notificationPreferences: { findMany: () => Promise<unknown[]> };
-      organizationVerification: { findMany: () => Promise<unknown[]> };
-      maintenanceLog: { findMany: () => Promise<unknown[]> };
-    }
-  | null
-> {
-  try {
-    const { getDb } = await import("./db");
-    return (await getDb()) as never;
-  } catch {
-    return null;
-  }
-}
-
-const isProd = process.env.NODE_ENV === "production";

@@ -1,0 +1,63 @@
+{
+  "startedAt": "2026-11-09T16:49:30.473Z",
+  "phases": {
+    "phase1": {
+      "total": 75,
+      "applied": 75,
+      "failed": null
+    },
+    "ledgerCountA": 75,
+    "phase2_fks": [
+      {
+        "conname": "fk_recipe_purchases_payment",
+        "def": "FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "fk_recipe_purchases_recipe",
+        "def": "FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE RESTRICT"
+      },
+      {
+        "conname": "fk_recipe_purchases_recipe_version",
+        "def": "FOREIGN KEY (recipe_version_id) REFERENCES recipe_versions(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "recipe_purchases_buyer_id_fkey",
+        "def": "FOREIGN KEY (buyer_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+      }
+    ],
+    "phase2_tables": 246,
+    "phase2_policies": 367,
+    "phase3_rerun": {
+      "ok": true,
+      "label": "0075_recipe_purchases_recipe_fk_fix.sql",
+      "executed": 4,
+      "skipped": 0,
+      "total": 4
+    },
+    "phase4_partial": {
+      "ok": true,
+      "label": "0075_recipe_purchases_recipe_fk_fix.sql",
+      "executed": 1,
+      "skipped": 0,
+      "total": 2
+    },
+    "phase4_recovery": {
+      "ok": true,
+      "label": "0075_recipe_purchases_recipe_fk_fix.sql",
+      "executed": 4,
+      "skipped": 0,
+      "total": 4
+    },
+    "phase4_rerun": {
+      "ok": true,
+      "label": "0075_recipe_purchases_recipe_fk_fix.sql",
+      "executed": 4,
+      "skipped": 0,
+      "total": 4
+    }
+  },
+  "ok": true,
+  "pgVersion": "PostgreSQL 18.4 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+  "migrationFiles": 74,
+  "finishedAt": "2026-11-09T16:49:36.181Z"
+}

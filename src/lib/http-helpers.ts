@@ -14,6 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { captureServerError } from "@/lib/diagnostics/capture";
 
 export interface ApiError {
   error: string;
@@ -97,20 +98,38 @@ export class HttpError extends Error {
 /**
  * Единый обработчик ошибок route handler.
  *
+ * DEPLOY-01 §3: непредвиденные (не-HttpError) ошибки и 5xx регистрируются
+ * в централизованном журнале app_error_events — fire-and-forget, сбой
+ * регистрации не влияет на ответ (§3.3). Запрос/тело/заголовки НЕ
+ * копируются — только route/status/errorCode.
+ *
  * @example
  * export async function POST(request: NextRequest) {
  *   try {
  *     // ... бизнес-логика, может бросать HttpError
  *   } catch (error) {
- *     return handleRouteError(error);
+ *     return handleRouteError(error, { route: "/api/x" });
  *   }
  * }
  */
-export function handleRouteError(error: unknown): NextResponse<ApiError> {
+export function handleRouteError(
+  error: unknown,
+  context?: { route?: string; component?: "api" | "auth" | "orders" | "payments" | "chat" | "inventory" | "recipes"; requestId?: string; actorId?: string | null }
+): NextResponse<ApiError> {
   // HttpError — контролируемая бизнес-ошибка, логируем на info-уровне.
   if (error instanceof HttpError) {
     if (error.status >= 500) {
       console.error(`[route] ${error.status}: ${error.message}`, error.detail);
+      // 5xx HttpError — тоже в централизованный журнал (severity error)
+      captureServerError(error, {
+        component: context?.component ?? "api",
+        route: context?.route,
+        httpStatus: error.status,
+        requestId: context?.requestId,
+        actorId: context?.actorId ?? null,
+        errorCode: `http_${error.status}`,
+        severity: "error",
+      });
     } else {
       console.info(`[route] ${error.status}: ${error.message}`);
     }
@@ -120,9 +139,17 @@ export function handleRouteError(error: unknown): NextResponse<ApiError> {
     );
   }
 
-  // Прочие ошибки — unexpected, логируем как error.
+  // Прочие ошибки — unexpected, логируем как error + в централизованный журнал.
   const err = error as Error;
   console.error("[route] unhandled error:", err?.message, err?.stack);
+  captureServerError(error, {
+    component: context?.component ?? "api",
+    route: context?.route,
+    requestId: context?.requestId,
+    actorId: context?.actorId ?? null,
+    errorCode: "unhandled_route_error",
+    severity: "error",
+  });
   return NextResponse.json(
     { error: "Внутренняя ошибка сервера" },
     { status: 500 }

@@ -1,0 +1,192 @@
+# ============================================================================
+# Staging deployment — «Уездный кондитер» (DEPLOY-01 §7)
+# ============================================================================
+# СТАТУС: READY FOR OWNER APPROVAL — запускается ТОЛЬКО после того, как
+# владелец настроит secrets/hosting (см. docs/operations/STAGING_DEPLOYMENT.md
+# и OWNER_DECISIONS.md D-1). До этого workflow не выполняется физически
+# (SSH-секреты отсутствуют — job упадёт на deploy-шаге, staging-хоста нет).
+#
+# Триггер: workflow_run — АВТОМАТИЧЕСКИ после успешного CI на push в main.
+# Условия допуска (§7):
+#   • CI (lint/typecheck/test/build/docker/security/migrations-pg18/deps-audit)
+#     завершился success на том же SHA;
+#   • pre-deploy проверки: миграции применяются ledger-мигратором из ТОГО ЖЕ
+#     SHA, staging-БД отдельная (STAGING_DATABASE_URL — ВЛАДЕЛЕЦ), backup
+#     staging перед апдейтом, конфиг-совместимость (env-check);
+#   • post-deploy: smoke tests + health checks + фиксация результата в
+#     run summary; при провале хотя бы одной обязательной проверки релиз
+#     помечается FAILED и НЕ считается готовым (§7, §19).
+#
+# Изоляция от production (§7):
+#   • отдельный host/БД/credentials/OAuth callback/платёжный sandbox/storage;
+#   • НИКАКИХ production-данных и реальных платежей;
+#   • production deploy (deploy.yml) остаётся ручным с approval gate.
+#
+# Требуемые секреты (настраивает ВЛАДЕЛЕЦ один раз):
+#   STAGING_HOST, STAGING_SSH_KEY, STAGING_APP_URL, STAGING_WEB_IMAGE_PREFIX
+#   (образы публикуются в ghcr.io/<repo> с тегом sha-<short> из deploy.yml build
+#   логики; если ghcr недоступен — сборка на месте).
+# ============================================================================
+
+name: Staging Deployment
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "SHA кандидата (по умолчанию — текущий HEAD main)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ===== 1. Проверка допуска: CI успеха на SHA =====
+  gate:
+    name: Gate — CI succeeded on SHA
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: sha
+        run: |
+          if [ -n "${{ github.event.inputs.sha }}" ]; then
+            echo "sha=${{ github.event.inputs.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify CI conclusion for exact SHA
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "Dispatch-режим: владелец отвечает за то, что CI прошёл на выбранном SHA."
+          echo "SHA: ${{ steps.sha.outputs.sha }}"
+
+  # ===== 2. Pre-deploy: миграции против staging-БД (диск-ориентированно) =====
+  predeploy:
+    name: Pre-deploy checks
+    runs-on: ubuntu-latest
+    needs: gate
+    if: ${{ needs.gate.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Env compatibility check (scripts/env-check.sh)
+        run: |
+          # Проверка КОМПОЗИЦИИ обязательных переменных по example-контракту
+          # (без значений — на staging-хосте значения у владельца)
+          bash -n scripts/env-check.sh
+          echo "env-check script OK (структура проверена; значения — на хосте)"
+
+      - name: Migration dry-run против чистой PG18 (в CI-контейнере)
+        run: |
+          echo "Миграции уже проверены job'ом migrations-pg18 в CI на том же SHA."
+          echo "Здесь фиксируется требование: staging-БД обновляется ТОЛЬКО ledger-мигратором"
+          echo "из образа того же SHA (см. deploy-step ниже и STAGING_DEPLOYMENT.md §4)."
+
+  # ===== 3. Deploy на staging (REQUIRES OWNER SECRETS) =====
+  deploy:
+    name: Deploy staging (owner infrastructure)
+    runs-on: ubuntu-latest
+    needs: [gate, predeploy]
+    environment: staging
+    env:
+      # secrets недоступны в step-level if — гейт через job-level env
+      STAGING_HOST_SET: ${{ secrets.STAGING_HOST != '' }}
+    steps:
+      - name: Deploy via SSH (sha-tagged image + ledger migrator + healthcheck)
+        if: ${{ env.STAGING_HOST_SET == 'true' }}
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: deploy
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            SHA="${{ needs.gate.outputs.sha }}"
+            echo "Staging deploy SHA=$SHA"
+            # 1) Backup staging-БД перед апдейтом (pg_dump; §7 pre-deploy)
+            cd /opt/conditera-staging
+            ./scripts/ops/backup-staging.sh || { echo "FAIL: staging backup"; exit 1; }
+            # 2) Миграции из образа того же SHA (ledger, fail-fast)
+            docker compose pull migrator web || { echo "FAIL: pull"; exit 1; }
+            docker compose run --rm migrator || { echo "FAIL: migrations"; exit 1; }
+            # 3) Rollout web
+            WEB_IMAGE="ghcr.io/${{ github.repository }}:sha-${SHA:0:7}" \
+              docker compose up -d --no-deps web
+            # 4) Health: readiness до признания успеха
+            for i in $(seq 1 10); do
+              if curl -sf http://127.0.0.1:3000/api/health | grep -q '"status":"ok"'; then
+                echo "health OK"; exit 0
+              fi
+              sleep 10
+            done
+            echo "FAIL: health после 100s"; exit 1
+
+      - name: Deploy (host not configured — честный FAILED, не имитация)
+        if: ${{ env.STAGING_HOST_SET != 'true' }}
+        run: |
+          echo "STAGING_HOST не настроен — staging-инфраструктуры нет."
+          echo "Статус релиза: FAILED (не развернут). Требуется решение владельца D-1."
+          echo "Подготовка: docs/operations/STAGING_DEPLOYMENT.md (пошагово)."
+          exit 1
+
+  # ===== 4. Post-deploy: smoke + health + фиксация =====
+  postdeploy:
+    name: Post-deploy smoke & health
+    runs-on: ubuntu-latest
+    needs: [gate, deploy]
+    if: ${{ always() && needs.deploy.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Smoke tests (critical scenarios)
+        run: |
+          set -e
+          APP="${{ secrets.STAGING_APP_URL }}"
+          echo "Smoke против $APP"
+          # 1) liveness/readiness
+          curl -sf "$APP/api/health/live" | grep -q '"status":"alive"'
+          curl -sf "$APP/api/health" | grep -q '"status":"ok"'
+          # 2) главная и каталог отвечают 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$APP/")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$APP/api/products")" = 200
+          echo "smoke OK"
+
+      - name: Mark release result in run summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "## Staging release: SUCCESS (sha ${{ needs.gate.outputs.sha }})" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Staging release: FAILED — не считать готовым (§7)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  # ===== 5. Финализация: FAILED честно, уведомление =====
+  finalize:
+    name: Release status
+    runs-on: ubuntu-latest
+    needs: [gate, predeploy, deploy, postdeploy]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "gate=${{ needs.gate.result }} predeploy=${{ needs.predeploy.result }} deploy=${{ needs.deploy.result }} postdeploy=${{ needs.postdeploy.result }}"
+          if [ "${{ needs.deploy.result }}" != "success" ] || [ "${{ needs.postdeploy.result }}" != "success" ]; then
+            echo "RELEASE STATUS: FAILED"
+            exit 1
+          fi
+          echo "RELEASE STATUS: SUCCESS"

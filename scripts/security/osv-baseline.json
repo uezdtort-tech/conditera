@@ -1,0 +1,550 @@
+{
+  "_comment": "DEPLOY-01 osv-scanner baseline (adoption 2026-11-10). Advisory IDs known at baseline creation. New advisories FAIL CI; baseline items are a remediation backlog tracked in docs/operations/OWNER_DECISIONS.md (D-8). Regenerate via: scripts/verify/osv-audit.mjs --update-baseline",
+  "advisories": [
+    {
+      "id": "GHSA-4x5r-pxfx-6jf8",
+      "package": "@babel/core",
+      "fixed": "8.0.0-rc.6"
+    },
+    {
+      "id": "GHSA-p498-v437-472g",
+      "package": "@humanfs/node",
+      "fixed": "0.16.8"
+    },
+    {
+      "id": "GHSA-mchm-gjx6-7h55",
+      "package": "@sentry/nextjs",
+      "fixed": "9.47.2"
+    },
+    {
+      "id": "GHSA-82fw-gwwq-j7x9",
+      "package": "@vitest/mocker",
+      "fixed": "4.1.11"
+    },
+    {
+      "id": "GHSA-qxg6-89mg-rqv8",
+      "package": "@vitest/mocker",
+      "fixed": "4.1.12"
+    },
+    {
+      "id": "GHSA-2g4f-4pwh-qvx6",
+      "package": "ajv",
+      "fixed": "8.18.0"
+    },
+    {
+      "id": "GHSA-w5vr-8v7q-w6rv",
+      "package": "baseline-browser-mapping",
+      "fixed": "2.11.0"
+    },
+    {
+      "id": "GHSA-3jxr-9vmj-r5cp",
+      "package": "brace-expansion",
+      "fixed": "5.0.7"
+    },
+    {
+      "id": "GHSA-6j4f-fj2g-mc7p",
+      "package": "brace-expansion",
+      "fixed": "5.0.10"
+    },
+    {
+      "id": "GHSA-f886-m6hf-6m8v",
+      "package": "brace-expansion",
+      "fixed": "5.0.5"
+    },
+    {
+      "id": "GHSA-mh99-v99m-4gvg",
+      "package": "brace-expansion",
+      "fixed": "5.0.8"
+    },
+    {
+      "id": "GHSA-q2hr-2g5m-vwhr",
+      "package": "brace-expansion",
+      "fixed": "5.0.12"
+    },
+    {
+      "id": "GHSA-qhr7-859c-m2p7",
+      "package": "brace-expansion",
+      "fixed": "5.0.11"
+    },
+    {
+      "id": "GHSA-rgw5-rvv9-x895",
+      "package": "brace-expansion",
+      "fixed": "1.1.18"
+    },
+    {
+      "id": "GHSA-73wf-gq98-2v4g",
+      "package": "browserslist",
+      "fixed": "4.28.7"
+    },
+    {
+      "id": "GHSA-c83g-rgw3-j3cx",
+      "package": "browserslist",
+      "fixed": "4.28.7"
+    },
+    {
+      "id": "GHSA-73rr-hh4g-fpgx",
+      "package": "diff",
+      "fixed": "8.0.3"
+    },
+    {
+      "id": "GHSA-333x-w4r6-6crp",
+      "package": "fast-uri",
+      "fixed": "2.4.8"
+    },
+    {
+      "id": "GHSA-5jgf-p345-68v8",
+      "package": "fast-uri",
+      "fixed": "2.4.5"
+    },
+    {
+      "id": "GHSA-f65p-4m7j-42xc",
+      "package": "fast-uri",
+      "fixed": "2.4.5"
+    },
+    {
+      "id": "GHSA-fph4-wmhf-6fwf",
+      "package": "fast-uri",
+      "fixed": "2.4.5"
+    },
+    {
+      "id": "GHSA-hrr3-gc8f-f4qj",
+      "package": "fast-uri",
+      "fixed": "2.4.7"
+    },
+    {
+      "id": "GHSA-jqff-g426-hqxp",
+      "package": "fast-uri",
+      "fixed": "2.4.5"
+    },
+    {
+      "id": "GHSA-qw65-cvwx-89v3",
+      "package": "fast-uri",
+      "fixed": "2.4.6"
+    },
+    {
+      "id": "GHSA-w74x-v6f9-j3xg",
+      "package": "fast-uri",
+      "fixed": "2.4.8"
+    },
+    {
+      "id": "GHSA-wjr9-j795-jxcr",
+      "package": "fast-uri",
+      "fixed": "2.4.8"
+    },
+    {
+      "id": "GHSA-xhq7-xmqj-769h",
+      "package": "fast-uri",
+      "fixed": "2.4.8"
+    },
+    {
+      "id": "GHSA-25h7-pfq9-p65f",
+      "package": "flatted",
+      "fixed": "3.4.0"
+    },
+    {
+      "id": "GHSA-rf6f-7fwh-wjgh",
+      "package": "flatted",
+      "fixed": "3.4.2"
+    },
+    {
+      "id": "GHSA-3g3m-2fjr-6pw4",
+      "package": "glob",
+      "fixed": "14.0.2"
+    },
+    {
+      "id": "GHSA-qjx8-664m-686j",
+      "package": "js-cookie",
+      "fixed": "3.0.7"
+    },
+    {
+      "id": "GHSA-2883-xcg3-v3hh",
+      "package": "js-yaml",
+      "fixed": "4.3.2"
+    },
+    {
+      "id": "GHSA-52cp-r559-cp3m",
+      "package": "js-yaml",
+      "fixed": "3.15.0"
+    },
+    {
+      "id": "GHSA-5p4m-2wfm-xmqj",
+      "package": "js-yaml",
+      "fixed": "4.3.1"
+    },
+    {
+      "id": "GHSA-h67p-54hq-rp68",
+      "package": "js-yaml",
+      "fixed": "4.2.0"
+    },
+    {
+      "id": "GHSA-r5fr-rjxr-66jc",
+      "package": "lodash",
+      "fixed": "4.18.0"
+    },
+    {
+      "id": "GHSA-xxjr-mmjv-4gpg",
+      "package": "lodash",
+      "fixed": "4.17.23"
+    },
+    {
+      "id": "GHSA-g3hv-75wg-m249",
+      "package": "minimatch",
+      "fixed": "11.0.1"
+    },
+    {
+      "id": "GHSA-23c5-xmqv-rm74",
+      "package": "minimatch",
+      "fixed": "10.2.3"
+    },
+    {
+      "id": "GHSA-3ppc-4f35-3m26",
+      "package": "minimatch",
+      "fixed": "10.2.1"
+    },
+    {
+      "id": "GHSA-7r86-cg39-jmmj",
+      "package": "minimatch",
+      "fixed": "10.2.3"
+    },
+    {
+      "id": "GHSA-28wg-ghj8-5hjv",
+      "package": "nanoid",
+      "fixed": "3.3.16"
+    },
+    {
+      "id": "GHSA-2v37-7h3g-55p8",
+      "package": "nanoid",
+      "fixed": "3.3.18"
+    },
+    {
+      "id": "GHSA-xwg4-73v4-xw9w",
+      "package": "nanoid",
+      "fixed": "3.3.12"
+    },
+    {
+      "id": "GHSA-2464-fhr4-w9xw",
+      "package": "next",
+      "fixed": "15.5.28"
+    },
+    {
+      "id": "GHSA-39w2-rjm5-chcv",
+      "package": "next",
+      "fixed": "16.3.8"
+    },
+    {
+      "id": "GHSA-3w37-wq28-93x7",
+      "package": "next",
+      "fixed": "16.3.8"
+    },
+    {
+      "id": "GHSA-4jqv-mc3x-m676",
+      "package": "next",
+      "fixed": "15.5.27"
+    },
+    {
+      "id": "GHSA-673q-mjm6-r5xr",
+      "package": "next",
+      "fixed": "16.4.1"
+    },
+    {
+      "id": "GHSA-cjq9-62q9-8jv4",
+      "package": "next",
+      "fixed": "16.3.8"
+    },
+    {
+      "id": "GHSA-f87g-xv8r-7p7x",
+      "package": "next",
+      "fixed": "16.3.8"
+    },
+    {
+      "id": "GHSA-h694-7cp9-m8p3",
+      "package": "next",
+      "fixed": "16.3.8"
+    },
+    {
+      "id": "GHSA-mcj8-r9mp-w47p",
+      "package": "next",
+      "fixed": "16.3.8"
+    },
+    {
+      "id": "GHSA-p3m5-59mp-jv5r",
+      "package": "next",
+      "fixed": "15.5.28"
+    },
+    {
+      "id": "GHSA-vcvr-r3jv-pc5j",
+      "package": "next",
+      "fixed": "16.3.6"
+    },
+    {
+      "id": "GHSA-4c35-wcg5-mm9h",
+      "package": "next-intl",
+      "fixed": "4.9.2"
+    },
+    {
+      "id": "GHSA-8f24-v5vv-gm5j",
+      "package": "next-intl",
+      "fixed": "4.9.1"
+    },
+    {
+      "id": "GHSA-2x7j-588g-ccc2",
+      "package": "nodemailer",
+      "fixed": "9.1.0"
+    },
+    {
+      "id": "GHSA-39m8-27wv-hr27",
+      "package": "nodemailer",
+      "fixed": "10.0.10"
+    },
+    {
+      "id": "GHSA-4ffr-jq9g-5ffx",
+      "package": "nodemailer",
+      "fixed": "10.0.13"
+    },
+    {
+      "id": "GHSA-4g23-2xm8-66gc",
+      "package": "nodemailer",
+      "fixed": "10.0.10"
+    },
+    {
+      "id": "GHSA-6vj9-mwq6-2f5v",
+      "package": "nodemailer",
+      "fixed": "10.0.2"
+    },
+    {
+      "id": "GHSA-85x2-q946-cp5h",
+      "package": "nodemailer",
+      "fixed": "10.1.4"
+    },
+    {
+      "id": "GHSA-8c8m-p3m8-cjg8",
+      "package": "nodemailer",
+      "fixed": "10.1.4"
+    },
+    {
+      "id": "GHSA-8m3c-c648-2xjj",
+      "package": "nodemailer",
+      "fixed": "9.1.1"
+    },
+    {
+      "id": "GHSA-8vvx-rff5-p5rq",
+      "package": "nodemailer",
+      "fixed": "10.0.2"
+    },
+    {
+      "id": "GHSA-cc9r-2j5m-2m83",
+      "package": "nodemailer",
+      "fixed": "9.1.0"
+    },
+    {
+      "id": "GHSA-g73g-hqqh-jr95",
+      "package": "nodemailer",
+      "fixed": "10.0.13"
+    },
+    {
+      "id": "GHSA-m943-m63m-w62w",
+      "package": "nodemailer",
+      "fixed": "10.1.4"
+    },
+    {
+      "id": "GHSA-v53p-9fqp-m79j",
+      "package": "nodemailer",
+      "fixed": "10.0.6"
+    },
+    {
+      "id": "GHSA-wmmp-3585-3rmp",
+      "package": "nodemailer",
+      "fixed": "9.1.0"
+    },
+    {
+      "id": "GHSA-3v7f-55p6-f55p",
+      "package": "picomatch",
+      "fixed": "4.0.4"
+    },
+    {
+      "id": "GHSA-c2c7-rcm5-vvqj",
+      "package": "picomatch",
+      "fixed": "4.0.4"
+    },
+    {
+      "id": "GHSA-6g55-p6wh-862q",
+      "package": "postcss",
+      "fixed": "8.5.12"
+    },
+    {
+      "id": "GHSA-fxqj-rqcc-2cmp",
+      "package": "postcss",
+      "fixed": "8.5.23"
+    },
+    {
+      "id": "GHSA-qx2v-qp2m-jg93",
+      "package": "postcss",
+      "fixed": "8.5.10"
+    },
+    {
+      "id": "GHSA-r28c-9q8g-f849",
+      "package": "postcss",
+      "fixed": "8.5.18"
+    },
+    {
+      "id": "GHSA-x7hr-w5r2-h6wg",
+      "package": "prismjs",
+      "fixed": "1.30.0"
+    },
+    {
+      "id": "GHSA-f88m-g3jw-g9cj",
+      "package": "sharp",
+      "fixed": "0.35.0"
+    },
+    {
+      "id": "GHSA-rgj7-g3m4-5g8c",
+      "package": "sharp",
+      "fixed": "0.35.4"
+    },
+    {
+      "id": "GHSA-wq5f-xc86-pv6w",
+      "package": "sharp",
+      "fixed": "0.35.5"
+    },
+    {
+      "id": "GHSA-68fv-2mgg-jv7q",
+      "package": "source-map-js",
+      "fixed": "1.2.2"
+    },
+    {
+      "id": "GHSA-2gqq-gqf2-x968",
+      "package": "undici",
+      "fixed": "7.29.1"
+    },
+    {
+      "id": "GHSA-2jfj-6hjv-fm6j",
+      "package": "undici",
+      "fixed": "7.29.1"
+    },
+    {
+      "id": "GHSA-2m5v-pch6-74hx",
+      "package": "undici",
+      "fixed": "6.29.1"
+    },
+    {
+      "id": "GHSA-3wwx-pv8p-q78v",
+      "package": "undici",
+      "fixed": "6.28.1"
+    },
+    {
+      "id": "GHSA-3xpg-4rpp-hhhm",
+      "package": "undici",
+      "fixed": "7.29.1"
+    },
+    {
+      "id": "GHSA-4qv8-2p9j-2685",
+      "package": "undici",
+      "fixed": "6.29.1"
+    },
+    {
+      "id": "GHSA-4w7w-5xrc-9h26",
+      "package": "undici",
+      "fixed": "7.30.1"
+    },
+    {
+      "id": "GHSA-55wc-3pg8-jfw6",
+      "package": "undici",
+      "fixed": "7.30.1"
+    },
+    {
+      "id": "GHSA-8436-99hf-9mmv",
+      "package": "undici",
+      "fixed": "7.29.1"
+    },
+    {
+      "id": "GHSA-9fm3-97px-rjf6",
+      "package": "undici",
+      "fixed": "6.29.1"
+    },
+    {
+      "id": "GHSA-f72v-6w45-q472",
+      "package": "undici",
+      "fixed": "7.30.1"
+    },
+    {
+      "id": "GHSA-pmjh-fq2x-6v4x",
+      "package": "undici",
+      "fixed": "7.29.1"
+    },
+    {
+      "id": "GHSA-qrxm-fqhp-jwvm",
+      "package": "undici",
+      "fixed": "6.29.1"
+    },
+    {
+      "id": "GHSA-r53p-7pc4-xj5r",
+      "package": "undici",
+      "fixed": "6.28.1"
+    },
+    {
+      "id": "GHSA-rfgv-xxqx-mfg5",
+      "package": "undici",
+      "fixed": "6.28.1"
+    },
+    {
+      "id": "GHSA-rx4f-c7p8-82vq",
+      "package": "undici",
+      "fixed": "7.29.1"
+    },
+    {
+      "id": "GHSA-vp8m-p9jh-q5pm",
+      "package": "undici",
+      "fixed": "8.10.2"
+    },
+    {
+      "id": "GHSA-w293-vg96-wgc3",
+      "package": "undici",
+      "fixed": "7.29.1"
+    },
+    {
+      "id": "GHSA-xjj6-f33q-929c",
+      "package": "undici",
+      "fixed": "6.29.1"
+    },
+    {
+      "id": "GHSA-w5hq-g745-h8pq",
+      "package": "uuid",
+      "fixed": "11.1.1"
+    },
+    {
+      "id": "GHSA-587h-7wmj-h5pm",
+      "package": "vite",
+      "fixed": "2.14.2"
+    },
+    {
+      "id": "GHSA-698v-4r3x-3vcv",
+      "package": "vite",
+      "fixed": "2.14.2"
+    },
+    {
+      "id": "GHSA-9jrq-w75r-8gcw",
+      "package": "vite",
+      "fixed": "8.3.3"
+    },
+    {
+      "id": "GHSA-r825-w8mm-5pxw",
+      "package": "vite",
+      "fixed": "2.14.2"
+    },
+    {
+      "id": "GHSA-rq7h-c2jc-7f22",
+      "package": "vite",
+      "fixed": "8.3.3"
+    },
+    {
+      "id": "GHSA-vfpm-58rq-9qcg",
+      "package": "vite",
+      "fixed": "8.3.3"
+    },
+    {
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "fixed": "4.6.6"
+    }
+  ]
+}

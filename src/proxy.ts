@@ -36,6 +36,11 @@ const CSRF_EXEMPT_PATHS = [
   "/api/webhooks/", // все вебхуки
   "/api/cron/",
   "/api/health",
+  // DEPLOY-01 §3: телеметрия клиентских ошибок (error boundary срабатывает
+  // и при сломанном app — CSRF-токен недоступен). Компенсирующие контроли
+  // в роуте: rate-limit по IP, лимит размера, строгая валидация, маскирование,
+  // НЕТ стека/cookies/заголовков в сохраняемых данных.
+  "/api/diagnostics/client-errors",
   "/api/telegram/webhook", // Telegram Bot API отправляет POST без CSRF
   "/api/email/inbound",    // Mailgun/SendGrid отправляют POST без CSRF
 ];

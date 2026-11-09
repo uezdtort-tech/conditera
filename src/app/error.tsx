@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, RefreshCw, Home } from "lucide-react";
+import { reportClientError } from "@/lib/diagnostics/capture";
 
 /**
  * Error boundary для роутов Next.js App Router.
@@ -22,6 +23,12 @@ export default function Error({
     console.error("[App Error Boundary]", error, {
       digest: error.digest,
       stack: error.stack,
+    });
+    // DEPLOY-01 §3: неблокирующая регистрация в централизованном журнале.
+    // Передаётся только message/route/факт стека — стек на сервер НЕ уходит.
+    reportClientError(error, {
+      errorCode: "react_error_boundary",
+      correlationId: error.digest || undefined,
     });
   }, [error]);
 

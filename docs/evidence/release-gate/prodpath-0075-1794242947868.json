@@ -1,0 +1,16 @@
+{
+  "startedAt": "2026-11-09T16:49:03.785Z",
+  "phases": {
+    "phase1": {
+      "total": 75,
+      "applied": 75,
+      "failed": null
+    },
+    "ledgerCountA": 75
+  },
+  "ok": false,
+  "pgVersion": "PostgreSQL 18.4 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+  "migrationFiles": 74,
+  "error": "ledger=75, ожидалось 74",
+  "finishedAt": "2026-11-09T16:49:07.867Z"
+}

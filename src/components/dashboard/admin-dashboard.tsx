@@ -26,7 +26,7 @@ import {
   ShoppingCart, Users, ShieldAlert, ScrollText, Flag,
   LayoutDashboard, MessageSquare, Edit, Image as ImageIcon,
   Mail, ShieldCheck, FileText, CalendarDays, Tags, Globe,
-  Zap, Database, Cake, Building2, Navigation,
+  Zap, Database, Cake, Building2, Navigation, AlertTriangle,
   Utensils, MapPin, Star, Store, UserX,
   Check, Pencil, Trash2, UserCog, Images, Gauge, BellRing,
 } from "lucide-react";
@@ -44,6 +44,7 @@ import {
 import { N8nAutomationDashboard } from "@/components/dashboard/n8n-automation-dashboard";
 import { AdminOrganizationVerificationTab } from "@/components/dashboard/admin-organization-verification-tab";
 import { AdminMaintenanceTab } from "@/components/dashboard/admin-maintenance-tab";
+import { AdminIncidentsTab } from "@/components/dashboard/admin-incidents-tab";
 import { AdminFillingsTab } from "@/components/dashboard/admin-fillings-tab";
 import { AdminFraudMonitor } from "@/components/dashboard/admin-fraud-monitor";
 import { AdminConfectionerVerification } from "@/components/dashboard/admin-confectioner-verification";
@@ -84,6 +85,7 @@ const TAB_GROUPS = [
       { id: "supplier-verification", label: "Поставщики", icon: Building2 },
       { id: "media-moderation", label: "Медиа-модерация", icon: Images },
       { id: "blacklist", label: "Чёрный список", icon: ShieldAlert },
+      { id: "incidents", label: "Инциденты", icon: AlertTriangle },
       { id: "audit", label: "Аудит", icon: ScrollText },
     ],
   },
@@ -459,6 +461,7 @@ export function AdminDashboard() {
       case "crm-customers": return <AdminCustomersTab />;
       case "email": return <AdminEmailTab />;
       case "security": return <AdminSecurityTab />;
+      case "incidents": return <AdminIncidentsTab />;
       case "tasting-locations": return <AdminTastingLocationsTab />;
       case "tasting-map": return <AdminTastingMapTab />;
       case "tasting-reviews": return <AdminTastingReviewsTab />;

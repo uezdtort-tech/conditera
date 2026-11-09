@@ -1,0 +1,34 @@
+{
+  "startedAt": "2026-11-09T16:49:17.541Z",
+  "phases": {
+    "phase1": {
+      "total": 75,
+      "applied": 75,
+      "failed": null
+    },
+    "ledgerCountA": 75,
+    "phase2_fks": [
+      {
+        "conname": "fk_recipe_purchases_payment",
+        "def": "FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "fk_recipe_purchases_recipe",
+        "def": "FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE RESTRICT"
+      },
+      {
+        "conname": "fk_recipe_purchases_recipe_version",
+        "def": "FOREIGN KEY (recipe_version_id) REFERENCES recipe_versions(id) ON DELETE SET NULL"
+      },
+      {
+        "conname": "recipe_purchases_buyer_id_fkey",
+        "def": "FOREIGN KEY (buyer_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+      }
+    ]
+  },
+  "ok": false,
+  "pgVersion": "PostgreSQL 18.4 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+  "migrationFiles": 74,
+  "error": "новый FK не → recipes(id) RESTRICT: FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE RESTRICT",
+  "finishedAt": "2026-11-09T16:49:20.636Z"
+}
