@@ -374,3 +374,138 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 }
+
+// ============================================================================
+// GET /api/recipes — список рецептов автора (RECIPE-03, RB.14: «список своих
+// через author_id»). Кабинет автора/кондитера читает ТОЛЬКО этот маршрут —
+// никаких прямых записей в БД из UI.
+//
+// Query:
+//   • scope=mine (по умолчанию) — только свои (author_id = текущий пользователь);
+//   • scope=all — только ADMIN/SUPER_ADMIN (модерационные/админские обзоры);
+//   • status=draft|pending_review|published|rejected|archived — фильтр;
+//   • limit=1..200 (дефолт 50).
+//
+// Ответ: 200 {data: RecipeListRow[]}, RecipeListRow:
+//   { id, title, slug, status, difficulty, prep_time_minutes, cook_time_minutes,
+//     servings, category, tags, image_url, published_at, created_at, updated_at,
+//     has_source, rights_confirmed (null = источников нет),
+//     offer: { id, base_price, is_published } | null }   // активный мост 0068
+// Цены в ответе — из оффера БД (ПР-1); клиент цену не задаёт.
+// ============================================================================
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    const user = await getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Необходима аутентификация" }, { status: 401 });
+    }
+
+    const url = new URL(request.url);
+    const scope = url.searchParams.get("scope") === "all" ? "all" : "mine";
+    const statusFilter = url.searchParams.get("status");
+    const limitRaw = Number(url.searchParams.get("limit") ?? 50);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 50;
+
+    let authorId = user.userId;
+    if (scope === "all") {
+      const roles = await getUserRoles(user.userId);
+      if (!roles.includes("ADMIN") && !roles.includes("SUPER_ADMIN")) {
+        return NextResponse.json(
+          { error: "scope=all доступен только ADMIN/SUPER_ADMIN" },
+          { status: 403 }
+        );
+      }
+      authorId = ""; // без фильтра по автору (админский обзор)
+    }
+
+    // Литеральный select (supabase-js 2.112: не-литеральный аргумент даёт
+    // GenericStringError — паттерн ROOT_SELECT маршрута [id])
+    let query = supabaseAdmin
+      .from("recipes")
+      .select(
+        "id, title, slug, status, difficulty, prep_time_minutes, cook_time_minutes, servings, category, tags, image_url, published_at, created_at, updated_at"
+      )
+      .order("updated_at", { ascending: false })
+      .limit(limit);
+    if (authorId) query = query.eq("author_id", authorId);
+    if (
+      statusFilter &&
+      ["draft", "pending_review", "published", "rejected", "archived"].includes(statusFilter)
+    ) {
+      query = query.eq("status", statusFilter);
+    }
+
+    const { data: roots, error: rootsErr } = await query;
+    if (rootsErr) {
+      console.error("[recipes] GET list failed:", rootsErr.message);
+      return NextResponse.json({ error: "Ошибка чтения рецептов" }, { status: 500 });
+    }
+    const rows = (roots ?? []) as Array<Record<string, unknown>>;
+    if (rows.length === 0) return NextResponse.json({ data: [] });
+
+    const ids = rows.map((r) => String(r.id));
+
+    // Мост 0068: оффер (цена/публикация) на рецепт — один активный на рецепт
+    const { data: offers } = await supabaseAdmin
+      .from("recipe_marketplace")
+      .select("id, recipe_id, base_price, is_published")
+      .in("recipe_id", ids);
+    const offerByRecipe = new Map<string, Record<string, unknown>>();
+    for (const o of (offers ?? []) as Array<Record<string, unknown>>) {
+      // детерминизм: приоритет активному офферу, иначе первый по порядку
+      const prev = offerByRecipe.get(String(o.recipe_id));
+      if (!prev || (o.is_published && !prev.is_published)) {
+        offerByRecipe.set(String(o.recipe_id), o);
+      }
+    }
+
+    // Права на импорт (RA.13): есть ли источники и подтверждены ли они
+    const { data: sources } = await supabaseAdmin
+      .from("recipe_sources")
+      .select("recipe_id, rights_confirmed")
+      .in("recipe_id", ids);
+    const rightsByRecipe = new Map<string, { has: boolean; confirmed: boolean }>();
+    for (const s of (sources ?? []) as Array<{ recipe_id: string; rights_confirmed: boolean | null }>) {
+      const prev = rightsByRecipe.get(s.recipe_id) ?? { has: false, confirmed: true };
+      prev.has = true;
+      prev.confirmed = prev.confirmed && s.rights_confirmed !== false;
+      rightsByRecipe.set(s.recipe_id, prev);
+    }
+
+    const data = rows.map((r) => {
+      const id = String(r.id);
+      const rights = rightsByRecipe.get(id) ?? null;
+      const offer = offerByRecipe.get(id) ?? null;
+      return {
+        id,
+        title: r.title,
+        slug: r.slug,
+        status: r.status ?? "draft",
+        difficulty: r.difficulty,
+        prep_time_minutes: r.prep_time_minutes,
+        cook_time_minutes: r.cook_time_minutes,
+        servings: r.servings,
+        category: r.category,
+        tags: r.tags ?? [],
+        image_url: r.image_url,
+        published_at: r.published_at,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        has_source: rights?.has ?? false,
+        rights_confirmed: rights ? rights.confirmed : null,
+        offer: offer
+          ? {
+              id: String(offer.id),
+              base_price: Number(offer.base_price ?? 0),
+              is_published: Boolean(offer.is_published),
+            }
+          : null,
+      };
+    });
+
+    return NextResponse.json({ data });
+  } catch (error: any) {
+    console.error("[recipes] GET unexpected:", error?.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
+}

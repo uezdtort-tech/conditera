@@ -334,18 +334,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Последние версии карт (для списка; SELECT-only RLS, чтение через service_role)
     const latestVersions = new Map<string, number>();
+    const latestVersionIds = new Map<string, string>();
     if (rows.length > 0) {
       const { data: vers, error: versErr } = await supabaseAdmin
         .from("recipe_production_card_versions")
-        .select("card_id, version_no")
+        .select("id, card_id, version_no")
         .in(
           "card_id",
           rows.map((r) => r.id)
         )
         .order("version_no", { ascending: false });
       if (!versErr) {
-        for (const v of (vers ?? []) as Array<{ card_id: string; version_no: number }>) {
-          if (!latestVersions.has(v.card_id)) latestVersions.set(v.card_id, Number(v.version_no));
+        for (const v of (vers ?? []) as Array<{ id: string; card_id: string; version_no: number }>) {
+          if (!latestVersions.has(v.card_id)) {
+            latestVersions.set(v.card_id, Number(v.version_no));
+            latestVersionIds.set(v.card_id, String(v.id));
+          }
         }
       }
     }
@@ -373,6 +377,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const serialized = serializeCard(r, {
           isOwner,
           latestVersionNo: latestVersions.get(r.id) ?? null,
+          latestVersionId: latestVersionIds.get(r.id) ?? null,
         });
         if (isOwner) {
           serialized.ingredients = (ingredientsByCard.get(r.id) ?? []).map(serializeIngredient);

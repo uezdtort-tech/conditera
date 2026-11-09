@@ -201,7 +201,11 @@ export function canonicalJson(value: unknown): string {
  */
 export function serializeCard(
   card: CardRow,
-  opts: { isOwner: boolean; latestVersionNo?: number | null }
+  opts: {
+    isOwner: boolean;
+    latestVersionNo?: number | null;
+    latestVersionId?: string | null;
+  }
 ): Record<string, unknown> {
   const base: Record<string, unknown> = {
     id: card.id,
@@ -219,6 +223,7 @@ export function serializeCard(
     created_at: card.created_at,
     updated_at: card.updated_at,
     latest_version_no: opts.latestVersionNo ?? null,
+    latest_card_version_id: opts.latestVersionId ?? null,
     is_owner: opts.isOwner,
   };
   return base;
@@ -381,7 +386,11 @@ export async function findForeignInventoryItems(
  */
 export async function loadCardWithLatestVersion(
   cardId: string
-): Promise<{ card: CardRow; latestVersionNo: number | null } | null> {
+): Promise<{
+  card: CardRow;
+  latestVersionNo: number | null;
+  latestVersionId: string | null;
+} | null> {
   const { data, error } = await supabaseAdmin
     .from("recipe_production_cards")
     .select("*")
@@ -393,7 +402,7 @@ export async function loadCardWithLatestVersion(
 
   const { data: ver, error: verErr } = await supabaseAdmin
     .from("recipe_production_card_versions")
-    .select("version_no")
+    .select("id, version_no")
     .eq("card_id", cardId)
     .order("version_no", { ascending: false })
     .limit(1)
@@ -403,5 +412,6 @@ export async function loadCardWithLatestVersion(
   return {
     card,
     latestVersionNo: ver ? Number((ver as { version_no: number }).version_no) : null,
+    latestVersionId: ver ? String((ver as { id: string }).id) : null,
   };
 }

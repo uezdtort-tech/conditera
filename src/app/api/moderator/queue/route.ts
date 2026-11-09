@@ -166,8 +166,11 @@ async function loadRecipes(statusFilter: string): Promise<ModerationItem[]> {
     .select("id, title, description, status, published_at, created_at, author_id, difficulty")
     .order("created_at", { ascending: false })
     .limit(50);
+  // D6-фикс: очередь модерации — ТОЛЬКО recipes, реально отправленные на
+  // модерацию (status='pending_review'). Прежний neq('status','published')
+  // показывал как «ожидающие» все черновики/архивы всех авторов.
   if (statusFilter === "pending") {
-    query = query.neq("status", "published");
+    query = query.eq("status", "pending_review");
   }
   const { data, error } = await query as { data: RecipeRow[] | null; error: SupabaseError | null };
   if (error || !data) return [];

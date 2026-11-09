@@ -355,6 +355,7 @@ export async function PATCH(
       card: serializeCard(updatedCard as unknown as CardRow, {
         isOwner: true,
         latestVersionNo: loaded.latestVersionNo,
+        latestVersionId: loaded.latestVersionId,
       }),
       ingredients: (ingredients ?? []).map(serializeIngredient),
     });
@@ -401,7 +402,11 @@ export async function GET(
       }
     }
 
-    const serialized = serializeCard(card, { isOwner, latestVersionNo: loaded.latestVersionNo });
+    const serialized = serializeCard(card, {
+      isOwner,
+      latestVersionNo: loaded.latestVersionNo,
+      latestVersionId: loaded.latestVersionId,
+    });
     if (isOwner) {
       const { data: ings, error: ingErr } = await supabaseAdmin
         .from("recipe_production_ingredients")

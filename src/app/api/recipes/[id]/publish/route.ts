@@ -45,10 +45,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { safeJsonBody } from "@/lib/http-helpers";
-import {
-  fetchRecipeChildren,
-  buildRecipeSnapshot,
-} from "@/lib/recipes/recipe-content";
+import { ensureRecipeVersionPublished } from "@/lib/recipes/publish-core";
 
 export const runtime = "nodejs";
 
@@ -61,8 +58,6 @@ interface RouteParams {
  * RECIPE_MODERATION_REQUIRED=true переключает draft→pending_review.
  */
 const MODERATION_REQUIRED = process.env.RECIPE_MODERATION_REQUIRED === "true";
-
-const MAX_PUBLISH_ATTEMPTS = 3; // 1 исходная + 2 повтора при 23505 (RB.14)
 
 const publishSchema = z.object({
   changelog: z.string().max(500).optional(),
@@ -199,121 +194,34 @@ export async function POST(
       });
     }
 
-    // ---------- Идемпотентность: последняя версия новее updated_at → снапшот актуален ----------
-    const { data: latestRows } = await supabaseAdmin
-      .from("recipe_versions")
-      .select("version_no, created_at")
-      .eq("recipe_id", recipeId)
-      .order("version_no", { ascending: false })
-      .limit(1);
-    const latest = latestRows?.[0] as { version_no: number; created_at: string } | undefined;
-
-    const updatedAtMs = root.updated_at ? new Date(root.updated_at as string).getTime() : 0;
-    const latestCreatedMs = latest?.created_at ? new Date(latest.created_at).getTime() : -1;
-    const snapshotUpToDate = Boolean(latest && latestCreatedMs >= updatedAtMs);
-
-    if (snapshotUpToDate) {
-      // Прерванная публикация (версия есть, статус не сменился) — самолечение
-      if (status !== "published") {
-        const { error: healErr } = await supabaseAdmin
-          .from("recipes")
-          .update({
-            status: "published",
-            published_at: (root.published_at as string | null) ?? new Date().toISOString(),
-          })
-          .eq("id", recipeId);
-        if (healErr) {
-          console.error("[recipes/publish] heal status failed:", healErr.message);
-          return NextResponse.json({ error: "Ошибка при публикации" }, { status: 500 });
-        }
-      }
-      return NextResponse.json({
-        data: {
-          id: recipeId,
-          slug: root.slug,
-          status: "published",
-          versionNo: latest!.version_no,
-        },
-        idempotent: true,
-        message: "Контент не менялся с последней публикации — новая версия не создана",
-      });
-    }
-
-    // ---------- Новая неизменяемая версия (RA.8.1) ----------
-    const children = await fetchRecipeChildren(recipeId);
-    const snapshot = buildRecipeSnapshot(root as unknown as Record<string, unknown>, children);
-
-    let versionNo: number | null = null;
-    let lastError: string | null = null;
-    for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt++) {
-      const { data: maxRows } = await supabaseAdmin
-        .from("recipe_versions")
-        .select("version_no")
-        .eq("recipe_id", recipeId)
-        .order("version_no", { ascending: false })
-        .limit(1);
-      const nextVersionNo = Number(maxRows?.[0]?.version_no ?? 0) + 1;
-
-      const { data: inserted, error: insertErr } = await supabaseAdmin
-        .from("recipe_versions")
-        .insert({
-          recipe_id: recipeId,
-          version_no: nextVersionNo, // серверно; клиентский version_no невозможен
-          snapshot, // JSONB NOT NULL — полный normalized-снимок
-          origin: "publish",
-          created_by: user.userId,
-          changelog,
-        })
-        .select("version_no")
-        .single();
-
-      if (!insertErr && inserted) {
-        versionNo = Number((inserted as { version_no: number }).version_no);
-        break;
-      }
-
-      lastError = insertErr?.message ?? "insert returned no row";
-      const code = (insertErr as { code?: string } | null)?.code;
-      if (code !== "23505") break; // не конкурентная публикация — не ретраим
-      // 23505: конкурентный publish выиграл гонку — перечитать max и повторить
-      console.warn(
-        `[recipes/publish] version conflict (23505), attempt ${attempt}/${MAX_PUBLISH_ATTEMPTS}`
-      );
-    }
-
-    if (versionNo === null) {
-      console.error("[recipes/publish] version insert failed:", lastError);
+    // ---------- Ядро публикации: версия + переход статуса (publish-core) ----------
+    // Идемпотентность/23505-ретраи/порядок «версия → статус» — в ядре (см. шапку).
+    const core = await ensureRecipeVersionPublished(
+      {
+        id: recipeId,
+        slug: (root.slug as string | null) ?? null,
+        status,
+        published_at: (root.published_at as string | null) ?? null,
+        updated_at: (root.updated_at as string | null) ?? null,
+      },
+      user.userId,
+      changelog
+    );
+    if (!core.ok) {
       return NextResponse.json(
-        { error: "Не удалось зафиксировать версию рецепта", details: lastError },
+        { error: core.error, details: core.details },
         { status: 500 }
       );
     }
 
-    // ---------- Переход статуса (после фиксации версии — см. шапку) ----------
-    if (status !== "published") {
-      const { error: statusErr } = await supabaseAdmin
-        .from("recipes")
-        .update({
-          status: "published",
-          published_at: (root.published_at as string | null) ?? new Date().toISOString(),
-          // updated_at НЕ трогаем: publish не меняет контент, идемпотентность
-          // сравнивает updated_at с created_at последней версии
-        })
-        .eq("id", recipeId);
-      if (statusErr) {
-        console.error("[recipes/publish] status update failed:", statusErr.message);
-        return NextResponse.json(
-          {
-            error: "Версия зафиксирована, но статус не обновлён — повторите запрос",
-            details: statusErr.message,
-          },
-          { status: 500 }
-        );
-      }
-    }
-
     return NextResponse.json({
-      data: { id: recipeId, slug: root.slug, status: "published", versionNo },
+      data: { id: recipeId, slug: root.slug, status: "published", versionNo: core.versionNo },
+      ...(core.idempotent
+        ? {
+            idempotent: true,
+            message: "Контент не менялся с последней публикации — новая версия не создана",
+          }
+        : {}),
     });
   } catch (error: any) {
     console.error("[recipes/publish] unexpected:", error?.message);
