@@ -1,0 +1,69 @@
+RELEASE-03 / Task 9-b — E2E gate: payment webhook idempotency + recipe purchase flow
+Date (UTC): 2026-11-09 20:53
+Repo: /home/z/my-project @ 00f0c9c99cc2b3758fc35d97dbbfb61b5c6d3e53 (main)
+
+================================================================================
+1. БД: состояние ДО / ПОСЛЕ
+================================================================================
+ДО:     PostgreSQL: NOT INITIALIZED (no cluster at /home/z/my-project/.pgdata)
+Иниц.:  bun run db:setup  → exit 0 (embedded PG @ 127.0.0.1:54329/conditera,
+        миграции: ledger 76 files, сид применён; .env.local записан setup-скриптом)
+ПОСЛЕ:  PostgreSQL: RUNNING (pid 8992, port 54329, data: /home/z/my-project/.pgdata)
+        → БД оставлена инициализированной и запущенной (по требованию задачи).
+
+================================================================================
+2. Управление dev-сервером
+================================================================================
+- Обнаружен СТРАЙ-сервер next dev на :3000 (pid 7714/7688, стартовал до
+  перезаписи .env.local) → остановлен (kill 7688 7714) для детерминированного
+  окружения; порт 3000 освобождён.
+- Playwright config сам поднимает webServer (`bun run dev:local`, url :3000,
+  env: DATABASE_URL=embedded, JWT_SECRET, TFA_ENCRYPTION_KEY, CRON_SECRET,
+  reuseExistingServer локально) → отдельный nohup-сервер НЕ запускался.
+- После прогона webServer остановлен Playwright автоматически: порт 3000 свободен.
+- Проекты playwright.config.ts: chromium + mobile-chrome (2 проекта →
+  каждый тест выполняется дважды; локально workers=1).
+
+================================================================================
+3. Команды и exit codes
+================================================================================
+[1] node scripts/db/runtime.mjs status                          → NOT INITIALIZED
+[2] bun run db:setup                                            → exit 0
+[3] bunx playwright test tests/e2e/payment-webhook-idempotency.spec.ts --reporter=line
+      попытка 1 (единственная)                                  → exit 0
+      OOM НЕ зафиксирован (killed/OOM/process out of memory отсутствуют)
+      → повтор с --workers=1 не требовался
+[4] bunx playwright test tests/e2e/recipe-purchase-flow.spec.ts --workers=1 --reporter=line
+                                                                  → exit 0
+[5] node scripts/db/runtime.mjs status                          → RUNNING (pid 8992)
+
+================================================================================
+4. Сводные строки Playwright
+================================================================================
+--- payment-webhook-idempotency.spec.ts (12 тестов × 2 проекта = 24) ---
+  24 passed (24.2s)
+  failed: 0   flaky: 0   skipped: 0
+
+--- recipe-purchase-flow.spec.ts (7 тестов × 2 проекта = 14) ---
+  8 skipped
+  6 passed (21.5s)
+  failed: 0   flaky: 0
+  Примечание: 8 skipped — это by-design условные guard'ы в самих спеках
+  (test.skip(true, 'Нет данных в базе / seed-фильтры не дали выборку')),
+  а не сбои среды; авторизация-контракты (401) и базовые контракты
+  маркетплейса — passed.
+
+Падений НЕ-OOM нет; чинить нечего, полный текст падений не требуется.
+
+================================================================================
+5. Неизменность кода / защищённые файлы
+================================================================================
+- src/app/api/upload/** не читались и не изменялись.
+- git status ДО прогона:  4 удаления (src/app/api/services/upload/*,
+  src/app/api/upload/*) — существовали до задачи, не тронуты.
+- git status ПОСЛЕ: те же 4 удаления. Единственный побочный след — next dev
+  автодописал ".next/dev/dev/types/**/*.ts" в tsconfig.json (include);
+  авто-артефакт dev-сервера откачен (git checkout -- tsconfig.json).
+- Коммиты не создавались; push/reset/rebase не выполнялись.
+
+Логи попыток: /tmp/pw_payment_try1.log, /tmp/pw_recipe.log
