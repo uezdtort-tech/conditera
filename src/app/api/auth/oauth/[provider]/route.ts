@@ -43,12 +43,14 @@ function getProviderConfig(provider: Provider): {
       if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
-    case "vk": {
-      const clientId = process.env.VK_CLIENT_ID;
-      const redirectUri = process.env.VK_OAUTH_REDIRECT;
-      if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
-      return { clientId: clientId!, redirectUri: redirectUri! };
-    }
+    case "vk":
+      // ЧЕСТНОЕ СОСТОЯНИЕ (RELEASE-02 §6): VK ID (id.vk.ru, OAuth 2.1 + PKCE) на main
+      // НЕ реализован — callback для vk это JSON-заглушка. Раньше initiation с
+      // выставленным VK_CLIENT_ID вёл на legacy oauth.vk.com, который возвращал
+      // пользователя в JSON-заглушку — битый флоу. Полная реализация есть в ветке
+      // release-candidate/gate-20 (a7e169a…9ca33d7) — НЕ слита.
+      // Fail-closed: vk всегда «не настроен» независимо от VK_CLIENT_ID.
+      return null;
     case "telegram": {
       // Telegram OAuth uses the bot token + redirect URI configured in the
       // Telegram login widget. We don't expose the bot token to the browser.
@@ -88,11 +90,8 @@ function buildAuthorizationUrl(
       params.set("scope", "login:email login:info");
       return `https://oauth.yandex.ru/authorize?${params.toString()}`;
     }
-    case "vk": {
-      params.set("scope", "email");
-      params.set("v", "5.199");
-      return `https://oauth.vk.com/authorize?${params.toString()}`;
-    }
+    // NOTE: case "vk" недостижим и удалён (legacy oauth.vk.com) — см.
+    // getProviderConfig: vk всегда не настроен (RELEASE-02 §6).
     case "telegram": {
       // Telegram Login Widget uses a JS-based flow; here we return the bot
       // login page URL as a fallback for direct-browser flows.
@@ -151,8 +150,9 @@ export async function GET(
 
   // Production mode — construct the authorization URL.
   // `state` — CSRF-токен: кладём в httpOnly-cookie и сверяем в callback
-  // (сравнение параметра с cookie, cookie живёт 10 минут, путь — наш callback).
-  const state = randomBytes(16).toString("hex");
+  // (timing-safe сравнение параметра с cookie в callback/route.ts,
+  // cookie живёт 10 минут, путь — наш callback, гасится при любом исходе).
+  const state = randomBytes(32).toString("hex");
   const redirectUrl = buildAuthorizationUrl(provider, config, state);
 
   const response = NextResponse.redirect(redirectUrl, { status: 302 });

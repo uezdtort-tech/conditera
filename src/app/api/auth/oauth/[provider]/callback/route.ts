@@ -3,12 +3,16 @@
 // Реальный OAuth-callback для Yandex и Google (+ stub-режим для остальных).
 //
 // Флоу:
-//   1. Сверяем state (query) с httpOnly-cookie oauth_state_<provider> (CSRF).
+//   1. Сверяем state (query) с httpOnly-cookie oauth_state_<provider> (CSRF)
+//      timing-safe (timingSafeEqualStr), cookie гасится при любом исходе.
 //   2. Обмениваем code на access_token (token endpoint провайдера).
 //   3. Забираем профиль (email, имя, аватар).
 //   4. Находим/создаём пользователя в GoTrue через Admin API
 //      (email_confirm=true, случайный пароль), синхронизируем profiles
 //      и роль CUSTOMER.
+//      АНТИ-МЕРЖ (fail-closed, RELEASE-02 §6): существующий парольный аккаунт
+//      НЕ входит через совпадение email — отказ account_merge_forbidden,
+//      без сброса пароля и без слияния.
 //   5. Server-side signInWithPassword → валидная GoTrue-сессия.
 //   6. Передаём сессию в браузер через одноразовый httpOnly-cookie
 //      (60 сек) → /oauth/finish → /api/auth/oauth/handoff →
@@ -20,6 +24,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
+import { timingSafeEqualStr } from "@/lib/secure-compare";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
 
@@ -95,7 +100,9 @@ async function fetchYandexProfile(accessToken: string): Promise<OAuthProfile> {
     is_avatar_empty?: boolean;
     default_avatar_id?: string;
   };
-  const email = json.default_email || (json.login?.includes("@") ? json.login : `${json.login}@yandex.ru`);
+  // Синтетический email запрещён (fail-closed, RELEASE-02 §6): не выдумываем
+  // `${login}@yandex.ru` — если Яндекс не отдал email, флоу падает с ошибкой.
+  const email = json.default_email || (json.login?.includes("@") ? json.login : undefined);
   if (!email) throw new Error("Yandex profile: email not available");
   const name = json.real_name || json.display_name || "Пользователь Яндекса";
   const avatarUrl =
@@ -155,10 +162,23 @@ export async function GET(
 
   const { searchParams } = new URL(request.url);
 
+  // Одноразовость state: cookie гасится (maxAge: 0, тот же path) при ЛЮБОМ
+  // исходе реального флоу — невалидный state, отказ анти-мержа, успех, ошибка.
+  const consumeStateCookie = (resp: NextResponse): NextResponse => {
+    resp.cookies.set(`oauth_state_${provider}`, "", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 0,
+      path: "/api/auth/oauth",
+    });
+    return resp;
+  };
+
   // Пользователь отказался в диалоге провайдера.
   const oauthError = searchParams.get("error");
   if (oauthError) {
-    return finishRedirect(`Провайдер вернул ошибку: ${oauthError}`);
+    return consumeStateCookie(finishRedirect(`Провайдер вернул ошибку: ${oauthError}`));
   }
 
   const config = getProviderConfig(provider);
@@ -180,12 +200,13 @@ export async function GET(
 
   // ---- Реальный флоу (yandex / google) ----
   try {
-    // 1. CSRF: state из query === state из httpOnly-cookie.
+    // 1. CSRF: state из query === state из httpOnly-cookie, timing-safe
+    //    (constant-time, см. src/lib/secure-compare.ts).
     const code = searchParams.get("code");
     const state = searchParams.get("state");
     const cookieState = request.cookies.get(`oauth_state_${provider}`)?.value;
-    if (!code || !state || !cookieState || state !== cookieState) {
-      return finishRedirect("Неверный state — повторите вход");
+    if (!code || !state || !cookieState || !timingSafeEqualStr(state, cookieState)) {
+      return consumeStateCookie(finishRedirect("Неверный state — повторите вход"));
     }
 
     // 2-3. Обмен кода + профиль.
@@ -209,10 +230,21 @@ export async function GET(
       headers: { Authorization: `Bearer ${serviceRole}`, apikey: serviceRole },
       signal: AbortSignal.timeout(15_000),
     });
-    const adminList = (await adminRes.json()) as { users?: Array<{ id: string; email?: string }> };
+    const adminList = (await adminRes.json()) as {
+      users?: Array<{ id: string; email?: string; user_metadata?: { oauth_provider?: string } }>;
+    };
     const existing = (adminList.users || []).find((u) => u.email?.toLowerCase() === profile.email);
 
     if (existing) {
+      // АНТИ-МЕРЖ (fail-closed, RELEASE-02 §6): парольный аккаунт не может быть
+      // захвачен через совпадение email; сброс пароля через OAuth запрещён.
+      // Вход по email разрешён ТОЛЬКО если аккаунт создан через этот же
+      // OAuth-провайдер (user_metadata.oauth_provider === provider); иначе —
+      // отказ без сброса пароля и без слияния (403-семантика).
+      const existingProvider = existing.user_metadata?.oauth_provider;
+      if (!existingProvider || existingProvider !== provider) {
+        return consumeStateCookie(finishRedirect("account_merge_forbidden"));
+      }
       userId = existing.id;
       // Обновляем пароль на известный нам → сможем signInWithPassword ниже.
       await fetch(`${supabaseUrl}/admin/users/${userId}`, {
@@ -286,10 +318,10 @@ export async function GET(
       maxAge: 60,
       path: "/",
     });
-    return response;
+    return consumeStateCookie(response);
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error(`[oauth/${provider}/callback]`, detail);
-    return finishRedirect(detail);
+    return consumeStateCookie(finishRedirect(detail));
   }
 }
