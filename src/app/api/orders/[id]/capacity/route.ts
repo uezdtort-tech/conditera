@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { loadOrderLite, canViewOrderChecked } from "@/lib/ops/order-access";
 import { getCapacityDay, getActiveReservation } from "@/lib/ops/capacity";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,13 +86,11 @@ export async function GET(
         : null,
     });
   } catch (err) {
+    // Z-v19 §6 fix: регистрация 5xx в app_error_events (было только console.error)
     console.error(
       "[orders/capacity] GET failed:",
       err instanceof Error ? err.message : err
     );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, { route: "/api/orders/[id]/capacity", component: "orders" });
   }
 }

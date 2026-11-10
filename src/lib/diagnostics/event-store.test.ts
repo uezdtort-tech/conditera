@@ -298,4 +298,69 @@ describe("notifyCriticalIncidentDeduped — анти-шторм через notif
     expect(notifyChannelMock).toHaveBeenCalledTimes(2); // повтор после сбоя
     warnSpy.mockRestore();
   });
+
+  // Z-v19 §5: РЕАЛЬНЫЙ notifyChannel никогда не бросает — он ловит все
+  // ошибки и возвращает false (src/lib/telegram-bot.ts). Дефект at-most-once:
+  // сбой оставлял notified_at установленным на 30 минут. Проверяем, что
+  // false-возврат тоже возвращает окно уведомления.
+  it("notifyChannel вернул false (без throw) — окно возвращается, повтор разрешён", async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (String(sql).includes("SET notified_at = now()")) {
+        return Promise.resolve({ rows: [{ notified_at: new Date().toISOString() }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    // КРИТИЧНО: false, а не rejection — так ведёт себя реальный sendToChannel
+    notifyChannelMock.mockResolvedValue(false);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    storeErrorEvent({
+      component: "payments",
+      severity: "critical",
+      message: "telegram returns false",
+    });
+    await flushQueueForTests();
+    // revert notified_at = NULL был выполнен
+    const revert = queryMock.mock.calls.find((c) =>
+      String(c[0]).includes("SET notified_at = NULL")
+    );
+    expect(revert).toBeTruthy();
+    // повторное событие снова доходит до Telegram
+    queryMock.mockClear();
+    queryMock.mockImplementation((sql: string) => {
+      if (String(sql).includes("SET notified_at = now()")) {
+        return Promise.resolve({ rows: [{ notified_at: new Date().toISOString() }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    storeErrorEvent({
+      component: "payments",
+      severity: "critical",
+      message: "telegram returns false",
+    });
+    await flushQueueForTests();
+    expect(notifyChannelMock).toHaveBeenCalledTimes(2);
+    warnSpy.mockRestore();
+  });
+
+  it("успешная отправка (true) — окно остаётся занятым, дубликатов нет", async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (String(sql).includes("SET notified_at = now()")) {
+        return Promise.resolve({ rows: [{ notified_at: new Date().toISOString() }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    notifyChannelMock.mockResolvedValue(true);
+    storeErrorEvent({
+      component: "payments",
+      severity: "critical",
+      message: "sent ok",
+    });
+    await flushQueueForTests();
+    // revert НЕ вызывался
+    const revert = queryMock.mock.calls.find((c) =>
+      String(c[0]).includes("SET notified_at = NULL")
+    );
+    expect(revert).toBeFalsy();
+    expect(notifyChannelMock).toHaveBeenCalledTimes(1);
+  });
 });

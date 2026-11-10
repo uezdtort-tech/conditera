@@ -46,6 +46,7 @@ const CORE_ROUTES = [
   "src/app/api/orders/[id]/production/start/route.ts",
   "src/app/api/orders/[id]/production/complete/route.ts",
   "src/app/api/orders/[id]/acceptance-check/route.ts",
+  "src/app/api/orders/[id]/capacity/route.ts", // Z-v19 §6: добавлен в периметр (был пропущен, 5xx не регистрировался)
   // Платежи (деньги)
   "src/app/api/payment/create/route.ts",
   "src/app/api/payment/webhook/route.ts",
@@ -92,11 +93,22 @@ function isCoreRoutePresent(rel) {
   return existsSync(join(ROOT, rel));
 }
 
+/**
+ * Z-v19 §6 (hardening): проверка ВЫЗОВА, а не упоминания. Старая проверка
+ * source.includes("handleRouteError") давала false positive: строка-импорт
+ * `import { handleRouteError } from ...` проходила гвард без единого вызова
+ * (дефект найден верификацией на src/app/api/orders/route.ts). Комментарии
+ * вырезаются, требуется синтаксис вызова `handleRouteError(`.
+ */
 function usesErrorCapture(source) {
+  // вырезаем блочные и строчные комментарии, сохраняя переводы строк
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ""))
+    .replace(/\/\/[^\n]*/g, "");
   return (
-    source.includes("handleRouteError") ||
-    source.includes("captureServerError") ||
-    source.includes("captureDependencyError")
+    /handleRouteError\s*\(/.test(stripped) ||
+    /captureServerError\s*\(/.test(stripped) ||
+    /captureDependencyError\s*\(/.test(stripped)
   );
 }
 

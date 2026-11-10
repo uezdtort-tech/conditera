@@ -29,7 +29,7 @@ Permissions минимальны (`contents: read`; deploy.yml build job — `pa
 | 4 | `docker-build` | `CANDIDATE_SHA = PR head sha (или github.sha на push)`; чекаут **точного** SHA + проверка `git rev-parse HEAD == tag SHA` («тег одного SHA, собран другой исходник» — исключено; в лог фиксируются оба SHA); `docker compose config -q` с dummy-переменными; сборка **3 образов** `conditera / conditera-chat / conditera-simplex-bridge` тегом `CANDIDATE_SHA`, build-arg `GIT_SHA` (→ APP_VERSION в /api/health); **secret-gate**: `docker image inspect` (существование до скана) + `docker history --no-trunc | grep` + контент-скан экспортированной ФС (`docker create` + `docker export | grep -aEi`) на `sk_live_/AKIA…/ghp_…/glpat-…/PRIVATE KEY/ci_test_*` |
 | 5 | `security-checks` | grep секретов в `src/ scripts/ mini-services/`; ревизия `.env*`-файлов; **red-line drift guard** — 4 обязательных upload-пути существуют на диске И отслеживаются git: `src/app/api/upload/route.ts` (+`route.test.ts`), `src/app/api/services/upload/route.ts` (+`route.test.ts`) — против повторения 4 исторических drift-инцидентов (#8/#10/#11/#12); второй слой — unit-регрессия `src/lib/redline-paths.test.ts` |
 | 6 | `validate-caddyfile` | `caddy validate --adapter caddyfile` в `public.ecr.aws/docker/library/caddy:2.8-alpine` (зеркало без rate-limit Docker Hub) |
-| 7 | `evidence-hygiene` | `scripts/scan-evidence.mjs` (real-секрет/PII в tracked evidence → exit 1; значения не печатаются) + adversarial-регрессия правил `scan-evidence-rules-verify.mjs` + контракт `.env.production.example` (`production-env-template.mjs`) + **route-error-coverage** (`46/47`) |
+| 7 | `evidence-hygiene` | `scripts/scan-evidence.mjs` (real-секрет/PII в tracked evidence → exit 1; значения не печатаются) + adversarial-регрессия правил `scan-evidence-rules-verify.mjs` + контракт `.env.production.example` (`production-env-template.mjs`) + **route-error-coverage** (`47/48`) |
 | 8 | `migrations-pg18` | сервис `postgres:18-alpine`; реальный ledger-мигратор прод-пайплайна `supabase/init-scripts/01-apply-migrations.sh`: применяются все миграции (fail-fast) + `applied == total` по `schema_migrations`; **идемпотентность** — повторный прогон обязан быть no-op (grep "Applying" = FAIL); **RLS sanity** — `rowsecurity = true` для `app_error_events, app_incidents, app_incident_history, ops_tasks, orders, payments, recipe_purchases, inventory_items`; **write-path closures (0077)** — нет INSERT/UPDATE/DELETE-грантов `anon/authenticated` на `inventory_items, stock_movements, recipe_purchases, recipes, recipe_marketplace, financial_ledger` |
 | 9 | `deps-audit` | `scripts/verify/osv-audit.mjs`: osv-scanner по `bun.lock` (скачивается latest с GitHub releases); diff с baseline `scripts/security/osv-baseline.json` — **новые** advisory → exit 1; baseline-элементы → WARN (remediation backlog); `--update-baseline` — только осознанным коммитом владельца |
 
@@ -64,7 +64,7 @@ Permissions минимальны (`contents: read`; deploy.yml build job — `pa
 ## 6. Локальный прогон гвардов (равноценная проверка без push)
 
 ```bash
-node scripts/verify/route-error-coverage.mjs   # 46/47, exit 0 (измерено 2026-11-10)
+node scripts/verify/route-error-coverage.mjs   # 47/48, exit 0 (измерено Z-v19 2026-11-10; проверяется вызов, не упоминание)
 node scripts/scan-evidence.mjs                 # docs/evidence/ — real-находки → exit 1
 node scripts/verify/production-env-template.mjs
 ```
@@ -77,6 +77,6 @@ node scripts/verify/production-env-template.mjs
 ## 8. Бизнес-регрессия (§6 п.14)
 
 1. **Unit/интеграционные** — Vitest: 107 файлов / 1547 тестов PASSED (прогон 2026-11-10); typecheck 0 ошибок, lint 0 ошибок.
-2. **Единая регистрация ошибок** — CI-гвард `route-error-coverage.mjs`: 46/47 core-маршрутов (exit 0, измерено 2026-11-10); новый непокрытый маршрут ломает CI.
+2. **Единая регистрация ошибок** — CI-гвард `route-error-coverage.mjs`: 47/48 core-маршрутов (exit 0, измерено Z-v19 2026-11-10); новый непокрытый маршрут ломает CI.
 3. **E2E Playwright** — smoke/full-flow/auth/payment-webhook-idempotency/recipe-purchase контракты (nightly + по изменению API-путей).
 4. **Инфраструктурная регрессия** — `migrations-pg18` (RLS + write-path на чистой PG18), `docker-build` (secret-gate), red-line drift guard.

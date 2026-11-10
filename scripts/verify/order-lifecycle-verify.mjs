@@ -38,6 +38,30 @@ const CONF_112 = "11111111-1111-4111-8111-111111111112"; // Сахарный Л�
 const CUSTOMER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
 const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000001"; // Свадебный торт «Ягодный бархат» (cakes, recipe)
 
+// Z-v19 §13 fixture: Acceptance Engine (P0.5 §29) требует production_time_hours
+// у товара; в seed у этого товара он не задан → accept даёт ORDER_NOT_FEASIBLE
+// и ВЕСЬ жизненный цикл (E2E №1) каскадно падает на PENDING-переходах.
+// На время прогона задаём 6 ч и восстанавливаем исходное значение.
+let prodTimeApplied = false;
+let prodTimeOriginal = null;
+async function applyProductionTimeFixture() {
+  const cur = await client.query(
+    `SELECT production_time_hours AS ph FROM public.products WHERE id = $1::uuid`,
+    [PRODUCT_ID]
+  );
+  prodTimeOriginal = cur.rows[0]?.ph ?? null;
+  if (prodTimeOriginal !== null) return;
+  await client.query(`UPDATE public.products SET production_time_hours = 6 WHERE id = $1::uuid`, [PRODUCT_ID]);
+  prodTimeApplied = true;
+}
+async function restoreProductionTimeFixture() {
+  if (!prodTimeApplied) return;
+  await client
+    .query(`UPDATE public.products SET production_time_hours = $2 WHERE id = $1::uuid`, [PRODUCT_ID, prodTimeOriginal])
+    .catch(() => {});
+  prodTimeApplied = false;
+}
+
 let passed = 0;
 let failed = 0;
 const failures = [];
@@ -183,6 +207,7 @@ async function main() {
   const owner = await login("confectioner@demo.ru");
   const customer = await login("customer@demo.ru");
   assert("логины admin/confectioner/customer", Boolean(admin && owner && customer));
+  await applyProductionTimeFixture();
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const tomorrowStr = isoDate(tomorrow);
@@ -472,6 +497,7 @@ main()
   .finally(async () => {
     // ---- Очистка (ТЗ: тестовые данные не остаются) ----
     try {
+      await restoreProductionTimeFixture();
       for (const id of testOrders) {
         await deleteOrder(id).catch(() => {});
       }

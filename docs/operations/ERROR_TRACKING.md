@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
 ## 3.5 Глобальный страховочный слой (catch-all)
 
-`src/instrumentation.ts` — `register()` выполняется один раз при старте nodejs-сервера (только `NEXT_RUNTIME === "nodejs"`; импорт динамический) и ставит идемпотентные `installGlobalErrorHandlers()` (global-handlers.ts): `process.on("uncaughtException")` и `process.on("unhandledRejection")` → `captureServerError` с `component: "infrastructure"`, `severity: "critical"`, `errorCode: uncaught_exception | unhandled_rejection`. Обработчики не бросают и не await'ят; процесс не убивается — решение о рестарте за оркестратором (Docker HEALTHCHECK/restart). Это единственный путь для ошибок, ускользнувших от handleRouteError и error-boundaries.
+`src/instrumentation.ts` — `register()` выполняется один раз при старте nodejs-сервера (только `NEXT_RUNTIME === "nodejs"`; импорт динамический) и ставит идемпотентные `installGlobalErrorHandlers()` (global-handlers.ts): `process.on("uncaughtException")` и `process.on("unhandledRejection")` → `captureServerError` с `component: "infrastructure"`, `severity: "critical"`, `errorCode: uncaught_exception | unhandled_rejection`. Обработчики не бросают и не await'ят. После uncaughtException фиксируется попытка немедленного flush очереди, затем процесс завершается с exit(1) после grace-периода 2s (Z-v19 §4: продолжать жить молча нельзя — liveness вернул бы 200 и оркестратор не узнал о деградации). Управление: `DIAGNOSTICS_EXIT_ON_UNCAUGHT` = `1`/`0`/unset (unset = auto: exit в production, keep-alive в development). Для unhandledRejection процесс продолжает работу, но `getLastCriticalAt()` обновляется и виден в `/api/health` (`lastCriticalAt`/`recentCritical`). Это единственный путь для ошибок, ускользнувших от handleRouteError и error-boundaries.
 
 ## 3.6 Correlation-id (сквозной идентификатор запроса)
 
@@ -85,9 +85,9 @@ export async function POST(request: NextRequest) {
 
 ## 3.7 CI-гвард покрытия (§3.7)
 
-`node scripts/verify/route-error-coverage.mjs` — входит в job `evidence-hygiene` (ci.yml). Для закрытого списка `CORE_ROUTES` (47 маршрутов критичного бизнес-периметра: заказы/платежи/чат/склад/рецепты/выплаты/медиа заказа) проверяется наличие `handleRouteError` | `captureServerError` | `captureDependencyError` в исходнике. `KNOWN_ABSENT`: `src/app/api/order-media/route.ts` (корневого route.ts нет в репозитории). Новый непокрытый core-маршрут = FAIL — 5xx не попал бы в `app_error_events`, инцидент не создался бы.
+`node scripts/verify/route-error-coverage.mjs` — входит в job `evidence-hygiene` (ci.yml). Для закрытого списка `CORE_ROUTES` (48 маршрутов критичного бизнес-периметра: заказы/платежи/чат/склад/рецепты/выплаты/медиа заказа) проверяется наличие `handleRouteError` | `captureServerError` | `captureDependencyError` в исходнике. `KNOWN_ABSENT`: `src/app/api/order-media/route.ts` (корневого route.ts нет в репозитории). Новый непокрытый core-маршрут = FAIL — 5xx не попал бы в `app_error_events`, инцидент не создался бы.
 
-**Измерено 2026-11-10 (локально):** `route-error-coverage: checked=46/47` → `✅ все маршруты критичного периметра используют единую регистрацию ошибок`, exit code 0.
+**Измерено 2026-11-10 (Z-v19, локально):** `route-error-coverage: checked=47/48` (гвард проверяет ВЫЗОВ, а не упоминание — import-only false positive устранён) → `✅ все маршруты критичного периметра используют единую регистрацию ошибок`, exit code 0.
 
 ## 3.8 Хранение и ретеншн
 

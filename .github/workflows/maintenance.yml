@@ -98,7 +98,7 @@ jobs:
           echo "## Restore-verify: SKIPPED — STAGING_HOST not configured (owner decision D-1)." >> "$GITHUB_STEP_SUMMARY"
           echo "RESTORE-VERIFY SKIPPED: no staging host (no fake verification)."
 
-      - name: Restore-verify via SSH (§10: proof = successful restore)
+      - name: "Restore-verify via SSH (§10: proof = successful restore)"
         if: ${{ env.STAGING_HOST_SET == 'true' }}
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -109,5 +109,7 @@ jobs:
             set -e
             cd /opt/conditera-staging
             # §10: доказательство бэкапа — успешное восстановление в
-            # одноразовую БД + сверка количества строк (fail → exit 1)
-            node scripts/ops/backup-verify-restore.mjs
+            # одноразовую БД + сверка количества строк (fail → exit 1).
+            # Z-v19 §11 fix: скрипт импортирует @/lib/backup — алиас резолвит
+            # только bun; под node падает ERR_MODULE_NOT_FOUND (проверено).
+            bun scripts/ops/backup-verify-restore.mjs

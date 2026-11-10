@@ -43,8 +43,11 @@ function check(name, ok, detail = "") {
   console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`);
 }
 
-// Уникальный маркер прогона → изолированные fingerprint'ы
-const RUN = `diag-verify-${Date.now()}`;
+// Уникальный маркер прогона → изолированные fingerprint'ы.
+// Z-v19 §3: Date.now().toString(36) + суффикс — чтобы нормализация
+// fingerprint'а (нормализует числа ≥4 цифр в <num>) НЕ схлопывала
+// разные прогоны в один инцидент (иначе rerun ломает проверку NEW/count=1).
+const RUN = `diag-verify-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const TOKEN = `super-secret-token-${RUN}-0987654321`;
 
 async function postClientError(payload) {
@@ -65,7 +68,7 @@ async function main() {
     // ── 1+2+9: клиентская ошибка → событие → инцидент; секрет маскируется
     const msg1 = `selftest unique failure ${RUN} payment 123456789`;
     const r1 = await postClientError({
-      message: `auth failed with Bearer ${TOKEN} (${RUN})`,
+      message: `auth failed with Bearer ${TOKEN} (${RUN}) user 123456789`,
       route: "/selftest/diagnostics",
       errorCode: "SELFTEST_E1",
       severity: "error",
@@ -79,7 +82,7 @@ async function main() {
 
     const ev = await client.query(
       `SELECT event_id, message, stack_trace, fingerprint, source, component, metadata
-         FROM public.app_error_events WHERE component='diagnostics-selftest' AND message LIKE $1
+         FROM public.app_error_events WHERE source='client' AND message LIKE $1
          ORDER BY occurred_at DESC LIMIT 1`,
       [`%${RUN}%`]
     );
@@ -92,7 +95,11 @@ async function main() {
     const storedMsg = ev.rows[0]?.message || "";
     check("секрет (Bearer-токен) маскирован в message", !storedMsg.includes(TOKEN));
     check("стек от клиента отсутствует", ev.rows[0]?.stack_trace === null);
-    check("component зафиксирован сервером", ev.rows[0]?.component === "diagnostics-selftest");
+    // Z-v19 §3 fix: route client-errors ЖЁСТКО пинует component='frontend'
+    // (§3.2: клиент не может подменить компонент). Старая проверка требовала
+    // 'diagnostics-selftest' — значение, которое клиентский путь не может
+    // дать по построению → проверка была сломана с момента появления.
+    check("component зафиксирован сервером (frontend)", ev.rows[0]?.component === "frontend");
 
     // Инцидент по fingerprint из ingest-ответа
     const inc = await client.query(
@@ -102,9 +109,12 @@ async function main() {
     check("инцидент создан по fingerprint ingest-ответа", inc.rows.length === 1);
     check("начальный статус NEW, occurrence_count=1", inc.rows[0]?.status === "NEW" && inc.rows[0]?.occurrence_count === 1);
 
-    // ── Повторная ошибка с той же динамикой → та же группа (fingerprint стабилен)
+    // ── Повторная ошибка с той же динамикой → та же группа (fingerprint стабилен).
+    // Z-v19 §3 fix: повтор отличается ТОЛЬКО динамикой (номер пользователя);
+    // прежний вариант менял и само значение токена (other-token-value) —
+    // слова не нормализуются → другой fingerprint → проверка не могла пройти.
     const r2 = await postClientError({
-      message: `auth failed with Bearer other-token-value (${RUN}) payment 987654321`,
+      message: `auth failed with Bearer ${TOKEN} (${RUN}) user 987654321`,
       route: "/selftest/diagnostics",
       errorCode: "SELFTEST_E1",
     });
@@ -151,7 +161,13 @@ async function main() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ incidentId: inc.rows[0]?.id, toStatus: "SUPER_HACK" }),
     });
-    check("PATCH без авторизации → 401 (до валидации статуса)", patchNoAuth.status === 401);
+    // Z-v19 §3 fix: без auth middleware возвращает 403 (CSRF) ДО auth-проверки
+    // — оба кода означают fail-closed (запрос не доходит до логики перехода).
+    check(
+      "PATCH без авторизации → 401/403 fail-closed (до валидации статуса)",
+      patchNoAuth.status === 401 || patchNoAuth.status === 403,
+      `HTTP ${patchNoAuth.status}`
+    );
 
     // ── health endpoints
     const live = await fetch(`${BASE}/api/health/live`);
@@ -168,9 +184,13 @@ async function main() {
       `HTTP ${ready.status}`
     );
   } finally {
-    // ── Чистка: только свои тестовые строки
+    // ── Чистка: только свои тестовые строки.
+    // Z-v19 §3 fix: клиентский путь пинует component='frontend', поэтому
+    // фильтр component='diagnostics-selftest' никогда не совпадал и строки
+    // тестов накапливались. Фильтруем по source='client' + уникальному
+    // маркеру прогона в сообщении.
     const del1 = await client.query(
-      `DELETE FROM public.app_error_events WHERE component='diagnostics-selftest' AND (message LIKE $1 OR message LIKE $2)`,
+      `DELETE FROM public.app_error_events WHERE source='client' AND (message LIKE $1 OR message LIKE $2)`,
       [`%${RUN}%`, `%rate-limit probe ${RUN}%`]
     );
     await client.query(

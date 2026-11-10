@@ -81,7 +81,7 @@ const PARTIAL_PLAN = [
 //   0016 — существует только как 0016b_prisma_enums.sql (с начального коммита).
 const RESERVED_ABSENT = new Set(["0056", "0073"]); // 0073 — SECURITY-RECIPE-01 (Q-7, не применено)
 const CONSOLIDATED = { "0016": "0016b" };
-const EXPECTED_TOTAL_LINEAGE_NUMBERS = 78; // 0001..0078 (R03V: +0078 policy fix)
+const EXPECTED_TOTAL_LINEAGE_NUMBERS = 79; // Z-v19: 0001..0079 (0079_diagnostics_incidents — DEPLOY-01 EXT); линейка проверяется от фактического максимума на диске
 
 // ============================================================================
 // Служебное: лог + отчёт
@@ -612,9 +612,14 @@ async function main() {
     if (!report.ledger.setEqualsDisk) {
       throw new Error(`Ledger mismatch: missing=${JSON.stringify(missingFromLedger)} extra=${JSON.stringify(extraInLedger)}`);
     }
-    log(`✔ ledger: ${ledgerSet.size} файлов == диску (${files.length}); линейка 0001..0078: отсутствуют только зарезервированные [${report.ledger.lineage.absentOnDisk.join(", ")}]`);
-    if (ledgerSet.size !== 77) { // 76 (до R03V) + 0078
-      throw new Error(`Expected 77 migration files on disk/ledger (0001..0078 minus {0016,0056,0073} plus {0016b,0017b}), got ${ledgerSet.size}`);
+    log(`✔ ledger: ${ledgerSet.size} файлов == диску (${files.length}); линейка 0001..0079: отсутствуют только зарезервированные [${report.ledger.lineage.absentOnDisk.join(", ")}]`);
+    // Z-v19 fix: хардкод «77» (эпоха R03V) ломал harness после появления
+    // 0079_diagnostics_incidents.sql (DEPLOY-01 EXT) — миграции были
+    // корректны, а гейт падал на устаревшем литерале. Структурные проверки
+    // выше уже гарантируют: ledger == диск (set-equals) и линейка без дыр
+    // (checkLineage). Здесь — только сверка с фактическим числом файлов.
+    if (ledgerSet.size !== files.length) {
+      throw new Error(`Expected ${files.length} migration files on disk/ledger, got ${ledgerSet.size}`);
     }
 
     // ---- 6. STRICT RERUN 0075/0076/0077 ----

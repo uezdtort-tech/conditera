@@ -1,7 +1,7 @@
 # ARCHITECTURE — операционная архитектура «Уездный кондитер» (Conditera)
 
 **DEPLOY-01 EXTENDED (§1 — архитектурный обзор) · Дата: 2026-11-10**
-**Состояние:** HEAD `9e6a516` + изменения EXTENDED в рабочем дереве · v2.0 Supabase + bun + Next.js 16 App Router
+**Состояние:** HEAD `ea7379f` (DEPLOY-01 EXTENDED закоммичен); Z-v19-фиксы поверх — см. git status · v2.0 Supabase + bun + Next.js 16 App Router
 **Верификация:** `bun run test` → 107 файлов / 1547 тестов PASSED · typecheck 0 ошибок · lint 0 ошибок.
 
 ---

@@ -31,9 +31,9 @@
     "db:start": "node scripts/db/runtime.mjs start",
     "db:stop": "node scripts/db/runtime.mjs stop",
     "db:status": "node scripts/db/runtime.mjs status",
-    "ops:backup": "node scripts/ops/run-backup.mjs",
-    "ops:restore-verify": "node scripts/ops/backup-verify-restore.mjs",
-    "ops:daily-report": "node scripts/ops/daily-report.mjs",
+    "ops:backup": "bun scripts/ops/run-backup.mjs",
+    "ops:restore-verify": "bun scripts/ops/backup-verify-restore.mjs",
+    "ops:daily-report": "bun scripts/ops/daily-report.mjs",
     "verify:route-error-coverage": "node scripts/verify/route-error-coverage.mjs"
   },
   "dependencies": {

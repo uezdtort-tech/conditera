@@ -488,19 +488,28 @@ async function notifyCriticalIncidentDeduped(
 
 /**
  * Отправка через существующий Telegram-канал (notifyChannel).
- * БРОСАЕТ при сбое канала — окно notified_at возвращает вызвавший код
- * (at-least-once, см. notifyCriticalIncidentDeduped). Проверка
+ * ЗАВЕРШАЕТСЯ ОШИБКОЙ при отказе канала — окно notified_at возвращает
+ * вызвавший код (at-least-once, см. notifyCriticalIncidentDeduped). Проверка
  * «канал не настроен» — в дедуп-обёртке, здесь только доставка.
+ *
+ * Z-v19 §5 (fix): notifyChannel/sendToChannel НЕ бросают — они ловят все
+ * ошибки и возвращают boolean (src/lib/telegram-bot.ts). Раньше сбой
+ * Telegram оставлял notified_at установленным до 30 минут — фактическая
+ * семантика была at-most-once при заявленной at-least-once. Теперь
+ * `false` конвертируется в throw, и окно возвращается.
  */
 async function notifyCriticalIncident(row: EventRow, priority: "P0" | "P1"): Promise<void> {
   const { notifyChannel } = await import("@/lib/telegram-bot");
-  await notifyChannel({
+  const sent = await notifyChannel({
     type: "error",
     title: `🚨 [${priority}] ${row.component}`,
     body:
       `${row.message.slice(0, 160)}\n` +
       `route: ${row.route ?? "n/a"} | env: ${row.environment} | ver: ${row.appVersion}`,
   });
+  if (!sent) {
+    throw new Error("telegram channel send failed (notifyChannel returned false)");
+  }
 }
 
 /**
@@ -514,6 +523,22 @@ export async function flushQueueForTests(): Promise<void> {
      
     await new Promise((r) => setTimeout(r, FLUSH_INTERVAL_MS + 50));
     if (Date.now() >= circuitOpenUntil) await flush();
+  }
+}
+
+/**
+ * Немедленная попытка flush без ожидания таймера — вызывается из
+ * global-handlers при uncaughtException перед возможным завершением
+ * процесса (Z-v19 §4: событие должно дойти до БД, если это технически
+ * возможно). Никогда не бросает; при открытом circuit-breaker — no-op.
+ */
+export function triggerImmediateFlush(): void {
+  try {
+    if (queue.length === 0 || writing) return;
+    if (Date.now() < circuitOpenUntil) return;
+    void flush();
+  } catch {
+    // flush сам обрабатывает свои сбои (handleInternalFailure)
   }
 }
 

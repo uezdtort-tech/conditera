@@ -41,7 +41,7 @@
    ```
 4. Healthcheck: `curl -sf http://localhost:3000/api/health` содержит `"status":"ok"` (тот же контракт, что в deploy.yml; при необходимости retry 10×10s).
 5. Публичная проверка: `https://<домен>/api/health` → 200; smoke главной/каталога.
-6. Если откатывается и чат/bridge: `docker compose up -d --no-deps chat-server` (аналогично для `simplex-bridge`) с предыдущим тегом.
+6. Если откатывается и чат/bridge: `docker compose up -d --no-deps chat-service` (аналогично для `simplex-bridge`) с предыдущим тегом.
 7. Зафиксировать в инциденте: статус FIXED→VERIFIED после проверки, note с SHA отката и причиной.
 
 ### 2.1 Где найти предыдущий тег

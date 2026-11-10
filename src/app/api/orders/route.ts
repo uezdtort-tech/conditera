@@ -232,11 +232,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ orders: result });
   } catch (error: any) {
+    // Z-v19 §6 fix: регистрация 5xx в app_error_events (было только console.error)
     console.error("GET /api/orders error:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(error, { route: "/api/orders", component: "orders" });
   }
 }
 
@@ -730,10 +728,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 201 }
     );
   } catch (error: any) {
+    // Z-v19 §6 fix: регистрация 5xx в app_error_events (было только console.error)
     console.error("POST /api/orders error:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(error, { route: "/api/orders", component: "orders" });
   }
 }

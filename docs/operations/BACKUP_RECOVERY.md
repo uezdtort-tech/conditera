@@ -78,7 +78,7 @@ bun scripts/ops/backup-verify-restore.mjs
 ## 5. Процедура восстановления в production (ручная)
 
 1. Зафиксировать инцидент в реестре (INCIDENT_MANAGEMENT.md §4.2), приоритет P0 по умолчанию.
-2. Остановить запись данных: `docker compose stop web` (и chat-server) — новых транзакций нет.
+2. Остановить запись данных: `docker compose stop web` (и chat-service) — новых транзакций нет.
 3. Выбрать последний проверенный бэкап: `listBackups()` (src/lib/backup.ts), каталог `./backups` на хосте, журнал `maintenance_logs (BACKUP_FULL)`.
 4. Поднять восстановленную копию в **новую** БД: для `.sql.gz` — `gunzip -c backup-<ts>.sql.gz | psql "<NEW_DB_URL>"`; для `.json.gz` — тем же путём, что restore-verify (шаги 3–4); сверить счётчики ключевых таблиц с ожиданиями владельца.
 5. Переключить `DATABASE_URL` на восстановленную БД → `docker compose up -d web` → `/api/health` → smoke.

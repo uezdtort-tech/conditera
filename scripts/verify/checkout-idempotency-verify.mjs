@@ -58,6 +58,7 @@ const RUN_TAG = `u07fix-${rand()}`;
 const IDEM_KEYS = [`${RUN_TAG}-a`, `${RUN_TAG}-c`, `${RUN_TAG}-d`];
 const collectedOrderIds = [];
 
+
 // Rate limit checkout: 5/min на IP → каждая секция <= 4 POST со своим IP.
 const sectionIp = () =>
   `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
@@ -103,8 +104,13 @@ const client = new Client({ connectionString: PG_URL });
 function checkoutBody() {
   const d = new Date(Date.now() + 2 * 86400_000);
   const deliveryDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // Z-v19 §13: custom-позиция конструктора (без product_id). Причина: Acceptance
+  // Engine (P0.5 §29) отказывает продуктовые позиции на seed-данных (в seed 0
+  // товаров с recipe_id+production_time, закупки не запланированы →
+  // PURCHASE_ETA_MISSING). Custom-позиции гейт пропускает ПО ДИЗАЙНУ — это
+  // позволяет проверять именно контракт идемпотентности checkout.
   return {
-    cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
+    cartItems: [{ custom: { productType: "cake", filling: "condensed_milk", servings: 8 }, quantity: 1 }],
     deliveryCity: "Москва",
     deliveryAddress: "ул. Идемпотентности, 1, кв 1",
     deliveryType: "delivery",
@@ -249,6 +255,15 @@ async function cleanupAll() {
     const allIds = [...new Set([...collectedOrderIds, ...byKeys.rows.map((r) => r.id)])];
     if (allIds.length > 0) {
       await client.query(`DELETE FROM public.product_reviews WHERE order_id = ANY($1::uuid[])`, [allIds]).catch(() => {});
+      // Z-v19 §13 fix: financial_ledger ссылается на payments (FK
+      // financial_ledger_payment_id_fkey) — ledger чистится ПЕРВЫМ,
+      // иначе delete payments ломается и synthetic-строки остаются.
+      await client
+        .query(
+          `DELETE FROM public.financial_ledger WHERE payment_id IN (SELECT id FROM public.payments WHERE order_id = ANY($1::uuid[]))`,
+          [allIds]
+        )
+        .catch(() => {});
       await client.query(`DELETE FROM public.payments WHERE order_id = ANY($1::uuid[])`, [allIds]).catch(() => {});
       await client.query(`DELETE FROM public.order_items WHERE order_id = ANY($1::uuid[])`, [allIds]).catch(() => {});
       await client

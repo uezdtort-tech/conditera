@@ -25,6 +25,7 @@
  */
 import { NextResponse } from "next/server";
 import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
+import { getLastCriticalAt } from "@/lib/diagnostics/global-handlers";
 
 export const runtime = "nodejs";
 // Живые проверки БД/n8n — роут больше не может быть статическим
@@ -59,6 +60,10 @@ interface HealthResponse {
   timestamp: string;
   uptime: number;
   environment: string;
+  /** Z-v19 §4: epoch ms последней критической ошибки процесса (null — не было). */
+  lastCriticalAt: number | null;
+  /** Z-v19 §4: критическая ошибка за последние 5 минут. */
+  recentCritical: boolean;
   features: {
     roles_v2: boolean;             // 30 ролей вместо 26
     recipe_marketplace: boolean;  // миграция 0012
@@ -308,6 +313,11 @@ export async function GET(): Promise<NextResponse> {
     n8n: n8nStatus,
     auth: authProbe.reachability === "reachable" ? "ok" : authProbe.reachability,
     status,
+    // Z-v19 §4: после критической ошибки процесса (uncaughtException/
+    // unhandledRejection) health НЕ должен выглядеть «безупречно чистым».
+    // Информационные поля; контракт status:"ok" для deploy.yml сохранён.
+    lastCriticalAt: getLastCriticalAt() || null,
+    recentCritical: Date.now() - (getLastCriticalAt() || 0) < 5 * 60_000,
     service: "conditera",
     version: APP_VERSION,
     timestamp: new Date().toISOString(),

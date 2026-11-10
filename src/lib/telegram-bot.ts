@@ -48,9 +48,13 @@ export async function sendTelegramMessage(
   }
 
   try {
+    // Z-v19 §5: таймаут 10s — недоступный api.telegram.org не должен
+    // подвешивать вызывающий код (уведомления fire-and-forget, но
+    // неопределённо долгий fetch держит соединение и память процесса)
     const response = await fetch(`${API_BASE}/${BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
         chat_id: msg.chatId,
         text: msg.text,

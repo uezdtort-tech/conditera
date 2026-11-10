@@ -1,0 +1,2524 @@
+{
+  "counts": {
+    "total": 322,
+    "handleRouteError": 93,
+    "captureOnly": 3,
+    "cron": 22,
+    "tryCatchNoCapture": 195,
+    "noCatch": 9
+  },
+  "report": [
+    {
+      "rel": "src/app/api/admin/confectioners/approve/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/confectioners/pending/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/confectioners/reject/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/dashboard/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/diagnostics/events/route.ts",
+      "bucket": "captureOnly",
+      "mechanisms": [
+        "captureServerError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/diagnostics/incidents/route.ts",
+      "bucket": "captureOnly",
+      "mechanisms": [
+        "captureServerError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/diagnostics/metrics/route.ts",
+      "bucket": "captureOnly",
+      "mechanisms": [
+        "captureServerError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/fraud-monitor/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/payouts/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/product-media/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/promo-popup/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/suppliers/[id]/action/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/suppliers/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/admin/users/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-assistant/chat/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-assistant/conversations/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-assistant/conversations/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-assistant/feedback/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-cake-finder/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-dialogue/context/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-dialogue/learn/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai-dialogue/respond/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai/ask/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai/compare/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/ai/search/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/2fa/disable/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/2fa/login-verify/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/2fa/setup/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/2fa/verify/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/callback/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/login/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/logout/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/oauth/[provider]/callback/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/oauth/[provider]/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/auth/oauth/handoff/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/refresh/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/register/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/auth/session/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/b2b/catalog/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/b2b/orders/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/builder/config/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/builder/decor-shops/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/builder/partners/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cart/[ref]/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": [
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cart/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/certification/applications/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/certification/applications/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/certification/confectioner/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/channel/auto-post/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "cron-auth",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/channel/follow/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/channel/posts/[id]/moderate/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/channel/posts/[id]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/channel/posts/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/channel/stories/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/chat/auto-reply/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/chat/bot-trigger/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/chat/rooms/[id]/bot-message/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/chat/rooms/[id]/messages/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/chat/rooms/[id]/read/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/chat/rooms/[id]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/chat/rooms/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/checkout/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cms/banners/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cms/media/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cms/pages/[slug]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cms/pages/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cms/settings/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/atelier/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/capabilities/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/onboarding/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/portfolio/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/predictions/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/recipe-acceptances/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/recipe-stats/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/resubmit/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/scale/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioner/status/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/confectioners/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/copywriter/tasks/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/copywriter/tasks/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/courier/assign/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/courier/available-orders/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/courier/dashboard/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/courier/deliveries/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/courier/deliveries/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/courier/earnings/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/courier/location/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/crm/customers/[id]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/crm/leads/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/crm/leads/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/crm/tickets/[id]/messages/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/crm/tickets/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/crm/tickets/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/abandoned-cart/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/auto-approve/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/backup/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/certification-reminders/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/cleanup/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/diagnostics-cleanup/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/escrow-release/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/expiring-bonuses/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/franchisee-reports/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/holiday-reminders/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/payment-reminders/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/pp-certification-check/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/quality-inspections/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/review-analysis/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/sitemap-refresh/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/status/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/subscriptions/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/taster-assignment/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/user-reenagement/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/cron/weekly-digest/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/csrf-token/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/decor/products/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/diagnostics/client-errors/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/email/health/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/email/inbound/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/email/list/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/events/[id]/applications/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/events/[id]/apply/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/events/[id]/assign/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/events/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/events/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/fillings/[id]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/fillings/[id]/slice/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/fillings/ai-generate-slice/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/fillings/create/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/fillings/list/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/fillings/moderate/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchise-exchange/agreements/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchise-exchange/buy/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchise-exchange/listing/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchise-exchange/listings/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchise-exchange/transfer/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchisee/confectioners/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchisee/reports/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/franchisee/stats/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/gamification/badges/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/gamification/challenges/[id]/claim/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/gamification/challenges/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/health/live/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/health/ready/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/health/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/holidays/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/inquiries/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/inspector/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/inspector/confectioner/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/inspector/schedule/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/inventory/items/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/inventory/movements/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/inventory/write-off/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/lessons/[id]/enroll/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/lessons/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/live-streams/[id]/chat/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/live-streams/[id]/join/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/live-streams/[id]/like/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/live-streams/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/loyalty/cross-actions/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/loyalty/history/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/loyalty/levels/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/loyalty/partners/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/loyalty/partners/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/loyalty/redeem/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/maintenance/history/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/map/confectioners/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderation/queue/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderation/queue/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderation/report/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderation/rules/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderation/rules/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderation/stats/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderator/action/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/moderator/queue/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/negotiations/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/list/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/mark-read/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/preferences/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/push-subscribe/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/send/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/subscribe/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/unread-count/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/notifications/vapid-key/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/nutritionist/certify/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/nutritionist/products/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/nutritionist/recommendations/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/operator/assign/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/operator/escalations/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/operator/messages/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/operator/resolve/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ops/confectioner-today/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ops/orders-today/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ops/summary/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ops/tasks/[taskId]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/ops/tasks/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/order-media/[mediaId]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/accept/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/acceptance-check/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/assign/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/breakdown/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/cancel/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/capacity/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/complete/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/handoff/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/lifecycle/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/media/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/production/complete/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/production/start/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/purchase-draft/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/ready/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/reassign/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/repeat/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/[id]/timeline/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/availability/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/orders/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/organization/cron-recheck/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/organization/history/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/organization/suggest/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/organization/verify/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/payment/create/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/payment/refund/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/payment/webhook/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/payouts/request/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/pickup-point/assign/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/pickup-point/confirm/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/pickup-point/inventory/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/pickup-point/orders/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/pricing/regional/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/product-media/[mediaId]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/production/batches/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/production/batches/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/production/cards/[id]/approve/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/production/cards/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/production/cards/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/completeness/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/media/[mediaId]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/media/reorder/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/media/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/similar/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/slice-3d-config/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/[id]/slices/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/ai-description/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/ai-photo/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/products/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/profile/addresses/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/profile/avatar/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/profile/delete/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/profile/email/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/profile/password/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/profile/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/promotions/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/purchase-drafts/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/purchase-orders/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/purchase-orders/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/quotes/[id]/respond/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/quotes/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/[id]/accept/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/[id]/acceptances/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/[id]/publish/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/[id]/rights-confirm/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/[id]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/[id]/scale/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/[id]/versions/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/marketplace/[id]/purchase/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/marketplace/[id]/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/marketplace/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/purchases/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recipes/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/recommendations/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/reviews/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/search/health/route.ts",
+      "bucket": "no-try-catch",
+      "mechanisms": []
+    },
+    {
+      "rel": "src/app/api/search/reindex/route.ts",
+      "bucket": "cron-auth+trycatch",
+      "mechanisms": [
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/search/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/services/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/services/bookings/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/services/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/settings/promo-popup/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/simplex/contacts/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/simplex/incoming/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/simplex/read/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/simplex/send/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/simplex/support-address/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/slice/export-png/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/stories/[id]/like/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/stories/[id]/reply/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/stories/[id]/view/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/stories/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/subscriptions/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/supplier/dashboard/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/supplier/orders/[id]/action/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/supplier/orders/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/supplier/products/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/supplier/profile/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/supplier/profile/submit/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/supplier/warehouse/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/suppliers/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/taster/sessions/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/taster/sessions/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/team/events/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/team/members/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/team/tasks/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/telegram/setup-webhook/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "cron-auth",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/telegram/webapp/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/telegram/webhook/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/tenders/[id]/bid/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/tenders/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/tenders/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/venues/[id]/book/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/venues/[id]/bookings/[bookingId]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/venues/[id]/bookings/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/venues/[id]/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/venues/bookings/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/venues/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/video-feed/[videoId]/like/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/video-feed/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/visual-search/route.ts",
+      "bucket": "handleRouteError",
+      "mechanisms": [
+        "handleRouteError",
+        "try-catch",
+        "supabase-error-check"
+      ]
+    },
+    {
+      "rel": "src/app/api/webhooks/n8n/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch"
+      ]
+    },
+    {
+      "rel": "src/app/api/wishlist/route.ts",
+      "bucket": "try-catch-no-capture",
+      "mechanisms": [
+        "try-catch",
+        "supabase-error-check"
+      ]
+    }
+  ]
+}

@@ -19,7 +19,7 @@ Workflow существует и синтаксически валиден, но
 ## 2. Версионность и артефакты
 
 - Каждый образ привязан к коммиту: тег `sha-<7 символов>` (`WEB_IMAGE=ghcr.io/${{ github.repository }}:sha-${SHA:0:7}`).
-- Образы публикуются в `ghcr.io/<repo>` (build-логика deploy.yml; при недоступности ghcr — сборка на месте, опция `STAGING_WEB_IMAGE_PREFIX`).
+- Образы публикуются в `ghcr.io/<repo>` (build-логика deploy.yml; при недоступности ghcr — сборка на месте, опция `STAGING_WEB_IMAGE_PREFIX (⚠ Z-v19: опция НЕ реализована в workflow — deploy-шаг жёстко использует ghcr.io/<repo>:sha-<7>; комментарий в шапке staging-deploy.yml — план, не код)`).
 - Откат = повторный `up -d` с предыдущим `sha-`-тегом (ROLLBACK_RUNBOOK.md §5).
 - `concurrency: staging-<ref>` без cancel-in-progress — параллельные релизы не перебивают друг друга посреди миграций.
 
@@ -52,7 +52,7 @@ Workflow существует и синтаксически валиден, но
    - `STAGING_HOST` — IP/hostname staging-сервера;
    - `STAGING_SSH_KEY` — приватный SSH-ключ пользователя `deploy` (публичный — на хосте);
    - `STAGING_APP_URL` — публичный URL staging (для smoke);
-   - опционально `STAGING_WEB_IMAGE_PREFIX` — префикс реестра образов.
+   - опционально `STAGING_WEB_IMAGE_PREFIX (⚠ Z-v19: опция НЕ реализована в workflow — deploy-шаг жёстко использует ghcr.io/<repo>:sha-<7>; комментарий в шапке staging-deploy.yml — план, не код)` — префикс реестра образов.
 5. **Environment staging** (опционально): Settings → Environments → `staging` — workflow уже ссылается на `environment: staging`; можно добавить required reviewers как ручной барьер.
 6. **Первый прогон**: Actions → «Staging Deployment» → Run workflow (dispatch) на SHA с зелёным CI → все 5 job'ов зелёные, в run summary `RELEASE STATUS: SUCCESS`.
 7. **Приёмка**: ручные smoke-сценарии (регистрация, заказ, sandbox-оплата, чат) — только после этого staging считается готовым к использованию перед production-релизами.
