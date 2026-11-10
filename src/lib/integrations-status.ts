@@ -38,7 +38,12 @@ export function getIntegrationsStatus(): IntegrationsStatus {
     oauth: {
       yandex: isConfigured(process.env.YANDEX_CLIENT_ID),
       google: isConfigured(process.env.GOOGLE_CLIENT_ID),
-      vk: isConfigured(process.env.VK_CLIENT_ID),
+      // Z-v21 (аудит §A3): VK ID на main не реализован — маршрут /api/auth/oauth/vk
+      // fail-closed 501 независимо от VK_CLIENT_ID (getProviderConfig case "vk"
+      // возвращает null). Честно сообщаем false, чтобы ops-центр не показывал
+      // «настроен» для заведомо неработающего провайдера. Сменить на isConfigured()
+      // одновременно с реализацией VK ID.
+      vk: false,
     },
     email: isConfigured(process.env.SMTP_HOST),
     telegram: isConfigured(process.env.TELEGRAM_BOT_TOKEN),

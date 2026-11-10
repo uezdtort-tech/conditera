@@ -49,6 +49,13 @@ describe("integrations-status", () => {
     expect(countConfiguredIntegrations(s)).toBe(2);
   });
 
+  it("Z-v21: VK всегда false — провайдер не реализован на main (501 fail-closed), даже при VK_CLIENT_ID", () => {
+    process.env.VK_CLIENT_ID = "real-vk-client-id";
+    const s = getIntegrationsStatus();
+    expect(s.oauth.vk).toBe(false);
+    delete process.env.VK_CLIENT_ID;
+  });
+
   it("пустая строка и stub_* считаются NOT_CONFIGURED", () => {
     process.env.YANDEX_CLIENT_ID = "   ";
     process.env.GOOGLE_CLIENT_ID = "stub_placeholder";
