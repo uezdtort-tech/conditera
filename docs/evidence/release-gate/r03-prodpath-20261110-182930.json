@@ -1,0 +1,632 @@
+{
+  "gate": "RELEASE-03 §10 prodpath",
+  "spec": "node scripts/verify/prodpath-release03-verify.mjs",
+  "startedAt": "2026-11-10T18:29:30.379Z",
+  "finishedAt": null,
+  "cluster": {
+    "port": 54351,
+    "database": "prodpath_r03",
+    "user": "postgres",
+    "dataDir": "/tmp/prodpath-r03-20261110-182930",
+    "pgMajorVersion": "18",
+    "configNote": "fsync=off/synchronous_commit=off только для скорости на временной директории; семантика применения не меняется"
+  },
+  "compat": {
+    "file": "supabase/compat/0000_supabase_compat.sql",
+    "statements": 27,
+    "applied": 27,
+    "txControlSkipped": 0,
+    "preprocessSkips": [],
+    "errors": []
+  },
+  "migrations": {
+    "dir": "supabase/migrations",
+    "files": 79,
+    "totalStatements": 2335,
+    "applied": 2324,
+    "txControlSkipped": 8,
+    "preprocessSkips": 3,
+    "perFile": [
+      {
+        "file": "0001_init.sql",
+        "statements": 51,
+        "applied": 49,
+        "txControlSkipped": 0,
+        "preprocessSkips": 2
+      },
+      {
+        "file": "0002_marketplace.sql",
+        "statements": 115,
+        "applied": 115,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0003_search_function.sql",
+        "statements": 3,
+        "applied": 3,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0004_cake_builder_chat.sql",
+        "statements": 108,
+        "applied": 108,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0005_crm_cms.sql",
+        "statements": 126,
+        "applied": 126,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0006_products_extended.sql",
+        "statements": 44,
+        "applied": 44,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0007_tenders.sql",
+        "statements": 39,
+        "applied": 39,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0008_geo.sql",
+        "statements": 43,
+        "applied": 43,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0009_cms_payments_extended.sql",
+        "statements": 53,
+        "applied": 53,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0010_extended_catalog.sql",
+        "statements": 126,
+        "applied": 126,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0011_rbac_franchise_escrow.sql",
+        "statements": 54,
+        "applied": 54,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0012_new_roles_recipes_loyalty_ai.sql",
+        "statements": 86,
+        "applied": 84,
+        "txControlSkipped": 2,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0013_atomic_counter_helpers.sql",
+        "statements": 27,
+        "applied": 27,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0014_builder_config.sql",
+        "statements": 25,
+        "applied": 25,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0015_uploads_registry.sql",
+        "statements": 9,
+        "applied": 9,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0016b_prisma_enums.sql",
+        "statements": 21,
+        "applied": 21,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0017_sync_missing_tables.sql",
+        "statements": 319,
+        "applied": 319,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0017b_channel_moderation.sql",
+        "statements": 10,
+        "applied": 10,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0018_audit_log_table.sql",
+        "statements": 22,
+        "applied": 22,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0019_missing_runtime_tables.sql",
+        "statements": 140,
+        "applied": 140,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0020_filling_moderation.sql",
+        "statements": 27,
+        "applied": 27,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0021_holidays_events.sql",
+        "statements": 28,
+        "applied": 28,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0022_confectioner_capabilities.sql",
+        "statements": 31,
+        "applied": 31,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0023_pricing_components.sql",
+        "statements": 44,
+        "applied": 44,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0024_supabase_optimization.sql",
+        "statements": 22,
+        "applied": 22,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0025_grants_and_fixes.sql",
+        "statements": 26,
+        "applied": 26,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0026_storage_buckets_and_confectioners_rls.sql",
+        "statements": 41,
+        "applied": 39,
+        "txControlSkipped": 2,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0027_confectioner_identity_unification.sql",
+        "statements": 39,
+        "applied": 37,
+        "txControlSkipped": 2,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0028_profiles_registration_columns.sql",
+        "statements": 6,
+        "applied": 6,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0029_service_products.sql",
+        "statements": 22,
+        "applied": 22,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0030_rls_user_roles_profiles.sql",
+        "statements": 6,
+        "applied": 6,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0031_org_verifications_schema.sql",
+        "statements": 6,
+        "applied": 6,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0032_db_fixes_and_optimization.sql",
+        "statements": 19,
+        "applied": 19,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0033_venue_bookings.sql",
+        "statements": 20,
+        "applied": 20,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0034_money_path_identity.sql",
+        "statements": 34,
+        "applied": 32,
+        "txControlSkipped": 2,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0035_payment_integrity.sql",
+        "statements": 7,
+        "applied": 7,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0036_payout_integrity.sql",
+        "statements": 9,
+        "applied": 9,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0037_payout_linkage.sql",
+        "statements": 8,
+        "applied": 8,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0038_ledger_reconciliation.sql",
+        "statements": 10,
+        "applied": 10,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0039_release_readiness.sql",
+        "statements": 10,
+        "applied": 9,
+        "txControlSkipped": 0,
+        "preprocessSkips": 1
+      },
+      {
+        "file": "0040_local_runtime.sql",
+        "statements": 49,
+        "applied": 49,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0041_refund_idempotency.sql",
+        "statements": 6,
+        "applied": 6,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0042_profile_notify_prefs.sql",
+        "statements": 3,
+        "applied": 3,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0043_additive_schema_alignment.sql",
+        "statements": 15,
+        "applied": 15,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0044_user_challenges_claim.sql",
+        "statements": 3,
+        "applied": 3,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0045_fix_bonus_balance_rpc_uuid_text.sql",
+        "statements": 2,
+        "applied": 2,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0046_inventory_movements.sql",
+        "statements": 6,
+        "applied": 6,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0047_chat_support_indexes.sql",
+        "statements": 2,
+        "applied": 2,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0048_inventory_atomic_movement.sql",
+        "statements": 1,
+        "applied": 1,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0049_inventory_write_off_idempotency.sql",
+        "statements": 4,
+        "applied": 4,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0050_hot_path_indexes.sql",
+        "statements": 16,
+        "applied": 16,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0051_hot_query_indexes.sql",
+        "statements": 10,
+        "applied": 10,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0052_product_card_media.sql",
+        "statements": 37,
+        "applied": 37,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0053_ops_center.sql",
+        "statements": 28,
+        "applied": 28,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0054_order_lifecycle_capacity.sql",
+        "statements": 31,
+        "applied": 31,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0055_business_scale.sql",
+        "statements": 3,
+        "applied": 3,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0057_order_reviews.sql",
+        "statements": 5,
+        "applied": 5,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0058_chat_channels_order_unique.sql",
+        "statements": 1,
+        "applied": 1,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0059_notification_prefs_columns.sql",
+        "statements": 8,
+        "applied": 8,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0060_p11_hardening_integrity.sql",
+        "statements": 9,
+        "applied": 9,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0061_drop_orders_log_status_trigger.sql",
+        "statements": 2,
+        "applied": 2,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0062_cart_custom_items.sql",
+        "statements": 4,
+        "applied": 4,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0062_cart_sync_custom.sql",
+        "statements": 7,
+        "applied": 7,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0063_financial_ledger.sql",
+        "statements": 16,
+        "applied": 16,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0064_supplier_procurement.sql",
+        "statements": 42,
+        "applied": 42,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0065_recipes_content_extension.sql",
+        "statements": 13,
+        "applied": 13,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0066_recipe_children.sql",
+        "statements": 32,
+        "applied": 32,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0067_recipe_ingredients_normalization.sql",
+        "statements": 8,
+        "applied": 8,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0068_recipe_marketplace_bridge.sql",
+        "statements": 9,
+        "applied": 9,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0069_recipe_jsonb_normalization.sql",
+        "statements": 4,
+        "applied": 4,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0070_recipe_production_contour.sql",
+        "statements": 29,
+        "applied": 29,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0071_inventory_writeoff_idempotency_rls.sql",
+        "statements": 18,
+        "applied": 18,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0072_recipe_purchases_entitlement.sql",
+        "statements": 6,
+        "applied": 6,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0074_user_roles_rls_recursion_fix.sql",
+        "statements": 5,
+        "applied": 5,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0075_recipe_purchases_recipe_fk_fix.sql",
+        "statements": 4,
+        "applied": 4,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0076_recipe_moderation_fields.sql",
+        "statements": 6,
+        "applied": 6,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0077_release_security_closures.sql",
+        "statements": 34,
+        "applied": 34,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0078_recipe_purchases_author_read_policy_fix.sql",
+        "statements": 1,
+        "applied": 1,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      },
+      {
+        "file": "0079_diagnostics_incidents.sql",
+        "statements": 20,
+        "applied": 20,
+        "txControlSkipped": 0,
+        "preprocessSkips": 0
+      }
+    ],
+    "errors": []
+  },
+  "ledger": {
+    "table": "public.schema_migrations",
+    "expected": 79,
+    "actual": 79,
+    "setEqualsDisk": true,
+    "missingFromLedger": [],
+    "extraInLedger": [],
+    "lineage": {
+      "range": "0001..0078",
+      "reservedAbsent": [
+        "0056",
+        "0073"
+      ],
+      "consolidatedSuffix": [
+        "0016→0016b"
+      ],
+      "absentOnDisk": [
+        "0056",
+        "0073"
+      ],
+      "ok": true,
+      "note": "в задании указано «77 файлов (0001..0077 без 0056/0073)»; линейка репо: 0016 существует только как 0016b; R03V добавил 0078 (fix RLS-политики покупок автора). Гейт сверяет ledger == диск == линейка."
+    }
+  },
+  "rerun": {},
+  "partial": {},
+  "grants": {
+    "tableChecks": [],
+    "functionChecks": [],
+    "probes": [],
+    "allPassed": null
+  },
+  "moderation": {
+    "expected": 3,
+    "actual": null,
+    "columns": [],
+    "ok": null
+  },
+  "errors": [
+    {
+      "phase": "harness",
+      "code": null,
+      "message": "Expected 77 migration files on disk/ledger (0001..0078 minus {0016,0056,0073} plus {0016b,0017b}), got 79"
+    }
+  ],
+  "durationMs": 1744
+}
