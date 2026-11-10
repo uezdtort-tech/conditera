@@ -10,7 +10,7 @@
  *   - Recent runs log
  *   - Import instructions for actual n8n
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,12 +62,24 @@ export function N8nAutomationDashboard() {
   const [simulateResult, setSimulateResult] = useState<
     Record<string, { users: number; sample?: unknown[] }>
   >({});
+  // Z-v20 (честность UI): реальный статус n8n из /api/health вместо
+  // захардкоженного «n8n подключён» (n8n может быть не развёрнут).
+  const [n8nStatus, setN8nStatus] = useState<"loading" | "ok" | "down">("loading");
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((h) => setN8nStatus(h?.n8n === "ok" ? "ok" : "down"))
+      .catch(() => setN8nStatus("down"));
+  }, []);
 
   const handleSimulate = async (wf: Workflow) => {
     setSimulating(wf.id);
     try {
-      // In real prod, would call the API endpoint with the cron secret.
-      // For preview we just compute realistic numbers.
+      // Z-v20 (честность UI): это демо-оценка масштаба на клиенте,
+      // а не вызов реального cron-endpoint (секрет CRON_SECRET не может
+      // находиться в браузере). Формулировки тоста и блока результата
+      // помечены как демо.
       await new Promise((r) => setTimeout(r, 900));
       const seed = Math.floor(Math.random() * 10) + 1;
       const mockUsers =
@@ -80,8 +92,8 @@ export function N8nAutomationDashboard() {
         ...prev,
         [wf.id]: { users: mockUsers, sample: generateSample(wf.id, mockUsers) },
       }));
-      toast.success(
-        `Симуляция запущена: затронуто ${mockUsers} пользователей`
+      toast.info(
+        `Демо-оценка масштаба: ~${mockUsers} пользователей. Реальный запуск — из n8n или по cron-расписанию.`
       );
     } catch (err) {
       toast.error("Ошибка симуляции");
@@ -90,32 +102,26 @@ export function N8nAutomationDashboard() {
     }
   };
 
-  const handleDownload = (wf: Workflow) => {
-    // Create a downloadable JSON for the user to import into n8n
-    const blob = new Blob(
-      [
-        JSON.stringify(
-          {
-            name: wf.name,
-            active: true,
-            nodes: [],
-            connections: {},
-            settings: { executionOrder: "v1" },
-            tags: wf.tags.map((t) => ({ name: t })),
-          },
-          null,
-          2
-        ),
-      ],
-      { type: "application/json" }
-    );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = wf.jsonFile;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Файл ${wf.jsonFile} скачан`);
+  const handleDownload = async (wf: Workflow) => {
+    // Z-v20: скачиваем НАСТОЯЩИЙ JSON из репозитория через админ-endpoint,
+    // а не пустую заглушку (nodes: []) под именем реального файла.
+    try {
+      const res = await fetch(`/api/admin/n8n-workflows?file=${encodeURIComponent(wf.jsonFile)}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = wf.jsonFile;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Файл ${wf.jsonFile} скачан`);
+    } catch (e) {
+      toast.error(`Не удалось скачать: ${(e as Error).message}. Файл лежит в /n8n-workflows репозитория.`);
+    }
   };
 
   return (
@@ -128,15 +134,27 @@ export function N8nAutomationDashboard() {
             Автоматизация (n8n)
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            3 cron-воркфлоу для возврата пользователей и удержания. Каждый
-            воркфлоу можно импортировать в n8n или запустить вручную.
+            3 cron-воркфлоу удержания с визуализацией (всего в репозитории 25
+            импортируемых JSON). Каждый воркфлоу можно импортировать в n8n или
+            запустить по cron-расписанию.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
-            <CheckCircle2 className="h-3 w-3 mr-1" />
-            n8n подключён
-          </Badge>
+          {n8nStatus === "ok" ? (
+            <Badge variant="outline" className="text-emerald-700 border-emerald-300">
+              <CheckCircle2 className="h-3 w-3 mr-1" />
+              Webhook-приёмник доступен
+            </Badge>
+          ) : n8nStatus === "down" ? (
+            <Badge variant="outline" className="text-amber-700 border-amber-300">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              n8n не подключён
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">
+              Проверка статуса…
+            </Badge>
+          )}
           <a
             href="http://localhost:5678"
             target="_blank"
@@ -205,10 +223,10 @@ export function N8nAutomationDashboard() {
                   <div className="mt-3 p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded text-xs">
                     <div className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium">
                       <CheckCircle2 className="h-3 w-3" />
-                      Последняя симуляция
+                      Демо-оценка масштаба
                     </div>
                     <div className="mt-1 text-muted-foreground">
-                      Пользователей: <strong>{result.users}</strong>
+                      Примерно пользователей: <strong>{result.users}</strong>
                     </div>
                   </div>
                 )}
@@ -267,10 +285,16 @@ export function N8nAutomationDashboard() {
             <Activity className="h-5 w-5 text-primary" />
             История запусков
           </h3>
-          <Badge variant="outline" className="text-xs">
-            Последние 24 часа
+          {/* Z-v20 (честность UI): данные ниже — демонстрационные,
+              а не реальный лог исполнений */}
+          <Badge variant="outline" className="text-amber-700 border-amber-300">
+            Демо-данные
           </Badge>
         </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          Реальная история исполнения доступна в n8n (раздел Executions) и в
+          истории cron-запусков после подключения n8n к продакшен-окружению.
+        </p>
         <div className="space-y-2">
           {MOCK_RECENT_RUNS.map((run, i) => (
             <RunRow key={i} run={run} />
@@ -290,20 +314,20 @@ export function N8nAutomationDashboard() {
             <span>
               Запустите n8n через docker-compose:{" "}
               <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">
-                docker-compose up -d n8n
+                docker compose up -d n8n
               </code>
             </span>
           </li>
           <li className="flex gap-2">
             <span className="font-semibold text-amber-700 dark:text-amber-400">2.</span>
             <span>
-              Откройте <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">http://localhost:5678</code> и войдите как admin / conditera_admin_2026
+              Откройте <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">http://localhost:5678</code> и войдите с учётными данными из переменной <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">N8N_ADMIN_PASSWORD</code> (файл .env — не публикуется в интерфейсе)
             </span>
           </li>
           <li className="flex gap-2">
             <span className="font-semibold text-amber-700 dark:text-amber-400">3.</span>
             <span>
-              Импортируйте 3 JSON-файла из папки <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">/n8n-workflows</code> через меню Workflows → Import from File
+              Импортируйте JSON-файлы (25 воркфлоу) из папки <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">/n8n-workflows</code> через меню Workflows → Import from File, или скачайте их кнопкой «JSON» на карточках выше
             </span>
           </li>
           <li className="flex gap-2">
@@ -311,7 +335,7 @@ export function N8nAutomationDashboard() {
             <span>
               Установите переменные окружения в n8n:{" "}
               <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">APP_URL</code>,{" "}
-              <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">CRON_SECRET</code>
+              <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">CRON_SECRET</code>; в приложении задайте <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">N8N_WEBHOOK_BASE_URL</code> и <code className="bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded text-xs">N8N_WEBHOOK_SECRET</code>
             </span>
           </li>
           <li className="flex gap-2">
