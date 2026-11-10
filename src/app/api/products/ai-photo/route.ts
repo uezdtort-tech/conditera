@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -139,6 +140,16 @@ export async function GET(): Promise<NextResponse> {
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    // Z-v20 (P2): платная AI-генерация — тот же лимит, что у ai-description
+    // (10/мин с IP). Без лимита — cost-abuse и переполнение диска.
+    const blocked = await enforceRateLimit(
+      request,
+      `ai-photo:${getClientIP(request)}`,
+      RATE_LIMITS.ai.limit,
+      RATE_LIMITS.ai.windowMs
+    );
+    if (blocked) return blocked as unknown as NextResponse;
+
     const user = await getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });

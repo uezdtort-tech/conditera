@@ -17,7 +17,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const got = request.headers.get("X-N8N-Secret");
-    if (!got || got !== expected) {
+    // Z-v20: constant-time сравнение (единый контракт с telegram/simplex webhooks)
+    const { timingSafeEqualStr } = await import("@/lib/secure-compare");
+    if (!got || !timingSafeEqualStr(got, expected)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ success: true, event });
   } catch (error: any) {
     console.error("[n8n-webhook] error:", error?.message);
-    return NextResponse.json({ error: "Internal error", detail: error?.message }, { status: 500 });
+    // Z-v20: не отдаём detail наружу (утечка внутренних сообщений)
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

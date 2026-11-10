@@ -14,7 +14,13 @@ import { createServerClient } from "@supabase/ssr";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");
-  const returnTo = searchParams.get("returnTo") || "/dashboard";
+  let returnTo = searchParams.get("returnTo") || "/dashboard";
+
+  // Open-redirect guard (Z-v20): returnTo должен быть локальным путём.
+  // Отсекаем протокол-относительные "//host" и userinfo-трюк "@evil.com".
+  if (!returnTo.startsWith("/") || returnTo.startsWith("//") || returnTo.includes("@")) {
+    returnTo = "/dashboard";
+  }
 
   if (!code) {
     return NextResponse.json({ error: "No code parameter" }, { status: 400 });

@@ -33,6 +33,7 @@ import {
   verifyBackupCode,
   hashBackupCode,
 } from "@/lib/totp";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -93,6 +94,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
+
+    // 0. Анти-брутфорс второй ступени (Z-v20, P1 security):
+    //    - 5 попыток подбора кода на один temp-токен (TTL токена 5 минут —
+    //      окно лимита равно жизни токена, т.е. не более 5 попыток всего);
+    //    - 20 попыток на IP за 5 минут (страховка от перебора многих токенов).
+    //    Без этого 6-значный TOTP можно подбирать неограниченно в течение
+    //    жизни temp-токена. Login (первая ступень) уже ограничен 20/ч.
+    const ip = getClientIP(request);
+    const perTokenBlocked = await enforceRateLimit(
+      request,
+      `tfa-code:${tfaTempToken}`,
+      5,
+      5 * 60_000
+    );
+    if (perTokenBlocked) return perTokenBlocked as unknown as NextResponse;
+    const perIpBlocked = await enforceRateLimit(
+      request,
+      `tfa-ip:${ip}`,
+      20,
+      5 * 60_000
+    );
+    if (perIpBlocked) return perIpBlocked as unknown as NextResponse;
 
     // 1. Валидировать временный токен (5 минут TTL)
     const tempPayload = await verifyTfaLoginToken(tfaTempToken);
@@ -275,7 +298,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error: any) {
     console.error("POST /api/auth/2fa/login-verify error:", error?.message);
     return NextResponse.json(
-      { error: "Внутренняя ошибка сервера", detail: error?.message },
+      { error: "Внутренняя ошибка сервера" },
       { status: 500 }
     );
   }

@@ -108,7 +108,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Поиск по названию и описанию (ILIKE)
     if (q) {
-      query = query.or(`title.ilike.%${q}%,description.ilike.%${q}%`);
+      // Z-v20 (P2 filter-injection): PostgREST .or() парсит `,()` как синтаксис,
+      // а %/_ — как LIKE-маски. Вырезаем, чтобы пользовательский q не мог
+      // внедрить дополнительные условия фильтра.
+      const safeQ = q.replace(/[,()\\%_]/g, " ").trim();
+      if (safeQ) {
+        query = query.or(`title.ilike.%${safeQ}%,description.ilike.%${safeQ}%`);
+      }
     }
 
     // Фильтр по тегу (содержит в массиве tags[])
