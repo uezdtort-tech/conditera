@@ -17,7 +17,7 @@
  * ВАЖНО: middleware работает в Edge Runtime — нельзя использовать node:crypto.
  * Используем TextEncoder для конвертации в bytes и ручной constant-time comparison.
  */
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 
 // Список путей, для которых CSRF-проверка пропускается.
 // Это endpoints куда стучатся внешние сервисы (YooKassa, n8n, SimpleX, cron).
@@ -112,10 +112,25 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // === Correlation id (DEPLOY-01 §3): сквозной идентификатор запроса ===
+  // Берём существующий x-request-id (LB/CDN) или генерируем UUID.
+  // Пробрасываем в downstream-роуты (capture.requestIdFrom читает его)
+  // и возвращаем клиенту — ответ можно сопоставить с app_error_events.
+  const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+  const headersWithId = new Headers(request.headers);
+  headersWithId.set("x-request-id", requestId);
+  const requestWithId = new NextRequest(request.nextUrl, {
+    method: request.method,
+    headers: headersWithId,
+    body: request.body,
+    duplex: "half",
+  });
+
   // === Supabase session update (v2.0) ===
   // Refresh access token если истёк, сохраняет в cookies
   const { updateSession } = await import("@/lib/supabase/middleware");
-  const response = await updateSession(request);
+  const response = await updateSession(requestWithId);
+  response.headers.set("x-request-id", requestId);
 
   // === CSRF enforcement (cryptographic, double-submit cookie) ===
   if (
@@ -131,7 +146,7 @@ export async function proxy(request: NextRequest) {
         {
           error: "CSRF-токен отсутствует. Получите токен через GET /api/csrf-token и отправьте в header 'x-csrf-token'.",
         },
-        { status: 403 }
+        { status: 403, headers: { "x-request-id": requestId } }
       );
     }
 
@@ -139,7 +154,7 @@ export async function proxy(request: NextRequest) {
     if (!timingSafeEqual(headerToken, cookieToken)) {
       return NextResponse.json(
         { error: "Неверный CSRF-токен. Обновите страницу и попробуйте снова." },
-        { status: 403 }
+        { status: 403, headers: { "x-request-id": requestId } }
       );
     }
   }

@@ -33,6 +33,7 @@ import {
   History as HistoryIcon,
   Search,
   ShieldCheck,
+  Activity,
 } from "lucide-react";
 import { formatDistanceToNow } from "@/lib/utils";
 import { csrfFetch } from "@/lib/api-client";
@@ -72,6 +73,33 @@ interface Summary {
   byPriority: Record<string, number>;
   openTotal: number;
   last24h: number;
+}
+
+/** Метрики процесса/канала диагностики (GET /api/admin/diagnostics/metrics). */
+interface MetricsSnapshot {
+  process?: {
+    pid: number;
+    uptimeSec: number;
+    memory: { rssBytes: number; heapUsedBytes: number; heapTotalBytes: number };
+    cpu: { load1: number };
+  };
+  eventStore?: { queueLength: number; circuitOpen: boolean; totalDropped: number };
+  events?: {
+    last1h: { total: number; critical: number; http5xx: number };
+    last24h: { total: number; critical: number; http5xx: number };
+  };
+}
+
+/** Raw-событие (GET /api/admin/diagnostics/events?fingerprint=...). */
+interface RawEvent {
+  event_id: string;
+  occurred_at: string;
+  severity: string;
+  error_code: string | null;
+  message: string;
+  route: string | null;
+  http_status: number | null;
+  app_version: string;
 }
 
 const ALL_STATUSES = [
@@ -127,6 +155,9 @@ export function AdminIncidentsTab() {
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
+  const [eventsFor, setEventsFor] = useState<string | null>(null);
+  const [events, setEvents] = useState<RawEvent[]>([]);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -146,6 +177,14 @@ export function AdminIncidentsTab() {
       const sumRes = await csrfFetch("/api/admin/diagnostics/incidents?summary=1");
       const sumData = (await sumRes.json()) as { summary?: Summary };
       setSummary(sumData.summary || null);
+
+      // Метрики — необязательная панель: сбой/недоступность не ломают список
+      try {
+        const mRes = await csrfFetch("/api/admin/diagnostics/metrics");
+        if (mRes.ok) setMetrics((await mRes.json()) as MetricsSnapshot);
+      } catch {
+        /* метрики недоступны — панель просто не показывается */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось загрузить инциденты");
     } finally {
@@ -175,6 +214,25 @@ export function AdminIncidentsTab() {
       setHistory([]);
     }
   }, [historyFor]);
+
+  const loadEvents = useCallback(async (fingerprint: string) => {
+    if (eventsFor === fingerprint) {
+      setEventsFor(null);
+      setEvents([]);
+      return;
+    }
+    try {
+      const res = await csrfFetch(
+        `/api/admin/diagnostics/events?fingerprint=${encodeURIComponent(fingerprint)}&limit=25`
+      );
+      const data = (await res.json()) as { events?: RawEvent[] };
+      setEventsFor(fingerprint);
+      setEvents(data.events || []);
+    } catch {
+      setEventsFor(fingerprint);
+      setEvents([]);
+    }
+  }, [eventsFor]);
 
   const transition = useCallback(
     async (incidentId: string, toStatus: string, ignoreReason?: string) => {
@@ -245,6 +303,38 @@ export function AdminIncidentsTab() {
             tone="text-emerald-600 bg-emerald-100"
           />
         </div>
+      )}
+
+      {/* Метрики процесса/канала (§5) — необязательная панель */}
+      {metrics?.process && (
+        <Card className="p-4" role="region" aria-label="Метрики диагностики">
+          <div className="flex items-center gap-2 mb-2 text-sm font-medium">
+            <Activity className="h-4 w-4 text-primary" aria-hidden />
+            Метрики диагностики
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+            <MetricCell
+              label="RSS / Heap"
+              value={`${(metrics.process.memory.rssBytes / 1048576).toFixed(0)} / ${(metrics.process.memory.heapUsedBytes / 1048576).toFixed(0)} МБ`}
+            />
+            <MetricCell label="Uptime" value={`${Math.floor(metrics.process.uptimeSec / 60)} мин`} />
+            <MetricCell label="Load (1м)" value={metrics.process.cpu.load1.toFixed(2)} />
+            <MetricCell
+              label="Очередь событий"
+              value={`${metrics.eventStore?.queueLength ?? 0}${metrics.eventStore?.circuitOpen ? " (circuit open!)" : ""}`}
+              tone={metrics.eventStore?.circuitOpen ? "text-red-600" : undefined}
+            />
+            <MetricCell
+              label="События 1ч / 24ч"
+              value={`${metrics.events?.last1h.total ?? 0} / ${metrics.events?.last24h.total ?? 0}`}
+            />
+            <MetricCell
+              label="5xx за 24ч (крит.)"
+              value={`${metrics.events?.last24h.http5xx ?? 0} (${metrics.events?.last24h.critical ?? 0})`}
+              tone={(metrics.events?.last24h.critical ?? 0) > 0 ? "text-red-600" : undefined}
+            />
+          </div>
+        </Card>
       )}
 
       {/* Фильтры */}
@@ -336,6 +426,16 @@ export function AdminIncidentsTab() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      onClick={() => void loadEvents(inc.fingerprint)}
+                      aria-label="Сырые события"
+                      title="Сырые события по fingerprint"
+                      className="min-h-[44px]"
+                    >
+                      <Activity className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => void loadHistory(inc.id)}
                       aria-label="История статусов"
                       className="min-h-[44px]"
@@ -376,6 +476,30 @@ export function AdminIncidentsTab() {
                     )}
                   </div>
                 )}
+
+                {eventsFor === inc.fingerprint && (
+                  <div className="mt-3 pt-3 border-t border-border max-h-72 overflow-y-auto">
+                    <p className="text-xs font-medium mb-1.5 text-muted-foreground">
+                      Сырые события (последние {events.length}):
+                    </p>
+                    {events.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">Событий нет (raw-записи могли быть ограничены rate-limit или очищены).</p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {events.map((ev) => (
+                          <li key={ev.event_id} className="text-xs text-muted-foreground">
+                            <span className="font-mono text-foreground">
+                              [{ev.severity}]{ev.http_status ? ` ${ev.http_status}` : ""}
+                            </span>{" "}
+                            {formatDistanceToNow(new Date(ev.occurred_at))} назад ·{" "}
+                            <span className="font-mono">{ev.app_version.slice(0, 7)}</span> ·{" "}
+                            {ev.error_code ? <span className="font-mono">{ev.error_code}</span> : null} {ev.message.slice(0, 120)}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </Card>
             );
           })}
@@ -396,5 +520,14 @@ function SummaryStat({ label, value, tone }: { label: string; value: string; ton
         <p className="text-xs text-muted-foreground mt-1">{label}</p>
       </div>
     </Card>
+  );
+}
+
+function MetricCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-md bg-muted/50 px-3 py-2">
+      <p className={`font-semibold leading-tight ${tone || ""}`}>{value}</p>
+      <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
+    </div>
   );
 }

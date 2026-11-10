@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { reportClientError } from "@/lib/diagnostics/capture";
+import { reportClientError } from "@/lib/diagnostics/client-report";
 
 /**
  * Global Error boundary — перехватывает ошибки ВНЕ основного layout

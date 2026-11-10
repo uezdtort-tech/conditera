@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, RefreshCw, Home } from "lucide-react";
-import { reportClientError } from "@/lib/diagnostics/capture";
+import { reportClientError } from "@/lib/diagnostics/client-report";
 
 /**
  * Error boundary для роутов Next.js App Router.

@@ -6,21 +6,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const queryMock = vi.fn();
+const notifyChannelMock = vi.fn();
 
 vi.mock("@/lib/postgrest/pool", () => ({
   getPool: () => ({ query: queryMock }),
+}));
+
+vi.mock("@/lib/telegram-bot", () => ({
+  notifyChannel: (...args: unknown[]) => notifyChannelMock(...args),
 }));
 
 import {
   storeErrorEvent,
   flushQueueForTests,
   __resetStoreForTests,
+  __resetPoolCacheForTests,
   getStoreStats,
   classifyPriority,
 } from "./event-store";
 
 beforeEach(() => {
   __resetStoreForTests();
+  __resetPoolCacheForTests();
   queryMock.mockReset();
   queryMock.mockResolvedValue({ rows: [] });
 });
@@ -202,5 +209,93 @@ describe("инцидент-агрегация (§4)", () => {
       String(c[0]).includes("app_error_events")
     );
     expect(insert).toBeTruthy();
+  });
+});
+
+// ===== EXT (DEPLOY-01 §4.1): дедупликация P0/P1 уведомлений через notified_at =====
+describe("notifyCriticalIncidentDeduped — анти-шторм через notified_at", () => {
+  beforeEach(() => {
+    notifyChannelMock.mockReset();
+    notifyChannelMock.mockResolvedValue({ ok: true });
+    process.env.TELEGRAM_BOT_TOKEN = "test-bot-token";
+    process.env.TELEGRAM_CHANNEL_ID = "test-channel";
+  });
+
+  it("первый P0: claim notified_at выполняется, Telegram отправляется", async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (String(sql).includes("SET notified_at = now()")) {
+        return Promise.resolve({ rows: [{ notified_at: new Date().toISOString() }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    // P0: critical × payments
+    storeErrorEvent({
+      component: "payments",
+      severity: "critical",
+      message: "payment processor exploded",
+    });
+    await flushQueueForTests();
+    const claim = queryMock.mock.calls.find(
+      (c) => String(c[0]).includes("SET notified_at = now()")
+    );
+    expect(claim).toBeTruthy();
+    expect(String(claim?.[1]?.[0])).toHaveLength(40); // fingerprint
+    expect(notifyChannelMock).toHaveBeenCalledTimes(1);
+    const notification = notifyChannelMock.mock.calls[0][0] as { type: string; title: string };
+    expect(notification.type).toBe("error");
+    expect(notification.title).toContain("P0");
+  });
+
+  it("claim пуст (недавно уведомляли) — Telegram НЕ отправляется повторно", async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (String(sql).includes("SET notified_at = now()")) {
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    storeErrorEvent({
+      component: "payments",
+      severity: "critical",
+      message: "dup check",
+    });
+    await flushQueueForTests();
+    const claims = queryMock.mock.calls.filter((c) =>
+      String(c[0]).includes("SET notified_at = now()")
+    );
+    expect(claims.length).toBe(1);
+    expect(notifyChannelMock).not.toHaveBeenCalled();
+  });
+
+  it("отказ Telegram-канала НЕ оставляет notified_at (at-least-once)", async () => {
+    queryMock.mockImplementation((sql: string) => {
+      if (String(sql).includes("SET notified_at = now()")) {
+        return Promise.resolve({ rows: [{ notified_at: new Date().toISOString() }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    notifyChannelMock.mockRejectedValue(new Error("telegram 500"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    storeErrorEvent({
+      component: "payments",
+      severity: "critical",
+      message: "channel down",
+    });
+    await flushQueueForTests();
+    // следующий вызов должен снова попробовать claim (notified_at не обновлён)
+    queryMock.mockClear();
+    queryMock.mockImplementation((sql: string) => {
+      if (String(sql).includes("SET notified_at = now()")) {
+        return Promise.resolve({ rows: [{ notified_at: new Date().toISOString() }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    storeErrorEvent({
+      component: "payments",
+      severity: "critical",
+      message: "channel down",
+    });
+    await flushQueueForTests();
+    expect(notifyChannelMock).toHaveBeenCalledTimes(2); // повтор после сбоя
+    warnSpy.mockRestore();
   });
 });

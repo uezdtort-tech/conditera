@@ -194,7 +194,7 @@ export async function transitionIncident(input: TransitionInput): Promise<Incide
        FROM public.app_incidents WHERE id = $1`,
     [input.incidentId]
   );
-  const row = current.rows?.[0] as (IncidentRecord & { status: IncidentStatus }) | undefined;
+  const row = current.rows?.[0] as unknown as (IncidentRecord & { status: IncidentStatus }) | undefined;
   if (!row) {
     throw new IncidentStateError("Инцидент не найден", 404);
   }

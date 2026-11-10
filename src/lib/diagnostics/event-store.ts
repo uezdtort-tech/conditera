@@ -19,9 +19,34 @@
  * — только маскированный серверный стек.
  */
 
-import { getPool } from "@/lib/postgrest/pool";
 import { computeFingerprint } from "./fingerprint";
 import { maskStackTrace, maskString, safeJsonStringify, scrub } from "./masking";
+
+/**
+ * getPoolAsync — динамический импорт pg-пула (однократно, с кэшем).
+ *
+ * ВАЖНО (debundle): event-store импортируется capture.ts, который тянется
+ * в КЛИЕНТСКИЙ бандл (error.tsx/global-error.tsx). Статический import pg
+ * ломает браузерную сборку (node:dns). Очередь синхронна, реальная запись
+ * — только в flush()/upsertIncident, которые выполняются в nodejs-рантайме.
+ */
+type PgPool = ReturnType<typeof import("@/lib/postgrest/pool").getPool>;
+type PgPoolModule = { getPool: () => PgPool };
+
+let poolModulePromise: Promise<PgPoolModule> | null = null;
+
+async function getPoolAsync(): Promise<PgPool> {
+  if (!poolModulePromise) {
+    poolModulePromise = import("@/lib/postgrest/pool") as Promise<PgPoolModule>;
+  }
+  const mod = await poolModulePromise;
+  return mod.getPool();
+}
+
+/** Тест-хук: сброс кэша динамического импорта (только vitest). */
+export function __resetPoolCacheForTests(): void {
+  poolModulePromise = null;
+}
 
 export type Severity = "debug" | "info" | "warning" | "error" | "critical";
 export type DiagnosticSource = "server" | "client" | "cron" | "chat" | "n8n";
@@ -77,6 +102,11 @@ const CIRCUIT_COOLDOWN_MS = 30_000;
 /** Максимум записей одного fingerprint за окно (всплеск не засоряет БД). */
 const PER_FINGERPRINT_LIMIT = 20;
 const PER_FINGERPRINT_WINDOW_MS = 60_000;
+/**
+ * Анти-шторм уведомлений (§4.1): повторная телеграмма по тому же инциденту
+ * не чаще одного раза за окно (occurrence_count при этом продолжит расти).
+ */
+const NOTIFICATION_COOLDOWN_MS = 30 * 60 * 1000;
 
 interface QueuedEvent {
   row: EventRow;
@@ -248,7 +278,7 @@ async function flush(): Promise<void> {
   writing = true;
   const batch = queue.splice(0, queue.length);
   try {
-    const pool = getPool();
+    const pool = await getPoolAsync();
     await withTimeout(insertRows(pool, batch), WRITE_TIMEOUT_MS);
     consecutiveFailures = 0;
   } catch (err) {
@@ -274,7 +304,10 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-async function insertRows(pool: ReturnType<typeof getPool>, batch: QueuedEvent[]): Promise<void> {
+async function insertRows(
+  pool: Awaited<ReturnType<typeof getPoolAsync>>,
+  batch: QueuedEvent[]
+): Promise<void> {
   for (const { row } of batch) {
     await pool.query(
       `INSERT INTO public.app_error_events
@@ -349,7 +382,7 @@ export function classifyPriority(component: string, severity: Severity): "P0" | 
  */
 export async function upsertIncident(row: EventRow): Promise<void> {
   try {
-    const pool = getPool();
+    const pool = await getPoolAsync();
     const priority = classifyPriority(row.component, row.severity);
     const title = row.errorCode
       ? `${row.errorCode}: ${row.message.slice(0, 120)}`
@@ -385,7 +418,7 @@ export async function upsertIncident(row: EventRow): Promise<void> {
     );
 
     if (priority === "P0" || priority === "P1") {
-      void notifyCriticalIncident(row, priority);
+      void notifyCriticalIncidentDeduped(row, priority);
     }
   } catch {
     // даже агрегация не должна ронять основной поток;
@@ -393,31 +426,81 @@ export async function upsertIncident(row: EventRow): Promise<void> {
   }
 }
 
+/** Троттлинг console.warn о ненастроенном канале (не чаще раза в минуту). */
+let lastChannelWarnAt = 0;
+
 /**
- * Уведомление P0/P1 через существующий Telegram-канал (notifyChannel).
- * Если канал не настроен — честный console.warn, БЕЗ имитации успеха (§4.1).
+ * Уведомление P0/P1 с дедупликацией через app_incidents.notified_at
+ * (0079). Сначала ОТПРАВКА, потом отметка notified_at — отказ канала
+ * НЕ съедает уведомление (at-least-once важнее at-most-once: пропущенный
+ * P0 дороже повторной телеграммы). Повторные события инцидента в окне
+ * NOTIFICATION_COOLDOWN_MS молча агрегируются в occurrence_count.
+ */
+async function notifyCriticalIncidentDeduped(
+  row: EventRow,
+  priority: "P0" | "P1"
+): Promise<void> {
+  try {
+    if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHANNEL_ID) {
+      // Честный warn (§4.1), но не чаще раза в минуту на процесс
+      if (Date.now() - lastChannelWarnAt > 60_000) {
+        lastChannelWarnAt = Date.now();
+        console.warn(
+          `[diagnostics] ${priority} incident (component=${row.component}, ` +
+            `code=${row.errorCode ?? "n/a"}) — notification channel NOT configured ` +
+            `(TELEGRAM_BOT_TOKEN/TELEGRAM_CHANNEL_ID missing). No notification sent.`
+        );
+      }
+      return;
+    }
+
+    const pool = await getPoolAsync();
+    // Claim: атомарно занимаем окно уведомления (защита от гонок воркеров)
+    const claim = await pool.query(
+      `UPDATE public.app_incidents SET notified_at = now()
+       WHERE fingerprint = $1
+         AND (notified_at IS NULL OR notified_at < now() - ($2 || ' milliseconds')::interval)
+       RETURNING notified_at`,
+      [row.fingerprint, String(NOTIFICATION_COOLDOWN_MS)]
+    );
+    if (!claim.rows.length) return; // недавно уже уведомляли
+
+    try {
+      await notifyCriticalIncident(row, priority);
+    } catch (sendErr) {
+      // at-least-once: сбой отправки ВОЗВРАЩАЕТ окно — следующий повтор
+      // инцидента попробует снова (пропущенный P0 дороже повторной телеграммы)
+      await pool
+        .query(
+          `UPDATE public.app_incidents SET notified_at = NULL WHERE fingerprint = $1`,
+          [row.fingerprint]
+        )
+        .catch(() => undefined);
+      console.warn(
+        "[diagnostics] notification send failed (notification window reopened):",
+        sendErr instanceof Error ? sendErr.message : sendErr
+      );
+    }
+  } catch {
+    // Даже дедупликация не должна ронять поток агрегации (§3.3)
+  }
+}
+
+/**
+ * Отправка через существующий Telegram-канал (notifyChannel).
+ * БРОСАЕТ при сбое канала — окно notified_at возвращает вызвавший код
+ * (at-least-once, см. notifyCriticalIncidentDeduped). Проверка
+ * «канал не настроен» — в дедуп-обёртке, здесь только доставка.
  */
 async function notifyCriticalIncident(row: EventRow, priority: "P0" | "P1"): Promise<void> {
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHANNEL_ID) {
-    console.warn(
-      `[diagnostics] ${priority} incident detected (component=${row.component}, ` +
-        `code=${row.errorCode ?? "n/a"}) — notification channel NOT configured ` +
-        `(TELEGRAM_BOT_TOKEN/TELEGRAM_CHANNEL_ID missing). No notification sent.`
-    );
-    return;
-  }
-  try {
-    const { notifyChannel } = await import("@/lib/telegram-bot");
-    await notifyChannel(
-      `🚨 [${priority}] ${row.component}: ${row.message.slice(0, 160)}\n` +
-        `route: ${row.route ?? "n/a"} | env: ${row.environment} | ver: ${row.appVersion}`
-    );
-  } catch (err) {
-    console.warn(
-      `[diagnostics] critical notification failed (ignored):`,
-      err instanceof Error ? err.message : err
-    );
-  }
+  const { notifyChannel } = await import("@/lib/telegram-bot");
+  await notifyChannel({
+    type: "error",
+    title: `🚨 [${priority}] ${row.component}`,
+    body:
+      `${row.message.slice(0, 160)}\n` +
+      `route: ${row.route ?? "n/a"} | env: ${row.environment} | ver: ${row.appVersion}`,
+  });
 }
 
 /**
@@ -428,7 +511,7 @@ export async function flushQueueForTests(): Promise<void> {
   // Защита от race: пишем до трёх циклов
   for (let i = 0; i < 3; i++) {
     if (queue.length === 0 && !writing) return;
-    // eslint-disable-next-line no-await-in-loop
+     
     await new Promise((r) => setTimeout(r, FLUSH_INTERVAL_MS + 50));
     if (Date.now() >= circuitOpenUntil) await flush();
   }

@@ -16,6 +16,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { hasAnyRole } from "@/lib/role-guards";
 import { safeAbsOrderMediaPath } from "@/lib/ops/order-media";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -115,13 +116,10 @@ export async function GET(
     const body = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
     return new Response(body, { status: 200, headers });
   } catch (err) {
-    console.error(
-      "[order-media] GET failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/order-media/[mediaId]",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

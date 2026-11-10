@@ -58,6 +58,19 @@ const SENSITIVE_KEY_PATTERNS: RegExp[] = [
   /email/i, // персональные данные: e-mail не сохраняем в событиях
   /phone/i, // персональные данные: телефон не сохраняем
   /inn|kpp|snils/i, // персональные данные
+  // DEPLOY-01 §3.2 (расширение): приватные переписки и содержимое файлов
+  // НЕ попадают в диагностические события даже фрагментом.
+  // Ключ-объекты (сообщения/файлы целиком) — консервативно REDACT целиком:
+  // вложенные ключи (message.body) не видны scrub'у отдельно, а пропустить
+  // приватную переписку дороже, чем потерять строку отладки.
+  /^(msg|message|messages)$/i, // объект сообщения(й) целиком
+  /^(body|content)$/i, // вложенное тело (message.body, chat.content)
+  /^(files?|attachments?|documents?|uploads?|media[-_]?data)$/i, // объекты файлов
+  /message[-_]?(body|content|text)/i, // явные составные ключи
+  /chat[-_]?(body|content|text)/i,
+  /private[-_]?(message|chat|note|dialog)/i,
+  /(file|attachment|document|upload)[-_]?(content|data|base64|body)/i,
+  /\bbase64\b|data[-_]?uri/i,
 ];
 
 /** Placeholder вместо маскированного значения. */
@@ -77,6 +90,9 @@ const SENSITIVE_VALUE_PATTERNS: RegExp[] = [
   /:\/\/[^/\s:@]+:[^/\s@]+@/g,
   // банковская карта (13–19 цифр с разделителями)
   /\b(?:\d[ -]?){13,19}\b/g,
+  // inline-файлы: data:image/png;base64,... и любые data:-URI с содержимым
+  // (DEPLOY-01 §3.2: содержимое файлов/медиа не сохраняется)
+  /data:[\w.+-]+\/[\w.+-]+;base64,[A-Za-z0-9+/=]{16,}/g,
 ];
 
 /**
@@ -87,7 +103,7 @@ export function stripControlChars(input: string): string {
   // \n и \r → пробел (строка остаётся однострочной), прочее C0/C1 → удалить
   return input
     .replace(/[\r\n]+/g, " ")
-    // eslint-disable-next-line no-control-regex
+     
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
 }
 
