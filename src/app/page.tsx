@@ -12,6 +12,8 @@ import { LiveDecorHydrator } from "@/components/marketplace/live-decor-hydrator"
 import { PromoPopup } from "@/components/layout/promo-popup";
 import { CartDrawer } from "@/components/marketplace/cart-drawer";
 import { CartSyncHydrator } from "@/components/marketplace/cart-sync-hydrator";
+import { CartView } from "@/components/marketplace/cart-view";
+import { AuthView } from "@/components/layout/auth-view";
 import { ChatWidget } from "@/components/chat/chat-widget";
 import { CakeBuilderDialog } from "@/components/cake-builder/cake-builder-dialog";
 import dynamic from "next/dynamic";
@@ -241,6 +243,10 @@ export default function Home() {
         return <FaqPage />;
       case "checkout":
         return <CheckoutPage />;
+      case "cart":
+        return <CartView />;
+      case "auth":
+        return <AuthView />;
       case "dashboard-customer":
         return <CustomerDashboard />;
       case "dashboard-confectioner":

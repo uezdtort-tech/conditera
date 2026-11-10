@@ -784,31 +784,24 @@ export function BlogPage() {
       </div>
 
       {/* ===== NEWSLETTER ===== */}
+      {/* Z-v20 (UX D6): раньше форма показывала «Подписка оформлена!» без
+          API-вызова (ложь пользователю). Backend рассылки отсутствует,
+          поэтому вместо фейковой формы — реальное действие: переход к
+          Telegram-каналу/боту (существующий модуль платформы). */}
       <Card className="p-6 lg:p-8 bg-gradient-to-br from-primary/5 to-transparent border-primary/20 text-center">
-        <h2 className="font-display text-xl lg:text-2xl font-bold mb-2">Подпишитесь на рассылку</h2>
+        <h2 className="font-display text-xl lg:text-2xl font-bold mb-2">Будьте в курсе новинок</h2>
         <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-          Раз в неделю — лучшие статьи, новые рецепты, тренды и кейсы кондитеров.
-          Никакого спама, только полезный контент. Отписка в один клик.
+          Новые рецепты, тренды и кейсы кондитеров — через нашего Telegram-бота:
+          дайджесты, уведомления о заказах и статусах доставки. Никакого спама,
+          отписка в один клик.
         </p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            toast.success("Подписка оформлена!", { description: "Письмо с подтверждением отправлено на ваш email" });
-          }}
-          className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto"
-        >
-          <Input
-            type="email"
-            placeholder="your@email.com"
-            required
-            className="flex-1"
-          />
-          <Button type="submit">
-            Подписаться
+        <div className="flex flex-col sm:flex-row gap-2 justify-center">
+          <Button asChild>
+            <a href="/telegram-bot">Подключить Telegram-уведомления</a>
           </Button>
-        </form>
+        </div>
         <p className="text-xs text-muted-foreground mt-3">
-          Нажимая «Подписаться», вы соглашаетесь с политикой конфиденциальности (152-ФЗ).
+          Email-рассылка появится вместе с публичным запуском платформы.
         </p>
       </Card>
     </div>
@@ -1714,48 +1707,57 @@ export function CheckoutPage() {
               </div>
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>Имя получателя *</Label>
+                  <Label htmlFor="checkout-recipient-name">Имя получателя *</Label>
                   <Input
+                    id="checkout-recipient-name"
                     value={recipientName}
                     onChange={(e) => setRecipientName(e.target.value)}
                     placeholder="Ваше имя"
                     autoComplete="name"
+                    aria-required="true"
                   />
                 </div>
                 <div>
-                  <Label>Телефон получателя *</Label>
+                  <Label htmlFor="checkout-recipient-phone">Телефон получателя *</Label>
                   <Input
+                    id="checkout-recipient-phone"
                     value={recipientPhone}
                     onChange={(e) => setRecipientPhone(e.target.value)}
                     placeholder="+7 (999) 123-45-67"
                     autoComplete="tel"
                     inputMode="tel"
+                    aria-required="true"
                   />
                 </div>
               </div>
               {deliveryType === "delivery" && (
                 <div>
-                  <Label>Адрес доставки *</Label>
+                  <Label htmlFor="checkout-address">Адрес доставки *</Label>
                   <Input
+                    id="checkout-address"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     placeholder="Улица, дом, квартира"
                     autoComplete="street-address"
+                    aria-required="true"
                   />
                 </div>
               )}
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>Город *</Label>
+                  <Label htmlFor="checkout-city">Город *</Label>
                   <Input
+                    id="checkout-city"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     placeholder="Москва"
+                    aria-required="true"
                   />
                 </div>
                 <div>
-                  <Label>Дата получения</Label>
+                  <Label htmlFor="checkout-delivery-date">Дата получения</Label>
                   <Input
+                    id="checkout-delivery-date"
                     type="date"
                     value={deliveryDate}
                     onChange={(e) => {
@@ -1774,8 +1776,9 @@ export function CheckoutPage() {
                 enabled={Boolean(user)}
               />
               <div>
-                <Label>Комментарий курьеру</Label>
+                <Label htmlFor="checkout-notes">Комментарий курьеру</Label>
                 <Textarea
+                  id="checkout-notes"
                   rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}

@@ -41,7 +41,7 @@ import {
   Check,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
 
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
@@ -105,6 +105,16 @@ export function HomePage() {
 
   const popularProducts = products.filter((p) => p.isPopular || p.isHit).slice(0, 8);
   const newProducts = products.filter((p) => p.isNew).slice(0, 4);
+
+  // Z-v20 (UX D4): счётчики категорий — из реального hydrated-стора,
+  // а не из статического mock-значения CATEGORIES[].count
+  const categoryCounts = useMemo(() => {
+    const counts = {} as Record<string, number>;
+    for (const cat of CATEGORIES) {
+      counts[cat.slug] = products.filter((p) => p.category === cat.slug).length;
+    }
+    return counts;
+  }, [products]);
 
   // P2.2: анкета «Помочь выбрать» на главной (ТЗ §5) — результат можно
   // перенести в каталог («Показать в каталоге»)
@@ -252,10 +262,13 @@ export function HomePage() {
                       <Star className="h-5 w-5 fill-amber-500 text-amber-500" />
                     </div>
                     <div>
-                      <div className="text-sm font-bold">4.9 / 5.0</div>
-                      <div className="text-xs text-muted-foreground">
-                        средний рейтинг
-                      </div>
+                    <div className="text-sm font-bold">
+                      {avgRating > 0 ? `${avgRating} / 5.0` : "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      средний рейтинг
+                      {avgRating === 0 ? " (нет оценённых товаров)" : ""}
+                    </div>
                     </div>
                   </div>
                 </div>
@@ -408,7 +421,11 @@ export function HomePage() {
                     {cat.icon}
                   </div>
                   <div className="text-sm font-medium text-center">{cat.name}</div>
-                  <div className="text-xs text-muted-foreground">{cat.count} тов.</div>
+                  <div className="text-xs text-muted-foreground">
+                    {categoryCounts[cat.slug] > 0
+                      ? `${categoryCounts[cat.slug]} тов.`
+                      : ""}
+                  </div>
                 </button>
               </TiltCard>
             </motion.div>
@@ -969,12 +986,15 @@ export function HomePage() {
             </div>
             <div className="grid grid-cols-3 gap-3 text-center">
               {[
+                // Z-v20 (UX D3): бизнес-модель — факты (5% / 24ч / 4%),
+                // метрики платформы — реальные счётчики вместо выдуманных
+                // «190+ городов» и «120K заказов в год»
                 { val: "5%", label: "Старт комиссии" },
                 { val: "24ч", label: "Эскроу-холд" },
                 { val: "4%", label: "НПД с физлиц" },
-                { val: "190+", label: "Городов России" },
-                { val: "120K", label: "Заказов в год" },
-                { val: "4.9", label: "Рейтинг платформы" },
+                { val: verifiedCount > 0 ? String(verifiedCount) : "—", label: "Проверенных кондитеров" },
+                { val: productCount > 0 ? String(productCount) : "—", label: "Товаров в каталоге" },
+                { val: cityCount > 0 ? String(cityCount) : "—", label: "Городов с кондитерами" },
               ].map((s, i) => (
                 <div
                   key={i}

@@ -73,12 +73,12 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
             </Badge>
           )}
           {product.isNew && (
-            <Badge className="bg-emerald-600 text-white text-[10px] px-2 py-0.5">
+            <Badge className="bg-emerald-600 text-white text-xs px-2 py-0.5">
               Новинка
             </Badge>
           )}
           {product.isPopular && !product.isHit && (
-            <Badge className="bg-amber-500 text-white text-[10px] px-2 py-0.5">
+            <Badge className="bg-amber-600 text-white text-[10px] px-2 py-0.5">
               Популярное
             </Badge>
           )}
@@ -111,7 +111,7 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Avatar className="h-4 w-4">
               <AvatarImage src={confectioner.avatar} alt={confectioner.businessName} />
-              <AvatarFallback className="text-[8px]">
+              <AvatarFallback className="text-[10px]">
                 {confectioner.businessName.slice(0, 2)}
               </AvatarFallback>
             </Avatar>
@@ -152,13 +152,13 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           return (
             <div className="flex flex-wrap gap-1 pt-1 border-t">
               {opts.installment && opts.installments[0] && (
-                <Badge variant="outline" className="text-[9px] bg-rose-50 text-rose-700 border-rose-200">
+                <Badge variant="outline" className="text-xs bg-rose-50 text-rose-700 border-rose-200">
                   <Calendar className="h-2.5 w-2.5 mr-0.5" />
                   {formatInstallmentPlan(opts.installments[0], product.price)}
                 </Badge>
               )}
               {opts.split && (
-                <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-200">
+                <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
                   🔀 Сплит
                 </Badge>
               )}

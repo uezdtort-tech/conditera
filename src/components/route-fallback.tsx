@@ -11,6 +11,9 @@ import { LiveServicesHydrator } from '@/components/marketplace/live-services-hyd
 import { LiveDecorHydrator } from '@/components/marketplace/live-decor-hydrator';
 import { PromoPopup } from '@/components/layout/promo-popup';
 import { CartDrawer } from '@/components/marketplace/cart-drawer';
+import { CartSyncHydrator } from '@/components/marketplace/cart-sync-hydrator';
+import { CartView } from '@/components/marketplace/cart-view';
+import { AuthView } from '@/components/layout/auth-view';
 import { ChatWidget } from '@/components/chat/chat-widget';
 import { CakeBuilderDialog } from '@/components/cake-builder/cake-builder-dialog';
 import type { Role } from '@/lib/types';
@@ -172,6 +175,8 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       case 'reviews': return <ReviewsPage />;
       case 'blog': return <BlogPage />;
       case 'checkout': return <CheckoutPage />;
+      case 'cart': return <CartView />;
+      case 'auth': return <AuthView />;
       case 'promotions': return <PromotionsPage />;
       case 'ready-made': return <ReadyMadePage />;
       case 'tenders': return <TendersPage />;
@@ -207,6 +212,9 @@ export function RouteFallback({ view, params }: { view: string; params?: Record<
       <LiveProductsHydrator />
       <LiveServicesHydrator />
       <LiveDecorHydrator />
+      {/* Z-v20 (UX D11): синхронизация гостевой корзины при прямом заходе
+          на stub-маршруты — раньше была только в app/page.tsx */}
+      <CartSyncHydrator />
       <AuthModal />
       <PromoPopup />
       <CartDrawer />
