@@ -1,0 +1,113 @@
+# ============================================================================
+# Maintenance — «Уездный кондитер» (DEPLOY-01 §5/§10/§12)
+# ============================================================================
+# СТАТУС: READY FOR OWNER APPROVAL — выполняется ТОЛЬКО после настройки
+# secrets владельцем. До этого job честно помечает шаги SKIPPED и НЕ
+# имитирует успешное обслуживание (§19: нет бегущей проверки = нет успеха).
+#
+# Ежедневное обслуживание через HTTP (cron-эндпоинты приложения):
+#   1. POST-факт бэкапа:        GET {APP_URL}/api/cron/backup        (X-Cron-Secret)
+#   2. Ретеншн диагностики:     GET {APP_URL}/api/cron/diagnostics-cleanup
+#   3. Restore-verify staging:  SSH → scripts/ops/backup-verify-restore.mjs
+#
+# Требуемые секреты (настраивает ВЛАДЕЛЕЦ один раз):
+#   MAINTENANCE_APP_URL      — публичный URL (staging или production)
+#   MAINTENANCE_CRON_SECRET  — значение CRON_SECRET соответствующей среды
+#   STAGING_HOST/STAGING_SSH_KEY — (опционально) для restore-verify на хосте
+#
+# daily-report (§12): скрипт scripts/ops/daily-report.mjs читает ЛОКАЛЬНЫЕ
+# файлы бэкапов — запускается на хосте приложения по crontab
+# (см. docs/operations/MONITORING.md §6), НЕ из GitHub Actions.
+# ============================================================================
+
+name: Maintenance
+
+on:
+  schedule:
+    # Ежедневно 04:00 UTC (после nightly E2E 03:00)
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance
+  cancel-in-progress: false
+
+jobs:
+  http-maintenance:
+    name: Backup + diagnostics cleanup (HTTP)
+    runs-on: ubuntu-latest
+    env:
+      APP_URL_SET: ${{ secrets.MAINTENANCE_APP_URL != '' }}
+      CRON_SECRET_SET: ${{ secrets.MAINTENANCE_CRON_SECRET != '' }}
+    steps:
+      - name: Skip (honest) — secrets not configured
+        if: ${{ env.APP_URL_SET != 'true' || env.CRON_SECRET_SET != 'true' }}
+        run: |
+          {
+            echo "## Maintenance: SKIPPED (not an error)"
+            echo ""
+            echo "| Secret | Configured |"
+            echo "|---|---|"
+            echo "| MAINTENANCE_APP_URL | ${{ env.APP_URL_SET }} |"
+            echo "| MAINTENANCE_CRON_SECRET | ${{ env.CRON_SECRET_SET }} |"
+            echo ""
+            echo "Workflow is READY FOR OWNER APPROVAL: set both secrets to enable daily backup + diagnostics cleanup."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "MAINTENANCE SKIPPED: owner secrets not configured (no fake success)."
+
+      - name: Trigger backup (cron endpoint)
+        if: ${{ env.APP_URL_SET == 'true' && env.CRON_SECRET_SET == 'true' }}
+        run: |
+          set -e
+          RESP=$(curl -sS -w "\n%{http_code}" \
+            -H "X-Cron-Secret: ${{ secrets.MAINTENANCE_CRON_SECRET }}" \
+            "${{ secrets.MAINTENANCE_APP_URL }}/api/cron/backup")
+          CODE=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | head -n -1)
+          echo "backup HTTP $CODE: $BODY"
+          [ "$CODE" = "200" ] || { echo "❌ backup failed"; exit 1; }
+          echo "✅ backup OK"
+
+      - name: Trigger diagnostics cleanup (retention)
+        if: ${{ env.APP_URL_SET == 'true' && env.CRON_SECRET_SET == 'true' }}
+        run: |
+          set -e
+          RESP=$(curl -sS -w "\n%{http_code}" \
+            -H "X-Cron-Secret: ${{ secrets.MAINTENANCE_CRON_SECRET }}" \
+            "${{ secrets.MAINTENANCE_APP_URL }}/api/cron/diagnostics-cleanup")
+          CODE=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | head -n -1)
+          echo "cleanup HTTP $CODE: $BODY"
+          [ "$CODE" = "200" ] || { echo "❌ cleanup failed"; exit 1; }
+          echo "✅ cleanup OK"
+
+  restore-verify:
+    name: Backup restore verification (staging host)
+    runs-on: ubuntu-latest
+    needs: http-maintenance
+    if: ${{ always() }}
+    env:
+      STAGING_HOST_SET: ${{ secrets.STAGING_HOST != '' }}
+    steps:
+      - name: Skip (honest) — staging host not configured
+        if: ${{ env.STAGING_HOST_SET != 'true' }}
+        run: |
+          echo "## Restore-verify: SKIPPED — STAGING_HOST not configured (owner decision D-1)." >> "$GITHUB_STEP_SUMMARY"
+          echo "RESTORE-VERIFY SKIPPED: no staging host (no fake verification)."
+
+      - name: Restore-verify via SSH (§10: proof = successful restore)
+        if: ${{ env.STAGING_HOST_SET == 'true' }}
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: deploy
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/conditera-staging
+            # §10: доказательство бэкапа — успешное восстановление в
+            # одноразовую БД + сверка количества строк (fail → exit 1)
+            node scripts/ops/backup-verify-restore.mjs

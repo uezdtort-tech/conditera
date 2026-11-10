@@ -376,6 +376,13 @@ jobs:
       - name: Production env template contract
         run: node scripts/verify/production-env-template.mjs
 
+      - name: Route error-capture coverage (DEPLOY-01 §3)
+        # Гвард единой регистрации ошибок: каждый маршрут критичного
+        # бизнес-периметра обязан писать 5xx в app_error_events
+        # (handleRouteError/captureServerError). Новый непокрытый
+        # core-маршрут = FAIL (иначе инцидент не создастся).
+        run: node scripts/verify/route-error-coverage.mjs
+
   # ===== 8. Миграции на чистой PostgreSQL 18 (DEPLOY-01 §6 п.11-13) =====
   # Реальный ledger-мигратор прод-пайплайна (supabase/init-scripts/
   # 01-apply-migrations.sh) против чистой PG18: прогон + идемпотентный
