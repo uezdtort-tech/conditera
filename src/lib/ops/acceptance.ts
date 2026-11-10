@@ -32,7 +32,7 @@ import type { RiskLevel, RiskReasonCode } from "./lifecycle-config";
 export type Availability = "available" | "available_with_warning" | "unavailable";
 
 export interface AcceptanceReason {
-  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING" | "RECIPE_MISSING" | "LOW_STOCK";
+  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING" | "RECIPE_MISSING" | "LOW_STOCK" | "CAN_ACCEPT_WITH_PURCHASE";
   message: string;
 }
 
@@ -482,11 +482,22 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
     }
 
     if (shortages.length > 0) {
+      // Z-v20 (ТЗ §20 CAN_ACCEPT_WITH_PURCHASE): если закупка запланирована и
+      // успевает к безопасному старту производства — нехватка НЕ блокирует
+      // приёмку (предупреждение). Раньше LOW_STOCK оставался блокирующим
+      // всегда, из-за чего весь контур «дефицит → закупка → ETA» не мог
+      // завершиться приёмкой заказа (engine bug, найден Z-v20 E2E №2).
+      // Повторная проверка остатков выполняется при старте производства.
+      const purchaseCovers = Boolean(earliestEta && etaBeforeProductionStart);
       reasons.push({
-        code: "LOW_STOCK",
-        message: `Недостаточно: ${shortages
-          .map((s) => `${s.name}${s.shortage ? ` (−${s.shortage} ${s.unit})` : ""}`)
-          .join(", ")}.`,
+        code: purchaseCovers ? "CAN_ACCEPT_WITH_PURCHASE" : "LOW_STOCK",
+        message: purchaseCovers
+          ? `Недостаточно: ${shortages
+              .map((s) => `${s.name}${s.shortage ? ` (−${s.shortage} ${s.unit})` : ""}`)
+              .join(", ")}. Закупка успевает к производству (ETA ${earliestEta!.toLocaleString("ru-RU")}).`
+          : `Недостаточно: ${shortages
+              .map((s) => `${s.name}${s.shortage ? ` (−${s.shortage} ${s.unit})` : ""}`)
+              .join(", ")}.`,
       });
     }
 

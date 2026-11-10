@@ -62,6 +62,48 @@ async function restoreProductionTimeFixture() {
   prodTimeApplied = false;
 }
 
+// Z-v20 §4.5: изолированная fixture склада для Acceptance Engine.
+// Рецепт «Ягодный бархат» требует «Ягоды» 250 г (recipe_ingredients, без
+// inventory_item_id — матч по имени). В seed склада confectioner@demo.ru
+// позиции «Ягоды» нет → accept всегда даёт ORDER_NOT_FEASIBLE (LOW_STOCK)
+// и ВЕСЬ жизненный цикл каскадно падает на запретных PENDING-переходах.
+// Fixture: создаём складскую позицию «Ягоды» (5 кг) на время счастливого
+// пути (E2E №1 и №4), снимаем остаток для сценария дефицита (E2E №2),
+// в cleanup возвращаем исходное состояние.
+// Фиксированный UUID (aaaaaaaa-…-…9f1) — только для verify-фикстуры,
+// idempotent INSERT/RESTORE, реальные данные demo-склада не изменяются.
+const BERRIES_ITEM_ID = "aaaaaaaa-0000-4000-8000-0000000009f1";
+let berriesOriginal; // undefined = не трогали; null = не существовала; number = исходный остаток
+async function stockBerries(kg = 5) {
+  const cur = await client.query(`SELECT quantity FROM public.inventory_items WHERE id = $1::uuid`, [BERRIES_ITEM_ID]);
+  if (berriesOriginal === undefined) {
+    berriesOriginal = cur.rows.length ? Number(cur.rows[0].quantity) : null;
+  }
+  if (cur.rows.length === 0) {
+    await client.query(
+      `INSERT INTO public.inventory_items
+         (id, owner_id, name, category, quantity, unit, min_quantity, cost_per_unit, supplier, is_active)
+       VALUES ($1::uuid, $2::uuid, 'Ягоды', 'ingredient', $3::numeric, 'кг', 1, 900, 'verify-fixture', true)`,
+      [BERRIES_ITEM_ID, OWNER_ID, kg]
+    );
+  } else {
+    await client.query(`UPDATE public.inventory_items SET quantity = $2::numeric, is_active = true WHERE id = $1::uuid`, [BERRIES_ITEM_ID, kg]);
+  }
+}
+async function clearBerries() {
+  // Дефицит для E2E №2: позиция остаётся, остатка нет → no_stock/shortage
+  await client.query(`UPDATE public.inventory_items SET quantity = 0 WHERE id = $1::uuid`, [BERRIES_ITEM_ID]);
+}
+async function restoreBerries() {
+  if (berriesOriginal === undefined) return;
+  if (berriesOriginal === null) {
+    await client.query(`DELETE FROM public.inventory_items WHERE id = $1::uuid`, [BERRIES_ITEM_ID]);
+  } else {
+    await client.query(`UPDATE public.inventory_items SET quantity = $2::numeric WHERE id = $1::uuid`, [BERRIES_ITEM_ID, berriesOriginal]);
+  }
+  berriesOriginal = undefined;
+}
+
 let passed = 0;
 let failed = 0;
 const failures = [];
@@ -208,6 +250,7 @@ async function main() {
   const customer = await login("customer@demo.ru");
   assert("логины admin/confectioner/customer", Boolean(admin && owner && customer));
   await applyProductionTimeFixture();
+  await stockBerries(); // Z-v20 §4.5: счастливый путь требует остаток «Ягоды»
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const tomorrowStr = isoDate(tomorrow);
@@ -228,11 +271,11 @@ async function main() {
 
   const assign = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("POST assign → 200", assign.status === 200, JSON.stringify(assign.json).slice(0, 200));
-  assert("оценка времени: cakes → 240 мин (category, approximate)", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "category", JSON.stringify(assign.json?.estimate));
+  assert("оценка времени: cakes → 360 мин (product production_time_hours=6, configured)", assign.json?.estimate?.minutes === 360 && assign.json?.estimate?.source === "product" && assign.json?.estimate?.approximate === false, JSON.stringify(assign.json?.estimate));
   assert("резерв создан на дату доставки", assign.json?.reservation?.date === tomorrowStr, JSON.stringify(assign.json?.reservation));
   assert("latestSafeStartAt рассчитан", Boolean(assign.json?.deadline?.latestSafeStartAt));
-  // 18:00 − 65м буферов − 240м производства = 12:55
-  assert("latest safe start = 12:55", assign.json?.deadline?.latestSafeStartAt?.includes("T12:55"), assign.json?.deadline?.latestSafeStartAt);
+  // 18:00 − 65м буферов − 360м производства (production_time_hours=6) = 10:55
+  assert("latest safe start = 10:55", assign.json?.deadline?.latestSafeStartAt?.includes("T10:55"), assign.json?.deadline?.latestSafeStartAt);
 
   const lc1 = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: admin });
   assert("после assign: assigned", lc1.json?.derived?.assignmentStatus === "assigned", JSON.stringify(lc1.json?.derived));
@@ -301,7 +344,12 @@ async function main() {
 
   // =========================================================================
   section("E2E №2 — нехватка ингредиента → закупка → ETA (ТЗ §47, §20)");
-  const o2 = await createTestOrder({ deliveryDate: tomorrowStr });
+  // Z-v20 §4.5: снимаем остаток «Ягоды» — сценарий дефицита.
+  // Дата +3 дня: у OWNER_ID завтра занято 360м (резерв o1), 360+360 > дневной
+  // ёмкости → CAPACITY_EXCEEDED уронил бы assign ещё до проверки дефицита.
+  await clearBerries();
+  const dayPlus3Str = isoDate(new Date(Date.now() + 3 * 86_400_000));
+  const o2 = await createTestOrder({ deliveryDate: dayPlus3Str });
   testOrders.push(o2.orderId);
   const a2 = await api("POST", `/api/orders/${o2.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("o2 assign → 200", a2.status === 200, JSON.stringify(a2.json).slice(0, 120));
@@ -319,15 +367,15 @@ async function main() {
   const accNoEta = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("acceptance-check без ETA: canAccept=false (PURCHASE_ETA_MISSING)", accNoEta.status === 200 && accNoEta.json?.canAccept === false && (accNoEta.json?.reasons || []).some((r) => r.code === "PURCHASE_ETA_MISSING"), JSON.stringify((accNoEta.json?.reasons || []).map((r) => r.code)));
 
-  // ETA до безопасного старта (завтра 09:00 < 11:55) → CAN_ACCEPT_WITH_PURCHASE
-  const etaOk = new Date(`${tomorrowStr}T09:00:00`);
+  // ETA до безопасного старта (+3 дня 09:00 < 10:55) → CAN_ACCEPT_WITH_PURCHASE
+  const etaOk = new Date(`${dayPlus3Str}T09:00:00`);
   const setEta = await api("PATCH", `/api/purchase-drafts/${draftId}`, { token: owner, body: { expectedEta: etaOk.toISOString() } });
   assert("PATCH purchase-draft ETA → 200", setEta.status === 200, JSON.stringify(setEta.json).slice(0, 120));
   const accOk = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
-  assert("ETA до старта → canAccept=true (CAN_ACCEPT_WITH_PURCHASE)", accOk.status === 200 && accOk.json?.canAccept === true && accOk.json?.availability === "available_with_warning", JSON.stringify({ canAccept: accOk.json?.canAccept, av: accOk.json?.availability }));
+  assert("ETA до старта → canAccept=true (CAN_ACCEPT_WITH_PURCHASE)", accOk.status === 200 && accOk.json?.canAccept === true && accOk.json?.availability === "available_with_warning", JSON.stringify({ canAccept: accOk.json?.canAccept, av: accOk.json?.availability, reasons: (accOk.json?.reasons || []).map((r) => r.code), owners: (accOk.json?.owners || []).map((o) => ({ inv: o.inventory, purchase: o.purchase })) }));
 
   // ETA после безопасного старта → CANNOT_ACCEPT
-  const etaLate = new Date(`${tomorrowStr}T20:00:00`);
+  const etaLate = new Date(`${dayPlus3Str}T20:00:00`);
   await api("PATCH", `/api/purchase-drafts/${draftId}`, { token: owner, body: { expectedEta: etaLate.toISOString() } });
   const accLate = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("ETA после старта → canAccept=false (PURCHASE_ETA_AFTER_DEADLINE)", accLate.json?.canAccept === false && (accLate.json?.reasons || []).some((r) => r.code === "PURCHASE_ETA_AFTER_DEADLINE"), JSON.stringify((accLate.json?.reasons || []).map((r) => r.code)));
@@ -356,7 +404,7 @@ async function main() {
   testOrders.push(o3.orderId);
   const assignFull = await api("POST", `/api/orders/${o3.orderId}/assign`, { token: admin, body: { confectionerId: CONF_112 } });
   assert("assign перегруженному → 422 CAPACITY_EXCEEDED (ТЗ §16)", assignFull.status === 422 && assignFull.json?.error === "CAPACITY_EXCEEDED", JSON.stringify(assignFull.json).slice(0, 200));
-  assert("в отказе арифметика: required/available", assignFull.json?.capacity?.requiredMinutes === 240 && assignFull.json?.capacity?.availableMinutes === 0, JSON.stringify(assignFull.json?.capacity));
+  assert("в отказе арифметика: required/available", assignFull.json?.capacity?.requiredMinutes === 360 && assignFull.json?.capacity?.availableMinutes === 0, JSON.stringify(assignFull.json?.capacity));
 
   const orderStillUnassigned = await client.query(`SELECT confectioner_id FROM public.orders WHERE id = $1::uuid`, [o3.orderId]);
   assert("после отказа заказ остался unassigned (откат захвата)", orderStillUnassigned.rows[0]?.confectioner_id === null);
@@ -369,21 +417,33 @@ async function main() {
 
   // =========================================================================
   section("E2E №4 — заказ становится at-risk → авто-resolve (ТЗ §49, §13)");
-  // Заказ с выдачей сегодня в 00:00-01:00 → latest safe start уже прошёл
-  const o4 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: todayStr, window: "00:00-01:00" });
+  // Z-v20 §4.5: возвращаем остаток «Ягоды» — o4 проходит accept (счастливый путь).
+  // Сценарий честен относительно Acceptance Engine: дедлайн в БУДУЩЕМ
+  // (доставка +2 дня, окно 15:00-18:00 → 360 мин помещаются в свободный день),
+  // а latest_safe_start в ПРОШЛОМ — fixture-строка order_production
+  // (now − 90 мин). Ровно это и есть at-risk: кондитер отстаёт от графика,
+  // заказ ещё можно принять и успеть.
+  // +2 дня (не дальше): computeRiskSnapshotsBulk(3) сканирует окно 3 дней —
+  // на +4 дня заказ не попадает в снапшоты (Z-v20, найдено прогоном).
+  // Резерв o4 ставим на 03:00-07:00 (вне рабочих окон 9:00-18:00 и вне
+  // пересечения с резервами o7/o8 540-940 на ту же дату).
+  await stockBerries();
+  const dayPlus2Str = isoDate(new Date(Date.now() + 2 * 86_400_000));
+  // Заказ с выдачей в будущем, но безопасный старт уже прошёл (fixture-строка)
+  const o4 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2Str });
   testOrders.push(o4.orderId);
   await client.query(
     `INSERT INTO public.order_production (order_id, estimated_minutes, estimate_source, latest_safe_start_at, deadline_at, planned_date, planned_start_minute, ready_photo_required)
-     VALUES ($1::uuid, 240, 'category', now() - interval '90 minutes', $2::timestamptz, $3::date, 0, true)
+     VALUES ($1::uuid, 360, 'product', now() - interval '90 minutes', $2::timestamptz, $3::date, 540, true)
      ON CONFLICT (order_id) DO UPDATE SET latest_safe_start_at = now() - interval '90 minutes'`,
-    [o4.orderId, new Date(`${todayStr}T01:00:00`).toISOString(), todayStr]
+    [o4.orderId, new Date(`${dayPlus2Str}T18:00:00`).toISOString(), dayPlus2Str]
   );
   // Резерв окна (заказ назначен через SQL — создаём резерв явно, чтобы после
   // старта производства риск полностью ушёл в GREEN, ТЗ §49)
   await client.query(
     `INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes)
-     VALUES ($1::uuid, $2::uuid, $3::date, 0, 240, 240) ON CONFLICT DO NOTHING`,
-    [o4.orderId, OWNER_ID, todayStr]
+     VALUES ($1::uuid, $2::uuid, $3::date, 180, 420, 240) ON CONFLICT DO NOTHING`,
+    [o4.orderId, OWNER_ID, dayPlus2Str]
   );
 
   const scan1 = await api("GET", "/api/ops/tasks?refresh=1", { token: admin });
@@ -498,6 +558,7 @@ main()
     // ---- Очистка (ТЗ: тестовые данные не остаются) ----
     try {
       await restoreProductionTimeFixture();
+      await restoreBerries(); // Z-v20 §4.5: возвращаем склад в исходное состояние
       for (const id of testOrders) {
         await deleteOrder(id).catch(() => {});
       }
