@@ -1,59 +1,58 @@
-# OWNER ACTIONS REQUIRED — Conditera (Z-v20)
+# OWNER_ACTIONS_REQUIRED — что нужно от владельца (Z-v21)
 
-Только конкретные действия, которые может выполнить владелец. Всё, что можно было
-сделать локально без разрешений, сделано.
+**Дата:** 2026-11-10. Список отсортирован по влиянию на релиз. Секреты в чат не присылать — настраиваются в env/GitHub Secrets.
 
-## A. Разрешения (без этого ничего из ниже перечисленного не запускается)
+## A-1. Разрешение на публикацию локальной истории (push)
 
-1. **Разрешить `git push`** в `uezdtort-tech/conditera` (main). Сейчас локально 220+
-   коммитов ahead; push выполняет владелец или даёт письменное разрешение агенту.
+- **Что:** разрешить `git push origin main` (сейчас ~229 локальных коммитов ahead; fast-forward, force не нужен).
+- **Зачем:** единственный способ запустить GitHub Actions (build/docker-гейты физически не выполняются в песочнице — OOM), синхронизировать origin.
+- **Где:** выполнить push владельцем (или дать разовую команду агенту).
+- **После:** фактический прогон 5 workflows; зелёный CI — условие STAGING DEPLOYED.
+- **Обязательно:** для staging и release. **Риски:** публикация всей локальной истории (включая служебные verify-коммиты).
 
-## B. GitHub (после push)
+## A-2. Разрешение на staging-развёртывание
 
-2. Убедиться, что CI (`ci.yml`) и E2E (`e2e.yml`) зелёные на HEAD — это первый
-   реальный запуск Actions (локальные прогоны не заменяют их).
-3. Настроить GitHub Environment **`staging`**: secrets `STAGING_HOST`, `STAGING_SSH_KEY`,
-   `STAGING_APP_URL`; запустить `staging-deploy.yml` (workflow_dispatch).
-4. Настроить GitHub Environment **`production`**: required reviewers (manual approval);
-   secrets прод-окружения (см. PRODUCTION_ENVIRONMENT_REQUIREMENTS.md §2).
-5. Настроить maintenance secrets (`MAINTENANCE_APP_URL`, `MAINTENANCE_CRON_SECRET`) —
-   иначе maintenance.yml честно покажет SKIPPED.
+- **Что:** выделить staging-хост/БД и разрешить Этапы 1–3 RUNBOOK (миграции только на staging-БД).
+- **Зачем:** переход READY FOR STAGING → STAGING DEPLOYED, приёмка интеграций.
+- **Обязательно:** для STAGING DEPLOYED. **Риски:** минимальные при изоляции (STAGING_ENVIRONMENT.md §1).
 
-## C. Внешние сервисы (credentials)
+## A-3. GitHub Actions secrets (опционально для CI, нужно для e2e/maintenance)
 
-6. **YooKassa**: test-shop → production credentials (`YOOKASSA_SHOP_ID/SECRET_KEY`);
-   в личном кабинете YooKassa — вебхук на `https://<домен>/api/payment/webhook`.
-   До этого платежи работают только в mock-режиме и в production fail-closed.
-7. **OAuth**: Yandex ID (+VK ID при необходимости) — создать приложения, redirect-URI
-   `https://<домен>/api/auth/oauth/{provider}/callback`; заполнить `*_CLIENT_ID/SECRET`.
-   VK-провайдер сейчас честно возвращает 501 (fail-closed), пока не настроен.
-8. **Telegram-бот**: токен у @BotFather, `setWebhook` с `secret_token`;
-   `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
-9. **Email** (Mailgun/SMTP): credentials + домен отправителя.
-10. **Backup storage**: внешнее хранилище (S3-совместимое) + секреты; включить выгрузку
-    бэкапов (сейчас только локально — RPO ограничен жизнью машины).
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (e2e notify), `MAINTENANCE_APP_URL`/`MAINTENANCE_CRON_SECRET`/`STAGING_HOST`/`STAGING_SSH_KEY` (maintenance).
+- Обязательно: только для соответствующих workflows; основной ci.yml автономен.
 
-## D. Юридическое и контент (§11 ТЗ)
+## A-4. Yandex OAuth credentials
 
-11. Данные продавца для публичного сайта: ИП/ООО реквизиты, ИНН/ОГРНИП, политика
-    конфиденциальности (152-ФЗ), условия использования, условия возврата, контакты.
-    В коде страницы-заготовки есть (`/legal`), содержимое — от владельца.
-    **Не придумывать реквизиты.**
-12. Реальные фотографии продукции вместо demo-seed (витрина работает в dual-mode;
-    решение о включении/отключении mock-fallback каталога — за владельцем,
-    docs/KNOWN_LIMITATIONS.md №14).
-13. Проверить/уточнить комиссии в UI (5% старт / 4% НПД отображаются как факты
-    бизнес-модели) — если условия изменятся, поправить тексты на главной.
+- **Что:** создать OAuth-приложение (https://oauth.yandex.ru/client/new), redirect `https://<host>/api/auth/oauth/yandex/callback`, заполнить `YANDEX_CLIENT_ID` (+`YANDEX_CLIENT_SECRET`, либо public client), `YANDEX_OAUTH_REDIRECT`.
+- **Зачем:** живая проверка цепочки (сейчас вся цепочка реализована и локально тестируема до границы провайдера; без credentials — честный 501).
+- **Обязательно:** для release (если OAuth входит в MVP-логин).
 
-## E. Инфраструктура публикации
+## A-5. Решение по VK ID (продуктовое — владелец)
 
-14. Production-хостинг и домен; DNS на хостинг; TLS.
-15. `NEXT_PUBLIC_APP_URL=https://<домен>` в прод-секретах (sitemap/og/redirects).
-16. Ресурсы машины: ≥ 2 GB RAM на инстанс Next.js; для стабильного полного
-    chromium-E2E — машина с ≥ 8 GB (4 GB песочница упирается в kernel OOM).
+- **Вариант A:** реализовать VK ID полностью (готовая реализация есть в незасмерженной ветке `release-candidate/gate-20` + нужны VK-креды).
+- **Вариант B:** официально исключить из MVP. Текущее состояние — fail-closed (501) + честный тост «не настроен» + `integrations-status.vk=false` + пометка в env-шаблонах; misleading-риска нет.
+- **Обязательно:** да (выбор scope). Без выбора статус останется «VK: не реализован, исключён de-facto».
 
-## F. Решения, которые принимает владелец (не блокируют staging)
+## A-6. YooKassa sandbox credentials
 
-17. Включение нишевых модулей (франшиза — backend без UI; аниматоры — UI на моках;
-    decor-checkout отсутствует): показывать «скоро» / скрыть / заказать доработку.
-18. Включение реальных платежей после sandbox-проверки на боевых credentials.
+- **Что:** тестовый магазин `YOOKASSA_SHOP_ID`/`YOOKASSA_SECRET_KEY` + регистрация webhook-URL staging.
+- **Зачем:** живой sandbox-цикл (PAYMENT_ACCEPTANCE.md §5) — условие payment PASS.
+- **Обязательно:** для release, если платежи в MVP.
+
+## A-7. n8n: запуск движка и credentials
+
+- **Что:** `docker compose up -d n8n` (или активация установки в /home/z/n8n), заполнить `N8N_WEBHOOK_SECRET`, Telegram-токен для workflow.
+- **Зачем:** фактическое выполнение workflows (N8N_ACCEPTANCE.md) — сейчас только stub-receiver.
+- **Обязательно:** для release, если n8n входит в релизный объём; иначе официально исключить.
+
+## A-8. SMTP/SMS credentials (опционально)
+
+- Email деградирует честно без SMTP (записи failed: "SMTP not configured"); SMS выключен по умолчанию. Нужны только если email-уведомления входят в MVP-релиз.
+
+## A-9. supabase/functions (Дрейф-риск)
+
+- **Решение:** не деплоить `supabase/functions/*` (в т.ч. слабый дублирующий yookassa-webhook с verify_jwt=false) либо удалить из проекта. В Next.js-рантайм они не входят.
+
+## Уже сделано агентом (владельцу повторять НЕ нужно)
+
+- Baseline, полный локальный тест-прогон (1571/1571), миграции на чистой PG18, RLS-изоляция, lifecycle 81/81, inventory 8/8, checkout-idem 15/15, diagnostics 16/16, ops 37/37, backup→restore PASSED, браузерная приёмка ключевых путей, 3 дефект-фикса (cms/media role-gate+MIME, integrations-status VK, env-шаблоны YANDEX/VK), 12 релизных документов.
