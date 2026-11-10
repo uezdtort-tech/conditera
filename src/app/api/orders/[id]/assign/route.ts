@@ -36,6 +36,7 @@ import { materializeOpsTasks } from "@/lib/ops/rules";
 import { recalculateOrderRisk } from "@/lib/ops/risk-engine";
 import { sendNotification } from "@/lib/notifications";
 import { checklistTemplateForCategory } from "@/lib/ops/lifecycle-config";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -376,13 +377,10 @@ export async function POST(
       checklistStages: checklistTemplateForCategory(categorySlug).map((s) => s.key),
     });
   } catch (err) {
-    console.error(
-      "[orders/assign] POST failed:",
-      err instanceof Error ? `${err.message}\n${err.stack}` : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/assign",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

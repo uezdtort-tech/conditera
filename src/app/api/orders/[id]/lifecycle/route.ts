@@ -15,6 +15,7 @@ import { deriveLifecycle, deriveNextAction } from "@/lib/ops/lifecycle";
 import { getProductionSnapshot } from "@/lib/ops/production";
 import { getActiveReservation, getCapacityDay } from "@/lib/ops/capacity";
 import { recalculateOrderRisk } from "@/lib/ops/risk-engine";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -167,13 +168,10 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error(
-      "[orders/lifecycle] GET failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/lifecycle",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

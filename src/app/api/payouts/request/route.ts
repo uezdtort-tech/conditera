@@ -511,6 +511,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       message: "Заявка зарегистрирована, средства зарезервированы. Ожидайте подтверждения администратора.",
     });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/payouts/request",
+      component: "payments",
+      requestId: req.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

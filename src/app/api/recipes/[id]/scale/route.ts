@@ -28,6 +28,7 @@ import {
   assembleRecipeDto,
   round3,
 } from "@/lib/recipes/recipe-content";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -139,8 +140,11 @@ export async function GET(
         display_only: true, // пересчёт не записывается в БД
       },
     });
-  } catch (error: any) {
-    console.error("[recipes/scale] unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]/scale",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

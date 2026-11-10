@@ -15,6 +15,7 @@ import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
 import { materializeOpsTasks } from "@/lib/ops/rules";
 import { recalculateOrderRisk } from "@/lib/ops/risk-engine";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,13 +77,10 @@ export async function POST(
 
     return NextResponse.json({ ok: true, status: "READY" });
   } catch (err) {
-    console.error(
-      "[orders/ready] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/ready",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

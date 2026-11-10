@@ -28,7 +28,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { getUserRoles } from "@/lib/role-guards";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
-import { safeJsonBody } from "@/lib/http-helpers";
+import { handleRouteError, safeJsonBody } from "@/lib/http-helpers";
 import {
   generateSlug,
   normalizePositions,
@@ -369,9 +369,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { data: { id: recipeId, slug: root.slug, status: root.status } },
       { status: 201 }
     );
-  } catch (error: any) {
-    console.error("[recipes] POST unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -504,8 +507,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
 
     return NextResponse.json({ data });
-  } catch (error: any) {
-    console.error("[recipes] GET unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

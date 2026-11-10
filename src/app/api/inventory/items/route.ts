@@ -32,6 +32,7 @@ import {
   type InventoryActor,
   type InventoryItemRow,
 } from "@/lib/inventory";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -58,8 +59,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const items = (data || []).map((row) => serializeInventoryItem(row as InventoryItemRow));
     return NextResponse.json({ items });
   } catch (error) {
-    console.error("[inventory/items] GET error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/items",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -162,8 +166,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 201 }
     );
   } catch (error) {
-    console.error("[inventory/items] POST error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/items",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -260,8 +267,11 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ item: serializeInventoryItem(item) });
   } catch (error) {
-    console.error("[inventory/items] PATCH error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/items",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -305,7 +315,10 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[inventory/items] DELETE error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/items",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

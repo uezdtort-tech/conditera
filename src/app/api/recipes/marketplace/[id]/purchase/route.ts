@@ -18,6 +18,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -211,7 +212,10 @@ export async function POST(
       { status: 201 }
     );
   } catch (error) {
-    console.error("[recipes/purchase] unexpected:", (error as Error)?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/recipes/marketplace/[id]/purchase",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

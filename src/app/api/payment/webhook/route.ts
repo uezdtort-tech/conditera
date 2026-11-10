@@ -22,6 +22,7 @@
 //     не подтверждались.
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { handleRouteError } from "@/lib/http-helpers";
 import {
   verifyWebhook,
   getPaymentStatus,
@@ -798,11 +799,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Webhook error:", error);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    // DEPLOY-01 §3: незапланированная ошибка webhook — в централизованный
+    // журнал (payments → P0/P1 инцидент) с тем же fail-closed 500.
+    return handleRouteError(error, {
+      route: "/api/payment/webhook",
+      component: "payments",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 

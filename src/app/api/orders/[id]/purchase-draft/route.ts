@@ -23,6 +23,7 @@ import { hasAnyRole } from "@/lib/role-guards";
 import { getPool } from "@/lib/postgrest/pool";
 import { computeOrderBreakdown, shortageForDraft } from "@/lib/ops/breakdown";
 import { recordEvent } from "@/lib/ops/events";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -174,13 +175,10 @@ export async function POST(
       { status: 201 }
     );
   } catch (err) {
-    console.error(
-      "[orders/purchase-draft] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/purchase-draft",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

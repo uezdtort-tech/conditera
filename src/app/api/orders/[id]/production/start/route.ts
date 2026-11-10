@@ -15,6 +15,7 @@ import { ensureChecklist } from "@/lib/ops/production";
 import { loadOrderItemsData } from "@/lib/ops/acceptance";
 import { materializeOpsTasks } from "@/lib/ops/rules";
 import { recalculateOrderRisk } from "@/lib/ops/risk-engine";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,13 +87,10 @@ export async function POST(
 
     return NextResponse.json({ ok: true, status: "PREPARING", startedAt: new Date().toISOString() });
   } catch (err) {
-    console.error(
-      "[orders/production/start] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/production/start",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -145,8 +146,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
 
     return NextResponse.json({ data });
-  } catch (error: any) {
-    console.error("[recipes/purchases] unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/purchases",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -11,6 +11,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
 import { checkOrderAcceptance } from "@/lib/ops/acceptance";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -144,6 +145,10 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
 
     return NextResponse.json({ success: true, orderId, status: "CONFIRMED" });
   } catch (error: any) {
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/orders/[id]/accept",
+      component: "orders",
+      requestId: req.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -26,7 +26,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
-import { safeJsonBody } from "@/lib/http-helpers";
+import { handleRouteError, safeJsonBody } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -126,8 +126,11 @@ export async function POST(
           ? "Права на контент подтверждены (одноразовая фиксация)"
           : "Права уже подтверждены ранее — повтор не перезаписал первую фиксацию",
     });
-  } catch (error: any) {
-    console.error("[recipes/rights-confirm] unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]/rights-confirm",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

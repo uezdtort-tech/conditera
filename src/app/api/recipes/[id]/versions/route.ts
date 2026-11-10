@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -173,8 +174,11 @@ export async function GET(
       data: [version],
       meta: { scope: "purchased", fixed_version: true },
     });
-  } catch (error: any) {
-    console.error("[recipes/versions] unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]/versions",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

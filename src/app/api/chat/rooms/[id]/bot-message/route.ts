@@ -150,6 +150,10 @@ export async function POST(
       roomType: mapChannelTypeForBot(channel),
     });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/rooms/[id]/bot-message",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

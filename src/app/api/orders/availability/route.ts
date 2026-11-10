@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { loadProductItemsData, checkAcceptance } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -113,13 +114,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       })),
     });
   } catch (err) {
-    console.error(
-      "[orders/availability] POST failed:",
-      err instanceof Error ? `${err.message}\n${err.stack}` : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/availability",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -339,6 +339,10 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
         : null,
     });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]/acceptances",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -290,7 +290,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const rooms = await buildRooms(channels, memberByChannel, user.id, isStaff);
     return NextResponse.json({ rooms, total: rooms.length });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/rooms",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -440,6 +444,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const rooms = await buildRooms([channel], freshMembers, user.id);
     return NextResponse.json({ room: rooms[0], created });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/rooms",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

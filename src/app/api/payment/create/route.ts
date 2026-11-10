@@ -24,6 +24,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -176,9 +177,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       paymentUrl: paymentResult.payment.confirmation.confirmation_url,
       paymentId: yookassaPaymentId,
     });
-  } catch (error: unknown) {
+  } catch (error) {
+    // DEPLOY-01 §3: неожиданные ошибки — в единый журнал (captureServerError),
     // detail наружу не отдаём (утечка внутренностей)
-    console.error("[payment/create] error:", (error as Error)?.message);
-    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/payment/create",
+      component: "payments",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

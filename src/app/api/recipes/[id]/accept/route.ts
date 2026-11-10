@@ -161,6 +161,10 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
 
     return NextResponse.json({ acceptance }, { status: 201 });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]/accept",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

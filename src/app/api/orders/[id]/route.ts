@@ -20,6 +20,7 @@ import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import { isCourierAssignedToOrder } from "@/lib/courier-assignments";
 import { emitEvent } from "@/lib/n8n";
 import { recordEvent } from "@/lib/ops/events";
+import { handleRouteError } from "@/lib/http-helpers";
 
 interface OrderStatusTransition {
   from: string;
@@ -361,11 +362,11 @@ export async function PATCH(
       ...(newStatus === "DELIVERED" ? { deliverySync } : {}),
     });
   } catch (error) {
-    console.error("[orders/[id]] Unexpected:", (error as Error).message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка", detail: (error as Error).message },
-      { status: 500 }
-    );
+    return handleRouteError(error, {
+      route: "/api/orders/[id]",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -423,9 +424,10 @@ export async function GET(
 
     return NextResponse.json({ order });
   } catch (error) {
-    return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    );
+    return handleRouteError(error, {
+      route: "/api/orders/[id]",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

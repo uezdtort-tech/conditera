@@ -369,6 +369,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       userMessage,
     });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/auto-reply",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

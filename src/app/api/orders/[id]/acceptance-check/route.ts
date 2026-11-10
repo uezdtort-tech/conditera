@@ -14,6 +14,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { checkOrderAcceptance } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,13 +70,10 @@ export async function POST(
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error(
-      "[orders/acceptance-check] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/acceptance-check",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -50,6 +50,7 @@ import {
   type SourceDto,
   type RecipeChildren,
 } from "@/lib/recipes/recipe-content";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -216,9 +217,12 @@ export async function GET(
       data: gated,
       meta: { access_level: access.level, access_reason: access.reason },
     });
-  } catch (error: any) {
-    console.error("[recipes/:id] GET unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -426,9 +430,12 @@ export async function PATCH(
       data: { id: recipeId, status: root.status, offerLinked },
       message: "Рецепт обновлён",
     });
-  } catch (error: any) {
-    console.error("[recipes/:id] PATCH unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -493,9 +500,12 @@ export async function DELETE(
         ? "Рецепт перемещён в архив. Активный оффер не скрыт — он управляется отдельным маршрутом /api/recipes/marketplace/[id]"
         : "Рецепт перемещён в архив (восстановление: PATCH {status:\"draft\"})",
     });
-  } catch (error: any) {
-    console.error("[recipes/:id] DELETE unexpected:", error?.message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/[id]",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 

@@ -44,6 +44,7 @@ import {
 } from "@/lib/inventory";
 import { convertQty } from "@/lib/recipes/cost";
 import type { BatchRow } from "@/lib/recipes/production";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -281,8 +282,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ applied, failed, order_id: orderId }, { status: 201 });
   } catch (error) {
-    console.error("[inventory/write-off] POST error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/write-off",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 

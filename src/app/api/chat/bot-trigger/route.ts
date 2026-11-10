@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { notifyOrderStatusChange, ensureOrderChatRoom, sendPaymentReminder } from "@/lib/chat-automation";
 import { timingSafeEqualStr } from "@/lib/secure-compare";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,10 +70,12 @@ export async function POST(request: NextRequest) {
         );
     }
   } catch (error) {
-    console.error("POST /api/chat/bot-trigger error:", error);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка", detail: (error as Error).message },
-      { status: 500 }
-    );
+    // DEPLOY-01 §3: неожиданные ошибки — в единый журнал (captureServerError),
+    // detail наружу больше не отдаём (утечка внутренностей)
+    return handleRouteError(error, {
+      route: "/api/chat/bot-trigger",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

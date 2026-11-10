@@ -24,6 +24,7 @@ import {
   type InventoryActor,
   type InventoryMovementRow,
 } from "@/lib/inventory";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -78,8 +79,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ movements });
   } catch (error) {
-    console.error("[inventory/movements] GET error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/movements",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -160,7 +164,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 201 }
     );
   } catch (error) {
-    console.error("[inventory/movements] POST error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/movements",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

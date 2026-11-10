@@ -17,6 +17,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
 import { resolveRecipeAccess, gateRecipeContent } from "@/lib/recipes/access-resolver";
 import type { RecipeMarketplace } from "@/lib/supabase/types";
+import { handleRouteError } from "@/lib/http-helpers";
 
 /**
  * Postgres numeric/int8 через PostgREST-шим приходит строкой — приводим
@@ -119,12 +120,12 @@ export async function GET(
     }
 
     return NextResponse.json({ data: responseData as unknown as RecipeMarketplace });
-  } catch (error: any) {
-    console.error("[recipes/:id] GET unexpected:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/marketplace/[id]",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -245,12 +246,12 @@ export async function PATCH(
     }
 
     return NextResponse.json({ data: updated as RecipeMarketplace });
-  } catch (error: any) {
-    console.error("[recipes/:id] PATCH unexpected:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/marketplace/[id]",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -337,12 +338,12 @@ export async function DELETE(
       data: { id },
       message: "Рецепт удалён",
     });
-  } catch (error: any) {
-    console.error("[recipes/:id] DELETE unexpected:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/marketplace/[id]",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 

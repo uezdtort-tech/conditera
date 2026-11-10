@@ -27,6 +27,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { hasAnyRole } from "@/lib/role-guards";
 import { computeOrderBreakdown } from "@/lib/ops/breakdown";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,13 +70,10 @@ export async function GET(
 
     return NextResponse.json(breakdown);
   } catch (err) {
-    console.error(
-      "[orders/breakdown] GET failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/breakdown",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

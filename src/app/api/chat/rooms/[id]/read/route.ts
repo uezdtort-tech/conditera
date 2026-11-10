@@ -47,6 +47,10 @@ export async function POST(
 
     return NextResponse.json({ ok: true, lastReadAt: now });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/rooms/[id]/read",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

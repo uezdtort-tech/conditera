@@ -28,6 +28,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
 import type { RecipeMarketplace } from "@/lib/supabase/types";
+import { handleRouteError } from "@/lib/http-helpers";
 
 /**
  * Postgres numeric/int8 через PostgREST-шим приходит строкой ("500.00") —
@@ -157,12 +158,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         hasMore: (data?.length ?? 0) === limit,
       },
     });
-  } catch (error: any) {
-    console.error("[recipes/marketplace] GET unexpected:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/marketplace",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -411,12 +412,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       { status: 201 }
     );
-  } catch (error: any) {
-    console.error("[recipes/marketplace] POST unexpected:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/recipes/marketplace",
+      component: "recipes",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 

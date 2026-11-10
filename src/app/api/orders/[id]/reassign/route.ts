@@ -29,6 +29,7 @@ import { recordEvent } from "@/lib/ops/events";
 import { materializeOpsTasks } from "@/lib/ops/rules";
 import { recalculateOrderRisk } from "@/lib/ops/risk-engine";
 import { sendNotification } from "@/lib/notifications";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -242,13 +243,10 @@ export async function POST(
       warning: capacityWarning,
     });
   } catch (err) {
-    console.error(
-      "[orders/reassign] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/reassign",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

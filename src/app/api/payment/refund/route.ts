@@ -35,6 +35,7 @@ import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import { refundPayment } from "@/lib/yookassa";
 import { emitEvent } from "@/lib/n8n";
 import { recordFinancialEntrySafe } from "@/lib/financial-ledger";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -110,8 +111,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ refunds: refunds || [] });
   } catch (error) {
-    console.error("[payment/refund] GET error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    // DEPLOY-01 §3: неожиданные ошибки — в единый журнал (captureServerError)
+    return handleRouteError(error, {
+      route: "/api/payment/refund",
+      component: "payments",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -546,8 +551,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 201 }
     );
   } catch (error) {
-    // детали ошибки наружу не отдаём
-    console.error("[payment/refund] error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    // DEPLOY-01 §3: детали ошибки наружу не отдаём — в единый журнал
+    return handleRouteError(error, {
+      route: "/api/payment/refund",
+      component: "payments",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

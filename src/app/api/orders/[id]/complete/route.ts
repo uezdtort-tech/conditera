@@ -14,6 +14,7 @@ import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
 import { recordEvent } from "@/lib/ops/events";
 import { materializeOpsTasks } from "@/lib/ops/rules";
 import { getPool } from "@/lib/postgrest/pool";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,13 +103,10 @@ export async function POST(
       repeatOfferAt: repeatAt.toISOString(),
     });
   } catch (err) {
-    console.error(
-      "[orders/complete] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/complete",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -178,7 +179,10 @@ export async function POST(
       items,
     });
   } catch (error) {
-    console.error("[orders/repeat] POST failed:", (error as Error)?.message);
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/orders/[id]/repeat",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

@@ -15,6 +15,7 @@ import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { ensureChecklist, getOrderChecklist, setStageDone } from "@/lib/ops/production";
 import { loadOrderItemsData } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,13 +93,10 @@ export async function POST(
           : null,
     });
   } catch (err) {
-    console.error(
-      "[orders/production/complete] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, {
+      route: "/api/orders/[id]/production/complete",
+      component: "orders",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

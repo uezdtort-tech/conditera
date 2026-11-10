@@ -61,7 +61,11 @@ export async function GET(
     const messages = await fetchRoomMessages(id, { limit, before, after });
     return NextResponse.json({ messages, total: messages.length });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/rooms/[id]/messages",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
 
@@ -245,6 +249,10 @@ export async function POST(
     };
     return NextResponse.json({ message, duplicate: wasDuplicate, roomType: mapChannelType(channel) });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/rooms/[id]/messages",
+      component: "chat",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }

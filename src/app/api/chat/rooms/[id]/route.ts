@@ -38,6 +38,9 @@ export async function GET(
       lastReadAt: member?.last_read_at || null,
     });
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, {
+      route: "/api/chat/rooms/[id]",
+      component: "chat",
+    });
   }
 }
