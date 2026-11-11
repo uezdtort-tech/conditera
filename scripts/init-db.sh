@@ -91,15 +91,29 @@ echo ""
 echo "→ Применение миграций..."
 MIGRATIONS_DIR="supabase/migrations"
 
+# Z-v24: ON_ERROR_STOP=1 — ошибка SQL в файле роняет psql с ненулевым кодом;
+# отказы учитываются и в конце дают честный exit 1 (раньше ON_ERROR_STOP=0 +
+# `|| true` молча скрывали упавшие файлы — «миграции применены» при сломанной схеме).
+FAILED_MIGRATIONS=""
 for sql_file in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
   filename=$(basename "$sql_file")
   echo "  → $filename"
-  docker exec -i "$CONTAINER_ID" \
-    psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=0 < "$sql_file" 2>&1 \
-    | grep -v "^NOTICE\|^CREATE\|^INSERT\|^UPDATE\|^DELETE\|^ALTER\|^COMMENT\|^GRANT\|^REVOKE\|^SET\|^$\|^psql:" || true
+  if ! docker exec -i "$CONTAINER_ID" \
+    psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q < "$sql_file" >/dev/null; then
+    echo "  ✖ ОШИБКА: $filename (SQL не применён полностью)"
+    FAILED_MIGRATIONS="$FAILED_MIGRATIONS $filename"
+  fi
 done
 
-echo "✅ Миграции применены"
+if [ -n "$FAILED_MIGRATIONS" ]; then
+  echo ""
+  echo "❌ МИГРАЦИИ УПАЛИ:$FAILED_MIGRATIONS"
+  echo "   Схема в частично применённом состоянии — не используйте БД для работы."
+  echo "   Исправьте файл/БД и перезапустите (уже применённые файлы лягут из ledger db:setup"
+  echo "   или будут пропущены при повторной инициализации с нуля)."
+  exit 1
+fi
+echo "✅ Миграции применены без ошибок"
 
 # ===== 4. Seed данные =====
 echo ""

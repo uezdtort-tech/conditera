@@ -602,11 +602,37 @@ async function main() {
       return a.localeCompare(b);
     });
 
+    // Z-v24: детекция дубликатов migration ID ДО применения любого SQL.
+    // Конвенция проекта: вариантные файлы одного номера именуются ЧИСЛО+БУКВА
+    // (0016, 0016b); два файла с одинаковым числовым префиксом и остатком,
+    // начинающимся с «_» — конфликт дубликатов (инцидент Z-v24: 0062_cart_custom_items
+    // + 0062_cart_sync_custom → взаимоисключающие CHECK → 500 на POST /api/cart).
+    // Блокируем запуск ДО SQL — дубликаты не должны попадать в леджер/схему.
+    const dupGroups = new Map();
+    for (const f of files) {
+      const m = f.match(/^(\d+)/);
+      if (!m) continue;
+      const rest = f.slice(m[1].length);
+      if (!rest.startsWith("_")) continue; // вариантный суффикс вида 0016b — легален
+      const key = m[1];
+      if (!dupGroups.has(key)) dupGroups.set(key, []);
+      dupGroups.get(key).push(f);
+    }
+    const duplicates = [...dupGroups.entries()].filter(([, fs]) => fs.length > 1);
+    if (duplicates.length > 0) {
+      for (const [num, fs] of duplicates) {
+        console.error(`\n✖ ДУБЛИКАТ MIGRATION ID ${num}: ${fs.join(", ")}`);
+      }
+      console.error("  Применение прервано ДО SQL: дублирующиеся migration ID запрещены (Z-v24).");
+      process.exit(1);
+    }
+
     const pending = files.filter((f) => !appliedFiles.has(f));
     if (seedOnly && appliedFiles.size > 0) {
       console.log(`  (seed-only: ${appliedFiles.size} миграций уже применены — пропускаем)`);
     }
     let appliedCount = 0;
+    let migrationsFailed = false;
     for (const file of pending) {
       if (appliedFiles.has(file)) continue;
       const sql = readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
@@ -615,6 +641,12 @@ async function main() {
       // (ALTER TYPE ADD VALUE нельзя использовать до коммита в той же tx) —
       // выполняем в autocommit, как это делал psql. Остальные — атомарно.
       const fileWantsAutocommit = /ALTER\s+TYPE[\s\S]{0,400}?ADD\s+VALUE/i.test(sql);
+      if (fileWantsAutocommit) {
+        // Нетранзакционный режим: ALTER TYPE ADD VALUE нельзя откатить в той же tx.
+        // Частично применённый файл в этом режиме НЕ откатывается — повторный
+        // запуск добирает остаток за счёт idempotent-skip уже применённых стейтментов.
+        console.log(`  [autocommit] ${file} (нетранзакционные операции — см. комментарий в runner)`);
+      }
       try {
         let res;
         if (fileWantsAutocommit) {
@@ -634,11 +666,21 @@ async function main() {
         console.log(`  ✔ ${file}: ${res.applied} stmts, ${res.skipped} idempotent-skip${res.warned ? `, ${res.warned} warns` : ""}`);
       } catch (err) {
         console.error(`\n✖ File: ${file}`);
+        console.error(`  причина: ${err && err.message ? err.message : String(err)}`);
+        migrationsFailed = true;
         process.exitCode = 1;
         break;
       }
     }
     console.log(`  migrations: ${appliedCount} newly applied (${appliedFiles.size + appliedCount} total in ledger)`);
+    if (migrationsFailed) {
+      // Z-v24 fail-fast: схема неполна — fixups/demo-users/seeds зависят от схемы
+      // и дадут ложные результаты. Не выполняем их, отдаём ненулевой exit code.
+      console.error("\n✖ Миграция не применена — fixups/demo-users/seeds пропущены (fail-fast, Z-v24).");
+      console.error("  БД в консистентном состоянии: упавший файл откачен целиком, в леджер не записан.");
+      await client.end();
+      process.exit(1);
+    }
 
     // 6. Сиды (в одной транзакции на файл — маленькие и идемпотентные)
     // Локальные фиксы (после миграций): RLS-рекурсии и прочие vanilla-PG правки

@@ -54,6 +54,26 @@ fi
 
 APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 
+# ===== 0.1. Детекция дубликатов migration ID (Z-v24) =====
+# Конвенция проекта: вариантные файлы одного номера — ЧИСЛО+БУКВА (0016b).
+# Два файла с одинаковым числовым префиксом и остатком, начинающимся с «_»,
+# — конфликт дубликатов (инцидент Z-v24: 0062_cart_custom_items + 0062_cart_sync_custom).
+# Блокируем ДО применения любого SQL.
+DUP_ERRORS=0
+for num in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | xargs -n1 basename | sed -n 's/^\([0-9][0-9]*\)_.*/\1/p' | sort -u); do
+  DUP_FILES=$(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | xargs -n1 basename | grep -E "^${num}_" | sort)
+  DUP_COUNT=$(echo "$DUP_FILES" | grep -c . || true)
+  if [ "$DUP_COUNT" -gt 1 ]; then
+    echo "❌ ДУБЛИКАТ MIGRATION ID ${num}:"
+    echo "$DUP_FILES" | sed 's/^/    /'
+    DUP_ERRORS=$((DUP_ERRORS + 1))
+  fi
+done
+if [ "$DUP_ERRORS" -gt 0 ]; then
+  echo "❌ Применение прервано ДО SQL: дублирующиеся migration ID запрещены (Z-v24)."
+  exit 1
+fi
+
 # ===== 1. Миграции по порядку =====
 MIGRATION_COUNT=0
 SKIPPED_COUNT=0
