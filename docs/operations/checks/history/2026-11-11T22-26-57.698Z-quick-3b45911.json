@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-11T22:26:02.288Z",
+  "finished_at": "2026-11-11T22:26:57.698Z",
+  "commit_sha": "3b45911d345869715d68a989ae91db23a89feb71",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 55043,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored _quarantine/api-cart-itemId.foreign-2026-11-10/route.ts prisma.config.ts",
+      "skipped": false,
+      "exit_code": 2,
+      "duration_ms": 306,
+      "passed": false,
+      "output_tail": "\nOops! Something went wrong! :(\n\nESLint: 9.39.2\n\nNo files matching the pattern \"_quarantine/api-cart-itemId.foreign-2026-11-10/route.ts\" were found.\nPlease check for typing mistakes in the pattern.\n\n"
+    },
+    {
+      "name": "vitest",
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no candidate test files for changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "passed": 1,
+    "failed": 1,
+    "skipped": 1
+  }
+}

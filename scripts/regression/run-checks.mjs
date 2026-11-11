@@ -109,7 +109,10 @@ function collectChangedFiles() {
     }
   }
 
-  return Array.from(merged);
+  // Удалённые/переименованные файлы (D/R-old) физически отсутствуют на диске —
+  // их нельзя подавать в eslint/vitest (фантомные пути дают ложные FAIL,
+  // Z-v31 очистка: eslint падал на _quarantine/... и prisma.config.ts).
+  return Array.from(merged).filter((p) => existsSync(join(ROOT, p)));
 }
 
 // ===== Check plan =====

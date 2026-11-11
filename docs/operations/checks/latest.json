@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-11T22:27:53.210Z",
+  "finished_at": "2026-11-11T22:28:01.281Z",
+  "commit_sha": "3b45911d345869715d68a989ae91db23a89feb71",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 5983,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run src/lib/regression/meta.test.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1981,
+      "passed": true,
+      "output_tail": "\n RUN  v4.1.10 /home/z/my-project\n\n ✓ src/lib/regression/meta.test.ts (32 tests) 9ms\n\n Test Files  1 passed (1)\n      Tests  32 passed (32)\n   Start at  22:27:59\n   Duration  1.49s (transform 58ms, setup 288ms, import 23ms, tests 9ms, environment 1.03s)\n\n(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n"
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "passed": 2,
+    "failed": 0,
+    "skipped": 1
+  }
+}

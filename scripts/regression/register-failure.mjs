@@ -42,9 +42,16 @@ async function main() {
 
   // Динамический импорт: сбой разрешения алиаса/зависимости не должен
   // падать на этапе парсинга модуля (fail-open).
-  const { storeErrorEvent, triggerImmediateFlush } = await import(
+  const { storeErrorEvent, triggerImmediateFlush, getStoreStats } = await import(
     "@/lib/diagnostics/event-store"
   );
+
+  // Базовая линия статистики канала: чтобы после flush честно определить,
+  // ДОШЛИ ли события до БД. Канал fire-and-forget — без этой проверки сбой
+  // БД (ECONNREFUSED) был бы незаметен и записи получали бы ложную метку
+  // registered_at (Z-v31: исправлено — при недоступной БД pending остаётся).
+  const statsBefore = getStoreStats();
+  const droppedBefore = statsBefore.totalDropped;
 
   const registered = []; // [{ path, record }]
   let hadErrors = false;
@@ -103,6 +110,22 @@ async function main() {
     // flush сам обрабатывает свои сбои
   }
   await new Promise((resolve) => setTimeout(resolve, FLUSH_WAIT_MS));
+
+  // Честная проверка доставки: канал исправен И ничего не дропнуто И нет
+  // подряд идущих сбоев записи. Иначе — pending-записи остаются на диске
+  // (registered_at НЕ ставится), повторный запуск ретраит регистрацию.
+  const statsAfter = getStoreStats();
+  const deliveredOk =
+    !statsAfter.circuitOpen &&
+    statsAfter.consecutiveFailures === 0 &&
+    statsAfter.totalDropped === droppedBefore;
+  if (!deliveredOk) {
+    console.warn(
+      `(register-failure) DB недоступна или канал в сбое (dropped=${statsAfter.totalDropped - droppedBefore}, circuitOpen=${statsAfter.circuitOpen}, consecutiveFailures=${statsAfter.consecutiveFailures}) — registered_at НЕ выставляется, pending-записи сохранены для ретрая`
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   const registeredAt = new Date().toISOString();
   for (const { path, record } of registered) {

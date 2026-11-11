@@ -73,6 +73,7 @@ playwright-report/
 /backups/
 /tool-results/
 /upload/
+tsconfig.tsbuildinfo
 
 # dev-process-manager runtime state (PIDs/fingerprints — never commit)
 /.run/
