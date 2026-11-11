@@ -33,16 +33,47 @@ let recipeIngredients: RiRow[] = [];
 let productsError: Error | null = null;
 const queriedSql: string[] = [];
 
+// Z-v30: buildAcceptanceSnapshot читает ВСЁ одним statement'ом
+// (products LEFT JOIN recipes LEFT JOIN categories LEFT JOIN recipe_ingredients) —
+// statement-level MVCC согласованность против гонки правки рецепта.
 vi.mock("@/lib/postgrest/pool", () => ({
   getPool: () => ({
     query: async (sql: string) => {
       queriedSql.push(sql);
-      if (sql.includes("FROM public.products")) {
+      if (sql.includes("FROM public.products") && sql.includes("public.recipe_ingredients")) {
         if (productsError) throw productsError;
-        return { rows: products, rowCount: products.length };
-      }
-      if (sql.includes("FROM public.recipe_ingredients")) {
-        return { rows: recipeIngredients, rowCount: recipeIngredients.length };
+        // Разворачиваем JOIN как его отдал бы PG: строка товара на каждую норму
+        // его рецепта; товар без рецепта/норм — одна строка с NULL-полями норм.
+        type JoinedMockRow = ProdRow & {
+          ing_name: string | null;
+          ing_qty: string | number | null;
+          ing_unit: string | null;
+          ing_inventory_item_id: string | null;
+        };
+        const rows: JoinedMockRow[] = products.flatMap((p): JoinedMockRow[] => {
+          const ings = recipeIngredients.filter(
+            (ri) => p.recipe_id !== null && ri.recipe_id === p.recipe_id
+          );
+          if (ings.length === 0) {
+            return [
+              {
+                ...p,
+                ing_name: null,
+                ing_qty: null,
+                ing_unit: null,
+                ing_inventory_item_id: null,
+              },
+            ];
+          }
+          return ings.map((ri) => ({
+            ...p,
+            ing_name: ri.name,
+            ing_qty: ri.qty,
+            ing_unit: ri.unit,
+            ing_inventory_item_id: ri.inventory_item_id,
+          }));
+        });
+        return { rows, rowCount: rows.length };
       }
       return { rows: [], rowCount: 0 };
     },
@@ -178,6 +209,29 @@ describe("buildAcceptanceSnapshot — серверная сборка", () => {
     const bad2 = await buildAcceptanceSnapshot({ items: [{ product_id: P1, quantity: 0 }], source: "checkout" });
     expect(bad2.ok).toBe(false);
     expect(queriedSql).toHaveLength(0);
+  });
+
+  it("Z-v30: товары+рецепты+нормы читаются ОДНИМ statement'ом (нет смешанного snapshot при гонке правки)", async () => {
+    products = [
+      {
+        id: P1, title: "Торт", recipe_id: R,
+        production_time_hours: 1, prep_time_minutes: 10, cook_time_minutes: 20,
+        recipe_updated_at: new Date("2026-02-01T00:00:00Z"), category_slug: "cakes",
+      },
+    ];
+    recipeIngredients = [
+      { recipe_id: R, name: "Ягоды", qty: "250", unit: "г", inventory_item_id: "inv-b" },
+    ];
+    const built = await buildAcceptanceSnapshot({ items: [{ product_id: P1, quantity: 2 }], source: "checkout" });
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.snapshot.items[0].ingredients).toHaveLength(1);
+    // Ровно один SQL-запрос на всю сборку: statement выполняется над одним
+    // MVCC-снимком → конкурентная правка рецепта не даёт смесь «нормы B +
+    // параметры A», которую давали два отдельных запроса.
+    expect(queriedSql).toHaveLength(1);
+    expect(queriedSql[0]).toContain("FROM public.products");
+    expect(queriedSql[0]).toContain("LEFT JOIN public.recipe_ingredients");
   });
 });
 

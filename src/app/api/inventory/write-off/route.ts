@@ -9,6 +9,13 @@
  *    Кондитер при готовке (заказ в PREPARING) списывает реальные ингредиенты.
  *    Идемпотентность — реестр inventory_write_offs по (owner, order, signature);
  *    повторная/параллельная отправка → 200 idempotent:true (0049).
+ *    Z-v30: количества НОВОГО батча валидируются против зафиксированного
+ *    metadata.acceptance_snapshot заказа (src/lib/ops/write-off-validation.ts):
+ *    превышение/вне состава/несовместимые единицы → 422
+ *    WRITE_OFF_SNAPSHOT_MISMATCH; явное подтверждение оператора
+ *    (allow_overage: true + причина) пропускает как ручную корректировку
+ *    с пометкой в журнале движений. Легаси-заказы (без snapshot) — прежнее
+ *    поведение; повреждённый snapshot → 422 SNAPSHOT_INVALID (fail-closed).
  *
  * 2) Batch-путь (RECIPE-02/05, RA.11): { batch_id, items: [{ item_id, quantity, unit? }] }
  *      → 200/201 { batch_id, applied: [...], idempotent? }
@@ -44,6 +51,7 @@ import {
 } from "@/lib/inventory";
 import { convertQty } from "@/lib/recipes/cost";
 import type { BatchRow } from "@/lib/recipes/production";
+import { validateOrderWriteOffAgainstSnapshot } from "@/lib/ops/write-off-validation";
 import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -203,6 +211,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // === Z-v30: валидация количеств против snapshot потребности заказа.
+    // Идемпотентный replay выше НЕ валидируется (повтор прошлого действия);
+    // валидируются только НОВЫЕ батчи. Легаси-заказы (без snapshot) — прежнее
+    // поведение (mode "legacy"). Расхождение → 422 с отклонениями; явное
+    // подтверждение оператора (allow_overage: true) пропускает списание как
+    // РУЧНУЮ корректировку фактического расхода (причина помечается в журнале
+    // движений, snapshot заказа не переписывается). Контракт 0048/0049 не меняется.
+    let overageConfirmed = false;
+    if (orderId) {
+      const validation = await validateOrderWriteOffAgainstSnapshot({
+        orderId,
+        actorId: user.id,
+        items: parsed,
+      });
+      if (!validation.ok) {
+        return NextResponse.json(
+          { error: validation.code, message: validation.message },
+          { status: 422 }
+        );
+      }
+      if (validation.validation.deviations.length > 0) {
+        if (body.allow_overage !== true) {
+          return NextResponse.json(
+            {
+              error: "WRITE_OFF_SNAPSHOT_MISMATCH",
+              message:
+                "Количество списания расходится с зафиксированным snapshot потребности заказа (Z-v30). Легитимная ручная корректировка требует явного подтверждения: allow_overage: true и причина.",
+              deviations: validation.validation.deviations,
+              validation_mode: validation.validation.mode,
+            },
+            { status: 422 }
+          );
+        }
+        overageConfirmed = true;
+      }
+    }
+
     const applied: Array<{
       item_id: string;
       item_name: string;
@@ -214,12 +259,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const failed: Array<{ item_id: string; error: string }> = [];
     let firstError: ApplyMovementError | null = null;
 
+    // Z-v30: ручная корректировка (allow_overage) обязана быть отличима в
+    // журнале движений — причина дописывается маркером (audit trail).
+    const effectiveReason = overageConfirmed
+      ? `${reason} (превышение норматива snapshot подтверждено оператором)`
+      : reason;
+
     for (const entry of parsed) {
       const result = await applyInventoryMovement(actor, {
         item_id: entry.item_id,
         type: "OUT",
         quantity: entry.quantity,
-        reason,
+        reason: effectiveReason,
         order_id: orderId,
       });
       if (result.ok) {

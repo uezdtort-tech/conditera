@@ -75,6 +75,15 @@ vi.mock("@/lib/supabase/auth", () => ({
   unauthorizedResponse: () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
 }));
 
+// Z-v30: order-путь валидирует количества против snapshot заказа (пул).
+// В этих тестах заказы считаются легаси (запрос заказа → пусто) — валидация
+// пропускается, лочится прежний контракт идемпотентности 0048/0049.
+vi.mock("@/lib/postgrest/pool", () => ({
+  getPool: () => ({
+    query: async () => ({ rows: [], rowCount: 0 }),
+  }),
+}));
+
 // Очередь результатов движка: route вызывает applyInventoryMovement на каждый item.
 type MovementResult =
   | { ok: true; item: { id: string; name: string; quantity: number; unit: string }; movement: { id: string } }

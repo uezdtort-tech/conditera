@@ -53,12 +53,20 @@ let productsQueryError: Error | null = null;
 vi.mock("@/lib/postgrest/pool", () => ({
   getPool: () => ({
     query: async (sql: string) => {
-      if (sql.includes("FROM public.products")) {
+      // Z-v30: сборка snapshot — ОДИН merged statement
+      // (products LEFT JOIN recipe_ingredients); разворачиваем JOIN как PG.
+      if (sql.includes("FROM public.products") && sql.includes("public.recipe_ingredients")) {
         if (productsQueryError) throw productsQueryError;
-        return { rows: [PRODUCT_SNAPSHOT_ROW], rowCount: 1 };
-      }
-      if (sql.includes("FROM public.recipe_ingredients")) {
-        return { rows: RECIPE_INGREDIENTS, rowCount: RECIPE_INGREDIENTS.length };
+        const rows = [
+          {
+            ...PRODUCT_SNAPSHOT_ROW,
+            ing_name: RECIPE_INGREDIENTS[0]?.name ?? null,
+            ing_qty: RECIPE_INGREDIENTS[0]?.qty ?? null,
+            ing_unit: RECIPE_INGREDIENTS[0]?.unit ?? null,
+            ing_inventory_item_id: RECIPE_INGREDIENTS[0]?.inventory_item_id ?? null,
+          },
+        ];
+        return { rows, rowCount: rows.length };
       }
       return { rows: [], rowCount: 0 };
     },
