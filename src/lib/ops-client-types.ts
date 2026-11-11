@@ -159,6 +159,8 @@ export interface OrderBreakdownResponse {
   shortages: BreakdownIngredient[];
   can_produce: boolean;
   total_shortage_cost: number;
+  /** Z-v29: источник потребности — snapshot заказа или текущий рецепт (легаси). */
+  need_source?: "live" | "snapshot";
 }
 
 export interface PurchaseDraft {

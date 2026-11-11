@@ -129,6 +129,24 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 vi.mock("@/lib/yandex-metrika", () => ({ trackEventServer: vi.fn(async () => ({})) }));
 
+// Z-v29: POST /api/orders фиксирует metadata.acceptance_snapshot сервером —
+// buildAcceptanceSnapshot читает products/recipes через пул (не через шим).
+// Отдаём товар из dbState (recipe_id null → snapshot с пустыми нормами).
+vi.mock("@/lib/postgrest/pool", () => ({
+  getPool: () => ({
+    query: async (sql: string) => {
+      if (sql.includes("FROM public.products")) {
+        const p = dbState.product;
+        const rows = p
+          ? [{ id: p.id, title: p.title, recipe_id: null, production_time_hours: null, prep_time_minutes: null, cook_time_minutes: null, recipe_updated_at: null, category_slug: null }]
+          : [];
+        return { rows, rowCount: rows.length };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  }),
+}));
+
 import { POST as postQuote } from "../quotes/route";
 import { POST as postOrder } from "../orders/route";
 

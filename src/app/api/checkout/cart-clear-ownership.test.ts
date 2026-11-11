@@ -22,6 +22,26 @@ const PID = "11111111-1111-1111-1111-111111111111";
 const PRODUCT_ROW = { id: PID, title: "Медовик", price: 1800, status: "published", confectioner_id: null, fillings: [] };
 const ORDER_ROW = { id: "order-1", number: "UK-2026-000001", total: 3600, subtotal: 3600, delivery_cost: 0, discount: 0, metadata: {} };
 
+// Z-v29: checkout теперь фиксирует metadata.acceptance_snapshot сервером
+// (buildAcceptanceSnapshot читает products/recipes через пул). Товар без
+// рецепта → snapshot с пустыми нормами; контракт очистки корзины не меняется.
+vi.mock("@/lib/postgrest/pool", () => ({
+  getPool: () => ({
+    query: async (sql: string) => {
+      if (sql.includes("FROM public.products")) {
+        return {
+          rows: [{ id: PID, title: "Медовик", recipe_id: null, production_time_hours: null, prep_time_minutes: null, cook_time_minutes: null, recipe_updated_at: null, category_slug: null }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes("FROM public.recipe_ingredients")) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  }),
+}));
+
 interface CapturedCall {
   table: string;
   op: string;

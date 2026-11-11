@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { loadConfectionerOrderSnapshot } from "@/lib/confectioner-tariff";
+import { buildAcceptanceSnapshot, type AcceptanceSnapshot } from "@/lib/ops/snapshot";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
 import { emitEvent } from "@/lib/n8n";
 import { recordEvent } from "@/lib/ops/events";
@@ -444,6 +445,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const totalDiscount = promoDiscount + bonusDiscountRub;
     const finalTotal = Math.max(1, itemsTotal + safeDeliveryCost - totalDiscount);
 
+    // 8.5. Z-v29: НЕИЗМЕНЯЕМЫЙ snapshot производственной потребности —
+    // тот же контракт, что у checkout: сервер собирает состав из БД в момент
+    // фиксации, запись попадает В ТОТ ЖЕ INSERT orders (metadata.acceptance_snapshot).
+    // Fail-closed: ошибка сборки → 503 ДО создания заказа.
+    let acceptanceSnapshot: AcceptanceSnapshot | null = null;
+    {
+      const built = await buildAcceptanceSnapshot({
+        items: orderItems.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
+        source: "orders_b2b",
+      });
+      if (!built.ok) {
+        console.error("[orders] acceptance snapshot build failed:", built.error);
+        return NextResponse.json(
+          { error: "Не удалось зафиксировать производственный состав заказа, попробуйте позже" },
+          { status: 503 }
+        );
+      }
+      acceptanceSnapshot = built.snapshot;
+    }
+
     // 9. Генерация номера заказа
     const orderNumber = `UK-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
 
@@ -471,7 +492,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         promo_code_applied: promoCodeApplied,
         promo_code_id: promoCodeId,
         promo_discount: promoDiscount,
-        metadata: { items_count: orderItems.length },
+        metadata: {
+          items_count: orderItems.length,
+          // Z-v29: снимок производственной потребности на момент оформления
+          ...(acceptanceSnapshot ? { acceptance_snapshot: acceptanceSnapshot } : {}),
+        },
       })
       .select("id, number")
       .single();

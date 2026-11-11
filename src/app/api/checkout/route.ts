@@ -49,6 +49,7 @@ import {
   type CakeBuilderConfig,
 } from "@/lib/cake-builder-pricing";
 import { loadBuilderFillingsForValidation } from "@/lib/builder-fillings-server";
+import { buildAcceptanceSnapshot, type AcceptanceSnapshot } from "@/lib/ops/snapshot";
 
 /** Разрешённые ключи кастомизации товара (product-page: filling/coating/decoration/inscription). */
 const ALLOWED_ATTR_KEYS = new Set(["filling", "coating", "decoration", "inscription"]);
@@ -508,6 +509,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const total = subtotal + deliveryCost - discount; // рубли
 
+    // 4b. Z-v29: НЕИЗМЕНЯЕМЫЙ snapshot производственной потребности.
+    // Собирается сервером из БД в момент фиксации заказа и попадает В ТОТ ЖЕ
+    // INSERT orders (metadata.acceptance_snapshot) — запись атомарна с заказом.
+    // Клиент не может передать/подменить состав (в теле запроса поля нет).
+    // Правка рецепта после этой точки больше НЕ меняет разбор/приёмку заказа.
+    // Fail-closed: ошибка сборки → 503 ДО создания заказа (недопустима оплата
+    // без производственного снимка — ТЗ Z-v29 §5).
+    let acceptanceSnapshot: AcceptanceSnapshot | null = null;
+    if (productItems.length > 0) {
+      const built = await buildAcceptanceSnapshot({
+        items: productItems.map((c) => ({
+          product_id: c.product_id,
+          quantity: c.quantity,
+        })),
+        source: "checkout",
+      });
+      if (!built.ok) {
+        console.error("[checkout] acceptance snapshot build failed:", built.error);
+        return NextResponse.json(
+          { error: "Не удалось зафиксировать производственный состав заказа, попробуйте позже" },
+          { status: 503 }
+        );
+      }
+      acceptanceSnapshot = built.snapshot;
+    }
+
     // 5. Создаём order
     // NOTE: number генерируем в коде — триггер generate_order_number в локальном
     // PG падает (lpad(integer,...) не существует) и валил любую вставку без number.
@@ -539,6 +566,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           cart_items: cartItems.map((c) => c.id ?? c.product_id ?? "custom").slice(0, 50),
           idempotency_key: idempotencyKey ?? null,
           contact: { name, phone },
+          // Z-v29: снимок производственной потребности на момент оформления
+          // (неизменяем после INSERT — ни один код-путь не обновляет orders.metadata).
+          ...(acceptanceSnapshot ? { acceptance_snapshot: acceptanceSnapshot } : {}),
         },
       })
       .select()

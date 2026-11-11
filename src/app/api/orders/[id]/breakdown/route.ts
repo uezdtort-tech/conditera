@@ -47,13 +47,22 @@ export async function GET(
       );
     }
 
-    const breakdown = await computeOrderBreakdown(id);
-    if (!breakdown) {
+    const result = await computeOrderBreakdown(id);
+    if (!result) {
       return NextResponse.json(
         { error: "NOT_FOUND", message: "Заказ не найден" },
         { status: 404 }
       );
     }
+    // Z-v29: повреждённый snapshot производственного состава — явная ошибка
+    // (fail-closed), а не молчаливый расчёт по текущему рецепту.
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.code, message: result.message },
+        { status: 409 }
+      );
+    }
+    const breakdown = result.breakdown;
 
     const isOwner =
       breakdown.order.confectioner_id !== null &&

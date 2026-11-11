@@ -24,6 +24,22 @@ const LOADED_FILLINGS = [
   { id: "condensed_milk", label: "Варёная сгущёнка", price: 0 },
 ];
 
+// Z-v29: checkout фиксирует metadata.acceptance_snapshot сервером —
+// пул продуктов/рецептов замокан (товар без рецепта → пустые нормы snapshot).
+vi.mock("@/lib/postgrest/pool", () => ({
+  getPool: () => ({
+    query: async (sql: string) => {
+      if (sql.includes("FROM public.products")) {
+        return {
+          rows: [{ id: PID, title: "Медовик", recipe_id: null, production_time_hours: null, prep_time_minutes: null, cook_time_minutes: null, recipe_updated_at: null, category_slug: null }],
+          rowCount: 1,
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  }),
+}));
+
 interface CapturedCall {
   table: string;
   op: string;
