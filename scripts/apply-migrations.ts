@@ -107,6 +107,7 @@ async function applySqlFile(client: Client, filePath: string, label: string) {
 
   let ok = 0;
   let failed = 0;
+  const failedDetails: string[] = [];
   for (let idx = 0; idx < statements.length; idx++) {
     const stmt = statements[idx].trim();
     if (!stmt) continue;
@@ -132,10 +133,18 @@ async function applySqlFile(client: Client, filePath: string, label: string) {
       } else {
         console.warn(`  ⚠ statement ${idx + 1} failed: ${msg.slice(0, 200)}`);
         failed++;
+        failedDetails.push(`stmt ${idx + 1}: ${msg.slice(0, 200)}`);
       }
     }
   }
-  console.log(`✓ ${label}: ${ok} ok, ${failed} failed`);
+  if (failed > 0) {
+    // Z-v26 (F2): честный итог файла — при не-идемпотентной ошибке файл считается
+    // НЕПРИМЕНЁННЫМ (не «✓»), детали видны, общий итог влияет на exit code.
+    console.error(`✖ ${label}: ${ok} ok, ${failed} FAILED`);
+    for (const d of failedDetails) console.error(`    ${d}`);
+  } else {
+    console.log(`✓ ${label}: ${ok} ok, ${failed} failed`);
+  }
   return { total: statements.length, ok, failed };
 }
 
@@ -155,9 +164,15 @@ async function main() {
     console.log(`» Found ${files.length} migration files:\n`);
 
     // Применить все миграции по порядку
+    let totalFailed = 0;
+    const failedFiles: string[] = [];
     for (const file of files) {
       const filePath = join(MIGRATIONS_DIR, file);
-      await applySqlFile(client, filePath, file);
+      const r = await applySqlFile(client, filePath, file);
+      if (r.failed > 0) {
+        totalFailed += r.failed;
+        failedFiles.push(file);
+      }
     }
 
     // Проверить результат
@@ -200,6 +215,18 @@ async function main() {
       } catch (e: any) {
         console.log(`  ${tableName}: table not found (${e.message?.slice(0, 60)})`);
       }
+    }
+
+    // Z-v26 (F2): success-сообщение и exit 0 — ТОЛЬКО если ни один стейтмент
+    // не упал. Ранее: счётчик failed игнорировался → всегда «successfully» + exit 0
+    // при реальной ошибке SQL (fake-success, находка Z-v25-F2).
+    if (totalFailed > 0) {
+      console.error(
+        `\n❌ Migration FAILED: ${totalFailed} statement(s) failed in ${failedFiles.length} file(s):`
+      );
+      for (const f of failedFiles) console.error(`   - ${f}`);
+      console.error("   Не-идемпотентные ошибки не были проигнорированы — исправьте и перезапустите.");
+      process.exit(1);
     }
 
     console.log("\n✅ All migrations applied successfully!");

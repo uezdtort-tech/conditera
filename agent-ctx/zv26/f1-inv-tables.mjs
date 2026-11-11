@@ -1,0 +1,12 @@
+import { readFileSync } from "node:fs";
+import pg from "pg";
+const env = readFileSync("/home/z/my-project/.env.local", "utf8");
+const url = env.match(/^DATABASE_URL=(.+)$/m)[1].trim().replace(/^["']|["']$/g, "");
+const pool = new pg.Pool({ connectionString: url, max: 2 });
+const t = await pool.query(`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND (table_name LIKE '%inventory%' OR table_name LIKE '%movement%' OR table_name LIKE '%reserv%') ORDER BY table_name`);
+for (const r of t.rows) console.log(r.table_name);
+const mv = await pool.query(`SELECT count(*) FROM public.inventory_movements`);
+console.log(`inventory_movements rows: ${mv.rows[0].count}`);
+const cols = await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='inventory_movements' ORDER BY ordinal_position`);
+console.log(`inventory_movements cols: ${cols.rows.map(c=>c.column_name).join(", ")}`);
+await pool.end();

@@ -1,0 +1,14 @@
+import pg from "pg";
+const pool = new pg.Pool({ connectionString: "postgresql://postgres@127.0.0.1:54329/conditera_zv26_gate", max: 2 });
+const r = await pool.query(`SELECT id::text, title, recipe_id::text, production_time_hours, confectioner_id::text, status FROM public.products WHERE status='published' AND deleted_at IS NULL ORDER BY title LIMIT 15`);
+console.log(`PUBLISHED: ${r.rows.length}`);
+for (const x of r.rows) console.log(JSON.stringify(x));
+const rec = await pool.query(`SELECT r.id::text, r.title, r.status, count(ri.id) FROM public.recipes r LEFT JOIN public.recipe_ingredients ri ON ri.recipe_id=r.id GROUP BY r.id ORDER BY r.title LIMIT 10`);
+console.log(`RECIPES: ${rec.rows.length}`);
+for (const x of rec.rows) console.log(JSON.stringify(x));
+const inv = await pool.query(`SELECT owner_id::text, name, quantity::text, unit FROM public.inventory_items ORDER BY name LIMIT 15`);
+console.log(`INVENTORY: ${inv.rows.length}`);
+for (const x of inv.rows) console.log(JSON.stringify(x));
+const conf = await pool.query(`SELECT "userId"::text, "businessName" FROM public.confectioners LIMIT 5`);
+for (const x of conf.rows) console.log(JSON.stringify(x));
+await pool.end();

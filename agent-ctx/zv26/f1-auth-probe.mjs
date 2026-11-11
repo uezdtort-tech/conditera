@@ -1,0 +1,12 @@
+import { readFileSync } from "node:fs";
+import pg from "pg";
+const env = readFileSync("/home/z/my-project/.env.local", "utf8");
+const url = env.match(/^DATABASE_URL=(.+)$/m)[1].trim().replace(/^["']|["']$/g, "");
+const pool = new pg.Pool({ connectionString: url, max: 2 });
+const t = await pool.query(`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND (table_name LIKE '%user%' OR table_name LIKE '%profile%') ORDER BY table_name`);
+console.log("tables:", t.rows.map(r=>r.table_name).join(", "));
+const cols = await pool.query(`SELECT column_name, is_nullable, column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='profiles' ORDER BY ordinal_position`);
+console.log("profiles cols:", cols.rows.map(c=>`${c.column_name}${c.is_nullable==='NO'?'*':''}`).join(", "));
+const u = await pool.query(`SELECT id::text, email, role FROM public.profiles WHERE email LIKE '%demo.ru' LIMIT 8`);
+for (const r of u.rows) console.log(JSON.stringify(r));
+await pool.end();

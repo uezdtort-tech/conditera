@@ -559,6 +559,16 @@ async function main() {
   await client.connect();
   console.log("✔ connected to PostgreSQL");
 
+  // Z-v26 (F4): сериализация параллельных запусков setup.
+  // Session-level advisory lock: жизненный цикл однозначен — освобождается при
+  // выходе (успех/ошибка/обрыв соединения/креш процесса), вечная блокировка
+  // невозможна. Второй экземпляр ждёт, затем видит полный леджер и завершается
+  // без работы (доказано: без блокировки два параллельных setup давали
+  // spurious-падение на CREATE SCHEMA — гонка pg_namespace_nspname_index).
+  const ADV_LOCK_KEY = "hashtext('conditera_migrations')";
+  await client.query(`SELECT pg_advisory_lock(${ADV_LOCK_KEY})`);
+  console.log("✔ advisory lock acquired (conditera_migrations)");
+
   try {
     // 4. Compat-слой (идемпотентен)
     if (!seedOnly) {
@@ -762,6 +772,9 @@ console.log("\n─── Seeds ───");
     console.log("  └─────────────────────────┴──────────────────┘");
     console.log("\n  Next step: npm run dev");
   } finally {
+    try {
+      await client.query(`SELECT pg_advisory_unlock(${ADV_LOCK_KEY})`);
+    } catch { /* session end releases the lock anyway */ }
     await client.end().catch(() => {});
   }
 }

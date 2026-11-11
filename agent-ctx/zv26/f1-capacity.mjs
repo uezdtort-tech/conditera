@@ -1,0 +1,13 @@
+import { readFileSync } from "node:fs";
+import pg from "pg";
+const env = readFileSync("/home/z/my-project/.env.local", "utf8");
+const url = env.match(/^DATABASE_URL=(.+)$/m)[1].trim().replace(/^["']|["']$/g, "");
+const pool = new pg.Pool({ connectionString: url, max: 2 });
+const cols = await pool.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='confectioner_capacity' ORDER BY ordinal_position`);
+console.log(`=== confectioner_capacity cols: ${cols.rows.map(c=>c.column_name).join(", ")} ===`);
+const cap = await pool.query(`SELECT * FROM public.confectioner_capacity ORDER BY user_id, date LIMIT 30`);
+console.log(`=== confectioner_capacity rows: ${cap.rows.length} (first 30) ===`);
+for (const r of cap.rows) console.log(JSON.stringify(r));
+const total = await pool.query(`SELECT user_id::text, count(*) FROM public.confectioner_capacity GROUP BY user_id`);
+console.log(`=== per confectioner: ${JSON.stringify(total.rows)} ===`);
+await pool.end();

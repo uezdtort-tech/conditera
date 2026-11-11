@@ -1,0 +1,61 @@
+=== PUBLISHED PRODUCTS: 12 ===
+{"id":"aaaaaaaa-0000-4000-8000-000000000007","title":"3D-торт «Коровка»","status":"published","is_available":true,"price":"6500","recipe_id":null,"production_time_hours":12,"confectioner_id":"11111111-1111-4111-8111-111111111103","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"realistic_cakes"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000003","title":"Бенто-торт «Нежность»","status":"published","is_available":true,"price":"1200","recipe_id":null,"production_time_hours":6,"confectioner_id":"11111111-1111-4111-8111-111111111101","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"bento"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000002","title":"Домашний «Наполеон»","status":"published","is_available":true,"price":"2400","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111101","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"cakes"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000008","title":"Зефирный букет «Пион»","status":"published","is_available":true,"price":"3200","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111103","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"zephyr_bouquets"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000006","title":"Имбирные пряники с росписью (9 шт.)","status":"published","is_available":true,"price":"1500","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111102","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"gingerbread"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000004","title":"Капкейки ванильные (12 шт.)","status":"published","is_available":true,"price":"1900","recipe_id":null,"production_time_hours":6,"confectioner_id":"11111111-1111-4111-8111-111111111102","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"cupcakes"}
+{"id":"aaaaaaaa-0000-4000-8000-00000000000a","title":"Кэнди-бар шоколадный (30 персон)","status":"published","is_available":true,"price":"5900","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111102","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"chocolate"}
+{"id":"aaaaaaaa-0000-4000-8000-00000000000c","title":"Леденцы на палочках (25 шт.)","status":"published","is_available":true,"price":"2500","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111103","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"lollipops"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000005","title":"Макаронс ассорти (15 шт.)","status":"published","is_available":true,"price":"2600","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111102","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"macarons"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000009","title":"Пастила яблочная без сахара (200 г)","status":"published","is_available":true,"price":"690","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111101","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"pastila"}
+{"id":"aaaaaaaa-0000-4000-8000-00000000000b","title":"Порционные десерты (20 шт.)","status":"published","is_available":true,"price":"4400","recipe_id":null,"production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111103","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":null,"recipe_updated_at":null,"category_slug":"desserts"}
+{"id":"aaaaaaaa-0000-4000-8000-000000000001","title":"Свадебный торт «Ягодный бархат»","status":"published","is_available":true,"price":"18500","recipe_id":"45ff30b0-b29f-4bd3-ba47-9f0fba8a6039","production_time_hours":null,"confectioner_id":"11111111-1111-4111-8111-111111111101","prep_time_minutes":null,"cook_time_minutes":null,"recipe_status":"published","recipe_updated_at":"2026-11-11T13:33:52.324Z","category_slug":"cakes"}
+=== RECIPES: 4 ===
+{"id":"931fc97f-161f-4fa4-9e5c-f3c44f6cf77b","title":"Бенто-торт «Лавандовое наслаждение»","status":"published","prep_time_minutes":null,"cook_time_minutes":90,"servings":8,"ing_count":"4"}
+{"id":"45ff30b0-b29f-4bd3-ba47-9f0fba8a6039","title":"Красный бархат (демо)","status":"published","prep_time_minutes":null,"cook_time_minutes":null,"servings":8,"ing_count":"5"}
+{"id":"1e0aa328-a7ff-4063-a9bf-8214f8ab82ed","title":"Премиум-рецепт «Свадебный многоярусный»","status":"published","prep_time_minutes":null,"cook_time_minutes":480,"servings":8,"ing_count":"4"}
+{"id":"120f93ff-f6ce-4e24-91cc-a43ce2fbdd7f","title":"Шоколадный торт «Три шоколада»","status":"published","prep_time_minutes":null,"cook_time_minutes":180,"servings":8,"ing_count":"4"}
+=== INVENTORY: 12 ===
+{"id":"2ca83ae1-02f3-4799-8ec2-b9bc2b01772e","owner_id":"11111111-1111-4111-8111-111111111101","name":"Ваниль стручки","quantity":"0.30","unit":"кг","cost_per_unit":9500,"is_active":true}
+{"id":"045e4a8f-0093-456f-a20b-0d07a0b9ed75","owner_id":"11111111-1111-4111-8111-111111111101","name":"Желатин листовой","quantity":"0.80","unit":"кг","cost_per_unit":2100,"is_active":true}
+{"id":"efea60dc-e43a-4339-a267-4fee9763bca7","owner_id":"11111111-1111-4111-8111-111111111101","name":"Кондитерский мешок 50см","quantity":"20.00","unit":"шт","cost_per_unit":35,"is_active":true}
+{"id":"efd1e60a-5980-4931-9494-5e2086790c27","owner_id":"11111111-1111-4111-8111-111111111101","name":"Масло сливочное 82,5%","quantity":"9.00","unit":"кг","cost_per_unit":790,"is_active":true}
+{"id":"71ea26fa-c307-4935-bddb-a0f692896976","owner_id":"11111111-1111-4111-8111-111111111101","name":"Мука миндальная","quantity":"6.50","unit":"кг","cost_per_unit":850,"is_active":true}
+{"id":"d104dc8e-671f-4e48-a4bd-10d3236b4feb","owner_id":"11111111-1111-4111-8111-111111111101","name":"Мука пшеничная в/с","quantity":"25.00","unit":"кг","cost_per_unit":65,"is_active":true}
+{"id":"22082e13-0547-4405-9b0d-c9ef2f8faec4","owner_id":"11111111-1111-4111-8111-111111111101","name":"Сахар-песок","quantity":"18.00","unit":"кг","cost_per_unit":58,"is_active":true}
+{"id":"a6165a06-07e8-4117-a9a5-a89c4abf2328","owner_id":"11111111-1111-4111-8111-111111111101","name":"Сливки 33-35%","quantity":"7.00","unit":"л","cost_per_unit":640,"is_active":true}
+{"id":"ecd0ac18-e243-42cb-a8d4-d074ea571fff","owner_id":"11111111-1111-4111-8111-111111111101","name":"Сливочный сыр","quantity":"4.00","unit":"кг","cost_per_unit":990,"is_active":true}
+{"id":"fe63950c-a03f-4f82-a5fa-ee698ad653e4","owner_id":"11111111-1111-4111-8111-111111111101","name":"Шоколад белый","quantity":"1.20","unit":"кг","cost_per_unit":1180,"is_active":true}
+{"id":"ba4736bb-e7c5-44ea-9cde-6e3c558eeca8","owner_id":"11111111-1111-4111-8111-111111111101","name":"Шоколад тёмный 70%","quantity":"5.50","unit":"кг","cost_per_unit":1250,"is_active":true}
+{"id":"fe10db82-b5c5-4c6b-9acc-958429a2752f","owner_id":"11111111-1111-4111-8111-111111111101","name":"Яйцо куриное С0","quantity":"15.00","unit":"дес","cost_per_unit":120,"is_active":true}
+=== PURCHASE_DRAFTS: 1 ===
+{"id":"eaf5ae25-2fb9-4496-80ec-6e2573d9fcd7","owner_id":"11111111-1111-4111-8111-111111111101","status":"draft","expected_eta":null,"items":"4","item_names":"Ягоды, Ягоды, Шоколад белый, Ягоды"}
+/home/z/my-project/node_modules/pg-pool/index.js:45
+    Error.captureStackTrace(err)
+          ^
+
+error: relation "public.capacity_slots" does not exist
+    at /home/z/my-project/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///home/z/my-project/agent-ctx/zv26/f1-product-map.mjs:50:14 {
+  length: 121,
+  severity: 'ERROR',
+  code: '42P01',
+  detail: undefined,
+  hint: undefined,
+  position: '109',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '1448',
+  routine: 'parserOpenTable'
+}
+
+Node.js v24.22.2
