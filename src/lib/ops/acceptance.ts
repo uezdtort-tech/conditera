@@ -32,7 +32,7 @@ import type { RiskLevel, RiskReasonCode } from "./lifecycle-config";
 export type Availability = "available" | "available_with_warning" | "unavailable";
 
 export interface AcceptanceReason {
-  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING" | "RECIPE_MISSING" | "LOW_STOCK" | "CAN_ACCEPT_WITH_PURCHASE";
+  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING" | "RECIPE_MISSING" | "LOW_STOCK" | "CAN_ACCEPT_WITH_PURCHASE" | "INVENTORY_UNIT_MISMATCH";
   message: string;
 }
 
@@ -397,6 +397,25 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
     );
     const shortages = needs.shortages;
 
+    // Z-v27 (сценарий P, fail-closed): ингредиенты со статусом unit_mismatch
+    // (неизвестная/несовместимая единица склада) не входят в shortages, но
+    // потребность по ним НЕ проверяема — раньше гейт пропускал такой заказ
+    // (canAccept=true), а accept затем отклонял его (canProduce=false) —
+    // оплаченный заказ зависал. Теперь это блокирующая причина.
+    const unitMismatches = needs.ingredients.filter((i) => i.status === "unit_mismatch");
+    if (unitMismatches.length > 0) {
+      reasons.push({
+        code: "INVENTORY_UNIT_MISMATCH",
+        message: `Единицы склада несовместимы с рецептурой: ${unitMismatches
+          .map((i) => `«${i.name}» (склад: ${i.warehouse_unit ?? "?"})`)
+          .join(", ")}. Исправьте единицу позиции склада.`,
+      });
+      suggestions.push({
+        code: "CHECK_LATER",
+        message: "Проверьте единицы измерения позиций склада (г/мл/шт/дес).",
+      });
+    }
+
     // --- Закупки: ETA (ТЗ §20) ---
     let earliestEta: Date | null = null;
     let etaBeforeProductionStart: boolean | null = null;
@@ -602,6 +621,9 @@ const BLOCKING_CODES = new Set<string>([
   // движка для нехватки; RECIPE_MISSING — позиция без расчёта потребности.
   "LOW_STOCK",
   "RECIPE_MISSING",
+  // Z-v27 (сценарий P): неизвестная/несовместимая единица склада — потребность
+  // непроверяема → fail-closed (совпадает с accept-путём canProduce).
+  "INVENTORY_UNIT_MISMATCH",
 ]);
 
 function dedupeReasons(reasons: AcceptanceReason[]): AcceptanceReason[] {
