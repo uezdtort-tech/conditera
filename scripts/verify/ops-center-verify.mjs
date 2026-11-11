@@ -139,6 +139,26 @@ async function main() {
   );
   cleanupIds.orders.push(done.rows[0].id);
 
+  // «Сегодняшний» заказ для проверок confectioner-today. Создаём СВОЙ заказ
+  // с delivery_date = CURRENT_DATE и paid_at = now() — раньше проверка
+  // опиралась на демо-фикстуру DEMO-1048 с фиксированной датой доставки,
+  // и после смены календарного дня (CURRENT_DATE > delivery_date) обе
+  // проверки «Заказы сегодня»/revenueToday ложнопроваливались при
+  // корректном поведении API (см. Z-v22: корень — зависимость от календаря).
+  const todayOrder = await client.query(
+    `INSERT INTO public.orders
+       (number, user_id, confectioner_id, subtotal, delivery_cost, discount, total, status, payment_status,
+        payment_method, delivery_address, delivery_city, delivery_date, delivery_time_window,
+        delivery_type, metadata, paid_at)
+     VALUES ('OPSVERIFY-TODAY-' || floor(random()*100000)::text, '11111111-1111-4111-8111-111111111106',
+             '11111111-1111-4111-8111-111111111101', 37000, 0, 0, 37000, 'CONFIRMED', 'escrow',
+             'card', 'тест', 'Москва', CURRENT_DATE, '10:00-12:00', 'delivery',
+             jsonb_build_object('test','ops-verify'), now())
+     RETURNING id::text, number::text`
+  );
+  cleanupIds.orders.push(todayOrder.rows[0].id);
+  const todayOrderNumber = todayOrder.rows[0].number;
+
   section("Rule engine: материализация и идемпотентность");
   const scan1 = await api("GET", "/api/ops/tasks?refresh=1", { token: admin });
   assert("GET /api/ops/tasks → 200", scan1.status === 200, `got ${scan1.status}`);
@@ -190,8 +210,16 @@ async function main() {
       ["ordersToday", "inProduction", "lowStock", "purchaseDrafts"].every((k) => Array.isArray(today.json?.[k])),
     `got ${today.status} keys=${Object.keys(today.json || {}).join(",")}`
   );
-  assert("DEMO-1048 в «Заказах сегодня»", (today.json?.ordersToday || []).some((o) => o.number === "DEMO-1048"), JSON.stringify((today.json?.ordersToday || []).map((o) => o.number)));
-  assert("revenueToday включает DEMO-1048", (today.json?.revenueToday || 0) >= 37000, String(today.json?.revenueToday));
+  assert(
+    "заказ с delivery_date=CURRENT_DATE в «Заказах сегодня»",
+    (today.json?.ordersToday || []).some((o) => o.number === todayOrderNumber),
+    JSON.stringify((today.json?.ordersToday || []).map((o) => o.number))
+  );
+  assert(
+    "revenueToday включает today-заказ (>= 37000)",
+    (today.json?.revenueToday || 0) >= 37000,
+    String(today.json?.revenueToday)
+  );
 
   section("Разбор заказа: рецепт → ингредиенты → склад");
   const bd = await api("GET", `/api/orders/${orderId}/breakdown`, { token: owner });
