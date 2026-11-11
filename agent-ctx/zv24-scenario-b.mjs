@@ -66,9 +66,13 @@ async function hasColumn(c, name) {
 
 // ============ Scenario B1: DB where zombie WAS applied + existing data ============
 async function scenarioB1() {
-  console.log("\n===== B1: zombie-applied DB + data → apply 0080 → verify repair =====");
+  console.log("\n===== B1: legacy zombie-applied DB (constructed explicitly) + data → 0080 → verify repair =====");
   const c = await freshDb("conditera_zv24_cart_simb1");
   await fullSetup("conditera_zv24_cart_simb1");
+  // Z-v24: дерево больше не содержит зомби-миграции, поэтому легаси-состояние
+  // (БД, где зомби успел примениться до фикса) конструируется явно:
+  await c.query(`ALTER TABLE public.cart_items ADD COLUMN IF NOT EXISTS metadata jsonb`);
+  await c.query(`ALTER TABLE public.cart_items ADD CONSTRAINT cart_items_product_or_custom_check CHECK (product_id IS NOT NULL OR (metadata IS NOT NULL AND metadata ? 'custom'))`);
   await synthUser(c);
   const p1 = await synthProduct(c, "zv24-simb1-a");
   const p2 = await synthProduct(c, "zv24-simb1-b");
