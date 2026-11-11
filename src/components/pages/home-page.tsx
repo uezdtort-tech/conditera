@@ -43,6 +43,12 @@ import {
 import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
+import {
+  usePublishedHomeCms,
+  isExternalCmsHref,
+  cmsInternalView,
+} from "@/hooks/use-published-cms";
+import type { ViewKey } from "@/lib/types";
 
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
 interface ApiReview {
@@ -76,11 +82,36 @@ function useRealReviews(limit = 6) {
   return reviews;
 }
 
+/** next/image оптимизирует только домены из images.remotePatterns (+ локальные /path);
+ *  произвольные URL из CMS рендерим обычным <img>, чтобы next/image не падал. */
+function isOptimizableImage(src: string): boolean {
+  return src.startsWith("/") || src.startsWith("https://images.unsplash.com/");
+}
+
 export function HomePage() {
   const navigate = useAppStore((s) => s.navigate);
   const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
   const products = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
+
+  // ZV31-001: опубликованный CMS-контент главной (публичный API:
+  // /api/cms/settings + /api/cms/banners). Пока данных нет (загрузка/ошибка/
+  // пусто в CMS) → hero null, banners [] → хардкод-фолбэк без изменений.
+  const cms = usePublishedHomeCms();
+  const cmsHero = cms.hero;
+  const cmsCta =
+    cmsHero && cmsHero.ctaLabel && cmsHero.ctaHref
+      ? { label: cmsHero.ctaLabel, href: cmsHero.ctaHref }
+      : null;
+
+  // CMS-ссылки: внешние — в новой вкладке, внутренние — SPA-navigate по view-имени
+  const openCmsHref = (href: string) => {
+    if (isExternalCmsHref(href)) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    navigate(cmsInternalView(href) as ViewKey);
+  };
 
   // Реальные данные платформы для честных счётчиков (не выдуманные цифры):
   // кондитеры — из публичного API, товары — hydrated store (live-источник).
@@ -162,23 +193,48 @@ export function HomePage() {
                 Маркетплейс от частных кондитеров России
               </Badge>
 
-              <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
-                Торты и десерты
-                <br />
-                <span className="text-gradient">от уездных кондитеров</span>
-              </h1>
+              {/* ZV31-001: заголовок из CMS (site_settings: hero_title), иначе хардкод */}
+              {cmsHero ? (
+                <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+                  {cmsHero.title}
+                </h1>
+              ) : (
+                <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+                  Торты и десерты
+                  <br />
+                  <span className="text-gradient">от уездных кондитеров</span>
+                </h1>
+              )}
 
-              <p className="text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
-                Заказывайте домашние торты напрямую у проверенных кондитеров
-                со всей России. Конструктор тортов, безопасные платежи с
-                эскроу, доставка в ваш город.
-              </p>
+              {/* ZV31-001: подзаголовок из CMS (hero_subtitle); нет ключа — хардкод */}
+              {!cmsHero || !cmsHero.subtitle ? (
+                <p className="text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
+                  Заказывайте домашние торты напрямую у проверенных кондитеров
+                  со всей России. Конструктор тортов, безопасные платежи с
+                  эскроу, доставка в ваш город.
+                </p>
+              ) : (
+                <p className="text-lg text-muted-foreground max-w-xl mx-auto lg:mx-0">
+                  {cmsHero.subtitle}
+                </p>
+              )}
 
               {/* Smart search — ИИ разбирает запрос на фильтры каталога.
                   Обычный путь без ИИ остаётся: каталог + фильтры и кнопка ниже. */}
               <AiSmartSearch variant="hero" />
 
               <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
+                {/* ZV31-001: CTA из CMS (hero_cta_label + hero_cta_href) — первым в ряду */}
+                {cmsCta && (
+                  <Button
+                    size="lg"
+                    onClick={() => openCmsHref(cmsCta.href)}
+                    className="btn-primary-gradient"
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    {cmsCta.label}
+                  </Button>
+                )}
                 <Button
                   size="lg"
                   onClick={() => setCakeBuilderOpen(true)}
@@ -293,6 +349,92 @@ export function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ===== CMS BANNERS (ZV31-001): опубликованные админом баннеры
+           (cms_banners: is_active=true, позиции top/hero/home_hero, sort_order asc).
+           Пустой массив/ошибка → секция не рендерится: ноль визуальных изменений. ===== */}
+      {cms.banners.length > 0 && (
+        <section className="container mx-auto px-4" aria-label="Акции и события">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {cms.banners.map((banner) => {
+              const cardClass =
+                "group relative block h-36 w-full overflow-hidden rounded-xl border border-border bg-card text-left hover:border-primary/40 hover:shadow-lg transition-all";
+              const body = (
+                <>
+                  {banner.imageUrl ? (
+                    isOptimizableImage(banner.imageUrl) ? (
+                      <Image
+                        src={banner.imageUrl}
+                        alt={banner.title ?? "Баннер"}
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                        className="object-cover"
+                      />
+                    ) : (
+                      /* Домен не в images.remotePatterns → обычный img, чтобы
+                         next/image не падал на произвольном URL из CMS */
+                      <img
+                        src={banner.imageUrl}
+                        alt={banner.title ?? "Баннер"}
+                        className="absolute inset-0 h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )
+                  ) : (
+                    <div className="absolute inset-0 mesh-gradient opacity-70" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+                  <div className="absolute bottom-0 left-0 right-0 p-4">
+                    {banner.title && (
+                      <div className="font-display font-semibold text-white text-base line-clamp-1">
+                        {banner.title}
+                      </div>
+                    )}
+                    {banner.subtitle && (
+                      <div className="text-xs text-white/85 line-clamp-2 mt-0.5">
+                        {banner.subtitle}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+              if (banner.href && isExternalCmsHref(banner.href)) {
+                return (
+                  <a
+                    key={banner.id}
+                    href={banner.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cardClass}
+                  >
+                    {body}
+                  </a>
+                );
+              }
+              if (banner.href) {
+                return (
+                  <button
+                    key={banner.id}
+                    type="button"
+                    onClick={() => {
+                      if (banner.href) openCmsHref(banner.href);
+                    }}
+                    className={cardClass}
+                  >
+                    {body}
+                  </button>
+                );
+              }
+              return (
+                <div key={banner.id} className={cardClass}>
+                  {body}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ===== БЕГУЩАЯ СТРОКА РЕАЛЬНЫХ КОНДИТЕРОВ ===== */}
       <ConfectionersMarquee />

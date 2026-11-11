@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +45,7 @@ import {
   AlertTriangle,
   Gift,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -252,11 +253,58 @@ export function AdminCmsHomeTab() {
 }
 
 // ==================== CMS: БАННЕРЫ ====================
+/** Строка cms_banners, как её отдаёт GET /api/cms/banners (snake_case). */
+interface CmsBannerApiRow {
+  id: string;
+  title?: string | null;
+  text?: string | null;
+  image_url?: string | null;
+  link_url?: string | null;
+  cta_text?: string | null;
+  position?: string | null;
+  is_active?: boolean | null;
+  sort_order?: number | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+}
+
+/** Модель баннера для UI (camelCase — прежние имена полей UI сохранены). */
+interface AdminBannerRow {
+  id: string;
+  title: string;
+  subtitle: string;
+  image: string;
+  link: string;
+  buttonText: string;
+  position: string;
+  isActive: boolean;
+  sortOrder: number;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+function mapBannerRow(row: CmsBannerApiRow): AdminBannerRow {
+  return {
+    id: row.id,
+    title: row.title || "",
+    subtitle: row.text || "",
+    image: row.image_url || "",
+    link: row.link_url || "",
+    buttonText: row.cta_text || "",
+    position: row.position || "hero",
+    isActive: row.is_active !== false,
+    sortOrder: row.sort_order || 0,
+    startDate: row.starts_at,
+    endDate: row.ends_at,
+  };
+}
+
 export function AdminBannersTab() {
-  const banners = useAppStore((s) => s.banners);
-  const updateBanner = useAppStore((s) => s.updateBanner);
-  const addBanner = useAppStore((s) => s.addBanner);
-  const deleteBanner = useAppStore((s) => s.deleteBanner);
+  const [banners, setBanners] = useState<AdminBannerRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newBanner, setNewBanner] = useState({
     title: "",
@@ -269,6 +317,90 @@ export function AdminBannersTab() {
     sortOrder: 0,
   });
 
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // include_inactive: админ видит и скрытые баннеры (роль проверяет API)
+      const res = await csrfFetch("/api/cms/banners?include_inactive=true");
+      const data = (await res.json()) as { banners?: CmsBannerApiRow[]; error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setBanners((data.banners || []).map(mapBannerRow));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить баннеры");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleToggle = async (banner: AdminBannerRow) => {
+    setActionError(null);
+    try {
+      const res = await csrfFetch("/api/cms/banners", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: banner.id, isActive: !banner.isActive }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast.success(banner.isActive ? "Скрыт" : "Показан");
+      await load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не удалось изменить баннер");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setActionError(null);
+    try {
+      const res = await csrfFetch(`/api/cms/banners?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast.success("Удалён");
+      await load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не удалось удалить баннер");
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!newBanner.title || !newBanner.image) return;
+    setActionError(null);
+    setIsSaving(true);
+    try {
+      const res = await csrfFetch("/api/cms/banners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newBanner.title,
+          subtitle: newBanner.subtitle,
+          imageUrl: newBanner.image,
+          linkUrl: newBanner.link,
+          buttonText: newBanner.buttonText,
+          position: newBanner.position,
+          sortOrder: Number(newBanner.sortOrder) || 0,
+          isActive: newBanner.isActive,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast.success("Баннер добавлен!");
+      setShowAdd(false);
+      setNewBanner({ title: "", subtitle: "", image: "", link: "", buttonText: "", position: "hero", isActive: true, sortOrder: 0 });
+      await load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не удалось создать баннер");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -279,54 +411,80 @@ export function AdminBannersTab() {
           </h1>
           <p className="text-sm text-muted-foreground">Управление баннерами на главной и в каталоге</p>
         </div>
-        <Button onClick={() => setShowAdd(true)}><Plus className="h-4 w-4 mr-1" /> Добавить</Button>
+        <div className="flex gap-2">
+          <Button onClick={load} variant="outline" size="sm" aria-label="Обновить баннеры">
+            <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+            Обновить
+          </Button>
+          <Button onClick={() => setShowAdd(true)}><Plus className="h-4 w-4 mr-1" /> Добавить</Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {banners.map((banner) => (
-          <Card key={banner.id} className={`overflow-hidden p-0 ${!banner.isActive ? "opacity-50" : ""}`}>
-            <div className="relative aspect-video bg-muted">
-              {banner.image && <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-              <div className="absolute bottom-2 left-3 right-3">
-                <div className="font-semibold text-white text-sm line-clamp-1">{banner.title}</div>
-                <div className="text-xs text-white/80 line-clamp-1">{banner.subtitle}</div>
+      {error && (
+        <Card className="p-3 border-destructive/40 bg-destructive/5 text-sm text-destructive">
+          {error}
+        </Card>
+      )}
+      {actionError && (
+        <Card className="p-3 border-destructive/40 bg-destructive/5 text-sm text-destructive">
+          {actionError}
+        </Card>
+      )}
+
+      {isLoading ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Загрузка баннеров…
+        </Card>
+      ) : banners.length === 0 ? (
+        <Card className="p-12 text-center">
+          <ImageIcon className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+          <h3 className="font-semibold">Нет баннеров</h3>
+          <p className="text-sm text-muted-foreground">Создайте первый — он появится на главной или в каталоге</p>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {banners.map((banner) => (
+            <Card key={banner.id} className={`overflow-hidden p-0 ${!banner.isActive ? "opacity-50" : ""}`}>
+              <div className="relative aspect-video bg-muted">
+                {banner.image && <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <div className="absolute bottom-2 left-3 right-3">
+                  <div className="font-semibold text-white text-sm line-clamp-1">{banner.title}</div>
+                  <div className="text-xs text-white/80 line-clamp-1">{banner.subtitle}</div>
+                </div>
+                <Badge className={`absolute top-2 right-2 ${banner.isActive ? "bg-emerald-500" : "bg-slate-500"} text-white text-[9px]`}>
+                  {banner.isActive ? "Активен" : "Скрыт"}
+                </Badge>
               </div>
-              <Badge className={`absolute top-2 right-2 ${banner.isActive ? "bg-emerald-500" : "bg-slate-500"} text-white text-[9px]`}>
-                {banner.isActive ? "Активен" : "Скрыт"}
-              </Badge>
-            </div>
-            <div className="p-3">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                <Badge variant="outline" className="text-[10px]">{banner.position}</Badge>
-                {banner.startDate && <span>с {formatDate(banner.startDate)}</span>}
-                {banner.endDate && <span>до {formatDate(banner.endDate)}</span>}
+              <div className="p-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+                  <Badge variant="outline" className="text-[10px]">{banner.position}</Badge>
+                  {banner.startDate && <span>с {formatDate(banner.startDate)}</span>}
+                  {banner.endDate && <span>до {formatDate(banner.endDate)}</span>}
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 text-xs"
+                    onClick={() => handleToggle(banner)}
+                  >
+                    {banner.isActive ? <><EyeOff className="h-3 w-3 mr-1" /> Скрыть</> : <><Eye className="h-3 w-3 mr-1" /> Показать</>}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive text-xs"
+                    onClick={() => handleDelete(banner.id)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 text-xs"
-                  onClick={() => {
-                    updateBanner(banner.id, { isActive: !banner.isActive });
-                    toast.success(banner.isActive ? "Скрыт" : "Показан");
-                  }}
-                >
-                  {banner.isActive ? <><EyeOff className="h-3 w-3 mr-1" /> Скрыть</> : <><Eye className="h-3 w-3 mr-1" /> Показать</>}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive text-xs"
-                  onClick={() => { deleteBanner(banner.id); toast.success("Удалён"); }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {showAdd && (
         <Dialog open onOpenChange={setShowAdd}>
@@ -360,14 +518,11 @@ export function AdminBannersTab() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowAdd(false)}>Отмена</Button>
               <Button
-                disabled={!newBanner.title || !newBanner.image}
-                onClick={() => {
-                  addBanner(newBanner);
-                  toast.success("Баннер добавлен!");
-                  setShowAdd(false);
-                  setNewBanner({ title: "", subtitle: "", image: "", link: "", buttonText: "", position: "hero", isActive: true, sortOrder: 0 });
-                }}
-              >Добавить</Button>
+                disabled={!newBanner.title || !newBanner.image || isSaving}
+                onClick={handleAdd}
+              >
+                {isSaving && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}Добавить
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -377,112 +532,275 @@ export function AdminBannersTab() {
 }
 
 // ==================== CMS: СТРАНИЦЫ (FAQ, О нас, Условия) ====================
+/** Строка cms_pages, как её отдаёт GET /api/cms/pages (snake_case). */
+interface CmsPageApiRow {
+  id: string;
+  slug?: string | null;
+  title?: string | null;
+  content?: string | null;
+  seo_title?: string | null;
+  seo_description?: string | null;
+  status?: string | null;
+  updated_at?: string | null;
+}
+
+interface AdminCmsPageRow {
+  id: string;
+  slug: string;
+  title: string;
+  seoTitle: string;
+  seoDescription: string;
+  content: string;
+  isPublished: boolean;
+  updatedAt: string;
+}
+
+function mapPageRow(row: CmsPageApiRow): AdminCmsPageRow {
+  return {
+    id: row.id,
+    slug: row.slug || "",
+    title: row.title || "",
+    seoTitle: row.seo_title || "",
+    seoDescription: row.seo_description || "",
+    content: row.content || "",
+    isPublished: row.status === "published",
+    updatedAt: row.updated_at || "",
+  };
+}
+
 export function AdminCmsPagesTab() {
-  const cmsPages = useAppStore((s) => s.cmsPages);
-  const updateCmsPage = useAppStore((s) => s.updateCmsPage);
+  const [cmsPages, setCmsPages] = useState<AdminCmsPageRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<any>({});
 
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // include_drafts: GET отдаёт черновики только админ-ролям (проверка на сервере)
+      const res = await csrfFetch("/api/cms/pages?include_drafts=true");
+      const data = (await res.json()) as { pages?: CmsPageApiRow[]; error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setCmsPages((data.pages || []).map(mapPageRow));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить страницы");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const savePage = async () => {
+    if (!editingId) return;
+    const page = cmsPages.find((p) => p.id === editingId);
+    if (!page?.slug) return;
+    setActionError(null);
+    setIsSaving(true);
+    try {
+      const res = await csrfFetch(`/api/cms/pages/${encodeURIComponent(page.slug)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editValues.title || "",
+          seoTitle: editValues.seoTitle || "",
+          seoDescription: editValues.seoDescription || "",
+          content: editValues.content || "",
+          status: editValues.isPublished ? "published" : "draft",
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast.success("Страница сохранена!");
+      setEditingId(null);
+      await load();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Не удалось сохранить страницу");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-          <Edit className="h-6 w-6 text-primary" />
-          Страницы сайта
-        </h1>
-        <p className="text-sm text-muted-foreground">Редактируйте тексты страниц: О нас, FAQ, Условия, Конфиденциальность</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
+            <Edit className="h-6 w-6 text-primary" />
+            Страницы сайта
+          </h1>
+          <p className="text-sm text-muted-foreground">Редактируйте тексты страниц: О нас, FAQ, Условия, Конфиденциальность</p>
+        </div>
+        <Button onClick={load} variant="outline" size="sm" aria-label="Обновить страницы">
+          <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+          Обновить
+        </Button>
       </div>
 
-      <div className="space-y-3">
-        {cmsPages.map((page) => (
-          <Card key={page.id} className="p-4">
-            {editingId === page.id ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">/{page.slug}</Badge>
-                  <div className="flex gap-1">
-                    <Button size="sm" onClick={() => {
-                      updateCmsPage(editingId!, editValues);
-                      toast.success("Страница сохранена!");
-                      setEditingId(null);
-                    }}><Save className="h-3 w-3 mr-1" /> Сохранить</Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Отмена</Button>
+      {error && (
+        <Card className="p-3 border-destructive/40 bg-destructive/5 text-sm text-destructive">
+          {error}
+        </Card>
+      )}
+      {actionError && (
+        <Card className="p-3 border-destructive/40 bg-destructive/5 text-sm text-destructive">
+          {actionError}
+        </Card>
+      )}
+
+      {isLoading ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Загрузка страниц…
+        </Card>
+      ) : cmsPages.length === 0 ? (
+        <Card className="p-12 text-center">
+          <Edit className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+          <h3 className="font-semibold">Страницы не найдены</h3>
+          <p className="text-sm text-muted-foreground">Создайте первую: POST /api/cms/pages (slug, title, content)</p>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {cmsPages.map((page) => (
+            <Card key={page.id} className="p-4">
+              {editingId === page.id ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline">/{page.slug}</Badge>
+                    <div className="flex gap-1">
+                      <Button size="sm" onClick={savePage} disabled={isSaving}>
+                        {isSaving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
+                        Сохранить
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Отмена</Button>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Заголовок</Label>
-                  <Input value={editValues.title || ""} onChange={(e) => setEditValues({ ...editValues, title: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">SEO Title</Label>
-                  <Input value={editValues.seoTitle || ""} onChange={(e) => setEditValues({ ...editValues, seoTitle: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">SEO Description</Label>
-                  <Input value={editValues.seoDescription || ""} onChange={(e) => setEditValues({ ...editValues, seoDescription: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Контент (Markdown с WYSIWYG-редактором)</Label>
-                  <MarkdownEditor
-                    value={editValues.content || ""}
-                    onChange={(markdown) => setEditValues({ ...editValues, content: markdown })}
-                    minHeight={400}
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={editValues.isPublished}
-                    onCheckedChange={(v) => setEditValues({ ...editValues, isPublished: !!v })}
-                  />
-                  Опубликовано
-                </label>
-              </div>
-            ) : (
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm flex items-center gap-2">
-                    {page.title}
-                    <Badge variant="outline" className="text-[10px]">/{page.slug}</Badge>
-                    {page.isPublished ? (
-                      <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Опубликована</Badge>
-                    ) : (
-                      <Badge className="bg-slate-100 text-slate-800 text-[10px]">Черновик</Badge>
-                    )}
+                  <div>
+                    <Label className="text-xs">Заголовок</Label>
+                    <Input value={editValues.title || ""} onChange={(e) => setEditValues({ ...editValues, title: e.target.value })} />
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                    {page.content?.slice(0, 150)}...
+                  <div>
+                    <Label className="text-xs">SEO Title</Label>
+                    <Input value={editValues.seoTitle || ""} onChange={(e) => setEditValues({ ...editValues, seoTitle: e.target.value })} />
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-1">
-                    Обновлено: {formatDate(page.updatedAt)} • {page.updatedBy}
+                  <div>
+                    <Label className="text-xs">SEO Description</Label>
+                    <Input value={editValues.seoDescription || ""} onChange={(e) => setEditValues({ ...editValues, seoDescription: e.target.value })} />
                   </div>
+                  <div>
+                    <Label className="text-xs">Контент (Markdown с WYSIWYG-редактором)</Label>
+                    <MarkdownEditor
+                      value={editValues.content || ""}
+                      onChange={(markdown) => setEditValues({ ...editValues, content: markdown })}
+                      minHeight={400}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={editValues.isPublished}
+                      onCheckedChange={(v) => setEditValues({ ...editValues, isPublished: !!v })}
+                    />
+                    Опубликовано
+                  </label>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setEditingId(page.id);
-                    setEditValues({ ...page });
-                  }}
-                >
-                  <Edit className="h-3 w-3 mr-1" /> Редактировать
-                </Button>
-              </div>
-            )}
-          </Card>
-        ))}
-      </div>
+              ) : (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm flex items-center gap-2">
+                      {page.title}
+                      <Badge variant="outline" className="text-[10px]">/{page.slug}</Badge>
+                      {page.isPublished ? (
+                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Опубликована</Badge>
+                      ) : (
+                        <Badge className="bg-slate-100 text-slate-800 text-[10px]">Черновик</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                      {page.content?.slice(0, 150)}...
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-1">
+                      {page.updatedAt && <>Обновлено: {formatDate(page.updatedAt)}</>}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setEditingId(page.id);
+                      setEditValues({ ...page });
+                    }}
+                  >
+                    <Edit className="h-3 w-3 mr-1" /> Редактировать
+                  </Button>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ==================== CMS: НАСТРОЙКИ САЙТА ====================
+/** Строка site_settings, как её отдаёт GET /api/cms/settings. */
+interface SiteSettingApiRow {
+  id: string;
+  key?: string | null;
+  value?: string | null;
+  category?: string | null;
+  description?: string | null;
+}
+
+interface AdminSettingRow {
+  id: string;
+  key: string;
+  value: string;
+  category: string;
+  description: string;
+}
+
 export function AdminSettingsTab() {
-  const siteSettings = useAppStore((s) => s.siteSettings);
-  const updateSiteSetting = useAppStore((s) => s.updateSiteSetting);
+  const [settings, setSettings] = useState<AdminSettingRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("general");
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/cms/settings");
+      const data = (await res.json()) as { settings?: SiteSettingApiRow[]; error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setSettings(
+        (data.settings || []).map((s) => ({
+          id: String(s.id),
+          key: String(s.key || ""),
+          value: String(s.value ?? ""),
+          category: String(s.category || "general"),
+          description: String(s.description || ""),
+        }))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить настройки");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   // Загружаем статус промо-попапа
   useEffect(() => {
@@ -511,27 +829,52 @@ export function AdminSettingsTab() {
     }
   };
 
-  const filtered = siteSettings.filter((s) => s.category === activeCategory);
+  const filtered = settings.filter((s) => s.category === activeCategory);
 
-  const handleSave = (key: string) => {
-    if (editValues[key] !== undefined) {
-      updateSiteSetting(key, editValues[key]);
+  const handleSave = async (key: string) => {
+    if (editValues[key] === undefined) return;
+    setSavingKey(key);
+    try {
+      const res = await csrfFetch("/api/cms/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: editValues[key] }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setSettings((prev) => prev.map((s) => (s.key === key ? { ...s, value: editValues[key] } : s)));
       toast.success(`Настройка «${key}» обновлена!`);
       const newValues = { ...editValues };
       delete newValues[key];
       setEditValues(newValues);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Не удалось сохранить «${key}»`);
+    } finally {
+      setSavingKey(null);
     }
   };
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-          <Settings className="h-6 w-6 text-primary" />
-          Настройки сайта
-        </h1>
-        <p className="text-sm text-muted-foreground">Комиссии, тарифы, доставка, SEO, контакты — всё в одном месте</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
+            <Settings className="h-6 w-6 text-primary" />
+            Настройки сайта
+          </h1>
+          <p className="text-sm text-muted-foreground">Комиссии, тарифы, доставка, SEO, контакты — всё в одном месте</p>
+        </div>
+        <Button onClick={loadSettings} variant="outline" size="sm" aria-label="Обновить настройки">
+          <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+          Обновить
+        </Button>
       </div>
+
+      {error && (
+        <Card className="p-3 border-destructive/40 bg-destructive/5 text-sm text-destructive">
+          {error}
+        </Card>
+      )}
 
       {/* Управление промо-попапом */}
       <Card className={`p-4 ${promoEnabled ? "border-emerald-300 bg-emerald-50/30" : "border-muted"}`}>
@@ -587,32 +930,47 @@ export function AdminSettingsTab() {
       </div>
 
       {/* Настройки */}
-      <Card className="p-4">
-        <div className="space-y-2">
-          {filtered.map((setting) => (
-            <div key={setting.id} className="flex items-center gap-3 p-2 border border-border rounded">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{setting.description}</div>
-                <div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div>
+      {error ? null : isLoading ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Загрузка настроек…
+        </Card>
+      ) : settings.length === 0 ? (
+        <Card className="p-8 text-center">
+          <Settings className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+          <h3 className="font-semibold text-sm">Настройки не найдены</h3>
+          <p className="text-sm text-muted-foreground">В таблице site_settings пока нет записей — добавьте их через БД или API</p>
+        </Card>
+      ) : (
+        <Card className="p-4">
+          <div className="space-y-2">
+            {filtered.map((setting) => (
+              <div key={setting.id} className="flex items-center gap-3 p-2 border border-border rounded">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">{setting.description}</div>
+                  <div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div>
+                </div>
+                <Input
+                  value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value}
+                  onChange={(e) => setEditValues({ ...editValues, [setting.key]: e.target.value })}
+                  className="w-40 h-8 text-sm"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => handleSave(setting.key)}
+                  disabled={editValues[setting.key] === undefined || savingKey === setting.key}
+                >
+                  {savingKey === setting.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                </Button>
               </div>
-              <Input
-                value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value}
-                onChange={(e) => setEditValues({ ...editValues, [setting.key]: e.target.value })}
-                className="w-40 h-8 text-sm"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={() => handleSave(setting.key)}
-                disabled={editValues[setting.key] === undefined}
-              >
-                <Save className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      </Card>
+            ))}
+            {filtered.length === 0 && (
+              <div className="text-xs text-muted-foreground text-center py-2">Нет настроек в этой категории</div>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

@@ -35,10 +35,14 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (guard) return new NextResponse(guard.body, { status: guard.status, headers: guard.headers });
 
     const { key, value } = await request.json();
+    if (typeof key !== "string" || !key || typeof value !== "string") {
+      return NextResponse.json({ error: "Нужны поля key (string) и value (string)" }, { status: 400 });
+    }
 
+    // Колонки таблицы site_settings — camelCase (миграция 0017: updatedAt/updatedBy)
     const { data: setting, error } = await supabaseAdmin
       .from("site_settings")
-      .update({ value, updated_at: new Date().toISOString() })
+      .update({ value, updatedAt: new Date().toISOString(), updatedBy: user.email || user.id })
       .eq("key", key)
       .select()
       .single();
