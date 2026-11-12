@@ -15,6 +15,9 @@
  *     фейкового каталога.
  *   • production + NEXT_PUBLIC_DEMO_SEED='true' — мок-сид возвращается
  *     (явный opt-in для staging/demo-стендов).
+ *   • NEXT_PUBLIC_DEMO_MODE='1' (ZV31-017) — универсальный demo-escape-hatch:
+ *     включает сид в ЛЮБОМ окружении (по умолчанию OFF — production никогда
+ *     не показывает mock-товары).
  *
  * NB: модуль используется в клиентском коде ('use client' store) —
  * NEXT_PUBLIC_* инлайнится на этапе сборки, NODE_ENV заменяется DefinePlugin:
@@ -23,6 +26,8 @@
 
 /** Ленивая проверка (читает env на каждый вызов — тестируемо через vi.stubEnv). */
 export function isDemoSeedEnabled(): boolean {
+  // Явный demo-режим (NEXT_PUBLIC_DEMO_MODE='1') — приоритетный escape-hatch.
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "1") return true;
   const nodeEnv = process.env.NODE_ENV ?? "development";
   // 'test' (vitest) ведёт себя как 'development': сиды сохранены.
   return nodeEnv !== "production" || process.env.NEXT_PUBLIC_DEMO_SEED === "true";

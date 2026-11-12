@@ -42,7 +42,6 @@ import {
   formatCurrency,
   formatDate,
 } from "@/lib/finance";
-import { MOCK_PRODUCTS } from "@/lib/mock-data";
 import {
   CustomerHolidaysTab,
   CustomerReferralTab,
@@ -667,14 +666,21 @@ export function CustomerDashboard() {
                   </div>
                 </Card>
 
-                {/* Recommended */}
+                {/* Recommended — ZV31-017: только реальные (live-гидрированные)
+                    товары из store; mock-карточки больше не показываются */}
                 <Card className="p-4">
                   <h3 className="font-semibold mb-3">Рекомендуем вам</h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {MOCK_PRODUCTS.slice(0, 4).map((p) => (
-                      <ProductCard key={p.id} product={p} variant="compact" />
-                    ))}
-                  </div>
+                  {products.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {products.slice(0, 4).map((p) => (
+                        <ProductCard key={p.id} product={p} variant="compact" />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-4 text-center">
+                      Каталог пока пуст — рекомендации появятся позже.
+                    </p>
+                  )}
                 </Card>
               </div>
             )}

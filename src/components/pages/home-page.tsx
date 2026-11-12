@@ -18,7 +18,10 @@ import { ConfectionerCard } from "@/components/marketplace/confectioner-card";
 import { ConfectionersMarquee } from "@/components/marketplace/confectioners-marquee";
 import { RecentlyViewed } from "@/components/ui/enhanced-components";
 import { AnimatedCounter, GlassCard, FloatWrapper, GradientBorderCard, TiltCard } from "@/components/ui/modern-effects";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CATEGORIES } from "@/lib/mock-data";
+import { useLiveProducts } from "@/lib/supabase/use-marketplace";
+import { isDemoVitrineMode, selectVitrineProducts } from "@/lib/vitrine-products";
 import { formatCurrency } from "@/lib/finance";
 import Image from "next/image";
 import { OrnamentDivider, Eyebrow } from "@/components/ui/ornaments";
@@ -39,6 +42,8 @@ import {
   TrendingUp,
   Clock,
   Check,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
@@ -91,8 +96,33 @@ function isOptimizableImage(src: string): boolean {
 export function HomePage() {
   const navigate = useAppStore((s) => s.navigate);
   const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
-  const products = useAppStore((s) => s.products);
+  const storeProducts = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
+
+  // ZV31-017: продуктовые секции главной рендерят только live-данные
+  // /api/products. Mock-товары из store не показываются (demo-escape-hatch —
+  // NEXT_PUBLIC_DEMO_MODE='1'); ошибка API — честная ошибка + «Повторить»,
+  // пустой каталог — честное «Каталог пока пуст». Hero-фолбэк CMS не тронут.
+  const demoMode = isDemoVitrineMode();
+  const {
+    data: liveProducts,
+    isPending: livePending,
+    isError: liveError,
+    refetch: refetchLive,
+  } = useLiveProducts();
+  const products = useMemo(
+    () =>
+      selectVitrineProducts({
+        demoMode,
+        isError: liveError,
+        live: liveProducts,
+        storeProducts,
+      }),
+    [demoMode, liveError, liveProducts, storeProducts]
+  );
+  const isProductsLoading = livePending && products.length === 0;
+  const hasProductsError = liveError && products.length === 0;
+  const isCatalogEmpty = !livePending && !liveError && products.length === 0;
 
   // ZV31-001: опубликованный CMS-контент главной (публичный API:
   // /api/cms/settings + /api/cms/banners). Пока данных нет (загрузка/ошибка/
@@ -597,11 +627,54 @@ export function HomePage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {popularProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        {/* ZV31-017: честные состояния секции — skeleton / ошибка+retry /
+            пустой каталог / данные (как в каталоге) */}
+        {isProductsLoading ? (
+          <div
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4"
+            role="status"
+            aria-label="Загрузка популярных товаров"
+            aria-busy="true"
+          >
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="overflow-hidden p-0">
+                <Skeleton className="aspect-square w-full rounded-none" />
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : hasProductsError ? (
+          <Card className="p-10 text-center" role="alert">
+            <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-destructive" />
+            <h3 className="font-semibold mb-1">Не удалось загрузить товары</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Сервис каталога недоступен. Попробуйте ещё раз.
+            </p>
+            <Button onClick={() => refetchLive()} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Повторить
+            </Button>
+          </Card>
+        ) : isCatalogEmpty ? (
+          <Card className="p-12 text-center">
+            <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+              <Cake className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="font-semibold mb-1">Каталог пока пуст</h3>
+            <p className="text-sm text-muted-foreground">
+              Кондитеры ещё не опубликовали товары — загляните позже.
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {popularProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* P2.3: персональные рекомендации (только при якорях избранное/

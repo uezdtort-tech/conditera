@@ -45,4 +45,26 @@ describe("demo-seed gate (production-safe демо-сид)", () => {
     vi.stubEnv("NEXT_PUBLIC_DEMO_SEED", "1");
     expect(demoSeed(MOCK)).toEqual([]);
   });
+
+  // ZV31-017: универсальный demo-escape-hatch NEXT_PUBLIC_DEMO_MODE='1'
+  it("production + NEXT_PUBLIC_DEMO_MODE='1': сид включён (явный demo opt-in)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_SEED", "");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "1");
+    expect(isDemoSeedEnabled()).toBe(true);
+    expect(demoSeed(MOCK)).toBe(MOCK);
+  });
+
+  it("NEXT_PUBLIC_DEMO_MODE != '1' (0/true/да): флаг OFF — поведение без изменений", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_SEED", "");
+    for (const value of ["0", "true", "да", ""]) {
+      vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", value);
+      expect(demoSeed(MOCK)).toEqual([]);
+    }
+    // development без флага — прежнее поведение (сид сохранён)
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "");
+    expect(demoSeed(MOCK)).toBe(MOCK);
+  });
 });
