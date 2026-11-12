@@ -154,10 +154,13 @@ function buildCheckPlan(mode, changedSources, runnerLibChanged) {
 
   // Always: typecheck — bunx tsc gets OOM-killed in this sandbox (exit 137);
   // run tsc directly under node with an explicit heap cap instead.
+  // Z32-7G-1: 1536 → 2560 MB — cold full-check (после Пакета E-2) больше не помещается
+  // в 1536 МБ V8 heap (ineffective mark-compacts при ~1520 МБ); 2560 МБ помещается
+  // в 4GB-песочницу при остановленном dev-сервере.
   plan.push({
     name: "typecheck",
     cmd: "node",
-    args: ["--max-old-space-size=1536", "node_modules/typescript/bin/tsc", "--noEmit"],
+    args: ["--max-old-space-size=2560", "node_modules/typescript/bin/tsc", "--noEmit"],
     cwd: ROOT,
     timeoutMs: 600_000,
   });
