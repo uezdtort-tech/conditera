@@ -172,10 +172,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     };
 
     try {
-      // Upsert по confectionerId
+      // Upsert по confectionerId.
+      // PK id не имеет DB-default — на INSERT-пути нужно сгенерировать uuid,
+      // на UPDATE-пути сохранить существующий, иначе PostgREST 400 (not-null id).
+      const { data: existing } = await supabaseAdmin
+        .from("confectioner_ateliers")
+        .select("id")
+        .eq("confectionerId", user.id)
+        .maybeSingle();
+
       const { data: atelier, error } = await supabaseAdmin
         .from("confectioner_ateliers")
-        .upsert(insertData, { onConflict: "confectionerId" })
+        .upsert(
+          { ...insertData, id: existing?.id ?? crypto.randomUUID() },
+          { onConflict: "confectionerId" }
+        )
         .select()
         .single();
 
