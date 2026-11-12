@@ -56,7 +56,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "examples/**",
     "skills/**",
     "scripts/**", // build/utility scripts (CommonJS allowed)
-    "mobile-app/**",
+    "archive/mobile-app/**",
     "mini-services/**",
     "backups/**",
     "tests/**",

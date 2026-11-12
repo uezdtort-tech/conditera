@@ -97,7 +97,7 @@ n8n (localhost:5678) ← webhook-события (fail-safe, необязател
 - **Security:** anti-fraud rate-limiting, CSRF, CSP, security headers
 - **Geolocation:** 180+ городов РФ + DaData + Яндекс.Геокодер (fallback-цепочка)
 - **PWA:** manifest, service worker, push-уведомления (VAPID)
-- **Mobile:** Expo React Native (`mobile-app/`)
+- **Mobile:** Expo React Native — АРХИВИРОВАНО (NOT MAINTAINED), см. `archive/mobile-app/README.md`
 - **SimpleX Chat:** гибридная модель (Socket.IO + E2E для премиум-тарифов) — `mini-services/simplex-bridge`
 
 ## Быстрый старт
@@ -198,7 +198,8 @@ chat.message.created, inventory.low, service.booking.created).
 │   ├── n8n-receiver/          # приёмник webhook-событий (:5678, dev-эмуляция n8n)
 │   └── simplex-bridge/        # SimpleX bot-мост
 ├── n8n-workflows/             # 25 workflow JSON + 26-conditera-event-bus (9/9 событий)
-├── mobile-app/                # Expo React Native
+├── archive/
+│   └── mobile-app/            # Expo React Native — АРХИВИРОВАНО (NOT MAINTAINED, ZV31-015)
 ├── scripts/                   # db/setup.mjs (db:setup), db/runtime.mjs (embedded PG), db-push.mjs (legacy deploy-контракт)
 ├── docs/                      # AUTH, DATABASE, ROLE_MATRIX, API_AUTH_MATRIX...
 ├── docker-compose*.yml        # LEGACY deployment-тулинг (локальному запуску не нужен)

@@ -46,7 +46,7 @@
   ],
   "exclude": [
     "node_modules",
-    "mobile-app",
+    "archive/mobile-app",
     "mini-services",
     "examples",
     "scripts",
