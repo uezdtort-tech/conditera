@@ -27,6 +27,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
+import { requireAnyRole } from "@/lib/role-guards";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -130,10 +131,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const user = await getUserFromRequest(request);
     if (!user) throw new HttpError(401, "Не авторизован");
 
-    const roles = user.roles || [];
-    if (!roles.some((r) => (STAFF_ROLES as readonly string[]).includes(r))) {
-      throw new HttpError(403, "Нет прав");
-    }
+    // ZV31-007: роль сверяется с БД (user_roles через requireAnyRole), а не с
+    // JWT-клеймом roles — тот заморожен на срок жизни access-токена (до 7д).
+    const guard = await requireAnyRole(user.userId, [...STAFF_ROLES]);
+    if (guard) throw new HttpError(403, "Нет прав");
 
     const { searchParams } = new URL(request.url);
     const escalationId = searchParams.get("escalationId");
@@ -170,10 +171,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const user = await getUserFromRequest(request);
     if (!user) throw new HttpError(401, "Не авторизован");
 
-    const roles = user.roles || [];
-    if (!roles.some((r) => (STAFF_ROLES as readonly string[]).includes(r))) {
-      throw new HttpError(403, "Нет прав");
-    }
+    // ZV31-007: серверная проверка роли по user_roles (см. GET выше).
+    const guard = await requireAnyRole(user.userId, [...STAFF_ROLES]);
+    if (guard) throw new HttpError(403, "Нет прав");
 
     const { data: body, error: parseErr } = await safeJsonBody<PostBody>(request);
     if (parseErr) {

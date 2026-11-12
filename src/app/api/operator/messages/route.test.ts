@@ -279,6 +279,34 @@ vi.mock("@/lib/auth", () => ({
   getUserFromRequest: (...args: unknown[]) => getUserFromRequestMock(...args),
 }));
 
+// ZV31-007: маршрут сверяет роль с user_roles через requireAnyRole.
+// Фейковая семантика реального guard'а: роль берём из "сессии" текущего
+// пользователя (тот же источник, что раньше читал инлайн-чек), 401 без
+// пользователя, 403 если нужной роли нет.
+const requireAnyRoleMock = vi.fn(async (...args: unknown[]) => {
+  const wanted = (args[1] ?? []) as readonly string[];
+  const user = (await getUserFromRequestMock.mock.results.at(-1)?.value) as
+    | { roles?: string[] }
+    | undefined;
+  if (!user) {
+    return new Response(JSON.stringify({ error: "Необходима аутентификация" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const roles = user.roles ?? [];
+  if (wanted.length > 0 && !wanted.some((r) => roles.includes(r))) {
+    return new Response(
+      JSON.stringify({ error: `Требуется одна из ролей: ${wanted.join(", ")}` }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  return null;
+});
+vi.mock("@/lib/role-guards", () => ({
+  requireAnyRole: (...args: unknown[]) => requireAnyRoleMock(...args),
+}));
+
 vi.mock("@/lib/notifications", () => ({
   sendNotification: (...args: unknown[]) => sendNotificationMock(...args),
 }));

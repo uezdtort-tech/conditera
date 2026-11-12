@@ -61,20 +61,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await getUserFromRequest(request);
 
-    // Stub mode в dev без авторизации
+    // ZV31-007: fail-closed — dev-фолбэк на stub без авторизации удалён
+    // (раньше GET без токена в dev возвращал 200 STUB_DATA).
     if (!user) {
-      if (process.env.NODE_ENV === "development") {
-        return NextResponse.json(STUB_DATA);
-      }
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
     }
 
     // Проверка роли — только COURIER
     const guard = await requireRole(user.id, "COURIER");
     if (guard) {
-      if (process.env.NODE_ENV === "development") {
-        return NextResponse.json(STUB_DATA);
-      }
+      // ZV31-007: 403 в любом окружении — dev-фолбэк на stub возвращал
+      // 200 покупателю (обход серверной авторизации).
       return new NextResponse(guard.body, {
         status: guard.status,
         headers: guard.headers,

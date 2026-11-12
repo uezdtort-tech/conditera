@@ -98,18 +98,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await getUserFromRequest(request);
 
-    // Stub mode: если нет auth или БД недоступна — возвращаем demo-данные
+    // Stub mode: если нет auth — fail-closed 401
+    // (ZV31-007: dev-фолбэк на stub удалён — он отдавал 200 без токена).
     if (!user) {
-      if (process.env.NODE_ENV === "development") {
-        return NextResponse.json({ ...STUB_DATA, stub: true });
-      }
       throw new HttpError(401, "Не авторизован");
     }
 
     if (!user.roles.includes("SUPPLIER")) {
-      if (process.env.NODE_ENV === "development") {
-        return NextResponse.json({ ...STUB_DATA, stub: true });
-      }
+      // ZV31-007: 403 в любом окружении — dev-фолбэк на stub возвращал
+      // 200 покупателю/курьеру (обход серверной авторизации).
       throw new HttpError(403, "Нет прав");
     }
 
@@ -174,7 +171,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       stub: false,
     });
   } catch (error) {
-    // В dev возвращаем stub даже при ошибке
+    // ZV31-007: HttpError (401/403 от auth/role-гейтов) не маскируется
+    // dev-stub'ом — иначе клиентская ошибка превращается в 200.
+    if (error instanceof HttpError) return handleRouteError(error);
+    // В dev возвращаем stub даже при ошибке (после прохождения auth/role)
     if (process.env.NODE_ENV === "development") {
       return NextResponse.json({ ...STUB_DATA, stub: true });
     }
