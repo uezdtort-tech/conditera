@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "mode": "full",
+  "started_at": "2026-11-12T06:37:48.770Z",
+  "finished_at": "2026-11-12T06:40:29.027Z",
+  "commit_sha": "e9d6f4dec6a50614320edd6ecd4bbadbbef684d0",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 6335,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored .",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 43463,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run",
+      "skipped": false,
+      "exit_code": 1,
+      "duration_ms": 110415,
+      "passed": false,
+      "output_tail": "unk-artifact.js:2272:10)\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64\n\nstderr | unknown test\n[pgrst/pool] DATABASE_URL=file:/home/z/my-project/db/custom.db… — платформенный плейсхолдер, использую встроенный PG: postgresql://postgres@127.0.0.1:54329/conditera\n\nstderr | src/app/api/courier/earnings/route-earnings-source.test.ts > GET /api/courier/earnings — канонический источник заработка (A-3) > ошибка БД → 500 (не молчаливый ноль в финансовых сводках)\n[courier/earnings] query error: connection refused\n\nstderr | src/app/api/admin/dashboard/route.test.ts > GET /api/admin/dashboard — dev-stub удалён > недоступность БД → 503, а не демо-данные\n[admin/dashboard] DB unavailable: DB down (simulated)\n\nstderr | src/app/api/courier/dashboard/route-earnings-source.test.ts > GET /api/courier/dashboard — канонический источник заработка (A-3) > ошибка запроса истории → fail-safe stub (без частичных цифр)\n[courier/dashboard] history query error: connection refused\n[courier/dashboard] DB unavailable, returning stub: connection refused\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает Promise<boolean>\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение при минимальных параметрах\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение со всеми параметрами\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=true (повторная заявка)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=false (новая заявка, по умолчанию)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает unicode в businessName (эмодзи)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает длинные строки (businessName > 100 chars)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает специальные символы в email\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает false в mock-режиме (без TELEGRAM_BOT_TOKEN)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > production + stub-конфигурация → создание платежа ЗАПРЕЩЕНО (FAIL, mock отключён)\n[yookassa] createPayment: шлюз не настроен (production) — mock отключён\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > development + stub-конфигурация → mock-платёж ДОПУСТИМ (stub только вне production)\n⚠️ YooKassa не настроена. Используется mock-ответ (только dev).\n   Для активации укажите YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в .env\n\nstderr | src/lib/ai-dialogue-access.test.ts > assertDialoguePairAccess (IDOR-guard ai-dialogue) > FAIL-CLOSED: ошибка БД при проверке → 500 (не 403 и не пропуск)\n[ai-dialogue-access] confectioner lookup failed: connection refused\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is not set\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is empty string\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/auth.expiry.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/app/api/supplier/validators.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/app/api/supplier/validators.test.ts\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_REFRESH_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n\nstderr | src/lib/courier-assignments.test.ts > getCourierOrderIds > возвращает пустой список при ошибке БД (fail-safe)\n[courier-assignments] fetch error: boom\n\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  src/lib/redline-paths.test.ts > red-line drift guard: обязательные пути upload-маршрутов (v4.8) > файл существует на диске: src/app/api/upload/route.ts\nAssertionError: ОБЯЗАТЕЛЬНЫЙ ПУТЬ УДАЛЁН С ДИСКА: src/app/api/upload/route.ts. Известный класс drift (#8/#10/#11/#12). Восстановление — только точечное: git restore -- src/app/api/upload/route.ts (патч дрейфа сохранить ДО).: expected false to be true // Object.is equality\n\n- Expected\n+ Received\n\n- true\n+ false\n\n ❯ src/lib/redline-paths.test.ts:68:9\n     66|           `Известный класс drift (#8/#10/#11/#12). Восстановление — то…\n     67|           `точечное: git restore -- ${relPath} (патч дрейфа сохранить …\n     68|       ).toBe(true);\n       |         ^\n     69|     }\n     70|   );\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯\n\n FAIL  src/lib/redline-paths.test.ts > red-line drift guard: обязательные пути upload-маршрутов (v4.8) > файл существует на диске: src/app/api/upload/route.test.ts\nAssertionError: ОБЯЗАТЕЛЬНЫЙ ПУТЬ УДАЛЁН С ДИСКА: src/app/api/upload/route.test.ts. Известный класс drift (#8/#10/#11/#12). Восстановление — только точечное: git restore -- src/app/api/upload/route.test.ts (патч дрейфа сохранить ДО).: expected false to be true // Object.is equality\n\n- Expected\n+ Received\n\n- true\n+ false\n\n ❯ src/lib/redline-paths.test.ts:68:9\n     66|           `Известный класс drift (#8/#10/#11/#12). Восстановление — то…\n     67|           `точечное: git restore -- ${relPath} (патч дрейфа сохранить …\n     68|       ).toBe(true);\n       |         ^\n     69|     }\n     70|   );\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯\n\n FAIL  src/lib/redline-paths.test.ts > red-line drift guard: обязательные пути upload-маршрутов (v4.8) > файл существует на диске: src/app/api/services/upload/route.ts\nAssertionError: ОБЯЗАТЕЛЬНЫЙ ПУТЬ УДАЛЁН С ДИСКА: src/app/api/services/upload/route.ts. Известный класс drift (#8/#10/#11/#12). Восстановление — только точечное: git restore -- src/app/api/services/upload/route.ts (патч дрейфа сохранить ДО).: expected false to be true // Object.is equality\n\n- Expected\n+ Received\n\n- true\n+ false\n\n ❯ src/lib/redline-paths.test.ts:68:9\n     66|           `Известный класс drift (#8/#10/#11/#12). Восстановление — то…\n     67|           `точечное: git restore -- ${relPath} (патч дрейфа сохранить …\n     68|       ).toBe(true);\n       |         ^\n     69|     }\n     70|   );\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯\n\n FAIL  src/lib/redline-paths.test.ts > red-line drift guard: обязательные пути upload-маршрутов (v4.8) > файл существует на диске: src/app/api/services/upload/route.test.ts\nAssertionError: ОБЯЗАТЕЛЬНЫЙ ПУТЬ УДАЛЁН С ДИСКА: src/app/api/services/upload/route.test.ts. Известный класс drift (#8/#10/#11/#12). Восстановление — только точечное: git restore -- src/app/api/services/upload/route.test.ts (патч дрейфа сохранить ДО).: expected false to be true // Object.is equality\n\n- Expected\n+ Received\n\n- true\n+ false\n\n ❯ src/lib/redline-paths.test.ts:68:9\n     66|           `Известный класс drift (#8/#10/#11/#12). Восстановление — то…\n     67|           `точечное: git restore -- ${relPath} (патч дрейфа сохранить …\n     68|       ).toBe(true);\n       |         ^\n     69|     }\n     70|   );\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯\n\n"
+    },
+    {
+      "name": "route-error-coverage",
+      "cmd_line": "node scripts/verify/route-error-coverage.mjs",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 37,
+      "passed": true,
+      "output_tail": "route-error-coverage: checked=47/48\n✅ все маршруты критичного периметра используют единую регистрацию ошибок\n"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "skipped": 0
+  }
+}
