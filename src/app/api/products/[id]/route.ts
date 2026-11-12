@@ -25,6 +25,11 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getPool } from "@/lib/postgrest/pool";
+import {
+  resolveCurrentPriceSafe,
+  syncEffectiveProductPricesSafe,
+} from "@/lib/price-version";
 import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
 import {
@@ -64,6 +69,11 @@ export async function GET(
     if (!id || id.length > 200) {
       return NextResponse.json({ error: "Некорректный идентификатор товара" }, { status: 400 });
     }
+
+    // PR-2C: ленивый catch-up эффективных цен перед чтением карточки
+    // (best-effort, один statement — сбой синка не влияет на выдачу).
+    const pool = getPool();
+    await syncEffectiveProductPricesSafe(pool);
 
     // UUID → ищем по id, иначе по slug
     const { data: product, error } = await supabaseAdmin
@@ -203,12 +213,21 @@ export async function GET(
       });
     }
 
+    // PR-2C: покрывающая now строка цены (additive metadata). priceEffectiveFrom —
+    // effective_from версии истории; null на legacy-фолбэке (version_id NULL).
+    let priceEffectiveFrom: string | null = null;
+    const resolvedPrice = await resolveCurrentPriceSafe(pool, product.id);
+    if (resolvedPrice) {
+      priceEffectiveFrom = resolvedPrice.effectiveFrom;
+    }
+
     return NextResponse.json({
       product: {
         ...product,
         images: mergedImages,
         media,
         confectioner,
+        priceEffectiveFrom,
       },
       slices: slices || [],
       reviews: enrichedReviews,

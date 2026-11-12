@@ -8,10 +8,12 @@
  *   2. Zod-валидация тела (quantity 1..999, cartItems: product_id | custom,
  *      адрес обязателен только для deliveryType=delivery)
  *   3. Товары из products (admin client): published + СЕРВЕРНЫЙ пересчёт цены:
- *      unit_price = products.price + валидированные модификаторы (fillings jsonb);
+ *      base = get_product_price_at(now) (0083; legacy-фолбэк version_id NULL →
+ *      products.price) + валидированные модификаторы (fillings jsonb);
  *      custom-позиции конструктора — validateBuilderConfig + calculateBuilderPrice
  *      (ЕДИНАЯ формула с клиентом, src/lib/cake-builder-pricing.ts).
  *      Неизвестный модификатор → 422 (не молчаливое игнорирование).
+ *      PR-2C: order_items.price_version_id + metadata.pricing (аудит привязки).
  *   4. Промокод — серверная истина (lib/promo-codes): discount в рублях,
  *      free_delivery → delivery_cost = 0; orders.promo_code/promo_discount.
  *   5. Доставка: calculateDelivery (единая формула с клиентом); pickup → 0.
@@ -30,6 +32,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 // GoTrue (/auth/v1 — 501-стаб в локальном runtime) и всегда отдавал 401.
 import { getUserFromRequest } from "@/lib/auth";
 import { calculateDelivery } from "@/lib/finance";
+import { getPool } from "@/lib/postgrest/pool";
+import {
+  resolveCurrentPriceSafe,
+  syncEffectiveProductPricesSafe,
+} from "@/lib/price-version";
 import { checkAcceptance } from "@/lib/ops/acceptance"; // P0.5 §29: capacity/inventory/deadline gate
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
@@ -278,6 +285,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 3b. Серверный пересчёт позиций (НЕ доверяем клиентской цене)
+    // PR-2C: перед резолвом цен — ленивый catch-up эффективных цен
+    // (best-effort: сбой синка НЕ валид checkout, резолв ниже работает по факту).
+    await syncEffectiveProductPricesSafe(getPool());
+
     interface ComputedItem {
       product_id: string | null;
       product_title: string;
@@ -285,15 +296,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       quantity: number;
       selected_attributes: Record<string, unknown> | null;
       total: number;
+      price_version_id: string | null; // PR-2C: привязка к версии цены (custom → NULL)
     }
     const orderItems: ComputedItem[] = [];
+
+    // PR-2C: кэш резолва цены на товар (одна позиция может повторяться в корзине)
+    const priceVersionCache = new Map<string, Awaited<ReturnType<typeof resolveCurrentPriceSafe>>>();
 
     for (const item of productItems) {
       const product = productsMap.get(item.product_id);
       if (!product) throw new Error(`Product ${item.product_id} not found`);
 
       const attrs: Record<string, unknown> = {};
-      let unitPrice = product.price; // рубли (НЕ копейки — см. seed/формат витрины)
+      // PR-2C: базовая цена — покрывающая now версия истории цен (0083).
+      // Legacy-фолбэк (version_id NULL) или ошибка БД → products.price как раньше.
+      if (!priceVersionCache.has(product.id)) {
+        priceVersionCache.set(product.id, await resolveCurrentPriceSafe(getPool(), product.id));
+      }
+      const resolvedPrice = priceVersionCache.get(product.id) ?? null;
+      let unitPrice = resolvedPrice ? resolvedPrice.amount : product.price; // рубли (НЕ копейки — см. seed/формат витрины)
+      let priceVersionId: string | null = resolvedPrice ? resolvedPrice.versionId : null;
 
       if (item.selected_attributes) {
         // Неизвестный ключ модификатора → 422 (не молчаливое игнорирование)
@@ -370,6 +392,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         quantity: item.quantity,
         selected_attributes: Object.keys(attrs).length > 0 ? attrs : null,
         total: unitPrice * item.quantity,
+        price_version_id: priceVersionId,
       });
     }
 
@@ -396,6 +419,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         quantity: item.quantity,
         selected_attributes: { ...cfg } as Record<string, unknown>, // снимок конфига — кондитер видит состав
         total: unitPrice * item.quantity,
+        price_version_id: null, // custom-позиция конструктора — версии цены нет
       });
     }
 
@@ -509,6 +533,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const total = subtotal + deliveryCost - discount; // рубли
 
+    // PR-2C: аудит привязки цен (metadata.pricing; existing-ключи metadata не трогаем —
+    // объект собирается ниже одним литералом, pricing добавляется отдельным ключом).
+    const pricingMeta = {
+      resolvedAt: new Date().toISOString(),
+      currency: "RUB" as const,
+      items: orderItems.map((i) => ({
+        productId: i.product_id,
+        priceVersionId: i.price_version_id,
+        unitPrice: i.unit_price,
+      })),
+      deliverySource: "server" as const,
+    };
+
     // 4b. Z-v29: НЕИЗМЕНЯЕМЫЙ snapshot производственной потребности.
     // Собирается сервером из БД в момент фиксации заказа и попадает В ТОТ ЖЕ
     // INSERT orders (metadata.acceptance_snapshot) — запись атомарна с заказом.
@@ -566,6 +603,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           cart_items: cartItems.map((c) => c.id ?? c.product_id ?? "custom").slice(0, 50),
           idempotency_key: idempotencyKey ?? null,
           contact: { name, phone },
+          // PR-2C: аудит привязки цен (версии цены + серверная доставка)
+          pricing: pricingMeta,
           // Z-v29: снимок производственной потребности на момент оформления
           // (неизменяем после INSERT — ни один код-путь не обновляет orders.metadata).
           ...(acceptanceSnapshot ? { acceptance_snapshot: acceptanceSnapshot } : {}),

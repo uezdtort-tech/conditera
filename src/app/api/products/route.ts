@@ -32,6 +32,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPool } from "@/lib/postgrest/pool";
+import { syncEffectiveProductPricesSafe } from "@/lib/price-version";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole, isAdmin } from "@/lib/role-guards";
 import {
@@ -149,6 +150,10 @@ function rowToDoc(r: Record<string, unknown>): SearchDoc {
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    // PR-2C: ленивый catch-up эффективных цен перед чтением каталога
+    // (best-effort, один statement — сбой синка не влияет на выдачу).
+    await syncEffectiveProductPricesSafe(getPool());
+
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
     const search = searchParams.get("q");

@@ -72,6 +72,18 @@ vi.mock("@/lib/supabase/admin", () => ({
   },
 }));
 
+// --- Мок pg-пула (PR-2C): catch-up цен + get_product_price_at (SQL-роутинг) ---
+const poolState = { priceAtRows: [] as Row[] };
+const poolQueryMock = vi.fn(async (sql: string) => {
+  if (/sync_effective_product_prices/.test(sql)) return { rows: [{ sync: 0 }] };
+  if (/get_product_price_at/.test(sql)) return { rows: poolState.priceAtRows };
+  return { rows: [] };
+});
+
+vi.mock("@/lib/postgrest/pool", () => ({
+  getPool: () => ({ query: poolQueryMock }),
+}));
+
 import { GET } from "./route";
 
 const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-00000000000b";
@@ -131,6 +143,8 @@ beforeEach(() => {
   tables.product_reviews = [];
   tables.confectioners = [];
   tables.profiles = [];
+  // PR-2C: по умолчанию история цен пуста (legacy-фолбэк → priceEffectiveFrom null)
+  poolState.priceAtRows = [];
 });
 
 describe("GET /api/products/[id] — колонка fillings (регрессия U-06)", () => {

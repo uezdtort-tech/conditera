@@ -19,6 +19,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { getPool } from "@/lib/postgrest/pool";
+import {
+  resolveCurrentPriceSafe,
+  syncEffectiveProductPricesSafe,
+} from "@/lib/price-version";
 
 export const runtime = "nodejs";
 
@@ -31,6 +36,7 @@ interface B2BOrderItem {
   price: number;
   quantity: number;
   customization: Record<string, unknown>;
+  priceVersionId: string | null; // PR-2C: розничная цена → версия; wholesale → NULL
 }
 
 /**
@@ -183,6 +189,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // PR-2C: ленивый catch-up эффективных цен перед расчётом (best-effort,
+    // никогда не валим B2B-заказ из-за сбоя синка).
+    await syncEffectiveProductPricesSafe(getPool());
+
     // Рассчитать сумму с учётом оптовых цен
     const orderItems: B2BOrderItem[] = [];
     let total = 0;
@@ -223,9 +233,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .limit(1);
 
       const wholesale = (wholesalePrices || [])[0];
-      const unitPrice = wholesale
-        ? Number(wholesale.price)
-        : Number(product.price);
+      let unitPrice: number;
+      let priceVersionId: string | null = null;
+      if (wholesale) {
+        // PR-2C: оптовый прайс — ДРУГОЙ прайс-лист (wholesale_prices), он не
+        // покрыт версиями product_price_history (0083 ведёт историю ТОЛЬКО
+        // розничной цены products): привязка price_version_id невозможна → NULL.
+        unitPrice = Number(wholesale.price);
+      } else {
+        // Фолбэк на розничную цену: резолвим версию так же, как checkout.
+        unitPrice = Number(product.price);
+        const resolved = await resolveCurrentPriceSafe(getPool(), product.id);
+        if (resolved) {
+          unitPrice = resolved.amount;
+          priceVersionId = resolved.versionId;
+        }
+      }
       const itemTotal = unitPrice * qty;
       total += itemTotal;
 
@@ -235,6 +258,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         image: (product.images as string[])?.[0] || "",
         price: unitPrice,
         quantity: qty,
+        priceVersionId,
         customization: {
           b2b: true,
           wholesalePriceId: wholesale?.id ?? null,
@@ -287,6 +311,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       price: item.price,
       quantity: item.quantity,
       customization: item.customization,
+      price_version_id: item.priceVersionId, // PR-2C: NULL для wholesale (другой прайс-лист)
     }));
 
     const { error: itemsErr } = await supabaseAdmin
