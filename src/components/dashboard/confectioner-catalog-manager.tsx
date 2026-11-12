@@ -51,6 +51,7 @@ import {
   Info,
   Eye,
   Loader2,
+  Banknote,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useCategories } from "@/lib/supabase/use-marketplace";
@@ -69,6 +70,7 @@ import { formatCurrency } from "@/lib/finance";
 import { toast } from "sonner";
 import { AiDescriptionGenerator } from "@/components/ai/ai-description-generator";
 import { AiCardChecklist } from "@/components/ai/ai-card-checklist";
+import { ProductPricePanel } from "@/components/dashboard/product-price-panel";
 
 const CATEGORIES = [
   { value: "cakes", label: "Торты" },
@@ -159,6 +161,8 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
   const [form, setForm] = useState<ProductFormData>(EMPTY_FORM);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // PR-3: панель «Цены и история стоимости» (реальные API /price-history и др.)
+  const [pricePanelProduct, setPricePanelProduct] = useState<RealProduct | null>(null);
 
   const handleAdd = () => {
     setForm(EMPTY_FORM);
@@ -381,6 +385,15 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setExpandedProduct(isExpanded ? null : product.id)}>
                           {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          aria-label={`Цены и история: ${product.title}`}
+                          onClick={() => setPricePanelProduct(product)}
+                        >
+                          <Banknote className="h-4 w-4" />
+                        </Button>
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleEdit(product)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -492,6 +505,22 @@ export function ConfectionerCatalogManager({ confectionerId }: { confectionerId:
           isEditing={!!editingProduct}
           saving={updateProduct.isPending || createProduct.isPending}
         />
+      )}
+
+      {/* PR-3: панель «Цены и история стоимости» — реальные API кондитера */}
+      {pricePanelProduct && (
+        <Dialog open onOpenChange={(open) => !open && setPricePanelProduct(null)}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Цены и история стоимости</DialogTitle>
+              <DialogDescription>{pricePanelProduct.title}</DialogDescription>
+            </DialogHeader>
+            <ProductPricePanel
+              productId={pricePanelProduct.id}
+              currentPrice={pricePanelProduct.price}
+            />
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Delete confirmation */}
