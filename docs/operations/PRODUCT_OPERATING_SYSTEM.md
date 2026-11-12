@@ -177,3 +177,4 @@ Severity события — `debug|info|warning|error|critical` (CHECK-огра�
 - Раннер: honesty PASS⇔exit 0 подтверждена; failure-registration loop e2e подтверждён (pending → registered)
 - Три роли проверены в браузере 3/3 (покупатель: регистрация→кабинет→пустые состояния→logout; кондитер: 5 табов; админ: Инциденты/CMS/n8n/Пользователи); мобильная вёрстка 390×844 держится; 0× HTTP 500
 - Статус PRODUCT OPERATING SYSTEM: PARTIAL; готовность продукта: NOT READY до решения ZV31-016 (плюс ZV31-017 mock-каталог, PG-интеграция бизнес-сценариев NOT VERIFIED на реальных данных)
+- Дополнение Z-v32 (Пакет A, 2026-11-12): ZV31-016 CLOSED — 4 защищённых upload-файла восстановлены из HEAD, redline-guard PASS (exit 0), защитные механизмы не изменялись

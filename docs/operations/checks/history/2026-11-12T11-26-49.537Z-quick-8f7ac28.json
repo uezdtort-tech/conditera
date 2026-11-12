@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-12T11:25:37.586Z",
+  "finished_at": "2026-11-12T11:26:49.537Z",
+  "commit_sha": "8f7ac28368cdacebd72cf6ab80b518033435574c",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 71757,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no candidate test files for changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
+      "output_tail": ""
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 2
+  }
+}

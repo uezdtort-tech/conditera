@@ -46,6 +46,8 @@ const SCHEMA_VERSION = 1;
 /** Тест runner-библиотеки, подключаемый при изменении scripts/regression/. */
 const RUNNER_META_TEST = "src/lib/regression/meta.test.ts";
 const ROUTE_COVERAGE_SCRIPT = "scripts/verify/route-error-coverage.mjs";
+const SECRETS_SCAN_SCRIPT = "scripts/regression/secrets-scan.mjs";
+const SECRETS_JSON_REL = "docs/operations/checks/secrets-latest.json";
 
 // ===== CLI =====
 
@@ -190,6 +192,9 @@ function buildCheckPlan(mode, changedSources, runnerLibChanged) {
         note: "no candidate test files for changed sources",
       });
     }
+
+    // secrets-scan — release-gate only (ZV31-011): в quick не тратим время
+    plan.push({ name: "secrets-scan", skipped: true, note: "release-gate only" });
     return plan;
   }
 
@@ -221,6 +226,27 @@ function buildCheckPlan(mode, changedSources, runnerLibChanged) {
       name: "route-error-coverage",
       skipped: true,
       note: `script missing (${ROUTE_COVERAGE_SCRIPT})`,
+    });
+  }
+
+  // ZV31-011: контент-скан секретов в release gate. Выход сканера —
+  // строгий exit code; stdout уже redacted (значения не печатаются),
+  // поэтому output_tail безопасен. Отчёт — docs/operations/checks/secrets-latest.json.
+  if (existsSync(join(ROOT, SECRETS_SCAN_SCRIPT))) {
+    plan.push({
+      name: "secrets-scan",
+      cmd: "node",
+      // --disable-warning: .ts-модуль без "type":"module" даёт безвредный
+      // MODULE_TYPELESS warning при strip-types — шум в gate-артефактах не нужен.
+      args: ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SECRETS_SCAN_SCRIPT, "--json", SECRETS_JSON_REL],
+      cwd: ROOT,
+      timeoutMs: 120_000,
+    });
+  } else {
+    plan.push({
+      name: "secrets-scan",
+      skipped: true,
+      note: `script missing (${SECRETS_SCAN_SCRIPT})`,
     });
   }
   return plan;

@@ -61,6 +61,7 @@ const ERROR_SEVERITY_CHECKS = new Set([
   "typecheck",
   "vitest",
   "route-error-coverage",
+  "secrets-scan", // ZV31-011: утечка секрета блокирует релиз (release gate)
   "build",
 ]);
 

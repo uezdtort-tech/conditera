@@ -23,6 +23,7 @@
     "test:e2e:report": "playwright show-report",
     "check:quick": "node scripts/regression/run-checks.mjs --mode=quick",
     "check:full": "node scripts/regression/run-checks.mjs --mode=full",
+    "check:secrets": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs",
     "db:push": "bun scripts/db-push.mjs",
     "db:seed": "node scripts/db/setup.mjs --seed-only",
     "db:generate": "echo '[db] Prisma removed (v2.0 Supabase) — generate is a no-op'",
