@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-12T16:42:40.273Z",
+  "finished_at": "2026-11-12T16:42:50.017Z",
+  "commit_sha": "cb513a5d9f0364524cbccee3ef979095fc7d2dac",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 5953,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored src/app/api/courier/dashboard/route.ts src/app/api/operator/messages/route.ts src/app/api/supplier/dashboard/route.ts src/app/api/confectioner/capabilities/route.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 2033,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run src/app/api/operator/messages/route.test.ts",
+      "skipped": false,
+      "exit_code": 1,
+      "duration_ms": 1487,
+      "passed": false,
+      "output_tail": "\n RUN  v4.1.10 /home/z/my-project\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > эскалация из chat_escalations маппится в UI-форму (room_id, user_name, message)\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > неизвестный escalationId → 404\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > не-staff → 403\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > повторный ответ по назначенной эскалации → autoAssigned=false\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > не-staff → 403\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > text > 5000 символов → 422\n[route] 403: Нет прав\n\n ❯ src/app/api/operator/messages/route.test.ts (7 tests | 5 failed) 22ms\n     × эскалация из chat_escalations маппится в UI-форму (room_id, user_name, message) 12ms\n     × неизвестный escalationId → 404 2ms\n     ✓ не-staff → 403 1ms\n     × pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление 2ms\n     × повторный ответ по назначенной эскалации → autoAssigned=false 1ms\n     ✓ не-staff → 403 1ms\n     × text > 5000 символов → 422 1ms\n\n Test Files  1 failed (1)\n      Tests  5 failed | 2 passed (7)\n   Start at  16:42:48\n   Duration  1.13s (transform 219ms, setup 179ms, import 256ms, tests 22ms, environment 552ms)\n\n(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > эскалация из chat_escalations маппится в UI-форму (room_id, user_name, message)\nAssertionError: expected 403 to be 200 // Object.is equality\n\n- Expected\n+ Received\n\n- 200\n+ 403\n\n ❯ src/app/api/operator/messages/route.test.ts:307:24\n    305|       new NextRequest(`${BASE}/api/operator/messages?escalationId=esc-…\n    306|     );\n    307|     expect(res.status).toBe(200);\n       |                        ^\n    308|     const body = await res.json();\n    309|     expect(body.escalation).toMatchObject({\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯\n\n FAIL  src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > неизвестный escalationId → 404\nAssertionError: expected 403 to be 404 // Object.is equality\n\n- Expected\n+ Received\n\n- 404\n+ 403\n\n ❯ src/app/api/operator/messages/route.test.ts:328:24\n    326|       new NextRequest(`${BASE}/api/operator/messages?escalationId=nope…\n    327|     );\n    328|     expect(res.status).toBe(404);\n       |                        ^\n    329|   });\n    330|\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯\n\n FAIL  src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление\nAssertionError: expected 403 to be 200 // Object.is equality\n\n- Expected\n+ Received\n\n- 200\n+ 403\n\n ❯ src/app/api/operator/messages/route.test.ts:350:24\n    348|       })\n    349|     );\n    350|     expect(res.status).toBe(200);\n       |                        ^\n    351|     const body = await res.json();\n    352|     expect(body.autoAssigned).toBe(true);\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯\n\n FAIL  src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > повторный ответ по назначенной эскалации → autoAssigned=false\nAssertionError: expected 403 to be 200 // Object.is equality\n\n- Expected\n+ Received\n\n- 200\n+ 403\n\n ❯ src/app/api/operator/messages/route.test.ts:385:24\n    383|       })\n    384|     );\n    385|     expect(res.status).toBe(200);\n       |                        ^\n    386|     const body = await res.json();\n    387|     expect(body.autoAssigned).toBe(false);\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯\n\n FAIL  src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > text > 5000 символов → 422\nAssertionError: expected 403 to be 422 // Object.is equality\n\n- Expected\n+ Received\n\n- 422\n+ 403\n\n ❯ src/app/api/operator/messages/route.test.ts:412:24\n    410|       })\n    411|     );\n    412|     expect(res.status).toBe(422);\n       |                        ^\n    413|   });\n    414| });\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯\n\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=quick --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 166,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=quick commit=cb513a5 files_scanned=11 findings=0 allowlisted=0 skipped(missing=2,binary=0,size=0,path=0) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "skipped": 0
+  }
+}

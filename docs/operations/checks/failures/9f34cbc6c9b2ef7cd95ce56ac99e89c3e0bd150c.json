@@ -1,0 +1,19 @@
+{
+  "fingerprint": "9f34cbc6c9b2ef7cd95ce56ac99e89c3e0bd150c",
+  "check": "typecheck",
+  "severity": "error",
+  "error_code": "regression_typecheck_failed",
+  "message": "Regression check \"typecheck\" failed (quick mode) at commit cb513a5",
+  "component": "infrastructure",
+  "source": "cron",
+  "commit_sha": "cb513a5d9f0364524cbccee3ef979095fc7d2dac",
+  "branch": "main",
+  "mode": "quick",
+  "detected_at": "2026-11-12T16:44:24.100Z",
+  "failing_tests": [],
+  "previous_success": {
+    "commit_sha": "cb513a5d9f0364524cbccee3ef979095fc7d2dac",
+    "finished_at": "2026-11-12T16:42:50.017Z"
+  },
+  "output_tail": "src/app/api/operator/messages/route.test.ts(306,62): error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.\n"
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-12T16:44:15.593Z",
+  "finished_at": "2026-11-12T16:44:24.100Z",
+  "commit_sha": "cb513a5d9f0364524cbccee3ef979095fc7d2dac",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 2,
+      "duration_ms": 4899,
+      "passed": false,
+      "output_tail": "src/app/api/operator/messages/route.test.ts(306,62): error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.\n"
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored src/app/api/confectioner/capabilities/route.ts src/app/api/courier/dashboard/route.ts src/app/api/operator/messages/route.ts src/app/api/supplier/dashboard/route.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1930,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run src/app/api/operator/messages/route.test.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1392,
+      "passed": true,
+      "output_tail": "\n RUN  v4.1.10 /home/z/my-project\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > эскалация из chat_escalations маппится в UI-форму (room_id, user_name, message)\n[pgrst] GET /rest/v1/chat_escalations → 200 (3ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > эскалация из chat_escalations маппится в UI-форму (room_id, user_name, message)\n[pgrst] GET /rest/v1/profiles → 200 (1ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > эскалация из chat_escalations маппится в UI-форму (room_id, user_name, message)\n[pgrst] GET /rest/v1/chat_messages → 200 (0ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > неизвестный escalationId → 404\n[pgrst] GET /rest/v1/chat_escalations → 200 (0ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > неизвестный escalationId → 404\n[route] 404: Эскалация не найдена\n\nstdout | src/app/api/operator/messages/route.test.ts > GET /api/operator/messages — тред эскалации > не-staff → 403\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление\n[pgrst] GET /rest/v1/chat_escalations → 200 (0ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление\n[pgrst] PATCH /rest/v1/chat_escalations → 200 (1ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление\n[pgrst] GET /rest/v1/chat_channels → 200 (0ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление\n[pgrst] POST /rest/v1/chat_messages → 201 (1ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > pending → авто-назначение + сообщение в channel_id + метрики канала + уведомление\n[pgrst] PATCH /rest/v1/chat_channels → 200 (1ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > повторный ответ по назначенной эскалации → autoAssigned=false\n[pgrst] GET /rest/v1/chat_escalations → 200 (0ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > повторный ответ по назначенной эскалации → autoAssigned=false\n[pgrst] GET /rest/v1/chat_channels → 200 (2ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > повторный ответ по назначенной эскалации → autoAssigned=false\n[pgrst] POST /rest/v1/chat_messages → 201 (0ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > повторный ответ по назначенной эскалации → autoAssigned=false\n[pgrst] PATCH /rest/v1/chat_channels → 200 (0ms, role=anon)\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > не-staff → 403\n[route] 403: Нет прав\n\nstdout | src/app/api/operator/messages/route.test.ts > POST /api/operator/messages — ответ оператора > text > 5000 символов → 422\n[route] 422: text слишком длинный (макс 5000 символов)\n\n ✓ src/app/api/operator/messages/route.test.ts (7 tests) 35ms\n\n Test Files  1 passed (1)\n      Tests  7 passed (7)\n   Start at  16:44:22\n   Duration  1.08s (transform 209ms, setup 170ms, import 231ms, tests 35ms, environment 529ms)\n\n(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=quick --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 179,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=quick commit=cb513a5 files_scanned=12 findings=0 allowlisted=0 skipped(missing=2,binary=0,size=0,path=4) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "skipped": 0
+  }
+}
