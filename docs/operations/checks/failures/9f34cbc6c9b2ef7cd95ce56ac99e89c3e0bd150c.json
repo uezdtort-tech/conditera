@@ -3,17 +3,15 @@
   "check": "typecheck",
   "severity": "error",
   "error_code": "regression_typecheck_failed",
-  "message": "Regression check \"typecheck\" failed (quick mode) at commit cb513a5",
+  "message": "Regression check \"typecheck\" failed (full mode) at commit 8773b49",
   "component": "infrastructure",
   "source": "cron",
-  "commit_sha": "cb513a5d9f0364524cbccee3ef979095fc7d2dac",
+  "commit_sha": "8773b49e55b5b39d5e332d7482fa638be950cac8",
   "branch": "main",
-  "mode": "quick",
-  "detected_at": "2026-11-12T16:44:24.100Z",
+  "mode": "full",
+  "detected_at": "2026-11-12T20:39:56.345Z",
   "failing_tests": [],
-  "previous_success": {
-    "commit_sha": "cb513a5d9f0364524cbccee3ef979095fc7d2dac",
-    "finished_at": "2026-11-12T16:42:50.017Z"
-  },
-  "output_tail": "src/app/api/operator/messages/route.test.ts(306,62): error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.\n"
+  "previous_success": null,
+  "output_tail": "src/lib/cms/settings-versioning.ts(164,15): error TS2345: Argument of type '{ key: string; value: string; category: string; description: string | null; }' is not assignable to parameter of type 'SiteSettingDocRow'.\n  Property 'id' is missing in type '{ key: string; value: string; category: string; description: string | null; }' but required in type 'SiteSettingDocRow'.\nsrc/lib/cms/settings-versioning.ts(201,11): error TS2352: Conversion of type 'QueryResultRow' to type 'CmsVersionRow' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Type 'QueryResultRow' is missing the following properties from type 'CmsVersionRow': id, version, status, data, and 3 more.\nsrc/lib/cms/settings-versioning.ts(213,11): error TS2352: Conversion of type 'QueryResultRow' to type 'CmsVersionRow' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Type 'QueryResultRow' is missing the following properties from type 'CmsVersionRow': id, version, status, data, and 3 more.\n",
+  "registered_at": "2026-11-12T20:39:57.877Z"
 }

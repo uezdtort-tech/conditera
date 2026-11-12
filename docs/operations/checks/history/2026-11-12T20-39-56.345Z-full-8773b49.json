@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "mode": "full",
+  "started_at": "2026-11-12T20:36:34.112Z",
+  "finished_at": "2026-11-12T20:39:56.345Z",
+  "commit_sha": "8773b49e55b5b39d5e332d7482fa638be950cac8",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=2560 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 2,
+      "duration_ms": 37725,
+      "passed": false,
+      "output_tail": "src/lib/cms/settings-versioning.ts(164,15): error TS2345: Argument of type '{ key: string; value: string; category: string; description: string | null; }' is not assignable to parameter of type 'SiteSettingDocRow'.\n  Property 'id' is missing in type '{ key: string; value: string; category: string; description: string | null; }' but required in type 'SiteSettingDocRow'.\nsrc/lib/cms/settings-versioning.ts(201,11): error TS2352: Conversion of type 'QueryResultRow' to type 'CmsVersionRow' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Type 'QueryResultRow' is missing the following properties from type 'CmsVersionRow': id, version, status, data, and 3 more.\nsrc/lib/cms/settings-versioning.ts(213,11): error TS2352: Conversion of type 'QueryResultRow' to type 'CmsVersionRow' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Type 'QueryResultRow' is missing the following properties from type 'CmsVersionRow': id, version, status, data, and 3 more.\n"
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored .",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 44145,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 118771,
+      "passed": true,
+      "output_tail": "yment/webhook: HTTP-контракт (регрессии владельца v4.5) > 3. YooKassa не сконфигурирована, не-production → skip «provider_not_configured» (регресс)\n[webhook] YooKassa not configured — provider verification skipped (event=payment.succeeded)\n\nstderr | src/app/api/payment/webhook/route.http.test.ts > payment/webhook: HTTP-контракт (регрессии владельца v4.5) > 3. YooKassa не сконфигурирована, не-production → skip «provider_not_configured» (регресс)\n[webhook] provider mismatch (event=payment.succeeded, object=pay-1) — skipped\n\nstderr | src/app/api/payment/webhook/route.http.test.ts > payment/webhook: HTTP-контракт (регрессии владельца v4.5) > 4. провайдер недоступен → 500 fail-closed (ослабления нет)\n[webhook] provider verification failed (event=payment.succeeded, object=pay-1) — fail-closed 500\n\nstderr | src/app/api/payment/webhook/route.http.test.ts > payment/webhook: HTTP-контракт (регрессии владельца v4.5) > 6. production + шлюз не настроен + payment.succeeded → 500 fail-closed, БД не записывается\n[webhook] YooKassa not configured in production — fail-closed 500\n\nstderr | src/app/api/payment/webhook/route.http.test.ts > payment/webhook: HTTP-контракт (регрессии владельца v4.5) > 6. production + шлюз не настроен + payment.succeeded → 500 fail-closed, БД не записывается\n[webhook] provider verification failed (event=payment.succeeded, object=pay-1) — fail-closed 500\n\nstderr | src/app/api/payment/webhook/route.http.test.ts > payment/webhook: HTTP-контракт (регрессии владельца v4.5) > 7. production: yookassa_payment_id не найден + metadata.orderId → фолбэк отключён, 404, БД-запись не создана\n[webhook] Order 123e4567-e89b-12d3-a456-426614174000 not found in DB\n\nstderr | src/app/api/orders/accept-gate.test.ts > POST /api/orders/:id/accept — гейт Acceptance Engine > движок упал → 503 fail-closed, статус не меняется\n[orders/:id/accept] acceptance check failed: engine down\n\nstderr | src/app/api/admin/dashboard/route.test.ts > GET /api/admin/dashboard — dev-stub удалён > недоступность БД → 503, а не демо-данные\n[admin/dashboard] DB unavailable: DB down (simulated)\n\nstderr | src/app/api/products/[id]/route.test.ts\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_REFRESH_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n\nstderr | src/app/api/courier/earnings/route-earnings-source.test.ts > GET /api/courier/earnings — канонический источник заработка (A-3) > ошибка БД → 500 (не молчаливый ноль в финансовых сводках)\n[courier/earnings] query error: connection refused\n\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — fail-closed гейт прод-регистрации (DEV-18 / C-1) > production + createUser fail → 500 fail-closed ДО любых записей: auth.users-стаб, profiles, user_roles, referrals не пишутся\n[register] supabase auth createUser error: stub: GoTrue unavailable\n\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — fail-closed гейт прод-регистрации (DEV-18 / C-1) > development + createUser fail → dev-фоллбэк: auth.users стаб через пул, profiles создан, 201 (гейт строго NODE_ENV-условный)\n[register] supabase auth createUser error: 501 LOCAL_AUTH_DISABLED\n[register] dev/local mode: GoTrue unavailable → auth.users stub row\n\nstderr | src/app/api/courier/dashboard/route-earnings-source.test.ts > GET /api/courier/dashboard — канонический источник заработка (A-3) > ошибка запроса истории → fail-safe stub (без частичных цифр)\n[courier/dashboard] history query error: connection refused\n[courier/dashboard] DB unavailable, returning stub: connection refused\n\nstderr | src/lib/auth.expiry.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is not set\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is empty string\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/diagnostics/global-handlers.test.ts > installGlobalErrorHandlers > сбой captureServerError НЕ бросает из обработчика (§3.3)\n[diagnostics] uncaughtException capture failed\n[diagnostics] unhandledRejection capture failed\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > production + stub-конфигурация → создание платежа ЗАПРЕЩЕНО (FAIL, mock отключён)\n[yookassa] createPayment: шлюз не настроен (production) — mock отключён\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > development + stub-конфигурация → mock-платёж ДОПУСТИМ (stub только вне production)\n⚠️ YooKassa не настроена. Используется mock-ответ (только dev).\n   Для активации укажите YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в .env\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает Promise<boolean>\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение при минимальных параметрах\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение со всеми параметрами\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=true (повторная заявка)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=false (новая заявка, по умолчанию)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает unicode в businessName (эмодзи)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает длинные строки (businessName > 100 chars)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает специальные символы в email\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает false в mock-режиме (без TELEGRAM_BOT_TOKEN)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/ingress-trust.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/confectioner-gate.test.ts > checkConfectionerGate > возвращает not allowed при ошибке БД (fail-closed)\n[confectioner-gate] lookup failed: Connection refused\n\nstderr | src/lib/ops/risk.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/lib/ai-dialogue-access.test.ts > assertDialoguePairAccess (IDOR-guard ai-dialogue) > FAIL-CLOSED: ошибка БД при проверке → 500 (не 403 и не пропуск)\n[ai-dialogue-access] confectioner lookup failed: connection refused\n\nstderr | src/app/api/supplier/validators.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/app/api/supplier/validators.test.ts\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_REFRESH_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n\nstderr | src/lib/courier-assignments.test.ts > getCourierOrderIds > возвращает пустой список при ошибке БД (fail-safe)\n[courier-assignments] fetch error: boom\n\n"
+    },
+    {
+      "name": "route-error-coverage",
+      "cmd_line": "node scripts/verify/route-error-coverage.mjs",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 36,
+      "passed": true,
+      "output_tail": "route-error-coverage: checked=47/48\n✅ все маршруты критичного периметра используют единую регистрацию ошибок\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=full --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1549,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=full commit=8773b49 files_scanned=1772 findings=0 allowlisted=46 skipped(missing=8,binary=0,size=0,path=174) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "passed": 4,
+    "failed": 1,
+    "skipped": 0
+  }
+}

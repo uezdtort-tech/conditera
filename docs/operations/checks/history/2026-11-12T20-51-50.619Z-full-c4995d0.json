@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "mode": "full",
+  "started_at": "2026-11-12T20:48:21.731Z",
+  "finished_at": "2026-11-12T20:51:50.619Z",
+  "commit_sha": "c4995d02f096be20e0481af7a02a46e70aef4e15",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=2560 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 37351,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored .",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 46827,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 122861,
+      "passed": true,
+      "output_tail": "ает детали для не-HttpError\n[route] unhandled error: DB connection string postgres://user:pass@host Error: DB connection string postgres://user:pass@host\n    at /home/z/my-project/src/lib/http-helpers.test.ts:133:17\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64\n\nstderr | unknown test\n[pgrst/pool] DATABASE_URL=file:/home/z/my-project/db/custom.db… — платформенный плейсхолдер, использую встроенный PG: postgresql://postgres@127.0.0.1:54329/conditera\n\nstderr | src/lib/anti-fraud.test.ts > checkFraudLimit — два окна (v4.6) > ошибка часового подсчёта → fail-open (allow, консистентно с прежним контрактом)\n[anti-fraud] count failed: db down\n\nstderr | src/lib/anti-fraud.test.ts > checkFraudLimit — два окна (v4.6) > ошибка дневного подсчёта → fail-open (allow)\n[anti-fraud] day-count failed: db down\n\nstderr | src/lib/anti-fraud.test.ts > checkFraudLimit — два окна (v4.6) > ошибка вставки попытки → fail-open (allow, попытка не посчитана)\n[anti-fraud] log insert failed: insert failed\n\nstderr | src/app/api/products/[id]/route.test.ts\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_REFRESH_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n\nstderr | src/app/api/orders/accept-gate.test.ts > POST /api/orders/:id/accept — гейт Acceptance Engine > движок упал → 503 fail-closed, статус не меняется\n[orders/:id/accept] acceptance check failed: engine down\n\nstderr | src/app/api/admin/dashboard/route.test.ts > GET /api/admin/dashboard — dev-stub удалён > недоступность БД → 503, а не демо-данные\n[admin/dashboard] DB unavailable: DB down (simulated)\n\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — fail-closed гейт прод-регистрации (DEV-18 / C-1) > production + createUser fail → 500 fail-closed ДО любых записей: auth.users-стаб, profiles, user_roles, referrals не пишутся\n[register] supabase auth createUser error: stub: GoTrue unavailable\n\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — fail-closed гейт прод-регистрации (DEV-18 / C-1) > development + createUser fail → dev-фоллбэк: auth.users стаб через пул, profiles создан, 201 (гейт строго NODE_ENV-условный)\n[register] supabase auth createUser error: 501 LOCAL_AUTH_DISABLED\n[register] dev/local mode: GoTrue unavailable → auth.users stub row\n\nstderr | src/app/api/courier/earnings/route-earnings-source.test.ts > GET /api/courier/earnings — канонический источник заработка (A-3) > ошибка БД → 500 (не молчаливый ноль в финансовых сводках)\n[courier/earnings] query error: connection refused\n\nstderr | src/app/api/courier/dashboard/route-earnings-source.test.ts > GET /api/courier/dashboard — канонический источник заработка (A-3) > ошибка запроса истории → fail-safe stub (без частичных цифр)\n[courier/dashboard] history query error: connection refused\n[courier/dashboard] DB unavailable, returning stub: connection refused\n\nstderr | src/lib/auth.expiry.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is not set\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is empty string\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/diagnostics/global-handlers.test.ts > installGlobalErrorHandlers > сбой captureServerError НЕ бросает из обработчика (§3.3)\n[diagnostics] uncaughtException capture failed\n[diagnostics] unhandledRejection capture failed\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > production + stub-конфигурация → создание платежа ЗАПРЕЩЕНО (FAIL, mock отключён)\n[yookassa] createPayment: шлюз не настроен (production) — mock отключён\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > development + stub-конфигурация → mock-платёж ДОПУСТИМ (stub только вне production)\n⚠️ YooKassa не настроена. Используется mock-ответ (только dev).\n   Для активации укажите YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в .env\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает Promise<boolean>\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение при минимальных параметрах\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение со всеми параметрами\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=true (повторная заявка)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=false (новая заявка, по умолчанию)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает unicode в businessName (эмодзи)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает длинные строки (businessName > 100 chars)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает специальные символы в email\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает false в mock-режиме (без TELEGRAM_BOT_TOKEN)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/ops/risk.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/ingress-trust.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/confectioner-gate.test.ts > checkConfectionerGate > возвращает not allowed при ошибке БД (fail-closed)\n[confectioner-gate] lookup failed: Connection refused\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/lib/ai-dialogue-access.test.ts > assertDialoguePairAccess (IDOR-guard ai-dialogue) > FAIL-CLOSED: ошибка БД при проверке → 500 (не 403 и не пропуск)\n[ai-dialogue-access] confectioner lookup failed: connection refused\n\nstderr | src/app/api/supplier/validators.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/app/api/supplier/validators.test.ts\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_REFRESH_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n\nstderr | src/lib/courier-assignments.test.ts > getCourierOrderIds > возвращает пустой список при ошибке БД (fail-safe)\n[courier-assignments] fetch error: boom\n\n"
+    },
+    {
+      "name": "route-error-coverage",
+      "cmd_line": "node scripts/verify/route-error-coverage.mjs",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 34,
+      "passed": true,
+      "output_tail": "route-error-coverage: checked=47/48\n✅ все маршруты критичного периметра используют единую регистрацию ошибок\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=full --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1804,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=full commit=c4995d0 files_scanned=1772 findings=0 allowlisted=46 skipped(missing=8,binary=0,size=0,path=174) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0
+  }
+}
