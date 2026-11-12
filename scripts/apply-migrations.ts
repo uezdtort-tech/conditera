@@ -15,6 +15,10 @@ const DATABASE_URL =
   process.env.DATABASE_URL ||
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
+// PR-5: schema-only запуск — применить ТОЛЬКО указанные файлы (префиксы через
+// запятую). Пример: MIGRATIONS_ONLY=0085 → ledger 0085 без полного прогонa.
+const MIGRATIONS_ONLY = process.env.MIGRATIONS_ONLY || null;
+
 const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 
 /**
@@ -159,6 +163,7 @@ async function main() {
     // Получить список миграций
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith(".sql"))
+      .filter((f) => !MIGRATIONS_ONLY || MIGRATIONS_ONLY.split(",").some((p) => f.startsWith(p)))
       .sort();
 
     console.log(`» Found ${files.length} migration files:\n`);

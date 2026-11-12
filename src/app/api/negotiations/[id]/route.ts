@@ -3,12 +3,27 @@
  *
  * GET — детали переговоров (с сообщениями + revisions)
  * PATCH — обновить (quote price, accept, decline)
+ *
+ * Z-v32 Этап 8 (PR-5): срок действия предложения (valid_until, 0085).
+ *   • quote — кондитер (пере)считал и отправил предложение: сервер ставит
+ *     valid_until = now + 14 дней (custom validDays клампится 1..60) —
+ *     это «recalculate & resend» через существующий механизм revisions;
+ *   • accept — ТОЛЬКО пока срок не истёк, иначе 410 OFFER_EXPIRED
+ *     (+ лениво status='expired'); авто-чести старой цены нет;
+ *   • accept пишет revision-снимок принятого предложения (change_reason
+ *     'accepted') — якорь для metadata.offerBinding при оформлении заказа.
+ *
+ * Единицы: quoted_price — КОПЕЙКИ (клиент шлёт Math.round(rub*100),
+ * системное сообщение ниже делит на 100 для показа в рублях — НЕ баг).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import {
+  offerValidUntilFrom,
+} from "@/lib/negotiation-binding";
 
 export async function GET(
   request: NextRequest,
@@ -64,12 +79,13 @@ export async function PATCH(
     if (!user) return unauthorizedResponse();
 
     const body = await request.json();
-    const { action, quotedPrice, quotedDeliveryCost, quotedPrepTime, comment } = body as {
+    const { action, quotedPrice, quotedDeliveryCost, quotedPrepTime, comment, validDays } = body as {
       action: "quote" | "accept" | "decline" | "counter";
       quotedPrice?: number;
       quotedDeliveryCost?: number;
       quotedPrepTime?: string;
       comment?: string;
+      validDays?: number; // Z-v32: custom срок действия предложения, кламп 1..60 (дефолт 14)
     };
 
     // Загрузить negotiation
@@ -99,8 +115,17 @@ export async function PATCH(
         if (!quotedPrice) {
           return NextResponse.json({ error: "quotedPrice обязателен" }, { status: 400 });
         }
+        // Z-v32: принятое предложение нельзя тихо переписать (binding
+        // ссылается на него при оформлении заказа) — сначала decline.
+        if (negotiation.status === "accepted") {
+          return NextResponse.json(
+            { error: "Переговоры уже приняты — предложение зафиксировано" },
+            { status: 409 }
+          );
+        }
 
-        // Сохранить snapshot в revisions
+        // Сохранить snapshot в revisions (prior-value pattern 0004):
+        // первое предложение — 'initial', пересчёт/повторная отправка — 'price_adjustment'
         await supabaseAdmin.from("negotiation_revisions").insert({
           negotiation_id: id,
           quoted_price: negotiation.quoted_price,
@@ -110,8 +135,12 @@ export async function PATCH(
           discount_percent: negotiation.discount_percent,
           discount_comment: negotiation.discount_comment,
           changed_by: user.id,
-          change_reason: "initial",
+          change_reason: negotiation.quoted_price == null ? "initial" : "price_adjustment",
         });
+
+        // Z-v32: срок действия НОВОГО предложения — сервер ставит сам
+        // (клиентская дата доверия нет): дефолт 14 дней, custom кламп 1..60.
+        const validUntil = offerValidUntilFrom(new Date(), validDays);
 
         // Обновить negotiation
         const { data: updated, error: updErr } = await supabaseAdmin
@@ -122,6 +151,7 @@ export async function PATCH(
             quoted_prep_time: quotedPrepTime || null,
             status: "quoted",
             quoted_at: new Date().toISOString(),
+            valid_until: validUntil.toISOString(),
           })
           .eq("id", id)
           .select()
@@ -147,6 +177,49 @@ export async function PATCH(
         if (!isOwner && !isAdmin) {
           return forbiddenResponse("Только владелец может принимать");
         }
+
+        // Z-v32 (0085): истёкшее предложение НЕ принимается — честный 410,
+        // клиент показывает «Предложение истекло — запросите новое».
+        // Кондитер делает recalculate & resend (PATCH quote) → новый valid_until.
+        const nowDate = new Date();
+        const validUntilDate = negotiation.valid_until ? new Date(negotiation.valid_until) : null;
+        if (negotiation.status === "expired" || (validUntilDate && validUntilDate.getTime() < nowDate.getTime())) {
+          // Ленивый гард: помечаем expired (cron не нужен — проверка в accept-time)
+          await supabaseAdmin
+            .from("negotiations")
+            .update({ status: "expired" })
+            .eq("id", id);
+          return NextResponse.json(
+            {
+              error: "OFFER_EXPIRED",
+              message: "Предложение истекло — запросите новое",
+              ...(validUntilDate ? { expiredAt: validUntilDate.toISOString() } : {}),
+            },
+            { status: 410 }
+          );
+        }
+        // Принятие без предложения запрещено (нет цены — нечего фиксировать).
+        if (negotiation.quoted_price == null) {
+          return NextResponse.json(
+            { error: "OFFER_NO_PRICE", message: "Кондитер ещё не отправил предложение" },
+            { status: 409 }
+          );
+        }
+
+        // Z-v32: snapshot ПРИНЯТОГО предложения (якорь metadata.offerBinding
+        // при оформлении заказа в /api/checkout). Триггер 0085 — бэкстоп.
+        await supabaseAdmin.from("negotiation_revisions").insert({
+          negotiation_id: id,
+          quoted_price: negotiation.quoted_price,
+          quoted_delivery_cost: negotiation.quoted_delivery_cost,
+          quoted_prep_time: negotiation.quoted_prep_time,
+          quoted_items: negotiation.quoted_items,
+          discount_percent: negotiation.discount_percent,
+          discount_comment: negotiation.discount_comment,
+          changed_by: user.id,
+          change_reason: "accepted",
+        });
+
         const { data: updated, error } = await supabaseAdmin
           .from("negotiations")
           .update({

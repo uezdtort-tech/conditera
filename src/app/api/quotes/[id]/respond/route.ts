@@ -6,12 +6,14 @@
  *   packaging_cost, printing_cost, storage_cost, delivery_cost,
  *   service_cost, custom_design_cost,
  *   discount_percent, comment, prep_days, available_date,
- *   offered_packaging, offered_delivery
+ *   offered_packaging, offered_delivery,
+ *   validDays — Z-v32 (PR-5): срок действия предложения в днях (кламп 1..60, дефолт 14)
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
+import { offerValidUntilFrom } from "@/lib/negotiation-binding";
 
 export const runtime = "nodejs";
 
@@ -32,6 +34,7 @@ interface RespondBody {
   available_date?: string;
   offered_packaging?: string;
   offered_delivery?: string;
+  validDays?: number; // Z-v32 (0085): срок действия предложения, кламп 1..60 (дефолт 14)
 }
 
 export async function POST(
@@ -137,6 +140,9 @@ export async function POST(
       offered_packaging: body.offered_packaging,
       offered_delivery: body.offered_delivery,
       status: "pending",
+      // Z-v32 (0085): срок действия предложения — серверная истина (now + 14д
+      // дефолт; custom клампится 1..60). Повторный respond (пересчёт) сбрасывает срок.
+      valid_until: offerValidUntilFrom(new Date(), body.validDays).toISOString(),
     };
 
     let quote;

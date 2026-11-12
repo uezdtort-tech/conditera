@@ -57,6 +57,15 @@ import {
 } from "@/lib/cake-builder-pricing";
 import { loadBuilderFillingsForValidation } from "@/lib/builder-fillings-server";
 import { buildAcceptanceSnapshot, type AcceptanceSnapshot } from "@/lib/ops/snapshot";
+// Z-v32 Этап 8 (PR-5): серверная фиксация согласованной цены индивидуального
+// предложения (negotiations.valid_until 0085) — цена приходит ТОЛЬКО из БД.
+import {
+  applyNegotiationPriceBinding,
+  buildOfferBindingMeta,
+  validateNegotiationBinding,
+  type NegotiationRecord,
+  type OfferBindingMeta,
+} from "@/lib/negotiation-binding";
 
 /** Разрешённые ключи кастомизации товара (product-page: filling/coating/decoration/inscription). */
 const ALLOWED_ATTR_KEYS = new Set(["filling", "coating", "decoration", "inscription"]);
@@ -87,6 +96,9 @@ const CheckoutSchema = z
     customerName: z.string().min(2).max(100),
     customerPhone: z.string().min(10).max(20),
     paymentMethod: z.string().max(30).optional(),
+    // Z-v32 (PR-5): опциональная привязка к принятым переговорам — цена
+    // подменяется сервером из negotiations.quoted_price (в теле цены нет).
+    negotiationId: z.string().uuid().optional(),
   })
   .superRefine((val, ctx) => {
     // Каждая позиция: либо товар, либо custom-конфигурация конструктора
@@ -208,7 +220,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       customerName,
       customerPhone,
       paymentMethod,
+      negotiationId,
     } = parsed.data;
+
+    // Z-v32 (PR-5): валидация binding переговоров ДО пересчёта позиций.
+    // Владелец/статус/истечение — серверное решение (403/409/410); цена
+    // из negotiations.quoted_price подставляется ниже в custom-позицию.
+    let negotiationBinding: NegotiationRecord | null = null;
+    if (negotiationId) {
+      const { data: negRow } = await supabaseAdmin
+        .from("negotiations")
+        .select("id, user_id, status, quoted_price, quoted_delivery_cost, valid_until")
+        .eq("id", negotiationId)
+        .maybeSingle();
+      if (!negRow) {
+        return NextResponse.json(
+          { error: "Переговоры не найдены" },
+          { status: 404 }
+        );
+      }
+      const decision = validateNegotiationBinding(
+        negRow as unknown as NegotiationRecord,
+        user.id
+      );
+      if (!decision.ok) {
+        return NextResponse.json(
+          {
+            error: decision.code,
+            message: decision.message,
+            ...(decision.expiredAt ? { expiredAt: decision.expiredAt } : {}),
+          },
+          { status: decision.httpStatus }
+        );
+      }
+      negotiationBinding = decision.negotiation;
+    }
 
     // Контакт получателя — серверная валидация (P1-A7)
     const name = customerName.trim();
@@ -423,6 +469,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // Z-v32 (PR-5): фиксация согласованной цены — оверрайд единственной
+    // custom-позиции серверным quoted_price (копейки -> рубли). Ноль/несколько
+    // custom-позиций -> 422 (честный отказ, см. applyNegotiationPriceBinding).
+    // ДО reduce subtotal: оверрайд меняет total позиции.
+    let offerBindingMeta: OfferBindingMeta | null = null;
+    if (negotiationBinding) {
+      const applied = applyNegotiationPriceBinding(orderItems, negotiationBinding);
+      if (!applied.ok) {
+        return NextResponse.json(
+          { error: applied.code, message: applied.message },
+          { status: applied.httpStatus }
+        );
+      }
+      const bound = orderItems[applied.boundItemIndex];
+      bound.unit_price = applied.quotedPriceRub;
+      bound.total = applied.quotedPriceRub * bound.quantity;
+
+      // Якорь binding — revision-снимок, записанный в момент accept
+      // (change_reason='accepted'); для legacy-принятий без снимка — null.
+      const { data: acceptedRevision } = await supabaseAdmin
+        .from("negotiation_revisions")
+        .select("id")
+        .eq("negotiation_id", negotiationBinding.id)
+        .eq("change_reason", "accepted")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      offerBindingMeta = buildOfferBindingMeta({
+        negotiation: negotiationBinding,
+        quotedPriceRub: applied.quotedPriceRub,
+        revisionId: (acceptedRevision as { id: string } | null)?.id ?? null,
+        boundAt: new Date(),
+      });
+    }
+
     const subtotal = orderItems.reduce((sum, item) => sum + item.total, 0);
 
     // Confectioner_id — из первого ТОВАРНОГО товара (custom-позиции без кондитера)
@@ -605,6 +687,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           contact: { name, phone },
           // PR-2C: аудит привязки цен (версии цены + серверная доставка)
           pricing: pricingMeta,
+          // Z-v32 (PR-5): аудит согласования индивидуальной цены
+          // (аддитивный ключ; negotiationId/revisionId/quotedPrice/validUntil)
+          ...(offerBindingMeta ? { offerBinding: offerBindingMeta } : {}),
           // Z-v29: снимок производственной потребности на момент оформления
           // (неизменяем после INSERT — ни один код-путь не обновляет orders.metadata).
           ...(acceptanceSnapshot ? { acceptance_snapshot: acceptanceSnapshot } : {}),
@@ -657,6 +742,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Откатываем order
       await supabaseAdmin.from("orders").delete().eq("id", order.id);
       return NextResponse.json({ error: "Ошибка создания позиций заказа" }, { status: 500 });
+    }
+
+    // Z-v32 (PR-5): связываем переговоры с заказом (negotiations.order_id —
+    // колонка 0004). Best-effort: сбой не валид заказ, идёт в лог.
+    if (negotiationBinding) {
+      const { error: negLinkErr } = await supabaseAdmin
+        .from("negotiations")
+        .update({ order_id: order.id })
+        .eq("id", negotiationBinding.id);
+      if (negLinkErr) {
+        console.error(
+          "[checkout] negotiation order_id link failed:",
+          negLinkErr.message
+        );
+      }
     }
 
     // 5b-1. order.created — event log (P1.1 §3: dedup key, idempotent) + n8n.
