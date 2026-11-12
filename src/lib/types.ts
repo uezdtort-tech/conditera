@@ -628,6 +628,11 @@ export interface Product {
   recipeId?: string | null;
   // Approved-медиа карточки (фото+видео, обложка первая) из GET /api/products/[id]
   media?: ProductMediaItem[];
+  // PR-2C (Z-v32 Этап 6, additive): effective_from покрывающей now строки
+  // истории цен (GET /api/products/[id]). null/undefined на legacy-фолбэке —
+  // строку «Цена действует с …» не показываем. История цен покупателю не
+  // отдаётся — сервер возвращает только текущую цену + дату её вступления.
+  priceEffectiveFrom?: string | null;
 }
 
 // ===== СПОСОБЫ ОПЛАТЫ И РАССРОЧКА =====

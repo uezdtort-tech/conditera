@@ -57,6 +57,8 @@ import {
   calculateInstallmentPayment,
   INSTALLMENT_PROVIDERS,
 } from "@/lib/finance";
+// PR-4 (Z-v32 Этап 6): дата актуальности цены + защита от фиктивных скидок
+import { formatPriceEffectiveFrom, hasRealDiscount } from "@/lib/price-display";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useLiveProductDetail } from "@/lib/supabase/use-marketplace";
@@ -503,7 +505,8 @@ export function ProductPage() {
             {product.isPopular && (
               <Badge className="bg-amber-500 text-white">Популярное</Badge>
             )}
-            {product.oldPrice && (
+            {/* PR-4: бейдж скидки — только реальная скидка (old_price > price) */}
+            {hasRealDiscount(product) && product.oldPrice !== undefined && (
               <Badge className="bg-red-500 text-white">
                 -{Math.round((1 - product.price / product.oldPrice) * 100)}%
               </Badge>
@@ -884,9 +887,17 @@ export function ProductPage() {
                 <div className="font-display text-2xl font-bold text-primary">
                   {formatCurrency(finalPrice * quantity)}
                 </div>
-                {product.oldPrice && (
+                {/* PR-4: зачёркнутая old_price — только реальная скидка (old_price > price) */}
+                {hasRealDiscount(product) && product.oldPrice !== undefined && (
                   <div className="text-xs text-muted-foreground line-through">
                     {formatCurrency((product.oldPrice + (finalPrice - product.price)) * quantity)}
+                  </div>
+                )}
+                {/* PR-4: дата актуальности цены (legacy-товары без истории — null → не показываем).
+                    Сервер отдаёт effective_from ТОЛЬКО покрывающей now строки — будущих цен здесь нет. */}
+                {formatPriceEffectiveFrom(product.priceEffectiveFrom) && (
+                  <div className="text-[11px] text-muted-foreground">
+                    Цена действует с {formatPriceEffectiveFrom(product.priceEffectiveFrom)}
                   </div>
                 )}
               </div>

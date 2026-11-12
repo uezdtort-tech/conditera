@@ -14,6 +14,7 @@ import {
 } from "@/lib/finance";
 import type { Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { hasRealDiscount, isFromPrice } from "@/lib/price-display";
 import { TiltCard } from "@/components/ui/modern-effects";
 
 interface ProductCardProps {
@@ -82,7 +83,8 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
               Популярное
             </Badge>
           )}
-          {product.oldPrice && (
+          {/* PR-4: бейдж скидки — только на реальную скидку (old_price > price) */}
+          {hasRealDiscount(product) && product.oldPrice !== undefined && (
             <Badge className="bg-red-500 text-white text-[10px] px-2 py-0.5">
               -{Math.round((1 - product.price / product.oldPrice) * 100)}%
             </Badge>
@@ -169,12 +171,22 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
         {/* Price & add */}
         <div className="flex items-end justify-between pt-1">
           <div>
-            {product.oldPrice && (
+            {/* PR-4: зачёркнутая old_price — только реальная скидка (old_price > price) */}
+            {hasRealDiscount(product) && product.oldPrice !== undefined && (
               <div className="text-xs text-muted-foreground line-through">
                 {formatCurrency(product.oldPrice)}
               </div>
             )}
             <div className="font-display font-bold text-base text-foreground">
+              {/* PR-4: маркер «от» — цена базовая, опции могут её повысить */}
+              {isFromPrice(product) && (
+                <span
+                  className="text-primary mr-0.5"
+                  title="Итоговая цена зависит от выбранных опций"
+                >
+                  от
+                </span>
+              )}
               {formatCurrency(product.price)}
             </div>
           </div>

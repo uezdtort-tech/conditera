@@ -868,6 +868,9 @@ export interface ApiProduct {
   fillings?: { name: string; priceModifier?: number }[] | null;
   category_slug?: string | null;
   media?: ProductMediaItem[];
+  // PR-2C (additive): effective_from покрывающей now строки истории цен;
+  // null на legacy-фолбэке (version_id NULL)
+  priceEffectiveFrom?: string | null;
   confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
 }
 
@@ -1006,6 +1009,8 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
       : [],
     // media приходит из API уже в camelCase (ProductMediaItem[])
     media: Array.isArray(p.media) ? p.media : undefined,
+    // PR-2C (additive): дата вступления текущей цены; на legacy-фолбэке null
+    priceEffectiveFrom: p.priceEffectiveFrom ?? null,
   };
 }
 
