@@ -178,3 +178,49 @@ Severity события — `debug|info|warning|error|critical` (CHECK-огра�
 - Три роли проверены в браузере 3/3 (покупатель: регистрация→кабинет→пустые состояния→logout; кондитер: 5 табов; админ: Инциденты/CMS/n8n/Пользователи); мобильная вёрстка 390×844 держится; 0× HTTP 500
 - Статус PRODUCT OPERATING SYSTEM: PARTIAL; готовность продукта: NOT READY до решения ZV31-016 (плюс ZV31-017 mock-каталог, PG-интеграция бизнес-сценариев NOT VERIFIED на реальных данных)
 - Дополнение Z-v32 (Пакет A, 2026-11-12): ZV31-016 CLOSED — 4 защищённых upload-файла восстановлены из HEAD, redline-guard PASS (exit 0), защитные механизмы не изменялись
+
+**Статус Z-v32 (2026-11-12): RELEASE CANDIDATE**
+
+- HEAD 1ab0b07; ветка main; рабочее дерево чистое. Итоги пакетов Z-v32:
+- Пакет A: ZV31-016 CLOSED — 4 upload-файла восстановлены bit-for-bit, redline 9/9.
+- Пакет B: ZV31-006/007/011/017 CLOSED — верифицировано.
+- Пакет C-1: ZV31-002/003 DONE — миграция 0081, RPC `apply_order_write_off_atomic` / `update_recipe_with_ingredients`, SQL 24/24. Пакет C-2: 11/11 интеграционных сценариев PASS на реальном PG (webhook replay идемпотентен, 2 конкурентных списания — 1 победитель; snapshot в orders.metadata; находки LOW: нет восстановления склада при cancel, stub-refund невозможен).
+- Пакет D: 3/3 роли браузер PASS (заказ UK-2026-286175, чат в комнате заказа, block/unblock, инцидент NEW→TRIAGED с историей, фото-загрузка через /api/upload).
+- Пакет E: CMS полный цикл PASS (draft→preview→publish→rollback, 409 CMS_CONFLICT, баннер create→публично→скрыть→удалить, аудит); ZV31-001/012 CLOSED.
+- Пакет F: mobile-app → archive/mobile-app NOT MAINTAINED, ZV31-015 CLOSED.
+- Release gate: PASS (exit 0) — 5 проверок: typecheck, eslint, vitest, route-error-coverage, secrets-scan; secrets-scan 0 находок.
+- Production build: FAIL — kernel OOM, предел среды (4GB no-swap pod; next-build ~2.5GB RSS; dmesg global_oom; exit 137 ×3; компиляция успешна; tsc --noEmit PASS отдельно). Действие владельца: выполнять `bun run build` на машине ≥8GB RAM или с swap (CI).
+
+Матрица готовности (Z-v32):
+
+| Компонент | Статус |
+|---|---|
+| Build | FAIL (среда: kernel OOM на 4GB no-swap; компиляция успешна — предел среды, не дефект кода) |
+| TypeScript | PASS |
+| ESLint | PASS |
+| Tests | PASS |
+| PostgreSQL | PASS (81 миграция, чистая БД) |
+| Auth | PASS (собственный JWT; GoTrue stub — прод-провайдеры настраивает владелец) |
+| OAuth | НЕ НАСТРОЕН (нужны creds Yandex ID/VK ID) |
+| Payments | PASS (stub-адаптер; прод YooKassa — creds владельца) |
+| Uploads | PASS (маршруты восстановлены, redline-guard) |
+| Chat | PASS (JWT handshake, доставка, persistence) |
+| Roles | PASS (3/3, server-side guards, auth-matrix 12 кейсов) |
+| CMS | PASS (версии/публикация/откат/аудит/preview) |
+| Secrets | PASS (0 находок) |
+| Monitoring | PASS (инциденты, статусы, метрики) |
+| Backups | НЕ ГОТОВО (стратегия требует решения владельца) |
+| HTTPS | НЕ ВЕРИФИЦИРОВАНО (прод-домен вне песочницы) |
+| SEO | PASS (robots/sitemap 200, metadata) |
+| Mobile | ARCHIVED (вне scope) |
+
+Действия владельца (прод-конфигурация):
+
+1. real JWT_SECRET / DB creds для прода;
+2. OAuth Yandex ID + VK ID callback URLs;
+3. YooKassa prod ключи + webhook URL;
+4. домен + HTTPS (Caddy prod);
+5. CRON_SECRET для n8n;
+6. стратегия бэкапов PG (pg_dump cron) + проверка восстановления;
+7. запуск build на машине ≥8GB;
+8. CORS/cookies/rate-limit ревизия перед публичным деплоем.
