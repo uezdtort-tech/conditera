@@ -16,6 +16,16 @@
  *    (allow_overage: true + причина) пропускает как ручную корректировку
  *    с пометкой в журнале движений. Легаси-заказы (без snapshot) — прежнее
  *    поведение; повреждённый snapshot → 422 SNAPSHOT_INVALID (fail-closed).
+ *    Z-v32 (ZV31-002): order-путь выполняется ОДНИМ БД-RPC
+ *    apply_order_write_off_atomic (миграция 0081) — одна транзакция:
+ *    FOR UPDATE строки заказа (сериализация всех списаний заказа),
+ *    реестр-первым (дедупликация сигнатуры ДО применения движений),
+ *    перепроверка snapshot и остатков В ТРАНЗАКЦИИ, блокировка позиций
+ *    FOR UPDATE по отсортированному item_id, движения + реестр атомарны.
+ *    Устранён TOCTOU прежней схемы «валидация приложением →
+ *    по-позиционное применение → INSERT реестра»: два параллельных списания
+ *    одного заказа больше не могут оба пройти проверку. Списания БЕЗ order_id
+ *    (нет бизнес-ключа) идут прежним per-item путём 0048 без дедупликации.
  *
  * 2) Batch-путь (RECIPE-02/05, RA.11): { batch_id, items: [{ item_id, quantity, unit? }] }
  *      → 200/201 { batch_id, applied: [...], idempotent? }
@@ -51,7 +61,6 @@ import {
 } from "@/lib/inventory";
 import { convertQty } from "@/lib/recipes/cost";
 import type { BatchRow } from "@/lib/recipes/production";
-import { validateOrderWriteOffAgainstSnapshot } from "@/lib/ops/write-off-validation";
 import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -72,19 +81,10 @@ interface WriteOffRequestItem {
   quantity: number;
 }
 
-interface AppliedItem {
-  item_id: string;
-  item_name: string;
-  movement_id: string;
-  quantity: number;
-  remaining: number;
-  unit: string | null;
-}
-
 /**
  * Сигнатура батча-списания: отсортированные "item_id:quantity" — одинаковый
  * повторный/параллельный запрос даёт одинаковую сигнатуру и дедуплицируется
- * по uq_inventory_write_off_batch (миграция 0049).
+ * по uq_inventory_write_off_batch (миграция 0049) / в RPC 0081 (реестр-первым).
  */
 function batchSignature(items: WriteOffRequestItem[]): string {
   const canon = [...items]
@@ -94,16 +94,14 @@ function batchSignature(items: WriteOffRequestItem[]): string {
   return createHash("sha256").update(canon).digest("hex");
 }
 
-/** Найти уже выполненное списание этого же батча (идемпотентный повтор) */
-async function findExistingWriteOff(ownerId: string, orderId: string, signature: string) {
-  const { data } = await supabaseAdmin
-    .from("inventory_write_offs")
-    .select("id, items, result, created_at")
-    .eq("owner_id", ownerId)
-    .eq("order_id", orderId)
-    .eq("signature", signature)
-    .maybeSingle();
-  return (data as { id: string; items: unknown; result: unknown; created_at: string } | null) ?? null;
+/** Результат RPC apply_order_write_off_atomic (0081) */
+interface RpcOrderWriteOffResult {
+  idempotent?: boolean;
+  applied?: unknown[];
+  failed?: unknown[];
+  order_id?: string | null;
+  validation_mode?: "snapshot" | "legacy";
+  overage_confirmed?: boolean;
 }
 
 /** HTTP-статус и сообщение для ошибки применения движения */
@@ -121,6 +119,81 @@ function errorToResponse(error: ApplyMovementError): { status: number; message: 
     default:
       return { status: 500, message: "Не удалось записать движение" };
   }
+}
+
+/**
+ * Ошибка RPC apply_order_write_off_atomic (0081) → HTTP-ответ.
+ * Сообщения RAISE в 0081: [order_write_off] <kind>[:<payload>].
+ * Коды ответа — СУЩЕСТВУЮЩИЕ (422 WRITE_OFF_SNAPSHOT_MISMATCH /
+ * SNAPSHOT_INVALID / 409 недостаточно / 403 / 404); формат 422 с deviations
+ * не меняется (паритет прежней TS-валидации Z-v30).
+ */
+function orderRpcErrorToResponse(
+  rpcMessage: string,
+  orderId: string | null
+): NextResponse {
+  const marker = "[order_write_off] ";
+  const idx = rpcMessage.indexOf(marker);
+  const tail = idx >= 0 ? rpcMessage.slice(idx + marker.length) : rpcMessage;
+
+  if (tail.startsWith("snapshot_mismatch:")) {
+    let deviations: unknown = [];
+    try {
+      deviations = JSON.parse(tail.slice("snapshot_mismatch:".length));
+    } catch {
+      deviations = [];
+    }
+    return NextResponse.json(
+      {
+        error: "WRITE_OFF_SNAPSHOT_MISMATCH",
+        message:
+          "Количество списания расходится с зафиксированным snapshot потребности заказа (Z-v30). Легитимная ручная корректировка требует явного подтверждения: allow_overage: true и причина.",
+        deviations,
+        validation_mode: "snapshot",
+      },
+      { status: 422 }
+    );
+  }
+
+  if (tail.startsWith("snapshot_invalid:")) {
+    const reason = tail.slice("snapshot_invalid:".length);
+    const coverageReasons = ["product_set_mismatch", "quantity_mismatch"];
+    const message = coverageReasons.some((r) => reason.startsWith(r))
+      ? `Snapshot не соответствует позициям заказа (${reason}) — нормативное списание заблокировано (fail-closed).`
+      : `Повреждён snapshot производственного состава заказа (${reason}) — нормативное списание заблокировано (fail-closed). Ручные корректировки — через /api/inventory/movements.`;
+    return NextResponse.json({ error: "SNAPSHOT_INVALID", message }, { status: 422 });
+  }
+
+  if (tail.startsWith("apply_failed:")) {
+    const rest = tail.slice("apply_failed:".length);
+    const sep = rest.indexOf(":");
+    const kind = sep >= 0 ? rest.slice(0, sep) : rest;
+    let failed: unknown = [];
+    if (sep >= 0) {
+      try {
+        failed = JSON.parse(rest.slice(sep + 1));
+      } catch {
+        failed = [];
+      }
+    }
+    const firstError =
+      (Array.isArray(failed) &&
+        typeof (failed[0] as { error?: string } | undefined)?.error === "string" &&
+        (failed[0] as { error: string }).error) ||
+      "Не удалось записать движение";
+    const status = kind === "insufficient" ? 409 : kind === "forbidden" ? 403 : kind === "not_found" ? 404 : 500;
+    return NextResponse.json({ error: firstError, failed }, { status });
+  }
+
+  if (tail.startsWith("bad_item")) {
+    return NextResponse.json(
+      { error: "Каждый элемент items требует item_id и quantity (> 0)" },
+      { status: 400 }
+    );
+  }
+
+  console.error("[inventory/write-off] order RPC failed:", rpcMessage);
+  return NextResponse.json({ error: "Не удалось записать движение", order_id: orderId }, { status: 500 });
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -188,19 +261,60 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const actor: InventoryActor = { id: user.id, roles: (user.roles as string[]) || [] };
-
-    // === Идемпотентность (миграция 0049): ретрай/двойная отправка того же
-    // батча по заказу возвращает сохранённый результат — движения не пишутся
-    // второй раз. Списания без order_id не дедуплицируются (нет ключа).
     const signature = orderId ? batchSignature(parsed) : null;
+
+    // === Z-v32 (ZV31-002): order-путь — ОДИН атомарный БД-RPC (0081).
+    // Внутри одной транзакции: FOR UPDATE строки заказа (сериализация
+    // параллельных списаний одного заказа), реестр-первым (идемпотентный
+    // replay ДО применения движений), перепроверка snapshot и уже списанного
+    // под блокировкой (кумулятивный TOCTOU устранён на уровне PostgreSQL),
+    // FOR UPDATE складских позиций в отсортированном порядке item_id,
+    // guard «остаток ≥ 0», движения + реестр. Частичный успех сохранён
+    // (applied+failed); полный провал и расхождение со snapshot → полный
+    // откат, ошибки поверхруются существующими кодами (orderRpcErrorToResponse).
+    // Списания БЕЗ order_id (нет бизнес-ключа дедупликации) — прежний
+    // per-item путь 0048 ниже, контракт не меняется.
     if (orderId && signature) {
-      const existing = await findExistingWriteOff(user.id, orderId, signature);
-      if (existing) {
-        const saved = (existing.result ?? {}) as { applied?: AppliedItem[]; failed?: unknown[] };
+      const { data: rpcData, error: rpcErr } = (await supabaseAdmin.rpc(
+        "apply_order_write_off_atomic",
+        {
+          p_owner_id: user.id,
+          p_order_id: orderId,
+          p_items: parsed,
+          p_signature: signature,
+          p_reason: reason,
+          p_allow_overage: body.allow_overage === true,
+          p_actor_is_admin: isInventoryAdmin(actor),
+        }
+      )) as unknown as {
+        data: RpcOrderWriteOffResult | null;
+        error: (Error & { code?: string }) | null;
+      };
+
+      if (rpcErr && rpcErr.code === "PGRST202") {
+        // fail-closed: RPC отсутствует — списание НЕ выполняем небезопасным путём
+        console.error(
+          "[inventory/write-off] apply_order_write_off_atomic RPC отсутствует — fail-closed (примените миграцию 0081)"
+        );
+        return NextResponse.json(
+          { error: "Списание по заказу недоступно (примените миграцию 0081)" },
+          { status: 500 }
+        );
+      }
+      if (rpcErr) {
+        return orderRpcErrorToResponse(rpcErr.message, orderId);
+      }
+      if (!rpcData) {
+        console.error("[inventory/write-off] order RPC returned no data");
+        return NextResponse.json({ error: "Не удалось записать движение", order_id: orderId }, { status: 500 });
+      }
+
+      if (rpcData.idempotent === true) {
+        // Идемпотентный replay: возвращаем сохранённый результат (0049-семантика)
         return NextResponse.json(
           {
-            applied: saved.applied ?? [],
-            failed: saved.failed ?? [],
+            applied: rpcData.applied ?? [],
+            failed: rpcData.failed ?? [],
             order_id: orderId,
             idempotent: true,
             duplicate: true,
@@ -209,45 +323,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           { status: 200 }
         );
       }
+
+      return NextResponse.json(
+        { applied: rpcData.applied ?? [], failed: rpcData.failed ?? [], order_id: orderId },
+        { status: 201 }
+      );
     }
 
-    // === Z-v30: валидация количеств против snapshot потребности заказа.
-    // Идемпотентный replay выше НЕ валидируется (повтор прошлого действия);
-    // валидируются только НОВЫЕ батчи. Легаси-заказы (без snapshot) — прежнее
-    // поведение (mode "legacy"). Расхождение → 422 с отклонениями; явное
-    // подтверждение оператора (allow_overage: true) пропускает списание как
-    // РУЧНУЮ корректировку фактического расхода (причина помечается в журнале
-    // движений, snapshot заказа не переписывается). Контракт 0048/0049 не меняется.
-    let overageConfirmed = false;
-    if (orderId) {
-      const validation = await validateOrderWriteOffAgainstSnapshot({
-        orderId,
-        actorId: user.id,
-        items: parsed,
-      });
-      if (!validation.ok) {
-        return NextResponse.json(
-          { error: validation.code, message: validation.message },
-          { status: 422 }
-        );
-      }
-      if (validation.validation.deviations.length > 0) {
-        if (body.allow_overage !== true) {
-          return NextResponse.json(
-            {
-              error: "WRITE_OFF_SNAPSHOT_MISMATCH",
-              message:
-                "Количество списания расходится с зафиксированным snapshot потребности заказа (Z-v30). Легитимная ручная корректировка требует явного подтверждения: allow_overage: true и причина.",
-              deviations: validation.validation.deviations,
-              validation_mode: validation.validation.mode,
-            },
-            { status: 422 }
-          );
-        }
-        overageConfirmed = true;
-      }
-    }
-
+    // === Списания БЕЗ order_id: прежний per-item путь (0048, без дедупликации) ===
     const applied: Array<{
       item_id: string;
       item_name: string;
@@ -259,19 +342,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const failed: Array<{ item_id: string; error: string }> = [];
     let firstError: ApplyMovementError | null = null;
 
-    // Z-v30: ручная корректировка (allow_overage) обязана быть отличима в
-    // журнале движений — причина дописывается маркером (audit trail).
-    const effectiveReason = overageConfirmed
-      ? `${reason} (превышение норматива snapshot подтверждено оператором)`
-      : reason;
-
     for (const entry of parsed) {
       const result = await applyInventoryMovement(actor, {
         item_id: entry.item_id,
         type: "OUT",
         quantity: entry.quantity,
-        reason: effectiveReason,
-        order_id: orderId,
+        reason,
+        order_id: null,
       });
       if (result.ok) {
         applied.push({
@@ -295,40 +372,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (applied.length === 0 && firstError) {
       const { status, message } = errorToResponse(firstError);
       return NextResponse.json({ error: message, failed }, { status });
-    }
-
-    // Фиксируем выполненный батч в реестре (0049): повторные отправки
-    // получат сохранённый результат. 23505 — параллельный запрос успел
-    // первым: возвращаем его результат вместо ошибки.
-    if (orderId && signature) {
-      const { error: regErr } = await supabaseAdmin.from("inventory_write_offs").insert({
-        owner_id: user.id,
-        order_id: orderId,
-        signature,
-        items: parsed,
-        result: { applied, failed },
-      });
-      if (regErr && (regErr as { code?: string }).code === "23505") {
-        const raced = await findExistingWriteOff(user.id, orderId, signature);
-        if (raced) {
-          const saved = (raced.result ?? {}) as { applied?: AppliedItem[]; failed?: unknown[] };
-          return NextResponse.json(
-            {
-              applied: saved.applied ?? [],
-              failed: saved.failed ?? [],
-              order_id: orderId,
-              idempotent: true,
-              duplicate: true,
-              message: "Списание по этому заказу уже было выполнено ранее",
-            },
-            { status: 200 }
-          );
-        }
-      } else if (regErr) {
-        // Батч уже применён; не откатываем — журнал в inventory_movements полон.
-        // Логируем и возвращаем обычный успех (реестр — оптимизация, не источник истины).
-        console.error("[inventory/write-off] registry insert failed:", regErr.message);
-      }
     }
 
     return NextResponse.json({ applied, failed, order_id: orderId }, { status: 201 });

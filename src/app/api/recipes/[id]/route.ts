@@ -20,9 +20,16 @@
  *          Активный оффер НЕ скрывается (оффер управляется отдельным
  *          маршрутом) — в ответе возвращается offerLinked: true.
  *
- * Атомарность замены состава: PostgREST-транзакций нет — до удаления
- * захватывается старое состояние детей; при сбое вставки выполняется
- * компенсирующий откат (реинсерт старых строк с их id) и возвращается 500.
+ * Атомарность замены состава (Z-v32, ZV31-003): корень и ВСЕ переданные
+ * типы детей заменяются ОДНИМ БД-RPC update_recipe_with_ingredients
+ * (миграция 0081) — одна SQL-функция = одна транзакция: блокировка строки
+ * корня FOR UPDATE → UPDATE корня (только переданные ключи) → DELETE +
+ * INSERT детей (substitutes резолвятся по ingredient_position внутри
+ * транзакции). Конкурентный читатель (live-путь breakdown / снапшот
+ * checkout — один statement по MVCC) видит ЛИБО целиком старое, ЛИБО
+ * целиком новое состояние состава — промежуточный «пустой/частичный
+ * состав» невозможен. Компенсирующий откат больше не нужен: при любой
+ * ошибке позиций полный откат в БД, читателю — 500.
  * ВАЖНО: замена steps каскадно удаляет привязанные к шагам media
  * (recipe_media.step_id ON DELETE CASCADE, 0066) — манифест медиа при этом
  * сохраняется в неизменяемых версиях (RA.8.1).
@@ -41,14 +48,11 @@ import {
   normalizePositions,
   stepRowsFromDto,
   ingredientRowsFromDto,
-  substituteRowsFromDto,
   variantRowsFromDto,
   sourceRowsFromDto,
   fetchRecipeChildren,
   assembleRecipeDto,
-  type IngredientDto,
   type SourceDto,
-  type RecipeChildren,
 } from "@/lib/recipes/recipe-content";
 import { handleRouteError } from "@/lib/http-helpers";
 
@@ -377,9 +381,6 @@ export async function PATCH(
       return NextResponse.json({ error: `sources: ${sourcesBuild.error}` }, { status: 422 });
     }
 
-    // Захват старого состояния для компенсирующего отката
-    const oldChildren = await fetchRecipeChildren(recipeId);
-
     // updated_at — серверно (updated_at-триггера на recipes нет); именно эта
     // метка используется publish-идемпотентностью (версия новее → контент
     // изменился → новая версия). Bump при ЛЮБОМ изменении: поля корня ИЛИ
@@ -393,36 +394,92 @@ export async function PATCH(
       upd.updated_at = new Date().toISOString();
     }
 
-    // 1) Корень (обновление выполняется и при чистой замене состава —
-    //    чтобы bumped updated_at включил publish-идемпотентность)
-    if (Object.keys(upd).length > 0) {
-      const { error: updErr } = await supabaseAdmin
-        .from("recipes")
-        .update(upd)
-        .eq("id", recipeId);
-      if (updErr) {
-        console.error("[recipes/:id] PATCH root error:", updErr.message);
-        return NextResponse.json(
-          { error: "Ошибка при обновлении рецепта", details: updErr.message },
-          { status: 500 }
-        );
+    // Замены ингредиентов: привязка к НОРМАЛИЗОВАННОЙ position — реальный id
+    // резолвится ВНУТРИ транзакции RPC на свежевставленных строках
+    // (паритет substituteRowsFromDto, только ingredient_position вместо id).
+    const substituteRows: Array<{
+      ingredient_position: number;
+      name: string;
+      qty: number | null;
+      unit: string | null;
+      position: number;
+    }> = [];
+    if (ingredientsBuild) {
+      for (const ing of ingredientsBuild.normalized) {
+        if (!ing.substitutes?.length) continue;
+        if (ing.position === undefined) {
+          return NextResponse.json(
+            { error: "ingredients.substitutes: Не удалось сопоставить замену с ингредиентом (position)" },
+            { status: 422 }
+          );
+        }
+        const subNorm = normalizePositions(ing.substitutes);
+        if (subNorm.error) {
+          return NextResponse.json(
+            { error: `ingredients.substitutes: ${subNorm.error}` },
+            { status: 422 }
+          );
+        }
+        for (const sub of subNorm.rows) {
+          if (sub.position === undefined) {
+            return NextResponse.json(
+              { error: "ingredients.substitutes: Не удалось сопоставить замену с ингредиентом (position)" },
+              { status: 422 }
+            );
+          }
+          substituteRows.push({
+            ingredient_position: ing.position,
+            name: sub.name.trim(),
+            qty: sub.qty ?? null,
+            unit: sub.unit?.trim() || null,
+            position: sub.position,
+          });
+        }
       }
     }
 
-    // 2) Дети (delete → insert). Сбой вставки → откат к старому состоянию.
-    const replaceError = await replaceChildren(recipeId, oldChildren, {
-      steps: stepsBuild?.rows ?? null,
-      ingredients: ingredientsBuild?.rows ?? null,
-      ingredientsNormalized: ingredientsBuild?.normalized ?? null,
-      variants: variantsBuild?.rows ?? null,
-      sources: sourcesBuild?.rows ?? null,
-    });
+    // Z-v32 (ZV31-003): корень + состав — ОДИН атомарный БД-RPC (0081):
+    // одна транзакция = один консистентный снимок для читателей. NULL-параметр
+    // = тип детей не трогается; '[]' = полная очистка. Ошибка любой вставки →
+    // полный откат в БД (ни движений, ни частичного состояния).
+    const { error: patchRpcErr } = (await supabaseAdmin.rpc(
+      "update_recipe_with_ingredients",
+      {
+        p_recipe_id: recipeId,
+        p_root: Object.keys(upd).length > 0 ? upd : null,
+        p_steps: stepsBuild ? stepsBuild.rows : null,
+        p_ingredients: ingredientsBuild ? ingredientsBuild.rows : null,
+        p_substitutes:
+          ingredientsBuild && substituteRows.length > 0 ? substituteRows : null,
+        p_variants: variantsBuild ? variantsBuild.rows : null,
+        p_sources: sourcesBuild ? sourcesBuild.rows : null,
+      }
+    )) as unknown as {
+      data: unknown;
+      error: (Error & { code?: string }) | null;
+    };
 
-    if (replaceError) {
-      console.error("[recipes/:id] children replace failed:", replaceError);
+    if (patchRpcErr && patchRpcErr.code === "PGRST202") {
+      // fail-closed: RPC отсутствует — состав НЕ правим частично (примените 0081)
+      console.error(
+        "[recipes/:id] update_recipe_with_ingredients RPC отсутствует — fail-closed (примените миграцию 0081)"
+      );
       return NextResponse.json(
-        { error: "Ошибка при обновлении состава (выполнен откат)", details: replaceError },
+        { error: "Обновление состава недоступно (примените миграцию 0081)" },
         { status: 500 }
+      );
+    }
+    if (patchRpcErr) {
+      console.error("[recipes/:id] PATCH RPC error:", patchRpcErr.message);
+      const notFound = patchRpcErr.message.includes("[recipe_patch] not_found");
+      return NextResponse.json(
+        {
+          error: notFound
+            ? "Рецепт не найден"
+            : "Ошибка при обновлении рецепта",
+          details: patchRpcErr.message,
+        },
+        { status: notFound ? 404 : 500 }
       );
     }
 
@@ -521,116 +578,5 @@ async function safeJsonBodyPatch(
     return { data: JSON.parse(raw) as unknown, error: null };
   } catch (e: any) {
     return { data: null, error: `Невалидный JSON: ${e?.message || "parse error"}` };
-  }
-}
-
-interface ReplaceArgs {
-  steps: Record<string, unknown>[] | null;
-  ingredients: Record<string, unknown>[] | null;
-  /** Нормализованный DTO ингредиентов (позиции заполнены) — для маппинга замен */
-  ingredientsNormalized: IngredientDto[] | null;
-  variants: Record<string, unknown>[] | null;
-  sources: Record<string, unknown>[] | null;
-}
-
-/**
- * Полная замена переданных типов детей (DELETE старые + INSERT новые).
- * При сбое — компенсирующий откат: удалить частично записанное и реинсерт
- * старых строк с их id (id сохраняются → FK-цели recipe_media.step_id
- * восстанавливаются; media шагов, удалённые CASCADE, не восстанавливаются —
- * они сохранены в снапшотах версий).
- */
-async function replaceChildren(
-  recipeId: string,
-  old: RecipeChildren,
-  args: ReplaceArgs
-): Promise<string | null> {
-  const del = async (table: string): Promise<void> => {
-    await supabaseAdmin.from(table).delete().eq("recipe_id", recipeId);
-  };
-
-  try {
-    // --- Шаги (замена каскадно удаляет media шагов — см. шапку файла) ---
-    if (args.steps) {
-      await del("recipe_steps");
-      if (args.steps.length > 0) {
-        const { error } = await supabaseAdmin.from("recipe_steps").insert(args.steps);
-        if (error) throw new Error(`steps insert: ${error.message}`);
-      }
-    }
-
-    // --- Ингредиенты + замены ---
-    if (args.ingredients) {
-      await del("recipe_ingredients"); // substitutes удаляются CASCADE
-      if (args.ingredients.length > 0) {
-        const { data: insertedIngs, error } = await supabaseAdmin
-          .from("recipe_ingredients")
-          .insert(args.ingredients)
-          .select("id, position");
-        if (error || !insertedIngs) throw new Error(`ingredients insert: ${error?.message}`);
-        const idByPosition = new Map<number, string>();
-        for (const row of insertedIngs as { id: string; position: number }[]) {
-          idByPosition.set(Number(row.position), String(row.id));
-        }
-        const subs = substituteRowsFromDto(idByPosition, args.ingredientsNormalized ?? []);
-        if (subs.error) throw new Error(`substitutes map: ${subs.error}`);
-        if (subs.rows.length > 0) {
-          const { error: subsErr } = await supabaseAdmin
-            .from("recipe_ingredient_substitutes")
-            .insert(subs.rows);
-          if (subsErr) throw new Error(`substitutes insert: ${subsErr.message}`);
-        }
-      }
-    }
-
-    // --- Варианты ---
-    if (args.variants) {
-      await del("recipe_variants");
-      if (args.variants.length > 0) {
-        const { error } = await supabaseAdmin.from("recipe_variants").insert(args.variants);
-        if (error) throw new Error(`variants insert: ${error.message}`);
-      }
-    }
-
-    // --- Источники: полная замена сбрасывает права (новый источник = новое
-    //     подтверждение, RA.13); правомерный клиент передаёт sources только
-    //     при реальной смене происхождения ---
-    if (args.sources) {
-      await del("recipe_sources");
-      if (args.sources.length > 0) {
-        const { error } = await supabaseAdmin.from("recipe_sources").insert(args.sources);
-        if (error) throw new Error(`sources insert: ${error.message}`);
-      }
-    }
-
-    return null;
-  } catch (e: any) {
-    // Компенсирующий откат к захваченному состоянию (best-effort)
-    console.error("[recipes/:id] replaceChildren rollback:", e?.message);
-    try {
-      await supabaseAdmin.from("recipe_steps").delete().eq("recipe_id", recipeId);
-      await supabaseAdmin.from("recipe_ingredients").delete().eq("recipe_id", recipeId);
-      await supabaseAdmin.from("recipe_variants").delete().eq("recipe_id", recipeId);
-      await supabaseAdmin.from("recipe_sources").delete().eq("recipe_id", recipeId);
-      if (old.steps.length > 0) {
-        await supabaseAdmin.from("recipe_steps").insert(old.steps);
-      }
-      if (old.ingredients.length > 0) {
-        await supabaseAdmin.from("recipe_ingredients").insert(old.ingredients);
-      }
-      if (old.substitutes.length > 0) {
-        await supabaseAdmin.from("recipe_ingredient_substitutes").insert(old.substitutes);
-      }
-      if (old.variants.length > 0) {
-        await supabaseAdmin.from("recipe_variants").insert(old.variants);
-      }
-      if (old.sources.length > 0) {
-        await supabaseAdmin.from("recipe_sources").insert(old.sources);
-      }
-    } catch (rbError: any) {
-      console.error("[recipes/:id] rollback failed:", rbError?.message);
-      return `${e?.message}; откат также не удался: ${rbError?.message}`;
-    }
-    return e?.message ?? "children replace failed";
   }
 }
