@@ -1,60 +1,88 @@
 #!/usr/bin/env node
 /**
- * scripts/regression/secrets-scan.mjs — контент-сканер секретов (ZV31-011,
- * Z-v32 Пакет B1). Ноль внешних зависимостей; чистая логика паттернов —
- * в src/lib/regression/secrets-meta.ts (импортируется отсюда напрямую:
- * Node ≥22.18 исполняет .ts через strip-types, vitest — через свой transform).
+ * scripts/regression/secrets-scan.mjs — контент-сканер секретов (ZV31-011).
+ *
+ * Z-v32 Пакет B2: добавлены режимы --mode=quick|full по спеке release-gate:
+ *   • quick — staged-файлы (git diff --cached --name-only) + изменённые в
+ *     worktree (git status --porcelain добавления/модификации/ untracked),
+ *     артефакты docs/operations/checks/** исключены;
+ *   • full  — ВСЕ git-tracked текстовые файлы (git ls-files), капа размера
+ *     2MB на файл, исключения бинарных/lock-файлов (*.lock, bun.lock,
+ *     *.png/jpg/ico/pdf/woff*, .keep, каталоги images).
+ *
+ * Ноль внешних зависимостей; чистая логика паттернов — в
+ * src/lib/regression/secrets-meta.ts (импортируется отсюда напрямую:
+ * Node ≥22.18 исполняет .ts через strip-types, vitest — через transform).
  *
  * CLI:
- *   node scripts/regression/secrets-scan.mjs [--files <path>[,<path>...]]
+ *   node scripts/regression/secrets-scan.mjs [--mode=quick|full]
+ *                                            [--files <path>[,<path>...]]
  *                                            [--json <out>] [--staged]
  *
- * Выбор файлов (default): объединение
- *   (a) git diff --name-only HEAD  ∪  git diff --cached --name-only;
- *   (b) фиксированный набор критичных конфигов: .env, .env.local,
- *       .env.production, .env.production.example, .env.local.example,
- *       docker-compose.yml, docker-compose.dev.yml, Caddyfile.
- *   --staged: только git diff --cached --name-only (pre-commit сценарий).
- *   Отсутствующие файлы пропускаются; запускать из корня репо (cwd).
+ *   default (без --mode) — quick: объединение
+ *     (a) git diff --name-only HEAD ∪ git diff --cached --name-only ∪
+ *         git status --porcelain (вкл. untracked);
+ *     (b) фиксированный набор критичных конфигов (.env*, docker-compose*,
+ *         Caddyfile).
+ *   --staged → только git diff --cached --name-only (pre-commit сценарий).
+ *   Отсутствующие файлы пропускаются; запускать из корня репо.
  *
- * Гварты: только текст ≤512KB (binary sniff по NUL-байту), НИКОГДА не
- * сканируются node_modules, .next, .git, docs/operations/checks/**
- * (артефакты рантайма), db/*.db.
+ * Placeholder-фильтр (НЕ утечка): пустые значения, токены-плейсхолдеры
+ * (changeme/your_/example/...), ${VAR}/<var>/...-схемы, ЛИТЕРАЛЬНЫЕ значения
+ * из АКТУАЛЬНЫХ env-шаблонов (.env.local.example / .env.production.example —
+ * список строится из шаблонов; реальный .env.local для этого НЕ читается).
  *
- * Allowlist: scripts/regression/secrets-allowlist.json — массив
- * {path, line, reason} для явных safe-fixture (line = 0 → весь файл).
- * Комбинация path+line подавляется целиком.
+ * Test-fixture исключение (только явное правило, не молчаливое): в
+ * *.test.* / *.spec.* / __tests__ файлах значение подавляется ТОЛЬКО если
+ * содержит test|fake|mock|example|fixture|dummy (см. secrets-meta.ts);
+ * всё остальное — находка. Файльные исключения — scripts/regression/
+ * secrets-allowlist.json: массив {path, line, reason}; line = 0 → весь
+ * файл, каждая запись обязана иметь one-line обоснование.
+ *
+ * Гварды: только текст (binary sniff по NUL-байту); НИКОГДА не сканируются
+ * node_modules, .next, .git, docs/operations/checks/** (артефакты
+ * рантайма), db/*.db; в full — капа 2MB/файл и бинарные/lock-расширения.
  *
  * Дисциплина вывода: находка печатается ТОЛЬКО как
- *   {file}:{line} [CATEGORY] matched (value redacted, len={n})
+ *   {file}:{line} [{rule}] matched (value redacted, len={n})
  * — само значение нигде не появляется (ни в stdout, ни в --json).
  *
- * Exit: 0 — чисто (или только allowlisted); 1 — подтверждённая утечка.
+ * Отчёт: docs/operations/checks/secrets-scan-latest.json (или --json PATH):
+ *   {mode, commit_sha, started_at, finished_at, scanned_files,
+ *    findings: [{file, line, rule}], exclusions_applied, passed}.
+ * В full-режиме копия отчёта пишется в docs/operations/checks/history/
+ * (конвенция истории run-checks).
+ *
+ * Exit: 0 — чисто (или только allowlisted/fixture/шаблонные); 1 —
+ * подтверждённая утечка. Краш сканера — необработанное исключение
+ * (nonzero exit): SKIP никогда не маскируется под PASS.
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 import {
   isAllowlisted,
   isExampleEnvPath,
+  isTestFixturePath,
   normalizeSecretPath,
   scanLineForSecrets,
 } from "../../src/lib/regression/secrets-meta.ts";
 
-const ROOT = process.cwd();
-const ALLOWLIST_PATH = join(
-  dirnameFromImportMeta(),
-  "secrets-allowlist.json"
-);
-const MAX_FILE_BYTES = 512 * 1024;
-const BINARY_SNIFF_BYTES = 8192;
-const SCHEMA_VERSION = 1;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const ALLOWLIST_PATH = join(dirname(fileURLToPath(import.meta.url)), "secrets-allowlist.json");
+const CHECKS_DIR = join(ROOT, "docs", "operations", "checks");
+const DEFAULT_JSON_PATH = join(CHECKS_DIR, "secrets-scan-latest.json");
+const HISTORY_DIR = join(CHECKS_DIR, "history");
 
-/** Фиксированный набор критичных конфигов (спека ZV31-011). */
+const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB (спека ZV31-011 B2, full-режим)
+const BINARY_SNIFF_BYTES = 8192;
+const SCHEMA_VERSION = 2;
+
+/** Фиксированный набор критичных конфигов (сканируется и в quick). */
 const FIXED_CONFIGS = [
   ".env",
   ".env.local",
@@ -66,8 +94,14 @@ const FIXED_CONFIGS = [
   "Caddyfile",
 ];
 
-/** Пути, которые сканер не открывает никогда. */
-const EXCLUDED = [
+/**
+ * Env-шаблоны — источник списка легальных placeholder-значений.
+ * РЕАЛЬНЫЙ .env.local / .env.production для этого НЕ читается никогда.
+ */
+const TEMPLATE_FILES = [".env.local.example", ".env.production.example"];
+
+/** Пути, которые сканер не открывает никогда (оба режима). */
+const EXCLUDED_PATHS = [
   /(^|\/)node_modules\//,
   /(^|\/)\.next\//,
   /(^|\/)\.git(\/|$)/,
@@ -75,18 +109,31 @@ const EXCLUDED = [
   /^db\/[^/]*\.db$/,
 ];
 
+/**
+ * Расширения/имена, пропускаемые в full-режиме (спека: binary/lockfile
+ * exclusions). Бинарный sniff всё равно второй линией защиты.
+ */
+const FULL_SKIP_NAME_RE =
+  /(?:\.lock$|^bun\.lock$|\.png$|\.jpe?g$|\.gif$|\.ico$|\.webp$|\.avif$|\.pdf$|\.woff2?$|\.ttf$|\.eot$|\.mp4$|\.webm$|\.mp3$|\.wav$|\.zip$|\.gz$|\.tgz$|\.tar$|\.7z$|\.keep$|\.ds_store$)/i;
+
+/** Каталоги изображений/ассетов (спека: «images dir»). */
+const FULL_SKIP_DIR_RE = /(?:^|\/)(?:images|img|icons?|logos?|screenshots?|assets|public\/icons)\//i;
+
 function dirnameFromImportMeta() {
-  // import.meta.url → <root>/scripts/regression/
   return fileURLToPath(new URL(".", import.meta.url));
 }
 
 // ===== CLI =====
 
 function parseArgs(argv) {
-  const out = { files: [], json: null, staged: false };
+  const out = { mode: null, files: [], json: null, staged: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--staged") {
+    if (arg.startsWith("--mode=")) {
+      const value = arg.slice("--mode=".length);
+      if (value === "quick" || value === "full") out.mode = value;
+      else console.warn(`(secrets-scan) unknown --mode="${value}", falling back to quick`);
+    } else if (arg === "--staged") {
       out.staged = true;
     } else if (arg === "--json" || arg.startsWith("--json=")) {
       const value = arg.includes("=") ? arg.slice("--json=".length) : argv[++i];
@@ -106,19 +153,22 @@ function parseArgs(argv) {
       console.warn(`(secrets-scan) unknown arg ignored: ${arg}`);
     }
   }
+  if (!out.mode) out.mode = out.staged ? "staged" : out.files.length > 0 ? "files" : "quick";
   return out;
 }
 
 function printUsage() {
   console.log(
-    "usage: node scripts/regression/secrets-scan.mjs [--files <path>[,<path>...]] [--json <out>] [--staged]"
+    "usage: node scripts/regression/secrets-scan.mjs [--mode=quick|full] [--files <path>[,<path>...]] [--json <out>] [--staged]"
   );
 }
 
 // ===== Git helpers (best-effort) =====
 
+const GIT_SPAWN_OPTS = { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 };
+
 function gitLines(args) {
-  const res = spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+  const res = spawnSync("git", args, GIT_SPAWN_OPTS);
   if (res.error || res.status !== 0) return [];
   return String(res.stdout || "")
     .split(/\r?\n/)
@@ -126,20 +176,40 @@ function gitLines(args) {
     .filter(Boolean);
 }
 
-function collectFiles(opts) {
+function resolveCommitSha() {
+  const res = spawnSync("git", ["rev-parse", "HEAD"], GIT_SPAWN_OPTS);
+  return res.error || res.status !== 0 ? "unknown" : String(res.stdout || "").trim() || "unknown";
+}
+
+/**
+ * collectChangedOrStagedFiles — quick-режим: staged (git diff --cached
+ * --name-only) ∪ worktree-changed (git diff --name-only HEAD + git status
+ * --porcelain добавления/модификации/untracked). Удалённые файлы физически
+ * отсутствуют и отсеются existsSync-фильтром.
+ */
+function collectChangedOrStagedFiles() {
   const set = new Set();
-  if (opts.staged) {
-    for (const p of gitLines(["diff", "--cached", "--name-only"])) set.add(p);
-  } else if (opts.files.length > 0) {
-    for (const p of opts.files) set.add(p);
-  } else {
-    // (a) изменённые: diff против HEAD (вкл. staged) + staged-список
-    for (const p of gitLines(["diff", "--name-only", "HEAD"])) set.add(p);
-    for (const p of gitLines(["diff", "--cached", "--name-only"])) set.add(p);
-    // (b) фиксированный набор критичных конфигов
-    for (const p of FIXED_CONFIGS) set.add(p);
+  for (const p of gitLines(["diff", "--cached", "--name-only"])) set.add(p);
+  for (const p of gitLines(["diff", "--name-only", "HEAD"])) set.add(p);
+
+  // status --porcelain: XY<space><path> — парсим БЕЗ trim (ведущий X/Y —
+  // статус-колонки, trim съел бы префикс и сместил срез).
+  const res = spawnSync("git", ["status", "--porcelain"], GIT_SPAWN_OPTS);
+  const statusOut = res.error || res.status !== 0 ? "" : String(res.stdout || "");
+  for (const raw of statusOut.split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    let p = raw.length > 3 ? raw.slice(3) : raw.trim();
+    if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
+    if (p.includes(" -> ")) p = p.split(" -> ").pop() || "";
+    if (p) set.add(normalizeSecretPath(p));
   }
+  for (const p of FIXED_CONFIGS) set.add(p);
   return Array.from(set);
+}
+
+/** collectTrackedFiles — full-режим: ВСЕ git-tracked файлы (git ls-files). */
+function collectTrackedFiles() {
+  return gitLines(["ls-files"]);
 }
 
 // ===== Allowlist =====
@@ -154,8 +224,9 @@ function loadAllowlist() {
         (e) =>
           e &&
           typeof e.path === "string" &&
-          Number.isFinite(Number(e.line)) &&
-          typeof e.reason === "string"
+          typeof e.reason === "string" &&
+          e.reason.trim().length > 0 && // каждая запись — с обоснованием
+          Number.isFinite(Number(e.line))
       )
       .map((e) => ({ path: normalizeSecretPath(e.path), line: Number(e.line), reason: e.reason }));
   } catch (err) {
@@ -168,10 +239,51 @@ function loadAllowlist() {
   }
 }
 
+// ===== Template placeholder values (ZV31-011 B2) =====
+
+/**
+ * buildTemplatePlaceholderValues — литеральные значения из АКТУАЛЬНЫХ
+ * env-шаблонов (.env.local.example / .env.production.example). Реальный
+ * .env.local не читается. Возвращает Set строк в lowercase.
+ */
+function buildTemplatePlaceholderValues() {
+  const values = new Set();
+  for (const rel of TEMPLATE_FILES) {
+    const abs = join(ROOT, rel);
+    if (!existsSync(abs)) continue;
+    let text = "";
+    try {
+      text = readFileSync(abs, "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of text.split(/\r?\n/)) {
+      // KEY=VALUE (в т.ч. закомментированные варианты: #   KEY=VALUE)
+      const m = /^\s*#?\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.+?)\s*$/.exec(line);
+      if (!m) continue;
+      let value = m[1].replace(/^["']|["']$/g, "");
+      if (!value) continue;
+      values.add(value.toLowerCase());
+      // Для url-с-креденшелами также добавить сегмент пароля
+      // (url-credentials capture = пароль, а не весь URL).
+      const urlMatch = /^[a-z][a-z0-9+.-]*:\/\/[^/\s:]+:([^@\s/]+)@/i.exec(value);
+      if (urlMatch) values.add(urlMatch[1].toLowerCase());
+    }
+  }
+  return Array.from(values);
+}
+
 // ===== File filters =====
 
 function isExcludedPath(p) {
-  return EXCLUDED.some((re) => re.test(p));
+  return EXCLUDED_PATHS.some((re) => re.test(p));
+}
+
+function fullModeSkip(relPath) {
+  const name = relPath.split("/").pop() || relPath;
+  if (FULL_SKIP_NAME_RE.test(name)) return true;
+  if (FULL_SKIP_DIR_RE.test(relPath)) return true;
+  return false;
 }
 
 /** Binary sniff: NUL-байт в первых 8KB → считаем бинарным. */
@@ -185,20 +297,39 @@ function looksBinary(buf) {
 function main() {
   const startedAt = new Date().toISOString();
   const opts = parseArgs(process.argv.slice(2));
-  const mode = opts.staged ? "staged" : opts.files.length > 0 ? "files" : "changed+configs";
+  const mode = opts.mode;
   const allowlist = loadAllowlist();
+  const templateValues = buildTemplatePlaceholderValues();
 
-  const candidates = collectFiles(opts);
+  const candidates =
+    mode === "full"
+      ? collectTrackedFiles()
+      : mode === "quick"
+        ? collectChangedOrStagedFiles()
+        : mode === "staged"
+          ? gitLines(["diff", "--cached", "--name-only"])
+          : opts.files;
+
   const scanned = [];
+  const scannedTestFiles = [];
   let skippedMissing = 0;
   let skippedBinary = 0;
   let skippedSize = 0;
+  let skippedPathExcluded = 0;
   const findings = []; // подтверждённые (НЕ allowlisted), БЕЗ значений
-  const allowlistedHits = []; // подавленные: {path, line, category, reason}
-  const byCategory = {};
+  const allowlistedHits = []; // подавленные: {path, line, rule, reason}
+  const byRule = {};
 
-  for (const relPath of candidates) {
-    if (isExcludedPath(relPath)) continue;
+  for (const relPathRaw of candidates) {
+    const relPath = normalizeSecretPath(relPathRaw);
+    if (isExcludedPath(relPath)) {
+      skippedPathExcluded += 1;
+      continue;
+    }
+    if (mode === "full" && fullModeSkip(relPath)) {
+      skippedPathExcluded += 1;
+      continue;
+    }
     const abs = join(ROOT, relPath);
     if (!existsSync(abs)) {
       skippedMissing += 1;
@@ -236,76 +367,103 @@ function main() {
     const text = buf.toString("utf8").replace(/^\uFEFF/, "");
     const lines = text.split(/\r?\n/);
     const isExampleFile = isExampleEnvPath(relPath);
+    const isFixture = isTestFixturePath(relPath);
+    if (isFixture) scannedTestFiles.push(relPath);
 
     for (let i = 0; i < lines.length; i++) {
       const lineNo = i + 1;
-      const lineMatches = scanLineForSecrets(lines[i], { isExampleFile });
+      const lineMatches = scanLineForSecrets(lines[i], {
+        isExampleFile,
+        isTestFixture: isFixture,
+        templateValues,
+      });
       for (const m of lineMatches) {
         if (isAllowlisted(relPath, lineNo, allowlist)) {
           const entry = allowlist.find(
-            (e) => normalizeSecretPath(e.path) === normalizeSecretPath(relPath) && (e.line === 0 || e.line === lineNo)
+            (e) =>
+              normalizeSecretPath(e.path) === normalizeSecretPath(relPath) &&
+              (e.line === 0 || e.line === lineNo)
           );
           allowlistedHits.push({
             path: relPath,
             line: lineNo,
-            category: m.category,
+            rule: m.category,
             reason: entry ? entry.reason : "allowlisted",
           });
           continue;
         }
         findings.push({
-          path: relPath,
+          file: relPath,
           line: lineNo,
-          category: m.category,
+          rule: m.category,
           value_length: m.valueLength,
         });
-        byCategory[m.category] = (byCategory[m.category] || 0) + 1;
+        byRule[m.category] = (byRule[m.category] || 0) + 1;
         // Redacted output: НИКОГДА не печатаем значение/фрагмент строки
-        console.log(
-          `${relPath}:${lineNo} [${m.category}] matched (value redacted, len=${m.valueLength})`
-        );
+        console.log(`${relPath}:${lineNo} [${m.category}] matched (value redacted, len=${m.valueLength})`);
       }
     }
   }
 
   const finishedAt = new Date().toISOString();
+  const commitSha = resolveCommitSha();
   const exitOk = findings.length === 0;
 
-  // Summary (только счётчики — значений нет)
-  console.log(
-    `(secrets-scan) mode=${mode} files_scanned=${scanned.length} findings=${findings.length} allowlisted=${allowlistedHits.length} skipped(missing=${skippedMissing},binary=${skippedBinary},size=${skippedSize})`
-  );
-  if (Object.keys(byCategory).length > 0) {
-    const parts = Object.entries(byCategory).map(([c, n]) => `${c}=${n}`);
-    console.log(`(secrets-scan) by_category: ${parts.join(", ")}`);
-  }
-  console.log(`(secrets-scan) RESULT: ${exitOk ? "CLEAN" : "LEAK_DETECTED"}`);
-
-  if (opts.json) {
-    const report = {
-      schema_version: SCHEMA_VERSION,
-      mode,
-      started_at: startedAt,
-      finished_at: finishedAt,
-      files_scanned: scanned.length,
-      files_skipped: {
+  const report = {
+    schema_version: SCHEMA_VERSION,
+    mode,
+    commit_sha: commitSha,
+    started_at: startedAt,
+    finished_at: finishedAt,
+    scanned_files: scanned.length,
+    scanned_files_list: scanned,
+    findings, // [{file, line, rule, value_length}] — БЕЗ значений
+    exclusions_applied: {
+      allowlisted: allowlistedHits,
+      test_fixture_files: scannedTestFiles.length,
+      template_env_files: TEMPLATE_FILES.filter((f) => existsSync(join(ROOT, f))),
+      skipped: {
         missing: skippedMissing,
         binary: skippedBinary,
         size_limit: skippedSize,
+        path_excluded: skippedPathExcluded,
       },
-      findings_count: findings.length,
-      allowlisted_count: allowlistedHits.length,
-      by_category: byCategory,
-      // Метаданные находок БЕЗ значений и без содержимого строк
-      findings,
-      allowlisted: allowlistedHits,
-      exit_ok: exitOk,
-    };
+    },
+    passed: exitOk,
+  };
+
+  // Summary (только счётчики и file:line:rule — значений нет)
+  console.log(
+    `(secrets-scan) mode=${mode} commit=${commitSha.slice(0, 7)} files_scanned=${scanned.length} findings=${findings.length} allowlisted=${allowlistedHits.length} skipped(missing=${skippedMissing},binary=${skippedBinary},size=${skippedSize},path=${skippedPathExcluded}) template_values=${templateValues.length}`
+  );
+  if (Object.keys(byRule).length > 0) {
+    const parts = Object.entries(byRule).map(([c, n]) => `${c}=${n}`);
+    console.log(`(secrets-scan) by_rule: ${parts.join(", ")}`);
+  }
+  console.log(`(secrets-scan) RESULT: ${exitOk ? "CLEAN" : "LEAK_DETECTED"}`);
+
+  // Отчёт: --json PATH или дефолт docs/operations/checks/secrets-scan-latest.json
+  const jsonPath = opts.json ? join(ROOT, opts.json) : DEFAULT_JSON_PATH;
+  try {
+    mkdirSync(dirname(jsonPath), { recursive: true });
+    writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  } catch (err) {
+    console.warn(
+      `(secrets-scan) failed to write --json ${jsonPath}: ${
+        err instanceof Error ? err.message : err
+      }`
+    );
+  }
+
+  // Persistence: full-режим дополнительно пишет history-запись (конвенция run-checks)
+  if (mode === "full") {
     try {
-      writeFileSync(opts.json, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+      mkdirSync(HISTORY_DIR, { recursive: true });
+      const historyName = `${finishedAt.replace(/:/g, "-")}-secrets-scan-${commitSha.slice(0, 7)}.json`;
+      writeFileSync(join(HISTORY_DIR, historyName), `${JSON.stringify(report, null, 2)}\n`, "utf8");
     } catch (err) {
       console.warn(
-        `(secrets-scan) failed to write --json ${opts.json}: ${
+        `(secrets-scan) failed to write history entry: ${
           err instanceof Error ? err.message : err
         }`
       );
@@ -315,4 +473,13 @@ function main() {
   process.exitCode = exitOk ? 0 : 1;
 }
 
-main();
+try {
+  main();
+} catch (err) {
+  // Краш сканера — это FAIL (nonzero), не skip: gate не должен маскировать
+  // сломанный сканер как «пройдено».
+  console.error(
+    `(secrets-scan) CRASH: ${err instanceof Error ? (err.stack || err.message) : String(err)}`
+  );
+  process.exitCode = 1;
+}

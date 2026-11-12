@@ -35,6 +35,12 @@ export interface SecretPatternDef {
    * доказательна; generic/url-категории — true (dev-плейсхолдеры легальны).
    */
   placeholderFiltered: boolean;
+  /**
+   * JWT (ZV31-011 B2): структурная форма доказательна, НО правило
+   * применяется только к файлам НЕ-шаблонам и значениям, не входящим
+   * в templateValues (документированные dev-дефолты Supabase).
+   */
+  templateFiltered?: boolean;
 }
 
 /** Находка в одной строке: БЕЗ значения секрета — только длина. */
@@ -52,6 +58,24 @@ export interface SecretAllowlistEntry {
   /** 1-based номер строки; 0 — весь файл. */
   line: number;
   reason: string;
+}
+
+/**
+ * Опции сканирования строки (ZV31-011, Z-v32 Пакет B2):
+ *   • isExampleFile — .env*-example шаблон (смягчение плейсхолдеров + JWT
+ *     в известных шаблонах не утечка);
+ *   • isTestFixture — *.test.* / __tests__ файл: находка подавляется
+ *     ТОЛЬКО если значение содержит fixture-токен (test|fake|mock|example|
+ *     fixture|dummy); иначе — честная находка;
+ *   • templateValues — значения, собранные из АКТУАЛЬНЫХ env-шаблонов
+ *     (.env.local.example / .env.production.example; lowercase). Точное
+ *     совпадение значения = документированный dev-дефолт, не утечка
+ *     (реальный .env.local НИКОГДА не читается для этого списка).
+ */
+export interface ScanLineOptions {
+  isExampleFile?: boolean;
+  isTestFixture?: boolean;
+  templateValues?: readonly string[];
 }
 
 // ===== Паттерны =====
@@ -166,9 +190,12 @@ export const SECRET_PATTERNS: readonly SecretPatternDef[] = [
   },
   {
     category: "jwt",
+    // Спека ZV31-011: generic JWT (eyJhbGciOi...) — утечка ТОЛЬКО когда
+    // файл не известный шаблон и значение не входит в templateValues.
     re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/,
     captureGroup: 0,
     placeholderFiltered: false,
+    templateFiltered: true,
   },
   {
     // YooKassa shop secret (live_/test_ + ≥20 base62) и Stripe-стиль
@@ -225,10 +252,25 @@ export function isPlaceholderValue(value: string, isExampleFile: boolean): boole
 }
 
 /**
- * Цепочка свойств/идентификаторов кода (form.password, env.JWT_SECRET) —
- * не литеральный секрет.
+ * Цепочка свойств/идентификаторов кода (form.password, env.JWT_SECRET,
+ * socket.handshake.auth?.token, config!.clientSecret!) — не литеральный
+ * секрет. Допускаются optional chaining (?.) и TS non-null assertion (!) —
+ * ZV31-011 B2 (chat-server/n8n-receiver FP), B2a (oauth callback FP).
  */
-const CODE_VALUE_CHAIN_RE = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z0-9_$]+)+$/;
+const CODE_VALUE_CHAIN_RE = /^[A-Za-z_$][A-Za-z0-9_$!?]*(?:(?:\?{0,1}\.)[A-Za-z0-9_$!?]+)+$/;
+
+/**
+ * Одиночный идентификатор кода (customer_token, clientSecret!) — см.
+ * isLikelyCodeValue: без цифр И с маркером кода (_/A-Z/!) — иначе
+ * (чисто-строчное значение ≥20) это может быть настоящий секрет.
+ */
+const CODE_VALUE_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$!?]*$/;
+
+/**
+ * REGEX_SYNTAX_START — значение начинается с метасимволов регэкспа/sed
+ * (`s|^TOKEN=.*|TOKEN=|` — код замены, не литерал).
+ */
+const REGEX_SYNTAX_START_RE = /^[.*+?\\{}|()[\]]/;
 
 /**
  * hasSecretStrength(value) — эвристика «похоже на настоящий секрет»:
@@ -243,13 +285,89 @@ export function hasSecretStrength(value: string): boolean {
 
 /**
  * isLikelyCodeValue(value, line, matchEnd) — значение выглядит кодом,
- * а не литералом: вызов функции сразу после совпадения (`token = getX()`)
- * или цепочка свойств без цифр (`password: form.password`).
+ * а не литералом: вызов функции сразу после совпадения (`token = getX()`),
+ * цепочка свойств без цифр (`password: form.password`) или одиночный
+ * идентификатор без цифр с кодовым маркером (`token=customer_token`,
+ * `clientSecret: clientSecret!`) — ZV31-011 B2a. Чисто-строчное значение
+ * без _/A-Z/! кодом НЕ считается (детект-сила сохранена).
  */
 function isLikelyCodeValue(value: string, line: string, matchEnd: number): boolean {
   if (line.charAt(matchEnd) === "(") return true;
-  if (!/[0-9]/.test(value) && CODE_VALUE_CHAIN_RE.test(value)) return true;
+  if (/[0-9]/.test(value)) return false;
+  if (CODE_VALUE_CHAIN_RE.test(value)) return true;
+  if (CODE_VALUE_IDENTIFIER_RE.test(value) && /[A-Z_!?]/.test(value)) return true;
   return false;
+}
+
+/**
+ * isIdentifierishValue(value) — значение является именем/идентификатором,
+ * а не литеральным секретом (ZV31-011 B2):
+ *   • ALL-CAPS_SNAKE («SUPABASE_URL», «N8N_WEBHOOK_SECRET») — проза-ссылки;
+ *   • начинается с метасимвола регэкспа/sed («.*|TOKEN=»);
+ *   • содержит «$»/«<» — интерполяция shell/шаблонов (в URL-пароле:
+ *     postgresql://user:$DB_PASS@host).
+ */
+export function isIdentifierishValue(value: string): boolean {
+  const v = String(value ?? "");
+  if (!v) return false;
+  if (v.includes("_") && /^[A-Z][A-Z0-9_]*$/.test(v)) return true;
+  if (REGEX_SYNTAX_START_RE.test(v)) return true;
+  if (/[$<]/.test(v)) return true;
+  // Ссылка на env-переменную в коде (`process.env.R2_SECRET_ACCESS_KEY`) —
+  // это ЧТЕНИЕ значения, а не литеральный секрет (ZV31-011 B2a:
+  // cdn-config.ts / mini-services/n8n-receiver FP).
+  if (/^process\.env\./i.test(v)) return true;
+  return false;
+}
+
+/**
+ * Токены test-fixture значений (ZV31-011 B2): в *.test.* / __tests__ файлах
+ * находка подавляется ТОЛЬКО если значение содержит один из них
+ * (case-insensitive). Иначе — честная находка (real leak в тесте).
+ */
+export const TEST_FIXTURE_VALUE_TOKENS: readonly string[] = [
+  "test",
+  "fake",
+  "mock",
+  "example",
+  "fixture",
+  "dummy",
+];
+
+const TEST_FILE_RE = /(?:^|\/)(?:__tests__|__mocks__)\/|\.test\.[^/]*$|\.spec\.[^/]*$/;
+
+/**
+ * isTestFixturePath(path) — является ли путь тест-фикстурой (*.test.*,
+ * *.spec.*, __tests__/, __mocks__/). Для таких файлов действует ослабленное
+ * правило: значения с fixture-токенами — безопасны по построению.
+ */
+export function isTestFixturePath(path: string): boolean {
+  return TEST_FILE_RE.test(String(path ?? "").replace(/\\/g, "/"));
+}
+
+/**
+ * isTemplatePlaceholderValue(value, templateValues) — точное совпадение
+ * значения (lowercase) с документированным dev-дефолтом из env-шаблона.
+ */
+export function isTemplatePlaceholderValue(
+  value: string,
+  templateValues: readonly string[] | undefined
+): boolean {
+  if (!templateValues || templateValues.length === 0) return false;
+  return (templateValues as readonly string[]).includes(String(value ?? "").toLowerCase());
+}
+
+/**
+ * valueContainsAnyToken(value, tokens) — substring-проверка (lowercase).
+ * Используется для test-fixture правила (значение СОДЕРЖИТ test|fake|...).
+ */
+export function valueContainsAnyToken(
+  value: string,
+  tokens: readonly string[]
+): boolean {
+  const v = String(value ?? "").toLowerCase();
+  if (!v) return false;
+  return tokens.some((t) => v.includes(t));
 }
 
 // ===== Ядро сканирования =====
@@ -260,15 +378,17 @@ function isLikelyCodeValue(value: string, line: string, matchEnd: number): boole
  * само значение — только valueLength (redaction by design).
  *
  * @param line — текст одной строки файла.
- * @param opts.isExampleFile — .env*-example шаблон (смягчение плейсхолдеров).
+ * @param opts — isExampleFile / isTestFixture / templateValues (см. ScanLineOptions).
  */
 export function scanLineForSecrets(
   line: string,
-  opts: { isExampleFile?: boolean } = {}
+  opts: ScanLineOptions = {}
 ): LineMatch[] {
   const text = String(line ?? "");
   if (!text) return [];
   const isExampleFile = opts.isExampleFile === true;
+  const isTestFixture = opts.isTestFixture === true;
+  const templateValues = opts.templateValues;
   const matches: LineMatch[] = [];
   const seen = new Set<string>();
 
@@ -281,8 +401,22 @@ export function scanLineForSecrets(
         continue;
       }
       const rawValue = m[def.captureGroup] ?? m[0];
+      // ZV31-011 B2 — JWT в известном шаблоне (или точный template-дефолт)
+      // не утечка (спека: «only when file is not a known template»).
+      if (def.templateFiltered) {
+        if (isExampleFile) continue;
+        if (isTemplatePlaceholderValue(m[0], templateValues)) continue;
+      }
+      // ZV31-011 B2 — test-fixture ослабление: значение, СОДЕРЖАЩЕЕ
+      // fixture-токен (substring, case-insensitive), в тестовом файле
+      // безопасно по построению (иначе — честная находка).
+      if (isTestFixture && valueContainsAnyToken(rawValue, TEST_FIXTURE_VALUE_TOKENS)) {
+        continue;
+      }
       if (def.placeholderFiltered) {
         if (isPlaceholderValue(rawValue, isExampleFile)) continue;
+        if (isTemplatePlaceholderValue(rawValue, templateValues)) continue;
+        if (isIdentifierishValue(rawValue)) continue;
         if (!hasSecretStrength(rawValue)) continue;
         if (isLikelyCodeValue(rawValue, text, m.index + m[0].length)) continue;
         // Совпадение внутри ${...}-интерполяции (docker-compose
@@ -290,6 +424,10 @@ export function scanLineForSecrets(
         // ключ в этом случае совпал ВНУТРИ ${VAR}-имени.
         const prefix = text.slice(0, m.index);
         if (prefix.lastIndexOf("${") > prefix.lastIndexOf("}")) continue;
+        // Значение сразу продолжается "${...}" — литерал продолжается
+        // интерполяцией (`super-secret-token-${RUN}`), т.е. это не полный
+        // литеральный секрет (ZV31-011 B2a: diagnostics-verify FP).
+        if (text.startsWith("${", m.index + m[0].length)) continue;
       }
       const key = `${def.category}@${m.index}`;
       if (seen.has(key)) continue;

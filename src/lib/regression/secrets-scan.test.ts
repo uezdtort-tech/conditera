@@ -17,6 +17,8 @@ import {
   isExampleEnvPath,
   isPlaceholderValue,
   hasSecretStrength,
+  isTestFixturePath,
+  isTemplatePlaceholderValue,
   scanLineForSecrets,
 } from "./secrets-meta";
 
@@ -229,5 +231,100 @@ describe("isExampleEnvPath", () => {
     expect(isExampleEnvPath("config/settings.example")).toBe(true);
     expect(isExampleEnvPath("src/app/page.tsx")).toBe(false);
     expect(isExampleEnvPath(".env.local")).toBe(false);
+  });
+});
+
+// ===========================================================================
+// ZV31-011 (Z-v32 Пакет B2): template-плейсхолдеры, test-fixture правило,
+// JWT «не в известном шаблоне», isTestFixturePath.
+// Все «секреты» ниже — сфабрикованные safe-fixture (слова fake/example/test).
+// ===========================================================================
+
+const DEMO_JWT =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.FAKEfakeFAKEfakeFAKEfakeFAKEfakeFAKEfake";
+
+describe("scanLineForSecrets B2 — templateValues (значения из env-шаблонов)", () => {
+  // Как в сканере: template-дефолты хранятся в lowercase (buildTemplatePlaceholderValues)
+  const templates = [
+    DEMO_JWT.toLowerCase(),
+    "change_me_strong_password",
+    "dev_jwt_secret_change_me_in_production_32chars",
+  ];
+
+  it("JWT, совпадающий с template-значением, подавляется", () => {
+    const cats = scanLineForSecrets(`ANON_KEY=${DEMO_JWT}`, {
+      templateValues: templates,
+    }).map((m) => m.category);
+    expect(cats).toEqual([]);
+  });
+
+  it("тот же JWT БЕЗ template-значений — находка (файл не известный шаблон)", () => {
+    expect(scanLineForSecrets(`ANON_KEY=${DEMO_JWT}`).map((m) => m.category)).toEqual(["jwt"]);
+  });
+
+  it("другой JWT (не из шаблона) остаётся находкой даже с templateValues", () => {
+    const otherJwt =
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWtlLXVzZXItNDIifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+    const cats = scanLineForSecrets(`TOKEN=${otherJwt}`, {
+      templateValues: templates,
+    }).map((m) => m.category);
+    expect(cats).toContain("jwt");
+  });
+
+  it("JWT в .env*-example подавляется (известный шаблон)", () => {
+    expect(
+      scanLineForSecrets(`ANON_KEY=${DEMO_JWT}`, { isExampleFile: true }).map((m) => m.category)
+    ).toEqual([]);
+  });
+
+  it("generic-значение, точно совпавшее с template-дефолтом, подавляется", () => {
+    expect(
+      scanLineForSecrets("JWT_SECRET=dev_jwt_secret_change_me_in_production_32chars", {
+        templateValues: templates,
+      }).map((m) => m.category)
+    ).toEqual([]);
+  });
+
+  it("isTemplatePlaceholderValue — точное совпадение, case-insensitive", () => {
+    expect(isTemplatePlaceholderValue("CHANGE_ME_STRONG_PASSWORD", ["change_me_strong_password"])).toBe(true);
+    expect(isTemplatePlaceholderValue("real-secret-9f86d081", ["change_me_strong_password"])).toBe(false);
+    expect(isTemplatePlaceholderValue("anything", undefined)).toBe(false);
+  });
+});
+
+describe("scanLineForSecrets B2 — test-fixture правило", () => {
+  it("*.test.* файл: значение с fixture-токеном подавляется", () => {
+    expect(
+      scanLineForSecrets("API_KEY=fake0000000000000000", { isTestFixture: true }).map((m) => m.category)
+    ).toEqual([]);
+    // fabricated github-подобный токен со словом Fake — fixture-токен в значении
+    expect(
+      scanLineForSecrets("ghp_FakeFakeFakeFakeFakeFakeFake1234", { isTestFixture: true }).map(
+        (m) => m.category
+      )
+    ).toEqual([]);
+  });
+
+  it("*.test.* файл: структурное значение БЕЗ fixture-токенов — НАХОДКА", () => {
+    const cats = scanLineForSecrets("AKIA9F8E7D6C5B4A3F2E1D0C", {
+      isTestFixture: true,
+    }).map((m) => m.category);
+    expect(cats).toEqual(["aws-access-key"]);
+  });
+
+  it("__tests__/ путь распознаётся как fixture", () => {
+    expect(isTestFixturePath("src/lib/__tests__/x.ts")).toBe(true);
+    expect(isTestFixturePath("src/lib/x.test.ts")).toBe(true);
+    expect(isTestFixturePath("src/lib/x.spec.tsx")).toBe(true);
+    expect(isTestFixturePath("src/lib/x.ts")).toBe(false);
+    expect(isTestFixturePath("src/lib/testing-utils.ts")).toBe(false);
+  });
+
+  it("вне тестового файла fixture-токены НЕ подавляют структурные находки", () => {
+    // AKIAIOSFODNN7EXAMPLE — канонический AWS docs-пример, содержит EXAMPLE,
+    // но вне тестового файла структурный паттерн срабатывает безусловно
+    expect(scanLineForSecrets("AKIAIOSFODNN7EXAMPLE").map((m) => m.category)).toEqual([
+      "aws-access-key",
+    ]);
   });
 });

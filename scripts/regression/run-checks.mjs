@@ -47,7 +47,8 @@ const SCHEMA_VERSION = 1;
 const RUNNER_META_TEST = "src/lib/regression/meta.test.ts";
 const ROUTE_COVERAGE_SCRIPT = "scripts/verify/route-error-coverage.mjs";
 const SECRETS_SCAN_SCRIPT = "scripts/regression/secrets-scan.mjs";
-const SECRETS_JSON_REL = "docs/operations/checks/secrets-latest.json";
+// ZV31-011 (B2): отчёт сканера — docs/operations/checks/secrets-scan-latest.json
+const SECRETS_JSON_REL = "docs/operations/checks/secrets-scan-latest.json";
 
 // ===== CLI =====
 
@@ -193,8 +194,25 @@ function buildCheckPlan(mode, changedSources, runnerLibChanged) {
       });
     }
 
-    // secrets-scan — release-gate only (ZV31-011): в quick не тратим время
-    plan.push({ name: "secrets-scan", skipped: true, note: "release-gate only" });
+    // secrets-scan — ZV31-011 (B2): в quick сканируем changed/staged
+    // (быстрый контент-скан диффа; full-режим сканирует весь tracked tree)
+    if (existsSync(join(ROOT, SECRETS_SCAN_SCRIPT))) {
+      plan.push({
+        name: "secrets-scan",
+        cmd: "node",
+        // --disable-warning: .ts-модуль без "type":"module" даёт безвредный
+        // MODULE_TYPELESS warning при strip-types — шум в gate-артефактах не нужен.
+        args: ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SECRETS_SCAN_SCRIPT, "--mode=quick", "--json", SECRETS_JSON_REL],
+        cwd: ROOT,
+        timeoutMs: 120_000,
+      });
+    } else {
+      plan.push({
+        name: "secrets-scan",
+        skipped: true,
+        note: `script missing (${SECRETS_SCAN_SCRIPT})`,
+      });
+    }
     return plan;
   }
 
@@ -229,16 +247,16 @@ function buildCheckPlan(mode, changedSources, runnerLibChanged) {
     });
   }
 
-  // ZV31-011: контент-скан секретов в release gate. Выход сканера —
+  // ZV31-011: контент-скан секретов в release gate. QUICK — changed/staged,
+  // FULL — весь tracked tree (git ls-files) с капой 2MB/файл. Выход сканера —
   // строгий exit code; stdout уже redacted (значения не печатаются),
-  // поэтому output_tail безопасен. Отчёт — docs/operations/checks/secrets-latest.json.
+  // поэтому output_tail безопасен. Краш сканера — FAIL (не skip).
+  // Отчёт — docs/operations/checks/secrets-scan-latest.json (+history в full).
   if (existsSync(join(ROOT, SECRETS_SCAN_SCRIPT))) {
     plan.push({
       name: "secrets-scan",
       cmd: "node",
-      // --disable-warning: .ts-модуль без "type":"module" даёт безвредный
-      // MODULE_TYPELESS warning при strip-types — шум в gate-артефактах не нужен.
-      args: ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SECRETS_SCAN_SCRIPT, "--json", SECRETS_JSON_REL],
+      args: ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SECRETS_SCAN_SCRIPT, "--mode=full", "--json", SECRETS_JSON_REL],
       cwd: ROOT,
       timeoutMs: 120_000,
     });

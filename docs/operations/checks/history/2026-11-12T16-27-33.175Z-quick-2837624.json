@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-12T16:27:25.247Z",
+  "finished_at": "2026-11-12T16:27:33.175Z",
+  "commit_sha": "283762414e99320ba1affba5b1076675e8c8b7e0",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 4791,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored src/lib/regression/secrets-meta.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1701,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run src/lib/regression/meta.test.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1155,
+      "passed": true,
+      "output_tail": "\n RUN  v4.1.10 /home/z/my-project\n\n ✓ src/lib/regression/meta.test.ts (32 tests) 9ms\n\n Test Files  1 passed (1)\n      Tests  32 passed (32)\n   Start at  16:27:32\n   Duration  822ms (transform 79ms, setup 155ms, import 27ms, tests 9ms, environment 522ms)\n\n(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=quick --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 163,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=quick commit=2837624 files_scanned=12 findings=0 allowlisted=18 skipped(missing=2,binary=0,size=0,path=7) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0
+  }
+}
