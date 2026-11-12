@@ -15,12 +15,18 @@
  *
  * Контракт (никогда не бросает, никогда не блокирует рендер):
  *   - пока идёт загрузка / при ошибке / при пустом CMS →
- *     { hero: null, banners: [] } → вызывающий рендерит хардкод-фолбэк
- *     (разметка 1-в-1 как до появления этого хука);
+ *     { hero: null, banners: [], previewVersion: null } → вызывающий рендерит
+ *     хардкод-фолбэк (разметка 1-в-1 как до появления этого хука);
  *   - loading === «нет данных» (без скелетонов: ноль визуальных изменений,
  *     пока опубликованный контент реально не придёт);
  *   - 10s in-memory кэш + дедупликация in-flight запроса, чтобы SPA-переходы
  *     между view не устраивали refetch-штормов.
+ *
+ * Админ-предпросмотр (Z-v32 E-1): если в URL есть ?cmsPreview=<N>, хук
+ * пытается загрузить /api/cms/settings?version=<N> (только админские роли;
+ * запрос ИДЁТ МИМО кэша). 200 с массивом settings → данные этой версии
+ * (previewVersion = N); 403/404/ошибка → обычный опубликованный контент.
+ * Баннеры не версионируются — всегда активные из /api/cms/banners.
  *
  * Hero читается из key-value настроек (админ добавляет их через «Настройки
  * сайта» — строки по ключам): hero_title / hero_subtitle / hero_cta_label /
@@ -56,6 +62,8 @@ export interface PublishedBannerCms {
 export interface PublishedHomeCms {
   hero: PublishedHeroCms | null;
   banners: PublishedBannerCms[];
+  /** Номер версии из админ-предпросмотра (?cmsPreview=N); null — обычный режим. */
+  previewVersion?: number | null;
 }
 
 // ==================== Внутреннее ====================
@@ -75,7 +83,7 @@ const HERO_CTA_LABEL_KEYS = ["hero_cta_label", "hero_cta_text", "home_hero_cta_l
 const HERO_CTA_HREF_KEYS = ["hero_cta_href", "hero_cta_link", "home_hero_cta_href", "hero_link"] as const;
 const HERO_IMAGE_KEYS = ["hero_image", "hero_image_url", "home_hero_image"] as const;
 
-const EMPTY_CMS: PublishedHomeCms = { hero: null, banners: [] };
+const EMPTY_CMS: PublishedHomeCms = { hero: null, banners: [], previewVersion: null };
 
 let cache: { data: PublishedHomeCms; expiresAt: number } | null = null;
 let inFlight: Promise<PublishedHomeCms> | null = null;
@@ -215,6 +223,7 @@ async function fetchPublishedHomeCms(): Promise<PublishedHomeCms> {
       const data: PublishedHomeCms = {
         hero: buildHero(parseSettingsMap(settingsJson)),
         banners: parseBanners(bannersJson),
+        previewVersion: null,
       };
       cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
       return data;
@@ -225,25 +234,72 @@ async function fetchPublishedHomeCms(): Promise<PublishedHomeCms> {
   return inFlight;
 }
 
+/**
+ * Админ-предпросмотр версии: /api/cms/settings?version=N (мимо кэша).
+ * 200 с массивом settings → документ этой версии; 403/404/битый ответ →
+ * null (вызывающий код падает на опубликованный контент). Не бросает.
+ */
+async function fetchPreviewHomeCms(version: number): Promise<PublishedHomeCms | null> {
+  const [settingsJson, bannersJson] = await Promise.all([
+    safeGet(`/api/cms/settings?version=${version}`),
+    safeGet("/api/cms/banners"),
+  ]);
+  const root = asRecord(settingsJson);
+  if (!root || !Array.isArray(root.settings)) return null;
+  return {
+    hero: buildHero(parseSettingsMap(settingsJson)),
+    banners: parseBanners(bannersJson),
+    previewVersion: version,
+  };
+}
+
 // ==================== Hook ====================
 
 /**
  * Опубликованный CMS-контент главной. Пока данные не загружены (или их нет /
- * ошибка) возвращает { hero: null, banners: [] } — рендер идёт по
- * хардкод-фолбэку, SSR-HTML не меняется, гидрации ничего не угрожает
- * (fetch стартует только в useEffect, на клиенте).
+ * ошибка) возвращает { hero: null, banners: [], previewVersion: null } —
+ * рендер идёт по хардкод-фолбэку, SSR-HTML не меняется, гидрации ничего не
+ * угрожает (fetch стартует только в useEffect, на клиенте).
+ *
+ * ?cmsPreview=<N> в URL → предпросмотр версии N (мимо кэша); недоступная
+ * версия (не админ/нет версии/сбой) → обычный опубликованный контент.
  */
 export function usePublishedHomeCms(): PublishedHomeCms {
   const [data, setData] = useState<PublishedHomeCms>(EMPTY_CMS);
   useEffect(() => {
     let alive = true;
-    fetchPublishedHomeCms()
-      .then((d) => {
-        if (alive) setData(d);
-      })
-      .catch(() => {
-        // Никогда не бросаем: любая ошибка → фолбэк (EMPTY_CMS уже стоит).
-      });
+    const apply = (d: PublishedHomeCms) => {
+      if (alive) setData(d);
+    };
+
+    const previewParam =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("cmsPreview")
+        : null;
+    const previewVersion =
+      previewParam && /^\d{1,6}$/.test(previewParam) ? Number(previewParam) : null;
+
+    if (previewVersion !== null) {
+      fetchPreviewHomeCms(previewVersion)
+        .then((previewed) => {
+          if (previewed) apply(previewed);
+          else return fetchPublishedHomeCms().then(apply);
+        })
+        .catch(() => {
+          fetchPublishedHomeCms()
+            .then(apply)
+            .catch(() => {
+              // Никогда не бросаем: ошибка → фолбэк (EMPTY_CMS уже стоит).
+            });
+        });
+    } else {
+      fetchPublishedHomeCms()
+        .then(apply)
+        .catch(() => {
+          // Никогда не бросаем: любая ошибка → фолбэк (EMPTY_CMS уже стоит).
+        });
+    }
+
     return () => {
       alive = false;
     };

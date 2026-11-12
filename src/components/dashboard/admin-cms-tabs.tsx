@@ -46,6 +46,7 @@ import {
   Gift,
   Loader2,
   RefreshCw,
+  RotateCcw,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -765,6 +766,28 @@ interface AdminSettingRow {
   description: string;
 }
 
+/** Строка GET /api/cms/settings/versions (Z-v32 E-1). */
+interface CmsVersionMetaRow {
+  version: number;
+  status: string;
+  comment: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+function cmsStatusLabel(status: string): string {
+  if (status === "draft") return "Черновик";
+  if (status === "published") return "Опубликована";
+  if (status === "superseded") return "Заменена";
+  return status;
+}
+
+function cmsStatusBadgeClass(status: string): string {
+  if (status === "published") return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  if (status === "draft") return "border-amber-300 bg-amber-50 text-amber-700";
+  return "border-muted bg-muted text-muted-foreground";
+}
+
 export function AdminSettingsTab() {
   const [settings, setSettings] = useState<AdminSettingRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -774,6 +797,11 @@ export function AdminSettingsTab() {
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
+  // Z-v32 E-1: версии и публикация
+  const [versions, setVersions] = useState<CmsVersionMetaRow[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionsError, setVersionsError] = useState<string | null>(null);
+  const [actingVersion, setActingVersion] = useState<number | null>(null);
 
   const loadSettings = useCallback(async () => {
     setIsLoading(true);
@@ -802,6 +830,33 @@ export function AdminSettingsTab() {
     void loadSettings();
   }, [loadSettings]);
 
+  const loadVersions = useCallback(async () => {
+    setVersionsLoading(true);
+    setVersionsError(null);
+    try {
+      const res = await csrfFetch("/api/cms/settings/versions");
+      const data = (await res.json()) as { versions?: CmsVersionMetaRow[]; error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setVersions(
+        (data.versions || []).map((v) => ({
+          version: Number(v.version),
+          status: String(v.status),
+          comment: v.comment ?? null,
+          created_by: v.created_by ?? null,
+          created_at: String(v.created_at || ""),
+        }))
+      );
+    } catch (e) {
+      setVersionsError(e instanceof Error ? e.message : "Не удалось загрузить версии");
+    } finally {
+      setVersionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadVersions();
+  }, [loadVersions]);
+
   // Загружаем статус промо-попапа
   useEffect(() => {
     csrfFetch("/api/admin/promo-popup")
@@ -829,6 +884,65 @@ export function AdminSettingsTab() {
     }
   };
 
+  /** Публикация черновика (Z-v32 E-1). */
+  const handlePublish = async (version: number) => {
+    setActingVersion(version);
+    try {
+      const res = await csrfFetch("/api/cms/settings/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version }),
+      });
+      const data = (await res.json()) as { error?: string; currentStatus?: string };
+      if (res.ok) {
+        toast.success(`Версия ${version} опубликована`);
+        void loadVersions();
+        void loadSettings();
+      } else if (data.error === "CMS_NOT_DRAFT") {
+        toast.error(`Версия ${version} — не черновик (${cmsStatusLabel(data.currentStatus || "")})`);
+        void loadVersions();
+      } else if (data.error === "CMS_VERSION_NOT_FOUND") {
+        toast.error("Версия не найдена — обновите список");
+        void loadVersions();
+      } else {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось опубликовать версию");
+    } finally {
+      setActingVersion(null);
+    }
+  };
+
+  /** Откат: новая версия с данными старой, публикуется сразу. */
+  const handleRollback = async (toVersion: number) => {
+    setActingVersion(toVersion);
+    try {
+      const res = await csrfFetch("/api/cms/settings/rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toVersion }),
+      });
+      const data = (await res.json()) as { version?: number; error?: string };
+      if (res.ok) {
+        toast.success(
+          `Создана версия ${data.version ?? "?"} с данными v${toVersion} и сразу опубликована`
+        );
+        void loadVersions();
+        void loadSettings();
+      } else if (data.error === "CMS_VERSION_NOT_FOUND") {
+        toast.error("Версия не найдена — обновите список");
+        void loadVersions();
+      } else {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось выполнить откат");
+    } finally {
+      setActingVersion(null);
+    }
+  };
+
   const filtered = settings.filter((s) => s.category === activeCategory);
 
   const handleSave = async (key: string) => {
@@ -838,15 +952,41 @@ export function AdminSettingsTab() {
       const res = await csrfFetch("/api/cms/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, value: editValues[key] }),
+        body: JSON.stringify({ key, value: editValues[key], comment: `Правка ключа ${key}` }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as {
+        draft?: { version?: number };
+        error?: string;
+        currentVersion?: number | null;
+      };
+      if (res.status === 409 && data.error === "CMS_CONFLICT") {
+        toast.error(
+          `Конфликт версий: опубликованная версия изменилась (v${data.currentVersion ?? "?"}). Обновите данные и повторите правку.`,
+          {
+            action: {
+              label: "Обновить",
+              onClick: () => {
+                void loadSettings();
+                void loadVersions();
+              },
+            },
+          }
+        );
+        return;
+      }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      // Значение показываем локально сразу (в публичке появится после публикации)
       setSettings((prev) => prev.map((s) => (s.key === key ? { ...s, value: editValues[key] } : s)));
-      toast.success(`Настройка «${key}» обновлена!`);
+      const draftVersion = data.draft?.version;
+      toast.success(
+        draftVersion
+          ? `Черновик сохранён как версия ${draftVersion} — опубликуйте`
+          : "Настройка сохранена в черновик"
+      );
       const newValues = { ...editValues };
       delete newValues[key];
       setEditValues(newValues);
+      void loadVersions();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : `Не удалось сохранить «${key}»`);
     } finally {
@@ -909,6 +1049,78 @@ export function AdminSettingsTab() {
             {promoEnabled ? "Выключить" : "Включить"}
           </Button>
         </div>
+      </Card>
+
+      {/* Z-v32 E-1: Версии и публикация */}
+      <Card className="p-4 border-muted">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="font-semibold text-sm">Версии и публикация</div>
+            <div className="text-xs text-muted-foreground">
+              Правки сохраняются черновиком; публикация делает черновик видимым на сайте. Откат создаёт новую версию с данными старой.
+            </div>
+          </div>
+          <Button onClick={loadVersions} variant="outline" size="sm" aria-label="Обновить версии">
+            <RefreshCw className={`h-4 w-4 ${versionsLoading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+        {versionsError ? (
+          <div className="text-xs text-destructive">{versionsError}</div>
+        ) : versions.length === 0 ? (
+          <div className="text-xs text-muted-foreground py-2 text-center">
+            Версий пока нет — сохраните первую правку черновиком
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {versions.map((v) => (
+              <div key={v.version} className="flex flex-wrap items-center gap-2 p-2 border border-border rounded">
+                <span className="text-sm font-mono font-semibold w-12">v{v.version}</span>
+                <Badge variant="outline" className={cmsStatusBadgeClass(v.status)}>
+                  {cmsStatusLabel(v.status)}
+                </Badge>
+                <span className="flex-1 min-w-0 text-xs text-muted-foreground truncate">
+                  {v.comment || "—"} · {formatDate(v.created_at)}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1"
+                  onClick={() => window.open(`/?cmsPreview=${v.version}`, "_blank", "noopener,noreferrer")}
+                >
+                  <Eye className="h-3 w-3" />
+                  Предпросмотр
+                </Button>
+                {v.status === "draft" && (
+                  <Button
+                    size="sm"
+                    className="h-7 gap-1"
+                    disabled={actingVersion !== null}
+                    onClick={() => handlePublish(v.version)}
+                  >
+                    {actingVersion === v.version ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3" />
+                    )}
+                    Опубликовать
+                  </Button>
+                )}
+                {(v.status === "published" || v.status === "superseded") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1"
+                    disabled={actingVersion !== null}
+                    onClick={() => handleRollback(v.version)}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Откатить
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* Категории */}

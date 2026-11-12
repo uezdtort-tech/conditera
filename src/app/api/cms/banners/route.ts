@@ -16,10 +16,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { cmsAudit } from "@/lib/cms/settings-versioning";
 
 export const runtime = "nodejs";
 
 const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
+
+/** Аудит баннеров (Z-v32 E-1): best-effort, details — только нечувствительные поля. */
+function auditBanner(
+  action: "banner_create" | "banner_update" | "banner_delete",
+  bannerId: string,
+  actorId: string,
+  details: Record<string, unknown>
+): void {
+  void cmsAudit({ entityType: "cms_banners", entityId: bannerId, action, actorId, details });
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -79,6 +90,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .single();
 
     if (error) return NextResponse.json({ error: "DB error", details: error.message }, { status: 500 });
+    auditBanner("banner_create", String(data.id), user.id, {
+      title: data.title,
+      position: data.position,
+      isActive: data.is_active,
+    });
     return NextResponse.json({ banner: data }, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
@@ -123,6 +139,9 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       .single();
 
     if (error) return NextResponse.json({ error: "DB error", details: error.message }, { status: 500 });
+    auditBanner("banner_update", String(data.id), user.id, {
+      fields: Object.keys(updates), // только имена изменённых полей, без значений
+    });
     return NextResponse.json({ banner: data });
   } catch (error: any) {
     return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
@@ -142,6 +161,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
     const { error } = await supabaseAdmin.from("cms_banners").delete().eq("id", id);
     if (error) return NextResponse.json({ error: "DB error", details: error.message }, { status: 500 });
+    auditBanner("banner_delete", id, user.id, {});
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
