@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "mode": "quick",
-  "started_at": "2026-11-12T14:54:10.150Z",
-  "finished_at": "2026-11-12T14:55:20.479Z",
-  "commit_sha": "2f2862ed6e24be623cb62e7596fa4defaad4eb73",
+  "started_at": "2026-11-12T14:58:14.120Z",
+  "finished_at": "2026-11-12T14:58:19.287Z",
+  "commit_sha": "6f1825f59dab32212fd7ccde485257aa536cc3c4",
   "branch": "main",
   "environment": "development",
   "node_version": "v24.22.2",
@@ -13,27 +13,29 @@
       "cmd_line": "node --max-old-space-size=1536 node_modules/typescript/bin/tsc --noEmit",
       "skipped": false,
       "exit_code": 0,
-      "duration_ms": 63271,
+      "duration_ms": 5090,
       "passed": true,
       "output_tail": ""
     },
     {
       "name": "eslint",
-      "cmd_line": "bunx eslint --no-warn-ignored src/components/dashboard/customer-dashboard.tsx src/components/pages/catalog-page.tsx src/components/pages/home-page.tsx src/lib/demo-seed.ts src/lib/vitrine-products.ts",
-      "skipped": false,
-      "exit_code": 0,
-      "duration_ms": 5009,
-      "passed": true,
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
       "output_tail": ""
     },
     {
       "name": "vitest",
-      "cmd_line": "bunx vitest run src/lib/demo-seed.test.ts src/lib/vitrine-products.test.ts",
-      "skipped": false,
-      "exit_code": 0,
-      "duration_ms": 1959,
-      "passed": true,
-      "output_tail": "\n RUN  v4.1.10 /home/z/my-project\n\n ✓ src/lib/vitrine-products.test.ts (9 tests) 6ms\n ✓ src/lib/demo-seed.test.ts (7 tests) 5ms\n\n Test Files  2 passed (2)\n      Tests  16 passed (16)\n   Start at  14:55:18\n   Duration  1.61s (transform 91ms, setup 279ms, import 28ms, tests 10ms, environment 1.07s)\n\n(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\n"
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no candidate test files for changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
+      "output_tail": ""
     },
     {
       "name": "secrets-scan",
@@ -48,8 +50,8 @@
   ],
   "summary": {
     "total": 4,
-    "passed": 3,
+    "passed": 1,
     "failed": 0,
-    "skipped": 1
+    "skipped": 3
   }
 }
