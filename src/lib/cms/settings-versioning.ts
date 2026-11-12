@@ -48,7 +48,10 @@ export interface SiteSettingsDoc {
   settings: SiteSettingDocRow[];
 }
 
-export interface CmsVersionRow {
+// type-alias (не interface): нужен implicit index signature, чтобы тип
+// удовлетворял generic-ограничению pg query<R extends QueryResultRow>.
+// Для потребителей эквивалентно interface — все поля обязательны, строгость та же.
+export type CmsVersionRow = {
   id: string;
   version: number;
   status: "draft" | "published" | "superseded" | string;
@@ -56,7 +59,7 @@ export interface CmsVersionRow {
   comment: string | null;
   created_by: string | null;
   created_at: string | Date;
-}
+};
 
 // ==================== Аудит ====================
 
@@ -163,6 +166,9 @@ export function docRows(data: unknown): SiteSettingDocRow[] {
     if (value === null) continue;
     rows.push({
       ...r,
+      // id берём из исходной строки; фолбэк — как в normalizeDocRows (для
+      // документов, записанных вне этого модуля, поле id обязано быть строкой).
+      id: typeof r.id === "string" && r.id ? r.id : crypto.randomUUID(),
       key: r.key,
       value,
       category: typeof r.category === "string" && r.category ? r.category : "general",
@@ -192,25 +198,28 @@ export async function getPublishedSettingsVersion(
 /** Последний черновик (для PUT: «обновить последний draft»). */
 export async function getLatestDraftVersion(via?: Queryable): Promise<CmsVersionRow | null> {
   const db = via ?? getPool();
-  const res = await db.query(
+  // Форма строки гарантирована SELECT'ом выше (колонки cms_versions) —
+  // типизируем через generic node-pg, без приведения QueryResultRow.
+  const res = await db.query<CmsVersionRow>(
     `SELECT id, version, data FROM cms_versions
       WHERE entity_type = $1 AND entity_id = $2 AND status = 'draft'
       ORDER BY version DESC LIMIT 1`,
     [CMS_SETTINGS_ENTITY_TYPE, CMS_SETTINGS_ENTITY_ID]
   );
-  return (res.rows[0] as CmsVersionRow | undefined) ?? null;
+  return res.rows[0] ?? null;
 }
 
 /** Конкретная версия (для ?version=N и отката). */
 export async function getVersionRow(version: number, via?: Queryable): Promise<CmsVersionRow | null> {
   const db = via ?? getPool();
-  const res = await db.query(
+  // Форма строки гарантирована SELECT'ом выше — generic node-pg вместо cast.
+  const res = await db.query<CmsVersionRow>(
     `SELECT id, version, status, data, comment, created_by, created_at
        FROM cms_versions
       WHERE entity_type = $1 AND entity_id = $2 AND version = $3`,
     [CMS_SETTINGS_ENTITY_TYPE, CMS_SETTINGS_ENTITY_ID, version]
   );
-  return (res.rows[0] as CmsVersionRow | undefined) ?? null;
+  return res.rows[0] ?? null;
 }
 
 /** Легаси-строки site_settings — тот же SELECT, что и до версионирования. */
