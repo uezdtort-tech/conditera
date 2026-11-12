@@ -126,6 +126,21 @@ describe("POST /api/admin/price-history/correct", () => {
     expect(state.auditRows).toHaveLength(0);
   });
 
+  it("D4 (PR-6A2): активная строка, закрытая на planned-границе (to > now) → 200", async () => {
+    // Плановая версия существует → активная строка закрыта на её effective_to,
+    // но всё ещё действует: коррекция ДОЛЖНА проходить (раньше был 400).
+    const futureTo = new Date(Date.now() + 60 * 60_000).toISOString();
+    state.versionRows = [openVersionRow({ effective_to: futureTo })];
+    state.setRows = [
+      { versionId: "e0000000-0000-4000-8000-000000000002", noChange: false },
+    ];
+    const res = await callPost({ versionId: VERSION_ID, newAmount: 5500, reason: "other" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ newVersionId: "e0000000-0000-4000-8000-000000000002", oldAmount: 5000, newAmount: 5500 });
+    expect(state.auditRows).toHaveLength(1);
+  });
+
   it("будущая (planned) строка → тоже HISTORICAL_IMMUTABLE (effective_from > now)", async () => {
     state.versionRows = [
       openVersionRow({ effective_from: "2099-01-01T00:00:00.000Z" }),
@@ -134,6 +149,8 @@ describe("POST /api/admin/price-history/correct", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe("HISTORICAL_IMMUTABLE");
+    // Честное сообщение: плановая строка ещё не активна — перепланировать может кондитер
+    expect(String(json.message)).toContain("перепланировать");
   });
 
   it("текущая открытая строка: 200 + set_product_price('admin_correction') + аудит", async () => {

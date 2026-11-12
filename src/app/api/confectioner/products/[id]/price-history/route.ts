@@ -11,8 +11,13 @@
  * версиям (в т.ч. planned, время которых пришло) до любого чтения.
  *
  * Ответ:
- *   current   — открытая (последняя) версия: {versionId, amount, currency,
- *               effectiveFrom, planned} (planned = effectiveFrom > now);
+ *   current   — АКТИВНАЯ версия (покрывает now: effective_from <= now <
+ *               effective_to|∞): {versionId, amount, currency,
+ *               effectiveFrom, planned:false} — D3 (PR-6A2): плановая
+ *               будущая строка больше НЕ выдаётся за текущую;
+ *   planned   — отдельное поле: открытая строка с effective_from > now
+ *               (последняя) или null — {versionId, amount, currency,
+ *               effectiveFrom};
  *   previous  — хронологический предшественник current: {amount, effectiveFrom} | null;
  *   items[]   — все версии ORDER BY effective_from DESC с deltaRub/deltaPercent
  *               относительно предыдущей по времени строки (prev отсутствует/0 → null).
@@ -139,24 +144,48 @@ export async function GET(
       };
     });
 
-    // current = открытая версия (effective_to IS NULL; последняя строка всегда открыта)
-    const open = rows.find((r) => r.effective_to === null) ?? null;
-    const current = open
+    // D3 (PR-6A2): current = АКТИВНАЯ версия (покрывает now), а не просто
+    // последняя открытая строка: при существовании planned-версии активная
+    // строка закрыта на её effective_to, но всё ещё действует до наступления.
+    // rows отсортированы DESC → первый совпавший = последний по времени.
+    const isActiveNow = (r: HistoryRow): boolean => {
+      const fromMs = new Date(r.effective_from).getTime();
+      const toMs = r.effective_to === null ? Infinity : new Date(r.effective_to).getTime();
+      return fromMs <= nowMs && nowMs < toMs;
+    };
+    const active = rows.find(isActiveNow) ?? null;
+    const current = active
       ? {
-          versionId: open.id,
-          amount: open.amount,
-          currency: open.currency,
-          effectiveFrom: iso(open.effective_from),
-          planned: new Date(open.effective_from).getTime() > nowMs,
+          versionId: active.id,
+          amount: active.amount,
+          currency: active.currency,
+          effectiveFrom: iso(active.effective_from),
+          planned: false, // активная по определению началась <= now
         }
       : null;
 
-    // previous = хронологический предшественник current (для planned-версии это
-    // строка, всё ещё действующая до её наступления)
-    const prev = open ? prevOf.get(open.id) ?? null : null;
+    // planned — отдельное поле: открытая строка, ещё не наступившая
+    // (effective_to IS NULL И effective_from > now); последняя такая или null.
+    const plannedRow =
+      rows.find(
+        (r) => r.effective_to === null && new Date(r.effective_from).getTime() > nowMs
+      ) ?? null;
+    const planned = plannedRow
+      ? {
+          versionId: plannedRow.id,
+          amount: plannedRow.amount,
+          currency: plannedRow.currency,
+          effectiveFrom: iso(plannedRow.effective_from),
+        }
+      : null;
+
+    // previous = хронологический предшественник current (для planned-версии
+    // актуальную строку видно в items/planned — current теперь честно активная)
+    const prev = active ? prevOf.get(active.id) ?? null : null;
 
     return NextResponse.json({
       current,
+      planned,
       previous: prev ? { amount: prev.amount, effectiveFrom: iso(prev.effective_from) } : null,
       items,
     });

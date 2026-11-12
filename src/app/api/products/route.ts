@@ -594,6 +594,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
 
+      // D1 (PR-6A2): initial-строка истории цен — сразу после вставки (best-effort)
+      await seedInitialPriceHistory({
+        productId: product.id as string,
+        ownerId: input.confectionerId,
+        amount: Number(product.price),
+        actorIsAdmin: true,
+      });
+
       // Авто-модерация контента (не отключаем ни для одной роли)
       const moderation = await runModeration({
         product,
@@ -733,6 +741,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // D1 (PR-6A2): initial-строка истории цен — сразу после вставки (best-effort)
+    await seedInitialPriceHistory({
+      productId: product.id as string,
+      ownerId: confectioner.userId,
+      amount: price,
+      actorIsAdmin: false,
+    });
+
     // Авто-модерация контента (non-blocking, но при rejected — удалить товар)
     const moderation = await runModeration({
       product,
@@ -748,6 +764,54 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
       { status: 500 }
+    );
+  }
+}
+
+/**
+ * D1 (PR-6A2): initial-строка product_price_history при создании товара.
+ *
+ * Без неё новый товар имеет пустую историю: price-at(pastDate) синтезирует
+ * ТЕКУЩУЮ products.price как фейковый 'initial' (фолбэк get_product_price_at).
+ * Здесь — реальная строка [creation-now, ∞): set_product_price(actor=владелец,
+ * variant=NULL, amount=products.price, effective_from=now(), reason='initial',
+ * source='system'). Best-effort: сбой НЕ ломает создание товара (warn), но
+ * должен проходить (SQL-уровень 0083/0086). Только POST /api/products.
+ */
+async function seedInitialPriceHistory(args: {
+  productId: string;
+  ownerId: string;
+  amount: number;
+  actorIsAdmin: boolean;
+}): Promise<void> {
+  if (!Number.isInteger(args.amount) || args.amount < 0) {
+    console.warn(
+      `[products] initial price history skipped (invalid amount): ${args.productId}, ${args.amount}`
+    );
+    return;
+  }
+  try {
+    const pool = getPool();
+    await pool.query(
+      `SELECT public.set_product_price($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS result`,
+      [
+        args.ownerId, // p_actor: владелец товара (confectioner_id)
+        args.productId, // p_product_id
+        null, // p_variant_id: базовая цена
+        args.amount, // p_amount = products.price (int RUB)
+        new Date().toISOString(), // p_effective_from = now()
+        "initial", // p_reason
+        null, // p_comment
+        "system", // p_source
+        null, // p_cost_snapshot
+        null, // p_idempotency_key
+        args.actorIsAdmin, // p_actor_is_admin
+      ]
+    );
+  } catch (histErr: unknown) {
+    console.warn(
+      "[products] initial price history seed failed (non-blocking):",
+      histErr instanceof Error ? histErr.message : histErr
     );
   }
 }

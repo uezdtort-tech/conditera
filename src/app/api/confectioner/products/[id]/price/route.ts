@@ -25,7 +25,11 @@
  * Ошибки:
  *   400 VALIDATION_FAILED / INVALID_REASON / INVALID_EFFECTIVE_FROM
  *   400 PRICE_VALIDATION_FAILED — raise из set_product_price (валидация функции)
- *   409 PRICE_PERIOD_CONFLICT  — SQLSTATE 23P01 (перекрытие интервалов)
+ *   409 PRICE_PERIOD_CONFLICT  — SQLSTATE 23P01 (перекрытие интервалов);
+ *                                sameInstant (0086: effective_from == начала
+ *                                покрывающей строки, сумма различается —
+ *                                честный отказ функции, 500 не допускается);
+ *                                23514 range_check (defense-in-depth)
  *   200 idempotent:true        — SQLSTATE 23505 (гонка idempotency_key): строка
  *                                перечитывается по ключу и отдаётся как replay
  */
@@ -58,22 +62,39 @@ interface SetPriceResult {
   planned?: boolean;
   idempotent?: boolean;
   noChange?: boolean;
+  sameInstant?: boolean;
+  message?: string;
 }
 
 interface PgErrorLike {
   code?: string;
   message?: string;
+  constraint?: string;
 }
 
 function asPgError(err: unknown): PgErrorLike {
   if (typeof err === "object" && err !== null) {
-    const e = err as { code?: unknown; message?: unknown };
+    const e = err as { code?: unknown; message?: unknown; constraint?: unknown };
     return {
       code: typeof e.code === "string" ? e.code : undefined,
       message: typeof e.message === "string" ? e.message : undefined,
+      constraint: typeof e.constraint === "string" ? e.constraint : undefined,
     };
   }
   return {};
+}
+
+/** D2 (PR-6A2): честный 409 вместо 500 при конфликте периода цены. */
+function pricePeriodConflict(detail?: string): NextResponse {
+  return NextResponse.json(
+    {
+      error: "PRICE_PERIOD_CONFLICT",
+      message:
+        detail ??
+        "Период цены пересекается с существующей версией",
+    },
+    { status: 409 }
+  );
 }
 
 export async function POST(
@@ -200,6 +221,14 @@ export async function POST(
         ]
       );
       const result = (res.rows?.[0]?.result ?? {}) as SetPriceResult;
+
+      // D2 (PR-6A2): sameInstant-отказ 0086 (effective_from == начала покрывающей
+      // строки, сумма различается). Изменение было бы скрыто за уже
+      // зафиксированной строкой → честный 409 (не 200, не 500).
+      if (result.sameInstant) {
+        return pricePeriodConflict(result.message);
+      }
+
       const newAmount = result.newAmount ?? amount;
       const previousAmount = result.previousAmount ?? null;
 
@@ -219,13 +248,17 @@ export async function POST(
 
       // 23P01 exclusion_violation — пересечение интервалов версий
       if (pg.code === "23P01") {
-        return NextResponse.json(
-          {
-            error: "PRICE_PERIOD_CONFLICT",
-            message: "Период цены пересекается с существующей версией",
-          },
-          { status: 409 }
-        );
+        return pricePeriodConflict();
+      }
+
+      // D2 (PR-6A2) defense-in-depth: 23514 на range_check — нулевой интервал
+      // (same-instant закрытие). Функция 0086 такие случаи перехватывает;
+      // если старая версия функции всё же дала CHECK — честный 409, не 500.
+      if (
+        pg.code === "23514" &&
+        /range_check/i.test(pg.constraint ?? pg.message ?? "")
+      ) {
+        return pricePeriodConflict();
       }
 
       // 23505 — гонка idempotency_key: перечитать строку по ключу (replay)

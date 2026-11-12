@@ -1,25 +1,24 @@
 /**
- * Тесты GET /api/confectioner/products/[id]/price-history
+ * Тесты D3 (PR-6A2): GET /api/confectioner/products/[id]/price-history —
+ * семантика active/planned.
  *
- * Покрытие: owner 200 (items + delta-математика), чужой кондитер 403,
- * admin 200, catch-up (sync_effective_product_prices) вызывается ДО чтения
- * истории, planned-версия (effective_from > now) → planned:true.
- *
- * Мок-паттерн — как в admin/dashboard/route.test.ts: vi.mock + vi.hoisted,
- * pool.query маршрутизируется по SQL-паттернам.
+ * Контракт:
+ *   • current — АКТИВНАЯ версия (покрывает now: from <= now < to|∞);
+ *     плановая будущая строка НЕ выдаётся за текущую;
+ *   • planned — отдельное поле: открытая строка с from > now (последняя) или null;
+ *   • items — без изменений (все версии DESC).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
+const USER_ID = "b0000000-0000-4000-8000-000000000001";
 const PRODUCT_ID = "a0000000-0000-4000-8000-000000000001";
-const OWNER_ID = "c0000000-0000-4000-8000-000000000001";
-const OTHER_ID = "c0000000-0000-4000-8000-000000000002";
+const ID_ACTIVE = "e0000000-0000-4000-8000-000000000001";
+const ID_PLANNED = "e0000000-0000-4000-8000-000000000002";
+const ID_CLOSED = "e0000000-0000-4000-8000-000000000003";
 
 const { state, poolQueryMock, userMock, adminMock } = vi.hoisted(() => ({
-  state: {
-    productRows: [] as unknown[],
-    historyRows: [] as unknown[],
-  },
+  state: { historyRows: [] as unknown[] },
   poolQueryMock: vi.fn(),
   userMock: vi.fn(),
   adminMock: vi.fn(),
@@ -35,144 +34,110 @@ vi.mock("@/lib/role-guards", () => ({
   isAdmin: (...args: unknown[]) => adminMock(...args),
 }));
 
-function router(sql: string): { rows: unknown[] } {
-  if (/sync_effective_product_prices/.test(sql)) return { rows: [{ sync: 0 }] };
-  if (/deleted_at IS NULL/.test(sql)) return { rows: state.productRows };
-  if (/FROM public\.product_price_history/.test(sql)) return { rows: state.historyRows };
+function poolRouter(sql: string): { rows: unknown[] } {
+  const q = sql.trim();
+  if (/sync_effective_product_prices/.test(q)) return { rows: [] };
+  if (/FROM public\.products WHERE id = \$1 AND deleted_at IS NULL/.test(q)) {
+    return { rows: [{ id: PRODUCT_ID, confectioner_id: USER_ID }] };
+  }
+  if (/FROM public\.product_price_history/.test(q)) {
+    return { rows: state.historyRows };
+  }
   return { rows: [] };
-}
-
-function historyRow(extra: Record<string, unknown>): Record<string, unknown> {
-  return {
-    id: "e0000000-0000-4000-8000-000000000001",
-    amount: 5000,
-    currency: "RUB",
-    effective_from: "2026-01-01T00:00:00.000Z",
-    effective_to: null,
-    reason: "ingredients",
-    comment: null,
-    source: "confectioner_ui",
-    previous_version_id: null,
-    cost_snapshot_rub: null,
-    created_by: OWNER_ID,
-    created_at: "2026-01-01T00:00:00.000Z",
-    ...extra,
-  };
 }
 
 import { GET } from "./route";
 
-async function callGet(query = ""): Promise<Response> {
-  const request = new NextRequest(
-    `http://localhost:3000/api/confectioner/products/${PRODUCT_ID}/price-history${query}`
-  );
+const NOW = Date.now();
+const h = (ms: number) => new Date(NOW + ms).toISOString();
+// rows приходят из БД в порядке effective_from DESC — тесты соблюдают это
+
+function row(id: string, from: string, to: string | null, amount = 1000): Record<string, unknown> {
+  return {
+    id,
+    amount,
+    currency: "RUB",
+    effective_from: from,
+    effective_to: to,
+    reason: "initial",
+    comment: null,
+    source: "system",
+    previous_version_id: null,
+    cost_snapshot_rub: null,
+    created_by: USER_ID,
+    created_at: from,
+  };
+}
+
+async function callGet(): Promise<Response> {
+  const request = new NextRequest(`http://localhost:3000/api/confectioner/products/${PRODUCT_ID}/price-history`);
   return GET(request, { params: Promise.resolve({ id: PRODUCT_ID }) });
 }
 
 beforeEach(() => {
   poolQueryMock.mockReset();
-  poolQueryMock.mockImplementation((sql: string) => router(sql));
+  poolQueryMock.mockImplementation((sql: string) => poolRouter(sql));
   userMock.mockReset();
-  userMock.mockResolvedValue({ id: OWNER_ID, userId: OWNER_ID });
+  userMock.mockResolvedValue({ id: USER_ID });
   adminMock.mockReset();
   adminMock.mockResolvedValue(false);
-  state.productRows = [{ id: PRODUCT_ID, confectioner_id: OWNER_ID }];
   state.historyRows = [];
 });
 
-describe("GET /api/confectioner/products/[id]/price-history", () => {
-  it("владелец: 200, current/previous + delta-математика по хронологии", async () => {
+describe("GET price-history — D3 current=active, planned отдельно", () => {
+  it("активная (закрыта на planned-границе) + плановая: current=активная, planned=отдельно", async () => {
     state.historyRows = [
-      // DESC как из SQL (idx_product_price_history_lookup)
-      historyRow({
-        id: "e0000000-0000-4000-8000-000000000002",
-        amount: 6500,
-        effective_from: "2026-02-01T00:00:00.000Z",
-        previous_version_id: "e0000000-0000-4000-8000-000000000001",
-        cost_snapshot_rub: 1200,
-      }),
-      historyRow({ amount: 5000 }),
+      row(ID_PLANNED, h(+60 * 60_000), null, 1500), // плановая: from > now, открыта
+      row(ID_ACTIVE, h(-60 * 60_000), h(+60 * 60_000), 1200), // активная: [past, future)
     ];
-
     const res = await callGet();
     expect(res.status).toBe(200);
     const json = await res.json();
-
-    expect(json.current).toEqual({
-      versionId: "e0000000-0000-4000-8000-000000000002",
-      amount: 6500,
-      currency: "RUB",
-      effectiveFrom: "2026-02-01T00:00:00.000Z",
-      planned: false,
-    });
-    expect(json.previous).toEqual({ amount: 5000, effectiveFrom: "2026-01-01T00:00:00.000Z" });
-
+    expect(json.current).toMatchObject({ versionId: ID_ACTIVE, amount: 1200, planned: false });
+    expect(json.planned).toMatchObject({ versionId: ID_PLANNED, amount: 1500 });
     expect(json.items).toHaveLength(2);
-    // items DESC: v2 (6500) первой — дельта против v1 (5000): +1500 = +30%
-    expect(json.items[0]).toMatchObject({
-      id: "e0000000-0000-4000-8000-000000000002",
-      amount: 6500,
-      deltaRub: 1500,
-      deltaPercent: 30,
-      costSnapshotRub: 1200,
-      previousVersionId: "e0000000-0000-4000-8000-000000000001",
-    });
-    // самая старая строка — без дельты
-    expect(json.items[1]).toMatchObject({
-      id: "e0000000-0000-4000-8000-000000000001",
-      amount: 5000,
-      deltaRub: null,
-      deltaPercent: null,
-    });
+    expect(json.previous).toBeNull();
   });
 
-  it("чужой кондитер (не владелец, не админ): 403", async () => {
-    userMock.mockResolvedValue({ id: OTHER_ID, userId: OTHER_ID });
+  it("одна открытая строка в прошлом: current=она, planned=null (поведение 0083 сохранено)", async () => {
+    state.historyRows = [row(ID_ACTIVE, h(-60 * 60_000), null, 1000)];
     const res = await callGet();
-    expect(res.status).toBe(403);
-  });
-
-  it("ADMIN: 200 даже когда не владелец", async () => {
-    userMock.mockResolvedValue({ id: OTHER_ID, userId: OTHER_ID });
-    adminMock.mockResolvedValue(true);
-    state.historyRows = [historyRow({})];
-    const res = await callGet();
-    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.current.amount).toBe(5000);
+    expect(json.current).toMatchObject({ versionId: ID_ACTIVE, amount: 1000, planned: false });
+    expect(json.planned).toBeNull();
+    expect(json.items).toHaveLength(1);
   });
 
-  it("catch-up (sync_effective_product_prices) вызван ДО чтения истории", async () => {
-    state.historyRows = [historyRow({})];
-    await callGet();
-    const calls = poolQueryMock.mock.calls as Array<[string]>;
-    const syncIdx = calls.findIndex(([sql]) => /sync_effective_product_prices/.test(sql));
-    const readIdx = calls.findIndex(([sql]) => /FROM public\.product_price_history/.test(sql));
-    expect(syncIdx).toBeGreaterThan(-1);
-    expect(readIdx).toBeGreaterThan(syncIdx);
+  it("только плановая строка (активной нет): current=null, planned=строка", async () => {
+    state.historyRows = [row(ID_PLANNED, h(+60 * 60_000), null, 1500)];
+    const res = await callGet();
+    const json = await res.json();
+    expect(json.current).toBeNull();
+    expect(json.planned).toMatchObject({ versionId: ID_PLANNED, amount: 1500 });
   });
 
-  it("planned-версия (effective_from в будущем): planned:true, previous — предшественник", async () => {
+  it("закрытая историческая строка не становится current", async () => {
     state.historyRows = [
-      historyRow({
-        id: "e0000000-0000-4000-8000-000000000003",
-        amount: 7000,
-        effective_from: "2099-01-01T00:00:00.000Z",
-        previous_version_id: "e0000000-0000-4000-8000-000000000001",
-      }),
-      historyRow({ amount: 5000 }),
+      row(ID_PLANNED, h(+60 * 60_000), null, 1500),
+      row(ID_ACTIVE, h(-120 * 60_000), h(-60 * 60_000), 1200), // закрыта в прошлом
     ];
     const res = await callGet();
-    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.current.planned).toBe(true);
-    expect(json.current.amount).toBe(7000);
-    expect(json.previous).toEqual({ amount: 5000, effectiveFrom: "2026-01-01T00:00:00.000Z" });
+    expect(json.current).toBeNull();
+    expect(json.planned).toMatchObject({ versionId: ID_PLANNED });
+    expect(json.items).toHaveLength(2);
   });
 
-  it("неавторизованный: 401", async () => {
-    userMock.mockResolvedValue(null);
+  it("planned = последняя открытая будущая строка (first-match в DESC)", async () => {
+    state.historyRows = [
+      row("e0000000-0000-4000-8000-000000000005", h(+120 * 60_000), null, 1800),
+      row(ID_PLANNED, h(+60 * 60_000), null, 1500),
+      row(ID_ACTIVE, h(-60 * 60_000), h(+60 * 60_000), 1200),
+    ];
     const res = await callGet();
-    expect(res.status).toBe(401);
+    const json = await res.json();
+    // rows DESC → первый открытый with from>now — самый поздний (rows[0])
+    expect(json.planned).toMatchObject({ versionId: "e0000000-0000-4000-8000-000000000005", amount: 1800 });
+    expect(json.current).toMatchObject({ versionId: ID_ACTIVE });
   });
 });

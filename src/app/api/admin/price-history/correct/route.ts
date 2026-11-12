@@ -1,13 +1,17 @@
 /**
  * POST /api/admin/price-history/correct
  *
- * Административная коррекция ТЕКУЩЕЙ открытой версии цены (ADMIN/SUPER_ADMIN).
+ * Административная коррекция ТЕКУЩЕЙ АКТИВНОЙ версии цены (ADMIN/SUPER_ADMIN).
  *
- * Правило неизменяемости истории: корректировать можно ТОЛЬКО строку с
- * effective_to IS NULL И effective_from <= now(). Закрытые исторические строки
- * задним числом менять ЗАПРЕЩЕНО → 400 HISTORICAL_IMMUTABLE (аудит цен должен
- * оставаться честным: прошлое не переписываем, только фиксируем новую версию
- * «от сейчас»).
+ * Правило неизменяемости истории: корректировать можно ТОЛЬКО активную
+ * строку — покрывающую сейчас (effective_from <= now() < effective_to|∞);
+ * D4 (PR-6A2): при существующей плановой (будущей) версии активная строка
+ * закрыта на её effective_to — она ОСТАЁТСЯ корректируемой, 400 больше не
+ * возвращается. Закрытые исторические строки задним числом менять ЗАПРЕЩЕНО
+ * → 400 HISTORICAL_IMMUTABLE (аудит цен должен оставаться честным: прошлое
+ * не переписываем, только фиксируем новую версию «от сейчас»). Плановая
+ * строка (effective_from > now) тоже не корректируется — она ещё не активна;
+ * кондитер может просто перепланировать цену.
  *
  * Транзакция (закреплённый клиент, см. withTransaction):
  *   1. set_product_price(actor=admin, source='admin_correction',
@@ -143,14 +147,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!version) {
       return NextResponse.json({ error: "Версия цены не найдена" }, { status: 404 });
     }
-    const isOpenNow =
-      version.effective_to === null && new Date(version.effective_from).getTime() <= Date.now();
-    if (!isOpenNow) {
+
+    // D4 (PR-6A2): «текущая» = АКТИВНАЯ строка — покрывающая сейчас:
+    // effective_from <= now < effective_to|∞. При существующей плановой
+    // версии активная строка закрыта на её effective_to (effective_to не NULL),
+    // но всё ещё действует — она корректируемая. Плановая (from > now) и
+    // закрытая историческая (to <= now) — 400 HISTORICAL_IMMUTABLE.
+    const fromMs = new Date(version.effective_from).getTime();
+    const toMs =
+      version.effective_to === null
+        ? Infinity
+        : new Date(version.effective_to).getTime();
+    const nowMs = Date.now();
+    const isActiveNow = fromMs <= nowMs && nowMs < toMs;
+    if (!isActiveNow) {
+      const isPlanned = fromMs > nowMs;
       return NextResponse.json(
         {
           error: "HISTORICAL_IMMUTABLE",
-          message:
-            "Корректировка задним числом запрещена: менять можно только текущую открытую версию цены (effective_to IS NULL и effective_from <= now()). Закрытые исторические версии неизменяемы.",
+          message: isPlanned
+            ? "Плановая версия ещё не активна (effective_from > now) — корректировать можно только активную версию цены; кондитер может просто перепланировать цену. Администраторская коррекция станет доступна после наступления версии."
+            : "Корректировка задним числом запрещена: менять можно только текущую активную версию цены (effective_from <= now() < effective_to|∞). Закрытые исторические версии неизменяемы.",
         },
         { status: 400 }
       );
