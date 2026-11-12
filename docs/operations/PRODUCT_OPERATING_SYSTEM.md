@@ -224,3 +224,61 @@ Severity события — `debug|info|warning|error|critical` (CHECK-огра�
 6. стратегия бэкапов PG (pg_dump cron) + проверка восстановления;
 7. запуск build на машине ≥8GB;
 8. CORS/cookies/rate-limit ревизия перед публичным деплоем.
+
+## Z-v32 ADDENDUM: система цен с историей (2026-11-12)
+
+Первичное описание подсистемы цен Z-v32 (последние коммиты PR-5/PR-6A2/PR-6B). Реестр остатков — `PRODUCT_BACKLOG.md` (ZV32-005/006/007). Факты ниже — из миграций/кода/прогонов этого пакета.
+
+### Архитектура
+
+| Элемент | Факт |
+|---|---|
+| product_price_history | миграция 0083: интервалы half-open `[from, to)`; запрет пересечений — EXCLUDE no-overlap через `btree_gist` (SQLSTATE 23P01); идемпотентность повторной записи — partial-unique; аудит изменений — `product_price_audit` |
+| Функции | `set_product_price` / `get_product_price_at` / `sync_effective_product_prices`; миграция 0086 добавляет в `set_product_price` guard same-instant |
+| Привязка заказов | миграция 0084: `order_items.price_version_id` |
+| Срок предложений | миграция 0085: `negotiations.valid_until` + `confectioner_quotes.valid_until` + DB-триггер-бэкстоп |
+| Единицы денег | INTEGER RUB (identity 0034); исключение: `negotiations.quoted_price` — копейки (конвертация в одной точке, закреплено pinned-тестом); date-only даты — в TZ мастерской Europe/Moscow (+03:00) |
+| Леджер миграций | 85 строк / 86 файлов; чистая БД: 84/84 применяются без ошибок (проверка PR-6A) |
+
+### API-поверхность
+
+- Кондитер: `GET/POST /api/confectioner/products/[id]/price-history`, `.../price-at`, `.../price`, `.../cost-analysis`.
+- Админ: `POST /api/admin/price-history/correct` — коррекция истории с правилом HISTORICAL_IMMUTABLE (закрытые и planned интервалы не мутируются).
+- Checkout/orders/b2b binding: `order_items.price_version_id` + `orders.metadata.pricing` `{resolvedAt, items[{productId, priceVersionId, unitPrice}], deliverySource}`; индивидуальные предложения — `metadata.offerBinding`.
+- `POST /api/orders`: расчёт доставки серверный; клиентское значение сохраняется только в `metadata.pricing.deliveryClientSubmitted` (дефект D2-класса «клиентский deliveryCost» устранён серверным расчётом).
+
+### Порядок изменения цены
+
+- Два режима: now-активация (интервал `[now, ∞)`) и планирование на будущую дату (planned-интервал, с превью и подтверждением в UI).
+- Catch-up / lazy sync: `sync_effective_product_prices` отложенно активирует planned-интервалы при чтении.
+- Идемпотентность: повторная запись того же интервала не создаёт дубль (partial-unique).
+- Конфликты: пересечение интервалов — 23P01 из EXCLUDE; same-instant цена — 409 (0086; до фикса D2 был 500).
+
+### Фиксация цены в заказе
+
+- Цена в заказе — версия: `order_items.price_version_id` (0084); снимок — `orders.metadata.pricing` (resolvedAt, per-item priceVersionId/unitPrice, deliverySource).
+- Индивидуальные предложения: `metadata.offerBinding` фиксирует согласованную цену; истечение — `negotiations.valid_until` (0085 + триггер-бэкстоп).
+
+### Правила неизменности и UI
+
+- HISTORICAL_IMMUTABLE: закрытые и planned интервалы неизменяемы; админ-коррекция — только вперёд (новым состоянием, не правкой старого).
+- Кабинет кондитера: панель «Цены и история стоимости» — история, календарь, планирование (превью + подтверждение + идемпотентность), цена на дату, себестоимость с честными маркерами и предупреждениями.
+- Каталог покупателя: маркер «от» (isFromPrice), «Цена действует с DD.MM.YYYY», защита от фиктивных скидок (hasRealDiscount); история цен покупателю не раскрывается, future-цены не утекают.
+
+### Результат верификации
+
+- SQL 10/10 (PR-1A: конкурентная запись двумя клиентами — 1 победитель, 23P01 на пересечение, catch-up).
+- Интеграция HTTP: 18/21 → после фиксов D1–D4 повторно 8/8.
+- Браузер: PASS (планирование с превью; future не утекает покупателю).
+- Unit: 29+13+21+26+22 новых тестов.
+- Полный гейт: `bun run check:full` PASS, exit 0 (5/5 проверок, secrets-scan 0 находок); чистая БД 84/84 миграций.
+
+### Дефекты, найденные и исправленные в пакете
+
+- D1 — initial-строка истории при создании товара; D2 — same-instant 500 → 409 (0086); D3/D4 — семантика active/planned (history и коррекция). Ранее в Z-v32: upsert atelier PK, 3 TS-ошибки cms. Дефект D2-класса «клиентский deliveryCost в /api/orders» — устранён серверным расчётом доставки.
+
+### Ограничения (остатки — в backlog)
+
+- confectioner_quotes: accept-endpoint отсутствует; UI предложений (countdown/validDays/checkout negotiationId wiring) — ZV32-005.
+- Admin read-only панель истории цен, бейдж «Запланировано», дефолт даты планирования — ZV32-006.
+- Варианты товара: schema-ready (0083), но мёртвый код — роуты цен пинуют `variant=NULL`; `wholesale_prices` (b2b) вне истории цен (version NULL по решению) — ZV32-007.

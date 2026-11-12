@@ -50,3 +50,7 @@ CAPACITY_EXCEEDED, DEADLINE_TOO_CLOSE, INVENTORY_UNIT_MISMATCH` (последн�
 1. `bun agent-ctx/zv27/catalog-map.mjs` → товар переходит в GATE-PASS.
 2. `node scripts/verify/p11-hardening-verify.mjs` → 17/17 (сейчас 12/17, каскад F1).
 3. HTTP checkout товарной позиции → 200/201 (сейчас 422, причины точны).
+
+## Дополнение Z-v32 (2026-11-12): цены с историей
+
+Цены товаров в этом отчёте — фиксированные `products.price` (INTEGER RUB) на момент сессии Z-v27. С пакета цен Z-v32 действует система истории цен (миграции 0083–0086): `product_price_history` (half-open `[from, to)`), функции `set_product_price`/`get_product_price_at`/`sync_effective_product_prices`, фиксация версии цены в заказе (`order_items.price_version_id`, `orders.metadata.pricing`). Актуальное описание подсистемы — блок «Z-v32 ADDENDUM: система цен с историей (2026-11-12)» в `docs/operations/PRODUCT_OPERATING_SYSTEM.md`; открытые остатки — ZV32-005/006/007 в `docs/operations/PRODUCT_BACKLOG.md`.
