@@ -402,6 +402,68 @@ async function upsertDemoUsers(client) {
 }
 
 // ============================================================================
+// 5b. Post-seed backfill: initial-строки истории цен (ZV33-7b FIX 1 / ZV33-6 B1)
+// ============================================================================
+// Проблема (ZV33-6 аудит, B1): миграция 0083 сеет initial-версии цен для
+// товаров, существующих НА МОМЕНТ миграции. db:setup применяет миграции ДО
+// сидов, а seed_vitrine.sql вставляет 12 товаров ПОСЛЕ — на свежей БД
+// product_price_history оставался пустым, и все товары жили на NULL-version
+// fallback (get_product_price_at синтезировал строку из products.price).
+//
+// Решение: идемпотентный POST-SEED шаг — для каждого товара БЕЗ единой
+// строки product_price_history вставить initial-версию той же формы, что
+// бэкфилл 0083 (amount = products.price, effective_from = products.created_at,
+// created_by = products.confectioner_id), source='system'.
+// Повторный прогон — no-op (WHERE NOT EXISTS); перекрытий нет по построению
+// (вставляем только при полном отсутствии истории товара).
+async function backfillProductPriceHistory(client) {
+  // 1) Товары с NULL confectioner_id: created_by NOT NULL — их сесить нечем,
+  //    честно считаем и предупреждаем (не молча пропускаем).
+  const orphan = await client.query(
+    `SELECT count(*)::int AS c FROM products p
+      WHERE p.confectioner_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM product_price_history h WHERE h.product_id = p.id)`
+  );
+  if (orphan.rows[0].c > 0) {
+    console.warn(`  ⚠ price-history backfill: ${orphan.rows[0].c} товаров без confectioner_id пропущено (created_by NOT NULL)`);
+  }
+
+  const res = await client.query(
+    `INSERT INTO public.product_price_history (
+       product_id, product_variant_id, amount, currency,
+       effective_from, effective_to, reason, source, cost_snapshot_rub, created_by
+     )
+     SELECT
+       p.id, NULL, p.price, COALESCE(p.currency, 'RUB'),
+       COALESCE(p.created_at, now()), NULL, 'initial', 'system', NULL, p.confectioner_id
+     FROM public.products p
+     WHERE p.confectioner_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM public.product_price_history h
+         WHERE h.product_id = p.id
+           AND h.product_variant_id IS NULL
+       )`
+  );
+
+  const total = await client.query(
+    `SELECT (SELECT count(*)::int FROM public.products) AS products,
+            (SELECT count(*)::int FROM public.product_price_history) AS history,
+            (SELECT count(*)::int FROM public.products p
+              WHERE NOT EXISTS (SELECT 1 FROM public.product_price_history h WHERE h.product_id = p.id)) AS missing`
+  );
+  const t = total.rows[0];
+  if (res.rowCount > 0 || t.missing > 0) {
+    console.log(`  ✔ price-history backfill: +${res.rowCount} initial rows (products=${t.products}, history=${t.history}, missing=${t.missing})`);
+  } else {
+    console.log(`  ✔ price-history backfill: no-op (all ${t.products} products already versioned)`);
+  }
+  if (t.missing > 0) {
+    console.warn(`  ⚠ price-history backfill: ${t.missing} товаров остались без истории — проверьте seed`);
+    process.exitCode = 1;
+  }
+}
+
+// ============================================================================
 // 6. env-ключи (.env.local — только добавление, существующие НЕ трогаем)
 // ============================================================================
 function generateSupabaseJwt(role, secret) {
@@ -756,6 +818,11 @@ console.log("\n─── Seeds ───");
         console.warn(`  ⚠ ${path.basename(seedFile)} aborted: ${String(err.message).slice(0, 140)}`);
       }
     }
+
+    // 7b. Post-seed backfill: initial-строки product_price_history для товаров,
+    //     вставленных СИДАМИ ПОСЛЕ миграций (ZV33-7b FIX 1; идемпотентно).
+    console.log("\n─── Post-seed price-history backfill ───");
+    await backfillProductPriceHistory(client);
 
     // 8. env-ключи
     ensureEnvKeys();

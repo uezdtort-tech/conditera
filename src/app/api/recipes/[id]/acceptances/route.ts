@@ -5,11 +5,11 @@
  *
  * Безопасность:
  *   • GET: public endpoint.
- *   • При сбое основного запроса — fallback на audit_logs.
- *   • Если БД пуста — fallback на MOCK_ACCEPTANCES для демонстрации функции «ближайший кондитер».
- *   • BUG FIXED: раньше искал confectioners по userId в confectionerIds, но
- *     recipe_acceptances.confectioner_id ссылается на confectioners.id, не на profiles.id.
- *     Теперь ищем по id.
+ *   • При сбое основного запроса — fallback на audit_logs (реальные записи
+ *     действий «recipe_acceptance», не вымышленные данные).
+ *   • Пустой результат → честный пустой ответ ({ acceptances: [], total: 0 }):
+ *     mock-кондитеры НЕ подставляются НИКОГДА (ZV33-7b FIX 2 / ZV33-6 C-1 —
+ *     live-reachable mock убит; деmo-витрина этого endpoint'а не требует).
  *   • Type-safe interfaces, без `as any` для location.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -87,85 +87,6 @@ interface ConfectionerLocation {
   serviceRadiusKm?: number;
   [key: string]: unknown;
 }
-
-// Mock-подтверждения для демонстрации, когда БД пуста
-const MOCK_ACCEPTANCES: AcceptanceWithDistance[] = [
-  {
-    acceptanceId: "mock-a1",
-    confectionerId: "u0",
-    priceFrom: 1800,
-    priceTo: 3500,
-    prepDays: 2,
-    delivery: true,
-    selfPickup: true,
-    notes: "Точное воспроизведение рецепта, опционально — сахарная печать фото на торт.",
-    status: "active",
-    confectioner: {
-      id: "u0",
-      userId: "u0",
-      businessName: "Торты на заказ | Сахарная печать",
-      avatar: "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400",
-      city: "Волоколамск",
-      rating: 5.0,
-      reviewsCount: 1,
-      verified: true,
-      trustLevel: "TRUSTED",
-      location: { lat: 56.9555, lng: 35.9567, serviceRadiusKm: 50 },
-    },
-    distanceKm: null,
-    withinServiceRadius: true,
-  },
-  {
-    acceptanceId: "mock-a2",
-    confectionerId: "u2",
-    priceFrom: 1500,
-    priceTo: 3000,
-    prepDays: 3,
-    delivery: true,
-    selfPickup: true,
-    notes: "Бисквит + крем по рецепту, доставка по Туле и области.",
-    status: "active",
-    confectioner: {
-      id: "u2",
-      userId: "u2",
-      businessName: "Сладкая уездная",
-      avatar: "https://i.pravatar.cc/150?img=32",
-      city: "Тула",
-      rating: 4.9,
-      reviewsCount: 87,
-      verified: true,
-      trustLevel: "TRUSTED",
-      location: { lat: 54.1961, lng: 37.6182, serviceRadiusKm: 25 },
-    },
-    distanceKm: null,
-    withinServiceRadius: true,
-  },
-  {
-    acceptanceId: "mock-a3",
-    confectionerId: "u6",
-    priceFrom: 2200,
-    priceTo: null,
-    prepDays: 4,
-    delivery: true,
-    selfPickup: false,
-    notes: "Большой опыт свадебных тортов, доставлю по Москве и МО.",
-    status: "active",
-    confectioner: {
-      id: "u6",
-      userId: "u6",
-      businessName: "Мастерская сладких искусств",
-      avatar: "https://i.pravatar.cc/150?img=45",
-      city: "Москва",
-      rating: 4.95,
-      reviewsCount: 156,
-      verified: true,
-      trustLevel: "MASTER",
-      location: { lat: 55.7558, lng: 37.6173, serviceRadiusKm: 30 },
-    },
-    distanceKm: null,
-    withinServiceRadius: true,
-  },
-];
 
 /**
  * Безопасное приведение location (jsonb) к ConfectionerLocation.
@@ -280,10 +201,10 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
       }
     }
 
-    // Если БД пуста — показываем mock для демонстрации функции «ближайший кондитер»
-    if (rawAcceptances.length === 0) {
-      rawAcceptances = MOCK_ACCEPTANCES;
-    }
+    // ZV33-7b FIX 2 (ZV33-6 C-1): пустой результат — ЧЕСТНЫЙ пустой ответ.
+    // Раньше здесь подставлялись MOCK_ACCEPTANCES (вымышленные кондитеры) —
+    // публичный endpoint отдавал фейковые данные; фронтенд рендерит честный
+    // empty-state («Пока ни один кондитер не подтвердил…», recipe-detail-page).
 
     // Считаем расстояние, если есть координаты пользователя
     let result: AcceptanceWithDistance[] = rawAcceptances.map((a) => {

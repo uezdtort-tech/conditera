@@ -6,7 +6,9 @@
  *   • GET: public endpoint, limit/offset валидируются.
  *   • POST: требует роль CONFECTIONER.
  *   • POST: safeJsonBody + валидация (videoUrl, title обязательны).
- *   • При сбое БД в GET — fallback на mock-данные (для dev/preview).
+ *   • При сбое БД в GET — честный 503 с маскированным сообщением (handleRouteError);
+ *     mock-лента НЕ подставляется НИКОГДА (ZV33-7b FIX 3 / ZV33-6 C-2 — сбой
+ *     сервера не маскируется фейковым контентом).
  *   • Type-safe interfaces для всех данных.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -100,83 +102,29 @@ function parsePositiveInt(value: string | null, defaultValue: number, max: numbe
   return Math.min(num, max);
 }
 
-const MOCK_VIDEOS: VideoFeedItemRow[] = [
-  {
-    id: "v1",
-    confectioner_id: "c0",
-    video_url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-    poster_url: "https://images.unsplash.com/photo-1535254973040-607b474cb50d?w=400",
-    title: "Создаю свадебный торт с сахарными цветами 🌸",
-    description: "3-ярусный торт с ручной росписью. 12 часов работы в 60 секунд!",
-    views_count: 1247,
-    likes_count: 342,
-    comments_count: 28,
-    shares_count: 15,
-    product_id: null,
-    audio_title: "Оригинальный звук",
-    rating: 50,
-    status: "active",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "v2",
-    confectioner_id: "c1",
-    video_url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-    poster_url: "https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=400",
-    title: "Шоколадный торт с зеркальной глазурью ✨",
-    description: "Зеркальная глазурь — это магия. Смотрите как получается идеальная поверхность!",
-    views_count: 892,
-    likes_count: 256,
-    comments_count: 19,
-    shares_count: 8,
-    product_id: null,
-    audio_title: "Оригинальный звук",
-    rating: 50,
-    status: "active",
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: "v3",
-    confectioner_id: "c2",
-    video_url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-    poster_url: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400",
-    title: "Бенто-торт за 5 минут ⏱️",
-    description: "Мини-торт для одного — быстро, красиво, вкусно!",
-    views_count: 2156,
-    likes_count: 587,
-    comments_count: 42,
-    shares_count: 31,
-    product_id: null,
-    audio_title: "Trending Audio",
-    rating: 50,
-    status: "active",
-    created_at: new Date().toISOString(),
-  },
-];
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const limit = parsePositiveInt(request.nextUrl.searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT);
     const offset = parsePositiveInt(request.nextUrl.searchParams.get("offset"), 0, Number.MAX_SAFE_INTEGER);
 
-    let videos: VideoFeedItemRow[] = [];
-    try {
-      const { data, error } = await supabaseAdmin
-        .from("video_feed_items")
-        .select("*")
-        .eq("status", "active")
-        .order("rating", { ascending: false })
-        .order("createdAt", { ascending: false })
-        .range(offset, offset + limit - 1) as { data: VideoFeedItemDbRow[] | null; error: SupabaseError | null };
+    // ZV33-7b FIX 3 (ZV33-6 C-2): БЕЗ mock-fallback. Ошибка БД → HttpError(503)
+    // → handleRouteError вернёт маскированный 5xx; потребитель (video-feed.tsx)
+    // просто оставляет пустое состояние при !res.ok. Фейковый контент никогда
+    // не подменяет серверный сбой.
+    const { data, error } = await supabaseAdmin
+      .from("video_feed_items")
+      .select("*")
+      .eq("status", "active")
+      .order("rating", { ascending: false })
+      .order("createdAt", { ascending: false })
+      .range(offset, offset + limit - 1) as { data: VideoFeedItemDbRow[] | null; error: SupabaseError | null };
 
-      if (error) throw error;
-      videos = (data || []).map(toApiRow);
-    } catch (e) {
-      // Mock-данные
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("[video-feed] using mock data:", msg);
-      videos = MOCK_VIDEOS.slice(offset, offset + limit);
+    if (error) {
+      console.error("[video-feed] GET query error:", error.message);
+      throw new HttpError(503, "Видеолента временно недоступна, попробуйте позже");
     }
+    const videos: VideoFeedItemRow[] = (data || []).map(toApiRow);
 
     return NextResponse.json({ videos, total: videos.length });
   } catch (error) {

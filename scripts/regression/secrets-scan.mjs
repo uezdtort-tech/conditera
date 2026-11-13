@@ -23,7 +23,10 @@
  *     (a) git diff --name-only HEAD ∪ git diff --cached --name-only ∪
  *         git status --porcelain (вкл. untracked);
  *     (b) фиксированный набор критичных конфигов (.env*, docker-compose*,
- *         Caddyfile).
+ *         Caddyfile). В quick записи, помеченные git check-ignore
+ *         (gitignored .env* — не могут быть закоммичены по построению),
+ *         выпадают: их находки — структурные ложные позитивы (ZV33-9b).
+ *         Full-режим этим не затрагивается.
  *   --staged → только git diff --cached --name-only (pre-commit сценарий).
  *   Отсутствующие файлы пропускаются; запускать из корня репо.
  *
@@ -182,6 +185,26 @@ function resolveCommitSha() {
 }
 
 /**
+ * isGitIgnored(relPath) — git check-ignore из корня репо, результат
+ * кэшируется по пути (ZV33-9b). Используется ТОЛЬКО в quick при
+ * разворачивании фиксированного набора: gitignored-файл не может попасть
+ * в репозиторий, сканировать его — структурный ложный позитив.
+ * Fail-safe: при ошибке git (spawn/статус ≠ 0/1) файл считается НЕ
+ * игнорированным (сканируем) — ложный позитив лучше слепого пропуска.
+ */
+const GIT_IGNORE_CACHE = new Map();
+
+function isGitIgnored(relPath) {
+  const cached = GIT_IGNORE_CACHE.get(relPath);
+  if (cached !== undefined) return cached;
+  const res = spawnSync("git", ["check-ignore", "-q", "--", relPath], GIT_SPAWN_OPTS);
+  // exit 0 → ignored; 1 → не ignored; ошибка spawn/128 → fail-safe: сканируем.
+  const ignored = !res.error && res.status === 0;
+  GIT_IGNORE_CACHE.set(relPath, ignored);
+  return ignored;
+}
+
+/**
  * collectChangedOrStagedFiles — quick-режим: staged (git diff --cached
  * --name-only) ∪ worktree-changed (git diff --name-only HEAD + git status
  * --porcelain добавления/модификации/untracked). Удалённые файлы физически
@@ -203,7 +226,14 @@ function collectChangedOrStagedFiles() {
     if (p.includes(" -> ")) p = p.split(" -> ").pop() || "";
     if (p) set.add(normalizeSecretPath(p));
   }
-  for (const p of FIXED_CONFIGS) set.add(p);
+  // Фиксированный набор (ZV33-9b): gitignored-записи (.env/.env.local/
+  // .env.production под .gitignore `.env*`) выпадают — они не могут
+  // попасть в коммит; трекаемые конфиги (шаблоны, compose, Caddyfile)
+  // остаются в сканировании.
+  for (const p of FIXED_CONFIGS) {
+    if (isGitIgnored(p)) continue;
+    set.add(p);
+  }
   return Array.from(set);
 }
 
