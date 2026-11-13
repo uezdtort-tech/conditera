@@ -1,7 +1,12 @@
 /**
  * /api/inquiries — CRUD для запросов на индивидуальные торты.
  *
- * GET — список запросов текущего пользователя (CUSTOMER) или доступных для кондитера
+ * GET — список запросов текущего пользователя (CUSTOMER) или доступных для кондитера;
+ *       ZV33-4b D3: filter=available также возвращает заявки, по которым у ЭТОГО
+ *       кондитера переговоры уже accepted (заявка конвертирована) — иначе карточка
+ *       «Принято покупателем» исчезала из «Заявок из конструктора» сразу после
+ *       принятия (accept конвертирует inquiry, а листинг тянул только open).
+ *       Форма ответа не меняется: { inquiries: [...] } с теми же полями.
  * POST — создать новый запрос (из cake_builder_draft)
  * PATCH — обновить (закрыть, продлить)
  * DELETE — удалить
@@ -21,10 +26,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const filter = searchParams.get("filter") || "own"; // 'own' | 'available'
     const city = searchParams.get("city");
 
-    let query = supabaseAdmin.from("inquiries").select(`
+    const INQUIRY_SELECT = `
       *,
       negotiations:negotiations(*)
-    `);
+    `;
+
+    let query = supabaseAdmin.from("inquiries").select(INQUIRY_SELECT);
 
     if (filter === "available") {
       // Открытые запросы для кондитера
@@ -44,10 +51,51 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // ZV33-4b D3: + заявки с ПРИНЯТЫМ предложением этого кондитера. Accept
+    // конвертирует inquiry (status='converted'), поэтому после принятия карточка
+    // выпадала из листинга open-заявок — кондитер не видел «Принято покупателем».
+    // Догружаем их отдельным запросом (переговоры кондитера с status='accepted'
+    // → inquiry_id), объединяем, дедуп по id, сортировка как в основном запросе.
+    let rows = (data || []) as Array<Record<string, unknown>>;
+    if (filter === "available") {
+      const openIds = new Set(rows.map((r) => r.id));
+      const { data: acceptedNegs } = await supabaseAdmin
+        .from("negotiations")
+        .select("inquiry_id")
+        .eq("confectioner_id", user.id)
+        .eq("status", "accepted");
+      const acceptedInquiryIds = Array.from(
+        new Set(
+          ((acceptedNegs || []) as Array<{ inquiry_id?: unknown }>)
+            .map((n) => n.inquiry_id)
+            .filter(
+              (v): v is string =>
+                typeof v === "string" && v.length > 0 && !openIds.has(v)
+            )
+        )
+      );
+      if (acceptedInquiryIds.length > 0) {
+        let acceptedQuery = supabaseAdmin
+          .from("inquiries")
+          .select(INQUIRY_SELECT)
+          .in("id", acceptedInquiryIds);
+        if (city) acceptedQuery = acceptedQuery.eq("city", city);
+        const { data: acceptedRows } = await acceptedQuery.order(
+          "submitted_at",
+          { ascending: false }
+        );
+        rows = [...rows, ...((acceptedRows || []) as Array<Record<string, unknown>>)].sort(
+          (a, b) =>
+            String(b.submitted_at ?? b.created_at ?? "").localeCompare(
+              String(a.submitted_at ?? a.created_at ?? "")
+            )
+        );
+      }
+    }
+
     // Этап 10 §D1: имя покупателя (profiles.name) для карточки заявки —
     // только имя, без контактов (email/телефон не отдаём). Safe enrich
     // вторым запросом (embed в локальном PostgREST-шим ненадёжен).
-    const rows = (data || []) as Array<Record<string, unknown>>;
     const inquirerIds = Array.from(
       new Set(rows.map((r) => r.user_id).filter((v): v is string => typeof v === "string"))
     );

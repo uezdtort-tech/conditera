@@ -85,8 +85,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   useRealInquiries,
-  useQuoteNegotiation,
-  useDeclineNegotiation,
 } from "@/lib/use-real-inquiries";
 import {
   ORDER_STATUS_LABELS,
@@ -112,7 +110,7 @@ import {
   ConfectionerRemindersTab,
 } from "@/components/dashboard/confectioner-extra-tabs";
 import { ConfectionerPaymentTab } from "@/components/dashboard/confectioner-payment-tab";
-import { ConfectionerNegotiationTab } from "@/components/dashboard/negotiation-tabs";
+import { ConfectionerInquiriesTab } from "@/components/dashboard/confectioner-inquiries-tab";
 import { ConfectionerChannelTab } from "@/components/dashboard/confectioner-channel-tab";
 import { ConfectionerTastingTab } from "@/components/dashboard/confectioner-tasting-tab";
 import { ConfectionerCatalogManager } from "@/components/dashboard/confectioner-catalog-manager";
@@ -169,7 +167,6 @@ export function ConfectionerDashboard() {
   const inventory = useAppStore((s) => s.inventory);
   const ganttTasks = useAppStore((s) => s.ganttTasks);
   const reminders = useAppStore((s) => s.reminders);
-  const negotiations = useAppStore((s) => s.negotiations);
   const logout = useAppStore((s) => s.logout);
   const updateTaskStatus = useAppStore((s) => s.updateTaskStatus);
 
@@ -190,11 +187,10 @@ export function ConfectionerDashboard() {
       router.refresh();
     }
   };
-  // Этап 10 §D1: реальные заявки из конструктора (GET /api/inquiries?filter=available)
-  // с фолбэком на store-мок при недоступности API; действия — через negotiations API.
-  const { inquiries, isStale: inquiriesStale, refetch: refetchInquiries } = useRealInquiries();
-  const quoteNegotiation = useQuoteNegotiation();
-  const declineNegotiation = useDeclineNegotiation();
+  // Этап 10 §D1 + ZV33-4: реальные заявки из конструктора (GET /api/inquiries?filter=available)
+  // с фолбэком на store-мок при недоступности API; форма предложения — в
+  // ConfectionerInquiriesTab (сами mutations живут там же).
+  const { inquiries } = useRealInquiries();
 
   const [activeTab, setActiveTab] = useState(
     typeof window !== "undefined"
@@ -304,9 +300,8 @@ export function ConfectionerDashboard() {
     (t) => t.status === "in_progress" || t.status === "pending"
   ).length;
   const unreadRemindersCount = reminders.filter((r) => !r.isRead && !r.isDone).length;
-  const negotiationsPendingCount = negotiations.filter(
-    (n) => n.confectionerId === confectioner.id && n.status === "pending_confectioner"
-  ).length;
+  // ZV33-4 §A11: мок-вкладка «Согласование» (ConfectionerNegotiationTab) снята с рендера —
+  // реальные индивидуальные предложения живут во вкладке «Заявки из конструктора».
 
   const totalRevenue = myOrders
     .filter((o) => o.paymentStatus === "released")
@@ -368,7 +363,6 @@ export function ConfectionerDashboard() {
                 <SidebarTab icon={Factory} label="Карты и партии" active={activeTab === "production"} onClick={() => setActiveTab("production")} />
                 <SidebarTab icon={BellRing} label="Напоминания" badge={String(unreadRemindersCount)} active={activeTab === "reminders"} onClick={() => setActiveTab("reminders")} />
                 <SidebarTab icon={MessageCircle} label="Заявки" badge={String(inquiries.length)} active={activeTab === "inquiries"} onClick={() => setActiveTab("inquiries")} />
-                <SidebarTab icon={FileText} label="Согласование" badge={String(negotiationsPendingCount)} active={activeTab === "negotiations"} onClick={() => setActiveTab("negotiations")} />
                 <SidebarTab icon={ImageIcon} label="Канал" badge={String(myPosts.length)} active={activeTab === "channel"} onClick={() => setActiveTab("channel")} />
                 <SidebarTab icon={Utensils} label="Где попробовать" active={activeTab === "tasting"} onClick={() => setActiveTab("tasting")} />
                 <SidebarTab icon={Star} label="Отзывы" active={activeTab === "reviews-cf"} onClick={() => setActiveTab("reviews-cf")} />
@@ -1078,135 +1072,10 @@ export function ConfectionerDashboard() {
 
             {activeTab === "reminders" && <ConfectionerRemindersTab />}
 
-            {activeTab === "negotiations" && (
-              <ConfectionerNegotiationTab confectionerId={confectioner.id} />
-            )}
-
-            {activeTab === "inquiries" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h1 className="font-display text-2xl font-bold">Заявки из конструктора</h1>
-                  <div className="flex items-center gap-2">
-                    {inquiriesStale && (
-                      <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
-                        Офлайн-данные
-                      </Badge>
-                    )}
-                    <Button size="sm" variant="outline" onClick={() => refetchInquiries()}>
-                      Обновить
-                    </Button>
-                  </div>
-                </div>
-                {inquiries.length === 0 && (
-                  <Card className="p-8 text-center text-muted-foreground text-sm">
-                    Открытых заявок пока нет — новые появятся здесь автоматически
-                  </Card>
-                )}
-                <div className="space-y-3">
-                  {inquiries.map((inq) => (
-                    <Card key={inq.id} className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Avatar className="h-10 w-10">
-                          <AvatarFallback>{inq.customerName ? inq.customerName[0] : "?"}</AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-semibold">{inq.customerName || "Запрос"}</span>
-                            <Badge variant={inq.status === "new" ? "default" : "secondary"} className="text-[10px]">
-                              {inq.status === "new" ? "Новая" : inq.status === "quoted" ? "Отвечена" : "Отклонена"}
-                            </Badge>
-                          </div>
-                          <div className="text-xs text-muted-foreground mb-2">
-                            {inq.eventType || "—"} • {inq.base || "—"} • {inq.filling || "—"} • {inq.servings} порц. • {inq.city || "—"}
-                          </div>
-                          {inq.comment && (
-                            <div className="text-sm text-muted-foreground mb-2 p-2 bg-muted/50 rounded">
-                              {inq.comment}
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">Бюджет клиента:</span>
-                            <span className="font-semibold">{formatCurrency(inq.budget)}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-2 shrink-0">
-                          <Button
-                            size="sm"
-                            disabled={inq.status !== "new" || !inq.negotiationId || quoteNegotiation.isPending}
-                            title={
-                              !inq.negotiationId
-                                ? "Демо-данные — отклик недоступен"
-                                : `Предложить ${formatCurrency(inq.budget)}`
-                            }
-                            onClick={() => {
-                              if (!inq.negotiationId) return;
-                              quoteNegotiation.mutate(
-                                { negotiationId: inq.negotiationId, priceRub: inq.budget },
-                                {
-                                  onSuccess: () =>
-                                    toast.success("Предложение отправлено!", {
-                                      description: `Цена: ${formatCurrency(inq.budget)}`,
-                                    }),
-                                  onError: (error: Error) =>
-                                    toast.error("Не удалось отправить предложение", {
-                                      description: error.message,
-                                    }),
-                                }
-                              );
-                            }}
-                          >
-                            Откликнуться
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={inq.status !== "new" || !inq.negotiationId || declineNegotiation.isPending}
-                                title={
-                                  !inq.negotiationId
-                                    ? "Демо-данные — отклонение недоступно"
-                                    : undefined
-                                }
-                              >
-                                Отклонить
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Отклонить заявку?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Заявка {inq.customerName ? `от ${inq.customerName} ` : ""}будет отклонена — покупатель увидит, что вы не участвуете в этом запросе.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Вернуться</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => {
-                                    if (!inq.negotiationId) return;
-                                    declineNegotiation.mutate(
-                                      { negotiationId: inq.negotiationId },
-                                      {
-                                        onSuccess: () => toast.success("Заявка отклонена"),
-                                        onError: (error: Error) =>
-                                          toast.error("Не удалось отклонить заявку", {
-                                            description: error.message,
-                                          }),
-                                      }
-                                    );
-                                  }}
-                                >
-                                  Отклонить заявку
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </div>
+            {/* ZV33-4 §A11: мок-вкладка снята с рендера; легаси-ссылки ?tab=negotiations
+                показывают реальную вкладку «Заявки из конструктора». */}
+            {(activeTab === "negotiations" || activeTab === "inquiries") && (
+              <ConfectionerInquiriesTab />
             )}
 
             {activeTab === "channel" && (

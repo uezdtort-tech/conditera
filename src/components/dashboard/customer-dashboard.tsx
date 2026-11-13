@@ -51,7 +51,8 @@ import {
   CustomerLoyaltyTab,
   CustomerNotificationsTab,
 } from "@/components/dashboard/customer-loyalty-notifications-tabs";
-import { CustomerNegotiationTab } from "@/components/dashboard/negotiation-tabs";
+import { BuyerOffersTab } from "@/components/dashboard/buyer-offers-tab";
+import { useBuyerOffersPendingCount } from "@/lib/use-buyer-offers";
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
 import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { OrderSimilarStrip } from "@/components/dashboard/order-similar-strip";
@@ -96,7 +97,6 @@ export function CustomerDashboard() {
   const user = useAppStore((s) => s.user);
   const storeOrders = useAppStore((s) => s.orders);
   const favorites = useAppStore((s) => s.favorites);
-  const negotiations = useAppStore((s) => s.negotiations);
   const products = useAppStore((s) => s.products);
   const logout = useAppStore((s) => s.logout);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
@@ -122,6 +122,11 @@ export function CustomerDashboard() {
   // Реальные заказы (GET /api/orders). Fallback на store-заказы только если API недоступен.
   const { orders: realOrders, isStale: ordersStale } = useRealOrders();
   const orders = ordersStale ? storeOrders : realOrders || storeOrders;
+
+  // ZV33-4 §B6: реальный счётчик ожидающих ответа предложений (GET /api/inquiries);
+  // мок store.negotiations больше не участвует (вкладка заменена BuyerOffersTab).
+  // Хук вызывается до раннего return (!user) — правила хуков.
+  const negotiationsPendingCount = useBuyerOffersPendingCount();
 
   // Вкладка: nav.params (SPA-навигация) → URL (?tab= из колокола уведомлений) → overview
   const [activeTab, setActiveTab] = useState(
@@ -363,7 +368,6 @@ export function CustomerDashboard() {
     setRepeatData(null);
   }
   const favoriteProducts = products.filter((p) => favorites.includes(p.id));
-  const negotiationsPendingCount = negotiations.filter((n) => n.status === "pending_customer").length;
 
   const totalSpent = myOrders
     .filter((o) => o.paymentStatus === "released" || o.paymentStatus === "escrow")
@@ -457,7 +461,7 @@ export function CustomerDashboard() {
                 />
                 <SidebarTab
                   icon={FileText}
-                  label="Согласование"
+                  label="Предложения"
                   badge={String(negotiationsPendingCount)}
                   active={activeTab === "negotiations"}
                   onClick={() => setActiveTab("negotiations")}
@@ -494,7 +498,7 @@ export function CustomerDashboard() {
                 />
                 <SidebarTab
                   icon={FileText}
-                  label="Согласование"
+                  label="Предложения"
                   badge={String(negotiationsPendingCount)}
                   active={activeTab === "negotiations"}
                   onClick={() => setActiveTab("negotiations")}
@@ -1110,7 +1114,8 @@ export function CustomerDashboard() {
             )}
 
             {activeTab === "holidays" && <CustomerHolidaysTab />}
-            {activeTab === "negotiations" && <CustomerNegotiationTab />}
+            {/* ZV33-4 §B6/B11: реальная вкладка «Предложения кондитеров» вместо мока */}
+            {activeTab === "negotiations" && <BuyerOffersTab />}
             {activeTab === "referral" && <CustomerReferralTab />}
             {activeTab === "tracking" && <CustomerTrackingTab />}
 

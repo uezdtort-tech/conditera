@@ -65,6 +65,7 @@ import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
 import type { CakeBuilderState } from "@/lib/types";
 import { csrfFetch } from "@/lib/api-client";
+import { useSubmitInquiry } from "@/lib/use-inquiry-submit"; // ZV33-4 §B12: реальный поток inquiries/negotiations
 
 // Тип для начинки из БД (40+ начинок, добавляются кондитерами, модерация админом)
 interface DbFilling {
@@ -146,6 +147,8 @@ export function CakeBuilderPage() {
   const [dbFillings, setDbFillings] = useState<DbFilling[]>([]);
   const [fillingsLoading, setFillingsLoading] = useState(false);
   const [activeFlavorGroup, setActiveFlavorGroup] = useState<string>("all");
+  // ZV33-4 §B12: мутация создания inquiry (+negotiations) из черновика
+  const submitInquiry = useSubmitInquiry();
 
   // Загрузка начинок из API при монтировании
   useEffect(() => {
@@ -311,6 +314,43 @@ export function CakeBuilderPage() {
         confectioner_ids: selectedConfectioners,
       };
 
+      // ZV33-4 §B12: ПЕРВИЧНЫЙ путь — реальный поток inquiries/negotiations
+      // (создаёт черновик + POST /api/inquiries; переговоры попадают во вкладку
+      // «Предложения кондитеров» покупателя и «Заявки из конструктора»
+      // кондитера). При недоступности (нет Supabase-сессии в песочнице и т.п.)
+      // — откат на legacy /api/quotes (quote_requests) ниже.
+      try {
+        await submitInquiry.mutateAsync({
+          snapshot: {
+            event_type: cakeBuilder.eventType || null,
+            base: cakeBuilder.base || null,
+            filling: cakeBuilder.filling || null,
+            coating: cakeBuilder.coating || null,
+            decorations: cakeBuilder.decorations || [],
+            dietary: cakeBuilder.dietary || [],
+            servings: cakeBuilder.servings || productTypeMeta?.defaultServings || 8,
+            city: cakeBuilder.city || "",
+            delivery_date: cakeBuilder.deliveryDate || null,
+            delivery_type: cakeBuilder.deliveryType || "delivery",
+            inscription: cakeBuilder.inscription || null,
+            comment: cakeBuilder.comment || null,
+          },
+          confectionerIds: selectedConfectioners,
+          estimatedPriceKopecks: Math.round((regionalPrice + deliveryCost) * 100),
+        });
+        setSubmitted(true);
+        toast.success(
+          `Запрос отправлен ${selectedConfectioners.length} кондитер(ам)!`,
+          {
+            description:
+              "Предложения появятся во вкладке «Предложения кондитеров» в личном кабинете.",
+          }
+        );
+        return;
+      } catch {
+        // Фолбэк: legacy-контур quote_requests (ниже)
+      }
+
       try {
         const res = await csrfFetch("/api/quotes", {
           method: "POST",
@@ -324,8 +364,8 @@ export function CakeBuilderPage() {
             `Запрос отправлен ${selectedConfectioners.length} кондитер(ам)!`,
             {
               description: requestDiscount && discountPercent > 0
-                ? `Запрошена скидка ${discountPercent}%. Ответы придут в течение 48 часов.`
-                : "Кондитеры предложат цену в течение 48 часов. Согласование — в личном кабинете.",
+                ? `Запрошена скидка ${discountPercent}%. Ответы придут в течение 48 часов. Согласование — во вкладке «Предложения кондитеров».`
+                : "Кондитеры предложат цену в течение 48 часов. Согласование — во вкладке «Предложения кондитеров».",
             }
           );
         } else {
@@ -420,6 +460,12 @@ export function CakeBuilderPage() {
     toast.success("Торт добавлен в корзину", {
       description: "Состав и цена видны в корзине — оформление в один шаг",
     });
+    // ZV33-8d FIX C: view-router store живёт только на '/' — из /dashboard и
+    // прочих URL navigate("checkout") был no-op (паттерн cart-drawer handleCheckout).
+    if (typeof window !== "undefined" && window.location.pathname !== "/") {
+      window.location.assign("/checkout");
+      return;
+    }
     navigate("checkout");
   };
 

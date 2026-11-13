@@ -30,6 +30,7 @@ function neg(overrides: Partial<NegotiationRecord> = {}): NegotiationRecord {
     quoted_price: 250000, // копейки = 2500 ₽
     quoted_delivery_cost: 30000,
     valid_until: new Date(Date.now() + 5 * DAY_MS).toISOString(),
+    order_id: null, // ZV33-4b D1: заказ по предложению ещё не оформлен
     ...overrides,
   };
 }
@@ -128,6 +129,23 @@ describe("validateNegotiationBinding", () => {
       USER
     );
     expect(d.ok).toBe(true);
+  });
+
+  it("order_id NOT NULL -> 409 OFFER_ALREADY_ORDERED (ZV33-4b D1: один заказ на предложение)", () => {
+    const d = validateNegotiationBinding(neg({ order_id: "order-existing" }), USER);
+    expect(d.ok).toBe(false);
+    if (!d.ok) {
+      expect(d.httpStatus).toBe(409);
+      expect(d.code).toBe("OFFER_ALREADY_ORDERED");
+      expect(d.message).toBe("Заказ по этому предложению уже оформлен");
+    }
+  });
+
+  it("order_id пустая строка/undefined трактуется как не оформлен (legacy-строки)", () => {
+    expect(validateNegotiationBinding(neg({ order_id: "" }), USER).ok).toBe(true);
+    expect(
+      validateNegotiationBinding(neg({ order_id: undefined as unknown as string | null }), USER).ok
+    ).toBe(true);
   });
 
   it("valid accepted -> ok", () => {

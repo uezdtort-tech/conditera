@@ -27,6 +27,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useAppStore } from "@/lib/store"; // ZV33-4 §B10: pendingNegotiationId для checkout-binding
 import {
   beginCheckoutIdempotencyAttempt,
   resolveCheckoutIdempotencyAttempt,
@@ -607,6 +608,10 @@ export function useCreateOrder() {
         deliveryDate,
         deliveryType,
         notes,
+        // ZV33-4 §B10: привязка индивидуального предложения из store (ставится
+        // «Перейти к оформлению заказа»); цена в теле НЕ передаётся — сервер
+        // подменит её из negotiations.quoted_price.
+        negotiationId: useAppStore.getState().pendingNegotiationId || undefined,
       };
       const idemAttempt = beginCheckoutIdempotencyAttempt(payload);
       let response: Response;
@@ -626,10 +631,16 @@ export function useCreateOrder() {
       }
       if (response.ok) {
         resolveCheckoutIdempotencyAttempt(idemAttempt.key, "success");
+        // ZV33-4 §B10: привязка отработала — чистим store.
+        useAppStore.getState().setPendingNegotiationId(null);
       } else if (response.status >= 400 && response.status < 500) {
         // Сервер отверг запрос до создания заказа — следующая отправка новая.
         resolveCheckoutIdempotencyAttempt(idemAttempt.key, "rejected");
+        // ZV33-4 §B10: чистим привязку и на 4xx (в т.ч. BINDING_ITEM_AMBIGUOUS),
+        // чтобы обычный заказ не нёс её дальше.
+        useAppStore.getState().setPendingNegotiationId(null);
       } else {
+        // Неизвестный исход: ключ И привязка живут до replay.
         resolveCheckoutIdempotencyAttempt(idemAttempt.key, "unknown");
       }
 

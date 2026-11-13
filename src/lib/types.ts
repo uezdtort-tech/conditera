@@ -1244,6 +1244,14 @@ export interface CartItem {
   custom?: {
     config: import("./cake-builder-pricing").CakeBuilderConfig;
   };
+  /**
+   * ZV33-4b D4: согласованная цена принятого индивидуального предложения
+   * (рубли, negotiations.quoted_price / 100). Ставится ТОЛЬКО кнопкой
+   * «Перейти к оформлению заказа» вкладки «Предложения кондитеров».
+   * Отображение предпочитает её, пока active pendingNegotiationId (store);
+   * сервер всё равно авторитетен — тело checkout цены не содержит.
+   */
+  agreedPriceRub?: number | null;
 }
 
 export interface ChannelPost {

@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Minus, Plus, Trash2, ShoppingBag, Tag, X, Truck } from "lucide-react";
 import { formatCurrency, calculateDelivery } from "@/lib/finance";
 import { builderConfigParams } from "@/lib/cake-builder-pricing";
+import { cartItemDisplayUnitPrice } from "@/lib/offer-format";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -32,10 +33,17 @@ export function CartDrawer() {
   const promoDiscount = useAppStore((s) => s.promoDiscount);
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
+  // ZV33-4b D4: привязка к принятому предложению активна → custom-позиция
+  // показывает согласованную цену (agreedPriceRub), а не estimate конструктора
+  const pendingNegotiationId = useAppStore((s) => s.pendingNegotiationId);
 
   const [promoInput, setPromoInput] = useState("");
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  // ZV33-4b D4: единица отображения позиции (см. offer-format.cartItemDisplayUnitPrice)
+  const displayUnit = (item: (typeof cart)[number]): number =>
+    cartItemDisplayUnitPrice(item, !!pendingNegotiationId);
+
+  const subtotal = cart.reduce((sum, item) => sum + displayUnit(item) * item.quantity, 0);
   const discount = Math.round(subtotal * promoDiscount);
   // Единая формула доставки с сервером (lib/finance.calculateDelivery по subtotal)
   const deliveryCost = calculateDelivery(subtotal).cost;
@@ -68,6 +76,17 @@ export function CartDrawer() {
       return;
     }
     setCartOpen(false);
+    // ZV33-8b FIX 1: view-router store (nav.view) работает только внутри '/'
+    // (app/page.tsx). Из /dashboard (отдельный route, который насильно
+    // возвращает view на dashboard-*) navigate("checkout") был no-op —
+    // «Оформить заказ» ничего не делал (проверено покупателем дважды).
+    // На не-'/' путях уводим реальной навигацией на /checkout (stub-маршрут
+    // рендерит CheckoutPage через RouteFallback); pendingNegotiationId и
+    // корзина переживают переход (persist partialize в store).
+    if (typeof window !== "undefined" && window.location.pathname !== "/") {
+      window.location.assign("/checkout");
+      return;
+    }
     navigate("checkout");
   };
 
@@ -195,7 +214,7 @@ export function CartDrawer() {
                         </button>
                       </div>
                       <div className="font-semibold text-sm">
-                        {formatCurrency(item.price * item.quantity)}
+                        {formatCurrency(displayUnit(item) * item.quantity)}
                       </div>
                     </div>
                   </div>

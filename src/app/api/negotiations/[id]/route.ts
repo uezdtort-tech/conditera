@@ -178,6 +178,19 @@ export async function PATCH(
           return forbiddenResponse("Только владелец может принимать");
         }
 
+        // ZV33-4b D2a: повторное принятие — 409 БЕЗ side effects. Раньше
+        // дубль писал второй revision 'accepted', перетирал accepted_at,
+        // повторно бампал inquiry.closed_at и свипом отклонял сиблингов.
+        if (negotiation.status === "accepted") {
+          return NextResponse.json(
+            {
+              error: "OFFER_ALREADY_ACCEPTED",
+              message: "Предложение уже принято",
+            },
+            { status: 409 }
+          );
+        }
+
         // Z-v32 (0085): истёкшее предложение НЕ принимается — честный 410,
         // клиент показывает «Предложение истекло — запросите новое».
         // Кондитер делает recalculate & resend (PATCH quote) → новый valid_until.
@@ -238,12 +251,15 @@ export async function PATCH(
           .update({ status: "converted", closed_at: new Date().toISOString() })
           .eq("id", negotiation.inquiry_id);
 
-        // Отклонить остальные negotiations этого inquiry
+        // Отклонить остальные negotiations этого inquiry — ТОЛЬКО ещё активные
+        // (ZV33-4b D2b: терминальные статусы не трогаем — 'expired' сиблинг
+        // оставался честной историей, а не переписывался в 'declined').
         await supabaseAdmin
           .from("negotiations")
           .update({ status: "declined", declined_at: new Date().toISOString() })
           .neq("id", id)
-          .eq("inquiry_id", negotiation.inquiry_id);
+          .eq("inquiry_id", negotiation.inquiry_id)
+          .in("status", ["pending_confectioner", "quoted", "counter_offered"]);
 
         return NextResponse.json({ negotiation: updated });
       }

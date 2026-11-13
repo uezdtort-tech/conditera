@@ -68,7 +68,7 @@ function resetDb(opts: { quoted_price: number | null; valid_until: string | null
 
 function makeBuilder(table: string): unknown {
   let pendingWrite: { type: "insert" | "update"; payload: Row } | null = null;
-  let filters: Array<{ col: string; kind: "eq" | "neq"; val: unknown }> = [];
+  let filters: Array<{ col: string; kind: "eq" | "neq" | "in"; val: unknown }> = [];
 
   const rowsFor = (): Row[] => {
     if (table === "negotiations") return [...state.negotiations.values()];
@@ -79,7 +79,13 @@ function makeBuilder(table: string): unknown {
   };
   const match = (r: Row): boolean =>
     filters.every((f) =>
-      f.kind === "eq" ? r[f.col] === f.val : r[f.col] !== f.val
+      f.kind === "eq"
+        ? r[f.col] === f.val
+        : f.kind === "neq"
+          ? r[f.col] !== f.val
+          : Array.isArray(f.val)
+            ? (f.val as unknown[]).includes(r[f.col])
+            : false
     );
 
   const compute = (): { data: unknown; error: null } => {
@@ -121,6 +127,7 @@ function makeBuilder(table: string): unknown {
     }
     if (name === "eq") filters.push({ col: args[0] as string, kind: "eq", val: args[1] });
     if (name === "neq") filters.push({ col: args[0] as string, kind: "neq", val: args[1] });
+    if (name === "in") filters.push({ col: args[0] as string, kind: "in", val: args[1] });
     return api;
   };
   const firstOf = (r: { data: unknown }): unknown => {
@@ -134,6 +141,7 @@ function makeBuilder(table: string): unknown {
     delete: chain("delete"),
     eq: chain("eq"),
     neq: chain("neq"),
+    in: chain("in"),
     order: () => api,
     limit: () => api,
     single: () => {
@@ -186,6 +194,61 @@ beforeEach(() => {
 });
 
 describe("PATCH /api/negotiations/[id] — Z-v32 expiry guards", () => {
+  it("accept уже принятого → 409 OFFER_ALREADY_ACCEPTED без side effects (ZV33-4b D2a)", async () => {
+    const acceptedAt = new Date(Date.now() - 3600_000).toISOString();
+    resetDb({ quoted_price: 250000, valid_until: new Date(Date.now() + 5 * DAY_MS).toISOString() });
+    state.negotiations.set(NEG_ID, {
+      ...state.negotiations.get(NEG_ID)!,
+      status: "accepted",
+      accepted_at: acceptedAt,
+    });
+    state.inquiries.set(INQ_ID, { id: INQ_ID, user_id: CUST_ID, status: "converted", closed_at: acceptedAt });
+
+    const res = await patchReq({ action: "accept" });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("OFFER_ALREADY_ACCEPTED");
+    expect(body.message).toBe("Предложение уже принято");
+
+    // Side effects отсутствуют: accepted_at НЕ перетёрт, revisions без дубля,
+    // inquiry.closed_at не бампнут, сиблинг не тронут
+    expect(state.negotiations.get(NEG_ID)?.accepted_at).toBe(acceptedAt);
+    expect(state.revisions).toHaveLength(0);
+    expect(state.inquiries.get(INQ_ID)?.closed_at).toBe(acceptedAt);
+    expect(state.negotiations.get(SIBLING_ID)?.status).toBe("quoted");
+  });
+
+  it("accept при accepted + истёкшем valid_until → 409 OFFER_ALREADY_ACCEPTED (не 410)", async () => {
+    resetDb({ quoted_price: 250000, valid_until: new Date(Date.now() - DAY_MS).toISOString() });
+    state.negotiations.set(NEG_ID, {
+      ...state.negotiations.get(NEG_ID)!,
+      status: "accepted",
+    });
+
+    const res = await patchReq({ action: "accept" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("OFFER_ALREADY_ACCEPTED");
+    // Ленивый гард expired НЕ применился к принятым переговорам
+    expect(state.negotiations.get(NEG_ID)?.status).toBe("accepted");
+  });
+
+  it("accept: истёкший сиблинг остаётся 'expired', активный → 'declined' (ZV33-4b D2b)", async () => {
+    resetDb({ quoted_price: 250000, valid_until: new Date(Date.now() + 5 * DAY_MS).toISOString() });
+    // Сиблинг в терминальном статусе expired — свип не должен его переписать
+    state.negotiations.set(SIBLING_ID, {
+      ...state.negotiations.get(SIBLING_ID)!,
+      status: "expired",
+      valid_until: new Date(Date.now() - DAY_MS).toISOString(),
+    });
+
+    const res = await patchReq({ action: "accept" });
+    expect(res.status).toBe(200);
+    expect(state.negotiations.get(NEG_ID)?.status).toBe("accepted");
+    // Активный статус сиблинга был бы declined; expired сохранён как терминальный
+    expect(state.negotiations.get(SIBLING_ID)?.status).toBe("expired");
+    expect(state.negotiations.get(SIBLING_ID)?.declined_at).toBeUndefined();
+  });
+
   it("accept истёкшего предложения → 410 OFFER_EXPIRED + expiredAt + лениво status='expired'", async () => {
     const expiredAt = new Date(Date.now() - DAY_MS).toISOString();
     resetDb({ quoted_price: 250000, valid_until: expiredAt });

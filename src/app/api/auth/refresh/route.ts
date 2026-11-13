@@ -16,7 +16,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyRefreshToken, createAccessToken } from "@/lib/auth";
-import { REFRESH_COOKIE } from "@/lib/session-cookies";
+import {
+  REFRESH_COOKIE,
+  clearSessionCookies,
+} from "@/lib/session-cookies";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
@@ -75,10 +78,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     if (user.is_blocked) {
-      return NextResponse.json(
-        { error: "Пользователь заблокирован" },
+      // ZV33-8d FIX A (D1): единый контракт блокировки + очистка сессионных
+      // cookie — браузер не может бесконечно пересобирать сессию по
+      // cd_refresh (раньше возвращался 403 с другим телом, но cookie жили).
+      const blockedResponse = NextResponse.json(
+        { error: "ACCOUNT_BLOCKED", message: "Аккаунт заблокирован" },
         { status: 403 }
       );
+      return clearSessionCookies(blockedResponse);
     }
 
     // 3. Получить активные роли пользователя

@@ -5,7 +5,8 @@
  *
  * Поток: покупатель отправляет заявку из конструктора → inquiry (статус open)
  * + negotiations на выбранных кондитеров (pending_confectioner). Кондитер:
- *   • quote   — PATCH /api/negotiations/[id] { action:"quote", quotedPrice }
+ *   • quote   — PATCH /api/negotiations/[id] { action:"quote", quotedPrice,
+ *               comment?, validDays? } (ZV33-4: срок действия + комментарий);
  *   • decline — PATCH /api/negotiations/[id] { action:"decline" }
  *
  * Единицы: inquiries.estimated_price и negotiations.quoted_price — КОПЕЙКИ
@@ -14,6 +15,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import { useAppStore } from "@/lib/store";
+
+export type ConfectionerInquiryStatus =
+  | "new"
+  | "quoted"
+  | "accepted"
+  | "expired"
+  | "declined"
+  | "counter_offered";
 
 export interface ConfectionerInquiry {
   id: string;
@@ -27,8 +36,26 @@ export interface ConfectionerInquiry {
   budget: number;
   deliveryDate: string | null;
   createdAt: string;
-  /** new — ждёт отклика кондитера; quoted — предложение уже отправлено */
-  status: "new" | "quoted" | "declined";
+  /**
+   * Агрегированный статус для бейджей (ZV33-4):
+   *   new — ждёт отклика кондитера; quoted — предложение отправлено;
+   *   accepted — принято покупателем; expired — срок действия истёк
+   *   (серверный статус или valid_until в прошлом — UI сравнивает сам);
+   *   counter_offered — покупатель запросил изменение; declined — отклонена.
+   */
+  status: ConfectionerInquiryStatus;
+  /** Сырой статус переговоров из API (pending_confectioner/quoted/…) */
+  rawStatus: string;
+  /** Последняя предложенная цена — КОПЕЙКИ (null — предложения ещё нет) */
+  quotedPriceKopecks: number | null;
+  /** Последняя предложенная цена — рубли (удобство для prefill формы) */
+  quotedPriceRub: number | null;
+  /** Срок действия предложения (valid_until, ISO) — null до первого quote */
+  validUntil: string | null;
+  /** Момент принятия покупателем (accepted_at, ISO) */
+  acceptedAt: string | null;
+  /** Срок изготовления из последнего предложения */
+  quotedPrepTime: string | null;
   comment: string | null;
   /** переговоры этого кондитера по заявке (для quote/decline) */
   negotiationId: string | null;
@@ -38,6 +65,13 @@ interface ApiNegotiation {
   id: string;
   confectioner_id: string;
   status: string;
+  // ZV33-4: поля индивидуального предложения (0004/0085) — КОПЕЙКИ
+  quoted_price?: number | null;
+  quoted_delivery_cost?: number | null;
+  quoted_prep_time?: string | null;
+  valid_until?: string | null;
+  accepted_at?: string | null;
+  quoted_at?: string | null;
 }
 
 interface ApiInquiry {
@@ -61,12 +95,23 @@ interface ApiInquiry {
 /** Чистый маппер строки API → UI-модель (экспортирован для unit-тестов) */
 export function mapApiInquiryToInquiry(raw: ApiInquiry, userId: string): ConfectionerInquiry {
   const own = (raw.negotiations || []).find((n) => n.confectioner_id === userId);
-  const status: ConfectionerInquiry["status"] =
-    own?.status === "declined"
+  // ZV33-4: surfaced raw status — accepted/expired/counter_offered больше не
+  // сваливаются в "quoted" (раньше accepted был неотличим от предложения).
+  const rawStatus = own?.status || "pending_confectioner";
+  const status: ConfectionerInquiryStatus =
+    rawStatus === "declined"
       ? "declined"
-      : own?.status === "quoted" || own?.status === "accepted"
-        ? "quoted"
-        : "new";
+      : rawStatus === "accepted"
+        ? "accepted"
+        : rawStatus === "expired"
+          ? "expired"
+          : rawStatus === "counter_offered"
+            ? "counter_offered"
+            : rawStatus === "quoted"
+              ? "quoted"
+              : "new";
+  const quotedPriceKopecks =
+    typeof own?.quoted_price === "number" ? own.quoted_price : null;
   return {
     id: raw.id,
     customerName: raw.customer_name || "",
@@ -79,6 +124,12 @@ export function mapApiInquiryToInquiry(raw: ApiInquiry, userId: string): Confect
     deliveryDate: raw.delivery_date,
     createdAt: raw.created_at || raw.submitted_at || "",
     status,
+    rawStatus,
+    quotedPriceKopecks,
+    quotedPriceRub: quotedPriceKopecks === null ? null : quotedPriceKopecks / 100,
+    validUntil: own?.valid_until ?? null,
+    acceptedAt: own?.accepted_at ?? null,
+    quotedPrepTime: own?.quoted_prep_time ?? null,
     comment: raw.comment,
     negotiationId: own?.id ?? null,
   };
@@ -125,6 +176,12 @@ export function useRealInquiries() {
       deliveryDate: (m.deliveryDate as string) || null,
       createdAt: (m.createdAt as string) || "",
       status: ((m.status as string) === "quoted" ? "quoted" : "new") as ConfectionerInquiry["status"],
+      rawStatus: (m.status as string) === "quoted" ? "quoted" : "pending_confectioner",
+      quotedPriceKopecks: null,
+      quotedPriceRub: null,
+      validUntil: null,
+      acceptedAt: null,
+      quotedPrepTime: null,
       comment: (m.comment as string) || null,
       negotiationId: null,
     })
@@ -140,11 +197,30 @@ export function useRealInquiries() {
   };
 }
 
-/** Кондитер предлагает цену (quotedPrice уходит в КОПЕЙКАХ) */
+/**
+ * Кондитер предлагает цену (quotedPrice уходит в КОПЕЙКАХ).
+ * ZV33-4: validDays — срок действия предложения (клампится сервером 1..60,
+ * дефолт 14; клиент клампит тем же clampOfferValidityDays для превью) и
+ * comment — необязательный комментарий к предложению.
+ */
+export interface QuoteNegotiationResult {
+  negotiation?: {
+    id?: string;
+    status?: string;
+    quoted_price?: number | null;
+    valid_until?: string | null;
+  };
+}
+
 export function useQuoteNegotiation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { negotiationId: string; priceRub: number; comment?: string }) => {
+    mutationFn: async (input: {
+      negotiationId: string;
+      priceRub: number;
+      comment?: string;
+      validDays?: number;
+    }): Promise<QuoteNegotiationResult> => {
       const headers = await getSessionAuthHeaders(await getCsrfToken());
       const res = await fetch(`/api/negotiations/${input.negotiationId}`, {
         method: "PATCH",
@@ -154,13 +230,14 @@ export function useQuoteNegotiation() {
           action: "quote",
           quotedPrice: Math.round(input.priceRub * 100),
           comment: input.comment,
+          ...(input.validDays !== undefined ? { validDays: input.validDays } : {}),
         }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error || `HTTP ${res.status}`);
       }
-      return res.json();
+      return (await res.json()) as QuoteNegotiationResult;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inquiries-real"] });

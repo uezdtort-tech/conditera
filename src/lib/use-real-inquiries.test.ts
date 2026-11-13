@@ -117,4 +117,119 @@ describe("mapApiInquiryToInquiry (Этап 10 §D1)", () => {
     expect(orphan.status).toBe("new");
     expect(orphan.negotiationId).toBeNull();
   });
+
+  // ===== ZV33-4: surfaced raw status / valid_until / accepted_at / quoted_price =====
+
+  it("ZV33-4: accepted больше не сваливается в quoted — accepted_at surfacится", () => {
+    const res = mapApiInquiryToInquiry(
+      {
+        id: "inq-5",
+        user_id: "buyer-1",
+        event_type: null,
+        base: null,
+        filling: null,
+        servings: 10,
+        city: null,
+        estimated_price: 200000,
+        delivery_date: null,
+        comment: null,
+        status: "converted", // inquiry закрыт при accept
+        negotiations: [
+          {
+            id: "neg-5",
+            confectioner_id: CF_ID,
+            status: "accepted",
+            quoted_price: 2550000,
+            quoted_prep_time: "3 дня",
+            valid_until: "2026-11-20T10:00:00.000Z",
+            accepted_at: "2026-11-10T09:30:00.000Z",
+          },
+        ],
+      },
+      CF_ID
+    );
+    expect(res.status).toBe("accepted");
+    expect(res.rawStatus).toBe("accepted");
+    expect(res.quotedPriceKopecks).toBe(2550000);
+    expect(res.quotedPriceRub).toBe(25500);
+    expect(res.validUntil).toBe("2026-11-20T10:00:00.000Z");
+    expect(res.acceptedAt).toBe("2026-11-10T09:30:00.000Z");
+    expect(res.quotedPrepTime).toBe("3 дня");
+  });
+
+  it("ZV33-4: expired статус surfacится как expired", () => {
+    const res = mapApiInquiryToInquiry(
+      {
+        id: "inq-6",
+        user_id: "buyer-1",
+        event_type: null,
+        base: null,
+        filling: null,
+        servings: 6,
+        city: null,
+        estimated_price: 100000,
+        delivery_date: null,
+        comment: null,
+        status: "open",
+        negotiations: [
+          {
+            id: "neg-6",
+            confectioner_id: CF_ID,
+            status: "expired",
+            quoted_price: 150000,
+            valid_until: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+      CF_ID
+    );
+    expect(res.status).toBe("expired");
+    expect(res.rawStatus).toBe("expired");
+    expect(res.validUntil).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("ZV33-4: counter_offered surfacится, у new нет цены и срока", () => {
+    const counter = mapApiInquiryToInquiry(
+      {
+        id: "inq-7",
+        user_id: "buyer-1",
+        event_type: null,
+        base: null,
+        filling: null,
+        servings: 6,
+        city: null,
+        estimated_price: null,
+        delivery_date: null,
+        comment: null,
+        status: "open",
+        negotiations: [{ id: "neg-7", confectioner_id: CF_ID, status: "counter_offered" }],
+      },
+      CF_ID
+    );
+    expect(counter.status).toBe("counter_offered");
+
+    const fresh = mapApiInquiryToInquiry(
+      {
+        id: "inq-8",
+        user_id: "buyer-1",
+        event_type: null,
+        base: null,
+        filling: null,
+        servings: 6,
+        city: null,
+        estimated_price: null,
+        delivery_date: null,
+        comment: null,
+        status: "open",
+        negotiations: [{ id: "neg-8", confectioner_id: CF_ID, status: "pending_confectioner" }],
+      },
+      CF_ID
+    );
+    expect(fresh.status).toBe("new");
+    expect(fresh.rawStatus).toBe("pending_confectioner");
+    expect(fresh.quotedPriceKopecks).toBeNull();
+    expect(fresh.quotedPriceRub).toBeNull();
+    expect(fresh.validUntil).toBeNull();
+    expect(fresh.acceptedAt).toBeNull();
+  });
 });

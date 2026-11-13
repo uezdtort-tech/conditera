@@ -228,9 +228,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // из negotiations.quoted_price подставляется ниже в custom-позицию.
     let negotiationBinding: NegotiationRecord | null = null;
     if (negotiationId) {
+      // ZV33-4b D1: order_id в селекте — гвард «один заказ на предложение»
+      // (повторный checkout с новым Idempotency-Key → 409, ДО создания заказа).
       const { data: negRow } = await supabaseAdmin
         .from("negotiations")
-        .select("id, user_id, status, quoted_price, quoted_delivery_cost, valid_until")
+        .select("id, user_id, status, quoted_price, quoted_delivery_cost, valid_until, order_id")
         .eq("id", negotiationId)
         .maybeSingle();
       if (!negRow) {
@@ -746,11 +748,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Z-v32 (PR-5): связываем переговоры с заказом (negotiations.order_id —
     // колонка 0004). Best-effort: сбой не валид заказ, идёт в лог.
+    // ZV33-4b D1: обновление УСЛОВНОЕ (только когда order_id ещё пуст) —
+    // параллельный/повторный checkout не может перезаписать чужую привязку
+    // (last-write-wins невозможен; первая связка выигрывает).
     if (negotiationBinding) {
       const { error: negLinkErr } = await supabaseAdmin
         .from("negotiations")
         .update({ order_id: order.id })
-        .eq("id", negotiationBinding.id);
+        .eq("id", negotiationBinding.id)
+        .is("order_id", null);
       if (negLinkErr) {
         console.error(
           "[checkout] negotiation order_id link failed:",

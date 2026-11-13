@@ -18,6 +18,12 @@
  * Используем TextEncoder для конвертации в bytes и ручной constant-time comparison.
  */
 import { NextResponse, NextRequest } from "next/server";
+import { jwtVerify } from "jose";
+import { SESSION_COOKIE } from "@/lib/session-cookies";
+import {
+  UPLOAD_GUARD_PATHS,
+  canUploadToPath,
+} from "@/lib/upload-role-guard";
 
 // Список путей, для которых CSRF-проверка пропускается.
 // Это endpoints куда стучатся внешние сервисы (YooKassa, n8n, SimpleX, cron).
@@ -49,6 +55,62 @@ const CSRF_EXEMPT_PATHS = [
 // "/api/search" через startsWith освобождал от CSRF и POST /api/search/reindex
 // (переиндексация поискового индекса — опасная мутация).
 const CSRF_EXEMPT_EXACT_GET = new Set(["/api/search"]);
+
+/**
+ * ZV33-8d FIX B (D2): роли из app-JWT cookie cd_session (HS256, jose —
+ * edge-safe; СЕРВЕРНЫЕ модули с node-only зависимостями типа bcryptjs не
+ * импортируем). Возвращает null, если токена нет/невалиден — это
+ * «не аутентифицирован» для гварда загрузок.
+ */
+async function getSessionRoles(request: NextRequest): Promise<string[] | null> {
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret) return null;
+  try {
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
+      algorithms: ["HS256"],
+    });
+    const roles = (payload as { roles?: unknown }).roles;
+    return Array.isArray(roles) ? roles.map(String) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ZV33-8d FIX B (D2): ролевой гвард POST /api/upload и /api/services/upload.
+ * Реализован В MIDDLEWARE, потому что оба upload-роута — защищённые файлы
+ * (red-line, src/lib/redline-paths.test.ts) и менять их нельзя. Матч — ТОЧНЫЕ
+ * пути (роуты без вложенных сегментов); matcher в config покрывает /api/*.
+ *   • нет/битый cd_session → 401 {"error":"UNAUTHORIZED"};
+ *   • роли без права → 403 {"error":"FORBIDDEN"}
+ *     (политика по путям — см. upload-role-guard.ts: services/upload — только
+ *     менеджер-роли; /api/upload — + CUSTOMER: фото отзывов/тикетов).
+ * Аутентифицированные запросы идут дальше по конвейеру (CSRF и т.д.).
+ */
+async function enforceUploadRoleGuard(
+  request: NextRequest,
+  pathname: string
+): Promise<NextResponse | null> {
+  if (request.method !== "POST") return null;
+  if (!(UPLOAD_GUARD_PATHS as readonly string[]).includes(pathname)) return null;
+
+  const roles = await getSessionRoles(request);
+  if (!roles) {
+    return NextResponse.json(
+      { error: "UNAUTHORIZED", message: "Требуется аутентификация" },
+      { status: 401 }
+    );
+  }
+  if (!canUploadToPath(roles, pathname)) {
+    return NextResponse.json(
+      { error: "FORBIDDEN", message: "Недостаточно прав для загрузки файлов" },
+      { status: 403 }
+    );
+  }
+  return null;
+}
 
 function isCsrfExempt(pathname: string, method: string): boolean {
   if (CSRF_EXEMPT_EXACT_GET.has(pathname)) {
@@ -117,6 +179,15 @@ export async function proxy(request: NextRequest) {
   // Пробрасываем в downstream-роуты (capture.requestIdFrom читает его)
   // и возвращаем клиенту — ответ можно сопоставить с app_error_events.
   const requestId = request.headers.get("x-request-id") || crypto.randomUUID();
+
+  // === ZV33-8d FIX B (D2): ролевой гвард загрузок (до CSRF/сессии —
+  // чистые 401/403 по ролям, см. enforceUploadRoleGuard) ===
+  const uploadGuardResponse = await enforceUploadRoleGuard(request, pathname);
+  if (uploadGuardResponse) {
+    uploadGuardResponse.headers.set("x-request-id", requestId);
+    return uploadGuardResponse;
+  }
+
   const headersWithId = new Headers(request.headers);
   headersWithId.set("x-request-id", requestId);
   const requestWithId = new NextRequest(request.nextUrl, {

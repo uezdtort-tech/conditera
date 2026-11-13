@@ -128,6 +128,14 @@ interface AppState {
   cartOpen: boolean;
   promoCode: string | null;
   promoDiscount: number;
+  /**
+   * ZV33-4 §B10: переговоры, привязанные к ОФОРМЛЕНИЮ индивидуального
+   * предложения. Ставится кнопкой «Перейти к оформлению заказа» во вкладке
+   * «Предложения кондитеров», читается колл-сайтами POST /api/checkout
+   * (negotiationId в теле), чистится после отправки. Цена в теле НИКОГДА не
+   * передаётся — сервер подменяет её из negotiations.quoted_price.
+   */
+  pendingNegotiationId: string | null;
 
   // Favorites
   favorites: string[]; // product ids
@@ -272,12 +280,24 @@ interface AppState {
    * Цена считается по ЕДИНОЙ формуле lib/cake-builder-pricing; дедуп по
    * JSON.stringify(config); productId = "" (товара в БД нет).
    */
-  addCustomToCart: (input: { config: import("./cake-builder-pricing").CakeBuilderConfig; quantity?: number }) => void;
+  addCustomToCart: (input: {
+    config: import("./cake-builder-pricing").CakeBuilderConfig;
+    quantity?: number;
+    /**
+     * ZV33-4b D4: согласованная цена принятого предложения (рубли).
+     * Только для добавления из вкладки «Предложения кондитеров»; в estimate
+     * корзины (item.price) НЕ пишется — отображение предпочитает её, пока
+     * active pendingNegotiationId (см. cartItemDisplayUnitPrice).
+     */
+    agreedPriceRub?: number;
+  }) => void;
   /** Ключ — itemId позиции (fallback для старых корзин — productId). */
   removeFromCart: (productIdOrItemId: string) => void;
   updateCartQuantity: (productIdOrItemId: string, quantity: number) => void;
   clearCart: () => void;
   setCartOpen: (open: boolean) => void;
+  /** ZV33-4 §B10: см. комментарий у поля pendingNegotiationId. */
+  setPendingNegotiationId: (id: string | null) => void;
   applyPromo: (code: string) => { success: boolean; discount: number; error?: string };
   clearPromo: () => void;
 
@@ -554,6 +574,7 @@ export const useAppStore = create<AppState>()(
       cartOpen: false,
       promoCode: null,
       promoDiscount: 0,
+      pendingNegotiationId: null,
 
       favorites: [],
 
@@ -759,6 +780,7 @@ export const useAppStore = create<AppState>()(
           nav: { view: "home" },
           cart: [],
           favorites: [],
+          pendingNegotiationId: null,
         });
       },
 
@@ -879,7 +901,7 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      addCustomToCart: ({ config, quantity = 1 }) => {
+      addCustomToCart: ({ config, quantity = 1, agreedPriceRub }) => {
         const builderConfig: CakeBuilderConfig = { ...config };
         // ОДНА формула с сервером (lib/cake-builder-pricing) + региональный коэффициент
         const price = calculateBuilderPrice(builderConfig) ?? 0;
@@ -893,6 +915,10 @@ export const useAppStore = create<AppState>()(
         if (existingIndex >= 0) {
           const newCart = [...cart];
           newCart[existingIndex].quantity += quantity;
+          // ZV33-4b D4: согласованную цену обновляем и на дедуп-ветке
+          if (agreedPriceRub !== undefined) {
+            newCart[existingIndex] = { ...newCart[existingIndex], agreedPriceRub };
+          }
           set({ cart: newCart, cartOpen: true });
           return;
         }
@@ -908,6 +934,9 @@ export const useAppStore = create<AppState>()(
               quantity,
               confectionerId: "",
               custom: { config: builderConfig },
+              // ZV33-4b D4: цена предложения для честного отображения
+              // (сервер остаётся авторитетным — тело checkout цены не содержит)
+              ...(agreedPriceRub !== undefined ? { agreedPriceRub } : {}),
             },
           ],
           cartOpen: true,
@@ -932,8 +961,11 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      clearCart: () => set({ cart: [], promoCode: null, promoDiscount: 0 }),
+      clearCart: () => set({ cart: [], promoCode: null, promoDiscount: 0, pendingNegotiationId: null }),
       setCartOpen: (open) => set({ cartOpen: open }),
+      // ZV33-4 §B10: привязка переговоров к оформлению (чистится колл-сайтами
+      // после успешной отправки POST /api/checkout).
+      setPendingNegotiationId: (id) => set({ pendingNegotiationId: id }),
 
       applyPromo: (code) => {
         const upperCode = code.toUpperCase();
@@ -2240,6 +2272,8 @@ export const useAppStore = create<AppState>()(
         theme: state.theme,
         userCity: state.userCity,
         userLocation: state.userLocation,
+        // ZV33-4 §B10: привязка переживает перезагрузку страницы на checkout
+        pendingNegotiationId: state.pendingNegotiationId,
         // История чата сохраняется, чтобы при перезагрузке страницы пользователь видел предыдущие сообщения
         chatMessages: (state.chatMessages || []).slice(-500), // последние 500 сообщений
         activeChatRoom: state.activeChatRoom,

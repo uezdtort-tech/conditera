@@ -56,6 +56,7 @@ import {
   calculateDelivery,
 } from "@/lib/finance";
 import { builderConfigParams } from "@/lib/cake-builder-pricing";
+import { cartItemDisplayUnitPrice } from "@/lib/offer-format"; // ZV33-4b D4: честная цена при binding
 import type { CartItem } from "@/lib/types";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -1436,6 +1437,9 @@ export function CheckoutPage() {
   const promoCode = useAppStore((s) => s.promoCode);
   const promoDiscount = useAppStore((s) => s.promoDiscount);
   const user = useAppStore((s) => s.user);
+  // ZV33-4 §B10: привязка индивидуального предложения (ставится кнопкой
+  // «Перейти к оформлению заказа» во вкладке «Предложения кондитеров»).
+  const pendingNegotiationId = useAppStore((s) => s.pendingNegotiationId);
   const [step, setStep] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cash" | "split">("card");
   // Получение: доставка / самовывоз (уходит в POST /api/checkout как deliveryType)
@@ -1467,7 +1471,13 @@ export function CheckoutPage() {
     }
   }, [user]);
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  // ZV33-4b D4: привязка к принятому предложению активна → custom-позиция
+  // показывает согласованную цену (agreedPriceRub), а не estimate конструктора.
+  // Сервер авторитетен: тело checkout цены не содержит.
+  const displayUnit = (item: CartItem): number =>
+    cartItemDisplayUnitPrice(item, !!pendingNegotiationId);
+
+  const subtotal = cart.reduce((sum, item) => sum + displayUnit(item) * item.quantity, 0);
   const discount = Math.round(subtotal * promoDiscount);
   // Единая формула доставки с сервером (lib/finance.calculateDelivery); самовывоз — 0 ₽
   const deliveryCost = deliveryType === "delivery" ? calculateDelivery(subtotal).cost : 0;
@@ -1563,6 +1573,9 @@ export function CheckoutPage() {
         notes: notes.trim() || undefined,
         promoCode: promoCode || undefined,
         paymentMethod,
+        // ZV33-4 §B10: привязка переговоров — сервер подменит цену ЕДИНСТВЕННОЙ
+        // custom-позиции на negotiations.quoted_price. ЦЕНЫ В ТЕЛЕ НЕТ.
+        negotiationId: pendingNegotiationId || undefined,
       };
       const idemAttempt = beginCheckoutIdempotencyAttempt(checkoutBody);
       activeIdemAttempt = idemAttempt;
@@ -1587,9 +1600,18 @@ export function CheckoutPage() {
       // 5xx/мусорный ответ — исход неизвестен → ключ живёт до replay.
       if (res.ok && data?.orderId) {
         resolveCheckoutIdempotencyAttempt(idemAttempt.key, "success");
+        // ZV33-4 §B10: привязка отработала (или заказ без неё) — чистим.
+        useAppStore.getState().setPendingNegotiationId(null);
       } else if (res.status >= 400 && res.status < 500) {
         resolveCheckoutIdempotencyAttempt(idemAttempt.key, "rejected");
+        // ZV33-4 §B10: сервер отверг запрос до создания заказа (в т.ч.
+        // BINDING_ITEM_AMBIGUOUS/OFFER_NOT_ACCEPTED) — чистим привязку, чтобы
+        // обычный заказ не нёс её дальше. Повторное привязывание — кнопкой
+        // «Перейти к оформлению заказа» во вкладке предложений.
+        useAppStore.getState().setPendingNegotiationId(null);
       } else {
+        // Неизвестный исход (5xx/сеть): ключ И привязку сохраняем — retry
+        // той же отправки должен сохранить согласованную цену.
         resolveCheckoutIdempotencyAttempt(idemAttempt.key, "unknown");
       }
 
@@ -1853,7 +1875,7 @@ export function CheckoutPage() {
                         <div className="flex-1 min-w-0">
                           <div className="truncate font-medium">{item.title}</div>
                           <div className="text-xs text-muted-foreground">
-                            {item.quantity} × {formatCurrency(item.price)}
+                            {item.quantity} × {formatCurrency(displayUnit(item))}
                             {params.length > 0 && (
                               <span className="ml-1">
                                 · {params.map((p) => `${p.label}: ${p.value}`).join(", ")}
@@ -1862,7 +1884,7 @@ export function CheckoutPage() {
                           </div>
                         </div>
                         <div className="font-medium shrink-0">
-                          {formatCurrency(item.price * item.quantity)}
+                          {formatCurrency(displayUnit(item) * item.quantity)}
                         </div>
                       </div>
                     );
@@ -2081,11 +2103,11 @@ export function CheckoutPage() {
                 <div className="flex-1 min-w-0">
                   <div className="truncate">{item.title}</div>
                   <div className="text-xs text-muted-foreground">
-                    {item.quantity} × {formatCurrency(item.price)}
+                    {item.quantity} × {formatCurrency(displayUnit(item))}
                   </div>
                 </div>
                 <div className="font-medium">
-                  {formatCurrency(item.price * item.quantity)}
+                  {formatCurrency(displayUnit(item) * item.quantity)}
                 </div>
               </div>
             ))}

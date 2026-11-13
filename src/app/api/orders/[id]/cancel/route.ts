@@ -77,6 +77,10 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       .from("orders")
       .update({
         status: "CANCELLED",
+        // ZV33-8b FIX 2: timestamp отмены — POST /cancel не ставил cancelled_at
+        // (NULL после UI-отмены), хотя PATCH-путь статусов его пишет
+        // (route.ts: newStatus === "CANCELLED" → cancelled_at).
+        cancelled_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId)

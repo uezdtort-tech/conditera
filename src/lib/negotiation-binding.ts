@@ -57,6 +57,12 @@ export interface NegotiationRecord {
   quoted_price: number | null;
   quoted_delivery_cost: number | null;
   valid_until: string | Date | null;
+  /**
+   * ZV33-4b D1: заказ, уже оформленный по этому предложению (0004).
+   * NOT NULL → повторный checkout по тем же переговорам — 409
+   * OFFER_ALREADY_ORDERED (один заказ на принятое предложение).
+   */
+  order_id: string | null;
 }
 
 export type BindingRejection = {
@@ -68,6 +74,7 @@ export type BindingRejection = {
     | "OFFER_NOT_ACCEPTED"
     | "OFFER_EXPIRED"
     | "OFFER_NO_PRICE"
+    | "OFFER_ALREADY_ORDERED"
     | "BINDING_ITEM_AMBIGUOUS";
   message: string;
   expiredAt?: string;
@@ -86,7 +93,10 @@ export type BindingDecision =
  *   • valid_until в прошлом при status='accepted' — НЕ отклонение:
  *     фиксация цены произошла в момент accept (до истечения — гарант:
  *     роут + триггер 0085), оформление после accept не отменяет сделку;
- *   • status<>'accepted' → 409: сначала явное принятие в переговорах.
+ *   • status<>'accepted' → 409: сначала явное принятие в переговорах;
+ *   • order_id NOT NULL → 409 OFFER_ALREADY_ORDERED (ZV33-4b D1):
+ *     ПРЕДЛОЖЕНИЕ РАСХОДУЕТСЯ ОДНИМ ЗАКАЗОМ — повторный checkout с новым
+ *     Idempotency-Key больше не плодит дубли заказов по той же цене.
  */
 export function validateNegotiationBinding(
   negotiation: NegotiationRecord | null | undefined,
@@ -129,6 +139,20 @@ export function validateNegotiationBinding(
       httpStatus: 409,
       code: "OFFER_NOT_ACCEPTED",
       message: "Сначала примите предложение в переговорах",
+    };
+  }
+  // ZV33-4b D1: предложение уже расходовано заказом — второй заказ по той же
+  // цене невозможен (раньше каждый новый Idempotency-Key создавал дубль).
+  if (
+    negotiation.order_id !== null &&
+    negotiation.order_id !== undefined &&
+    negotiation.order_id !== ""
+  ) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      code: "OFFER_ALREADY_ORDERED",
+      message: "Заказ по этому предложению уже оформлен",
     };
   }
   if (negotiation.quoted_price === null || negotiation.quoted_price === undefined) {
