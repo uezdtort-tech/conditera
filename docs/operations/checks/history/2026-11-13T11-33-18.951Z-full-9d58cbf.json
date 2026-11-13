@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "mode": "full",
+  "started_at": "2026-11-13T11:29:56.967Z",
+  "finished_at": "2026-11-13T11:33:18.951Z",
+  "commit_sha": "9d58cbf14a7331fd2d6206be80d9881248e3fa62",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=2560 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 4547,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored .",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 46333,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 149441,
+      "passed": true,
+      "output_tail": "on capture failed\n\nstderr | src/lib/http-helpers.test.ts > handleRouteError > возвращает 500 для неизвестной ошибки\n[route] unhandled error: Unexpected Error: Unexpected\n    at /home/z/my-project/src/lib/http-helpers.test.ts:125:17\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64\n\nstderr | src/lib/http-helpers.test.ts > handleRouteError > не раскрывает детали для не-HttpError\n[route] unhandled error: DB connection string postgres://user:pass@host Error: DB connection string postgres://user:pass@host\n    at /home/z/my-project/src/lib/http-helpers.test.ts:133:17\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///home/z/my-project/node_modules/@vitest/runner/dist/chunk-artifact.js:2955:64\n\nstderr | unknown test\n[pgrst/pool] DATABASE_URL=file:/home/z/my-project/db/custom.db… — платформенный плейсхолдер, использую встроенный PG: postgresql://postgres@127.0.0.1:54329/conditera\n\nstderr | src/app/api/products/products-post-initial-history.test.ts > POST /api/products — D1 initial-строка истории цен > best-effort: сбой set_product_price не ломает 201\n[products] initial price history seed failed (non-blocking): set_product_price: connection refused\n\nstderr | src/app/api/courier/earnings/route-earnings-source.test.ts > GET /api/courier/earnings — канонический источник заработка (A-3) > ошибка БД → 500 (не молчаливый ноль в финансовых сводках)\n[courier/earnings] query error: connection refused\n\nstderr | src/app/api/recipes/[id]/acceptances/route.test.ts > GET /api/recipes/[id]/acceptances — no-mock контракт (ZV33-7b FIX 2) > сбой recipe_acceptances → fallback на audit_logs (реальные записи), всё ещё без mock\n[recipes/acceptances] recipe_acceptances failed, fallback to audit_logs: [object Object]\n\nstderr | src/app/api/admin/dashboard/route.test.ts > GET /api/admin/dashboard — dev-stub удалён > недоступность БД → 503, а не демо-данные\n[admin/dashboard] DB unavailable: DB down (simulated)\n\nstderr | src/app/api/confectioner/products/[id]/price/route.test.ts > POST price — D2 same-instant → 409 PRICE_PERIOD_CONFLICT > 23514 на ДРУГОМ constraint → не маскируется (500 как прежде)\nPOST /api/confectioner/products/[id]/price error: violates check constraint \"product_price_history_amount_check\"\n\nstderr | src/app/api/courier/dashboard/route-earnings-source.test.ts > GET /api/courier/dashboard — канонический источник заработка (A-3) > ошибка запроса истории → fail-safe stub (без частичных цифр)\n[courier/dashboard] history query error: connection refused\n[courier/dashboard] DB unavailable, returning stub: connection refused\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает Promise<boolean>\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение при минимальных параметрах\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > не бросает исключение со всеми параметрами\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=true (повторная заявка)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > принимает isResubmit=false (новая заявка, по умолчанию)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает unicode в businessName (эмодзи)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает длинные строки (businessName > 100 chars)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > обрабатывает специальные символы в email\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/telegram-bot.test.ts > notifyNewConfectionerPending > возвращает false в mock-режиме (без TELEGRAM_BOT_TOKEN)\n[telegram] CHANNEL_ID not set — notification not sent\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > production + stub-конфигурация → создание платежа ЗАПРЕЩЕНО (FAIL, mock отключён)\n[yookassa] createPayment: шлюз не настроен (production) — mock отключён\n\nstderr | src/lib/payment-prod-guard.test.ts > P1.1 payment guard: production + stub configuration > development + stub-конфигурация → mock-платёж ДОПУСТИМ (stub только вне production)\n⚠️ YooKassa не настроена. Используется mock-ответ (только dev).\n   Для активации укажите YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в .env\n\nstderr | src/app/api/video-feed/route.test.ts > GET /api/video-feed — no-mock контракт (ZV33-7b FIX 3) > ошибка БД → 503 с маскированным сообщением, БЕЗ mock-ленты\n[video-feed] GET query error: connection refused\n[route] 503: Видеолента временно недоступна, попробуйте позже undefined\n\nstderr | unknown test\n[pgrst/pool] DATABASE_URL=file:/home/z/my-project/db/custom.db… — платформенный плейсхолдер, использую встроенный PG: postgresql://postgres@127.0.0.1:54329/conditera\n\nstderr | src/lib/ai-dialogue-access.test.ts > assertDialoguePairAccess (IDOR-guard ai-dialogue) > FAIL-CLOSED: ошибка БД при проверке → 500 (не 403 и не пропуск)\n[ai-dialogue-access] confectioner lookup failed: connection refused\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is not set\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret > returns false when CRON_SECRET is empty string\n[cron] CRON_SECRET not set — refusing to run\n\nstderr | src/lib/auth.expiry.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/lib/chat-rooms.resolve-peer.test.ts > resolveDirectPeer > сбой БД → HttpError 500 (fail-closed)\n[chat] confectioner resolve: Connection refused\n\nstderr | src/app/api/supplier/validators.test.ts\n[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail.\n\nstderr | src/app/api/supplier/validators.test.ts\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_REFRESH_SECRET не задана — используется dev-значение. НЕ для production!\n⚠️  [auth] JWT_SECRET не задана — используется dev-значение. НЕ для production!\n\nstderr | src/lib/courier-assignments.test.ts > getCourierOrderIds > возвращает пустой список при ошибке БД (fail-safe)\n[courier-assignments] fetch error: boom\n\n"
+    },
+    {
+      "name": "route-error-coverage",
+      "cmd_line": "node scripts/verify/route-error-coverage.mjs",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 39,
+      "passed": true,
+      "output_tail": "route-error-coverage: checked=47/48\n✅ все маршруты критичного периметра используют единую регистрацию ошибок\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=full --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 1617,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=full commit=9d58cbf files_scanned=1801 findings=0 allowlisted=46 skipped(missing=8,binary=0,size=0,path=184) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0
+  }
+}

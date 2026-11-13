@@ -282,3 +282,35 @@ Severity события — `debug|info|warning|error|critical` (CHECK-огра�
 - confectioner_quotes: accept-endpoint отсутствует; UI предложений (countdown/validDays/checkout negotiationId wiring) — ZV32-005.
 - Admin read-only панель истории цен, бейдж «Запланировано», дефолт даты планирования — ZV32-006.
 - Варианты товара: schema-ready (0083), но мёртвый код — роуты цен пинуют `variant=NULL`; `wholesale_prices` (b2b) вне истории цен (version NULL по решению) — ZV32-007.
+
+---
+
+## Цикл Z-v33 (финальный, 2026-11-13)
+
+**Статус:** RELEASE CANDIDATE. Вердикт — OWNER ACTION REQUIRED (код готов; production build + конфигурация + push — действия владельца). Эталон цикла — `docs/release/RELEASE_CANDIDATE.md`; gate-артефакт — `docs/operations/checks/Z-V33_FINAL_GATE.md` (+ ADDENDUM ZV33-9b).
+
+### Хронология пакетов (кратко)
+
+- ZV33-4 — UI индивидуальных предложений поверх готового бэкенда: вкладки кондитера/покупателя, offer-format (МСК, копейки→₽), Zustand `pendingNegotiationId`, checkout-binding, cart-drawer/cake-builder навигация. Запись: `agent-ctx/ZV33-4-zai-code.md`.
+- ZV33-5 — ZV32-005 end-to-end (9 проверок: accept, 410 OFFER_EXPIRED, 409 OFFER_ALREADY_ACCEPTED, подмена цены невозможна, серверная цена 15 000 ₽, фиксация переживает изменение цены, revisions, TZ). Дефект D1 «один заказ на переговоры» закрыт: 409 OFFER_ALREADY_ORDERED + условная ссылка order_id; D3/D4 — статус и цена в обеих ролях. **ZV32-005 → CLOSED.**
+- ZV33-6 — CMS-регрессия Part A (draft→preview→publish→409 CMS_CONFLICT→rollback→banners→audit ALL PASS); Part C — чистка mock-поверхности.
+- ZV33-7b — удалены live-мок-фолбэки: `/api/recipes/[id]/acceptances` (фабрикация кондитеров при пустом результате) и `/api/video-feed` (маскирование ошибки БД → честный 503).
+- ZV33-8a/8b/8c — роли с доказательствами: покупатель (регистрация 201 + автологин, покупка UK-2026-943071 c `order_items.price_version_id NOT NULL`, серверная доставка, чат, отмена по правилам, негативные 403/400), кондитер (товар с фото через защищённый upload 201, Acceptance Gate GREEN, история цен, PENDING→CONFIRMED), админ (block/unblock → login 403, матрица прав 8 роутов × 4 роли PASS).
+- Security — `/api/auth/session` + `/api/auth/refresh` отдают 403 ACCOUNT_BLOCKED и чистят cookie для заблокированных профилей; upload role-guard в `src/proxy.ts` + `src/lib/upload-role-guard.ts` (без изменения 4 защищённых файлов): `/api/upload` — CONFECTIONER/ADMIN/SUPER_ADMIN + CUSTOMER (фото отзывов/тикетов), `/api/services/upload` — только manager; live-пробы: blocked 403, buyer→services 403, confectioner/admin 201, unauth 401.
+- Честные данные — seed-бэкфилл `product_price_history` в `scripts/db/setup.mjs` (идемпотентно, 12/12 товаров версированы); ZV33-9b — quick-режим secrets-scan исключает gitignored-файлы + токен-фикстура refresh-теста переименована.
+- Урок ZV33-3b — при ротации `JWT_SECRET` перегенерировать Supabase-ключи той же HS256-схемой (iss=local, role claim), иначе PostgREST-шим деградирует их до anon.
+
+### Итоговый gate (ZV33-9 + ADDENDUM ZV33-9b, 2026-11-13)
+
+- check:full exit 0 (typecheck 4.5s, eslint 46.3s, vitest full, route-error-coverage 47/48 — script-documented exemption, secrets full 0 findings/1801 файлов); standalone vitest: **146 файлов / 1922 теста, 0 failed, 0 skipped, 142.88s**; redline 9/9 + protected-paths status H×4; миграции 85 файлов = 85 ledger-строк (пропуски 0056/0073 — норма, 0016b/0017b присутствуют).
+- PG-интеграция: committed equivalents 39/39 (inventory 8/8, checkout idempotency 15/15, diagnostics 16/16); точный 11-сценарный harness Z-v32 C-2 — эфемерный, NOT RUN (честно задокументировано).
+- check:quick: до ZV33-9b exit 1 (8 false-positive findings: gitignored `.env.local` ×7 + 1 тест-фикстура); после ZV33-9b — **exit 0**. check:full — без изменений exit 0.
+- Матрица 15 строк: **PASS 13 / FAIL 0 / NOT RUN 2** (NOT RUN = строки 9 Production build и 10 smoke — OWNER ACTION REQUIRED: песочница 3.9 GiB RAM/no swap + запрет запуска, OOM-прецедент exit 137).
+
+### Backlog-дельты цикла
+
+ZV32-005 → CLOSED (предложения end-to-end); ZV32-003 → CLOSED (не воспроизводится, live-only vitrine подтверждён); ZV31-016 — примечание о рецидиве 2026-11-13 (drift-удаление upload-файлов, восстановлено `scripts/protected-paths.sh repair`, guard 9/9, skip-worktree не использовался); ZV32-002 остаётся OPEN P3 с меткой DEMO/NOT IMPLEMENTED (admin UI only); ZV32-001/004/006/007, ZV31-008, ZV31-014 — OPEN, не блокеры (P3/P4); новые строки ZV33-001 (P3, назначение PENDING-заказов) и ZV33-002 (P4, косметика).
+
+### Правило остановки
+
+**Разработка в цикле Z-v33 прекращена.** Все находки дальше — только в `PRODUCT_BACKLOG.md` как P3/P4 (не блокеры публикации); никаких новых пакетов/аудитов до решения владельца о push и deploy. Дальнейшие шаги — только действия владельца по RELEASE_CANDIDATE.md §5.

@@ -1,4 +1,28 @@
-# RELEASE NOTES — release/readiness-fixes (v2.0-rc1)
+# RELEASE NOTES
+
+## v2.0-rc2 — Z-v32/Z-v33 (2026-11-13)
+
+Дата: 2026-11-13. Ветка: `main` (HEAD `9d58cbf` + release-документация цикла). Статус: RELEASE CANDIDATE — см. `docs/release/RELEASE_CANDIDATE.md` (вердикт OWNER ACTION REQUIRED: production build/конфигурация/push — владелец).
+
+### Основные изменения Z-v32/Z-v33
+
+- **История цен с версиями** (миграции 0083–0086): интервалы half-open `[from, to)` без пересечений (EXCLUDE + `btree_gist`), `set_product_price`/`get_product_price_at`, планирование будущих цен с превью, catch-up lazy-sync; привязка заказов к версии цены (`order_items.price_version_id` + снимок в `orders.metadata.pricing`); маркер «от», «Цена действует с DD.MM.YYYY», защита от фиктивных скидок в каталоге; админ-коррекция с правилом HISTORICAL_IMMUTABLE.
+- **Сроки действия индивидуальных предложений** (0085 `negotiations.valid_until` + `confectioner_quotes.valid_until` + триггер-бэкстоп): accept-endpoint с 410 OFFER_EXPIRED, повторный accept → 409 OFFER_ALREADY_ACCEPTED, «один заказ на переговоры» → 409 OFFER_ALREADY_ORDERED (условная ссылка order_id), revisions сохраняются, срок в TZ Europe/Moscow; checkout-биндинг согласуется сервером (`metadata.offerBinding`) — подмена цены покупателем невозможна.
+- **UI предложений для обеих ролей**: вкладка «Предложения» у покупателя (принятие/истечение/история/переход в checkout) и у кондитера (форма предложения, re-quote, бейджи статусов); фиксация цены в заказе переживает изменение цены товара; навигация cart-drawer/buyer-offers/cake-builder → checkout починена.
+- **Security**: `/api/auth/session` + `/api/auth/refresh` отдают 403 ACCOUNT_BLOCKED и чистят cookie для заблокированных профилей; upload role-guard (`src/proxy.ts` + `src/lib/upload-role-guard.ts`): `/api/upload` — CONFECTIONER/ADMIN/SUPER_ADMIN + CUSTOMER (фото отзывов/тикетов), `/api/services/upload` — manager-only; live-пробы 401/403/201 подтверждены.
+- **Удалены live-моки**: `/api/recipes/[id]/acceptances` больше не фабрикует кондитеров при пустом результате (честный пустой ответ), `/api/video-feed` больше не маскирует ошибку БД (503 вместо фейковых видео); публичный каталог — только живые строки БД (demo-hatch `NEXT_PUBLIC_DEMO_MODE` default OFF).
+- **Seed-бэкфилл цен**: `scripts/db/setup.mjs` после сидов создаёт начальные строки `product_price_history` (идемпотентно, 12/12 товаров версированы) — локальный bootstrap и каталог не расходимся.
+- **CMS-версии/конфликты**: регрессия draft→preview→publish→409 CMS_CONFLICT→rollback→banners→audit — ALL PASS (Z-v32 Пакет E-2 + ZV33-6 Part A).
+- **Сканер секретов quick-режим** (ZV33-9b): gitignored-файлы (`.env*`) исключены из quick-скана — находки в них были структурными ложными позитивами (файл не может попасть в коммит); full-режим без изменений (0 findings / 1801 файлов).
+
+### Метрики проверок (gate Z-v33, 2026-11-13)
+
+- typecheck 0 ошибок (4.5s); ESLint 0 problems (46.3s); Vitest: **146 файлов / 1922 теста PASS, 0 skipped** (142.88s); route-error-coverage 47/48 (1 — script-documented exempt); secrets-scan full 0 findings / 1801 файлов; check:quick exit 0 (после ZV33-9b); redline 9/9; миграции 85 = 85 (ledger); PG-интеграция 39/39 (inventory 8/8, checkout-idempotency 15/15, diagnostics 16/16).
+- Production build: **NOT RUN в песочнице** (3.9 GiB RAM/no swap, OOM-прецедент exit 137) — OWNER ACTION REQUIRED (`bun run build` на машине ≥8 GB RAM).
+
+---
+
+## release/readiness-fixes (v2.0-rc1)
 
 Дата: 2026-09-29. Ветка: `release/readiness-fixes` (в main — через PR после ревью).
 

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-13T11:28:04.317Z",
+  "finished_at": "2026-11-13T11:28:27.391Z",
+  "commit_sha": "9d58cbf14a7331fd2d6206be80d9881248e3fa62",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=2560 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 4791,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored src/app/api/auth/refresh/route.ts src/app/api/auth/session/route.ts src/app/api/checkout/route.ts src/app/api/inquiries/route.ts src/app/api/negotiations/[id]/route.ts src/app/api/orders/[id]/cancel/route.ts src/app/api/recipes/[id]/acceptances/route.ts src/app/api/video-feed/route.ts src/components/cake-builder/cake-builder-page.tsx src/components/dashboard/confectioner-dashboard.tsx src/components/dashboard/customer-dashboard.tsx src/components/marketplace/cart-drawer.tsx src/components/pages/extra-pages.tsx src/lib/negotiation-binding.ts src/lib/store.ts src/lib/supabase/use-marketplace.ts src/lib/types.ts src/lib/use-real-inquiries.ts src/proxy.ts src/components/dashboard/buyer-offers-tab.tsx src/components/dashboard/confectioner-inquiries-tab.tsx src/lib/offer-format.ts src/lib/upload-role-guard.ts src/lib/use-buyer-offers.ts src/lib/use-inquiry-submit.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 6259,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run src/app/api/auth/refresh/route.test.ts src/app/api/auth/session/route.test.ts src/app/api/inquiries/route.test.ts src/app/api/negotiations/[id]/route.test.ts src/app/api/orders/[id]/cancel/route.test.ts src/app/api/recipes/[id]/acceptances/route.test.ts src/app/api/video-feed/route.test.ts src/lib/negotiation-binding.test.ts src/lib/store.test.ts src/lib/use-real-inquiries.test.ts src/lib/offer-format.test.ts src/lib/upload-role-guard.test.ts src/lib/use-buyer-offers.test.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 11633,
+      "passed": true,
+      "output_tail": "\n RUN  v4.1.10 /home/z/my-project\n\n ✓ src/app/api/orders/[id]/cancel/route.test.ts (3 tests) 35ms\n ✓ src/lib/offer-format.test.ts (18 tests) 21ms\n ✓ src/app/api/negotiations/[id]/route.test.ts (12 tests) 21ms\n ✓ src/app/api/inquiries/route.test.ts (4 tests) 18ms\n ✓ src/app/api/auth/session/route.test.ts (3 tests) 16ms\n ✓ src/app/api/video-feed/route.test.ts (3 tests) 17ms\nstdout | src/app/api/recipes/[id]/acceptances/route.test.ts > GET /api/recipes/[id]/acceptances — no-mock контракт (ZV33-7b FIX 2) > пустой recipeId → 400\n[route] 400: Recipe ID required\n\n ✓ src/app/api/recipes/[id]/acceptances/route.test.ts (4 tests) 14ms\n ✓ src/app/api/auth/refresh/route.test.ts (2 tests) 11ms\n ✓ src/lib/negotiation-binding.test.ts (19 tests) 8ms\n ✓ src/lib/use-buyer-offers.test.ts (6 tests) 6ms\n ✓ src/lib/store.test.ts (19 tests) 9ms\n ✓ src/lib/upload-role-guard.test.ts (8 tests) 5ms\n ✓ src/lib/use-real-inquiries.test.ts (6 tests) 5ms\n\n Test Files  13 passed (13)\n      Tests  107 passed (107)\n   Start at  11:28:15\n   Duration  11.29s (transform 563ms, setup 1.59s, import 792ms, tests 188ms, environment 7.21s)\n\n(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\nstderr | src/app/api/video-feed/route.test.ts > GET /api/video-feed — no-mock контракт (ZV33-7b FIX 3) > ошибка БД → 503 с маскированным сообщением, БЕЗ mock-ленты\n[video-feed] GET query error: connection refused\n[route] 503: Видеолента временно недоступна, попробуйте позже undefined\n\nstderr | src/app/api/recipes/[id]/acceptances/route.test.ts > GET /api/recipes/[id]/acceptances — no-mock контракт (ZV33-7b FIX 2) > сбой recipe_acceptances → fallback на audit_logs (реальные записи), всё ещё без mock\n[recipes/acceptances] recipe_acceptances failed, fallback to audit_logs: [object Object]\n\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=quick --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 1,
+      "duration_ms": 269,
+      "passed": false,
+      "output_tail": "src/app/api/auth/refresh/route.test.ts:15 [generic-secret] matched (value redacted, len=26)\n.env.local:4 [generic-secret] matched (value redacted, len=64)\n.env.local:5 [generic-secret] matched (value redacted, len=64)\n.env.local:6 [generic-secret] matched (value redacted, len=64)\n.env.local:7 [generic-secret] matched (value redacted, len=64)\n.env.local:14 [jwt] matched (value redacted, len=176)\n.env.local:15 [jwt] matched (value redacted, len=165)\n.env.local:16 [generic-secret] matched (value redacted, len=64)\n(secrets-scan) mode=quick commit=9d58cbf files_scanned=47 findings=8 allowlisted=0 skipped(missing=1,binary=0,size=0,path=0) template_values=78\n(secrets-scan) by_rule: generic-secret=6, jwt=2\n(secrets-scan) RESULT: LEAK_DETECTED\n"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "skipped": 0
+  }
+}

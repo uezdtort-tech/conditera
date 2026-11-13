@@ -1,6 +1,6 @@
 # UPDATE_RUNBOOK — процедура обновления проекта (§9)
 
-Область: обновление рабочей копии до нового коммита `main` и его проверка перед деплоем. Ссылки на процесс: `docs/operations/PRODUCT_OPERATING_SYSTEM.md` §9 (откат) и §10 (резервные копии). Матрица готовности и действия владельца — тот же документ, блок «Статус Z-v32 (2026-11-12): RELEASE CANDIDATE».
+Область: обновление рабочей копии до нового коммита `main` и его проверка перед деплоем. Ссылки на процесс: `docs/operations/PRODUCT_OPERATING_SYSTEM.md` §9 (откат) и §10 (резервные копии). Матрица готовности, вердикт и действия владельца — `docs/release/RELEASE_CANDIDATE.md` (Z-v33, 2026-11-13).
 
 ## 1. Получение обновлений
 
@@ -15,17 +15,23 @@ git pull --ff-only origin main   # fast-forward; force-push и rebase чужих
 ## 2. Проверка миграций БД
 
 ```bash
-ls supabase/migrations | wc -l   # эталон Z-v32: 81
+ls supabase/migrations | wc -l   # эталон Z-v33: 85
 ```
+
+Правило счётчика: `ls supabase/migrations | wc -l` должно равняться `SELECT count(*) FROM public.schema_migrations` (85 = 85 на Z-v33 gate). Пропуски номеров 0056/0073 и суффиксы `b` (0016b/0017b) — норма (исторические решения, не дыры).
 
 Сверить количество с ledger применённых миграций в целевой БД (`schema_migrations`). Применение — на локальной/disposable БД:
 
 ```bash
 bun run db:start                 # поднимает embedded PG (disposable .pgdata)
-node scripts/db/setup.mjs        # применяет миграции ledger-мигратором
+node scripts/db/setup.mjs        # миграции ledger-мигратором + сиды + БЭКФИЛЛ price history + .env.local
 ```
 
+Локальный bootstrap `node scripts/db/setup.mjs`: применяет миграции, накатывает dev-сиды, делает идемпотентный бэкфилл начальных строк `product_price_history` (12/12 товаров версированы) и создаёт `.env.local` с ключами (файл gitignored, значения не коммитятся). При ротации `JWT_SECRET` — перегенерировать Supabase-ключи (`SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`) той же схемой HS256, см. RELEASE_CANDIDATE.md §5.2.
+
 Внимание: сиды бизнес-данных в setup-скриптах — только для dev; на staging/production их не запускать.
+
+Примечание о dev-сервере: в песочнице dev-цепочка управляется супервизором (авто-респавн `bun run dev:local`). Turbopack HMR не подхватывает изменения route handlers — после правки API-роутов требуется респавн dev-цепочки, иначе проверки идут против старого кода.
 
 ## 3. Проверки перед деплоем
 
@@ -38,7 +44,7 @@ bun run check:full    # полный гейт; перед деплоем обя�
 
 ## 4. Сборка (build)
 
-`bun run build` выполнять на машине с ≥8GB RAM либо с включённым swap (или в CI). Сборка на 4GB no-swap pod падает по kernel OOM (exit 137, dmesg global_oom; next-build ~2.5GB RSS) — доказано Z-v32; это предел среды, а не дефект кода (компиляция успешна, `tsc --noEmit` PASS отдельно).
+`bun run build` выполнять на машине с ≥8GB RAM (рекомендуется 12–16) либо с включённым swap (или в CI). Сборка на 4GB no-swap pod падает по kernel OOM (exit 137, dmesg global_oom; next-build ~2.5GB RSS) — доказано Z-v32/Z-v33 (прецедент exit 137 на фазе TypeScript); это предел среды, а не дефект кода (компиляция успешна, `tsc --noEmit` PASS отдельно). В песочнице Z-v33 production build помечен NOT RUN — см. RELEASE_CANDIDATE.md §2 (строки 9–10).
 
 ## 5. Контроль здоровья после деплоя
 

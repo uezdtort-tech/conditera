@@ -1,0 +1,20 @@
+{
+  "fingerprint": "d59b88b8d305f9ae8ba4b4ee0dab056b14a2658f",
+  "check": "secrets-scan",
+  "severity": "error",
+  "error_code": "regression_secrets_scan_failed",
+  "message": "Regression check \"secrets-scan\" failed (quick mode) at commit 9d58cbf",
+  "component": "infrastructure",
+  "source": "cron",
+  "commit_sha": "9d58cbf14a7331fd2d6206be80d9881248e3fa62",
+  "branch": "main",
+  "mode": "quick",
+  "detected_at": "2026-11-13T11:28:27.391Z",
+  "failing_tests": [],
+  "previous_success": {
+    "commit_sha": "860b2c3227e9d195037d9382d99ed0c930409d50",
+    "finished_at": "2026-11-12T23:16:06.848Z"
+  },
+  "output_tail": "src/app/api/auth/refresh/route.test.ts:15 [generic-secret] matched (value redacted, len=26)\n.env.local:4 [generic-secret] matched (value redacted, len=64)\n.env.local:5 [generic-secret] matched (value redacted, len=64)\n.env.local:6 [generic-secret] matched (value redacted, len=64)\n.env.local:7 [generic-secret] matched (value redacted, len=64)\n.env.local:14 [jwt] matched (value redacted, len=176)\n.env.local:15 [jwt] matched (value redacted, len=165)\n.env.local:16 [generic-secret] matched (value redacted, len=64)\n(secrets-scan) mode=quick commit=9d58cbf files_scanned=47 findings=8 allowlisted=0 skipped(missing=1,binary=0,size=0,path=0) template_values=78\n(secrets-scan) by_rule: generic-secret=6, jwt=2\n(secrets-scan) RESULT: LEAK_DETECTED\n",
+  "registered_at": "2026-11-13T11:28:28.943Z"
+}

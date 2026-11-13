@@ -48,3 +48,24 @@
    `/sitemap.xml` — домен из `NEXT_PUBLIC_APP_URL` (не localhost).
 4. Убедиться, что dev-only фолбэки недоступны: `NODE_ENV=production` отключает
    dev-auth (`src/lib/dev-auth.ts` гвардится) и `mock_*` платежи (fail-closed).
+
+## 5. Чек-лист production readiness (Z-v33, 2026-11-13)
+
+Статусы: `ГОТОВО В КОДЕ` (реализовано и покрыто проверками; настройка не требуется) · `ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА` (код готов, нужны creds/решение вне песочницы) · `НЕ ПОДКЛЮЧЕНО` (интеграция не активирована). Ничего не подключается из рабочей сессии — только владельцем. Эталон цикла — `docs/release/RELEASE_CANDIDATE.md` §5.
+
+| Компонент | Статус | Действие владельца |
+|---|---|---|
+| Домен / HTTPS | ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА | прод-домен + TLS reverse-proxy (Caddy prod); заголовки безопасности дублирует приложение (proxy.ts); `NEXT_PUBLIC_APP_URL` = канонический домен |
+| Production DB | ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА | `DATABASE_URL` на PostgreSQL 18; применить 85 миграций ledger-мигратором, сверить `schema_migrations` = `ls supabase/migrations \| wc -l` |
+| JWT/DB secrets | ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА | `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `TFA_ENCRYPTION_KEY`; при ротации `JWT_SECRET` — перегенерация `SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` той же HS256-схемой (iss=local, role claim), иначе PostgREST-шим деградирует их до anon (урок ZV33-3b) |
+| Yandex ID OAuth + callback URLs | НЕ ПОДКЛЮЧЕНО | creds `YANDEX_CLIENT_ID/SECRET` + зарегистрировать callback URL(ы) в консоли провайдера |
+| VK ID OAuth + callbacks | НЕ ПОДКЛЮЧЕНО | creds `VK_CLIENT_ID/SECRET` + callback URL(ы) |
+| YooKassa prod credentials + webhook URL | НЕ ПОДКЛЮЧЕНО | боевые `YOOKASSA_SHOP_ID`/`YOOKASSA_SECRET_KEY` + webhook URL; идемпотентность вебхука готова в коде (final-status gate, CAS-эскроу, ledger-ключ `pay-succeeded:<providerId>`); проверить повторную доставку после deploy |
+| CRON_SECRET (n8n) | ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА | задать `CRON_SECRET`; cron-эндпоинты fail-closed без него; передать в n8n-сервис (`N8N_WEBHOOK_BASE_URL`, `N8N_WEBHOOK_SECRET`) |
+| CORS | ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА | ревизия CORS/allowed-origins под прод-домен перед публичным деплоем |
+| Secure cookies | ГОТОВО В КОДЕ | сессионные cookie с флагами secure/httpOnly в коде; проверить в prod-https |
+| Rate limits | ГОТОВО В КОДЕ | in-memory лимиты работают; Redis — опционально для мульт-инстансной установки |
+| Upload storage buckets | ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА | определить хранилище/buckets для загрузок; role-guard маршрутов готов в коде (`src/lib/upload-role-guard.ts`) |
+| Backup schedule + тест восстановления | НЕ ПОДКЛЮЧЕНО | maintenance.yml — READY FOR OWNER APPROVAL; утвердить расписание pg_dump, первый бэкап + `ops:restore-verify` на disposable БД (бэкап без доказанного восстановления не считается бэкапом); офсайт-хранитель + RPO/RTO — решение D-EXT-5 |
+| Мониторинг/ошибки | ГОТОВО В КОДЕ | diagnostics-канал (app_error_events/incidents/метрики) работает; Telegram-уведомления P0/P1 — опционально по creds |
+| Production env vars | ТРЕБУЕТ ДЕЙСТВИЯ ВЛАДЕЛЬЦА | заполнить по §1 (обязательные + условные); шаблон — `.env.production.example`; значения нигде не коммитятся |
