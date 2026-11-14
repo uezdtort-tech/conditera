@@ -35,7 +35,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
  *  Каждый view получает уникальный title (для Google) и описание. */
 const VIEW_META: Record<string, SeoMeta> = {
   home: {
-    title: `${APP_NAME} — маркетплейс для вашего праздника`,
+    title: `${APP_NAME} — маркетплейс: всё сладкое для вашего праздника`,
     description:
       "Заказывайте домашние торты и десерты напрямую у проверенных кондитеров России. Конструктор тортов, безопасные платежи с эскроу, доставка в ваш город.",
     path: "/",

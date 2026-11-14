@@ -123,7 +123,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       promotions: [],
       app: {
         name: "Кондитера",
-        description: "Маркетплейс кондитерских изделий от частных кондитеров России",
+        description: "Уездный кондитер — маркетплейс: всё сладкое для вашего праздника",
         url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
       },
     });

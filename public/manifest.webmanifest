@@ -1,7 +1,7 @@
 {
   "name": "Уездный кондитер",
   "short_name": "Уездный",
-  "description": "Маркетплейс кондитерских изделий",
+  "description": "Уездный кондитер — маркетплейс: всё сладкое для вашего праздника",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fdfbf7",
