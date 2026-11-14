@@ -46,7 +46,7 @@ export const siteConfig = {
   // === Описание ===
   description:
     process.env.NEXT_PUBLIC_APP_DESCRIPTION ||
-    "Уездный кондитер — маркетплейс: всё сладкое для вашего праздника",
+    "Уездный кондитер — от торта до сладкого стола",
 };
 
 /**
