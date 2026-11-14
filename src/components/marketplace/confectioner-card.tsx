@@ -88,7 +88,7 @@ export function ConfectionerCard({ confectioner }: { confectioner: Confectioner 
 
         {/* Name */}
         <div>
-          <h3 className="font-display font-semibold text-base group-hover:text-primary transition-colors line-clamp-1">
+          <h3 className="font-semibold text-base group-hover:text-primary transition-colors line-clamp-1">
             {confectioner.businessName}
           </h3>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">

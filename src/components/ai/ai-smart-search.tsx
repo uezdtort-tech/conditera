@@ -111,7 +111,7 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
         aria-label="Умный поиск десертов"
       >
         <div className="relative flex-1">
-          <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-purple-500" />
+          <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" />
           <input
             type="text"
             value={query}
@@ -124,8 +124,8 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
             aria-label="Опишите, что вы ищете"
             className={
               isHero
-                ? "w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/40 focus:border-purple-400"
-                : "w-full pl-10 pr-4 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/40"
+                ? "w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring"
+                : "w-full pl-10 pr-4 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring/50"
             }
           />
         </div>
@@ -135,8 +135,8 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
           disabled={loading}
           className={
             isHero
-              ? "px-6 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-              : "gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+              ? "px-6 btn-primary-gradient"
+              : "gap-1.5 btn-primary-gradient"
           }
         >
           {loading ? (
@@ -164,7 +164,7 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
                 setQuery(ex);
                 runSearch(ex);
               }}
-              className="px-2 py-1 rounded-full border border-border hover:border-purple-400 hover:text-purple-700 transition-colors"
+              className="px-2 py-1 rounded-full border border-border hover:border-primary/40 hover:text-primary transition-colors"
             >
               {ex}
             </button>
@@ -177,7 +177,7 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-muted-foreground">{filters.reply}</span>
           {describeAiFilters(filters).map((c) => (
-            <Badge key={c} variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200">
+            <Badge key={c} variant="outline" className="text-[10px] bg-primary/5 text-primary border-primary/20">
               {c}
             </Badge>
           ))}
@@ -195,7 +195,7 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
               </Badge>
             )}
             {chips.map((c) => (
-              <Badge key={c} variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200">
+              <Badge key={c} variant="outline" className="text-[10px] bg-primary/5 text-primary border-primary/20">
                 {c}
               </Badge>
             ))}
@@ -203,7 +203,7 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
 
           {filters.clarifying.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 text-sm">
-              <MessageCircleQuestion className="h-4 w-4 text-purple-500" />
+              <MessageCircleQuestion className="h-4 w-4 text-primary" />
               <span className="text-muted-foreground">Уточните:</span>
               {filters.clarifying.map((c) => (
                 <button
@@ -213,7 +213,7 @@ export function AiSmartSearch({ variant = "hero", onApplyFilters }: AiSmartSearc
                     setQuery(c);
                     runSearch(c);
                   }}
-                  className="px-2.5 py-1 rounded-full border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
+                  className="px-2.5 py-1 rounded-full border border-primary/30 text-primary hover:bg-primary/5 transition-colors"
                 >
                   {c}
                 </button>

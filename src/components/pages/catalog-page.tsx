@@ -635,7 +635,7 @@ export function CatalogPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Поиск по названию, описанию или тегам..."
-            className="pl-10"
+            className="pl-10 h-11"
           />
           {searchQuery && (
             <button
@@ -722,7 +722,7 @@ export function CatalogPage() {
       </div>
 
       {/* P2 §5: «Помочь выбрать» — рядом с уточнением через ИИ; обычный путь не спрятан */}
-      <Card className="p-3 mb-4 border-purple-200 dark:border-purple-900">
+      <Card className="p-3 mb-4 border-primary/20">
         <div className="flex flex-col sm:flex-row items-stretch gap-2">
           <div className="flex-1 min-w-0">
             <AiSmartSearch variant="compact" onApplyFilters={applyAiFilters} />
@@ -759,7 +759,7 @@ export function CatalogPage() {
               size="sm"
               disabled={compareIds.length < 2}
               onClick={() => setCompareOpen(true)}
-              className="gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+              className="gap-1.5 btn-primary-gradient"
             >
               Сравнить ({compareIds.length})
             </Button>
@@ -789,13 +789,13 @@ export function CatalogPage() {
         <div aria-busy={isInitialLoading || undefined}>
           {isInitialLoading ? (
             <div
-              className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4"
+              className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-5"
               role="status"
               aria-label="Загрузка каталога"
             >
               {Array.from({ length: 8 }).map((_, i) => (
                 <Card key={i} className="overflow-hidden p-0">
-                  <Skeleton className="aspect-square w-full rounded-none" />
+                  <Skeleton className="aspect-[4/3] w-full rounded-none" />
                   <div className="p-3 space-y-2">
                     <Skeleton className="h-4 w-3/4" />
                     <Skeleton className="h-3 w-1/2" />
@@ -852,7 +852,7 @@ export function CatalogPage() {
               </Button>
             </Card>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-5">
               {filtered.map((p) =>
                 compareMode ? (
                   <div key={p.id} className="relative">
@@ -870,8 +870,8 @@ export function CatalogPage() {
                       }
                       className={`absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold shadow-sm transition-colors ${
                         compareIds.includes(p.id)
-                          ? "bg-purple-600 text-white border-purple-600"
-                          : "bg-background/95 text-foreground border-border hover:border-purple-400"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background/95 text-foreground border-border hover:border-primary/40"
                       }`}
                     >
                       {compareIds.includes(p.id) ? "✓" : "+"}

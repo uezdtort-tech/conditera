@@ -17,7 +17,7 @@ import { ProductCard } from "@/components/marketplace/product-card";
 import { ConfectionerCard } from "@/components/marketplace/confectioner-card";
 import { ConfectionersMarquee } from "@/components/marketplace/confectioners-marquee";
 import { RecentlyViewed } from "@/components/ui/enhanced-components";
-import { AnimatedCounter, GlassCard, FloatWrapper, GradientBorderCard, TiltCard } from "@/components/ui/modern-effects";
+import { AnimatedCounter, GlassCard, FloatWrapper, GradientBorderCard } from "@/components/ui/modern-effects";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CATEGORIES } from "@/lib/mock-data";
 import { useLiveProducts } from "@/lib/supabase/use-marketplace";
@@ -254,7 +254,16 @@ export function HomePage() {
               <AiSmartSearch variant="hero" />
 
               <div className="flex flex-wrap gap-3 justify-center lg:justify-start">
-                {/* ZV31-001: CTA из CMS (hero_cta_label + hero_cta_href) — первым в ряду */}
+                {/* Design Revamp V1: главный CTA — переход в каталог */}
+                <Button
+                  size="lg"
+                  onClick={() => navigate("catalog")}
+                  className="btn-primary-gradient"
+                >
+                  Смотреть каталог
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+                {/* ZV31-001: CTA из CMS (hero_cta_label + hero_cta_href) */}
                 {cmsCta && (
                   <Button
                     size="lg"
@@ -268,7 +277,7 @@ export function HomePage() {
                 <Button
                   size="lg"
                   onClick={() => setCakeBuilderOpen(true)}
-                  className="btn-primary-gradient"
+                  className="btn-3d-light"
                 >
                   <Cake className="h-4 w-4 mr-2" />
                   Собрать торт в конструкторе
@@ -282,15 +291,6 @@ export function HomePage() {
                 >
                   <Sparkles className="h-4 w-4 mr-2" />
                   Помочь выбрать
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={() => navigate("catalog")}
-                  className="btn-3d-light"
-                >
-                  Смотреть каталог
-                  <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               </div>
 
@@ -331,7 +331,7 @@ export function HomePage() {
               className="relative hidden lg:block"
             >
               <div className="relative aspect-square max-w-md mx-auto">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-amber-300/30 blur-3xl" />
+                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/25 to-accent/70 blur-3xl" />
                 <Image
                   src="https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800"
                   alt="Домашний торт"
@@ -344,8 +344,8 @@ export function HomePage() {
                 {/* Floating cards */}
                 <div className="absolute -top-4 -right-4 glass-card rounded-xl shadow-lg p-3 animate-float-3d">
                   <div className="flex items-center gap-2">
-                    <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                      <Star className="h-5 w-5 fill-amber-500 text-amber-500" />
+                    <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center">
+                      <Star className="h-5 w-5 fill-primary text-primary" />
                     </div>
                     <div>
                     <div className="text-sm font-bold">
@@ -579,27 +579,25 @@ export function HomePage() {
           {CATEGORIES.map((cat, i) => (
             <motion.div
               key={cat.slug}
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ delay: i * 0.05 }}
+              transition={{ delay: i * 0.04 }}
             >
-              <TiltCard maxTilt={10} className="h-full">
-                <button
-                  onClick={() => navigate("catalog", { category: cat.slug })}
-                  className="group w-full flex flex-col items-center gap-2 p-4 rounded-xl border border-border bg-card hover:border-primary/40 hover:shadow-xl transition-all h-full"
-                >
-                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-accent to-primary/10 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform shadow-sm">
-                    {cat.icon}
-                  </div>
-                  <div className="text-sm font-medium text-center">{cat.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {categoryCounts[cat.slug] > 0
-                      ? `${categoryCounts[cat.slug]} тов.`
-                      : ""}
-                  </div>
-                </button>
-              </TiltCard>
+              <button
+                onClick={() => navigate("catalog", { category: cat.slug })}
+                className="group w-full flex flex-col items-center gap-2.5 p-4 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-lg hover:-translate-y-0.5 transition-all h-full"
+              >
+                <div className="h-12 w-12 rounded-full bg-accent flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                  {cat.icon}
+                </div>
+                <div className="text-sm font-medium text-center">{cat.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {categoryCounts[cat.slug] > 0
+                    ? `${categoryCounts[cat.slug]} тов.`
+                    : ""}
+                </div>
+              </button>
             </motion.div>
           ))}
         </div>
@@ -638,7 +636,7 @@ export function HomePage() {
           >
             {Array.from({ length: 4 }).map((_, i) => (
               <Card key={i} className="overflow-hidden p-0">
-                <Skeleton className="aspect-square w-full rounded-none" />
+                <Skeleton className="aspect-[4/3] w-full rounded-none" />
                 <div className="p-3 space-y-2">
                   <Skeleton className="h-4 w-3/4" />
                   <Skeleton className="h-3 w-1/2" />
@@ -914,7 +912,7 @@ export function HomePage() {
               icon: CreditCard,
               title: "Поддержка самозанятости",
               text: "Автоматический расчёт НПД: 4% с физлиц, 6% с юрлиц, вычет 10 000 ₽ при регистрации. Полная налоговая отчётность.",
-              color: "text-purple-600 bg-purple-100",
+              color: "text-primary bg-primary/10",
             },
             {
               icon: MessageCircle,
@@ -944,7 +942,7 @@ export function HomePage() {
                   >
                     <Icon className="h-6 w-6" />
                   </div>
-                  <h3 className="font-display font-semibold text-lg mb-2">
+                  <h3 className="font-semibold text-lg mb-2">
                     {adv.title}
                   </h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">

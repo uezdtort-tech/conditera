@@ -72,42 +72,44 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* Уездный кондитер — тёплая палитра русской кондитерской */
+/* Уездный кондитер — молочная кондитерская Design Revamp V1:
+   фон — тёплый молочный, текст — тёмный графит, акцент — вишнёво-малиновый,
+   поверхности — светлые кремовые, границы — деликатные. */
 :root {
   --radius: 0.875rem;
-  --background: oklch(0.985 0.012 75);
-  --foreground: oklch(0.22 0.025 40);
+  --background: oklch(0.986 0.007 85);
+  --foreground: oklch(0.245 0.018 45);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.025 40);
+  --card-foreground: oklch(0.245 0.018 45);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.025 40);
-  /* Бордовый — фирменный цвет */
-  --primary: oklch(0.42 0.18 25);
-  --primary-foreground: oklch(0.98 0.005 75);
-  --secondary: oklch(0.95 0.025 70);
-  --secondary-foreground: oklch(0.30 0.05 35);
-  --muted: oklch(0.96 0.015 70);
-  --muted-foreground: oklch(0.50 0.025 50);
-  /* Золотой акцент */
-  --accent: oklch(0.92 0.05 80);
-  --accent-foreground: oklch(0.30 0.06 60);
+  --popover-foreground: oklch(0.245 0.018 45);
+  /* Вишнёво-малиновый — фирменный акцент */
+  --primary: oklch(0.47 0.17 14);
+  --primary-foreground: oklch(0.99 0.004 85);
+  --secondary: oklch(0.955 0.018 85);
+  --secondary-foreground: oklch(0.30 0.04 40);
+  --muted: oklch(0.958 0.012 85);
+  --muted-foreground: oklch(0.48 0.02 55);
+  /* Кремовая поверхность */
+  --accent: oklch(0.94 0.028 85);
+  --accent-foreground: oklch(0.34 0.07 25);
   --destructive: oklch(0.58 0.22 25);
-  --border: oklch(0.90 0.015 70);
-  --input: oklch(0.92 0.015 70);
-  --ring: oklch(0.55 0.14 30);
-  --chart-1: oklch(0.55 0.18 25);
-  --chart-2: oklch(0.70 0.14 70);
+  --border: oklch(0.905 0.012 85);
+  --input: oklch(0.925 0.012 85);
+  --ring: oklch(0.52 0.14 14);
+  --chart-1: oklch(0.52 0.17 14);
+  --chart-2: oklch(0.70 0.13 70);
   --chart-3: oklch(0.65 0.10 145);
-  --chart-4: oklch(0.78 0.16 80);
+  --chart-4: oklch(0.78 0.14 85);
   --chart-5: oklch(0.55 0.12 305);
-  --sidebar: oklch(0.97 0.018 70);
-  --sidebar-foreground: oklch(0.22 0.025 40);
-  --sidebar-primary: oklch(0.42 0.18 25);
-  --sidebar-primary-foreground: oklch(0.98 0.005 75);
-  --sidebar-accent: oklch(0.92 0.05 80);
-  --sidebar-accent-foreground: oklch(0.30 0.06 60);
-  --sidebar-border: oklch(0.90 0.015 70);
-  --sidebar-ring: oklch(0.55 0.14 30);
+  --sidebar: oklch(0.975 0.010 85);
+  --sidebar-foreground: oklch(0.245 0.018 45);
+  --sidebar-primary: oklch(0.47 0.17 14);
+  --sidebar-primary-foreground: oklch(0.99 0.004 85);
+  --sidebar-accent: oklch(0.94 0.028 85);
+  --sidebar-accent-foreground: oklch(0.34 0.07 25);
+  --sidebar-border: oklch(0.905 0.012 85);
+  --sidebar-ring: oklch(0.52 0.14 14);
 
   /* ===== Design Tokens (раздел 39) ===== */
   /* Spacing */
@@ -175,7 +177,7 @@
   --card-foreground: oklch(0.96 0.012 75);
   --popover: oklch(0.22 0.02 40);
   --popover-foreground: oklch(0.96 0.012 75);
-  --primary: oklch(0.65 0.18 25);
+  --primary: oklch(0.68 0.16 14);
   --primary-foreground: oklch(0.15 0.02 40);
   --secondary: oklch(0.28 0.025 40);
   --secondary-foreground: oklch(0.96 0.012 75);
@@ -404,10 +406,10 @@
 .card-hover:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-lift);
-  border-color: oklch(0.42 0.18 25 / 0.35);
+  border-color: oklch(0.47 0.17 14 / 0.30);
 }
 .dark .card-hover:hover {
-  border-color: oklch(0.65 0.18 25 / 0.45);
+  border-color: oklch(0.68 0.16 14 / 0.45);
 }
 @media (prefers-reduced-motion: reduce) {
   .card-hover:hover {
@@ -417,13 +419,13 @@
 
 /* Градиентная кнопка — главный CTA */
 .btn-primary-gradient {
-  background-image: linear-gradient(135deg, oklch(0.45 0.19 25) 0%, oklch(0.38 0.16 25) 100%);
-  box-shadow: 0 1px 2px oklch(0.30 0.06 40 / 0.15), inset 0 1px 0 oklch(1 0 0 / 0.12);
+  background-image: linear-gradient(135deg, oklch(0.50 0.17 14) 0%, oklch(0.40 0.15 14) 100%);
+  box-shadow: 0 1px 2px oklch(0.30 0.06 25 / 0.15), inset 0 1px 0 oklch(1 0 0 / 0.12);
   transition: filter 0.25s, transform 0.25s, box-shadow 0.25s;
 }
 .btn-primary-gradient:hover {
   filter: brightness(1.08);
-  box-shadow: 0 2px 6px oklch(0.30 0.06 40 / 0.2), 0 10px 24px oklch(0.42 0.18 25 / 0.25), inset 0 1px 0 oklch(1 0 0 / 0.12);
+  box-shadow: 0 2px 6px oklch(0.30 0.06 25 / 0.2), 0 10px 24px oklch(0.47 0.17 14 / 0.25), inset 0 1px 0 oklch(1 0 0 / 0.12);
 }
 .btn-primary-gradient:active {
   transform: translateY(1px);
@@ -490,14 +492,25 @@ h1.font-semibold, h2.font-semibold, h3.font-semibold, h4.font-semibold {
   letter-spacing: 0;
 }
 
-/* Применяем Brokgauz & Efron ко всем заголовкам h1-h4 */
-h1, h2, h3, h4 {
+/* Брендовая антиква — для крупных заголовков (h1/h2) и элементов
+   с явным .font-display. Мелкие заголовки (h3/h4 — карточки, диалоги,
+   дашборды) — современный читаемый sans: Design Revamp V1. */
+h1, h2 {
   font-family: var(--font-display), "Brokgauz_fallback", Georgia, "Times New Roman", serif;
   font-style: italic;
   font-weight: 400;
   letter-spacing: 0.005em;
   line-height: 1.25;
   /* Слегка увеличенные поля вокруг заголовков — «газетный» ритм */
+  text-wrap: balance;
+}
+
+h3, h4 {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
   text-wrap: balance;
 }
 
@@ -541,7 +554,7 @@ h1, h2, h3, h4 {
 
 /* Текстовый градиент */
 .text-gradient {
-  background: linear-gradient(135deg, oklch(0.42 0.18 25) 0%, oklch(0.65 0.15 60) 100%);
+  background: linear-gradient(135deg, oklch(0.44 0.16 14) 0%, oklch(0.60 0.13 30) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -549,7 +562,7 @@ h1, h2, h3, h4 {
 
 /* Декоративный паттерн для фона */
 .bg-pattern {
-  background-image: radial-gradient(oklch(0.55 0.14 30 / 0.04) 1px, transparent 1px);
+  background-image: radial-gradient(oklch(0.52 0.14 14 / 0.04) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
