@@ -54,7 +54,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   manifest: "/manifest.webmanifest",
-  title: `${siteConfig.name} — маркетплейс кондитерских изделий`,
+  title: `${siteConfig.name} — маркетплейс для вашего праздника`,
   description: siteConfig.description,
   keywords: [
     siteConfig.name,
