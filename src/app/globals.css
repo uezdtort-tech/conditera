@@ -1107,3 +1107,241 @@ h3, h4 {
 .text-success { color: var(--color-success); }
 .text-warning { color: var(--color-warning); }
 .bg-success { background-color: var(--color-success); }
+
+/* ===================================================================
+   DESIGN REVAMP V2 — «Пастильная лавка»
+   Редакционная витрина: тёплые пастильные поверхности, глубокие
+   вишнёвые панели, стеклянные чипы, зернистая бумага.
+   Все утилиты — дополнение к Design Revamp V1 (не замена).
+   =================================================================== */
+
+/* --- Зернистая бумага: лёгкий шум поверх светлых сцен --- */
+.grain-overlay {
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+}
+.dark .grain-overlay {
+  mix-blend-mode: screen;
+  opacity: 0.035;
+}
+
+/* --- Герой-сцена: тёплая пастильная подложка с крупными пятнами --- */
+.hero-scene {
+  background-color: oklch(0.975 0.014 85);
+  background-image:
+    radial-gradient(42rem 28rem at 88% -10%, oklch(0.47 0.17 14 / 0.14) 0px, transparent 60%),
+    radial-gradient(34rem 24rem at -8% 30%, oklch(0.80 0.10 55 / 0.35) 0px, transparent 55%),
+    radial-gradient(30rem 26rem at 70% 110%, oklch(0.62 0.11 40 / 0.18) 0px, transparent 55%),
+    radial-gradient(22rem 18rem at 30% 85%, oklch(0.68 0.09 120 / 0.14) 0px, transparent 55%);
+}
+.dark .hero-scene {
+  background-color: oklch(0.20 0.02 45);
+  background-image:
+    radial-gradient(42rem 28rem at 88% -10%, oklch(0.68 0.16 14 / 0.22) 0px, transparent 60%),
+    radial-gradient(34rem 24rem at -8% 30%, oklch(0.45 0.06 55 / 0.30) 0px, transparent 55%),
+    radial-gradient(30rem 26rem at 70% 110%, oklch(0.50 0.08 40 / 0.25) 0px, transparent 55%);
+}
+
+/* --- Декоративные кольца-«печатки» вокруг визуальных блоков --- */
+.decor-ring {
+  border: 1.5px dashed oklch(0.47 0.17 14 / 0.35);
+  border-radius: 9999px;
+}
+.dark .decor-ring {
+  border-color: oklch(0.68 0.16 14 / 0.35);
+}
+
+/* --- Eyebrow с фирменной чертой (метка секции) --- */
+.eyebrow-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: oklch(0.50 0.15 14);
+}
+.eyebrow-rule::before {
+  content: "";
+  width: 2rem;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, oklch(0.47 0.17 14), oklch(0.60 0.13 30 / 0.25));
+}
+.dark .eyebrow-rule { color: oklch(0.75 0.10 20); }
+
+/* --- «Маркер» — мягкая пастильная подложка под словом в заголовке --- */
+.marker-highlight {
+  background-image: linear-gradient(104deg, oklch(0.82 0.10 45 / 0.55) 0%, oklch(0.86 0.08 65 / 0.55) 90%);
+  background-repeat: no-repeat;
+  background-size: 100% 0.42em;
+  background-position: 0 88%;
+  border-radius: 2px;
+}
+.dark .marker-highlight {
+  background-image: linear-gradient(104deg, oklch(0.60 0.10 40 / 0.45) 0%, oklch(0.55 0.08 60 / 0.45) 90%);
+}
+
+/* --- Стеклянный чип (пилюля) поверх сцен --- */
+.glass-pill {
+  background: oklch(1 0 0 / 0.62);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid oklch(1 0 0 / 0.65);
+  box-shadow: 0 2px 10px oklch(0.30 0.06 25 / 0.08), inset 0 1px 0 oklch(1 0 0 / 0.55);
+}
+.dark .glass-pill {
+  background: oklch(0.26 0.02 45 / 0.55);
+  border-color: oklch(1 0 0 / 0.10);
+}
+
+/* --- Глубокая вишнёвая панель: CTA-блоки, статистика --- */
+.panel-dark {
+  background:
+    radial-gradient(120% 140% at 85% 0%, oklch(0.58 0.16 20 / 0.55) 0px, transparent 55%),
+    radial-gradient(90% 120% at 0% 100%, oklch(0.32 0.10 8 / 0.85) 0px, transparent 60%),
+    linear-gradient(135deg, oklch(0.42 0.14 12) 0%, oklch(0.34 0.12 10) 100%);
+  color: oklch(0.97 0.012 85);
+}
+.panel-dark .bg-pattern {
+  background-image: radial-gradient(oklch(1 0 0 / 0.10) 1px, transparent 1px);
+}
+
+/* --- Стеклянная ячейка статистики на тёмных панелях --- */
+.stat-glass {
+  background: oklch(1 0 0 / 0.10);
+  border: 1px solid oklch(1 0 0 / 0.16);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 1rem;
+}
+
+/* --- Пастильная карточка --- */
+.card-tint {
+  background: oklch(0.985 0.012 85);
+  border: 1px solid oklch(0.90 0.02 80);
+}
+.dark .card-tint {
+  background: oklch(0.24 0.02 45);
+  border-color: oklch(0.32 0.02 45);
+}
+
+/* --- Рамка фото в герое: повёрнутая пастильная подложка --- */
+.hero-photo-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: rotate(4deg) translate(14px, 10px);
+  border-radius: 2rem;
+  background: linear-gradient(135deg, oklch(0.82 0.10 55) 0%, oklch(0.88 0.07 70) 55%, oklch(0.74 0.11 30) 100%);
+  z-index: -1;
+}
+.dark .hero-photo-frame::before {
+  background: linear-gradient(135deg, oklch(0.42 0.08 45) 0%, oklch(0.35 0.05 50) 55%, oklch(0.40 0.08 25) 100%);
+}
+
+/* --- Карточка отзыва с крупной кавычкой --- */
+.quote-card { position: relative; }
+.quote-card::before {
+  content: "\201C";
+  position: absolute;
+  top: 0.35rem;
+  right: 1.1rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  font-size: 4rem;
+  line-height: 1;
+  color: oklch(0.47 0.17 14 / 0.14);
+  pointer-events: none;
+}
+
+/* --- Тёмный футер «тёмный шоколад» --- */
+.footer-dark {
+  background:
+    radial-gradient(60rem 24rem at 110% 0%, oklch(0.45 0.12 20 / 0.35) 0px, transparent 60%),
+    linear-gradient(180deg, oklch(0.245 0.02 40) 0%, oklch(0.21 0.02 38) 100%);
+  color: oklch(0.92 0.012 80);
+}
+.footer-dark .footer-link { color: oklch(0.80 0.02 70); transition: color 0.2s; }
+.footer-dark .footer-link:hover { color: oklch(0.95 0.05 70); }
+
+/* --- Стеклянный «прилипающий» хедер --- */
+.header-glass {
+  background: oklch(0.985 0.010 85 / 0.78);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  border-bottom: 1px solid oklch(0.88 0.02 80 / 0.7);
+}
+.dark .header-glass {
+  background: oklch(0.22 0.02 45 / 0.80);
+  border-bottom-color: oklch(1 0 0 / 0.08);
+}
+
+/* --- Категориальные плитки: пастильные оттенки --- */
+.tile-tint-1 { background: linear-gradient(150deg, oklch(0.93 0.05 30) 0%, oklch(0.97 0.02 45) 100%); }
+.tile-tint-2 { background: linear-gradient(150deg, oklch(0.94 0.05 60) 0%, oklch(0.97 0.02 70) 100%); }
+.tile-tint-3 { background: linear-gradient(150deg, oklch(0.93 0.06 90) 0%, oklch(0.97 0.02 85) 100%); }
+.tile-tint-4 { background: linear-gradient(150deg, oklch(0.93 0.05 120) 0%, oklch(0.96 0.02 110) 100%); }
+.tile-tint-5 { background: linear-gradient(150deg, oklch(0.92 0.05 145) 0%, oklch(0.96 0.02 130) 100%); }
+.tile-tint-6 { background: linear-gradient(150deg, oklch(0.93 0.05 20) 0%, oklch(0.97 0.02 40) 100%); }
+.tile-tint-7 { background: linear-gradient(150deg, oklch(0.93 0.04 50) 0%, oklch(0.96 0.02 60) 100%); }
+.tile-tint-8 { background: linear-gradient(150deg, oklch(0.92 0.04 300) 0%, oklch(0.96 0.02 310) 100%); }
+.dark .tile-tint-1 { background: linear-gradient(150deg, oklch(0.34 0.05 30) 0%, oklch(0.28 0.03 40) 100%); }
+.dark .tile-tint-2 { background: linear-gradient(150deg, oklch(0.34 0.05 60) 0%, oklch(0.28 0.03 55) 100%); }
+.dark .tile-tint-3 { background: linear-gradient(150deg, oklch(0.34 0.05 90) 0%, oklch(0.28 0.03 75) 100%); }
+.dark .tile-tint-4 { background: linear-gradient(150deg, oklch(0.34 0.05 120) 0%, oklch(0.28 0.03 110) 100%); }
+.dark .tile-tint-5 { background: linear-gradient(150deg, oklch(0.34 0.05 145) 0%, oklch(0.28 0.03 130) 100%); }
+.dark .tile-tint-6 { background: linear-gradient(150deg, oklch(0.34 0.05 20) 0%, oklch(0.28 0.03 35) 100%); }
+.dark .tile-tint-7 { background: linear-gradient(150deg, oklch(0.34 0.04 50) 0%, oklch(0.28 0.03 55) 100%); }
+.dark .tile-tint-8 { background: linear-gradient(150deg, oklch(0.34 0.04 300) 0%, oklch(0.28 0.03 305) 100%); }
+
+/* --- Стрелочная ссылка «Все →» --- */
+.link-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: oklch(0.47 0.15 14);
+  transition: gap 0.2s ease, color 0.2s ease;
+}
+.link-more:hover { gap: 0.625rem; color: oklch(0.40 0.16 14); }
+.dark .link-more { color: oklch(0.75 0.10 20); }
+.dark .link-more:hover { color: oklch(0.85 0.08 25); }
+
+/* --- Шаги: соединительная линия между карточками (desktop) --- */
+@media (min-width: 1024px) {
+  .steps-rail { position: relative; }
+  .steps-rail::before {
+    content: "";
+    position: absolute;
+    top: 3.25rem;
+    left: 12%;
+    right: 12%;
+    height: 2px;
+    background: repeating-linear-gradient(90deg, oklch(0.47 0.17 14 / 0.25) 0 8px, transparent 8px 16px);
+  }
+}
+
+/* --- Обновлённый mesh: глубже и «вкуснее» (V2) --- */
+.mesh-gradient {
+  background-color: oklch(0.975 0.014 85);
+  background-image:
+    radial-gradient(at 18% 22%, oklch(0.60 0.16 18 / 0.16) 0px, transparent 50%),
+    radial-gradient(at 82% 12%, oklch(0.80 0.10 60 / 0.35) 0px, transparent 50%),
+    radial-gradient(at 55% 85%, oklch(0.72 0.10 35 / 0.22) 0px, transparent 50%),
+    radial-gradient(at 90% 65%, oklch(0.68 0.09 130 / 0.15) 0px, transparent 50%);
+}
+.dark .mesh-gradient {
+  background-color: oklch(0.20 0.02 45);
+  background-image:
+    radial-gradient(at 18% 22%, oklch(0.60 0.14 20 / 0.20) 0px, transparent 50%),
+    radial-gradient(at 82% 12%, oklch(0.50 0.08 60 / 0.20) 0px, transparent 50%),
+    radial-gradient(at 55% 85%, oklch(0.45 0.07 35 / 0.20) 0px, transparent 50%);
+}
+

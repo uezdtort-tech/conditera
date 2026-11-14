@@ -24,7 +24,7 @@ import { useLiveProducts } from "@/lib/supabase/use-marketplace";
 import { isDemoVitrineMode, selectVitrineProducts } from "@/lib/vitrine-products";
 import { formatCurrency } from "@/lib/finance";
 import Image from "next/image";
-import { OrnamentDivider, Eyebrow } from "@/components/ui/ornaments";
+import { OrnamentDivider } from "@/components/ui/ornaments";
 import {
   Cake,
   Sparkles,
@@ -186,31 +186,14 @@ export function HomePage() {
 
   return (
     <div className="space-y-20 pb-12">
-      {/* ===== HERO ===== */}
-      <section
-        className="relative overflow-hidden"
-      >
-        {/* LCP-оптимизация: hero-фон через next/image с priority.
-            next/image автоматически отдаёт AVIF/WebP, проставляет preload
-            и не даёт браузеру тормозить на декоде PNG.
-            fetchPriority="high" — явное указание приоритета для браузеров
-            с поддержкой Fetch Priority API (Chrome 101+, Safari 17+). */}
-        <Image
-          src="/hero-bg.png"
-          alt=""
-          fill
-          priority
-          fetchPriority="high"
-          sizes="100vw"
-          quality={80}
-          className="object-cover -z-10"
-        />
-        {/* Затемнение для читаемости текста — мягче, чтобы фото дышало */}
-        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-background/55 to-background/20" />
-        <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-background/10 to-transparent" />
-        {/* Трендовый mesh-акцент поверх фото — глубина без шума */}
-        <div className="absolute inset-0 mesh-gradient opacity-60 pointer-events-none" />
-        <div className="container mx-auto px-4 py-12 sm:py-16 lg:py-24 relative">
+      {/* ===== HERO (Design Revamp V2: пастильная редакционная сцена) ===== */}
+      <section className="relative overflow-hidden hero-scene">
+        {/* Лёгкое бумажное зерно поверх сцены */}
+        <div className="absolute inset-0 grain-overlay" aria-hidden="true" />
+        {/* Декоративные кольца-«печатки» */}
+        <div className="absolute -top-28 -right-24 h-[26rem] w-[26rem] decor-ring hidden lg:block" aria-hidden="true" />
+        <div className="absolute bottom-10 -left-36 h-80 w-80 decor-ring opacity-60 hidden lg:block" aria-hidden="true" />
+        <div className="container mx-auto px-4 pt-10 pb-14 sm:pt-14 sm:pb-20 lg:pt-20 lg:pb-24 relative">
           <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -218,21 +201,25 @@ export function HomePage() {
               transition={{ duration: 0.5 }}
               className="space-y-6 text-center lg:text-left"
             >
-              <Badge className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/15">
-                <Sparkles className="h-3 w-3 mr-1" />
+              <span className="inline-flex items-center gap-2 glass-pill rounded-full px-4 py-1.5 text-xs font-semibold text-foreground">
+                <span className="relative flex h-2 w-2" aria-hidden="true">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                </span>
                 Маркетплейс от частных кондитеров России
-              </Badge>
+              </span>
 
               {/* ZV31-001: заголовок из CMS (site_settings: hero_title), иначе хардкод */}
               {cmsHero ? (
-                <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+                <h1 className="font-display text-4xl sm:text-5xl lg:text-[4rem] leading-[1.1] tracking-tight">
                   {cmsHero.title}
                 </h1>
               ) : (
-                <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+                <h1 className="font-display text-4xl sm:text-5xl lg:text-[4rem] leading-[1.1] tracking-tight">
                   Торты и десерты
                   <br />
-                  <span className="text-gradient">от уездных кондитеров</span>
+                  <span className="marker-highlight">от уездных</span>{" "}
+                  <span className="text-gradient">кондитеров</span>
                 </h1>
               )}
 
@@ -294,55 +281,45 @@ export function HomePage() {
                 </Button>
               </div>
 
-              {/* Trust stats — реальные счётчики платформы (без выдуманных цифр) */}
-              <div className="flex flex-wrap gap-6 justify-center lg:justify-start pt-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-primary" />
-                  <span>
-                    <strong className="font-semibold">
-                      {verifiedCount > 0 ? `${verifiedCount} ` : ""}
-                    </strong>
-                    {verifiedCount > 0 ? "кондитеров, все проверены" : "Проверенные кондитеры"}
-                  </span>
+              {/* Trust-чипы — стеклянные пилюли (качественные гарантии;
+                  числовые счётчики — в ленте ниже) */}
+              <div className="flex flex-wrap gap-2.5 justify-center lg:justify-start pt-2 text-sm">
+                <div className="glass-pill rounded-full px-3.5 py-2 flex items-center gap-2 text-xs sm:text-sm">
+                  <ShieldCheck className="h-4 w-4 text-primary" aria-hidden="true" />
+                  <span><strong className="font-semibold">Эскроу-защита</strong> 24 часа</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Store className="h-4 w-4 text-primary" />
-                  <span>
-                    <strong className="font-semibold">
-                      {productCount > 0 ? `${productCount} ` : ""}
-                    </strong>
-                    {productCount > 0 ? "товаров в каталоге" : "Каталог товаров"}
-                  </span>
+                <div className="glass-pill rounded-full px-3.5 py-2 flex items-center gap-2 text-xs sm:text-sm">
+                  <Truck className="h-4 w-4 text-primary" aria-hidden="true" />
+                  <span>Доставка <strong className="font-semibold">от 300 ₽</strong></span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  <span>
-                    <strong className="font-semibold">Эскроу</strong> 24 часа
-                  </span>
+                <div className="glass-pill rounded-full px-3.5 py-2 flex items-center gap-2 text-xs sm:text-sm">
+                  <CreditCard className="h-4 w-4 text-primary" aria-hidden="true" />
+                  <span>Оплата <strong className="font-semibold">картой и СБП</strong></span>
                 </div>
               </div>
             </motion.div>
 
-            {/* Hero visual */}
+            {/* Hero visual — V2: виден и на мобильных, рамка-подложка */}
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.5, delay: 0.2 }}
-              className="relative hidden lg:block"
+              className="relative mt-2 lg:mt-0"
             >
-              <div className="relative aspect-square max-w-md mx-auto">
+              <div className="relative aspect-square max-w-md mx-auto lg:max-w-none lg:aspect-[4/3.2]">
                 <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/25 to-accent/70 blur-3xl" />
                 <Image
                   src="https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800"
                   alt="Домашний торт"
                   width={800}
                   height={800}
-                  loading="lazy"
-                  sizes="(max-width: 768px) 100vw, 28rem"
-                  className="relative rounded-3xl shadow-2xl w-full h-full object-cover"
+                  priority
+                  fetchPriority="high"
+                  sizes="(max-width: 1024px) 100vw, 36rem"
+                  className="relative rounded-[2rem] shadow-2xl w-full h-full object-cover hero-photo-frame"
                 />
                 {/* Floating cards */}
-                <div className="absolute -top-4 -right-4 glass-card rounded-xl shadow-lg p-3 animate-float-3d">
+                <div className="absolute -top-4 -right-4 hidden sm:flex glass-card rounded-2xl shadow-lg p-3 animate-float-3d">
                   <div className="flex items-center gap-2">
                     <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center">
                       <Star className="h-5 w-5 fill-primary text-primary" />
@@ -359,7 +336,7 @@ export function HomePage() {
                   </div>
                 </div>
                 <div
-                  className="absolute -bottom-4 -left-4 glass-card rounded-xl shadow-lg p-3 animate-float-3d"
+                  className="absolute -bottom-4 -left-4 hidden sm:flex glass-card rounded-2xl shadow-lg p-3 animate-float-3d"
                   style={{ animationDelay: "2s" }}
                 >
                   <div className="flex items-center gap-2">
@@ -376,6 +353,31 @@ export function HomePage() {
                 </div>
               </div>
             </motion.div>
+          </div>
+
+          {/* V2: стеклянная лента реальных счётчиков платформы (без выдуманных цифр) */}
+          <div className="mt-12 lg:mt-16 grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { icon: Users, value: verifiedCount, label: "Проверенных кондитеров" },
+              { icon: Store, value: productCount, label: "Товаров в каталоге" },
+              { icon: Truck, value: cityCount, label: "Городов с кондитерами" },
+              { icon: Star, value: avgRating, label: "Средний рейтинг товаров", isFloat: true },
+            ].map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <div key={i} className="glass-pill rounded-2xl p-4 text-center">
+                  <Icon className="h-4 w-4 mx-auto text-primary mb-1.5" aria-hidden="true" />
+                  <div className="font-display text-2xl tnum">
+                    {s.isFloat ? (
+                      <span>{s.value > 0 ? `${s.value} / 5` : "—"}</span>
+                    ) : (
+                      <AnimatedCounter value={s.value} />
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -518,13 +520,13 @@ export function HomePage() {
               icon: Truck,
               title: "Доставка по России",
               text: "От 300 ₽, бесплатно от 3000 ₽",
-              color: "text-blue-600 bg-blue-100",
+              color: "text-amber-700 bg-amber-100",
             },
             {
               icon: CreditCard,
               title: "Оплата картой и СБП",
               text: "YooKassa, Visa, Mastercard, Мир",
-              color: "text-amber-600 bg-amber-100",
+              color: "text-orange-700 bg-orange-100",
             },
           ].map((item, i) => {
             const Icon = item.icon;
@@ -536,15 +538,15 @@ export function HomePage() {
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
               >
-                <Card className="p-4 h-full hover:shadow-md transition-shadow">
+                <div className="card-tint rounded-2xl p-4 h-full shadow-[var(--shadow-soft)]">
                   <div
-                    className={`h-10 w-10 rounded-lg flex items-center justify-center mb-3 ${item.color}`}
+                    className={`h-10 w-10 rounded-xl flex items-center justify-center mb-3 ${item.color}`}
                   >
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-5 w-5" aria-hidden="true" />
                   </div>
                   <div className="font-semibold text-sm mb-1">{item.title}</div>
                   <div className="text-xs text-muted-foreground">{item.text}</div>
-                </Card>
+                </div>
               </motion.div>
             );
           })}
@@ -555,27 +557,26 @@ export function HomePage() {
 
       {/* ===== CATEGORIES ===== */}
       <section className="container mx-auto px-4">
-        <div className="flex items-end justify-between mb-6">
-          <div>
-            <Eyebrow>Каталог</Eyebrow>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold mt-1">
+        <div className="flex items-end justify-between mb-8">
+          <div className="space-y-2">
+            <span className="eyebrow-rule">Каталог</span>
+            <h2 className="font-display text-3xl sm:text-4xl">
               Категории
             </h2>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-muted-foreground">
               Выберите, что вас интересует
             </p>
           </div>
-          <Button
-            variant="ghost"
+          <button
             onClick={() => navigate("catalog")}
-            className="hidden sm:flex"
+            className="link-more hidden sm:inline-flex"
           >
             Весь каталог
-            <ArrowRight className="h-4 w-4 ml-1" />
-          </Button>
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3 sm:gap-4">
           {CATEGORIES.map((cat, i) => (
             <motion.div
               key={cat.slug}
@@ -586,17 +587,17 @@ export function HomePage() {
             >
               <button
                 onClick={() => navigate("catalog", { category: cat.slug })}
-                className="group w-full flex flex-col items-center gap-2.5 p-4 rounded-2xl border border-border bg-card hover:border-primary/40 hover:shadow-lg hover:-translate-y-0.5 transition-all h-full"
+                className={`group w-full flex flex-col items-center gap-2.5 p-4 pt-5 rounded-2xl border border-border/60 hover:border-primary/40 hover:shadow-[var(--shadow-lift)] hover:-translate-y-1 transition-all h-full tile-tint-${(i % 8) + 1}`}
               >
-                <div className="h-12 w-12 rounded-full bg-accent flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                <div className="h-14 w-14 rounded-2xl bg-white/70 dark:bg-white/10 shadow-sm flex items-center justify-center text-3xl group-hover:scale-110 group-hover:-rotate-6 transition-transform">
                   {cat.icon}
                 </div>
-                <div className="text-sm font-medium text-center">{cat.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {categoryCounts[cat.slug] > 0
-                    ? `${categoryCounts[cat.slug]} тов.`
-                    : ""}
-                </div>
+                <div className="text-sm font-semibold text-center leading-snug">{cat.name}</div>
+                {categoryCounts[cat.slug] > 0 && (
+                  <div className="text-[11px] font-medium text-muted-foreground bg-white/60 dark:bg-white/10 rounded-full px-2 py-0.5 tnum">
+                    {categoryCounts[cat.slug]} товаров
+                  </div>
+                )}
               </button>
             </motion.div>
           ))}
@@ -605,24 +606,23 @@ export function HomePage() {
 
       {/* ===== POPULAR PRODUCTS ===== */}
       <section className="container mx-auto px-4">
-        <div className="flex items-end justify-between mb-6">
-          <div>
-            <Eyebrow>Хиты продаж</Eyebrow>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold mt-1">
+        <div className="flex items-end justify-between mb-8">
+          <div className="space-y-2">
+            <span className="eyebrow-rule">Хиты продаж</span>
+            <h2 className="font-display text-3xl sm:text-4xl">
               Популярные товары
             </h2>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-muted-foreground">
               То, что чаще всего заказывают наши покупатели
             </p>
           </div>
-          <Button
-            variant="outline"
+          <button
             onClick={() => navigate("catalog")}
-            className="hidden sm:flex"
+            className="link-more hidden sm:inline-flex"
           >
             Все товары
-            <ArrowRight className="h-4 w-4 ml-1" />
-          </Button>
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
 
         {/* ZV31-017: честные состояния секции — skeleton / ошибка+retry /
@@ -679,22 +679,24 @@ export function HomePage() {
           история заказов; аноним видит «Популярные товары» выше) */}
       <ForYouBlock />
 
-      {/* ===== CAKE BUILDER CTA ===== */}
+      {/* ===== CAKE BUILDER CTA (V2: глубокая вишнёвая панель) ===== */}
       <section className="container mx-auto px-4">
-        <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-accent/40 to-amber-200/20">
-          <div className="absolute inset-0 bg-pattern opacity-30" />
-          <div className="relative p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">
-            <div className="space-y-4">
-              <Badge className="bg-primary text-primary-foreground">
-                <Cake className="h-3 w-3 mr-1" />
+        <div className="panel-dark relative overflow-hidden rounded-3xl shadow-[var(--shadow-pop)]">
+          <div className="absolute inset-0 bg-pattern opacity-40" aria-hidden="true" />
+          <div className="absolute -top-16 -right-16 h-64 w-64 rounded-full border border-white/15" aria-hidden="true" />
+          <div className="absolute -bottom-20 -left-10 h-72 w-72 rounded-full border border-white/10" aria-hidden="true" />
+          <div className="relative p-8 lg:p-12 grid lg:grid-cols-2 gap-8 items-center">
+            <div className="space-y-5">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/20 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider">
+                <Cake className="h-3.5 w-3.5" aria-hidden="true" />
                 Конструктор тортов
-              </Badge>
-              <h2 className="font-display text-3xl lg:text-4xl font-bold">
+              </span>
+              <h2 className="font-display text-3xl lg:text-4xl">
                 Соберите свой идеальный торт
                 <br />
-                <span className="text-gradient">за 8 простых шагов</span>
+                <span className="text-accent">за 8 простых шагов</span>
               </h2>
-              <p className="text-muted-foreground max-w-lg">
+              <p className="text-white/85 max-w-lg">
                 Выберите основу, начинку, покрытие и декор. Запрос отправится
                 ближайшим кондитерам, которые предложат цену. Сравните
                 предложения и выберите лучшее.
@@ -708,26 +710,26 @@ export function HomePage() {
                   "Доставка",
                   "Цена",
                 ].map((step) => (
-                  <Badge
+                  <span
                     key={step}
-                    variant="outline"
-                    className="bg-background/80"
+                    className="inline-flex items-center rounded-full bg-white/10 border border-white/15 px-3 py-1 text-xs font-medium"
                   >
-                    <Check className="h-3 w-3 mr-1 text-primary" />
+                    <Check className="h-3 w-3 mr-1.5 text-accent" aria-hidden="true" />
                     {step}
-                  </Badge>
+                  </span>
                 ))}
               </div>
               <Button
                 size="lg"
                 onClick={() => setCakeBuilderOpen(true)}
-                className="bg-primary"
+                className="bg-accent text-accent-foreground hover:bg-accent/85 shadow-lg"
               >
                 <Cake className="h-4 w-4 mr-2" />
                 Начать конструирование
               </Button>
             </div>
             <div className="relative">
+              <div className="absolute inset-6 rounded-[1.75rem] border border-white/20 rotate-3" aria-hidden="true" />
               <Image
                 src="https://images.unsplash.com/photo-1535141192574-5d4897c12636?w=600"
                 alt="Конструктор тортов"
@@ -735,33 +737,32 @@ export function HomePage() {
                 height={450}
                 loading="lazy"
                 sizes="(max-width: 768px) 100vw, 28rem"
-                className="rounded-2xl shadow-xl w-full max-w-md mx-auto"
+                className="rounded-[1.5rem] shadow-2xl w-full max-w-md mx-auto border-4 border-white/25"
               />
             </div>
           </div>
-        </Card>
+        </div>
       </section>
 
       {/* ===== CONFECTIONERS ===== */}
       <section className="container mx-auto px-4">
-        <div className="flex items-end justify-between mb-6">
-          <div>
-            <Eyebrow>Топ кондитеров</Eyebrow>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold mt-1">
+        <div className="flex items-end justify-between mb-8">
+          <div className="space-y-2">
+            <span className="eyebrow-rule">Топ кондитеров</span>
+            <h2 className="font-display text-3xl sm:text-4xl">
               Лучшие кондитеры платформы
             </h2>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-muted-foreground">
               Проверенные мастера с высоким рейтингом и доверием покупателей
             </p>
           </div>
-          <Button
-            variant="outline"
+          <button
             onClick={() => navigate("confectioners")}
-            className="hidden sm:flex"
+            className="link-more hidden sm:inline-flex"
           >
             Все кондитеры
-            <ArrowRight className="h-4 w-4 ml-1" />
-          </Button>
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -775,13 +776,10 @@ export function HomePage() {
             onClick={() => {
               useAppStore.getState().setAuthModalOpen(true);
             }}
-            className="group relative overflow-hidden rounded-xl border-2 border-dashed border-primary/30 bg-gradient-to-br from-primary/5 via-accent/10 to-primary/5 hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
+            className="group relative overflow-hidden rounded-2xl border-2 border-dashed border-primary/35 bg-primary/[0.04] hover:border-primary/55 hover:shadow-[var(--shadow-lift)] hover:-translate-y-1 transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
           >
-            <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity">
-              <div className="absolute top-4 right-4 text-6xl">🎂</div>
-              <div className="absolute bottom-4 left-4 text-5xl">🧁</div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-7xl">🍰</div>
-            </div>
+            <div className="absolute inset-0 bg-pattern opacity-40 group-hover:opacity-70 transition-opacity" aria-hidden="true" />
+            <div className="absolute -top-8 -right-8 h-28 w-28 decor-ring opacity-50" aria-hidden="true" />
             <div className="relative z-10 space-y-3">
               <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
                 <Sparkles className="h-7 w-7 text-primary" />
@@ -803,13 +801,10 @@ export function HomePage() {
             onClick={() => {
               navigate("for-confectioners");
             }}
-            className="group relative overflow-hidden rounded-xl border-2 border-dashed border-emerald-400/30 bg-gradient-to-br from-emerald-50/50 via-accent/5 to-emerald-50/50 hover:border-emerald-400/50 hover:shadow-lg transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
+            className="group relative overflow-hidden rounded-2xl border-2 border-dashed border-emerald-400/35 bg-emerald-50/40 dark:bg-emerald-950/20 hover:border-emerald-400/55 hover:shadow-[var(--shadow-lift)] hover:-translate-y-1 transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
           >
-            <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity">
-              <div className="absolute top-4 right-4 text-6xl">🏆</div>
-              <div className="absolute bottom-4 left-4 text-5xl">⭐</div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-7xl">🌟</div>
-            </div>
+            <div className="absolute inset-0 bg-pattern opacity-40 group-hover:opacity-70 transition-opacity" aria-hidden="true" />
+            <div className="absolute -bottom-8 -left-8 h-28 w-28 decor-ring opacity-50" aria-hidden="true" />
             <div className="relative z-10 space-y-3">
               <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
                 <Award className="h-7 w-7 text-emerald-600" />
@@ -832,30 +827,22 @@ export function HomePage() {
 
       {/* ===== NEW PRODUCTS ===== */}
       {newProducts.length > 0 && (
-        <section
-          className="relative overflow-hidden py-12"
-        >
-          {/* LCP-оптимизация: фон новинок через next/image (lazy по умолчанию) */}
-          <Image
-            src="/section-bg.png"
-            alt=""
-            fill
-            sizes="100vw"
-            quality={75}
-            className="object-cover -z-10"
-          />
-          <div className="absolute inset-0 bg-background/80" />
+        <section className="relative overflow-hidden py-12 bg-secondary/40">
           <div className="container mx-auto px-4 relative">
-            <div className="flex items-end justify-between mb-6">
-              <div>
-                <Badge className="mb-2 bg-emerald-100 text-emerald-800 border-emerald-200">
-                  <Sparkles className="h-3 w-3 mr-1" />
-                  Свежее поступление
-                </Badge>
-                <h2 className="font-display text-2xl sm:text-3xl font-bold">
+            <div className="flex items-end justify-between mb-8">
+              <div className="space-y-2">
+                <span className="eyebrow-rule">Свежее поступление</span>
+                <h2 className="font-display text-3xl sm:text-4xl">
                   Новинки
                 </h2>
               </div>
+              <button
+                onClick={() => navigate("catalog")}
+                className="link-more hidden sm:inline-flex"
+              >
+                В каталог
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {newProducts.map((p) => (
@@ -867,22 +854,18 @@ export function HomePage() {
       )}
 
       {/* ===== ADVANTAGES ===== */}
-      <section className="relative overflow-hidden py-12">
-        <Image
-          src="/section-bg.png"
-          alt=""
-          fill
-          sizes="100vw"
-          quality={60}
-          className="object-cover -z-10"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
+      <section className="relative overflow-hidden py-14">
+        <div className="absolute inset-0 bg-secondary/40" aria-hidden="true" />
+        <div className="absolute inset-0 grain-overlay" aria-hidden="true" />
         <div className="container mx-auto px-4 relative">
-        <div className="text-center mb-10">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold">
+        <div className="text-center mb-12">
+          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
+            Экосистема платформы
+          </span>
+          <h2 className="font-display text-3xl sm:text-4xl">
             Почему выбирают нас
           </h2>
-          <p className="text-muted-foreground mt-2 max-w-2xl mx-auto">
+          <p className="text-muted-foreground mt-3 max-w-2xl mx-auto">
             Уездный кондитер — это не просто маркетплейс. Это экосистема для
             домашних кондитеров и любителей сладкого по всей России.
           </p>
@@ -912,19 +895,19 @@ export function HomePage() {
               icon: CreditCard,
               title: "Поддержка самозанятости",
               text: "Автоматический расчёт НПД: 4% с физлиц, 6% с юрлиц, вычет 10 000 ₽ при регистрации. Полная налоговая отчётность.",
-              color: "text-primary bg-primary/10",
+              color: "text-orange-700 bg-orange-100",
             },
             {
               icon: MessageCircle,
               title: "Чат в реальном времени",
               text: "Прямые диалоги с кондитерами, чаты привязанные к заказам, поддержка. Все общение — в одной платформе.",
-              color: "text-blue-600 bg-blue-100",
+              color: "text-rose-600 bg-rose-100",
             },
             {
               icon: Users,
               title: "Социальный канал",
               text: "Каждый кондитер имеет свой канал: посты с работами, сторис, подписчики, комментарии. Стройте сообщество вокруг бренда.",
-              color: "text-rose-600 bg-rose-100",
+              color: "text-fuchsia-600 bg-fuchsia-100",
             },
           ].map((adv, i) => {
             const Icon = adv.icon;
@@ -936,11 +919,11 @@ export function HomePage() {
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
               >
-                <Card className="p-6 h-full hover:shadow-xl transition-all duration-300 card-3d border-border/60">
+                <div className="card-tint rounded-2xl p-6 h-full hover:shadow-[var(--shadow-lift)] transition-all duration-300 card-3d">
                   <div
                     className={`h-12 w-12 rounded-xl flex items-center justify-center mb-4 ${adv.color} shadow-sm`}
                   >
-                    <Icon className="h-6 w-6" />
+                    <Icon className="h-6 w-6" aria-hidden="true" />
                   </div>
                   <h3 className="font-semibold text-lg mb-2">
                     {adv.title}
@@ -948,7 +931,7 @@ export function HomePage() {
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     {adv.text}
                   </p>
-                </Card>
+                </div>
               </motion.div>
             );
           })}
@@ -957,19 +940,22 @@ export function HomePage() {
       </section>
 
       {/* ===== STEPS ===== */}
-      <section className="relative overflow-hidden py-12">
+      <section className="relative overflow-hidden py-14">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
         <div className="container mx-auto px-4 relative">
-        <div className="text-center mb-10">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold">
+        <div className="text-center mb-12">
+          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
+            Как это работает
+          </span>
+          <h2 className="font-display text-3xl sm:text-4xl">
             Как сделать заказ
           </h2>
-          <p className="text-muted-foreground mt-2">
+          <p className="text-muted-foreground mt-3">
             Четыре простых шага от выбора до получения
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 steps-rail">
           {[
             {
               num: "01",
@@ -1006,20 +992,20 @@ export function HomePage() {
                 transition={{ delay: i * 0.1 }}
                 className="relative"
               >
-                <Card className="p-6 h-full relative overflow-hidden">
-                  <div className="absolute top-2 right-3 font-display text-5xl font-bold text-primary/10">
+                <div className="card-tint rounded-2xl p-6 h-full relative overflow-hidden shadow-[var(--shadow-soft)]">
+                  <div className="absolute top-3 right-4 font-display text-6xl text-primary/15" aria-hidden="true">
                     {step.num}
                   </div>
                   <div className="relative">
-                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                      <Icon className="h-6 w-6 text-primary" />
+                    <div className="h-12 w-12 rounded-full bg-primary/10 ring-4 ring-background flex items-center justify-center mb-4">
+                      <Icon className="h-6 w-6 text-primary" aria-hidden="true" />
                     </div>
                     <h3 className="font-display font-semibold mb-2">
                       {step.title}
                     </h3>
                     <p className="text-sm text-muted-foreground">{step.text}</p>
                   </div>
-                </Card>
+                </div>
               </motion.div>
             );
           })}
@@ -1027,44 +1013,19 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* ===== STATS ===== */}
-      <section className="container mx-auto px-4">
-        <div className="rounded-2xl bg-primary text-primary-foreground border-0 overflow-hidden relative mesh-gradient" style={{ background: "none", backgroundColor: "oklch(0.42 0.18 25)" }}>
-          <div className="absolute inset-0 bg-pattern opacity-10" />
-          <div className="relative p-8 lg:p-12 grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
-            {[
-              // Реальные счётчики платформы (БД/API), а не выдуманные цифры
-              { value: verifiedCount, suffix: "", label: "Проверенных кондитеров", icon: Users },
-              { value: productCount, suffix: "", label: "Товаров в каталоге", icon: Cake },
-              { value: cityCount, suffix: "", label: "Городов России", icon: Truck },
-              { value: avgRating, suffix: " / 5", label: "Средний рейтинг товаров", icon: Star, isFloat: true },
-            ].map((stat, i) => {
-              const Icon = stat.icon;
-              return (
-                <div key={i} className="space-y-2">
-                  <Icon className="h-6 w-6 mx-auto opacity-80" />
-                  <div className="font-display text-3xl lg:text-4xl font-bold">
-                    {stat.isFloat ? (
-                      <span>{stat.value > 0 ? `${stat.value} / 5` : "—"}</span>
-                    ) : (
-                      <AnimatedCounter value={stat.value} suffix={stat.suffix} />
-                    )}
-                  </div>
-                  <div className="text-sm opacity-80">{stat.label}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+      {/* V2: отдельная лента статистики больше не нужна — счётчики
+          переехали в стеклянную ленту внутри hero (см. HERO) */}
 
       {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
       <section className="container mx-auto px-4">
-        <div className="text-center mb-10">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold">
+        <div className="text-center mb-12">
+          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
+            Проверенные отзывы
+          </span>
+          <h2 className="font-display text-3xl sm:text-4xl">
             Отзывы покупателей
           </h2>
-          <p className="text-muted-foreground mt-2">
+          <p className="text-muted-foreground mt-3">
             Проверенные отзывы о заказах на платформе
           </p>
         </div>
@@ -1073,7 +1034,7 @@ export function HomePage() {
           {realReviews === null
             ? // Загрузка: скелетоны в той же сетке
               [0, 1, 2].map((i) => (
-                <Card key={`sk-${i}`} className="p-6 h-full animate-pulse">
+                <div key={`sk-${i}`} className="card-tint rounded-2xl p-6 h-full animate-pulse">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="h-10 w-10 rounded-full bg-muted" />
                     <div className="space-y-2">
@@ -1083,7 +1044,7 @@ export function HomePage() {
                   </div>
                   <div className="h-3 w-full bg-muted rounded mb-2" />
                   <div className="h-3 w-4/5 bg-muted rounded" />
-                </Card>
+                </div>
               ))
             : (realReviews.length > 0
                 ? realReviews.slice(0, 6)
@@ -1107,7 +1068,7 @@ export function HomePage() {
                   viewport={{ once: true }}
                   transition={{ delay: i * 0.05 }}
                 >
-                  <Card className="p-6 h-full">
+                  <div className="card-tint quote-card rounded-2xl p-6 h-full shadow-[var(--shadow-soft)]">
                     <div className="flex items-center gap-3 mb-4">
                       <Avatar>
                         <AvatarImage
@@ -1140,7 +1101,7 @@ export function HomePage() {
                     <p className="text-sm text-muted-foreground leading-relaxed">
                       &laquo;{review.text}&raquo;
                     </p>
-                  </Card>
+                  </div>
                 </motion.div>
               ))}
         </div>
@@ -1151,31 +1112,23 @@ export function HomePage() {
         <RecentlyViewed />
       </section>
 
-      {/* ===== CTA BECOME CONFECTIONER ===== */}
-      <section className="relative overflow-hidden py-12">
-        <Image
-          src="/section-bg.png"
-          alt=""
-          fill
-          sizes="100vw"
-          quality={60}
-          className="object-cover -z-10"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
-        <div className="container mx-auto px-4 relative">
-        <Card className="overflow-hidden border-0 bg-gradient-to-br from-amber-100/80 via-accent/60 to-primary/10 glow-primary backdrop-blur-sm">
-          <div className="p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">
-            <div className="space-y-4">
-              <Badge className="bg-primary text-primary-foreground">
-                <Sparkles className="h-3 w-3 mr-1" />
+      {/* ===== CTA BECOME CONFECTIONER (V2: вишнёвая панель) ===== */}
+      <section className="container mx-auto px-4">
+        <div className="panel-dark relative overflow-hidden rounded-3xl shadow-[var(--shadow-pop)]">
+          <div className="absolute inset-0 bg-pattern opacity-40" aria-hidden="true" />
+          <div className="absolute -top-20 left-1/3 h-72 w-72 rounded-full border border-white/10" aria-hidden="true" />
+          <div className="relative p-8 lg:p-12 grid lg:grid-cols-2 gap-8 items-center">
+            <div className="space-y-5">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/20 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                 Для кондитеров
-              </Badge>
-              <h2 className="font-display text-3xl lg:text-4xl font-bold">
+              </span>
+              <h2 className="font-display text-3xl lg:text-4xl">
                 Продавайте свои торты
                 <br />
-                по всей России
+                <span className="text-accent">по всей России</span>
               </h2>
-              <p className="text-muted-foreground max-w-lg">
+              <p className="text-white/85 max-w-lg">
                 Присоединяйтесь к кондитерам платформы. Витрина,
                 CRM, финансовая аналитика, социальный канал, помощь с налогами
                 (НПД). Тарифы от 5% комиссии.
@@ -1184,7 +1137,7 @@ export function HomePage() {
                 <Button
                   size="lg"
                   onClick={() => useAppStore.getState().setAuthModalOpen(true)}
-                  className="bg-primary"
+                  className="bg-accent text-accent-foreground hover:bg-accent/85 shadow-lg"
                 >
                   Стать кондитером
                 </Button>
@@ -1192,6 +1145,7 @@ export function HomePage() {
                   size="lg"
                   variant="outline"
                   onClick={() => navigate("for-confectioners")}
+                  className="border-white/30 bg-white/5 text-white hover:bg-white/15 hover:text-white"
                 >
                   Узнать о тарифах
                 </Button>
@@ -1211,19 +1165,18 @@ export function HomePage() {
               ].map((s, i) => (
                 <div
                   key={i}
-                  className="bg-background/80 backdrop-blur rounded-xl p-3 border border-border"
+                  className="stat-glass p-3"
                 >
-                  <div className="font-display text-2xl font-bold text-primary">
+                  <div className="font-display text-2xl tnum">
                     {s.val}
                   </div>
-                  <div className="text-[11px] text-muted-foreground">
+                  <div className="text-[11px] text-white/75">
                     {s.label}
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        </Card>
         </div>
       </section>
 

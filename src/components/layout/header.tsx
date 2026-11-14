@@ -111,12 +111,12 @@ function TopPromoBar({ onNavigate }: { onNavigate: (view: ViewKey) => void }) {
   if (!visible) return null;
 
   return (
-    <div className="bg-muted/60 border-b border-border/40 text-foreground text-xs">
+    <div className="bg-primary/5 border-b border-primary/10 text-foreground text-xs">
       <div className="container mx-auto px-4 h-8 flex items-center justify-center gap-3 relative">
         <span className="text-muted-foreground hidden sm:inline">•</span>
         <button
           onClick={() => onNavigate(promos[index].action)}
-          className="text-center text-muted-foreground hover:text-foreground transition-colors truncate max-w-[80%]"
+          className="text-center text-muted-foreground hover:text-primary transition-colors truncate max-w-[80%]"
         >
           {promos[index].text}
         </button>
@@ -240,9 +240,9 @@ export function Header() {
     <>
       <TopPromoBar onNavigate={navigate} />
 
-      <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+      <header className="header-glass sticky top-0 z-40 w-full [backdrop-filter:blur(18px)_saturate(1.7)]!">
         <div className="container mx-auto px-4">
-          <div className="flex h-16 items-center justify-between gap-3">
+          <div className="flex h-16 items-center justify-between gap-2 sm:gap-3">
             {/* Logo */}
             <button onClick={() => navigate("home")} className="flex items-center gap-2 shrink-0 group" aria-label="Уездный кондитер — на главную">
               <img src="/logo.png" alt="Уездный кондитер" className="h-12 w-12 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform" />
@@ -262,7 +262,7 @@ export function Header() {
             </div>
 
             {/* Mobile search trigger */}
-            <Button variant="ghost" size="icon" onClick={() => setMobileSearchOpen(true)} className="md:hidden h-9 w-9" aria-label="Поиск">
+            <Button variant="ghost" size="icon" onClick={() => setMobileSearchOpen(true)} className="md:hidden h-11 w-11" aria-label="Поиск">
               <Search className="h-4 w-4" />
             </Button>
 
@@ -272,12 +272,12 @@ export function Header() {
             {/* Actions */}
             <div className="flex items-center gap-1 sm:gap-2 ml-auto">
               {/* Конструктор */}
-              <Button variant="default" size="sm" onClick={() => navigate("cake-builder")} className="hidden md:flex bg-gradient-to-r from-primary to-accent hover:opacity-90">
+              <Button variant="default" size="sm" onClick={() => navigate("cake-builder")} className="btn-primary-gradient hidden md:flex">
                 <Cake className="h-4 w-4 mr-1.5" />Конструктор
               </Button>
 
               {/* Favorites */}
-              <Button variant="ghost" size="icon" onClick={() => navigate("dashboard-customer", { tab: "favorites" })} className="relative h-9 w-9" aria-label="Избранное">
+              <Button variant="ghost" size="icon" onClick={() => navigate("dashboard-customer", { tab: "favorites" })} className="relative h-11 w-11 sm:h-9 sm:w-9" aria-label="Избранное">
                 <Heart className="h-4 w-4" />
                 {favorites.length > 0 && <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[10px] bg-primary text-primary-foreground">{favorites.length}</Badge>}
               </Button>
@@ -291,7 +291,7 @@ export function Header() {
               <NotificationsBell />
 
               {/* Cart */}
-              <Button variant="ghost" size="icon" onClick={() => setCartOpen(true)} className="relative h-9 w-9" aria-label="Корзина">
+              <Button variant="ghost" size="icon" onClick={() => setCartOpen(true)} className="relative h-11 w-11 sm:h-9 sm:w-9" aria-label="Корзина">
                 <ShoppingCart className="h-4 w-4" />
                 {cartCount > 0 && <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[10px] bg-primary text-primary-foreground">{cartCount}</Badge>}
               </Button>
@@ -362,7 +362,7 @@ export function Header() {
                   <div className="hidden sm:block">
                     <ThemeToggle />
                   </div>
-                  <Button size="sm" onClick={() => setAuthModalOpen(true)} className="hidden sm:flex">
+                  <Button size="sm" onClick={() => setAuthModalOpen(true)} className="btn-primary-gradient hidden sm:flex">
                     <UserIcon className="h-4 w-4 mr-1.5" />Войти
                   </Button>
                 </>
@@ -371,7 +371,7 @@ export function Header() {
               {/* Mobile menu trigger */}
               <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="lg:hidden h-9 w-9" aria-label="Открыть меню">
+                  <Button variant="ghost" size="icon" className="lg:hidden h-11 w-11" aria-label="Открыть меню">
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
@@ -388,7 +388,7 @@ export function Header() {
 
                   <div className="p-3 space-y-1 max-h-[calc(100vh-80px)] overflow-y-auto">
                     {/* Конструктор */}
-                    <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={() => { navigate("cake-builder"); setMobileMenuOpen(false); }}>
+                    <Button className="btn-primary-gradient w-full" onClick={() => { navigate("cake-builder"); setMobileMenuOpen(false); }}>
                       <Cake className="h-4 w-4 mr-2" />Конструктор торта
                     </Button>
 
@@ -474,7 +474,7 @@ export function Header() {
                     {/* Auth */}
                     {!isAuthenticated && (
                       <div className="pt-3 mt-2 border-t space-y-2">
-                        <Button className="w-full" onClick={() => { setMobileMenuOpen(false); setAuthModalOpen(true); }}>Войти / Регистрация</Button>
+                        <Button className="btn-primary-gradient w-full" onClick={() => { setMobileMenuOpen(false); setAuthModalOpen(true); }}>Войти / Регистрация</Button>
                       </div>
                     )}
                   </div>
@@ -485,7 +485,7 @@ export function Header() {
         </div>
 
         {/* ===== ВТОРАЯ СТРОКА — навигационное под-меню (десктоп) ===== */}
-        <div className="hidden lg:block border-t border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <div className="hidden lg:block border-t border-border/60">
           <div className="container mx-auto px-4">
             <nav className="flex items-center gap-0.5 h-11 overflow-x-auto">
               {/* Каталог — мега-меню */}
