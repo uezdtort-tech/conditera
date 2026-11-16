@@ -202,3 +202,66 @@
 
 - Файлы в `logs/agent/` ТОЛЬКО дополняются: ни скрипты, ни агент не перезаписывают и не удаляют прошлые записи — журнал развёртывания является фактической хронологией запусков. Анализ/очистка — только осознанным решением владельца.
 - Настоящий документ ведётся по тому же принципу: новые события оформляются новыми разделами в конце (как настоящая Часть VI); Части I–V не переписываются.
+
+---
+
+## Часть VII. Сессия ротации JWT_SECRET на production (2026-11-16) — отчёт принят + внешняя верификация
+
+> Источник: итоговый отчёт сессии на production-сервере, принят от владельца ~14:20 UTC 2026-11-16. СЕРВЕРНЫЕ факты (бэкапы, контейнеры, логи сервера) текущей сессией не перепроверялись — доступа к production-серверу нет; помечены как «по отчёту». ВНЕШНИЕ проверки (с песочницы) выполнены вживую и помечены как «верифицировано».
+
+### VII.1. Хроника сессии (по отчёту)
+
+1. Резервные копии созданы: `.env.production`, `docker-compose.yml`, `docker-compose.supabase.yml`, `supabase/kong.yml` → `/tmp/jwt_rotation_backup/` (права 600/700).
+2. Ротация JWT_SECRET выполнена и ОТКАЧЕНА: новый криптостойкий секрет (65 симв., openssl rand), сгенерированы новые HS256 JWT-токены (ANON_KEY, SERVICE_ROLE_KEY), контейнеры Supabase пересозданы с новыми ключами; в ходе ротации все 5 API возвращали HTTP 200.
+3. Откат: все изменения откачены из бэкапов из-за критических проблем инфраструктуры; конфиги восстановлены с демонстрационным JWT_SECRET (в т.ч. Caddyfile).
+
+### VII.2. Состояние по отчёту (сервер, не верифицировалось)
+
+| Компонент | Статус по отчёту |
+|---|---|
+| conditera-web | Up (healthy) |
+| /api/health | status=ok, database=ok, auth=unreachable |
+| Caddy (172.26.0.7) | Up (unhealthy) |
+| conditera-supabase-rest | Up (unhealthy) |
+| conditera-supabase-auth | Up (starting) |
+| JWT_SECRET | демонстрационное значение |
+
+Блокеры, помешавшие завершить ротацию (по отчёту):
+1. PostgREST не подключается к supabase-db: в БД нет роли `supabase` и БД `supabase`; PostgREST отдаёт `invalid URI query parameter: "search_path"` и 503 на все запросы.
+2. Caddy не достигает Envoy/Supabase-контейнеров: все запросы через Caddy к Supabase API — таймауты (HTTP 000), docker-сеть при этом общая.
+
+### VII.3. Внешняя верификация из песочницы (вживую, 14:20 UTC 2026-11-16)
+
+| Проверка | Результат |
+|---|---|
+| GET https://conditera.ru/api/health | HTTP 200, **status=degraded**, database=ok, **auth=unreachable** (деталь сменилась: было «HTTP 502» в 13:48 → «error: timeout 3s» в 14:20), n8n=unavailable, version=dev, **uptime ~109 мин** (web-процесс не перезапускался) |
+| GET https://www.conditera.ru/api/health | HTTP 200 (4.7 с — замедлилось) |
+| GET https://conditera.ru/ | HTTP 200 (3.2 с — замедлилось) |
+| 5 критичных API (products, decor/products, services, builder/decor-shops, recipes/marketplace) | **5/5 — код 000 при таймауте 20 с**; КАТАЛОГ ПО-ПРЕЖНЕМУ НЕДОСТУПЕН извне |
+| TLS conditera.ru | валиден до 12.02.2027 (проверено в 13:53 UTC) |
+| `JWT_SECRET_ROTATION_PLAN.md` | **В ДЕРЕВЕ РЕПО ОТСУТСТВУЕТ** (glob = 0) — план существует только на production-сервере |
+
+Вывод: заявленный «PRODUCTION FUNCTIONAL» внешне НЕ подтверждается — покупательский путь (каталог) по-прежнему недоступен извне; auth=unreachable согласуется с supabase-auth «Up (starting)».
+
+### VII.4. План завершения (серверные шаги — за владельцем/серверным агентом)
+
+Блокер 1 — PostgREST ↔ supabase-db:
+1. Диагностика: `docker exec conditera-supabase-rest env | grep ^PGRST` (URI маскировать), `docker exec conditera-supabase-db psql -U postgres -c '\du'` и `'\l'` — какие роли/БД реально есть.
+2. Если supabase-db пересоздавался с пустым volume — проверить `docker volume inspect` и монтирование; роли/схему восстановить init-скриптами Supabase (authenticator/anon/authenticated/service_role + grants) либо создать недостающую роль/БД вручную под фактический `PGRST_DB_URI`.
+3. Ошибка `invalid URI query parameter: "search_path"` — убрать `?search_path=…` из `PGRST_DB_URI` (PostgREST отклоняет неизвестные query-параметры); схемы задать через `PGRST_DB_SCHEMAS` или `ALTER ROLE … SET search_path`.
+4. `docker compose up -d --force-recreate supabase-rest`; в логах ждать «listening»; проба: `curl http://<rest>:3000/` → 200 OpenAPI JSON.
+
+Блокер 2 — Caddy ↔ Supabase сеть:
+1. `docker network inspect` сети caddy — сверить фактический список контейнеров; при отсутствии добавить `docker network connect` или выровнять `networks:` в compose (PI-фикс добавлял алиас `rest`).
+2. Проба изнутри: `docker exec <caddy> curl -s -o /dev/null -w '%{http_code}' http://rest:3000/` и на auth; после — `caddy reload` / пересоздание.
+3. Caddy «unhealthy»: проверить healthcheck (админ-API :2019) — часто unhealthy из-за самого healthcheck-URL, а не проксирования.
+
+Ротация JWT_SECRET (после зелёных блокеров, по плану на сервере; репо-копии плана нет):
+1. Скопировать бэкапы ИЗ /tmp в постоянное место (/tmp может пережить ребут не на всех системах).
+2. Один общий новый JWT_SECRET → новые HS256 anon/service ключи → обновить ОДНОВРЕМЕННО во всех потребителях: kong.yml, `.env.production` (SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_ANON_KEY), env Next/web — рассинхрон даёт 401/403 на всех API.
+3. `docker compose up -d --force-recreate` затронутых сервисов (kong/envoy, auth, rest, web), НЕ трогая volume supabase-db.
+4. Верификационный гейт: health auth=ok; 5 API → 200; RLS: запросы с anon/authenticated JWT и `select auth.uid()`; логин демо-пользователя 200. Регистрация → 201 ТОЛЬКО после передеплоя коммита cb42589 (см. VII.5).
+
+### VII.5. Системная связь с фиксом регистрации
+
+Регистрация на проде остаётся 500 ДАЖЕ после восстановления GoTrue, пока не передеплоен коммит cb42589 (fix fallback-регистрации): прод работает на старом билде (version=dev, uptime web ~109 мин без пересборки). Порядок для владельца: (1) блокеры VII.4 → (2) ротация JWT → (3) передеплой cb42589 → (4) полный гейт: 5 API 200, health ok, register 201, login 200.
