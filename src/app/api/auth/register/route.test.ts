@@ -1,17 +1,18 @@
 /**
- * Регрессионные тесты POST /api/auth/register — fail-closed гейт прод-регистрации
- * (DEV-18; Release Gate v4.1 Этап 3.1 / C-1 — фиксация СУЩЕСТВУЮЩЕГО поведения,
- * код роута не менялся).
+ * Регрессионные тесты POST /api/auth/register — единый fallback при недоступности GoTrue.
  *
- * Контракт (docs/evidence/release-gate/auth-prod-preflight-82ae685.md):
- *   - NODE_ENV=production + ошибка GoTrue admin.createUser → 500
- *     {"error":"Не удалось создать пользователя в Auth"} ДО создания любых строк:
- *     ни auth.users (dev-стаб INSERT через pg-пул), ни profiles, ни user_roles,
- *     ни referrals — fail-closed по построению;
- *   - NODE_ENV=development + ошибка GoTrue → dev-фоллбэк: auth.users stub через
- *     pg-пул (FK profiles.id → auth.users.id) + profiles upsert → 201;
- *   - production + GoTrue здоров (createUser ok) → 201: гейт ТОЛЬКО на
- *     фактический authErr, попыток обхода/ослабления нет.
+ * Контракт (после решения владельца: регистрация не должна падать после
+ * развёртывания без реального Supabase — прежний fail-closed гейт
+ * «Не удалось создать пользователя в Auth» снят):
+ *   - NODE_ENV=production + ошибка GoTrue admin.createUser → fallback:
+ *     auth.users стаб через pg-пул (FK profiles.id → auth.users.id)
+ *     + profiles upsert + user_roles → 201 (пароль канонично хранит
+ *     profiles.password_hash — логин от GoTrue не зависит);
+ *   - NODE_ENV=development + ошибка GoTrue → тот же fallback → 201;
+ *   - production + GoTrue здоров (createUser ok) → 201 штатно, pg-пул
+ *     не используется: fallback ТОЛЬКО по факту authErr.
+ *   - Fail-closed сохранён на уровне БД: сбой profiles/user_roles → 500
+ *     с компенсацией (deleteUser / delete profile) — без частичного пользователя.
  *
  * Моки: @/lib/anti-fraud, @/lib/supabase/admin, @/lib/auth, @/lib/postgrest/pool,
  * @/lib/yandex-metrika, @/lib/telegram-bot, @/lib/email — герметично, без сети/БД.
@@ -163,8 +164,8 @@ beforeEach(() => {
   createRefreshTokenMock.mockResolvedValue("refresh-token-stub");
 });
 
-describe("POST /api/auth/register — fail-closed гейт прод-регистрации (DEV-18 / C-1)", () => {
-  it("production + createUser fail → 500 fail-closed ДО любых записей: auth.users-стаб, profiles, user_roles, referrals не пишутся", async () => {
+describe("POST /api/auth/register — единый fallback при недоступности GoTrue", () => {
+  it("production + createUser fail → fallback: auth.users стаб через пул, profiles создан, 201 (гейт по факту authErr, а не NODE_ENV)", async () => {
     createUserMock.mockResolvedValue({
       data: { user: null },
       error: { message: "stub: GoTrue unavailable" },
@@ -172,22 +173,23 @@ describe("POST /api/auth/register — fail-closed гейт прод-регист
 
     const res = await withNodeEnv("production", () => POST(makePost(VALID_BODY)));
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(201);
     const json = await res.json();
-    expect(json.error).toBe("Не удалось создать пользователя в Auth");
-    expect(json.details).toBe("stub: GoTrue unavailable");
+    expect(json.user.email).toBe("e2e-failclosed@example.com");
+    expect(json.accessToken).toBe("access-token-stub");
+    expect(json.refreshToken).toBe("refresh-token-stub");
 
-    // Fail-closed: ни одна строка не создана (порядок роута: ранний return
-    // 500 до dev-стаба auth.users и до profiles/user_roles/referrals)
-    expect(poolQueryMock).not.toHaveBeenCalled(); // INSERT INTO auth.users (dev-only)
-    expect(profileUpsertMock).not.toHaveBeenCalled();
-    expect(userRolesUpsertMock).not.toHaveBeenCalled();
-    expect(referralsInsertMock).not.toHaveBeenCalled();
-    // Компенсация (deleteUser) не нужна — создавать было нечего
+    // Fallback-стаб: прямая строка auth.users через pg-пул (FK для profiles)
+    expect(poolQueryMock).toHaveBeenCalledTimes(1);
+    expect(String(poolQueryMock.mock.calls[0][0])).toContain("INSERT INTO auth.users");
+    expect(profileUpsertMock).toHaveBeenCalledTimes(1);
+    expect(userRolesUpsertMock).toHaveBeenCalledTimes(1);
+    expect(referralsInsertMock).toHaveBeenCalledTimes(1);
+    // Компенсация (deleteUser) не нужна — GoTrue пользователя и не было
     expect(deleteUserMock).not.toHaveBeenCalled();
   });
 
-  it("development + createUser fail → dev-фоллбэк: auth.users стаб через пул, profiles создан, 201 (гейт строго NODE_ENV-условный)", async () => {
+  it("development + createUser fail → тот же fallback: auth.users стаб, profiles создан, 201", async () => {
     createUserMock.mockResolvedValue({
       data: { user: null },
       error: { message: "501 LOCAL_AUTH_DISABLED" },
@@ -201,14 +203,14 @@ describe("POST /api/auth/register — fail-closed гейт прод-регист
     expect(json.accessToken).toBe("access-token-stub");
     expect(json.refreshToken).toBe("refresh-token-stub");
 
-    // Dev-only стаб: прямая строка auth.users через pg-пул (FK для profiles)
+    // Fallback-стаб: прямая строка auth.users через pg-пул (FK для profiles)
     expect(poolQueryMock).toHaveBeenCalledTimes(1);
     expect(String(poolQueryMock.mock.calls[0][0])).toContain("INSERT INTO auth.users");
     expect(profileUpsertMock).toHaveBeenCalledTimes(1);
     expect(userRolesUpsertMock).toHaveBeenCalledTimes(1);
   });
 
-  it("production + GoTrue здоров (createUser ok) → 201: гейт только на фактический authErr, обходов нет", async () => {
+  it("production + GoTrue здоров (createUser ok) → 201 штатно: fallback только по факту authErr, pg-пул не используется", async () => {
     createUserMock.mockResolvedValue({
       data: { user: { id: "00000000-0000-4000-8000-00000000000a" } },
       error: null,

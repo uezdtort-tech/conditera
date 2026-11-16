@@ -8,7 +8,11 @@
  *   4. Проверка уникальности телефона в profiles (по полю phone)
  *   5. Проверка чёрного списка (email + phone) в blacklist таблице
  *   6. Проверка организации через DaData (если accountType=legal и есть ИНН)
- *   7. Создание пользователя в Supabase Auth (admin.createUser с паролем)
+ *   7. Создание пользователя в Supabase Auth (admin.createUser с паролем);
+ *      при недоступности GoTrue (нет Supabase в окружении, 501-заглушка,
+ *      сетевой сбой) — fallback: строка auth.users напрямую через pg-пул
+ *      (пароль канонично хранит profiles.password_hash, логин от GoTrue
+ *      не зависит) — во ВСЕХ окружениях, включая production
  *   8. Создание записи в profiles (с hash пароля, ролями, accountType, loyaltyLevel)
  *   9. Создание referral записи (реферальный код из имени + id)
  *  10. Генерация access + refresh JWT токенов (через @/lib/auth)
@@ -257,20 +261,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     if (authErr) {
-      console.error("[register] supabase auth createUser error:", authErr.message);
-      // В проде без GoTrue регистрация невозможна — явный отказ
-      if (process.env.NODE_ENV !== "development") {
-        return NextResponse.json(
-          { error: "Не удалось создать пользователя в Auth", details: authErr.message },
-          { status: 500 }
-        );
-      }
-      // Local runtime (embedded PG, GoTrue = 501-заглушка): создаём строку
-      // auth.users напрямую — FK profiles.id → auth.users.id требует её
-      // существования. Триггер on_auth_user_created создаст профиль + роль
-      // CUSTOMER (см. 0001_init.sql). Пароль канонично хранит
-      // profiles.password_hash (bcrypt) — логин от GoTrue не зависит.
-      console.warn("[register] dev/local mode: GoTrue unavailable → auth.users stub row");
+      // GoTrue недоступен/отклонил вызов (нет реального Supabase в окружении,
+      // 501-заглушка локального рантайма, сетевой сбой). Регистрация НЕ падает:
+      // пароль канонично хранит profiles.password_hash (Argon2id), логин
+      // от GoTrue не зависит. Создаём строку auth.users напрямую — FK
+      // profiles.id → auth.users.id требует её существования. Триггер
+      // on_auth_user_created создаст профиль + роль CUSTOMER (см. 0001_init.sql).
+      // Дальнейшие шаги (profiles/user_roles) остаются fail-closed по факту
+      // ошибки БД: при недоступной БД регистрация вернёт 500 с деталями,
+      // без частично созданного пользователя (компенсации на шагах 8-9).
+      console.error(
+        "[register] supabase auth createUser error (fallback to auth.users stub):",
+        authErr.message
+      );
     }
 
     const userId = authData?.user?.id || crypto.randomUUID();
