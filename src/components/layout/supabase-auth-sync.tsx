@@ -63,12 +63,41 @@ export function SupabaseAuthSync() {
   useEffect(() => {
     let cancelled = false;
 
+    // Z-2026-11-16 (auth-recovery): ждём завершения rehydration zustand-persist.
+    // Раньше очистка сессии гонкой проигрывала persist: sync успевал
+    // setSupabaseUser(null) ДО того, как localStorage («conditera-storage»)
+    // восстанавливал {user, isAuthenticated:true} — устаревший пользователь
+    // переживал logout/истечение JWT (найдено E2E: serverSession=null,
+    // store.user=customer@demo.ru после перезагрузки).
+    const waitForHydration = async (): Promise<void> => {
+      const persist = (
+        useAppStore as unknown as {
+          persist?: {
+            hasHydrated?: () => boolean;
+            onFinishHydration?: (cb: () => void) => () => void;
+          };
+        }
+      ).persist;
+      if (!persist) return;
+      if (persist.hasHydrated?.()) return;
+      await new Promise<void>((resolve) => {
+        const unsub = persist.onFinishHydration?.(() => {
+          unsub?.();
+          resolve();
+        });
+        // Fallback: если событие не придёт (persist без колбэка) — не виснем
+        setTimeout(resolve, 3000);
+      });
+    };
+
     // 0. Локальный рантайм: каноническая сессия — /api/auth/session
     // (кастомный JWT в cookie cd_session). GoTrue локально отключён (501),
     // поэтому hydrate store из app-сессии; GoTrue-подписка ниже остаётся
     // только для обратной совместимости облачного деплоя.
     (async () => {
       try {
+        await waitForHydration();
+        if (cancelled) return;
         const res = await fetch("/api/auth/session", { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
@@ -89,6 +118,10 @@ export function SupabaseAuthSync() {
             city: u.city ?? undefined,
           } as never);
         } else {
+          // Серверной сессии нет — persisted-пользователь устарел: очищаем.
+          console.info(
+            "[auth-sync] no server session → clearing stale persisted user"
+          );
           setSupabaseUser(null);
         }
       } catch {

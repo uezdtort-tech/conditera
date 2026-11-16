@@ -255,11 +255,15 @@ function extractTokenFromRequest(request: Request): string | null {
  *   • ни один источник не дал валидный токен
  *   • токен невалиден (verifyAccessToken вернул null)
  *   • пользователь заблокирован (is_blocked=true в БД)
+ *   • проверка блокировки не удалась (ошибка БД) при мутирующем методе
+ *     запроса (POST/PUT/PATCH/DELETE) — fail-closed, R3: сбой БД не может
+ *     открыть заблокированному пользователю доступ к мутациям; роут вернёт
+ *     401 — контролируемый отказ. Для GET/HEAD (чтение) сохранён fail-open,
+ *     чтобы недоступность БД не вырубала витрину/каталог (R3, минимальное
+ *     исправление из ENGINEERING_RISKS.md).
  *
  * Кэш проверки blocked: 60 секунд в globalThis — чтобы не делать запрос БД
  * на каждый запрос к API с одним и тем же пользователем.
- *
- * Fail-open: при ошибке БД лог пропускается, пользователь допускается.
  */
 export async function getUserFromRequest(request: Request): Promise<AuthenticatedUser | null> {
   const token = extractTokenFromRequest(request);
@@ -271,6 +275,10 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   //     payload.sub, JWT-claims как у Supabase (role/email в top-level)
   const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
   if (!payload || !userId) return null;
+
+  // R3: fail-closed для мутирующих методов при ошибке blocked-check.
+  const method = (request.method || "GET").toUpperCase();
+  const isMutating = method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 
   // Проверяем, не заблокирован ли пользователь (кэш 60 секунд)
   const cacheKey = `__blocked_check_${userId}`;
@@ -292,7 +300,9 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
 
     if (error) {
       console.warn("[auth] blocked-check failed:", error.message);
-      // Fail-open — продолжаем без проверки блокировки.
+      // R3: мутирующий запрос — fail-closed (null → 401 в роуте);
+      // GET — fail-open (чтение, витрина должна работать при сбое БД).
+      if (isMutating) return null;
       return buildUserFromPayload(payload);
     }
 
@@ -300,8 +310,12 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
     cacheStore[cacheKey] = { ts: Date.now(), blocked: isBlocked };
     if (isBlocked) return null;
   } catch (err) {
-    // If DB check fails, allow (don't block legitimate users due to DB issues)
-    console.warn("[auth] blocked-check error:", err instanceof Error ? err.message : String(err));
+    console.warn(
+      "[auth] blocked-check error:",
+      err instanceof Error ? err.message : String(err)
+    );
+    // R3: тот же контракт, что для in-band ошибки выше (fail-closed мутаций).
+    if (isMutating) return null;
   }
 
   return buildUserFromPayload(payload);

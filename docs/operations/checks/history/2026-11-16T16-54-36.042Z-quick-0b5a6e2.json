@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-16T16:54:24.456Z",
+  "finished_at": "2026-11-16T16:54:36.042Z",
+  "commit_sha": "0b5a6e24a1a718998752569d36564082a9ea7a43",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.3",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=2560 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 4503,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": "bunx eslint --no-warn-ignored src/app/api/auth/login/route.ts src/app/api/auth/register/route.ts src/app/api/auth/session/route.ts src/app/api/email/inbound/route.ts src/components/dashboard/admin-email-tab.tsx src/lib/auth.ts src/lib/cron-auth.ts src/lib/email-sanitize.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 2608,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": "bunx vitest run src/app/api/auth/register/route.test.ts src/app/api/auth/session/route.test.ts src/lib/cron-auth.test.ts src/lib/email-sanitize.test.ts",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 4203,
+      "passed": true,
+      "output_tail": "\n RUN  v4.1.10 /home/z/my-project\n\n ✓ src/lib/email-sanitize.test.ts (15 tests) 60ms\n ✓ src/app/api/auth/register/route.test.ts (7 tests) 30ms\n ✓ src/app/api/auth/session/route.test.ts (3 tests) 16ms\n ✓ src/lib/cron-auth.test.ts (10 tests) 9ms\n\n Test Files  4 passed (4)\n      Tests  35 passed (35)\n   Start at  16:54:31\n   Duration  3.84s (transform 209ms, setup 508ms, import 594ms, tests 115ms, environment 2.14s)\n\n(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — единый fallback при недоступности GoTrue > production + createUser fail → fallback: auth.users стаб через пул, profiles создан, 201 (гейт по факту authErr, а не NODE_ENV)\n[register] supabase auth createUser error (fallback to auth.users stub): stub: GoTrue unavailable\n\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — единый fallback при недоступности GoTrue > development + createUser fail → тот же fallback: auth.users стаб, profiles создан, 201\n[register] supabase auth createUser error (fallback to auth.users stub): 501 LOCAL_AUTH_DISABLED\n\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — единый fallback при недоступности GoTrue > GoTrue: «User already registered» (422) → 409, fallback НЕ выполняется (нет стаба и профиля)\n[register] GoTrue reports email already registered (no profile row): e2e-failclosed@example.com\n\nstderr | src/app/api/auth/register/route.test.ts > POST /api/auth/register — единый fallback при недоступности GoTrue > GoTrue: user_already_exists (code) → 409 и по коду ошибки, не только по 422\n[register] GoTrue reports email already registered (no profile row): e2e-failclosed@example.com\n\nstderr | src/lib/cron-auth.test.ts > verifyCronSecret — сверка секрета cron-эндпоинтов (R5) > CRON_SECRET не задан → отказ (defensive default, fail-closed)\n[cron] CRON_SECRET not set — refusing to run\n[cron] CRON_SECRET not set — refusing to run\n\n"
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=quick --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 205,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=quick commit=0b5a6e2 files_scanned=19 findings=0 allowlisted=4 skipped(missing=0,binary=0,size=0,path=4) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0
+  }
+}

@@ -6,7 +6,7 @@
  *   2. Валидация: email и password обязательны
  *   3. Найти пользователя в profiles по email (lowercase)
  *   4. Проверка is_blocked — вернуть причину блокировки
- *   5. verifyPassword (Argon2id) — проверить пароль
+ *   5. verifyPassword (bcrypt) — проверить пароль
  *   6. 2FA GATE: если tfa_enabled и tfa_secret — НЕ выдаём access/refresh токены,
  *      возвращаем tfaRequired: true + tfaTempToken для второго шага (POST /api/auth/2fa/login-verify)
  *   7. Без 2FA — выдать access + refresh JWT токены
@@ -182,7 +182,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 5. verifyPassword (Argon2id).
+    // 5. verifyPassword (bcryptjs cost 10 — src/lib/auth.ts, см. R4).
     // Переходный период (двойная auth-система): у пользователей, зарегистрированных
     // через SupabaseAuthModal (GoTrue signInWithSignUp), password_hash в profiles нет —
     // для них доверяем GoTrue signInWithPassword как источнику истины по паролю.
@@ -246,7 +246,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         });
         if (gtErr) {
           // Email не подтверждён в GoTrue (register делает email_confirm: false для prod-флоу
-          // письма-подтверждения). Пароль уже проверен Argon2id по profiles выше — владелец
+          // письма-подтверждения). Пароль уже проверен bcrypt по profiles выше — владелец
           // учётных данных подтверждён, поэтому подтверждаем email через admin API и повторяем.
           if (gtErr.message === "Email not confirmed") {
             const { error: upErr } = await supabaseAdmin.auth.admin
@@ -255,6 +255,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               await ssr.auth.signInWithPassword({ email: emailLower, password });
             } else {
               console.warn("[login] GoTrue email confirm update failed:", upErr.message);
+            }
+          } else if (
+            /invalid login credentials/i.test(gtErr.message) ||
+            /invalid credentials/i.test(gtErr.message)
+          ) {
+            // Пользователь зарегистрирован через fallback (cb42589): строка
+            // auth.users существует, но encrypted_password пуст — пароль канонично
+            // хранится в profiles.password_hash (bcrypt), который УЖЕ проверен выше.
+            // Лечим зеркало GoTrue: записываем проверенный пароль в GoTrue (admin API),
+            // после чего sb-* сессия (Supabase-SSR-роуты, Storage-аплоады) работает
+            // и для таких пользователей. Fail-safe: сбой — non-fatal, app-сессия
+            // выдаётся независимо.
+            const { error: healErr } = await supabaseAdmin.auth.admin
+              .updateUserById(user.id, { password });
+            if (healErr) {
+              console.warn(
+                "[login] GoTrue password sync failed (stub user):",
+                healErr.message,
+              );
+            } else {
+              await ssr.auth.signInWithPassword({ email: emailLower, password });
             }
           } else {
             console.warn(

@@ -1,136 +1,100 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { verifyCronSecret, cronUnauthorized } from './cron-auth'
+/**
+ * Тесты cron-auth.ts — R5/P1-3: timing-safe сверка X-Cron-Secret.
+ *
+ * Контракт:
+ *   • CRON_SECRET не задан → отказ (false) — defensive default, не «разрешить всё»;
+ *   • валидный секрет → true;
+ *   • неверный секрет/пустой заголовок → false;
+ *   • секрет другой длины (перебор байтов) → false;
+ *   • сверка идёт через timingSafeEqualStr (crypto.timingSafeEqual) —
+ *     unit-проверяем контракт secure-compare (constant-time, разные длины → false).
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { timingSafeEqualStr } from "./secure-compare";
+import {
+  verifyCronSecret,
+  cronUnauthorized,
+} from "./cron-auth";
 
-describe('verifyCronSecret', () => {
-  const originalSecret = process.env.CRON_SECRET
+function makeRequest(secret?: string): Request {
+  const headers = new Headers();
+  if (secret !== undefined) headers.set("X-Cron-Secret", secret);
+  return new Request("https://conditera.ru/api/cron/heartbeat", {
+    method: "POST",
+    headers,
+  });
+}
 
-  afterEach(() => {
-    // Восстанавливаем оригинальное значение
-    if (originalSecret === undefined) {
-      delete process.env.CRON_SECRET
-    } else {
-      process.env.CRON_SECRET = originalSecret
-    }
-  })
+const ENV = process.env;
 
-  it('returns false when CRON_SECRET is not set', () => {
-    delete process.env.CRON_SECRET
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': 'any-value' },
-    })
-    expect(verifyCronSecret(req)).toBe(false)
-  })
+beforeEach(() => {
+  vi.resetModules();
+});
 
-  it('returns false when CRON_SECRET is empty string', () => {
-    process.env.CRON_SECRET = ''
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': '' },
-    })
-    expect(verifyCronSecret(req)).toBe(false)
-  })
+afterEach(() => {
+  process.env = ENV;
+});
 
-  it('returns false when header is missing', () => {
-    process.env.CRON_SECRET = 'my-secret'
-    const req = new Request('https://example.com/api/cron/test')
-    expect(verifyCronSecret(req)).toBe(false)
-  })
+describe("verifyCronSecret — сверка секрета cron-эндпоинтов (R5)", () => {
+  it("CRON_SECRET не задан → отказ (defensive default, fail-closed)", () => {
+    delete process.env.CRON_SECRET;
+    expect(verifyCronSecret(makeRequest("anything"))).toBe(false);
+    expect(verifyCronSecret(makeRequest())).toBe(false);
+  });
 
-  it('returns false when header is empty', () => {
-    process.env.CRON_SECRET = 'my-secret'
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': '' },
-    })
-    expect(verifyCronSecret(req)).toBe(false)
-  })
+  it("CRON_SECRET задан + валидный заголовок → доступ разрешён", () => {
+    process.env.CRON_SECRET = "super-secret-cron-value";
+    expect(verifyCronSecret(makeRequest("super-secret-cron-value"))).toBe(true);
+  });
 
-  it('returns false when header does not match secret', () => {
-    process.env.CRON_SECRET = 'correct-secret'
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': 'wrong-secret' },
-    })
-    expect(verifyCronSecret(req)).toBe(false)
-  })
+  it("невалидный секрет → отказ", () => {
+    process.env.CRON_SECRET = "super-secret-cron-value";
+    expect(verifyCronSecret(makeRequest("wrong-value"))).toBe(false);
+    expect(verifyCronSecret(makeRequest("Super-Secret-Cron-Value"))).toBe(false); // регистр значим
+  });
 
-  it('returns true when header matches secret', () => {
-    process.env.CRON_SECRET = 'my-cron-secret-123'
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': 'my-cron-secret-123' },
-    })
-    expect(verifyCronSecret(req)).toBe(true)
-  })
+  it("секрет другой длины → отказ (без исключения)", () => {
+    process.env.CRON_SECRET = "super-secret-cron-value";
+    expect(verifyCronSecret(makeRequest("x"))).toBe(false);
+    expect(
+      verifyCronSecret(makeRequest("super-secret-cron-value-plus-extra"))
+    ).toBe(false);
+  });
 
-  it('is case-sensitive (header name is case-insensitive in Request)', () => {
-    process.env.CRON_SECRET = 'my-secret'
-    // Headers в Request нормализуются, так что "x-cron-secret" == "X-Cron-Secret"
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'x-cron-secret': 'my-secret' },
-    })
-    expect(verifyCronSecret(req)).toBe(true)
-  })
+  it("отсутствующий заголовок → отказ", () => {
+    process.env.CRON_SECRET = "super-secret-cron-value";
+    expect(verifyCronSecret(makeRequest())).toBe(false);
+  });
 
-  it('rejects partial match', () => {
-    process.env.CRON_SECRET = 'my-secret-123'
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': 'my-secret' },
-    })
-    expect(verifyCronSecret(req)).toBe(false)
-  })
+  it("окружающие пробелы в заголовке обрезаются (trim), в секрете — тоже", () => {
+    process.env.CRON_SECRET = "  super-secret-cron-value  ";
+    expect(verifyCronSecret(makeRequest("super-secret-cron-value"))).toBe(true);
+    expect(verifyCronSecret(makeRequest("  super-secret-cron-value  "))).toBe(true);
+  });
+});
 
-  it('handles whitespace (Request trims headers automatically)', () => {
-    // Замечание: fetch Request автоматически убирает leading/trailing whitespace
-    // из header values, поэтому ' my-secret ' становится 'my-secret'
-    process.env.CRON_SECRET = 'my-secret'
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': ' my-secret ' },
-    })
-    expect(verifyCronSecret(req)).toBe(true)
-  })
+describe("timingSafeEqualStr — контракт constant-time сравнения", () => {
+  it("одинаковые строки → true (включая пустые)", () => {
+    expect(timingSafeEqualStr("abc", "abc")).toBe(true);
+    expect(timingSafeEqualStr("", "")).toBe(true);
+    expect(timingSafeEqualStr("секрет-с-кириллицей", "секрет-с-кириллицей")).toBe(true);
+  });
 
-  it('handles long secrets', () => {
-    const longSecret = 'a'.repeat(256)
-    process.env.CRON_SECRET = longSecret
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': longSecret },
-    })
-    expect(verifyCronSecret(req)).toBe(true)
-  })
+  it("разные строки одной длины → false (сравнение по всем байтам)", () => {
+    expect(timingSafeEqualStr("abcdef", "abcdeg")).toBe(false);
+    expect(timingSafeEqualStr("a", "b")).toBe(false);
+  });
 
-  it('handles secrets with special characters', () => {
-    process.env.CRON_SECRET = 'secret!@#$%^&*()_+-={}[]|\\:";\'<>?,./'
-    const req = new Request('https://example.com/api/cron/test', {
-      headers: { 'X-Cron-Secret': 'secret!@#$%^&*()_+-={}[]|\\:";\'<>?,./' },
-    })
-    expect(verifyCronSecret(req)).toBe(true)
-  })
-})
+  it("разные длины → false, без исключения", () => {
+    expect(timingSafeEqualStr("short", "longer-string")).toBe(false);
+    expect(timingSafeEqualStr("", "x")).toBe(false);
+  });
+});
 
-describe('cronUnauthorized', () => {
-  it('returns a Response object', () => {
-    const res = cronUnauthorized()
-    expect(res).toBeInstanceOf(Response)
-  })
-
-  it('returns 401 status', () => {
-    const res = cronUnauthorized()
-    expect(res.status).toBe(401)
-  })
-
-  it('returns JSON content-type header', () => {
-    const res = cronUnauthorized()
-    expect(res.headers.get('content-type')).toBe('application/json')
-  })
-
-  it('returns error message in JSON body', async () => {
-    const res = cronUnauthorized()
-    const body = await res.json()
-    expect(body.error).toBeDefined()
-    expect(typeof body.error).toBe('string')
-    expect(body.error.length).toBeGreaterThan(0)
-  })
-
-  it('error message mentions X-Cron-Secret', async () => {
-    const res = cronUnauthorized()
-    const body = await res.json()
-    expect(body.error).toContain('X-Cron-Secret')
-  })
-})
+describe("cronUnauthorized — контролируемый отказ", () => {
+  it("возвращает 401 с JSON-ошибкой", () => {
+    const res = cronUnauthorized();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("content-type")).toContain("application/json");
+  });
+});

@@ -4,7 +4,7 @@
  * Admin UI: Почтовый ящик — входящие и исходящие письма.
  * Просмотр журнала отправленных + приём входящих через webhook.
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/finance";
 import { csrfFetch } from "@/lib/api-client";
+import { sanitizeEmailHtml } from "@/lib/email-sanitize";
 
 const STATUS_INFO: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: "В очереди", color: "bg-slate-100 text-slate-700", icon: Clock },
@@ -257,6 +258,11 @@ export function AdminEmailTab() {
 
 // =================== Email View Dialog ===================
 function EmailViewDialog({ email, onClose }: { email: Email; onClose: () => void }) {
+  // R1/P0-1 (defence in depth): сервер санитизирует ПРИ приёме (inbound),
+  // но в БД есть легаси-строки, записанные до фикса — санитизируем и ПРИ
+  // рендере. dangerouslySetInnerHTML получает только DOMPurify-выход.
+  const safeHtml = useMemo(() => sanitizeEmailHtml(email.htmlBody || ""), [email.htmlBody]);
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -297,11 +303,18 @@ function EmailViewDialog({ email, onClose }: { email: Email; onClose: () => void
 
           {/* Тело письма */}
           <div>
-            {email.htmlBody ? (
+            {safeHtml ? (
               <div
                 className="border rounded-lg p-4 prose prose-sm max-w-none overflow-x-auto"
-                dangerouslySetInnerHTML={{ __html: email.htmlBody }}
+                dangerouslySetInnerHTML={{ __html: safeHtml }}
               />
+            ) : email.htmlBody ? (
+              // HTML был, но санитайзер вернул пустоту (например, тело целиком
+              // состояло из запрещённого содержимого) — показываем текстовую
+              // версию вместо молчаливой потери письма.
+              <div className="border rounded-lg p-4 whitespace-pre-wrap text-sm">
+                {email.textBody || "(HTML-содержимое письма удалено санитайзером)"}
+              </div>
             ) : (
               <div className="border rounded-lg p-4 whitespace-pre-wrap text-sm">
                 {email.textBody || "(пусто)"}

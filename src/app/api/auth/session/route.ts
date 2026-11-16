@@ -60,10 +60,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           );
           return clearSessionCookies(blockedResponse);
         }
-      } catch {
+      } catch (dbErr) {
         // профиль недоступен — используем claim/префикс (fail-open на имя;
         // блокировку при ошибке БД не проверяем — тот же fail-open, что в
-        // getUserFromRequest blocked-check)
+        // getUserFromRequest blocked-check для GET: маршрут — чтение (GET),
+        // R3 разрешает fail-open только для чтения; мутирующие запросы этого
+        // пользователя будут отклонены fail-closed проверкой в auth.ts).
+        console.warn(
+          "[auth/session] profile lookup failed (GET fail-open):",
+          dbErr instanceof Error ? dbErr.message : String(dbErr)
+        );
       }
       return NextResponse.json({
         user: {

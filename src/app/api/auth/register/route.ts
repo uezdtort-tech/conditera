@@ -9,10 +9,13 @@
  *   5. Проверка чёрного списка (email + phone) в blacklist таблице
  *   6. Проверка организации через DaData (если accountType=legal и есть ИНН)
  *   7. Создание пользователя в Supabase Auth (admin.createUser с паролем);
- *      при недоступности GoTrue (нет Supabase в окружении, 501-заглушка,
+ *      при НЕДОСТУПНОСТИ GoTrue (нет Supabase в окружении, 501-заглушка,
  *      сетевой сбой) — fallback: строка auth.users напрямую через pg-пул
- *      (пароль канонично хранит profiles.password_hash, логин от GoTrue
- *      не зависит) — во ВСЕХ окружениях, включая production
+ *      (пароль канонично хранит profiles.password_hash (bcrypt), логин
+ *      от GoTrue не зависит) — во ВСЕХ окружениях, включая production.
+ *      Исключение: определённые отказы GoTrue НЕ обходятся fallback'ом —
+ *      «User already registered» → 409 (дубликат не создаётся; раньше
+ *      это давало бесполезный 500 «Ошибка при создании профиля»).
  *   8. Создание записи в profiles (с hash пароля, ролями, accountType, loyaltyLevel)
  *   9. Создание referral записи (реферальный код из имени + id)
  *  10. Генерация access + refresh JWT токенов (через @/lib/auth)
@@ -22,6 +25,9 @@
  *  14. Email: welcome письмо (non-blocking)
  *
  * Anti-fraud: 3 регистрации в час с IP (через @/lib/anti-fraud)
+ *
+ * Пароли: bcryptjs cost 10 (src/lib/auth.ts hashPassword). Комментарии
+ * «Argon2id» исторически ошибочны — см. ENGINEERING_RISKS.md R4.
  *
  * Соответствует таблицам:
  *  - profiles (создание записи пользователя)
@@ -151,7 +157,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const emailLower = email.toLowerCase();
+    // Формат email — до обращений к БД/GoTrue: иначе невалидный email доходит
+    // до auth.users (GoTrue отклонит — в лучшем случае 500 «Ошибка при
+    // создании профиля», в худшем — мусорная строка через fallback).
+    // Практичный RFC-приближённый паттерн: local@domain.tld, без пробелов,
+    // TLD ≥ 2 символа. Не претендует на полную RFC 5322 — отсекает мусор.
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    if (!EMAIL_RE.test(email.trim())) {
+      return NextResponse.json(
+        { error: "Некорректный формат email" },
+        { status: 400 }
+      );
+    }
+
+    const emailLower = email.toLowerCase().trim();
 
     // 3. Проверка уникальности email
     const { data: existingUser } = await supabaseAdmin
@@ -260,11 +279,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       user_metadata: { name, phone, role: finalRole, accountType },
     });
 
+    // === Разбор ошибки GoTrue: что обходить fallback'ом, что — нет ===
+    // Случай: email уже есть в auth.users, но отсутствует в profiles
+    // (например, профиль удалён вручную). Раньше это проваливалось в
+    // fallback: стаб auth.users бился по UNIQUE(email), profiles upsert
+    // бился по FK — бесполезный 500 «Ошибка при создании профиля».
+    // Теперь — честный 409. Дубликаты невозможны на уровне БД:
+    // profiles.email UNIQUE, profiles.id → FK auth.users(id),
+    // auth.users.email UNIQUE.
+    const authErrStatus = (authErr as { status?: number } | null)?.status;
+    const authErrCode = (authErr as { code?: string } | null)?.code;
+    const authErrMessage = authErr?.message || "";
+    const emailTakenInGoTrue =
+      authErrCode === "user_already_exists" ||
+      (authErrStatus === 422 && /already registered/i.test(authErrMessage));
+
+    if (emailTakenInGoTrue) {
+      console.warn(
+        "[register] GoTrue reports email already registered (no profile row):",
+        emailLower
+      );
+      return NextResponse.json(
+        { error: "Email уже зарегистрирован" },
+        { status: 409 }
+      );
+    }
+
     if (authErr) {
-      // GoTrue недоступен/отклонил вызов (нет реального Supabase в окружении,
-      // 501-заглушка локального рантайма, сетевой сбой). Регистрация НЕ падает:
-      // пароль канонично хранит profiles.password_hash (Argon2id), логин
-      // от GoTrue не зависит. Создаём строку auth.users напрямую — FK
+      // Остальные ошибки = недоступность GoTrue (нет Supabase в окружении,
+      // 501-заглушка локального рантайма, сетевой сбой/таймаут — статус
+      // отсутствует, либо статус 5xx). Регистрация НЕ падает: пароль
+      // канонично хранит profiles.password_hash (bcrypt), логин от GoTrue
+      // не зависит. Создаём строку auth.users напрямую — FK
       // profiles.id → auth.users.id требует её существования. Триггер
       // on_auth_user_created создаст профиль + роль CUSTOMER (см. 0001_init.sql).
       // Дальнейшие шаги (profiles/user_roles) остаются fail-closed по факту
@@ -272,7 +318,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // без частично созданного пользователя (компенсации на шагах 8-9).
       console.error(
         "[register] supabase auth createUser error (fallback to auth.users stub):",
-        authErr.message
+        authErrMessage
       );
     }
 

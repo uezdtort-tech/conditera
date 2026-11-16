@@ -6,6 +6,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/query-provider";
+import { SupabaseAuthSync } from "@/components/layout/supabase-auth-sync";
 // NEW v2.0 — глобальный AI-помощник (FAB внизу справа для авторизованных)
 import { AIAssistantWidget } from "@/components/ai/ai-assistant-widget";
 // П.24: Schema.org — Organization и WebSite на каждой странице
@@ -144,6 +145,14 @@ export default function RootLayout({
           <SonnerToaster position="top-right" richColors />
           {/* NEW v2.0 — глобальный AI-помощник для авторизованных пользователей */}
           <AIAssistantWidget />
+          {/* Z-2026-11-16 (auth-recovery): сверка сессии с сервером на КАЖДОЙ
+              странице, не только /dashboard. Раньше persist-пользователь zustand
+              («conditera-storage») выживал после logout в другой вкладке,
+              server-side блокировки или истечения JWT — шапка показывала
+              аватар без сессии, а первая мутация падала 401.
+              SupabaseAuthSync на boot вызывает /api/auth/session и
+              setSupabaseUser(null) при отсутствии сессии. */}
+          <SupabaseAuthSync />
         </QueryProvider>
       </body>
     </html>

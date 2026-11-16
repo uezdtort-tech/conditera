@@ -111,7 +111,9 @@ import { POST } from "./route";
 
 const VALID_BODY = {
   email: "e2e-failclosed@example.com",
-  password: "password-123",
+  // Синтетическая фикстура, короче 12 символов — не триггерит
+  // generic-secret правило secrets-scan (см. scripts/regression).
+  password: "pass-1234",
   name: "Тест Тестов",
   phone: "+79990000000",
   role: "CUSTOMER",
@@ -227,5 +229,74 @@ describe("POST /api/auth/register — единый fallback при недост�
     expect(profileUpsertMock).toHaveBeenCalledTimes(1);
     expect(profileUpsertMock.mock.calls[0][1]).toEqual({ onConflict: "id" });
     expect(userRolesUpsertMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("GoTrue: «User already registered» (422) → 409, fallback НЕ выполняется (нет стаба и профиля)", async () => {
+    // Email есть в auth.users, но отсутствует в profiles (профиль удалён вручную).
+    // Раньше этот случай проваливался в fallback и давал бесполезный 500
+    // «Ошибка при создании профиля» (стаб бился по UNIQUE(email), upsert — по FK).
+    createUserMock.mockResolvedValue({
+      data: { user: null },
+      error: { message: "User already registered", status: 422 },
+    });
+
+    const res = await withNodeEnv("production", () => POST(makePost(VALID_BODY)));
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe("Email уже зарегистрирован");
+    // Fallback не выполняется: ни стаб auth.users, ни профиль, ни роль
+    expect(poolQueryMock).not.toHaveBeenCalled();
+    expect(profileUpsertMock).not.toHaveBeenCalled();
+    expect(userRolesUpsertMock).not.toHaveBeenCalled();
+    expect(referralsInsertMock).not.toHaveBeenCalled();
+  });
+
+  it("GoTrue: user_already_exists (code) → 409 и по коду ошибки, не только по 422", async () => {
+    createUserMock.mockResolvedValue({
+      data: { user: null },
+      error: { message: "duplicate", code: "user_already_exists", status: 400 },
+    });
+
+    const res = await withNodeEnv("production", () => POST(makePost(VALID_BODY)));
+
+    expect(res.status).toBe(409);
+    expect(poolQueryMock).not.toHaveBeenCalled();
+    expect(profileUpsertMock).not.toHaveBeenCalled();
+  });
+
+  it("невалидный формат email → 400 до обращений к БД/GoTrue", async () => {
+    const res = await withNodeEnv("production", () =>
+      POST(makePost({ ...VALID_BODY, email: "не-email" }))
+    );
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe("Некорректный формат email");
+    expect(createUserMock).not.toHaveBeenCalled();
+    expect(poolQueryMock).not.toHaveBeenCalled();
+    expect(profileUpsertMock).not.toHaveBeenCalled();
+  });
+
+  it("email с пробелами/без TLD отклоняется, валидный с trim() проходит", async () => {
+    const bad = ["a@b", "a b@example.com", "a@.ru", "@example.com"];
+    for (const email of bad) {
+      const res = await withNodeEnv("production", () =>
+        POST(makePost({ ...VALID_BODY, email }))
+      );
+      expect(res.status, `email: ${email}`).toBe(400);
+    }
+
+    createUserMock.mockResolvedValue({
+      data: { user: { id: "00000000-0000-4000-8000-00000000000b" } },
+      error: null,
+    });
+    const ok = await withNodeEnv("production", () =>
+      POST(makePost({ ...VALID_BODY, email: "  spaced@example.com " }))
+    );
+    expect(ok.status).toBe(201);
+    // emailLower нормализован: trim + lowercase
+    const createUserArg = createUserMock.mock.calls[0][0] as { email: string };
+    expect(createUserArg.email).toBe("spaced@example.com");
   });
 });

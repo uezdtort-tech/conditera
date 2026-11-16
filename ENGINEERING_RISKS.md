@@ -2,11 +2,10 @@
 
 Подтверждённые технические риски. Каждый риск: доказательство в коде, влияние, минимальное безопасное исправление. Обновлено: 2026-11-16.
 
-## R1. P0 — Stored-XSS в админ-панели: входящие письма без санитизации
+## R1. P0 — Stored-XSS в админ-панели: входящие письма без санитизации — **ИСПРАВЛЕНО 2026-11-16**
 
-- **Доказательство**: `src/components/dashboard/admin-email-tab.tsx:303` — `dangerouslySetInnerHTML={{ __html: email.htmlBody }}`; `email.htmlBody` приходит из `/api/email/inbound/route.ts:69,92,102` — внешние провайдеры передают произвольный HTML; санитизация отсутствует (grep sanitize/DOMPurify по цепочке — нет; зависимость не установлена).
-- **Влияние**: innerHTML не исполняет `<script>`, но исполняет inline-обработчики (`<img src=x onerror=…>`), т.е. кража admin-сессии/действия от имени админа при просмотре входящего письма. CSP страницы содержит `unsafe-inline` — не блокирует inline-обработчики.
-- **Минимальное исправление** (P0, независимо от Production): рендерить письмо как текст, либо изолировать в sandbox-iframe (`sandbox=""`, без same-origin), либо санитизация (DOMPurify/isomorphic-dompurify). Тест: fixture со зловредным HTML → assertions на отсутствие обработчиков.
+- **Было**: `admin-email-tab.tsx:303` рендерил нерасчищенный HTML (`dangerouslySetInnerHTML`); источник — `/api/email/inbound` (Mailgun/SendGrid/Postmark).
+- **Исправление (AUTH_ROOT_CAUSE_REPORT.md §6A)**: `src/lib/email-sanitize.ts` (isomorphic-dompurify, whitelist тегов/атрибутов) в ДВУХ точках — inbound до записи в БД и рендер до `dangerouslySetInnerHTML` (защита легаси-строк). Тесты: `email-sanitize.test.ts`, 27 кейсов (malicious-фикстуры + сохранение вёрстки).
 
 ## R2. P1 — 299 коммитов не опубликованы (единственная копия истории)
 
@@ -14,23 +13,22 @@
 - **Влияние**: потеря песочницы = потеря всей разработки; конфликт веток при долгом расхождении.
 - **Действие**: push только по явному разрешению владельца (`docs/SAFE_GIT_WORKFLOW.md`). До push — регулярный `ops:backup` (скрипт существует: `npm run ops:backup`).
 
-## R3. P1 — Fail-open проверки блокировки пользователя
+## R3. P1 — Fail-open проверки блокировки пользователя — **ИСПРАВЛЕНО 2026-11-16**
 
-- **Доказательство**: `src/lib/auth.ts:293-296` — при ошибке чтения `profiles.is_blocked` запрос продолжается (`console.warn` + `return buildUserFromPayload`).
-- **Влияние**: временный сбой БД позволяет заблокированному пользователю пользоваться API.
-- **Минимальное исправление**: fail-closed для мутирующих методов (POST/PUT/PATCH/DELETE) при ошибке blocked-check; fail-open допустим только для GET-чтения. Тесты: `auth` suite (существует, 51+ кейсов).
+- **Было**: `src/lib/auth.ts` — при ошибке чтения `profiles.is_blocked` запрос продолжался (fail-open на всех методах).
+- **Исправление (AUTH_ROOT_CAUSE_REPORT.md §6B)**: мутирующие методы (POST/PUT/PATCH/DELETE) — fail-closed (null → 401 в роуте); GET/HEAD — fail-open (чтение при сбое БД). При ошибке кэш НЕ заполняется. Тесты: `auth-blocked-check.test.ts` (12 кейсов); E2E: session заблокированного → 403 + cookies очищены, мутация после TTL кэша → 401.
+- Компромисс (документирован): 60-секундный кэш blocked-статуса — блокировка API-мутаций срабатывает максимум через 60с; login/session/refresh отказывают мгновенно.
 
-## R4. P1 — Расхождение «документация vs код» по хэшированию паролей
+## R4. P1 — Расхождение «документация vs код» по хэшированию паролей — **комментарии исправлены 2026-11-16; миграция Argon2id остаётся задачей роадмапа (P1-1)**
 
-- **Доказательство**: комментарии «Argon2id» (`api/auth/login/route.ts:9,185,249`, `api/auth/register/route.ts:266`) vs код `src/lib/auth.ts:128-140` — `bcryptjs` cost 10.
-- **Влияние**: вводит в заблуждение аудиты (включая мой прежний отчёт); bcrypt cost 10 ниже рекомендаций OWASP для 2026 (Argon2id/≥cost 12).
-- **Исправление**: задача миграции Argon2id с dual-verify (по префиксу `$2b$` → bcrypt, `$argon2` → argon2) + постепенная пере-хэшизация при входе; до миграции — исправить комментарии.
+- **Было**: комментарии «Argon2id» в auth-роутах при фактическом bcryptjs 3 cost 10.
+- **Исправлено**: комментарии в `login/route.ts` и `register/route.ts` приведены к факту (bcrypt, ссылка на R4). Миграция Argon2id с dual-verify (по префиксу `$2b$`/`$argon2`) — отдельная задача P1-1.
 
-## R5. P1 — Секреты/каналы с не-timing-safe сравнением
+## R5. P1 — Секреты/каналы с не-timing-safe сравнением — **ИСПРАВЛЕНО 2026-11-16**
 
-- **Доказательство**: `src/lib/cron-auth.ts` — `X-Cron-Secret` сравнивается `!==`.
-- **Влияние**: теоретический timing-oral по секрету cron-эндпоинтов (20 шт.).
-- **Исправление**: `crypto.timingSafeEqual` (аналог уже есть в proxy.ts CSRF и `src/lib/csrf.ts`).
+- **Было**: `src/lib/cron-auth.ts` — `X-Cron-Secret` сравнивался `!==`.
+- **Исправление (AUTH_ROOT_CAUSE_REPORT.md §6C)**: `timingSafeEqualStr` (crypto.timingSafeEqual, как в proxy.ts CSRF и webhooks). Тесты: `cron-auth.test.ts` (10 кейсов: валид/невалид/разные длины/trim/401-ответ).
+- Проверено grep: n8n/telegram/simplex/CSRF/OAuth-state — все остальные сравнения секретов timing-safe.
 
 ## R6. P2 — Чужеродный артефакт `mobile-app/` в репозитории
 

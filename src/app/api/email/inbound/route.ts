@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import crypto from "node:crypto";
+import { sanitizeEmailHtml } from "@/lib/email-sanitize";
 
 export const runtime = "nodejs";
 
@@ -225,7 +226,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       messageId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@${domain}>`;
     }
 
-    // Сохраняем входящее письмо в БД
+    // Сохраняем входящее письмо в БД.
+    // R1/P0-1: HTML от внешнего провайдера санитизируется ДО записи —
+    // в БД попадает только безопасный фрагмент (whitelist тегов/атрибутов,
+    // без on*-обработчиков, javascript:-URI и активного содержимого).
+    const safeHtmlBody = sanitizeEmailHtml(parsed.htmlBody);
     const { data: emailMessage, error: insertErr } = await supabaseAdmin
       .from("email_messages")
       .insert({
@@ -235,7 +240,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         to_address: toEmail,
         subject: parsed.subject || "(без темы)",
         text_body: parsed.textBody || null,
-        html_body: parsed.htmlBody || null,
+        html_body: safeHtmlBody || null,
         message_id: messageId,
         status: "delivered",
         received_at: new Date().toISOString(),
