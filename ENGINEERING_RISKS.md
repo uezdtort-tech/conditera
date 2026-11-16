@@ -69,3 +69,9 @@
 ## R12. Production-инцидент (внешний, контекст для разработки)
 
 JWT_SECRET демонстрационный (скомпрометирован); supabase-rest/auth и Caddy unhealthy; 5 API молчат; регистрация на проде 500 до передеплоя cb42589. Задача Pi. Влияние на разработку: верификация auth-потоков на проде невозможна; все проверки — локально/тестовая БД. См. `PRODUCTION_COMPATIBILITY.md`.
+
+## R13. P1 — Загруженные файлы на проде: эфемерный диск, вне бэкапов, вне supabase-storage
+
+- **Доказательство**: весь upload-код идёт через Supabase Storage API (`supabaseAdmin.storage.from('media')` — `src/lib/upload-service.ts:137-146`, потребители: `/api/upload`, `/api/services/upload`, `/api/cms/media`), но байты принимает Storage-совместимый шим Next.js `src/app/storage/v1/[...path]/route.ts` — файлы пишутся на диск контейнера (`<cwd>/upload/storage/<bucket>/…`), метаданные — в `storage.objects` (compat 0000). Caddyfile не имеет блока `/storage/v1` → catch-all шлёт в web:3000, т.е. шим обрабатывает storage и на проде. Контейнер `supabase-storage` (storage-api + S3-бэкенд) подготовлен в `docker-compose.supabase.yml`, но маршрутизацией не задействован. У сервиса `web` в `docker-compose.yml` **томов нет** (awk-проверка пуста); `scripts/ops/run-backup.mjs` каталог `upload/` не включает.
+- **Влияние**: пересоздание web-контейнера (деплой новой версии через `docker compose up`) теряет все загруженные пользователями/кондитерами файлы (портфолио, медиа товаров), при этом URL в БД остаются — «битые» картинки.
+- **Минимальное исправление (P1, независимо от Pi)**: смонтировать named volume на `/app/upload` в compose (не требует изменений кода); среднесрочно — включить `upload/` в `ops:backup` либо переключить `/storage/v1` на контейнер `supabase-storage` (изменение Caddyfile — по решению владельца, шаблон `SUPABASE_STORAGE_HOSTNAME=cdn.conditera.ru` уже есть в `.env.production.example`).
