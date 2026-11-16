@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import path from "node:path";
+import { finishSession, initAgentLogSession, logStep } from "../lib/agent-log.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(require.resolve("./setup.mjs")), "..", "..");
@@ -57,6 +58,20 @@ const SKIP_EXTENSIONS = ["pg_cron", "pgsodium"]; // отсутствуют в va
 const DEMO_PASSWORD = "Demo123!";
 
 // ============================================================================
+// 0. Журнал агента (scripts/lib/agent-log.mjs) — append-only, fail-safe:
+//    ошибки журналирования НЕ влияют на поведение, вывод и коды выхода setup.
+//    Пишутся ТОЛЬКО верхнеуровневые шаги (env → pg → миграции → сиды →
+//    env-ключи); секреты в журнал не передаются (ниже — только источники
+//    и факты, без значений).
+// ============================================================================
+initAgentLogSession({
+  run: process.argv.includes("--seed-only")
+    ? "db:setup --seed-only (npm run db:seed)"
+    : "db:setup (npm run db:setup)",
+  reason: "подготовка локальной БД Conditera: embedded PG → compat → миграции → сиды → env-ключи",
+});
+
+// ============================================================================
 // 1. Разбор .env / .env.local (крошечный парсер, .env.local побеждает)
 // ============================================================================
 function parseEnvFile(file) {
@@ -77,6 +92,7 @@ function parseEnvFile(file) {
   return out;
 }
 
+logStep("env", "START", "чтение .env/.env.local и резолв DATABASE_URL (значения секретов не логируются)");
 const fileEnv = { ...parseEnvFile(ENV_FILE), ...parseEnvFile(ENV_LOCAL) };
 
 
@@ -107,7 +123,11 @@ try {
       console.log("  ✔ .env: legacy DATABASE_URL=file:… заменён на локальный PostgreSQL URL");
     }
   }
-} catch { /* некритично */ }
+} catch (err) {
+  logStep("env", "WARN", `.env sanitize пропущен (некритично): ${err && err.message ? err.message : err}`);
+}
+
+logStep("env", "OK", `окружение проверено; источник DATABASE_URL: ${databaseUrlSource}; режим: ${process.argv.includes("--seed-only") ? "--seed-only (только сиды)" : "полный setup"}`);
 
 function maskUrl(u) {
   return u.replace(/:\/\/([^:@/]+):([^@/]*)@/, "://$1:***@");
@@ -274,6 +294,8 @@ async function pingDatabase(url, timeoutMs = 4000) {
 }
 
 function failNoPostgres() {
+  logStep("pg", "FAIL", `PostgreSQL недоступен (DATABASE_URL = ${maskUrl(DATABASE_URL)})`);
+  finishSession({ result: "FAIL", step: "pg", exitCode: 1 });
   console.error("\nPostgreSQL is not available.");
   console.error("Check DATABASE_URL and make sure PostgreSQL is running.");
   console.error(`  DATABASE_URL = ${maskUrl(DATABASE_URL)}`);
@@ -397,6 +419,7 @@ async function upsertDemoUsers(client) {
     } catch (err) {
       try { await client.query("ROLLBACK"); } catch { /* noop */ }
       console.warn(`  ⚠ demo user ${u.email}: ${String(err.message).slice(0, 140)}`);
+      logStep("seeds", "WARN", `demo user ${u.email}: ${String(err.message).slice(0, 140)}`);
     }
   }
 }
@@ -459,6 +482,7 @@ async function backfillProductPriceHistory(client) {
   }
   if (t.missing > 0) {
     console.warn(`  ⚠ price-history backfill: ${t.missing} товаров остались без истории — проверьте seed`);
+    logStep("seeds", "WARN", `price-history backfill: ${t.missing} товаров остались без истории (exitCode=1)`);
     process.exitCode = 1;
   }
 }
@@ -603,36 +627,45 @@ async function main() {
   console.log(`» DATABASE_URL: ${maskUrl(DATABASE_URL)} (${databaseUrlSource})`);
 
   // 2. Доступность БД (+ автостарт embedded)
-  if (DATABASE_URL.includes("127.0.0.1:54329") || DATABASE_URL.includes("localhost:54329")) {
-    const runtime = await import("./runtime.mjs");
-    const status = await runtime.getStatus();
-    if (!status.running) {
-      console.log("» embedded PostgreSQL is not running — starting...");
-      await runtime.start();
-    }
-    await runtime.ensureDatabase(DATABASE_URL);
-  } else {
-    const ping = await pingDatabase(DATABASE_URL);
-    if (!ping.ok) failNoPostgres();
-    await ensureDatabaseExists(DATABASE_URL);
-  }
-
-  const client = new Client({ connectionString: DATABASE_URL });
-  await client.connect();
-  console.log("✔ connected to PostgreSQL");
-
-  // Z-v26 (F4): сериализация параллельных запусков setup.
-  // Session-level advisory lock: жизненный цикл однозначен — освобождается при
-  // выходе (успех/ошибка/обрыв соединения/креш процесса), вечная блокировка
-  // невозможна. Второй экземпляр ждёт, затем видит полный леджер и завершается
-  // без работы (доказано: без блокировки два параллельных setup давали
-  // spurious-падение на CREATE SCHEMA — гонка pg_namespace_nspname_index).
+  logStep("pg", "START", "проверка/старт PostgreSQL (embedded или внешний через DATABASE_URL)");
   const ADV_LOCK_KEY = "hashtext('conditera_migrations')";
-  await client.query(`SELECT pg_advisory_lock(${ADV_LOCK_KEY})`);
-  console.log("✔ advisory lock acquired (conditera_migrations)");
+  let client;
+  try {
+    if (DATABASE_URL.includes("127.0.0.1:54329") || DATABASE_URL.includes("localhost:54329")) {
+      const runtime = await import("./runtime.mjs");
+      const status = await runtime.getStatus();
+      if (!status.running) {
+        console.log("» embedded PostgreSQL is not running — starting...");
+        await runtime.start();
+      }
+      await runtime.ensureDatabase(DATABASE_URL);
+    } else {
+      const ping = await pingDatabase(DATABASE_URL);
+      if (!ping.ok) failNoPostgres();
+      await ensureDatabaseExists(DATABASE_URL);
+    }
+
+    client = new Client({ connectionString: DATABASE_URL });
+    await client.connect();
+    console.log("✔ connected to PostgreSQL");
+
+    // Z-v26 (F4): сериализация параллельных запусков setup.
+    // Session-level advisory lock: жизненный цикл однозначен — освобождается при
+    // выходе (успех/ошибка/обрыв соединения/креш процесса), вечная блокировка
+    // невозможна. Второй экземпляр ждёт, затем видит полный леджер и завершается
+    // без работы (доказано: без блокировки два параллельных setup давали
+    // spurious-падение на CREATE SCHEMA — гонка pg_namespace_nspname_index).
+    await client.query(`SELECT pg_advisory_lock(${ADV_LOCK_KEY})`);
+    console.log("✔ advisory lock acquired (conditera_migrations)");
+    logStep("pg", "OK", "PostgreSQL доступен; подключение установлено; advisory lock получен");
+  } catch (err) {
+    logStep("pg", "FAIL", String(err && err.message ? err.message : err));
+    throw err;
+  }
 
   try {
     // 4. Compat-слой (идемпотентен)
+    logStep("migrations", "START", "compat-слой → миграции + ledger (→ local fixups)");
     if (!seedOnly) {
       console.log("\n─── Supabase compat layer ───");
       const compatSql = readFileSync(COMPAT_SQL, "utf8");
@@ -643,6 +676,7 @@ async function main() {
         console.log(`  ✔ compat: ${res.applied} applied, ${res.skipped} idempotent-skip`);
       } catch (err) {
         try { await client.query("ROLLBACK"); } catch { /* noop */ }
+        logStep("migrations", "FAIL", `compat layer failed: ${err.message}`);
         throw new Error(`compat layer failed: ${err.message}`);
       }
     }
@@ -696,6 +730,8 @@ async function main() {
         console.error(`\n✖ ДУБЛИКАТ MIGRATION ID ${num}: ${fs.join(", ")}`);
       }
       console.error("  Применение прервано ДО SQL: дублирующиеся migration ID запрещены (Z-v24).");
+      logStep("migrations", "FAIL", `дубликаты migration ID: ${duplicates.map(([num, fs]) => `${num} → ${fs.join(", ")}`).join("; ")}`);
+      finishSession({ result: "FAIL", step: "migrations", exitCode: 1 });
       process.exit(1);
     }
 
@@ -739,6 +775,7 @@ async function main() {
       } catch (err) {
         console.error(`\n✖ File: ${file}`);
         console.error(`  причина: ${err && err.message ? err.message : String(err)}`);
+        logStep("migrations", "FAIL", `${file}: ${err && err.message ? err.message : String(err)}`);
         migrationsFailed = true;
         process.exitCode = 1;
         break;
@@ -751,8 +788,10 @@ async function main() {
       console.error("\n✖ Миграция не применена — fixups/demo-users/seeds пропущены (fail-fast, Z-v24).");
       console.error("  БД в консистентном состоянии: упавший файл откачен целиком, в леджер не записан.");
       await client.end();
+      finishSession({ result: "FAIL", step: "migrations", exitCode: 1 });
       process.exit(1);
     }
+    logStep("migrations", "OK", `миграции применены: +${appliedCount} новых, в леджере ${appliedFiles.size + appliedCount} файлов`);
 
     // 6. Сиды (в одной транзакции на файл — маленькие и идемпотентные)
     // Локальные фиксы (после миграций): RLS-рекурсии и прочие vanilla-PG правки
@@ -769,6 +808,7 @@ async function main() {
         } catch (fixupErr) {
           try { await client.query("ROLLBACK"); } catch { /* noop */ }
           console.error(`  \u2716 fixups failed: ${String(fixupErr.message).slice(0, 220)}`);
+          logStep("migrations", "WARN", `local fixups failed (нефатально, exitCode=1): ${String(fixupErr.message).slice(0, 220)}`);
           process.exitCode = 1;
         }
       }
@@ -780,6 +820,7 @@ async function main() {
 //    (сид молча вставлял 0 строк — JOIN не находил профиль).
 //    Безопасно: ON CONFLICT (id) DO UPDATE у seed_confectioners.sql
 //    не перезаписывает "userId" — линк демо-кондитера на c0 сохраняется.
+logStep("seeds", "START", "демо-пользователи → сиды → price-history backfill");
 await upsertDemoUsers(client);
 
 console.log("\n─── Seeds ───");
@@ -804,6 +845,7 @@ console.log("\n─── Seeds ───");
         } catch (err) {
           try { await client.query("ROLLBACK"); } catch { /* noop */ }
           console.warn(`  ⚠ ${path.basename(seedFile)} aborted: ${String(err.message).slice(0, 140)}`);
+          logStep("seeds", "WARN", `${path.basename(seedFile)} aborted: ${String(err.message).slice(0, 140)}`);
         }
         continue;
       }
@@ -816,6 +858,7 @@ console.log("\n─── Seeds ───");
       } catch (err) {
         try { await client.query("ROLLBACK"); } catch { /* noop */ }
         console.warn(`  ⚠ ${path.basename(seedFile)} aborted: ${String(err.message).slice(0, 140)}`);
+        logStep("seeds", "WARN", `seed ${path.basename(seedFile)} aborted: ${String(err.message).slice(0, 140)}`);
       }
     }
 
@@ -823,9 +866,17 @@ console.log("\n─── Seeds ───");
     //     вставленных СИДАМИ ПОСЛЕ миграций (ZV33-7b FIX 1; идемпотентно).
     console.log("\n─── Post-seed price-history backfill ───");
     await backfillProductPriceHistory(client);
+    logStep("seeds", "OK", "демо-пользователи, сиды и backfill выполнены (детали — в консоли)");
 
     // 8. env-ключи
-    ensureEnvKeys();
+    logStep("env-keys", "START", "запись недостающих ключей в .env.local (существующие не перезаписываются; значения секретов не логируются)");
+    try {
+      ensureEnvKeys();
+      logStep("env-keys", "OK", ".env.local актуализирован (детали добавлений — в консоли)");
+    } catch (err) {
+      logStep("env-keys", "FAIL", String(err && err.message ? err.message : err));
+      throw err;
+    }
 
     // 9. Итог
     console.log("\n─── Summary ───");
@@ -844,9 +895,17 @@ console.log("\n─── Seeds ───");
     } catch { /* session end releases the lock anyway */ }
     await client.end().catch(() => {});
   }
+
+  const setupExitCode = process.exitCode || 0;
+  finishSession({
+    result: setupExitCode === 0 ? "OK" : "DONE_WITH_WARNINGS",
+    exitCode: setupExitCode,
+  });
 }
 
 main().catch((err) => {
+  logStep("setup", "FAIL", `необработанная ошибка: ${err && err.message ? err.message : err}`);
+  finishSession({ result: "FAIL", exitCode: 1 });
   console.error(`✖ FATAL: ${err.message || err}`);
   process.exit(1);
 });

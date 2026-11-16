@@ -73,6 +73,8 @@ playwright-report/
 /backups/
 /tool-results/
 /upload/
+# Agent deployment logs (автоматический журнал развёртывания — append-only, локально)
+logs/
 tsconfig.tsbuildinfo
 
 # dev-process-manager runtime state (PIDs/fingerprints — never commit)
