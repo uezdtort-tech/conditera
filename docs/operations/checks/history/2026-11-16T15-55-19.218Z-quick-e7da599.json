@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "started_at": "2026-11-16T15:55:14.492Z",
+  "finished_at": "2026-11-16T15:55:19.218Z",
+  "commit_sha": "e7da5998bb59752475965057204f08ed22755539",
+  "branch": "main",
+  "environment": "development",
+  "node_version": "v24.22.3",
+  "checks": [
+    {
+      "name": "typecheck",
+      "cmd_line": "node --max-old-space-size=2560 node_modules/typescript/bin/tsc --noEmit",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 4460,
+      "passed": true,
+      "output_tail": ""
+    },
+    {
+      "name": "eslint",
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
+      "output_tail": ""
+    },
+    {
+      "name": "vitest",
+      "cmd_line": null,
+      "skipped": true,
+      "note": "no candidate test files for changed sources",
+      "exit_code": null,
+      "duration_ms": 0,
+      "passed": false,
+      "output_tail": ""
+    },
+    {
+      "name": "secrets-scan",
+      "cmd_line": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/regression/secrets-scan.mjs --mode=quick --json docs/operations/checks/secrets-scan-latest.json",
+      "skipped": false,
+      "exit_code": 0,
+      "duration_ms": 184,
+      "passed": true,
+      "output_tail": "(secrets-scan) mode=quick commit=e7da599 files_scanned=5 findings=0 allowlisted=0 skipped(missing=0,binary=0,size=0,path=1) template_values=78\n(secrets-scan) RESULT: CLEAN\n"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 2,
+    "failed": 0,
+    "skipped": 2
+  }
+}
