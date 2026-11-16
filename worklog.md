@@ -9320,3 +9320,22 @@ Work Log:
 Stage Summary:
 - Технические дефекты, не требующие решений владельца, закрыты повторно (RELEASE-02 ре-применён: 85394d8/43d8149/191b1f2/02e70fb; новое: 0077 + prodpath-харнесс 0722dad; пропозал SECURITY-RECIPE-01 восстановлен как документ-план, не применён)
 - Q-3.1/Q-3.2/Q-4/Q-6/Q-7/Q-10 не применялись; protected-файлы не тронуты; push/merge/deploy нет
+
+---
+Task ID: local-deploy-regfix-pi-reconcile
+Agent: Z.ai Code (main)
+Task: CONDITERA — LDEPLOY-01: логирование работы агента при локальном развёртывании — фикс регистрации «Не удалось создать пользователя в Auth» (cb42589), среда (db:setup, .env.local), верификация 201/200 + E2E, сводка PI-хроники (upload/PI_CONDITERA_*). Сводный журнал: docs/operations/AGENT_WORKLOG_LOCAL_DEPLOY.md
+
+Work Log:
+- Диагноз: регистрация в проде/прод-режиме падала 500 «Не удалось создать пользователя в Auth» — fail-closed гейт route.ts:259–267 (любой authErr от GoTrue при NODE_ENV!=development); логин от GoTrue не зависит (Argon2id по profiles.password_hash, login/route.ts); историческое основание гейта — auth-prod-preflight-82ae685/U-16-1362744
+- Среда на входе: embedded PG не инициализирован (.pgdata отсутствовал), .env.local отсутствовал (JWT_SECRET пуст → в prod-режиме auth.ts:47 обрушает процесс), /api/health degraded/database=unavailable; dev-сервер падал и перезапускался (зафиксировано: connection refused → порт подхвачен новым процессом)
+- Выполнен штатный node scripts/db/setup.mjs (EXIT 0): embedded PG 127.0.0.1:54329, 85 миграций, compat+seeds (0002–0007, product-media, ops-center), 6 демо-аккаунтов (Demo123!), .env.local записан (JWT_SECRET/JWT_REFRESH_SECRET/CRON_SECRET/BOT_SECRET/DATABASE_URL/Supabase-ключи шима — значения не раскрывались); после — health ok/database ok (auth=unreachable — норма 501-заглушки)
+- Фикс (cb42589c, main, 12:58:51 UTC, 2 файла 48+/43−): гейт NODE_ENV снят — единый fallback при authErr во ВСЕХ окружениях (строка auth.users через pg-пул → profiles upsert → user_roles → referral → JWT); fail-closed сохранён на уровне БД (сбой profiles/user_roles → 500 + компенсация deleteUser/delete-profile); route.test.ts переписан под новый контракт
+- Гейты: eslint 0; vitest register 3/3; vitest auth-набор 51/51 (5 файлов); живые пробы: POST register → 201 (user 5101e32e…, JWT выданы), POST login → 200; браузер E2E agent-browser: регистрация через модалку → аватар «БР», network POST /api/auth/register 201, консоль чисто; скриншот /tmp/zv37-register-success.png
+- PI-реконсиляция (upload/, агент Pi 2026-11-15, прод не проверялся отсюда): хроника инцидента 10/10 API 500 → forensic двух PostgreSQL (conditera-db PG18 5 таблиц/мигратор сломан CREATE TYPE IF NOT EXISTS; supabase-db PG17 107 таблиц из 85 миграций, обе ПУСТЫЕ; RC-1 URL=https://conditera.ru/api, RC-2 placeholder-ключи, RC-4 DATABASE_URL не в ту БД) → правка admin.ts (fail-fast PLACEHOLDER_KEYS) в КОПИИ Pi → recovery: «PRODUCTION FUNCTIONAL», 5 API 200, health ok, блокер JWT_SECRET демонстрационный
+- Находка реконсилиации: правка Pi в admin.ts В ТЕКУЩЕМ ДЕРЕВЕ ОТСУТСТВУЕТ (grep PLACEHOLDER_KEYS/isPlaceholderKey = 0) — не переносилась; файл PI_..._RECOVERY×5_REPORT.md ПУСТОЙ (1 байт); INCIDENT_REPORT.md повреждён (начало утрачено, 65 строк); REGRESSION_CHECKLIST.md не заполнен
+
+Stage Summary:
+- Локальное развёртывание полное и проверенное: среда (PG+secrets) → фикс регистрации → 51 тест + живые 201/200 + браузер E2E; прод не тронут
+- Владельцу: передеплой прод с cb42589 (иначе регистрация в проде продолжит падать); прод-БД по варианту A/B/C из PI-аудита; замена демонстрационного JWT_SECRET; решение по переносу fail-fast Pi в admin.ts; заполнить регресс-чеклист после деплоя
+- Сводный журнал: docs/operations/AGENT_WORKLOG_LOCAL_DEPLOY.md (Части I–V: PI-хроника, работа сессии, реконсиляция, открытые пункты, опись документов)
