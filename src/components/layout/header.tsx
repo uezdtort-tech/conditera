@@ -241,8 +241,8 @@ export function Header() {
       <TopPromoBar onNavigate={navigate} />
 
       <header className="header-glass sticky top-0 z-40 w-full [backdrop-filter:blur(18px)_saturate(1.7)]!">
-        <div className="container mx-auto px-4">
-          <div className="flex h-16 items-center justify-between gap-2 sm:gap-3">
+        <div className="container mx-auto px-3 sm:px-4">
+          <div className="flex h-16 items-center justify-between gap-1 sm:gap-3">
             {/* Logo */}
             <button onClick={() => navigate("home")} className="flex items-center gap-2 shrink-0 group" aria-label="Уездный кондитер — на главную">
               <img src="/logo.png" alt="Уездный кондитер" className="h-12 w-12 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform" />
@@ -270,7 +270,7 @@ export function Header() {
             <VisualSearchButton compact />
 
             {/* Actions */}
-            <div className="flex items-center gap-1 sm:gap-2 ml-auto">
+            <div className="flex items-center gap-0.5 sm:gap-2 ml-auto">
               {/* Конструктор */}
               <Button variant="default" size="sm" onClick={() => navigate("cake-builder")} className="btn-primary-gradient hidden md:flex">
                 <Cake className="h-4 w-4 mr-1.5" />Конструктор

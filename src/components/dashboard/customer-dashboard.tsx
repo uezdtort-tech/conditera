@@ -531,7 +531,7 @@ export function CustomerDashboard() {
             {activeTab === "overview" && (
               <div className="space-y-4">
                 <div>
-                  <h1 className="font-display text-2xl font-bold mb-1">
+                  <h1 className="fade-up font-display text-2xl font-bold mb-1">
                     Здравствуйте, {user.name.split(" ")[0]}! 👋
                   </h1>
                   <p className="text-muted-foreground">
@@ -692,7 +692,7 @@ export function CustomerDashboard() {
             {activeTab === "orders" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h1 className="font-display text-2xl font-bold">Мои заказы</h1>
+                  <h1 className="fade-up font-display text-2xl font-bold">Мои заказы</h1>
                   {ordersStale && (
                     <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
                       Офлайн-данные (сервер недоступен)
@@ -943,7 +943,7 @@ export function CustomerDashboard() {
 
             {activeTab === "myRecipes" && (
               <div className="space-y-4">
-                <h1 className="font-display text-2xl font-bold">Мои рецепты</h1>
+                <h1 className="fade-up font-display text-2xl font-bold">Мои рецепты</h1>
                 <p className="text-sm text-muted-foreground -mt-2">
                   Купленные авторские рецепты с полным доступом
                 </p>
@@ -953,7 +953,7 @@ export function CustomerDashboard() {
 
             {activeTab === "favorites" && (
               <div className="space-y-4">
-                <h1 className="font-display text-2xl font-bold">Избранное</h1>
+                <h1 className="fade-up font-display text-2xl font-bold">Избранное</h1>
                 {serverWishlist && serverWishlist.length > 0 ? (
                   <WishlistGrid
                     items={serverWishlist}
@@ -982,7 +982,7 @@ export function CustomerDashboard() {
 
             {activeTab === "loyalty" && (
               <div className="space-y-4">
-                <h1 className="font-display text-2xl font-bold">Программа лояльности</h1>
+                <h1 className="fade-up font-display text-2xl font-bold">Программа лояльности</h1>
                 <CustomerLoyaltyTab />
               </div>
             )}

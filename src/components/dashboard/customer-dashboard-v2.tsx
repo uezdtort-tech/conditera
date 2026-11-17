@@ -71,7 +71,7 @@ export function CustomerDashboardV2(): React.JSX.Element {
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h1 className="font-display text-2xl font-bold">Личный кабинет</h1>
+                <h1 className="fade-up font-display text-2xl font-bold">Личный кабинет</h1>
                 <p className="text-sm text-muted-foreground mt-1">
                   Добро пожаловать, {user.name}!
                 </p>
@@ -164,7 +164,7 @@ export function CustomerDashboardV2(): React.JSX.Element {
       case "orders":
         return (
           <div className="space-y-4">
-            <h1 className="font-display text-2xl font-bold">Мои заказы</h1>
+            <h1 className="fade-up font-display text-2xl font-bold">Мои заказы</h1>
             <div className="space-y-3">
               {recentOrders.map((order) => (
                 <Card key={order.id} className="p-4">
@@ -200,7 +200,7 @@ export function CustomerDashboardV2(): React.JSX.Element {
       case "myRecipes":
         return (
           <div className="space-y-4">
-            <h1 className="font-display text-2xl font-bold">Мои рецепты</h1>
+            <h1 className="fade-up font-display text-2xl font-bold">Мои рецепты</h1>
             <p className="text-sm text-muted-foreground">Купленные авторские рецепты с полным доступом</p>
             <MyPurchasedRecipes />
           </div>
@@ -209,7 +209,7 @@ export function CustomerDashboardV2(): React.JSX.Element {
       case "favorites":
         return (
           <div className="space-y-4">
-            <h1 className="font-display text-2xl font-bold">Избранное ({favorites.length})</h1>
+            <h1 className="fade-up font-display text-2xl font-bold">Избранное ({favorites.length})</h1>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {favorites.map((fav) => (
                 <Card key={fav.id} className="p-3">
@@ -234,7 +234,7 @@ export function CustomerDashboardV2(): React.JSX.Element {
       case "inquiries":
         return (
           <div className="space-y-4">
-            <h1 className="font-display text-2xl font-bold">Запросы на индивидуальный торт</h1>
+            <h1 className="fade-up font-display text-2xl font-bold">Запросы на индивидуальный торт</h1>
             <Card className="p-4">
               <div className="space-y-3">
                 {inquiries.map((inq) => (
@@ -264,7 +264,7 @@ export function CustomerDashboardV2(): React.JSX.Element {
       case "bonuses":
         return (
           <div className="space-y-4">
-            <h1 className="font-display text-2xl font-bold">Бонусы и лояльность</h1>
+            <h1 className="fade-up font-display text-2xl font-bold">Бонусы и лояльность</h1>
             <Card className="p-6">
               <div className="text-center">
                 <div className="text-4xl font-display font-bold text-amber-600">

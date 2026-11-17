@@ -1674,7 +1674,7 @@ export function CheckoutPage() {
 
   return (
     <div className="container mx-auto px-4 py-6 lg:py-10 max-w-5xl">
-      <h1 className="font-display text-2xl lg:text-3xl font-bold mb-6">
+      <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-6">
         Оформление заказа
       </h1>
 
@@ -1935,7 +1935,7 @@ export function CheckoutPage() {
                 </Button>
                 <Button
                   onClick={submitCheckout}
-                  className="flex-1"
+                  className="flex-1 btn-primary-gradient"
                   disabled={submitting}
                 >
                   {submitting ? "Оформляем…" : "Оплатить"}{" "}
