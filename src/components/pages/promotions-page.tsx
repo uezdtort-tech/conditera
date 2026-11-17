@@ -133,7 +133,7 @@ export function PromotionsPage() {
           <Flame className="h-3 w-3 mr-1" />
           Акции и спецпредложения
         </Badge>
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Акции кондитеров
           {userCity && <span className="text-primary"> в {userCity}</span>}
         </h1>
@@ -232,7 +232,7 @@ export function PromotionsPage() {
             return (
               <Card
                 key={promo.id}
-                className="overflow-hidden p-0 hover:shadow-lg transition-shadow cursor-pointer group"
+                className="overflow-hidden p-0 card-hover cursor-pointer group"
                 onClick={() => navigate("confectioner-profile", { id: promo.confectionerId })}
               >
                 {/* Image with promoted badge */}

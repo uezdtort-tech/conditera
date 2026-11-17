@@ -616,7 +616,7 @@ export function CatalogPage() {
       <Breadcrumbs items={[{ label: "Каталог" }]} />
       {/* Header */}
       <div className="mb-6">
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Каталог кондитерских изделий
         </h1>
         <p className="text-muted-foreground">

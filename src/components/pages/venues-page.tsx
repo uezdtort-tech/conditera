@@ -327,7 +327,7 @@ export function VenuesPage() {
             </Badge>
           )}
         </div>
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Площадки для праздников
         </h1>
         <p className="text-muted-foreground">
@@ -396,7 +396,7 @@ export function VenuesPage() {
           return (
             <Card
               key={v.id}
-              className="overflow-hidden p-0 hover:shadow-lg transition-shadow cursor-pointer flex flex-col"
+              className="overflow-hidden p-0 card-hover cursor-pointer flex flex-col"
               onClick={() => setSelected(v)}
             >
               <div className="relative aspect-video bg-muted overflow-hidden">

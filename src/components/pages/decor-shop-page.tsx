@@ -111,7 +111,7 @@ export function DecorShopPage() {
           <Gift className="h-3 w-3 mr-1" />
           Декор и упаковка
         </Badge>
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Декор и упаковка для тортов
         </h1>
         <p className="text-muted-foreground">
@@ -224,7 +224,7 @@ export function DecorShopPage() {
             ? Math.round(product.price * (1 - shop.platformDiscount / 100))
             : product.price;
           return (
-            <Card key={product.id} className="overflow-hidden p-0 hover:shadow-lg transition-shadow flex flex-col">
+            <Card key={product.id} className="overflow-hidden p-0 card-hover flex flex-col">
               <div className="relative aspect-square bg-muted overflow-hidden">
                 {product.images[0] ? (
                   <img

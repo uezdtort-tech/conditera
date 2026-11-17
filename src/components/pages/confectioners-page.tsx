@@ -158,7 +158,7 @@ export function ConfectionersPage() {
   return (
     <div className="container mx-auto px-4 py-6 lg:py-10">
       <div className="mb-6">
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Кондитеры платформы
         </h1>
         <p className="text-muted-foreground">

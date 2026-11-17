@@ -129,7 +129,7 @@ export function ServicesShopPage() {
           <Sparkles className="h-3 w-3 mr-1" />
           Услуги для праздника
         </Badge>
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Фейерверки, шары и аниматоры
         </h1>
         <p className="text-muted-foreground">
@@ -267,7 +267,7 @@ export function ServicesShopPage() {
           const inCart = cart.some((c) => c.productId === product.id);
           const isService = ["animator_clown", "animator_hero", "animator_show", "animator_facepaint", "animator_quest", "photographer", "videographer", "music", "host"].includes(product.category);
           return (
-            <Card key={product.id} className="overflow-hidden p-0 hover:shadow-lg transition-shadow flex flex-col">
+            <Card key={product.id} className="overflow-hidden p-0 card-hover flex flex-col">
               <div className="relative aspect-video bg-muted overflow-hidden">
                 <img
                   src={product.images[0]}

@@ -152,7 +152,7 @@ export function RecipesPage() {
           <ChefHat className="h-3 w-3 mr-1" />
           Рецепты и уроки
         </Badge>
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Рецепты и мастер-классы от кондитеров
         </h1>
         <p className="text-muted-foreground">
@@ -282,7 +282,7 @@ export function RecipesPage() {
             return (
               <Card
                 key={recipe.id}
-                className="overflow-hidden p-0 hover:shadow-lg transition-shadow cursor-pointer group"
+                className="overflow-hidden p-0 card-hover cursor-pointer group"
                 onClick={() => navigate("recipe-detail", { id: recipe.id })}
                 role="link"
                 aria-label={`Открыть рецепт: ${recipe.title}`}

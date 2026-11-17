@@ -9339,3 +9339,21 @@ Stage Summary:
 - Локальное развёртывание полное и проверенное: среда (PG+secrets) → фикс регистрации → 51 тест + живые 201/200 + браузер E2E; прод не тронут
 - Владельцу: передеплой прод с cb42589 (иначе регистрация в проде продолжит падать); прод-БД по варианту A/B/C из PI-аудита; замена демонстрационного JWT_SECRET; решение по переносу fail-fast Pi в admin.ts; заполнить регресс-чеклист после деплоя
 - Сводный журнал: docs/operations/AGENT_WORKLOG_LOCAL_DEPLOY.md (Части I–V: PI-хроника, работа сессии, реконсиляция, открытые пункты, опись документов)
+
+---
+Task ID: design-ext-20261118
+Agent: main (Super Z)
+Task: Продолжение редизайна-2025 — унификация карточек и заголовков публичных страниц на системные утилиты (по команде владельца «шагай»/«продолжай»)
+
+Work Log:
+- Контекст: песочница пересоздана между сессиями; рантайм восстановлен (runtime.mjs start + setup.mjs: схема/сиды/демо-юзеры; рестарт Next; чат-сервер).
+- Аудит: утилиты design-2025 (.card-hover/.fade-up/.btn-primary-gradient) были применены только к витрине (ProductCard, ConfectionerCard, product-page, hero). Второстепенные страницы использовали ad-hoc hover:shadow-lg.
+- Унификация карточек (5 страниц): recipes-catalog (3 карточки), promotions (3), venues (4), services-shop (7), decor-shop (16) — ad-hoc hover:shadow-lg transition-shadow → системная .card-hover (слоистые тёплые тени + lift -3px + ягодная подсветка рамки, reduced-motion safe).
+- fade-up на h1 (7 страниц): catalog, confectioners, recipes-catalog, promotions, venues, services-shop, decor-shop — вход анимацией при монтировании.
+- Гейты: tsc 0; тесты изменённых страниц 13/13 PASS (recipes-page, catalog-page); eslint — 3 ошибки/14 предупреждений ТОЛЬКО в mobile-app (пре-существующие, вне скоупа, не тронуты).
+- Браузерная верификация (agent-browser, реальные скриншоты в agent-ctx/design-ext-20261118-*.png): /recipes fadeUp=1 cardHover=3; /promotions fadeUp=1 cardHover=3 overflowX=0; /venues fadeUp=1 cardHover=4; /decor-shop fadeUp=1 cardHover=16; /services-shop fadeUp=1 cardHover=7; /catalog fadeUp=1; /confectioners dark fadeUp=1 cardHover=3 overflowX=0. Тёмная тема — глубокий шоколад, консоль чистая.
+- Инфра-заметка: песочница агрессивно убивает next dev между вызовами; применён документированный keepalive-цикл (setsid + while-loop, worklog «hydration-fix»).
+
+Stage Summary:
+- Дизайн-система 2025 теперь едина на всех публичных витринах (7 страниц) — без ломки логики и тестов
+- Прод не тронут (коммиты остаются в локальном main до мандата владельца)
