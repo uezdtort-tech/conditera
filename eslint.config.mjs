@@ -57,6 +57,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "skills/**",
     "scripts/**", // build/utility scripts (CommonJS allowed)
     "archive/mobile-app/**",
+    "mobile-app/**", // дубликат archive/mobile-app (74c12f0: NOT MAINTAINED, ZV31-015 CLOSED) — вне lint-гейта
     "mini-services/**",
     "backups/**",
     "tests/**",
