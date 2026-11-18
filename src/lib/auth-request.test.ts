@@ -101,6 +101,23 @@ describe("getUserFromRequest — серверная проверка актуа�
     await expect(auth.getUserFromRequest(await requestWithToken())).resolves.toBeNull();
   });
 
+  it("отклоняет пользователя с удалённым профилем", async () => {
+    mocked.results.push({
+      data: {
+        id: userId,
+        is_blocked: false,
+        deleted_at: "2026-11-18T00:00:00.000Z",
+        name: "Удалённый пользователь",
+        email: "deleted@example.test",
+        account_type: "individual",
+      },
+      error: null,
+    });
+
+    await expect(auth.getUserFromRequest(await requestWithToken())).resolves.toBeNull();
+    expect(mocked.from).toHaveBeenCalledTimes(1);
+  });
+
   it("отклоняет заблокированного пользователя", async () => {
     mocked.results.push({
       data: {
