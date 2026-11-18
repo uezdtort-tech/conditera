@@ -219,6 +219,7 @@ function finishRedirect(error?: string, provider?: Provider): NextResponse {
     };
     response.cookies.set(`oauth_state_${provider}`, "", cookieOptions);
     response.cookies.set(`oauth_verifier_${provider}`, "", cookieOptions);
+    response.cookies.set(`oauth_return_to_${provider}`, "", cookieOptions);
     if (provider === "google") response.cookies.set("oauth_nonce_google", "", cookieOptions);
   }
   return response;
@@ -257,6 +258,13 @@ export async function GET(
     if (!code || !state || !cookieState || state !== cookieState) {
       return finishRedirect("Неверный state — повторите вход", provider);
     }
+    const requestedReturnTo = request.cookies.get(`oauth_return_to_${provider}`)?.value || "/dashboard";
+    const returnTo = requestedReturnTo.startsWith("/") &&
+      !requestedReturnTo.startsWith("//") &&
+      !requestedReturnTo.includes("\\") &&
+      !/[\r\n]/.test(requestedReturnTo)
+      ? requestedReturnTo
+      : "/dashboard";
 
     // 2-3. Обмен кода и проверка личности на стороне провайдера.
     let profile: OAuthProfile;
@@ -427,6 +435,7 @@ export async function GET(
       expiresAt: sessionData.session.expires_at,
       email: profile.email,
       name: profile.name,
+      returnTo,
     };
     const response = finishRedirect(undefined, provider);
     response.cookies.set("oauth_handoff", Buffer.from(JSON.stringify(handoff)).toString("base64"), {
