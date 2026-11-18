@@ -188,6 +188,12 @@ export async function GET(
     maxAge: 600,
     path: "/api/auth/oauth",
   });
+  response.cookies.set("oauth_consent_pd_" + provider, request.nextUrl.searchParams.get("consentPd") === "1" ? "1" : "0", {
+    httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/api/auth/oauth",
+  });
+  response.cookies.set("oauth_consent_terms_" + provider, request.nextUrl.searchParams.get("consentTerms") === "1" ? "1" : "0", {
+    httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/api/auth/oauth",
+  });
   if (provider === "google" || provider === "vk" || provider === "yandex") {
     response.cookies.set(`oauth_verifier_${provider}`, codeVerifier, {
       httpOnly: true,
