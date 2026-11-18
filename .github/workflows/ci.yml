@@ -179,6 +179,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate database bootstrap and preflight scripts
+        run: |
+          bash -n supabase/init-scripts/01-apply-migrations.sh
+          bash -n scripts/deploy.sh
+          bash -n scripts/db-preflight.sh
+          grep -Fq 'MIGRATIONS_DIR: /docker-entrypoint-initdb.d/migrations' docker-compose.supabase.yml
+          grep -Fq 'SEEDS_DIR: /docker-entrypoint-initdb.d/seed' docker-compose.supabase.yml
+          grep -Fq 'PGHOST=db' docker-compose.yml
+          grep -Fq 'PGDATABASE=conditera' docker-compose.yml
+          echo "Database bootstrap configuration checks passed"
+
       - name: Check for secrets in code
         run: |
           # Проверка на закоммиченные секреты
