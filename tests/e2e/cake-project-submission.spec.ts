@@ -16,7 +16,6 @@ test.describe("Создание проекта торта и переговор�
     });
     expect(customerLogin.ok(), await customerLogin.text()).toBeTruthy();
     const customerBody = await customerLogin.json();
-    const customerToken = customerBody.accessToken as string;
     expect(customerBody.user?.id || customerBody.id).toBe(DEMO_CUSTOMER_ID);
 
     const confectionerLogin = await request.post(APP + "/api/auth/login", {
@@ -24,7 +23,6 @@ test.describe("Создание проекта торта и переговор�
     });
     expect(confectionerLogin.ok(), await confectionerLogin.text()).toBeTruthy();
     const confectionerBody = await confectionerLogin.json();
-    const confectionerToken = confectionerBody.accessToken as string;
     expect(confectionerBody.user?.id || confectionerBody.id).toBe(DEMO_CONFECTIONER_ID);
 
     // Один APIRequestContext хранит cookie последнего login; возвращаем cookie заказчика,
