@@ -690,7 +690,7 @@ export async function handleUpdate(ctx: PgrstContext, tableName: string): Promis
   const sql = `UPDATE ${quoteIdent(table.name)} SET ${setSql}${where.sql}${returningSql}`;
 
   const res = await ctx.pool.query(sql, params);
-  const outRows = res.rows as Record<string, unknown>[];
+  const outRows = (res.rows as Record<string, unknown>[]).map((row) => normalizeNumericRow(row, table));
 
   if (!returnRepresentation) return { status: 204, json: undefined, headers: {} };
   if (wantsObject) {
