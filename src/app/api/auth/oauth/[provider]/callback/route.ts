@@ -310,6 +310,7 @@ export async function GET(
     if (identityLookupError) throw new Error("Не удалось проверить связь OAuth-аккаунта");
 
     let targetEmail = profile.email;
+    let isPendingOAuthUser = false;
     if (!identityLink?.user_id) {
       // Не объединяем старую парольную учётную запись только по совпадению email.
       // Пользователь сначала входит привычным способом; привязка провайдера
@@ -321,10 +322,19 @@ export async function GET(
         .maybeSingle();
       if (emailLookupError) throw new Error("Не удалось проверить существующую учётную запись");
       if (emailOwner) {
-        return finishRedirect(
-          "Для этого email уже есть аккаунт. Войдите привычным способом; подключение соцсети выполняется из авторизованного аккаунта.",
-          provider
-        );
+        const { data: ownerAuth, error: ownerAuthError } =
+          await supabaseAdmin.auth.admin.getUserById(emailOwner.id);
+        if (ownerAuthError) throw new Error("Не удалось проверить существующий аккаунт");
+        const metadata = ownerAuth.user?.user_metadata || {};
+        isPendingOAuthUser =
+          metadata.oauth_provider === provider &&
+          metadata.oauth_subject === profile.subject;
+        if (!isPendingOAuthUser) {
+          return finishRedirect(
+            "Для этого email уже есть аккаунт. Войдите привычным способом; подключение соцсети выполняется из авторизованного аккаунта.",
+            provider
+          );
+        }
       }
     }
     if (identityLink?.user_id) {
@@ -334,7 +344,7 @@ export async function GET(
         throw new Error("Связанный аккаунт Conditera не найден");
       }
       targetEmail = linkedUser.user.email;
-    } else {
+    } else if (!isPendingOAuthUser) {
       // Email уже подтверждён провайдером. Создаём GoTrue user до magic-link:
       // generateLink(magiclink) рассчитан на существующего пользователя.
       const { error: createUserError } = await supabaseAdmin.auth.admin.createUser({
