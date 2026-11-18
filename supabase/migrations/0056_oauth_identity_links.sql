@@ -24,3 +24,6 @@ GRANT ALL ON TABLE public.oauth_identity_links TO service_role;
 
 COMMENT ON TABLE public.oauth_identity_links IS
   'Серверные связи Yandex ID, VK ID и Google OIDC с пользователями Supabase Auth.';
+
+-- Обновить схему PostgREST после появления таблицы.
+NOTIFY pgrst, 'reload schema';
