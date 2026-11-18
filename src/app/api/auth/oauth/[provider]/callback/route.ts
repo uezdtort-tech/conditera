@@ -301,6 +301,23 @@ export async function GET(
     if (identityLookupError) throw new Error("Не удалось проверить связь OAuth-аккаунта");
 
     let targetEmail = profile.email;
+    if (!identityLink?.user_id) {
+      // Не объединяем старую парольную учётную запись только по совпадению email.
+      // Пользователь сначала входит привычным способом; привязка провайдера
+      // выполняется из авторизованной сессии отдельным подтверждением.
+      const { data: emailOwner, error: emailLookupError } = await supabaseAdmin
+        .from("profiles")
+        .select("id")
+        .eq("email", profile.email)
+        .maybeSingle();
+      if (emailLookupError) throw new Error("Не удалось проверить существующую учётную запись");
+      if (emailOwner) {
+        return finishRedirect(
+          "Для этого email уже есть аккаунт. Войдите привычным способом; подключение соцсети выполняется из авторизованного аккаунта.",
+          provider
+        );
+      }
+    }
     if (identityLink?.user_id) {
       const { data: linkedUser, error: linkedUserError } =
         await supabaseAdmin.auth.admin.getUserById(identityLink.user_id);
