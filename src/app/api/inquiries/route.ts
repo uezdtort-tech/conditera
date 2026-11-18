@@ -193,6 +193,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
            RETURNING id::text, confectioner_id::text`,
           [inquiryId, user.id, selectedIds, input.requestDiscount, input.requestDiscount ? input.discountPercent : 0, input.requestDiscount ? input.discountComment : "", expiresAt]
         );
+        // Первое системное сообщение фиксирует старт переговоров и попадает в Realtime.
+        await client.query(
+          `INSERT INTO public.negotiation_messages (negotiation_id, sender_id, text, attachments, is_system)
+           SELECT n.id, $1::uuid, 'Проект отправлен заказчиком. Подготовьте цену и срок выполнения.', '[]'::jsonb, TRUE
+             FROM public.negotiations n
+            WHERE n.inquiry_id = $2::uuid`,
+          [user.id, inquiryId]
+        );
 
         return { draftId, inquiryId, negotiations: negotiationsResult.rows };
       }
