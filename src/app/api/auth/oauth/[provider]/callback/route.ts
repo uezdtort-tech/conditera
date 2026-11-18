@@ -248,11 +248,13 @@ function finishRedirect(
   return response;
 }
 
-export async function GET(
+async function handleOAuthCallback(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string }> }
 ): Promise<NextResponse> {
-  const { provider: rawProvider } = await params;
+  const routeParams = params ? await params : undefined;
+  const pathSegments = new URL(request.url).pathname.split("/").filter(Boolean);
+  const rawProvider = routeParams?.provider || pathSegments[pathSegments.length - 2] || "";
   const provider = rawProvider.toLowerCase() as Provider;
 
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -260,7 +262,16 @@ export async function GET(
   }
 
   const { searchParams } = new URL(request.url);
-  const requestedReturnTo = request.cookies.get("oauth_return_to_" + provider)?.value || "/dashboard";
+  const storedReturnTo = request.cookies.get("oauth_return_to_" + provider)?.value;
+  let requestedReturnTo = "/dashboard";
+  if (storedReturnTo) {
+    try {
+      // Next.js cookie API отдаёт percent-encoded value из Set-Cookie.
+      requestedReturnTo = decodeURIComponent(storedReturnTo);
+    } catch {
+      requestedReturnTo = "/dashboard";
+    }
+  }
   const returnTo = requestedReturnTo.startsWith("/") &&
     !requestedReturnTo.startsWith("//") &&
     !requestedReturnTo.includes("\\") &&
@@ -540,5 +551,27 @@ export async function GET(
       }
     }
     return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo);
+  }
+}
+
+
+// Последний защитный рубеж: даже непредвиденная ошибка в очистке cookies,
+// разборе callback или сборке ответа не должна оставлять пользователя на 500.
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ provider: string }> }
+): Promise<NextResponse> {
+  try {
+    return await handleOAuthCallback(request, context);
+  } catch (error: unknown) {
+    console.error(
+      "[oauth/callback] unhandled failure:",
+      error instanceof Error ? error.message : String(error)
+    );
+    const target = new URL("/login", request.url);
+    target.searchParams.set("oauthError", "Не удалось завершить вход. Попробуйте ещё раз.");
+    const response = NextResponse.redirect(target, 302);
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    return response;
   }
 }
