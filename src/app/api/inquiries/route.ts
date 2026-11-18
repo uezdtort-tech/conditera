@@ -190,6 +190,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     );
 
+    try {
+      const { emitEvent } = await import("@/lib/n8n");
+      await emitEvent("inquiry.created", {
+        inquiryId: result.inquiryId,
+        customerId: user.id,
+        confectionerIds: selectedIds,
+        negotiationsCount: result.negotiations.length,
+      });
+    } catch (notificationError) {
+      console.warn("[inquiries] notification event failed:", notificationError instanceof Error ? notificationError.message : String(notificationError));
+    }
+
     return NextResponse.json({
       success: true,
       draftId: result.draftId,
