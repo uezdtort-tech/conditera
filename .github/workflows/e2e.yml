@@ -84,7 +84,7 @@ jobs:
     name: Setup & Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -134,7 +134,7 @@ jobs:
         browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit"]')) || fromJson('["chromium"]') }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
