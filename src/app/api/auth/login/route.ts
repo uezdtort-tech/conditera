@@ -57,11 +57,15 @@ interface SanitizedUser {
  * Получить роли пользователя из таблицы user_roles.
  */
 async function getUserRoles(userId: string): Promise<string[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("user_roles")
     .select("role")
     .eq("user_id", userId)
     .eq("is_active", true);
+  if (error) {
+    console.error("[login] active role lookup failed; refusing to issue session:", error.message);
+    throw new Error("Не удалось проверить права доступа");
+  }
   return (data || []).map((r: any) => r.role as string);
 }
 
@@ -115,7 +119,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .select(
         `
         id, email, name, phone, password_hash, is_blocked, blocked_reason,
-        account_type, city, bonus_balance, loyalty_level, is_verified,
+        account_type, city, bonus_balance, loyalty_level, is_verified, deleted_at,
         two_factor_enabled, two_factor_secret, last_login_at
       `
       )
@@ -174,7 +178,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 4. Проверка блокировки
+    // 4. Проверка блокировки и удаления аккаунта
+    if (user.deleted_at) {
+      return NextResponse.json({ error: "Аккаунт удалён и больше не может использоваться" }, { status: 403 });
+    }
     if (user.is_blocked) {
       return NextResponse.json(
         { error: `Аккаунт заблокирован: ${user.blocked_reason || "причина не указана"}` },
