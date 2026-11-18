@@ -69,7 +69,6 @@ async function exchangeYandex(config: ReturnType<typeof getProviderConfig>, code
     grant_type: "authorization_code",
     code,
     client_id: config!.clientId,
-    redirect_uri: config!.redirectUri,
     code_verifier: codeVerifier,
   });
   if (config!.clientSecret) body.set("client_secret", config!.clientSecret);
