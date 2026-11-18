@@ -157,7 +157,6 @@ export function AuthModal() {
   const [oauthStarting, setOauthStarting] = useState(false);
   const [oauthConsentPd, setOauthConsentPd] = useState(false);
   const [oauthConsentTerms, setOauthConsentTerms] = useState(false);
-  const [oauthConsentOffer, setOauthConsentOffer] = useState(false);
   const [consentPd, setConsentPd] = useState(false);
   const [consentTerms, setConsentTerms] = useState(false);
   const [consentOffer, setConsentOffer] = useState(false);
@@ -242,10 +241,9 @@ export function AuthModal() {
   // OAuth: серверный flow для Yandex ID, VK ID и Google.
   // Новая регистрация требует отдельного согласия на ПД и принятия условий.
   const handleOAuth = async (provider: "yandex" | "vk" | "google") => {
-    if (!oauthConsentPd || !oauthConsentTerms || !oauthConsentOffer) {
-      toast.error("Подтвердите согласие на обработку персональных данных, пользовательское соглашение и публичную оферту");
-      return;
-    }
+    // Для существующего OAuth-аккаунта согласия повторно не требуются.
+    // Если провайдер впервые создаёт аккаунт, callback потребует оба согласия.
+
     if (oauthLaunchRef.current) return;
     oauthLaunchRef.current = true;
     setOauthStarting(true);
@@ -267,7 +265,9 @@ export function AuthModal() {
         ? "/dashboard"
         : currentPath;
       const returnTo = queryReturnTo || fallbackReturnTo;
-      const params = new URLSearchParams({ returnTo, consentPd: "1", consentTerms: "1", consentOffer: "1" });
+      const params = new URLSearchParams({ returnTo });
+      if (oauthConsentPd) params.set("consentPd", "1");
+      if (oauthConsentTerms) params.set("consentTerms", "1");
       window.location.href = window.location.origin + "/api/auth/oauth/" + provider + "?" + params.toString();
     } catch {
       oauthLaunchRef.current = false;
@@ -562,10 +562,6 @@ export function AuthModal() {
                 <span className="text-xs leading-relaxed text-muted-foreground">
                   Принимаю <a href="/about?legal=terms" target="_blank" rel="noreferrer" className="font-medium text-primary underline">пользовательское соглашение</a>.
                 </span>
-              </label>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input type="checkbox" checked={oauthConsentOffer} onChange={(event) => setOauthConsentOffer(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
-                <span className="text-xs leading-relaxed text-muted-foreground">Принимаю условия <a href="/about?legal=offer" target="_blank" rel="noreferrer" className="font-medium text-primary underline">публичной оферты</a>.</span>
               </label>
             </div>
 
