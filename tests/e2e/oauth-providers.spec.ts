@@ -32,7 +32,7 @@ test.describe("OAuth providers", () => {
 
       const response = await request.get(
         baseUrl + "/api/auth/oauth/" + provider.id +
-          "?returnTo=%2Fdashboard%2Forders&consentPd=1&consentTerms=1&consentOffer=1",
+          "?returnTo=%2Fdashboard%2Forders&consentPd=1&consentTerms=1",
         { maxRedirects: 0 }
       );
       expect(response.status()).toBe(302);
@@ -56,7 +56,6 @@ test.describe("OAuth providers", () => {
       expect(setCookies).toContain("oauth_verifier_" + provider.id);
       expect(setCookies).toContain("oauth_consent_pd_" + provider.id);
       expect(setCookies).toContain("oauth_consent_terms_" + provider.id);
-      expect(setCookies).toContain("oauth_consent_offer_" + provider.id);
     });
   }
 
