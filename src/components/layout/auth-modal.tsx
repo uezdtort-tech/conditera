@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -153,6 +153,8 @@ export function AuthModal() {
   const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
   const [phone, setPhone] = useState("");
   // Регистрация
+  const oauthLaunchRef = useRef(false);
+  const [oauthStarting, setOauthStarting] = useState(false);
   const [oauthConsentPd, setOauthConsentPd] = useState(false);
   const [oauthConsentTerms, setOauthConsentTerms] = useState(false);
   const [oauthConsentOffer, setOauthConsentOffer] = useState(false);
@@ -244,6 +246,9 @@ export function AuthModal() {
       toast.error("Подтвердите согласие на обработку персональных данных, пользовательское соглашение и публичную оферту");
       return;
     }
+    if (oauthLaunchRef.current) return;
+    oauthLaunchRef.current = true;
+    setOauthStarting(true);
     try {
       const res = await fetch("/api/auth/oauth/" + provider + "?mode=check");
       const data = (await res.json()) as { configured?: boolean };
@@ -252,6 +257,8 @@ export function AuthModal() {
         toast.error("Вход через " + label + " пока не настроен", {
           description: "Провайдер OAuth не сконфигурирован в окружении.",
         });
+        oauthLaunchRef.current = false;
+        setOauthStarting(false);
         return;
       }
       const queryReturnTo = new URLSearchParams(window.location.search).get("returnTo");
@@ -263,6 +270,8 @@ export function AuthModal() {
       const params = new URLSearchParams({ returnTo, consentPd: "1", consentTerms: "1", consentOffer: "1" });
       window.location.href = window.location.origin + "/api/auth/oauth/" + provider + "?" + params.toString();
     } catch {
+      oauthLaunchRef.current = false;
+      setOauthStarting(false);
       toast.error("Не удалось запустить вход через соцсеть");
     }
   };
@@ -562,19 +571,19 @@ export function AuthModal() {
 
             {/* OAuth кнопки с официальными цветами брендов */}
             <div className="grid grid-cols-3 gap-2">
-              <Button type="button" variant="outline" onClick={() => handleOAuth("yandex")} className="gap-1.5 px-2">
+              <Button type="button" variant="outline" onClick={() => handleOAuth("yandex")} disabled={oauthStarting} className="gap-1.5 px-2">
                 <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
                   <path fill="#FC3F1D" d="M14.2 2.5h-2.1c-4.1 0-6.6 2.1-6.6 5.7 0 2.7 1.3 4.4 3.8 5.9L5 21.5h3.4l4.8-7.7-1.4-.9c-1.8-1.1-2.6-2.3-2.6-4.5 0-2.3 1.5-3.7 4-3.7h1v16.8h3.1V2.5h-3.1z"/>
                 </svg>
                 <span className="text-xs">Яндекс</span>
               </Button>
-              <Button type="button" variant="outline" onClick={() => handleOAuth("vk")} className="gap-1.5 px-2">
+              <Button type="button" variant="outline" onClick={() => handleOAuth("vk")} disabled={oauthStarting} className="gap-1.5 px-2">
                 <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
                   <path fill="#0077FF" d="M12.785 16.241s.288-.032.435-.193c.135-.148.131-.426.131-.426s-.019-1.302.582-1.495c.593-.19 1.354 1.27 2.16 1.83.61.42 1.075.328 1.075.328l2.154-.03s1.126-.07.592-.957c-.044-.072-.311-.654-1.6-1.844-1.35-1.255-1.169-1.052.458-3.22.99-1.319 1.387-2.124 1.262-2.466-.117-.327-.84-.24-.84-.24l-2.4.015s-.178-.024-.31.054c-.13.077-.213.256-.213.256s-.382 1.024-.892 1.895c-1.075 1.84-1.504 1.937-1.681 1.823-.413-.27-.31-1.067-.31-1.635 0-1.775.267-2.515-.519-2.706-.262-.064-.454-.106-1.123-.113-.858-.009-1.585.003-1.996.207-.274.135-.485.437-.356.454.159.021.519.099.71.36.246.337.237 1.094.237 1.094s.142 2.108-.33 2.37c-.325.18-.77-.187-1.731-1.838-.489-.842-.857-1.772-.857-1.772s-.07-.176-.198-.27c-.155-.114-.371-.15-.371-.15l-2.282.015s-.342.01-.467.158c-.112.132-.009.405-.009.405s1.786 4.179 3.807 6.286c1.854 1.932 3.962 1.805 3.962 1.805h.956z"/>
                 </svg>
                 <span className="text-xs">ВКонтакте</span>
               </Button>
-              <Button type="button" variant="outline" onClick={() => handleOAuth("google")} className="gap-1.5 px-2">
+              <Button type="button" variant="outline" onClick={() => handleOAuth("google")} disabled={oauthStarting} className="gap-1.5 px-2">
                 <svg className="h-4 w-4 shrink-0" viewBox="0 0 48 48" aria-hidden="true">
                   <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11c-.5 2.5-2 4.6-4.3 6v5h7c4.1-3.8 6.4-9.3 6.4-14.7z"/>
                   <path fill="#34A853" d="M24 44c5.8 0 10.7-1.9 14.3-5.1l-7-5c-1.9 1.3-4.3 2.1-7.3 2.1-5.6 0-10.3-3.8-12-8.9H4.8v5.2C8.4 39.2 15.6 44 24 44z"/>
