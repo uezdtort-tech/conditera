@@ -286,9 +286,30 @@ export async function GET(
     }
 
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
+
+    // Сначала ищем уже привязанный внешний subject. Email не является
+    // идентификатором OAuth-аккаунта и не заменяет provider_subject.
+    const { data: identityLink, error: identityLookupError } = await supabaseAdmin
+      .from("oauth_identity_links")
+      .select("user_id")
+      .eq("provider", provider)
+      .eq("provider_subject", profile.subject)
+      .maybeSingle();
+    if (identityLookupError) throw new Error("Не удалось проверить связь OAuth-аккаунта");
+
+    let targetEmail = profile.email;
+    if (identityLink?.user_id) {
+      const { data: linkedUser, error: linkedUserError } =
+        await supabaseAdmin.auth.admin.getUserById(identityLink.user_id);
+      if (linkedUserError || !linkedUser.user?.email) {
+        throw new Error("Связанный аккаунт Conditera не найден");
+      }
+      targetEmail = linkedUser.user.email;
+    }
+
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: "magiclink",
-      email: profile.email,
+      email: targetEmail,
       options: {
         redirectTo: new URL("/oauth/finish", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").toString(),
         data: {
@@ -300,36 +321,82 @@ export async function GET(
     });
     const tokenHash = linkData?.properties?.hashed_token;
     if (linkError || !tokenHash) {
-      throw new Error(`GoTrue magic-link generation failed: ${linkError?.message || "token hash missing"}`);
+      throw new Error("GoTrue magic-link generation failed: " + (linkError?.message || "token hash missing"));
     }
 
-    // Обмениваем одноразовый hash на настоящую GoTrue-сессию на сервере.
+    // Получаем единую GoTrue-сессию без смены пароля пользователя.
     const ssr = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
     const { data: sessionData, error: verifyError } = await ssr.auth.verifyOtp({
       token_hash: tokenHash,
       type: "magiclink",
     });
     if (verifyError || !sessionData.session || !sessionData.user) {
-      throw new Error(`GoTrue magic-link verification failed: ${verifyError?.message || "session missing"}`);
+      throw new Error("GoTrue magic-link verification failed: " + (verifyError?.message || "session missing"));
     }
     const userId = sessionData.user.id;
 
-    // 4b. Профиль + роль CUSTOMER (идемпотентно).
-    await supabaseAdmin.from("profiles").upsert({
-      id: userId,
-      email: profile.email,
-      name: profile.name,
-      account_type: "individual",
-    }, { onConflict: "id", ignoreDuplicates: false });
+    // Фиксируем внешний subject. При конкурентном первом входе повторно
+    // проверяем уникальную связь и запрещаем привязку к другому пользователю.
+    if (identityLink?.user_id) {
+      const { error: touchError } = await supabaseAdmin
+        .from("oauth_identity_links")
+        .update({ last_authenticated_at: new Date().toISOString() })
+        .eq("provider", provider)
+        .eq("provider_subject", profile.subject)
+        .eq("user_id", userId);
+      if (touchError) throw new Error("Не удалось обновить OAuth-связь");
+    } else {
+      const { error: identityInsertError } = await supabaseAdmin
+        .from("oauth_identity_links")
+        .insert({
+          provider,
+          provider_subject: profile.subject,
+          user_id: userId,
+          provider_email: profile.email,
+        });
+      if (identityInsertError) {
+        const { data: racedLink, error: racedLookupError } = await supabaseAdmin
+          .from("oauth_identity_links")
+          .select("user_id")
+          .eq("provider", provider)
+          .eq("provider_subject", profile.subject)
+          .maybeSingle();
+        if (racedLookupError || racedLink?.user_id !== userId) {
+          throw new Error("Этот OAuth-аккаунт уже связан с другой учётной записью");
+        }
+      }
+    }
 
-    const { data: rolesData } = await supabaseAdmin
+    // Создаём профиль только если его ещё нет: не перезаписываем имя,
+    // тип аккаунта и настройки уже существующего пользователя.
+    const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (profileLookupError) throw new Error("Не удалось проверить профиль пользователя");
+    if (!existingProfile) {
+      const { error: profileInsertError } = await supabaseAdmin.from("profiles").insert({
+        id: userId,
+        email: targetEmail,
+        name: profile.name,
+        account_type: "individual",
+      });
+      if (profileInsertError) throw new Error("Не удалось создать профиль пользователя");
+    }
+
+    const { data: rolesData, error: rolesLookupError } = await supabaseAdmin
       .from("user_roles")
       .select("id")
       .eq("user_id", userId)
       .eq("role", "CUSTOMER")
       .limit(1);
+    if (rolesLookupError) throw new Error("Не удалось проверить роль пользователя");
     if (!rolesData || rolesData.length === 0) {
-      await supabaseAdmin.from("user_roles").insert({ user_id: userId, role: "CUSTOMER", is_active: true });
+      const { error: roleInsertError } = await supabaseAdmin
+        .from("user_roles")
+        .insert({ user_id: userId, role: "CUSTOMER", is_active: true });
+      if (roleInsertError) throw new Error("Не удалось назначить базовую роль покупателя");
     }
 
     // 5. Server-side GoTrue-сессия.
