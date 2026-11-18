@@ -254,7 +254,12 @@ export function AuthModal() {
         });
         return;
       }
-      const returnTo = window.location.pathname + window.location.search;
+      const queryReturnTo = new URLSearchParams(window.location.search).get("returnTo");
+      const currentPath = window.location.pathname + window.location.search;
+      const fallbackReturnTo = ["/login", "/register", "/auth/login"].includes(window.location.pathname)
+        ? "/dashboard"
+        : currentPath;
+      const returnTo = queryReturnTo || fallbackReturnTo;
       const params = new URLSearchParams({ returnTo, consentPd: "1", consentTerms: "1", consentOffer: "1" });
       window.location.href = window.location.origin + "/api/auth/oauth/" + provider + "?" + params.toString();
     } catch {
