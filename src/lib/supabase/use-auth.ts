@@ -220,9 +220,15 @@ export function useSignOut() {
 // ==================== useOAuth (Google/Яндекс/VK) ====================
 type OAuthProvider = "google" | "yandex" | "vk";
 
+interface OAuthInput {
+  provider: OAuthProvider;
+  consentPd?: boolean;
+  consentTerms?: boolean;
+}
+
 export function useOAuth() {
   return useMutation({
-    mutationFn: async (provider: OAuthProvider) => {
+    mutationFn: async ({ provider, consentPd = false, consentTerms = false }: OAuthInput) => {
       // Conditera uses its own server-side OAuth adapters for Yandex, VK ID
       // and Google. Supabase GoTrue does not expose all three providers with
       // the same contract; passing "yandex"/"vk" to signInWithOAuth is invalid.
@@ -260,6 +266,8 @@ export function useOAuth() {
           : "/dashboard";
       const startUrl = new URL("/api/auth/oauth/" + provider, window.location.origin);
       startUrl.searchParams.set("returnTo", returnTo);
+      if (consentPd) startUrl.searchParams.set("consentPd", "1");
+      if (consentTerms) startUrl.searchParams.set("consentTerms", "1");
       window.location.assign(startUrl.toString());
       return { provider };
     },
