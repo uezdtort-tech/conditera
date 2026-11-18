@@ -201,11 +201,24 @@ async function fetchVKProfile(accessToken: string, clientId: string, expectedUse
 }
 
 
-function finishRedirect(error?: string): NextResponse {
+function finishRedirect(error?: string, provider?: Provider): NextResponse {
   const url = error
     ? new URL(`/oauth/finish?error=${encodeURIComponent(error)}`, process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000")
     : new URL("/oauth/finish", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
-  return NextResponse.redirect(url, { status: 302 });
+  const response = NextResponse.redirect(url, { status: 302 });
+  if (provider) {
+    const cookieOptions = {
+      httpOnly: true,
+      sameSite: "lax" as const,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 0,
+      path: "/api/auth/oauth",
+    };
+    response.cookies.set(`oauth_state_${provider}`, "", cookieOptions);
+    response.cookies.set(`oauth_verifier_${provider}`, "", cookieOptions);
+    if (provider === "google") response.cookies.set("oauth_nonce_google", "", cookieOptions);
+  }
+  return response;
 }
 
 export async function GET(
@@ -224,13 +237,13 @@ export async function GET(
   // Пользователь отказался в диалоге провайдера.
   const oauthError = searchParams.get("error");
   if (oauthError) {
-    return finishRedirect(`Провайдер вернул ошибку: ${oauthError}`);
+    return finishRedirect(`Провайдер вернул ошибку: ${oauthError}`, provider);
   }
 
   const config = getProviderConfig(provider);
 
-  if (!config) return finishRedirect("Провайдер не настроен");
-  if (provider === "telegram") return finishRedirect("Вход через Telegram не включён");
+  if (!config) return finishRedirect("Провайдер не настроен", provider);
+  if (provider === "telegram") return finishRedirect("Вход через Telegram не включён", provider);
 
   // ---- Реальный флоу (Yandex / Google / VK ID) ----
   try {
@@ -239,7 +252,7 @@ export async function GET(
     const state = searchParams.get("state");
     const cookieState = request.cookies.get(`oauth_state_${provider}`)?.value;
     if (!code || !state || !cookieState || state !== cookieState) {
-      return finishRedirect("Неверный state — повторите вход");
+      return finishRedirect("Неверный state — повторите вход", provider);
     }
 
     // 2-3. Обмен кода и проверка личности на стороне провайдера.
@@ -328,7 +341,7 @@ export async function GET(
       email: profile.email,
       name: profile.name,
     };
-    const response = finishRedirect();
+    const response = finishRedirect(undefined, provider);
     response.cookies.set("oauth_handoff", Buffer.from(JSON.stringify(handoff)).toString("base64"), {
       httpOnly: true,
       sameSite: "lax",
@@ -341,6 +354,6 @@ export async function GET(
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error(`[oauth/${provider}/callback]`, detail);
-    return finishRedirect(detail);
+    return finishRedirect(detail, provider);
   }
 }
