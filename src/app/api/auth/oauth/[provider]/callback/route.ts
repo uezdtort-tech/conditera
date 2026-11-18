@@ -429,7 +429,16 @@ export async function GET(
         try {
           await supabaseAdmin.auth.admin.deleteUser(userId);
         } catch (cleanupError) {
-          console.error("[oauth] Failed to roll back user after consent journal error", cleanupError);
+          if (process.env.NODE_ENV === "development") {
+            try {
+              const { getPool } = await import("@/lib/postgrest/pool");
+              await getPool().query("DELETE FROM auth.users WHERE id = $1", [userId]);
+            } catch (localCleanupError) {
+              console.error("[oauth] Failed to roll back local user after consent journal error", localCleanupError);
+            }
+          } else {
+            console.error("[oauth] Failed to roll back user after consent journal error", cleanupError);
+          }
         }
         throw new Error("Не удалось зафиксировать обязательные согласия. Аккаунт не активирован.");
       }
