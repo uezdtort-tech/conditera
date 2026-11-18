@@ -2,6 +2,9 @@
 
 Этап 0 «Аудит и ТЗ» | Блок 2. Зависимости: S0B1 (audit.md готов).
 > Скопируйте текст ниже целиком в нового агента.
+> **v2.1 (18.11): SD-1/SD-2 приведены к Supabase-first по указанию владельца
+> «применяем Supabase» (ревизия 4cd81e0); KNOWN_LIMITATIONS фактически 19
+> пунктов (см. audit.md), а не 17.**
 
 ---
 
@@ -37,10 +40,17 @@
    строкой обоснования. По дефектам D1–D13 — указать, какая фича/блок v2
    закрывает дефект.
 4. Зафиксировать SOLUTION DECISIONS (таблица «ID → решение → почему»):
-   - SD-1: персистентность только Prisma ORM + PostgreSQL; supabase-js
-     НЕ используется вовсе; RLS-логика заменяется requireRole-гвардами.
-   - SD-2: auth — одна схема: jose HS256, httpOnly-куки cd_session/cd_refresh,
-     refresh-ротация, TOTP 2FA (единые колонки tfa_*), fail-closed.
+   - SD-1 (v2.1): персистентность app-данных — только Prisma ORM +
+     PostgreSQL, единый контур записи; supabase-js — ТОЛЬКО для Auth
+     (GoTrue) и Storage (S2B4), не для записи app-данных; RLS-логика
+     app-таблиц заменяется requireRole-гвардами, RLS обязателен для
+     Storage-бакетов. (Редакция v2.1; прежняя формулировка «supabase-js
+     НЕ используется вовсе» отменена указанием владельца, коммит 4cd81e0.)
+   - SD-2 (v2.1): auth — единственный контур Supabase Auth (GoTrue):
+     сессии/refresh через @supabase/ssr httpOnly-куки, OAuth и MFA TOTP —
+     GoTrue; собственные jose-JWT (cd_session/cd_refresh) и
+     fallback-INSERT в auth.users ЗАПРЕЩЕНЫ; fail-closed всегда.
+     (Редакция v2.1; прежняя jose-схема отменена коммитом 4cd81e0.)
    - SD-3: App Router маршруты вместо SPA-компонентов (page.tsx ≤50 строк).
    - SD-4: дизайн-система 2025 переносится (токены/классы из globals.css).
    - SD-5: AI-конфиг в env по образцу src/lib/ai-config.ts (e5dd2d8),
@@ -67,7 +77,7 @@
 ## 5. ЧТО ВЗЯТЬ ИЗ СТАРОГО ПРОЕКТА
 - audit.md (весь), docs/ROLE_MATRIX.md (роли и права),
 - docs/PRODUCT_OPERATING_SYSTEM.md (если есть — продуктовые правила),
-- KNOWN_LIMITATIONS.md (17 пунктов как требования).
+- KNOWN_LIMITATIONS.md (19 пунктов как требования — факт по audit.md).
 
 ## 6. ЗАПРЕТЫ
 - Не менять решения SD-1…SD-10 без явного поручения владельца.
