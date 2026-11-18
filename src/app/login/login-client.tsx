@@ -5,6 +5,7 @@ import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { AuthModal } from "@/components/layout/auth-modal";
 import { useAppStore } from "@/lib/store";
+import { toast } from "sonner";
 
 /**
  * LoginClient — клиентский компонент для /login страницы.
@@ -15,7 +16,7 @@ import { useAppStore } from "@/lib/store";
  *   • успешный вход/регистрация → редирект на /dashboard;
  *   • закрытие модалки без входа (крестик/Escape/overlay) → редирект на /.
  */
-export default function LoginClient(): React.JSX.Element {
+export default function LoginClient({ returnTo = "/dashboard", oauthError }: { returnTo?: string; oauthError?: string }): React.JSX.Element {
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
   const authModalOpen = useAppStore((s) => s.authModalOpen);
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
@@ -23,7 +24,8 @@ export default function LoginClient(): React.JSX.Element {
   // Открыть модалку при монтировании
   React.useEffect(() => {
     setAuthModalOpen(true);
-  }, [setAuthModalOpen]);
+    if (oauthError) toast.error(oauthError);
+  }, [setAuthModalOpen, oauthError]);
 
   // Редиректы: модалка закрылась → /dashboard (вошли) или / (закрыли без входа)
   const openedRef = React.useRef(false);
@@ -37,8 +39,8 @@ export default function LoginClient(): React.JSX.Element {
     // Первый рендер до открытия — ещё не считаем «закрытием»
     if (!openedRef.current) return;
     redirectDoneRef.current = true;
-    window.location.href = isAuthenticated ? "/dashboard" : "/";
-  }, [authModalOpen, isAuthenticated]);
+    window.location.href = isAuthenticated ? returnTo : "/";
+  }, [authModalOpen, isAuthenticated, returnTo]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
