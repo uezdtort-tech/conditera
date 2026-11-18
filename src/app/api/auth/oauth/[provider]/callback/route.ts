@@ -1,6 +1,6 @@
 // GET /api/auth/oauth/[provider]/callback
 //
-// Реальный OAuth-callback для Yandex и Google; VK ID требует отдельного PKCE-потока.
+// Серверный OAuth callback для Yandex ID, VK ID и Google OIDC.
 //
 // Флоу:
 //   1. Сверяем state (query) с httpOnly-cookie oauth_state_<provider> (CSRF).
@@ -13,7 +13,7 @@
 //      supabaseBrowser.auth.setSession() (тот же стейт, что после обычного
 //      входа: useAuth, роли, Storage-аплоады).
 //
-// Провайдеры без реальных кредов работают как раньше — JSON-заглушка 501.
+// Неподдерживаемые или ненастроенные провайдеры завершаются безопасной ошибкой.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -54,7 +54,7 @@ function getProviderConfig(provider: Provider): {
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
     default:
-      return null; // vk/telegram — пока только заглушка
+      return null; // Telegram не включён в текущий релиз
   }
 }
 
@@ -199,25 +199,7 @@ async function fetchVKProfile(accessToken: string, clientId: string, expectedUse
     avatarUrl: user.avatar || null,
   };
 }
-  const res = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  const json = (await res.json()) as {
-    email?: string;
-    email_verified?: boolean;
-    name?: string;
-    picture?: string;
-  };
-  if (!json.email || json.email_verified !== true) {
-    throw new Error("Google profile: provider did not return a verified email address");
-  }
-  return {
-    email: json.email.toLowerCase(),
-    name: json.name || "Пользователь Google",
-    avatarUrl: json.picture || null,
-  };
-}
+
 
 function finishRedirect(error?: string): NextResponse {
   const url = error
