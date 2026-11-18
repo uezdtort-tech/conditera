@@ -17,13 +17,13 @@
 // Неподдерживаемые или ненастроенные провайдеры завершаются безопасной ошибкой.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
+import { createAccessToken, createRefreshToken } from "@/lib/auth";
+import { setSessionCookies } from "@/lib/session-cookies";
 
-type Provider = "google" | "yandex" | "vk" | "telegram";
+type Provider = "google" | "yandex" | "vk";
 
-const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk", "telegram"];
+const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk"];
 
 function isStubValue(value: string | undefined): boolean {
   return !value || value.trim() === "" || value.startsWith("stub_");
@@ -204,11 +204,16 @@ async function fetchVKProfile(accessToken: string, clientId: string, expectedUse
 }
 
 
-function finishRedirect(error?: string, provider?: Provider): NextResponse {
-  const url = error
-    ? new URL(`/oauth/finish?error=${encodeURIComponent(error)}`, process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000")
-    : new URL("/oauth/finish", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
+function finishRedirect(
+  error?: string,
+  provider?: Provider,
+  returnTo: string = "/dashboard"
+): NextResponse {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const url = new URL(error ? "/oauth/finish" : returnTo, baseUrl);
+  if (error) url.searchParams.set("error", error);
   const response = NextResponse.redirect(url, { status: 302 });
+
   if (provider) {
     const cookieOptions = {
       httpOnly: true,
@@ -217,56 +222,49 @@ function finishRedirect(error?: string, provider?: Provider): NextResponse {
       maxAge: 0,
       path: "/api/auth/oauth",
     };
-    response.cookies.set(`oauth_state_${provider}`, "", cookieOptions);
-    response.cookies.set(`oauth_verifier_${provider}`, "", cookieOptions);
-    response.cookies.set(`oauth_return_to_${provider}`, "", cookieOptions);
+    response.cookies.set("oauth_state_" + provider, "", cookieOptions);
+    response.cookies.set("oauth_verifier_" + provider, "", cookieOptions);
+    response.cookies.set("oauth_return_to_" + provider, "", cookieOptions);
     if (provider === "google") response.cookies.set("oauth_nonce_google", "", cookieOptions);
   }
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
   return response;
 }
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string }> }
-) {
+): Promise<NextResponse> {
   const { provider: rawProvider } = await params;
   const provider = rawProvider.toLowerCase() as Provider;
 
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
-    return finishRedirect(`Неподдерживаемый провайдер: ${rawProvider}`);
+    return finishRedirect("Неподдерживаемый OAuth-провайдер");
   }
 
   const { searchParams } = new URL(request.url);
-
-  // Пользователь отказался в диалоге провайдера.
   const oauthError = searchParams.get("error");
-  if (oauthError) {
-    return finishRedirect(`Провайдер вернул ошибку: ${oauthError}`, provider);
-  }
+  if (oauthError) return finishRedirect("Вход отменён или отклонён провайдером", provider);
 
   const config = getProviderConfig(provider);
-
   if (!config) return finishRedirect("Провайдер не настроен", provider);
-  if (provider === "telegram") return finishRedirect("Вход через Telegram не включён", provider);
 
-  // ---- Реальный флоу (Yandex / Google / VK ID) ----
   try {
-    // 1. CSRF: state из query === state из httpOnly-cookie.
     const code = searchParams.get("code");
     const state = searchParams.get("state");
-    const cookieState = request.cookies.get(`oauth_state_${provider}`)?.value;
+    const cookieState = request.cookies.get("oauth_state_" + provider)?.value;
     if (!code || !state || !cookieState || state !== cookieState) {
       return finishRedirect("Неверный state — повторите вход", provider);
     }
-    const requestedReturnTo = request.cookies.get(`oauth_return_to_${provider}`)?.value || "/dashboard";
+
+    const requestedReturnTo = request.cookies.get("oauth_return_to_" + provider)?.value || "/dashboard";
     const returnTo = requestedReturnTo.startsWith("/") &&
       !requestedReturnTo.startsWith("//") &&
       !requestedReturnTo.includes("\\") &&
-      !/[\r\n]/.test(requestedReturnTo)
+      !/[\\r\\n]/.test(requestedReturnTo)
       ? requestedReturnTo
       : "/dashboard";
 
-    // 2-3. Обмен кода и проверка личности на стороне провайдера.
     let profile: OAuthProfile;
     if (provider === "yandex") {
       const verifier = request.cookies.get("oauth_verifier_yandex")?.value;
@@ -287,20 +285,7 @@ export async function GET(
       profile = await fetchVKProfile(tokens.accessToken, config.clientId, tokens.userId);
     }
 
-    // 4. Создаём одноразовую magic-link сессию через GoTrue Admin API.
-    // КРИТИЧНО: никогда не менять пароль уже существующего пользователя ради OAuth.
-    // Такой подход ломает парольный вход и может перехватить чужой аккаунт.
-    const supabaseUrl = resolveSupabaseServerUrl();
-    const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !serviceRole || !anonKey) {
-      throw new Error("Supabase env vars not configured");
-    }
-
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
-
-    // Сначала ищем уже привязанный внешний subject. Email не является
-    // идентификатором OAuth-аккаунта и не заменяет provider_subject.
     const { data: identityLink, error: identityLookupError } = await supabaseAdmin
       .from("oauth_identity_links")
       .select("user_id")
@@ -309,12 +294,11 @@ export async function GET(
       .maybeSingle();
     if (identityLookupError) throw new Error("Не удалось проверить связь OAuth-аккаунта");
 
-    let targetEmail = profile.email;
-    let isPendingOAuthUser = false;
-    if (!identityLink?.user_id) {
-      // Не объединяем старую парольную учётную запись только по совпадению email.
-      // Пользователь сначала входит привычным способом; привязка провайдера
-      // выполняется из авторизованной сессии отдельным подтверждением.
+    let userId: string;
+    if (identityLink?.user_id) {
+      userId = identityLink.user_id;
+    } else {
+      // Не объединяем существующие аккаунты только по совпадению email.
       const { data: emailOwner, error: emailLookupError } = await supabaseAdmin
         .from("profiles")
         .select("id")
@@ -322,85 +306,83 @@ export async function GET(
         .maybeSingle();
       if (emailLookupError) throw new Error("Не удалось проверить существующую учётную запись");
       if (emailOwner) {
-        const { data: ownerAuth, error: ownerAuthError } =
-          await supabaseAdmin.auth.admin.getUserById(emailOwner.id);
-        if (ownerAuthError) throw new Error("Не удалось проверить существующий аккаунт");
-        const metadata = ownerAuth.user?.user_metadata || {};
-        isPendingOAuthUser =
-          metadata.oauth_provider === provider &&
-          metadata.oauth_subject === profile.subject;
-        if (!isPendingOAuthUser) {
-          return finishRedirect(
-            "Для этого email уже есть аккаунт. Войдите привычным способом; подключение соцсети выполняется из авторизованного аккаунта.",
-            provider
-          );
-        }
+        return finishRedirect(
+          "Для этого email уже есть аккаунт. Войдите привычным способом и подключите соцсеть в настройках.",
+          provider,
+          returnTo
+        );
       }
-    }
-    if (identityLink?.user_id) {
-      const { data: linkedUser, error: linkedUserError } =
-        await supabaseAdmin.auth.admin.getUserById(identityLink.user_id);
-      if (linkedUserError || !linkedUser.user?.email) {
-        throw new Error("Связанный аккаунт Conditera не найден");
-      }
-      targetEmail = linkedUser.user.email;
-    } else if (!isPendingOAuthUser) {
-      // Email уже подтверждён провайдером. Создаём GoTrue user до magic-link:
-      // generateLink(magiclink) рассчитан на существующего пользователя.
-      const { error: createUserError } = await supabaseAdmin.auth.admin.createUser({
+
+      const metadata = {
+        name: profile.name,
+        full_name: profile.name,
+        avatar_url: profile.avatarUrl,
+        oauth_provider: provider,
+        oauth_subject: profile.subject,
+      };
+      const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
         email: profile.email,
         email_confirm: true,
-        user_metadata: {
-          name: profile.name,
-          full_name: profile.name,
-          avatar_url: profile.avatarUrl,
-          oauth_provider: provider,
-          oauth_subject: profile.subject,
-        },
+        user_metadata: metadata,
       });
-      if (createUserError) {
-        throw new Error("Не удалось создать аккаунт GoTrue. Если аккаунт уже существует, войдите привычным способом и подключите провайдера.");
+
+      if (authCreateError || !authData.user?.id) {
+        // Локальный Conditera runtime может использовать auth.users compatibility
+        // shim без GoTrue. Production обязан иметь рабочий GoTrue Admin API.
+        if (process.env.NODE_ENV !== "development") {
+          throw new Error("Не удалось создать пользователя в Supabase Auth");
+        }
+        userId = crypto.randomUUID();
+        const { getPool } = await import("@/lib/postgrest/pool");
+        await getPool().query(
+          "INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_user_meta_data, created_at, updated_at) VALUES ($1, $2, '', now(), $3::jsonb, now(), now()) ON CONFLICT (id) DO NOTHING",
+          [userId, profile.email, JSON.stringify(metadata)]
+        );
+      } else {
+        userId = authData.user.id;
       }
+
+      const { error: profileUpsertError } = await supabaseAdmin.from("profiles").upsert({
+        id: userId,
+        email: profile.email,
+        name: profile.name,
+        phone: null,
+        account_type: "individual",
+        legal_info: null,
+        loyalty_level: "BRONZE",
+        bonus_balance: 0,
+        is_blocked: false,
+        is_verified: false,
+      }, { onConflict: "id" });
+      if (profileUpsertError) throw new Error("Не удалось создать профиль пользователя");
     }
 
-    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: "magiclink",
-      email: targetEmail,
-      options: {
-        data: {
-          full_name: profile.name,
-          avatar_url: profile.avatarUrl,
-          oauth_provider: provider,
-        },
-      },
-    });
-    const tokenHash = linkData?.properties?.hashed_token;
-    if (linkError || !tokenHash) {
-      throw new Error("GoTrue magic-link generation failed: " + (linkError?.message || "token hash missing"));
+    const { data: profileRow, error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .select("id, email, name, account_type, is_blocked")
+      .eq("id", userId)
+      .maybeSingle();
+    if (profileError || !profileRow) throw new Error("Профиль пользователя не найден");
+    if (profileRow.is_blocked) {
+      return finishRedirect("Вход в аккаунт ограничен. Обратитесь в поддержку.", provider, returnTo);
     }
 
-    // Получаем единую GoTrue-сессию без смены пароля пользователя.
-    const ssr = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
-    const { data: sessionData, error: verifyError } = await ssr.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: "magiclink",
-    });
-    if (verifyError || !sessionData.session || !sessionData.user) {
-      throw new Error("GoTrue magic-link verification failed: " + (verifyError?.message || "session missing"));
+    const { data: rolesData, error: rolesError } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("is_active", true);
+    if (rolesError) throw new Error("Не удалось загрузить роли пользователя");
+    let roles = (rolesData || []).map((item: { role: string }) => item.role);
+    if (roles.length === 0) {
+      const { error: roleInsertError } = await supabaseAdmin
+        .from("user_roles")
+        .insert({ user_id: userId, role: "CUSTOMER", is_active: true });
+      if (roleInsertError) throw new Error("Не удалось назначить роль покупателя");
+      roles = ["CUSTOMER"];
     }
-    const userId = sessionData.user.id;
 
-    // Фиксируем внешний subject. При конкурентном первом входе повторно
-    // проверяем уникальную связь и запрещаем привязку к другому пользователю.
-    if (identityLink?.user_id) {
-      const { error: touchError } = await supabaseAdmin
-        .from("oauth_identity_links")
-        .update({ last_authenticated_at: new Date().toISOString() })
-        .eq("provider", provider)
-        .eq("provider_subject", profile.subject)
-        .eq("user_id", userId);
-      if (touchError) throw new Error("Не удалось обновить OAuth-связь");
-    } else {
+    if (!identityLink?.user_id) {
       const { error: identityInsertError } = await supabaseAdmin
         .from("oauth_identity_links")
         .insert({
@@ -420,69 +402,26 @@ export async function GET(
           throw new Error("Этот OAuth-аккаунт уже связан с другой учётной записью");
         }
       }
+    } else {
+      const { error: touchError } = await supabaseAdmin
+        .from("oauth_identity_links")
+        .update({ last_authenticated_at: new Date().toISOString() })
+        .eq("provider", provider)
+        .eq("provider_subject", profile.subject)
+        .eq("user_id", userId);
+      if (touchError) throw new Error("Не удалось обновить OAuth-связь");
     }
 
-    // Создаём профиль только если его ещё нет: не перезаписываем имя,
-    // тип аккаунта и настройки уже существующего пользователя.
-    const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
-      .from("profiles")
-      .select("id, name")
-      .eq("id", userId)
-      .maybeSingle();
-    if (profileLookupError) throw new Error("Не удалось проверить профиль пользователя");
-    if (!existingProfile) {
-      const { error: profileInsertError } = await supabaseAdmin.from("profiles").insert({
-        id: userId,
-        email: targetEmail,
-        name: profile.name,
-        account_type: "individual",
-      });
-      if (profileInsertError) throw new Error("Не удалось создать профиль пользователя");
-    } else if (!existingProfile.name || existingProfile.name === targetEmail.split("@")[0]) {
-      const { error: profileUpdateError } = await supabaseAdmin
-        .from("profiles")
-        .update({ name: profile.name })
-        .eq("id", userId);
-      if (profileUpdateError) throw new Error("Не удалось обновить имя нового OAuth-профиля");
-    }
-
-    const { data: rolesData, error: rolesLookupError } = await supabaseAdmin
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("role", "CUSTOMER")
-      .limit(1);
-    if (rolesLookupError) throw new Error("Не удалось проверить роль пользователя");
-    if (!rolesData || rolesData.length === 0) {
-      const { error: roleInsertError } = await supabaseAdmin
-        .from("user_roles")
-        .insert({ user_id: userId, role: "CUSTOMER", is_active: true });
-      if (roleInsertError) throw new Error("Не удалось назначить базовую роль покупателя");
-    }
-
-    // 5. Server-side GoTrue-сессия.
-    // 6. Одноразовый handoff-cookie → /oauth/finish.
-    const handoff = {
-      accessToken: sessionData.session.access_token,
-      refreshToken: sessionData.session.refresh_token,
-      expiresAt: sessionData.session.expires_at,
-      email: profile.email,
-      name: profile.name,
-      returnTo,
-    };
-    const response = finishRedirect(undefined, provider);
-    response.cookies.set("oauth_handoff", Buffer.from(JSON.stringify(handoff)).toString("base64"), {
-      httpOnly: true,
-      sameSite: "lax",
-      // Secure в production (HTTPS-деплой); в dev/preview без TLS остаётся false
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60,
-      path: "/",
-    });
-    return response;
+    const email = profileRow.email || profile.email;
+    const name = profileRow.name || profile.name;
+    const accountType = profileRow.account_type || "individual";
+    const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
+    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
+    const response = finishRedirect(undefined, provider, returnTo);
+    return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
-    console.error(`[oauth/${provider}/callback]`, detail);
+    console.error("[oauth/" + provider + "/callback]", detail);
     return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider);
   }
 }
