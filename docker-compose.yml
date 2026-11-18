@@ -34,6 +34,11 @@ services:
       - POSTGRES_USER=conditera
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=conditera
+      # Скрипт мигратора использует libpq; DATABASE_URL сам по себе не читается psql.
+      - PGHOST=db
+      - PGPORT=5432
+      - PGUSER=conditera
+      - PGDATABASE=conditera
     depends_on:
       db:
         condition: service_healthy
