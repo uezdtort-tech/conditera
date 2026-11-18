@@ -51,13 +51,9 @@ function getProviderConfig(provider: Provider): {
       if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
-    case "telegram": {
-      // Telegram OAuth uses the bot token + redirect URI configured in the
-      // Telegram login widget. We don't expose the bot token to the browser.
-      const redirectUri = process.env.TELEGRAM_OAUTH_REDIRECT;
-      if (isStubValue(redirectUri)) return null;
-      return { clientId: "telegram", redirectUri: redirectUri! };
-    }
+    case "telegram":
+      // Telegram Login uses a separate signed-widget flow, not this OAuth code flow.
+      return null;
     default:
       return null;
   }
