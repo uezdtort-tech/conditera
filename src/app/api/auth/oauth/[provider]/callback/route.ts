@@ -216,15 +216,15 @@ async function rollbackOAuthUser(userId: string): Promise<void> {
 }
 
 function readRequestCookie(request: NextRequest, name: string): string | undefined {
-  const direct = request.cookies.get(name)?.value;
-  if (direct !== undefined) return direct;
+  // Сначала читаем исходный Cookie header: NextRequest.cookies может нормализовать
+  // percent-encoded значение, а для returnTo важно сохранить исходную строку.
   const raw = request.headers.get("cookie") || "";
   for (const part of raw.split(";")) {
     const separator = part.indexOf("=");
     if (separator < 0) continue;
     if (part.slice(0, separator).trim() === name) return part.slice(separator + 1).trim();
   }
-  return undefined;
+  return request.cookies.get(name)?.value;
 }
 
 function finishRedirect(
@@ -276,6 +276,7 @@ async function handleOAuthCallback(
 
   const { searchParams } = new URL(request.url);
   const storedReturnTo = readRequestCookie(request, "oauth_return_to_" + provider);
+  console.info("[oauth/callback] returnTo cookie present:", Boolean(storedReturnTo));
   const secureCookies = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   let requestedReturnTo = "/dashboard";
   if (storedReturnTo) {
