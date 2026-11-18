@@ -187,7 +187,7 @@ test.describe("SEO", () => {
     const response = await request.get(`${BASE_URL}/robots.txt`);
     expect(response.ok()).toBeTruthy();
     const body = await response.text();
-    expect(body).toContain("User-agent");
+    expect(body.toLowerCase()).toContain("user-agent");
   });
 
   test("sitemap.xml is accessible", async ({ request }) => {
