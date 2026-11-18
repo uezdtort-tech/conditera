@@ -2,10 +2,9 @@
 /**
  * scripts/db/setup.mjs — полная подготовка локальной БД «Conditera».
  *
- *   npm run db:setup            — полный прогон: embedded PG (если нужно) →
- *                                 compat → миграции → сиды → демо-юзеры → env-ключи
- *   npm run db:seed             — (флаг --seed-only) только сиды + демо-юзеры +
- *                                 env-ключи; миграции применяются только если их ещё нет
+ *   npm run db:setup            — embedded PG (если нужно) → compat → миграции → env-ключи
+ *                                 демо-данные создаются ТОЛЬКО при SEED_MODE=demo
+ *   npm run db:seed             — явный запуск demo seeds (или SEED_MODE=demo) + env-ключи
  *
  * Plain Node (без bun и Unix-shell), работает на Windows/macOS/Linux.
  * PostgreSQL: встроенный (@embedded-postgres) или свой — через DATABASE_URL.
@@ -558,7 +557,13 @@ async function runStatements(client, statements, { label, mode, inTx }) {
 // ============================================================================
 async function main() {
   const seedOnly = process.argv.includes("--seed-only");
+  const seedMode = (process.env.SEED_MODE || (seedOnly ? "demo" : "none")).trim().toLowerCase();
+  if (seedMode !== "none" && seedMode !== "demo") {
+    throw new Error(`SEED_MODE должен быть none или demo, получено: ${seedMode}`);
+  }
+  const runDemoSeeds = seedMode === "demo";
   console.log(`» DATABASE_URL: ${maskUrl(DATABASE_URL)} (${databaseUrlSource})`);
+  console.log(`» SEED_MODE: ${seedMode}${runDemoSeeds ? " (demo data enabled)" : " (demo data disabled)"}`);
 
   // 2. Доступность БД (+ автостарт embedded)
   if (DATABASE_URL.includes("127.0.0.1:54329") || DATABASE_URL.includes("localhost:54329")) {
@@ -680,6 +685,7 @@ async function main() {
       }
     }
 
+if (runDemoSeeds) {
 // 7. Демо-пользователи — ДО сидов: seed_vitrine/0003_seed_inventory
 //    джойнят profiles по email (confectioner@demo.ru и др.), поэтому на
 //    ЧИСТОЙ БД без этой перестановки склад/витрина оставались пустыми
@@ -725,6 +731,10 @@ console.log("\n─── Seeds ───");
       }
     }
 
+    } else {
+      console.log("\n─── Demo seeds skipped (SEED_MODE=none) ───");
+    }
+
     // 8. env-ключи
     ensureEnvKeys();
 
@@ -732,12 +742,16 @@ console.log("\n─── Seeds ───");
     console.log("\n─── Summary ───");
     console.log(`  DATABASE_URL: ${maskUrl(DATABASE_URL)}`);
     console.log(`  Migrations ledger: ${(await client.query(`SELECT count(*)::int AS c FROM public.schema_migrations`)).rows[0].c} files`);
-    console.log("\n  Demo credentials (password for all: Demo123!):");
-    console.log("  ┌─────────────────────────┬──────────────────┐");
-    for (const u of DEMO_USERS) {
-      console.log(`  │ ${u.email.padEnd(23)} │ ${u.role.padEnd(16)} │`);
+    if (runDemoSeeds) {
+      console.log("\n  Demo credentials (password for all: Demo123!):");
+      console.log("  ┌─────────────────────────┬──────────────────┐");
+      for (const u of DEMO_USERS) {
+        console.log(`  │ ${u.email.padEnd(23)} │ ${u.role.padEnd(16)} │`);
+      }
+      console.log("  └─────────────────────────┴──────────────────┘");
+    } else {
+      console.log("\n  Demo credentials: not created (SEED_MODE=none)");
     }
-    console.log("  └─────────────────────────┴──────────────────┘");
     console.log("\n  Next step: npm run dev");
   } finally {
     await client.end().catch(() => {});
