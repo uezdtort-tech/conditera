@@ -202,7 +202,8 @@ const ROOM_ACCESS_TTL_MS = 60_000;
 
 async function verifyRoomAccess(
   socket: import("socket.io").Socket,
-  rawRoomId: string
+  rawRoomId: string,
+  forceRefresh = false
 ): Promise<{ ok: boolean; realRoomId: string }> {
   const userId: string = (socket as any).userId;
   const token = socket.handshake.auth?.token as string | undefined;
@@ -219,7 +220,7 @@ async function verifyRoomAccess(
 
   const cacheKey = `${userId}:${roomId}`;
   const cached = roomAccessCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < ROOM_ACCESS_TTL_MS) {
+  if (!forceRefresh && cached && Date.now() - cached.ts < ROOM_ACCESS_TTL_MS) {
     return { ok: true, realRoomId: roomId };
   }
   if (!token) return { ok: false, realRoomId: roomId };
@@ -543,7 +544,7 @@ io.on("connection", (socket) => {
   // P1.1: только члены комнаты (или свои mock-комнаты витрины). Чужая —
   // room:error без join: слушать чужой заказ-чат больше нельзя.
   socket.on("room:join", async (rawRoomId: string) => {
-    const access = await verifyRoomAccess(socket, rawRoomId);
+    const access = await verifyRoomAccess(socket, rawRoomId, true);
     if (!access.ok) {
       socket.emit("room:error", { roomId: rawRoomId, error: "Нет доступа к комнате" });
       console.warn(`⛔ ${userName} → ${rawRoomId}: доступ запрещён`);
@@ -608,7 +609,7 @@ io.on("connection", (socket) => {
       forwardedFrom?: string;
     };
   }) => {
-    const access = await verifyRoomAccess(socket, data.roomId);
+    const access = await verifyRoomAccess(socket, data.roomId, true);
     if (!access.ok) {
       socket.emit("message:error", {
         roomId: data.roomId,
