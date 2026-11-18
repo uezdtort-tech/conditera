@@ -223,14 +223,27 @@ type OAuthProvider = "google" | "yandex" | "vk";
 export function useOAuth() {
   return useMutation({
     mutationFn: async (provider: OAuthProvider) => {
-      const { data, error } = await supabaseBrowser.auth.signInWithOAuth({
-        provider: provider as "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+      // Conditera uses its own server-side OAuth adapters for Yandex, VK ID
+      // and Google. Supabase GoTrue does not expose all three providers with
+      // the same contract; passing "yandex"/"vk" to signInWithOAuth is invalid.
+      const checkResponse = await fetch(`/api/auth/oauth/${provider}?mode=check`, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
       });
-      if (error) throw error;
-      return data;
+      const check = (await checkResponse.json()) as {
+        configured?: boolean;
+        error?: string;
+      };
+      if (!checkResponse.ok || !check.configured) {
+        throw new Error(check.error || `Вход через ${provider} пока не настроен`);
+      }
+
+      // The server endpoint creates the state/PKCE cookies and redirects to
+      // the selected identity provider. Navigation is intentionally full-page.
+      window.location.assign(`/api/auth/oauth/${provider}`);
+      return { provider };
     },
     onError: (error: { message?: string }) => {
       toast.error("Ошибка OAuth", { description: error.message });
