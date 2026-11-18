@@ -117,6 +117,7 @@ interface UserRow {
   name: string | null;
   email: string | null;
   account_type: string | null;
+  deleted_at: string | null;
 }
 
 interface SupabaseError {
@@ -270,7 +271,7 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   try {
     const profileResult = await supabaseAdmin
       .from("profiles")
-      .select("id, is_blocked, name, email, account_type")
+      .select("id, is_blocked, name, email, account_type, deleted_at")
       .eq("id", userId)
       .maybeSingle() as { data: UserRow | null; error: SupabaseError | null };
 
@@ -280,8 +281,8 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
     }
 
     const profile = profileResult.data;
-    if (!profile || profile.is_blocked === true) {
-      console.warn("[auth] profile missing or blocked; rejecting request:", userId);
+    if (!profile || profile.is_blocked === true || profile.deleted_at !== null) {
+      console.warn("[auth] profile missing, blocked or deleted; rejecting request:", userId);
       return null;
     }
 
