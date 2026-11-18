@@ -20,7 +20,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // === 1. App-сессия (cd_session) ===
-  const appToken = request.cookies.get(SESSION_COOKIE)?.value;
+  const bearerToken = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const appToken = request.cookies.get(SESSION_COOKIE)?.value || bearerToken;
   if (appToken) {
     // Не доверяем claims токена для ролей/профиля. Повторно проверяем
     // актуальное состояние аккаунта через общий fail-closed auth guard.
