@@ -14,6 +14,8 @@
 // Неподдерживаемые/ненастроенные провайдеры завершаются безопасной ошибкой.
 
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createAccessToken, createRefreshToken } from "@/lib/auth";
 import { setSessionCookies } from "@/lib/session-cookies";
@@ -477,9 +479,46 @@ export async function GET(
     const email = profileRow.email || profile.email;
     const name = profileRow.name || profile.name;
     const accountType = profileRow.account_type || "individual";
+    // Создаём GoTrue-сессию без изменения пароля пользователя.
+    // Это сохраняет совместимость с Supabase JS/RLS/Storage-клиентами,
+    // а app-JWT остаётся каноничной сессией API Conditera.
+    const supabaseUrl = resolveSupabaseServerUrl();
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) {
+      throw new Error("Supabase URL/anon key is not configured for OAuth session handoff");
+    }
+    const { data: generatedLink, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+      type: "magiclink",
+      email,
+    });
+    const tokenHash = generatedLink?.properties?.hashed_token;
+    if (linkError || !tokenHash) {
+      throw new Error("Не удалось подготовить Supabase-сессию после OAuth");
+    }
+
+    const response = finishRedirect(undefined, provider, returnTo);
+    const supabaseSessionClient = createServerClient(supabaseUrl, anonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    });
+    const { error: verifyOtpError } = await supabaseSessionClient.auth.verifyOtp({
+      type: "magiclink",
+      token_hash: tokenHash,
+    });
+    if (verifyOtpError) {
+      throw new Error("Не удалось выпустить Supabase-сессию после OAuth");
+    }
+
     const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
     const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
-    const response = finishRedirect(undefined, provider, returnTo);
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
