@@ -16,10 +16,16 @@ import { SESSION_COOKIE } from "@/lib/session-cookies";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ returnTo?: string }>;
+  searchParams: Promise<{ returnTo?: string; oauthError?: string }>;
 }) {
   const params = await searchParams;
-  const returnTo = params.returnTo || "/dashboard";
+  const requestedReturnTo = params.returnTo || "/dashboard";
+  const returnTo = requestedReturnTo.startsWith("/") &&
+    !requestedReturnTo.startsWith("//") &&
+    !requestedReturnTo.includes("\\") &&
+    !/[\r\n]/.test(requestedReturnTo)
+    ? requestedReturnTo
+    : "/dashboard";
 
   // 1. Единый auth-контракт: app-сессия в httpOnly cookie cd_session
   const sessionCookie = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -35,7 +41,7 @@ export default async function LoginPage({
     redirect(returnTo);
   }
 
-  return <LoginClient />;
+  return <LoginClient returnTo={returnTo} oauthError={params.oauthError} />;
 }
 
 // Lazy load client component
