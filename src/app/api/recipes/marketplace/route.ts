@@ -60,7 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         `
         id, author_id, title, slug, description, base_price, is_premium,
         premium_price, royalty_rate, cooking_time_min, difficulty, tags,
-        preview_image, views, purchases_count, rating, published_at,
+        preview_image, views, purchases_count, rating, is_published, published_at,
         created_at, updated_at
       `
       )
