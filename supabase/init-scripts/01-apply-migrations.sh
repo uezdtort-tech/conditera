@@ -24,12 +24,16 @@
 
 set -e
 
-PSQL() {
-  psql -v ON_ERROR_STOP=1 -q "$@"
-}
-
 PSQL_USER="${PGUSER:-${POSTGRES_USER:-postgres}}"
 PSQL_DB="${PGDATABASE:-${POSTGRES_DB:-postgres}}"
+
+# Все операции журнала обязаны идти в ту же БД/под тем же пользователем,
+# что и сами SQL-файлы. Раньше PSQL() не передавал -U/-d и мог создать
+# schema_migrations в postgres, применяя сами миграции в другой БД.
+PSQL() {
+  psql -v ON_ERROR_STOP=1 -q -U "$PSQL_USER" -d "$PSQL_DB" "$@"
+}
+
 
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
 SEEDS_DIR="${SEEDS_DIR:-/seeds}"
@@ -57,7 +61,8 @@ APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 # ===== 1. Миграции по порядку =====
 MIGRATION_COUNT=0
 SKIPPED_COUNT=0
-for sql_file in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
+for sql_file in "$MIGRATIONS_DIR"/*.sql; do
+  [ -e "$sql_file" ] || continue
   filename=$(basename "$sql_file")
 
   ALREADY=$(PSQL -tAc "SELECT 1 FROM public.schema_migrations WHERE filename='${filename}'" || true)
@@ -88,7 +93,8 @@ if [ "$FRESH_DB" = "1" ] && [ -d "$SEEDS_DIR" ]; then
   echo ""
   echo "=== Seed данные (первичная инициализация) ==="
   SEED_COUNT=0
-  for sql_file in $(ls "$SEEDS_DIR"/*.sql 2>/dev/null | sort); do
+  for sql_file in "$SEEDS_DIR"/*.sql; do
+    [ -e "$sql_file" ] || continue
     echo "→ Seed: $(basename "$sql_file")"
     if psql -v ON_ERROR_STOP=1 -U "$PSQL_USER" -d "$PSQL_DB" -f "$sql_file"; then
       SEED_COUNT=$((SEED_COUNT + 1))
