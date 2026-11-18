@@ -127,9 +127,20 @@ async function fetchGoogleProfile(accessToken: string): Promise<OAuthProfile> {
     headers: { Authorization: `Bearer ${accessToken}` },
     signal: AbortSignal.timeout(15_000),
   });
-  const json = (await res.json()) as { email?: string; name?: string; picture?: string };
-  if (!json.email) throw new Error("Google profile: email not available");
-  return { email: json.email.toLowerCase(), name: json.name || "Пользователь Google", avatarUrl: json.picture || null };
+  const json = (await res.json()) as {
+    email?: string;
+    email_verified?: boolean;
+    name?: string;
+    picture?: string;
+  };
+  if (!json.email || json.email_verified !== true) {
+    throw new Error("Google profile: provider did not return a verified email address");
+  }
+  return {
+    email: json.email.toLowerCase(),
+    name: json.name || "Пользователь Google",
+    avatarUrl: json.picture || null,
+  };
 }
 
 function finishRedirect(error?: string): NextResponse {
