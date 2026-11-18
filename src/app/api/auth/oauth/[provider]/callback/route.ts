@@ -352,7 +352,8 @@ async function handleOAuthCallback(
         return finishRedirect(
           "Для этого email уже есть аккаунт. Войдите привычным способом; привязка этого провайдера пока не включена.",
           provider,
-          returnTo
+          returnTo,
+          secureCookies
         );
       }
 
@@ -414,7 +415,7 @@ async function handleOAuthCallback(
       .maybeSingle();
     if (profileError || !profileRow) throw new Error("Профиль пользователя не найден");
     if (profileRow.is_blocked) {
-      return finishRedirect("Вход в аккаунт ограничен. Обратитесь в поддержку.", provider, returnTo);
+      return finishRedirect("Вход в аккаунт ограничен. Обратитесь в поддержку.", provider, returnTo, secureCookies);
     }
 
     const { data: rolesData, error: rolesError } = await supabaseAdmin
