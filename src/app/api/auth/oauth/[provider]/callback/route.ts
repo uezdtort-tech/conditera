@@ -7,6 +7,7 @@
 //   2. Обмениваем code на access_token (token endpoint провайдера).
 //   3. Забираем профиль (email, имя, аватар).
 //   4. GoTrue Admin API выпускает одноразовую magic-link без смены пароля.
+//   4a. Внешний provider_subject связывается с user_id в закрытой таблице.
 //   5. Сервер проверяет одноразовый token_hash и получает GoTrue-сессию.
 //   6. Передаём сессию в браузер через одноразовый httpOnly-cookie
 //      (60 сек) → /oauth/finish → /api/auth/oauth/handoff →
@@ -421,6 +422,6 @@ export async function GET(
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error(`[oauth/${provider}/callback]`, detail);
-    return finishRedirect(detail, provider);
+    return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider);
   }
 }
