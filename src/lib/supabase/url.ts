@@ -23,6 +23,10 @@ export function isLocalSupabaseUrl(url: string | undefined): boolean {
 
 /** URL для серверных клиентов (SSR/middleware/admin): env или локальный mini-kong. */
 export function resolveSupabaseServerUrl(): string {
+  // В Docker серверные запросы идут напрямую в Kong по внутренней сети,
+  // браузерные — через публичный URL из NEXT_PUBLIC_SUPABASE_URL.
+  const internalUrl = process.env.SUPABASE_INTERNAL_URL;
+  if (internalUrl) return internalUrl.replace(/\/$/, "");
   const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (envUrl && !LOCAL_PATTERN.test(envUrl)) return envUrl;
   return envUrl || "http://127.0.0.1:3000"; // локальный рантайм: /rest/v1 обслуживает сам Next.js
