@@ -155,8 +155,10 @@ export function AuthModal() {
   // Регистрация
   const [oauthConsentPd, setOauthConsentPd] = useState(false);
   const [oauthConsentTerms, setOauthConsentTerms] = useState(false);
+  const [oauthConsentOffer, setOauthConsentOffer] = useState(false);
   const [consentPd, setConsentPd] = useState(false);
   const [consentTerms, setConsentTerms] = useState(false);
+  const [consentOffer, setConsentOffer] = useState(false);
   const [consentNews, setConsentNews] = useState(false);
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
@@ -238,7 +240,7 @@ export function AuthModal() {
   // OAuth: серверный flow для Yandex ID, VK ID и Google.
   // Новая регистрация требует отдельного согласия на ПД и принятия условий.
   const handleOAuth = async (provider: "yandex" | "vk" | "google") => {
-    if (!oauthConsentPd || !oauthConsentTerms) {
+    if (!oauthConsentPd || !oauthConsentTerms || !oauthConsentOffer) {
       toast.error("Подтвердите согласие на обработку персональных данных и условия платформы");
       return;
     }
@@ -253,7 +255,7 @@ export function AuthModal() {
         return;
       }
       const returnTo = window.location.pathname + window.location.search;
-      const params = new URLSearchParams({ returnTo, consentPd: "1", consentTerms: "1" });
+      const params = new URLSearchParams({ returnTo, consentPd: "1", consentTerms: "1", consentOffer: "1" });
       window.location.href = window.location.origin + "/api/auth/oauth/" + provider + "?" + params.toString();
     } catch {
       toast.error("Не удалось запустить вход через соцсеть");
@@ -263,7 +265,7 @@ export function AuthModal() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegisterError(null);
-    if (!consentPd || !consentTerms) {
+    if (!consentPd || !consentTerms || !consentOffer) {
       setRegisterError("Дайте отдельное согласие на обработку персональных данных и примите условия платформы");
       return;
     }
@@ -318,6 +320,7 @@ export function AuthModal() {
           legalInfo,
           consentPd,
           consentTerms,
+          consentOffer,
           consentMarketing: consentNews,
         }),
       });
@@ -543,8 +546,12 @@ export function AuthModal() {
                   className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                 />
                 <span className="text-xs leading-relaxed text-muted-foreground">
-                  Принимаю <a href="/about?legal=terms" target="_blank" rel="noreferrer" className="font-medium text-primary underline">пользовательское соглашение</a> и <a href="/about?legal=offer" target="_blank" rel="noreferrer" className="font-medium text-primary underline">договор-оферту</a>.
+                  Принимаю <a href="/about?legal=terms" target="_blank" rel="noreferrer" className="font-medium text-primary underline">пользовательское соглашение</a>.
                 </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" checked={oauthConsentOffer} onChange={(event) => setOauthConsentOffer(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
+                <span className="text-xs leading-relaxed text-muted-foreground">Принимаю условия <a href="/about?legal=offer" target="_blank" rel="noreferrer" className="font-medium text-primary underline">публичной оферты</a>.</span>
               </label>
             </div>
 
@@ -944,8 +951,12 @@ export function AuthModal() {
                     className="w-4 h-4 mt-0.5 accent-primary shrink-0"
                   />
                   <span className="text-xs text-muted-foreground leading-relaxed">
-                    Я ознакомился и принимаю условия <a href="/about?legal=terms" target="_blank" className="text-primary underline font-medium">пользовательского соглашения</a> и <a href="/about?legal=offer" target="_blank" className="text-primary underline font-medium">договора-оферты</a>.
+                    Я ознакомился и принимаю условия <a href="/about?legal=terms" target="_blank" className="text-primary underline font-medium">пользовательского соглашения</a>.
                   </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" id="consent-offer" required checked={consentOffer} onChange={(event) => setConsentOffer(event.target.checked)} className="w-4 h-4 mt-0.5 accent-primary shrink-0" />
+                  <span className="text-xs text-muted-foreground leading-relaxed">Принимаю условия <a href="/about?legal=offer" target="_blank" className="text-primary underline font-medium">публичной оферты</a>.</span>
                 </label>
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
