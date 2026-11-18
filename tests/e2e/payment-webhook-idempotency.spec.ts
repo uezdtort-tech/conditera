@@ -174,7 +174,7 @@ test.describe.serial('Payment webhook idempotency', () => {
   });
 
   test('8. Webhook refund.succeeded → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-refund-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-refund-p-${Date.now()}`;
 
     const body = makeWebhook('refund.succeeded', orderId, paymentId, 'succeeded');
