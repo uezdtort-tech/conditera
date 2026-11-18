@@ -304,8 +304,7 @@ export async function GET(
     } else {
       const consentPd = request.cookies.get("oauth_consent_pd_" + provider)?.value === "1";
       const consentTerms = request.cookies.get("oauth_consent_terms_" + provider)?.value === "1";
-      const consentOffer = request.cookies.get("oauth_consent_offer_" + provider)?.value === "1";
-      if (!consentPd || !consentTerms || !consentOffer) {
+      if (!consentPd || !consentTerms) {
         return finishRedirect(
           "Для создания нового аккаунта необходимо отдельно согласиться на обработку персональных данных, принять пользовательское соглашение и публичную оферту.",
           provider,
@@ -335,11 +334,9 @@ export async function GET(
         oauth_subject: profile.subject,
         consent_pd_accepted_at: new Date().toISOString(),
         consent_terms_accepted_at: new Date().toISOString(),
-        consent_offer_accepted_at: new Date().toISOString(),
-        consent_pd_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
+          consent_pd_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
         consent_terms_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
-        consent_offer_version: process.env.LEGAL_OFFER_VERSION || "2026-11-18.1",
-      };
+        };
       const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
         email: profile.email,
         email_confirm: true,
@@ -423,16 +420,6 @@ export async function GET(
           event_type: "grant",
           consent_type: "terms",
           document_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
-          source: "oauth",
-          provider,
-          ip_address: ipAddress,
-          user_agent: userAgent,
-        },
-        {
-          user_id: userId,
-          event_type: "grant",
-          consent_type: "offer",
-          document_version: process.env.LEGAL_OFFER_VERSION || "2026-11-18.1",
           source: "oauth",
           provider,
           ip_address: ipAddress,
