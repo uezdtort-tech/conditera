@@ -57,7 +57,7 @@ test.describe.serial('Payment webhook idempotency', () => {
     const response = await request.post('/api/payment/webhook', {
       data: body,
       headers: {
-        // В dev mode verifyWebhook пропускает — тесты могут без IP.
+        // CI запускает production runtime: передаём адрес из официального allowlist YooKassa.
         'content-type': 'application/json',
         'x-real-ip': '185.71.76.13',
       },
@@ -83,7 +83,7 @@ test.describe.serial('Payment webhook idempotency', () => {
     });
     const response2 = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // Оба запроса должны возвращать одинаковый статус (200 или 404)
@@ -119,7 +119,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response = await request.post('/api/payment/webhook', {
       data: badBody,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect(response.status()).toBe(400);
@@ -133,7 +133,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response = await request.post('/api/payment/webhook', {
       data: badBody,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect(response.status()).toBe(400);
@@ -142,7 +142,7 @@ test.describe.serial('Payment webhook idempotency', () => {
   test('5. Полностью пустой body → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
     const response = await request.post('/api/payment/webhook', {
       data: '',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect(response.status()).toBe(400);
@@ -151,7 +151,7 @@ test.describe.serial('Payment webhook idempotency', () => {
   test('6. Невалидный JSON → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
     const response = await request.post('/api/payment/webhook', {
       data: '{not valid json',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect([400, 500]).toContain(response.status());
@@ -165,7 +165,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // 200 (OK) или 404 (если order не существует) — оба валидны.
@@ -180,7 +180,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect([200, 404]).toContain(response.status());
@@ -194,7 +194,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // Unknown event должен просто логироваться — возвращаем 200 success.
@@ -211,15 +211,15 @@ test.describe.serial('Payment webhook idempotency', () => {
     // Отправляем 3 раза подряд
     const r1 = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
     const r2 = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
     const r3 = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // Все три должны вернуть тот же статус
@@ -262,19 +262,19 @@ test.describe('Payment webhook — edge cases', () => {
     // 1. pending → обработан
     const r1 = await request.post('/api/payment/webhook', {
       data: makeWebhook('payment.waiting_for_capture', orderId, paymentId, 'waiting_for_capture'),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // 2. succeeded — новый статус, не idempotent, обрабатывается
     const r2 = await request.post('/api/payment/webhook', {
       data: makeWebhook('payment.succeeded', orderId, paymentId, 'succeeded'),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // 3. succeeded повторно — idempotent
     const r3 = await request.post('/api/payment/webhook', {
       data: makeWebhook('payment.succeeded', orderId, paymentId, 'succeeded'),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // Все запросы должны завершиться успешно (или с 404 если order не существует)
