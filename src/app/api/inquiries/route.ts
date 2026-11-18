@@ -101,6 +101,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const input = parsed.data;
   const project = input.project;
   const selectedIds = input.confectionerIds;
+  if (selectedIds.includes(user.id)) return errorResponse("Нельзя отправить запрос самому себе", 400);
   const priceKopecks = Math.round(input.estimatedPriceRubles * 100);
   const deliveryKopecks = Math.round(input.estimatedDeliveryCostRubles * 100);
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
