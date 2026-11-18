@@ -59,6 +59,7 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: {
         // В dev mode verifyWebhook пропускает — тесты могут без IP.
         'content-type': 'application/json',
+        'x-real-ip': '185.71.76.13',
       },
     });
 
@@ -78,7 +79,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response1 = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
     const response2 = await request.post('/api/payment/webhook', {
       data: body,
