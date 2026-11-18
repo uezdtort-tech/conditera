@@ -290,7 +290,7 @@ async function handleOAuthCallback(
   const returnTo = requestedReturnTo.startsWith("/") &&
     !requestedReturnTo.startsWith("//") &&
     !requestedReturnTo.includes("\\") &&
-    !/[\\r\\n]/.test(requestedReturnTo)
+    !/[\r\n]/.test(requestedReturnTo)
     ? requestedReturnTo
     : "/dashboard";
 
@@ -423,10 +423,13 @@ async function handleOAuthCallback(
 
     const { data: profileRow, error: profileError } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, name, account_type, is_blocked")
+      .select("id, email, name, account_type, is_blocked, deleted_at")
       .eq("id", userId)
       .maybeSingle();
     if (profileError || !profileRow) throw new Error("Профиль пользователя не найден");
+    if (profileRow.deleted_at) {
+      return finishRedirect("Этот аккаунт был удалён. Для продолжения обратитесь в поддержку.", provider, returnTo, secureCookies);
+    }
     if (profileRow.is_blocked) {
       return finishRedirect("Вход в аккаунт ограничен. Обратитесь в поддержку.", provider, returnTo, secureCookies);
     }
