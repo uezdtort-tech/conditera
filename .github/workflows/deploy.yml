@@ -125,6 +125,13 @@ jobs:
             docker pull ${{ env.REGISTRY }}/$IMAGE_NAME:$SHA_TAG
             docker pull ${{ env.REGISTRY }}/$IMAGE_NAME:migrator-$SHA_TAG
 
+            # Пока приложение и Supabase указывают на разные PostgreSQL,
+            # автоматический деплой запрещён: миграции в одной БД не обновляют другую.
+            if docker ps --format '{{.Names}}' | grep -Fxq conditera-supabase-db; then
+              echo "ERROR: обнаружен отдельный conditera-supabase-db. Сначала завершите безопасное объединение БД; миграции в одну из двух БД запрещены."
+              exit 1
+            fi
+
             # --- 1. МИГРАЦИИ: one-shot ledger-migrator из ТОГО ЖЕ SHA ---
             # Скрипт 01-apply-migrations.sh применяет только неотмеченные в
             # schema_migrations файлы, fail-fast (ON_ERROR_STOP=1).
@@ -132,8 +139,9 @@ jobs:
             docker run --rm \
               --network conditera-net \
               -e PGHOST=db \
-              -e PGDATABASE=postgres \
-              -e PGUSER=postgres \
+              -e PGPORT=5432 \
+              -e PGDATABASE=conditera \
+              -e PGUSER=conditera \
               -e PGPASSWORD="$POSTGRES_PASSWORD" \
               ${{ env.REGISTRY }}/$IMAGE_NAME:migrator-$SHA_TAG
 
