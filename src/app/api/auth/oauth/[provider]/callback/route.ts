@@ -202,6 +202,19 @@ async function fetchVKProfile(accessToken: string, clientId: string, expectedUse
 }
 
 
+async function rollbackOAuthUser(userId: string): Promise<void> {
+  const { supabaseAdmin } = await import("@/lib/supabase/admin");
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (!error) return;
+
+  if (process.env.NODE_ENV === "development") {
+    const { getPool } = await import("@/lib/postgrest/pool");
+    await getPool().query("DELETE FROM auth.users WHERE id = $1", [userId]);
+    return;
+  }
+  throw error;
+}
+
 function finishRedirect(
   error?: string,
   provider?: Provider,
@@ -261,6 +274,7 @@ export async function GET(
   const config = getProviderConfig(provider);
   if (!config) return finishRedirect("Провайдер не настроен", provider, returnTo);
 
+  let createdUserForRollback: string | null = null;
   try {
     const code = searchParams.get("code");
     const state = searchParams.get("state");
@@ -362,6 +376,7 @@ export async function GET(
         userId = authData.user.id;
       }
       createdNewUser = true;
+      createdUserForRollback = userId;
 
       const { error: profileUpsertError } = await supabaseAdmin.from("profiles").upsert({
         id: userId,
@@ -430,20 +445,6 @@ export async function GET(
         },
       ]);
       if (consentInsertError) {
-        try {
-          await supabaseAdmin.auth.admin.deleteUser(userId);
-        } catch (cleanupError) {
-          if (process.env.NODE_ENV === "development") {
-            try {
-              const { getPool } = await import("@/lib/postgrest/pool");
-              await getPool().query("DELETE FROM auth.users WHERE id = $1", [userId]);
-            } catch (localCleanupError) {
-              console.error("[oauth] Failed to roll back local user after consent journal error", localCleanupError);
-            }
-          } else {
-            console.error("[oauth] Failed to roll back user after consent journal error", cleanupError);
-          }
-        }
         throw new Error("Не удалось зафиксировать обязательные согласия. Аккаунт не активирован.");
       }
     }
@@ -525,10 +526,18 @@ export async function GET(
 
     const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
     const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
+    createdUserForRollback = null;
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error("[oauth/" + provider + "/callback]", detail);
+    if (createdUserForRollback) {
+      try {
+        await rollbackOAuthUser(createdUserForRollback);
+      } catch (cleanupError) {
+        console.error("[oauth/" + provider + "/callback] rollback failed", cleanupError);
+      }
+    }
     return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo);
   }
 }
