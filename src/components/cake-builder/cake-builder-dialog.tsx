@@ -136,7 +136,7 @@ export function CakeBuilderDialog() {
   // Кондитеры в выбранном городе
   const availableConfectioners = confectioners.filter((c) => {
     // Не показываем демо-записи: в реальном проекте выбираются только аккаунты пользователей.
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(c.id)) return false;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(c.userId)) return false;
     if (!cakeBuilder.city) return true;
     const cityMatch = c.city === cakeBuilder.city;
     const deliveryCities = (c.location as { deliveryCities?: string[] })?.deliveryCities;
@@ -845,11 +845,11 @@ export function CakeBuilderDialog() {
                       ) : (
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
                           {availableConfectioners.map((conf) => {
-                            const isSelected = selectedConfectioners.includes(conf.id);
+                            const isSelected = selectedConfectioners.includes(conf.userId);
                             return (
                               <button
                                 key={conf.id}
-                                onClick={() => toggleConfectioner(conf.id)}
+                                onClick={() => toggleConfectioner(conf.userId)}
                                 className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
                                   isSelected
                                     ? "border-primary bg-primary/5 ring-2 ring-primary/20"
