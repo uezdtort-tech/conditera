@@ -224,6 +224,7 @@ function finishRedirect(
     response.cookies.set("oauth_return_to_" + provider, "", cookieOptions);
     response.cookies.set("oauth_consent_pd_" + provider, "", cookieOptions);
     response.cookies.set("oauth_consent_terms_" + provider, "", cookieOptions);
+    response.cookies.set("oauth_consent_offer_" + provider, "", cookieOptions);
     if (provider === "google") response.cookies.set("oauth_nonce_google", "", cookieOptions);
   }
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -300,7 +301,8 @@ export async function GET(
     } else {
       const consentPd = request.cookies.get("oauth_consent_pd_" + provider)?.value === "1";
       const consentTerms = request.cookies.get("oauth_consent_terms_" + provider)?.value === "1";
-      if (!consentPd || !consentTerms) {
+      const consentOffer = request.cookies.get("oauth_consent_offer_" + provider)?.value === "1";
+      if (!consentPd || !consentTerms || !consentOffer) {
         return finishRedirect(
           "Для создания нового аккаунта необходимо отдельно принять согласие на обработку персональных данных и условия платформы.",
           provider,
@@ -330,8 +332,10 @@ export async function GET(
         oauth_subject: profile.subject,
         consent_pd_accepted_at: new Date().toISOString(),
         consent_terms_accepted_at: new Date().toISOString(),
+        consent_offer_accepted_at: new Date().toISOString(),
         consent_pd_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
         consent_terms_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
+        consent_offer_version: process.env.LEGAL_OFFER_VERSION || "2026-11-18.1",
       };
       const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
         email: profile.email,
@@ -416,6 +420,16 @@ export async function GET(
           event_type: "grant",
           consent_type: "terms",
           document_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
+          source: "oauth",
+          provider,
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        },
+        {
+          user_id: userId,
+          event_type: "grant",
+          consent_type: "offer",
+          document_version: process.env.LEGAL_OFFER_VERSION || "2026-11-18.1",
           source: "oauth",
           provider,
           ip_address: ipAddress,
