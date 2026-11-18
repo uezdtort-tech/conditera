@@ -9377,3 +9377,25 @@ Stage Summary:
 - Денежный путь (catalog→product→cart→checkout→оплатить) и кабинеты покупателя приведены к дизайн-системе 2025
 - Исправлен мобильный overflow хедера для авторизованных пользователей (a11y-таргеты сохранены)
 - Локальный main: прод не тронут; публикация — по мандату владельца
+
+---
+
+## Task ID: ai-config-20261118 (2026-11-18, UTC)
+**Запрос владельца:** (1) авторизация/регистрация по всем ролям? (2) метрики Яндекса работают? (3) проверка автоматизации и её актуальности; (4) вынести параметры настройки AI-агента на локальной машине.
+
+**Верификация (read-only):**
+- Auth: POST /api/auth/login 200 для customer/admin/confectioner@demo.ru (roles: CUSTOMER/ADMIN/CONFECTIONER подтверждены в ответе). Регистрация: 19 self-register ролей (ALLOWED_SELF_REGISTER_ROLES, register/route.ts:113–119), 7 admin-assigned (ADMIN, SUPER_ADMIN, MODERATOR, SUPPORT, QUALITY_INSPECTOR, CERTIFICATION_AGENT, GUEST). UI auth-modal.tsx: быстрые роли CUSTOMER/CONFECTIONER/SUPPLIER/COURIER/ADMIN/CORPORATE_CLIENT.
+- Метрика: полная интеграция (src/lib/yandex-metrika.ts): client goals (add_to_cart, order_completed, user_registered, lead_submitted, ticket_created, search_performed…), ecommerce dataLayer, userParams, SPA pageview; server-side trackEventServer (api-metrika management API, OAuth-токен, fail-open без токена). Подключение: layout.tsx:107 гейт на NEXT_PUBLIC_YANDEX_METRIKA_ID. Локально ключ НЕ задан → скрипт не инжектится (сознательно, чтобы dev-трафик не загрязнял счётчик 111432662). Прод-проверка невозможна: conditera.ru отдаёт 502 (3 пробы) — P1, вынесено владельцу.
+- Автоматизация: n8n-receiver :5678 (healthz ok, events 0) + встроенный dev-keeper (probe :3000/15s, respawn bun run dev:local, debounce 20s, stop-file .diag/dev-keeper.stop) — задокументирован как штатный самолечитель Next. 20 cron-эндпоинтов /api/cron/* за X-Cron-Secret (401 без секрета подтверждён; с секретом — runs:0, fresh DB). 25 workflow-JSON в /n8n-workflows; 13 endpoint'ов покрыты JSON'ами, 7 (auto-approve, diagnostics-cleanup, escrow-release, holiday-reminders, payment-reminders, sitemap-refresh, subscriptions) — вне JSON (вызов из внешнего шедулера/прода). Дашборд: admin/n8n-automation-dashboard.tsx (3 карточки + импорт 25 JSON).
+
+**Реализация (п.4):**
+- NEW src/lib/ai-config.ts — единая env-конфигурация AI-агента: AI_PROVIDER_ORDER, OLLAMA_BASE_URL/OLLAMA_MODEL/OLLAMA_TIMEOUT_MS, AI_ZAI_MODEL, AI_TEMPERATURE, AI_MAX_TOKENS (clamp 0..2, safe defaults).
+- src/lib/llm.ts — провайдер-цепочка по AI_PROVIDER_ORDER; temperature/max_tokens передаются обоим провайдерам (Ollama options.{temperature,num_predict}; ZAI temperature/max_tokens).
+- NEW /api/ai/config (admin-only, requireAdmin) — эффективная конфигурация + envKeys + consumers; ?probe=1 — доступность провайдеров (Ollama 1.5s проба, наличие ZAI-модуля). Секретов в ответе нет.
+- .env.local (+example, +production.example) — блок AI-параметров с дефолтами; секретные файлы в git не входят.
+
+**Верификация изменений:** tsc 0; vitest ai-набор 7/7 PASS; bun -e getAiAgentConfig() → {order:[ollama,zai], ollama:{127.0.0.1:11434, llama3.2, 30000}, zai:{glm-4, 0.6, null}}; /api/ai/config без сессии → 401 fail-closed (GoTrue недоступен локально — норма dev); ai-роуты живы (403 CSRF-гейт на bare-запрос); home 200.
+
+**Инциденты за сессию:** recycle песочницы ×2 (.pgdata+.env.local стёрты) — восстановлено runtime.mjs start + setup.mjs оба раза; dev-keeper сам поднял Next после recycle (ручной keepalive-цикл убран как дубль).
+
+**Ограничения:** full admin-session путь к /api/ai/config проверить локально нельзя (GoTrue-стаб недоступен) — проверено fail-closed + прямой вызов модуля. Прод (502) не трогали.
