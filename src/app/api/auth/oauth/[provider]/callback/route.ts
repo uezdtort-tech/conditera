@@ -304,7 +304,7 @@ export async function GET(
       const consentOffer = request.cookies.get("oauth_consent_offer_" + provider)?.value === "1";
       if (!consentPd || !consentTerms || !consentOffer) {
         return finishRedirect(
-          "Для создания нового аккаунта необходимо отдельно принять согласие на обработку персональных данных и условия платформы.",
+          "Для создания нового аккаунта необходимо отдельно согласиться на обработку персональных данных, принять пользовательское соглашение и публичную оферту.",
           provider,
           returnTo
         );
