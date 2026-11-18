@@ -242,7 +242,25 @@ export function useOAuth() {
 
       // The server endpoint creates the state/PKCE cookies and redirects to
       // the selected identity provider. Navigation is intentionally full-page.
-      window.location.assign(`/api/auth/oauth/${provider}`);
+      const queryReturnTo = new URLSearchParams(window.location.search).get("returnTo");
+      const currentPath = window.location.pathname + window.location.search;
+      const fallbackReturnTo =
+        window.location.pathname === "/login" ||
+        window.location.pathname === "/register" ||
+        window.location.pathname === "/auth/login"
+          ? "/dashboard"
+          : currentPath;
+      const candidate = queryReturnTo || fallbackReturnTo;
+      const returnTo =
+        candidate.startsWith("/") &&
+        !candidate.startsWith("//") &&
+        !candidate.includes("\\") &&
+        !/[\r\n]/.test(candidate)
+          ? candidate
+          : "/dashboard";
+      const startUrl = new URL("/api/auth/oauth/" + provider, window.location.origin);
+      startUrl.searchParams.set("returnTo", returnTo);
+      window.location.assign(startUrl.toString());
       return { provider };
     },
     onError: (error: { message?: string }) => {
