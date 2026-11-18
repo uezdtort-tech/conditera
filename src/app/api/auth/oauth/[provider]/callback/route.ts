@@ -266,7 +266,7 @@ export async function GET(
     const state = searchParams.get("state");
     const cookieState = request.cookies.get("oauth_state_" + provider)?.value;
     if (!code || !state || !cookieState || state !== cookieState) {
-      return finishRedirect("Неверный state — повторите вход", provider);
+      return finishRedirect("Неверный state — повторите вход", provider, returnTo);
     }
 
     let profile: OAuthProfile;
@@ -300,6 +300,7 @@ export async function GET(
 
     let userId: string;
     let createdNewUser = false;
+    let localAuthFallback = false;
     if (identityLink?.user_id) {
       userId = identityLink.user_id;
     } else {
@@ -307,7 +308,7 @@ export async function GET(
       const consentTerms = request.cookies.get("oauth_consent_terms_" + provider)?.value === "1";
       if (!consentPd || !consentTerms) {
         return finishRedirect(
-          "Для создания нового аккаунта необходимо отдельно согласиться на обработку персональных данных, принять пользовательское соглашение и публичную оферту.",
+          "Для создания нового аккаунта необходимо отдельно согласиться на обработку персональных данных и принять пользовательское соглашение.",
           provider,
           returnTo
         );
@@ -338,7 +339,6 @@ export async function GET(
         consent_pd_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
         consent_terms_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
       };
-      let localAuthFallback = false;
       const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
         email: profile.email,
         email_confirm: true,
