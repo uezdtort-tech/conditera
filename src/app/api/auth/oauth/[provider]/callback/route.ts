@@ -113,7 +113,7 @@ async function fetchYandexProfile(accessToken: string): Promise<OAuthProfile> {
   return { subject: String(json.id), email: email.toLowerCase(), name, avatarUrl };
 }
 
-async function exchangeGoogle(config: ReturnType<typeof getProviderConfig>, code: string): Promise<{ accessToken: string; idToken: string }> {
+async function exchangeGoogle(config: ReturnType<typeof getProviderConfig>, code: string, codeVerifier: string): Promise<{ accessToken: string; idToken: string }> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -123,6 +123,7 @@ async function exchangeGoogle(config: ReturnType<typeof getProviderConfig>, code
       client_id: config!.clientId,
       client_secret: config!.clientSecret!,
       redirect_uri: config!.redirectUri,
+      code_verifier: codeVerifier,
     }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -265,8 +266,9 @@ export async function GET(
       profile = await fetchYandexProfile(accessToken);
     } else if (provider === "google") {
       const nonce = request.cookies.get("oauth_nonce_google")?.value;
-      if (!nonce) throw new Error("Google OIDC nonce is missing");
-      const tokens = await exchangeGoogle(config, code);
+      const verifier = request.cookies.get("oauth_verifier_google")?.value;
+      if (!nonce || !verifier) throw new Error("Google OIDC nonce/PKCE verifier is missing");
+      const tokens = await exchangeGoogle(config, code, verifier);
       profile = await fetchGoogleProfile(tokens.idToken, nonce, config.clientId);
     } else {
       const deviceId = searchParams.get("device_id");
