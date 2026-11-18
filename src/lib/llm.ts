@@ -2,22 +2,26 @@
  * src/lib/llm.ts — единая точка вызова текстового LLM для self-hosted
  * топологии Conditera (Supabase + n8n + Ollama в Docker).
  *
- * Порядок провайдеров:
+ * Порядок провайдеров задаётся в src/lib/ai-config.ts (env-параметры,
+ * по умолчанию: Ollama → z-ai-web-dev-sdk):
  *   1) Ollama  — если задан OLLAMA_BASE_URL (например http://127.0.0.1:11434
  *                или http://ollama:11434 внутри docker-сети). Модель —
  *                OLLAMA_MODEL (по умолчанию llama3.2).
  *   2) z-ai-web-dev-sdk — платформенный провайдер (если модуль доступен).
+ *
+ * Сэмплинг (AI_TEMPERATURE, AI_MAX_TOKENS) применяется к обоим провайдерам.
  *
  * Возвращает null при недоступности всех провайдеров — вызывающий роут
  * применяет свой fallback (как и раньше). Fail-safe: сетевые ошибки,
  * таймауты и некорректные ответы проглатываются с логом, приложение
  * продолжает работать.
  *
- * Переменные окружения:
- *   OLLAMA_BASE_URL  — базовый URL Ollama (без /api), необязательно
- *   OLLAMA_MODEL     — имя модели (default: llama3.2)
- *   OLLAMA_TIMEOUT_MS— таймаут запроса (default: 30000)
+ * Полный список переменных окружения — см. src/lib/ai-config.ts.
+ * Эффективные значения можно посмотреть через GET /api/ai/config (admin-only).
  */
+
+import { getAiAgentConfig } from "@/lib/ai-config";
+import type { AiProvider } from "@/lib/ai-config";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
@@ -32,30 +36,25 @@ export interface LlmResult {
   outputTokens: number | null;
 }
 
-const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS || 30000);
-
-function ollamaBase(): string | null {
-  const raw = (process.env.OLLAMA_BASE_URL || "").trim();
-  if (!raw) return null;
-  return raw.replace(/\/+$/, "");
-}
-
 /**
  * Ollama: POST {base}/api/chat — OpenAI-совместимый по смыслу контракт
- * (messages + stream:false). Возвращает текст и счётчики токенов
+ * (messages + stream:false + options). Возвращает текст и счётчики токенов
  * (prompt_eval_count / eval_count — оценка Ollama).
  */
 async function chatViaOllama(messages: LlmMessage[]): Promise<LlmResult | null> {
-  const base = ollamaBase();
+  const cfg = getAiAgentConfig();
+  const base = cfg.ollama.baseUrl;
   if (!base) return null;
-  const model = process.env.OLLAMA_MODEL || "llama3.2";
+  const model = cfg.ollama.model;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), cfg.ollama.timeoutMs);
   try {
+    const options: Record<string, number> = { temperature: cfg.zai.temperature };
+    if (cfg.zai.maxTokens !== null) options.num_predict = cfg.zai.maxTokens;
     const res = await fetch(`${base}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages, stream: false }),
+      body: JSON.stringify({ model, messages, stream: false, options }),
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -89,20 +88,24 @@ async function chatViaOllama(messages: LlmMessage[]): Promise<LlmResult | null> 
 
 /**
  * Платформенный провайдер z-ai-web-dev-sdk (динамический импорт —
- * не ломает build, если SDK не установлен).
+ * не ломает build, если SDK не установлен). temperature/max_tokens —
+ * стандартные OpenAI-совместимые параметры сэмплинга.
  */
 async function chatViaZai(messages: LlmMessage[]): Promise<LlmResult | null> {
+  const cfg = getAiAgentConfig();
   try {
     const ZAIModule = (await import("z-ai-web-dev-sdk").catch(() => null)) as any;
     if (!ZAIModule || !(ZAIModule.create || ZAIModule.default?.create)) return null;
     const ZAI = ZAIModule as any;
     const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({ messages });
+    const sampling: Record<string, unknown> = { temperature: cfg.zai.temperature };
+    if (cfg.zai.maxTokens !== null) sampling.max_tokens = cfg.zai.maxTokens;
+    const completion = await zai.chat.completions.create({ messages, ...sampling });
     const text = completion?.choices?.[0]?.message?.content || "";
     if (!text) return null;
     return {
       text,
-      model: "glm-4",
+      model: cfg.zai.model,
       provider: "zai",
       inputTokens: completion?.usage?.prompt_tokens ?? null,
       outputTokens: completion?.usage?.completion_tokens ?? null,
@@ -113,12 +116,21 @@ async function chatViaZai(messages: LlmMessage[]): Promise<LlmResult | null> {
   }
 }
 
+const PROVIDER_FN: Record<AiProvider, (m: LlmMessage[]) => Promise<LlmResult | null>> = {
+  ollama: chatViaOllama,
+  zai: chatViaZai,
+};
+
 /**
- * Главная точка входа: Ollama → z-ai → null.
+ * Главная точка входа: обход провайдеров в порядке AI_PROVIDER_ORDER
+ * (default: Ollama → z-ai) до первого успеха.
  * Вызывающий роут обрабатывает null своим fallback-ответом.
  */
 export async function chatComplete(messages: LlmMessage[]): Promise<LlmResult | null> {
-  const viaOllama = await chatViaOllama(messages);
-  if (viaOllama) return viaOllama;
-  return chatViaZai(messages);
+  const { order } = getAiAgentConfig();
+  for (const provider of order) {
+    const result = await PROVIDER_FN[provider](messages);
+    if (result) return result;
+  }
+  return null;
 }
