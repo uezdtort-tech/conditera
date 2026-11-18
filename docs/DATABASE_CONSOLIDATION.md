@@ -21,6 +21,8 @@
 - Исправлена ошибка старого seed: `fillings.name` не имеет уникального ограничения, поэтому `ON CONFLICT (name)` падал. Начинки загружаются идемпотентно через `NOT EXISTS` с явным приведением массивов PostgreSQL.
 - Проверка готовности initdb не требует `storage.objects` до запуска Storage API; наличие Storage проверяется отдельным read-only preflight после запуска сервисов.
 - Migrator основного Compose получает `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`; переменная `DATABASE_URL` сама по себе не настраивает клиент `psql`.
+- В E2E setup найдено несовпадение подписи локального service-role JWT: ключ генерировался с новым секретом из `.env.local`, а Next runtime получал `JWT_SECRET` из CI environment. Исправлена генерация по эффективному `process.env.JWT_SECRET`, обновление ключа в файле и экспорт service-role ключа в среду CI.
+- В OAuth callback исправлено чтение percent-encoded `returnTo`; добавлен безопасный fallback redirect вместо необработанного HTTP 500 при непредвиденной ошибке callback.
 - Production workflow блокируется при обнаружении отдельного контейнера `conditera-supabase-db`; автоматическое обновление только одного из двух кластеров запрещено.
 - Старый `scripts/deploy.sh`, который применял только пять первых миграций и игнорировал ошибки отдельных файлов, отключён до завершения объединения.
 - Добавлен read-only скрипт `scripts/db-preflight.sh`, который сравнивает версии, схемы и наличие ключевых объектов обоих серверов без вывода персональных данных и без изменения БД.
