@@ -336,7 +336,7 @@ export async function GET(
       if (emailLookupError) throw new Error("Не удалось проверить существующую учётную запись");
       if (emailOwner) {
         return finishRedirect(
-          "Для этого email уже есть аккаунт. Войдите привычным способом и подключите соцсеть в настройках.",
+          "Для этого email уже есть аккаунт. Войдите привычным способом; привязка этого провайдера пока не включена.",
           provider,
           returnTo
         );
