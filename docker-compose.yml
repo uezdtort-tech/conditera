@@ -66,6 +66,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - MEILISearch_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
+      - SUPABASE_INTERNAL_URL=${SUPABASE_INTERNAL_URL:-}
       - NODE_ENV=production
       # Telegram bot + канал (для уведомлений о заказах, лидах, тикетах)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
