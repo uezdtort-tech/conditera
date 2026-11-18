@@ -1,30 +1,39 @@
 /**
  * GET /api/auth/oauth/handoff — одноразовая передача OAuth-сессии в браузер.
- *
- * Callback провайдера кладёт GoTrue-сессию в httpOnly-cookie `oauth_handoff`
- * (60 сек) и редиректит на /oauth/finish. Эта страница вызывает handoff,
- * получает { accessToken, refreshToken, email, name } и выполняет
- * supabaseBrowser.auth.setSession() — итог тот же, что после обычного входа.
- * Cookie стирается сразу после чтения (one-time).
+ * Секреты не кешируются; cookie очищается как при успешном чтении, так и при ошибке.
  */
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const raw = request.cookies.get("oauth_handoff")?.value;
-  if (!raw) {
-    return NextResponse.json({ error: "OAuth handoff не найден или уже использован" }, { status: 404 });
-  }
-
-  const response = NextResponse.json({ ok: true });
-  // Стираем cookie сразу — одноразовость.
+function clearHandoffCookie(response: NextResponse): NextResponse {
   response.cookies.set("oauth_handoff", "", {
     httpOnly: true,
+    sameSite: "lax",
     maxAge: 0,
     path: "/",
     secure: process.env.NODE_ENV === "production",
   });
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  response.headers.set("Pragma", "no-cache");
+  return response;
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  // Не выдаём одноразовый токен при кросс-сайтовом запросе.
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
+    return NextResponse.json({ error: "Недопустимый источник запроса" }, { status: 403 });
+  }
+
+  const raw = request.cookies.get("oauth_handoff")?.value;
+  if (!raw) {
+    return clearHandoffCookie(NextResponse.json(
+      { error: "OAuth handoff не найден или уже использован" },
+      { status: 404 }
+    ));
+  }
 
   try {
     const data = JSON.parse(Buffer.from(raw, "base64").toString("utf8")) as {
@@ -34,10 +43,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       email?: string;
       name?: string;
     };
-    if (!data.accessToken || !data.refreshToken) {
-      return NextResponse.json({ error: "Некорректный handoff" }, { status: 400 });
+    if (!data.accessToken || !data.refreshToken ||
+        (data.expiresAt !== undefined && (!Number.isFinite(data.expiresAt) || data.expiresAt <= 0))) {
+      return clearHandoffCookie(NextResponse.json({ error: "Некорректный handoff" }, { status: 400 }));
     }
-    return NextResponse.json({
+
+    return clearHandoffCookie(NextResponse.json({
       ok: true,
       session: {
         access_token: data.accessToken,
@@ -46,8 +57,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
       email: data.email,
       name: data.name,
-    });
+    }));
   } catch {
-    return NextResponse.json({ error: "Некорректный handoff" }, { status: 400 });
+    return clearHandoffCookie(NextResponse.json({ error: "Некорректный handoff" }, { status: 400 }));
   }
 }
