@@ -315,9 +315,12 @@ services:
       - REDIS_URL=redis://redis:6379
       - CHAT_PORT=3030
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - NEXT_API_URL=${NEXT_API_URL:-http://web:3000}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
     depends_on:
       redis:
+        condition: service_healthy
+      web:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3030/health"]
