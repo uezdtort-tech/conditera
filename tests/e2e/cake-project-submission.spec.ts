@@ -1,52 +1,36 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const APP = process.env.E2E_APP_URL || "http://localhost:3000";
-const RUN_ID = Date.now().toString();
-const PASSWORD = "E2e-CakeProject!2026";
-
-async function registerUser(
-  request: APIRequestContext,
-  role: "CUSTOMER" | "CONFECTIONER",
-  suffix: string,
-) {
-  const email = "cake-project-" + suffix + "-" + RUN_ID + "@e2e.conditera.ru";
-  const response = await request.post(APP + "/api/auth/register", {
-    data: {
-      email,
-      password: PASSWORD,
-      name: "E2E " + role + " " + RUN_ID,
-      phone: "+7900" + RUN_ID.slice(-6) + (suffix === "customer" ? "1" : "2"),
-      role,
-      consentPd: true,
-      consentTerms: true,
-      consentOffer: true,
-    },
-  });
-  expect([200, 201]).toContain(response.status());
-  const login = await request.post(APP + "/api/auth/login", {
-    data: { email, password: PASSWORD },
-  });
-  expect(login.ok(), "login " + role + " failed: " + login.status() + " " + await login.text()).toBeTruthy();
-  const body = await login.json();
-  return { id: body.user?.id || body.id, token: body.accessToken as string };
-}
+const DEMO_PASSWORD = "Demo123!";
+const DEMO_CUSTOMER_ID = "11111111-1111-4111-8111-111111111106";
+const DEMO_CONFECTIONER_ID = "11111111-1111-4111-8111-111111111101";
 
 test.describe("Создание проекта торта и переговоров", () => {
-  test("проект сохраняется, цена переводится в копейки, кондитер получает запрос", async ({ request }) => {
+  test("проект сохраняется, цена переводится в копейки, одобренный кондитер получает запрос", async ({ request }) => {
     const csrfResponse = await request.get(APP + "/api/csrf-token");
     expect(csrfResponse.ok()).toBeTruthy();
     const csrfBody = await csrfResponse.json() as { token: string };
 
-    const customer = await registerUser(request, "CUSTOMER", "customer");
-    const confectioner = await registerUser(request, "CONFECTIONER", "confectioner");
-    expect(customer.id).toBeTruthy();
-    expect(confectioner.id).toBeTruthy();
-    expect(customer.id).not.toBe(confectioner.id);
+    const customerLogin = await request.post(APP + "/api/auth/login", {
+      data: { email: "customer@demo.ru", password: DEMO_PASSWORD },
+    });
+    expect(customerLogin.ok(), await customerLogin.text()).toBeTruthy();
+    const customerBody = await customerLogin.json();
+    const customerToken = customerBody.accessToken as string;
+    expect(customerBody.user?.id || customerBody.id).toBe(DEMO_CUSTOMER_ID);
+
+    const confectionerLogin = await request.post(APP + "/api/auth/login", {
+      data: { email: "confectioner@demo.ru", password: DEMO_PASSWORD },
+    });
+    expect(confectionerLogin.ok(), await confectionerLogin.text()).toBeTruthy();
+    const confectionerBody = await confectionerLogin.json();
+    const confectionerToken = confectionerBody.accessToken as string;
+    expect(confectionerBody.user?.id || confectionerBody.id).toBe(DEMO_CONFECTIONER_ID);
 
     const deliveryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const response = await request.post(APP + "/api/inquiries", {
       headers: {
-        Authorization: "Bearer " + customer.token,
+        Authorization: "Bearer " + customerToken,
         "x-csrf-token": csrfBody.token,
       },
       data: {
@@ -67,7 +51,7 @@ test.describe("Создание проекта торта и переговор�
           inscription: "С днём рождения!",
           comment: "E2E-проверка создания проекта",
         },
-        confectionerIds: [confectioner.id],
+        confectionerIds: [DEMO_CONFECTIONER_ID],
         estimatedPriceRubles: 7500,
         estimatedDeliveryCostRubles: 0,
         requestDiscount: false,
@@ -85,7 +69,7 @@ test.describe("Создание проекта торта и переговор�
     expect(result.negotiations).toHaveLength(1);
 
     const own = await request.get(APP + "/api/inquiries", {
-      headers: { Authorization: "Bearer " + customer.token },
+      headers: { Authorization: "Bearer " + customerToken },
     });
     expect(own.ok(), await own.text()).toBeTruthy();
     const ownBody = await own.json();
@@ -96,7 +80,7 @@ test.describe("Создание проекта торта и переговор�
     expect(inquiry.project_spec.price.productKopecks).toBe(750000);
 
     const available = await request.get(APP + "/api/inquiries?filter=available", {
-      headers: { Authorization: "Bearer " + confectioner.token },
+      headers: { Authorization: "Bearer " + confectionerToken },
     });
     expect(available.ok(), await available.text()).toBeTruthy();
     const availableBody = await available.json();
