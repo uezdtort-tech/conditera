@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
 
@@ -281,7 +282,7 @@ export async function GET(
     // 4. Создаём одноразовую magic-link сессию через GoTrue Admin API.
     // КРИТИЧНО: никогда не менять пароль уже существующего пользователя ради OAuth.
     // Такой подход ломает парольный вход и может перехватить чужой аккаунт.
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseUrl = resolveSupabaseServerUrl();
     const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !serviceRole || !anonKey) {
