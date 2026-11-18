@@ -153,6 +153,8 @@ export function AuthModal() {
   const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
   const [phone, setPhone] = useState("");
   // Регистрация
+  const [oauthConsentPd, setOauthConsentPd] = useState(false);
+  const [oauthConsentTerms, setOauthConsentTerms] = useState(false);
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPhone, setRegisterPhone] = useState("");
@@ -230,20 +232,26 @@ export function AuthModal() {
     }
   };
 
-  // OAuth через Яндекс и ВК: сначала проверяем, настроен ли провайдер
-  // (иначе навигация показала бы JSON-заглушку), потом редирект на initiation,
-  // который 302-ит на страницу провайдера.
-  const handleOAuth = async (provider: "yandex" | "vk") => {
+  // OAuth: серверный flow для Yandex ID, VK ID и Google.
+  // Новая регистрация требует отдельного согласия на ПД и принятия условий.
+  const handleOAuth = async (provider: "yandex" | "vk" | "google") => {
+    if (!oauthConsentPd || !oauthConsentTerms) {
+      toast.error("Подтвердите согласие на обработку персональных данных и условия платформы");
+      return;
+    }
     try {
-      const res = await fetch(`/api/auth/oauth/${provider}?mode=check`);
+      const res = await fetch("/api/auth/oauth/" + provider + "?mode=check");
       const data = (await res.json()) as { configured?: boolean };
       if (!data.configured) {
-        toast.error(`Вход через ${provider === "yandex" ? "Яндекс" : "ВКонтакте"} пока не настроен`, {
+        const label = provider === "yandex" ? "Яндекс" : provider === "vk" ? "ВКонтакте" : "Google";
+        toast.error("Вход через " + label + " пока не настроен", {
           description: "Провайдер OAuth не сконфигурирован в окружении.",
         });
         return;
       }
-      window.location.href = `${window.location.origin}/api/auth/oauth/${provider}`;
+      const returnTo = window.location.pathname + window.location.search;
+      const params = new URLSearchParams({ returnTo, consentPd: "1", consentTerms: "1" });
+      window.location.href = window.location.origin + "/api/auth/oauth/" + provider + "?" + params.toString();
     } catch {
       toast.error("Не удалось запустить вход через соцсеть");
     }
