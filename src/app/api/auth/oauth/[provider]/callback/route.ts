@@ -3,18 +3,15 @@
 // Серверный OAuth callback для Yandex ID, VK ID и Google OIDC.
 //
 // Флоу:
-//   1. Сверяем state (query) с httpOnly-cookie oauth_state_<provider> (CSRF).
-//   2. Обмениваем code на access_token (token endpoint провайдера).
-//   3. Забираем профиль (email, имя, аватар).
-//   4. GoTrue Admin API выпускает одноразовую magic-link без смены пароля.
-//   4a. Внешний provider_subject связывается с user_id в закрытой таблице.
-//   5. Сервер проверяет одноразовый token_hash и получает GoTrue-сессию.
-//   6. Передаём сессию в браузер через одноразовый httpOnly-cookie
-//      (60 сек) → /oauth/finish → /api/auth/oauth/handoff →
-//      supabaseBrowser.auth.setSession() (тот же стейт, что после обычного
-//      входа: useAuth, роли, Storage-аплоады).
+//   1. Сверяем state с HttpOnly-cookie; все три провайдера используют PKCE.
+//   2. Проверяем профиль/subject провайдера; Google дополнительно проверяется как OIDC ID token.
+//   3. Не объединяем существующие аккаунты только по совпадению email.
+//   4. Для нового аккаунта требуем отдельные согласия ПД и условий, создаём GoTrue user,
+//      профиль, роль CUSTOMER и append-only записи согласий.
+//   5. Привязываем provider_subject и выдаём единый Conditera app-JWT в cd_session/cd_refresh.
+//   6. Возвращаем пользователя на исходный внутренний маршрут.
 //
-// Неподдерживаемые или ненастроенные провайдеры завершаются безопасной ошибкой.
+// Неподдерживаемые/ненастроенные провайдеры завершаются безопасной ошибкой.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createRemoteJWKSet, jwtVerify } from "jose";
