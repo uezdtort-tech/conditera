@@ -332,7 +332,6 @@ export async function GET(
       type: "magiclink",
       email: targetEmail,
       options: {
-        redirectTo: new URL("/oauth/finish", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").toString(),
         data: {
           full_name: profile.name,
           avatar_url: profile.avatarUrl,
