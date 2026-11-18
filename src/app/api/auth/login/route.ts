@@ -57,11 +57,15 @@ interface SanitizedUser {
  * Получить роли пользователя из таблицы user_roles.
  */
 async function getUserRoles(userId: string): Promise<string[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("user_roles")
     .select("role")
     .eq("user_id", userId)
     .eq("is_active", true);
+  if (error) {
+    console.error("[login] active role lookup failed; refusing to issue session:", error.message);
+    throw new Error("Не удалось проверить права доступа");
+  }
   return (data || []).map((r: any) => r.role as string);
 }
 
