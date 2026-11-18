@@ -334,6 +334,21 @@ export async function GET(
         throw new Error("Связанный аккаунт Conditera не найден");
       }
       targetEmail = linkedUser.user.email;
+    } else {
+      // Email уже подтверждён провайдером. Создаём GoTrue user до magic-link:
+      // generateLink(magiclink) рассчитан на существующего пользователя.
+      const { error: createUserError } = await supabaseAdmin.auth.admin.createUser({
+        email: profile.email,
+        email_confirm: true,
+        user_metadata: {
+          full_name: profile.name,
+          avatar_url: profile.avatarUrl,
+          oauth_provider: provider,
+        },
+      });
+      if (createUserError) {
+        throw new Error("Не удалось создать аккаунт GoTrue. Если аккаунт уже существует, войдите привычным способом и подключите провайдера.");
+      }
     }
 
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
