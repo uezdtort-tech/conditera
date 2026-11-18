@@ -84,12 +84,15 @@ function buildAuthorizationUrl(
   switch (provider) {
     case "google": {
       params.set("scope", "openid email profile");
+      params.set("nonce", nonce);
       params.set("access_type", "offline");
       params.set("prompt", "consent");
       return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
     case "yandex": {
       params.set("scope", "login:email login:info");
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "S256");
       return `https://oauth.yandex.ru/authorize?${params.toString()}`;
     }
     case "vk": {
@@ -173,8 +176,17 @@ export async function GET(
     maxAge: 600,
     path: "/api/auth/oauth",
   });
-  if (provider === "vk") {
+  if (provider === "vk" || provider === "yandex") {
     response.cookies.set(`oauth_verifier_${provider}`, codeVerifier, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 600,
+      path: "/api/auth/oauth",
+    });
+  }
+  if (provider === "google") {
+    response.cookies.set("oauth_nonce_google", nonce, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
