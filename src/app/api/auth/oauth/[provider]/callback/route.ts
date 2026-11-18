@@ -335,9 +335,10 @@ export async function GET(
         oauth_subject: profile.subject,
         consent_pd_accepted_at: new Date().toISOString(),
         consent_terms_accepted_at: new Date().toISOString(),
-          consent_pd_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
+        consent_pd_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
         consent_terms_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
-        };
+      };
+      let localAuthFallback = false;
       const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
         email: profile.email,
         email_confirm: true,
@@ -350,6 +351,7 @@ export async function GET(
         if (process.env.NODE_ENV !== "development") {
           throw new Error("Не удалось создать пользователя в Supabase Auth");
         }
+        localAuthFallback = true;
         userId = crypto.randomUUID();
         const { getPool } = await import("@/lib/postgrest/pool");
         await getPool().query(
@@ -482,39 +484,43 @@ export async function GET(
     // Создаём GoTrue-сессию без изменения пароля пользователя.
     // Это сохраняет совместимость с Supabase JS/RLS/Storage-клиентами,
     // а app-JWT остаётся каноничной сессией API Conditera.
-    const supabaseUrl = resolveSupabaseServerUrl();
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !anonKey) {
-      throw new Error("Supabase URL/anon key is not configured for OAuth session handoff");
-    }
-    const { data: generatedLink, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: "magiclink",
-      email,
-    });
-    const tokenHash = generatedLink?.properties?.hashed_token;
-    if (linkError || !tokenHash) {
-      throw new Error("Не удалось подготовить Supabase-сессию после OAuth");
-    }
-
     const response = finishRedirect(undefined, provider, returnTo);
-    const supabaseSessionClient = createServerClient(supabaseUrl, anonKey, {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
+    if (!localAuthFallback) {
+      const supabaseUrl = resolveSupabaseServerUrl();
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !anonKey) {
+        throw new Error("Supabase URL/anon key is not configured for OAuth session handoff");
+      }
+      const { data: generatedLink, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+        type: "magiclink",
+        email,
+      });
+      const tokenHash = generatedLink?.properties?.hashed_token;
+      if (linkError || !tokenHash) {
+        throw new Error("Не удалось подготовить Supabase-сессию после OAuth");
+      }
+
+      const supabaseSessionClient = createServerClient(supabaseUrl, anonKey, {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              response.cookies.set(name, value, options);
+            });
+          },
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
-        },
-      },
-    });
-    const { error: verifyOtpError } = await supabaseSessionClient.auth.verifyOtp({
-      type: "magiclink",
-      token_hash: tokenHash,
-    });
-    if (verifyOtpError) {
-      throw new Error("Не удалось выпустить Supabase-сессию после OAuth");
+      });
+      const { error: verifyOtpError } = await supabaseSessionClient.auth.verifyOtp({
+        type: "magiclink",
+        token_hash: tokenHash,
+      });
+      if (verifyOtpError) {
+        throw new Error("Не удалось выпустить Supabase-сессию после OAuth");
+      }
+    } else if (process.env.NODE_ENV !== "development") {
+      throw new Error("GoTrue недоступен вне локальной разработки");
     }
 
     const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
@@ -523,6 +529,6 @@ export async function GET(
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error("[oauth/" + provider + "/callback]", detail);
-    return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider);
+    return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo);
   }
 }
