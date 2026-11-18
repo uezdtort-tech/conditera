@@ -41,6 +41,25 @@ inspect_db() {
       SELECT 'migration_latest', COALESCE(max(filename), 'none') FROM public.schema_migrations;
     "
   fi
+
+  echo "Точные количества строк по таблицам public/auth/storage (без содержимого строк):"
+  docker exec -i "$container" psql -X -v ON_ERROR_STOP=1 -U "$user" -d "$database" -At -F '|' <<'SQL'
+SELECT format(
+  'SELECT %L AS table_name, count(*)::bigint AS row_count FROM %I.%I;',
+  schemaname || '.' || tablename, schemaname, tablename
+)
+FROM pg_tables
+WHERE schemaname IN ('public', 'auth', 'storage')
+ORDER BY schemaname, tablename
+\gexec
+SQL
+
+  echo "Расширения и политики:"
+  docker exec "$container" psql -X -v ON_ERROR_STOP=1 -U "$user" -d "$database" -At -F '|' -c "
+    SELECT 'extension', extname, extversion FROM pg_extension ORDER BY extname;
+    SELECT 'rls_policies', count(*)::text FROM pg_policies;
+    SELECT 'foreign_keys', count(*)::text FROM pg_constraint WHERE contype='f';
+  "
 }
 
 echo "Conditera DB preflight — READ ONLY"
