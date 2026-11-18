@@ -150,6 +150,15 @@ jobs:
           path: .next
           key: nextjs-build-${{ github.sha }}
 
+      - name: Start embedded PostgreSQL, apply migrations and seed E2E data
+        run: bun run db:setup
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NODE_ENV: ${{ env.NODE_ENV }}
+
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps ${{ matrix.browser }}
 
