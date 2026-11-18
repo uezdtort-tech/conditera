@@ -21,7 +21,6 @@ let auth: typeof import("@/lib/auth");
 beforeAll(async () => {
   process.env.JWT_SECRET = "unit-test-jwt-secret-at-least-32-characters";
   process.env.JWT_REFRESH_SECRET = "unit-test-refresh-secret-at-least-32-characters";
-  process.env.NODE_ENV = "test";
 
   mocked.from.mockImplementation(() => {
     const result = mocked.results.shift() ?? { data: null, error: null };
