@@ -281,7 +281,7 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
     }
 
     const profile = profileResult.data;
-    if (!profile || profile.is_blocked === true || profile.deleted_at !== null) {
+    if (!profile || profile.is_blocked === true || Boolean(profile.deleted_at)) {
       console.warn("[auth] profile missing, blocked or deleted; rejecting request:", userId);
       return null;
     }
