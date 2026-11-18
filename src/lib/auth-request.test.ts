@@ -65,6 +65,7 @@ describe("getUserFromRequest — серверная проверка актуа�
         data: {
           id: userId,
           is_blocked: false,
+          deleted_at: null,
           name: "Актуальное имя",
           email: "current@example.test",
           account_type: "individual",
@@ -140,6 +141,7 @@ describe("getUserFromRequest — серверная проверка актуа�
         data: {
           id: userId,
           is_blocked: false,
+          deleted_at: null,
           name: "Пользователь",
           email: "user@example.test",
           account_type: "individual",
