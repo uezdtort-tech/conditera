@@ -88,22 +88,30 @@ done
 
 echo "✅ Применено: ${MIGRATION_COUNT}, пропущено (уже в журнале): ${SKIPPED_COUNT} (было применено ранее: ${APPLIED_BEFORE})"
 
-# ===== 2. Seed данные — только при первичной инициализации =====
-if [ "$FRESH_DB" = "1" ] && [ -d "$SEEDS_DIR" ]; then
+# ===== 2. Seed данные — только явный opt-in для локальной демонстрации =====
+# По умолчанию НИЧЕГО из demo seed не загружается в production.
+# Базовые категории и начинки перенесены в 0062_reference_catalog.sql.
+SEED_MODE="${SEED_MODE:-none}"
+if [ "$SEED_MODE" = "demo" ] && [ "$FRESH_DB" = "1" ] && [ -d "$SEEDS_DIR" ]; then
   echo ""
-  echo "=== Seed данные (первичная инициализация) ==="
+  echo "=== DEMO seed включён явно (SEED_MODE=demo) ==="
   SEED_COUNT=0
   for sql_file in "$SEEDS_DIR"/*.sql; do
     [ -e "$sql_file" ] || continue
-    echo "→ Seed: $(basename "$sql_file")"
+    echo "→ DEMO seed: $(basename "$sql_file")"
     if psql -v ON_ERROR_STOP=1 -U "$PSQL_USER" -d "$PSQL_DB" -f "$sql_file"; then
       SEED_COUNT=$((SEED_COUNT + 1))
     else
-      echo "❌ SEED УПАЛ: $(basename "$sql_file")"
+      echo "❌ DEMO SEED УПАЛ: $(basename "$sql_file")"
       exit 1
     fi
   done
-  echo "✅ Загружено seed-файлов: ${SEED_COUNT}"
+  echo "Загружено demo seed-файлов: ${SEED_COUNT}"
+elif [ "$SEED_MODE" != "none" ] && [ "$SEED_MODE" != "demo" ]; then
+  echo "❌ Неизвестный SEED_MODE='$SEED_MODE' (допустимы none или demo)"
+  exit 1
+else
+  echo "Demo seed пропущен (SEED_MODE=$SEED_MODE)"
 fi
 
 # ===== 3. Сводка =====
