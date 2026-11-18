@@ -127,8 +127,12 @@ jobs:
 
             # Пока приложение и Supabase указывают на разные PostgreSQL,
             # автоматический деплой запрещён: миграции в одной БД не обновляют другую.
-            if docker ps --format '{{.Names}}' | grep -Fxq conditera-supabase-db; then
-              echo "ERROR: обнаружен отдельный conditera-supabase-db. Сначала завершите безопасное объединение БД; миграции в одну из двух БД запрещены."
+            if docker inspect conditera-supabase-db >/dev/null 2>&1; then
+              echo "ERROR: найден контейнер conditera-supabase-db (в том числе остановленный). Пока в проекте два независимых PostgreSQL, деплой и миграции запрещены."
+              exit 1
+            fi
+            if ! docker inspect conditera-db >/dev/null 2>&1 || [ "$(docker inspect -f '{{.State.Running}}' conditera-db)" != "true" ]; then
+              echo "ERROR: канонический PostgreSQL conditera-db отсутствует или не запущен."
               exit 1
             fi
 
