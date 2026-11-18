@@ -59,6 +59,7 @@ on:
       - main
       - develop
     paths:
+      - ".github/workflows/e2e.yml"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
