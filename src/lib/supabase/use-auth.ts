@@ -44,17 +44,22 @@ export function useAuth() {
       }
 
       // Загрузить профиль и роли
-      const { data: profile } = await supabaseBrowser
+      const { data: profile, error: profileError } = await supabaseBrowser
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
         .single();
 
-      const { data: roles } = await supabaseBrowser
+      const { data: roles, error: rolesError } = await supabaseBrowser
         .from("user_roles")
         .select("role, is_active")
         .eq("user_id", session.user.id)
         .eq("is_active", true);
+
+      if (profileError || !profile || profile.is_blocked === true || Boolean(profile.deleted_at) || rolesError) {
+        if (isMounted) setState({ user: null, profile: null, isLoading: false });
+        return;
+      }
 
       const user: UserWithRoles = {
         id: session.user.id,
@@ -76,17 +81,22 @@ export function useAuth() {
           return;
         }
 
-        const { data: profile } = await supabaseBrowser
+        const { data: profile, error: profileError } = await supabaseBrowser
           .from("profiles")
           .select("*")
           .eq("id", session.user.id)
           .single();
 
-        const { data: roles } = await supabaseBrowser
+        const { data: roles, error: rolesError } = await supabaseBrowser
           .from("user_roles")
           .select("role, is_active")
           .eq("user_id", session.user.id)
           .eq("is_active", true);
+
+        if (profileError || !profile || profile.is_blocked === true || Boolean(profile.deleted_at) || rolesError) {
+          if (isMounted) setState({ user: null, profile: null, isLoading: false });
+          return;
+        }
 
         const user: UserWithRoles = {
           id: session.user.id,
