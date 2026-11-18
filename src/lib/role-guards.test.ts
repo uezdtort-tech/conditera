@@ -109,9 +109,12 @@ describe("role-guards — guard responses", () => {
     expect(body.required_roles).toEqual(["ADMIN", "SUPER_ADMIN"]);
   });
 
-  it("requireAnyRole возвращает null (доступ открыт) для пустого массива", async () => {
+  it("requireAnyRole запрещает доступ для пустого списка ролей (fail-closed)", async () => {
     const response = await requireAnyRole("user-123", []);
-    expect(response).toBeNull();
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(403);
+    const body = await response!.json();
+    expect(body.required_roles).toEqual([]);
   });
 
   it("requireAnyRole возвращает 401 для null userId даже с пустыми ролями", async () => {
