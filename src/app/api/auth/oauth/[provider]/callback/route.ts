@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
 
@@ -44,8 +45,13 @@ function getProviderConfig(provider: Provider): {
       const clientSecret = process.env.YANDEX_CLIENT_SECRET;
       const redirectUri = process.env.YANDEX_OAUTH_REDIRECT;
       if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
-      // У Яндекса confidential-клиент требует secret; public-клиент — нет.
       return { clientId: clientId!, clientSecret: isStubValue(clientSecret) ? undefined : clientSecret, redirectUri: redirectUri! };
+    }
+    case "vk": {
+      const clientId = process.env.VK_CLIENT_ID;
+      const redirectUri = process.env.VK_OAUTH_REDIRECT;
+      if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
+      return { clientId: clientId!, redirectUri: redirectUri! };
     }
     default:
       return null; // vk/telegram — пока только заглушка
@@ -53,17 +59,19 @@ function getProviderConfig(provider: Provider): {
 }
 
 interface OAuthProfile {
+  subject: string;
   email: string;
   name: string;
   avatarUrl: string | null;
 }
 
-async function exchangeYandex(config: ReturnType<typeof getProviderConfig>, code: string): Promise<string> {
+async function exchangeYandex(config: ReturnType<typeof getProviderConfig>, code: string, codeVerifier: string): Promise<string> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
     client_id: config!.clientId,
     redirect_uri: config!.redirectUri,
+    code_verifier: codeVerifier,
   });
   if (config!.clientSecret) body.set("client_secret", config!.clientSecret);
   const res = await fetch("https://oauth.yandex.ru/token", {
@@ -91,6 +99,7 @@ async function fetchYandexProfile(accessToken: string): Promise<OAuthProfile> {
     real_name?: string;
     is_avatar_empty?: boolean;
     default_avatar_id?: string;
+    id?: string | number;
   };
   const email = json.default_email;
   if (!email) throw new Error("Yandex profile: provider did not return an email address");
@@ -99,10 +108,11 @@ async function fetchYandexProfile(accessToken: string): Promise<OAuthProfile> {
     !json.is_avatar_empty && json.default_avatar_id
       ? `https://avatars.yandex.net/get-yapic/${json.default_avatar_id}/islands-200`
       : null;
-  return { email: email.toLowerCase(), name, avatarUrl };
+  if (json.id === undefined || json.id === null) throw new Error("Yandex profile: subject is missing");
+  return { subject: String(json.id), email: email.toLowerCase(), name, avatarUrl };
 }
 
-async function exchangeGoogle(config: ReturnType<typeof getProviderConfig>, code: string): Promise<string> {
+async function exchangeGoogle(config: ReturnType<typeof getProviderConfig>, code: string): Promise<{ accessToken: string; idToken: string }> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -115,14 +125,78 @@ async function exchangeGoogle(config: ReturnType<typeof getProviderConfig>, code
     }),
     signal: AbortSignal.timeout(15_000),
   });
-  const json = (await res.json()) as { access_token?: string; error_description?: string };
-  if (!res.ok || !json.access_token) {
-    throw new Error(`Google token: ${json.error_description || res.status}`);
+  const json = (await res.json()) as { access_token?: string; id_token?: string; error_description?: string };
+  if (!res.ok || !json.access_token || !json.id_token) {
+    throw new Error("Google token exchange failed: " + (json.error_description || res.status));
   }
-  return json.access_token;
+  return { accessToken: json.access_token, idToken: json.id_token };
 }
 
-async function fetchGoogleProfile(accessToken: string): Promise<OAuthProfile> {
+async function fetchGoogleProfile(idToken: string, expectedNonce: string, clientId: string): Promise<OAuthProfile> {
+  const jwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+  const { payload } = await jwtVerify(idToken, jwks, {
+    issuer: ["https://accounts.google.com", "accounts.google.com"],
+    audience: clientId,
+  });
+  if (payload.nonce !== expectedNonce || typeof payload.sub !== "string" ||
+      typeof payload.email !== "string" || payload.email_verified !== true) {
+    throw new Error("Google ID token claims/nonce validation failed");
+  }
+  return {
+    subject: payload.sub,
+    email: payload.email.toLowerCase(),
+    name: typeof payload.name === "string" ? payload.name : "Пользователь Google",
+    avatarUrl: typeof payload.picture === "string" ? payload.picture : null,
+  };
+}
+
+async function exchangeVK(
+  config: ReturnType<typeof getProviderConfig>,
+  code: string,
+  deviceId: string,
+  state: string,
+  codeVerifier: string
+): Promise<{ accessToken: string; userId: string }> {
+  const params = new URLSearchParams({
+    grant_type: "authorization_code",
+    redirect_uri: config!.redirectUri,
+    client_id: config!.clientId,
+    code_verifier: codeVerifier,
+    state,
+    device_id: deviceId,
+  });
+  const res = await fetch("https://id.vk.ru/oauth2/auth?" + params.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ code }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const json = (await res.json()) as { access_token?: string; user_id?: number | string; state?: string; error?: string; error_description?: string };
+  if (!res.ok || !json.access_token || json.user_id === undefined || json.state !== state) {
+    throw new Error("VK ID token exchange failed: " + (json.error_description || json.error || res.status));
+  }
+  return { accessToken: json.access_token, userId: String(json.user_id) };
+}
+
+async function fetchVKProfile(accessToken: string, clientId: string, expectedUserId: string): Promise<OAuthProfile> {
+  const res = await fetch("https://id.vk.ru/oauth2/user_info", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: clientId, access_token: accessToken }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const json = (await res.json()) as { user?: { user_id?: string | number; email?: string; first_name?: string; last_name?: string; avatar?: string } };
+  const user = json.user;
+  if (!res.ok || !user?.email || user.user_id === undefined || String(user.user_id) !== expectedUserId) {
+    throw new Error("VK ID profile: verified email or matching user identifier is missing");
+  }
+  return {
+    subject: String(user.user_id),
+    email: user.email.toLowerCase(),
+    name: [user.first_name, user.last_name].filter(Boolean).join(" ") || "Пользователь VK ID",
+    avatarUrl: user.avatar || null,
+  };
+}
   const res = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
     headers: { Authorization: `Bearer ${accessToken}` },
     signal: AbortSignal.timeout(15_000),
@@ -171,22 +245,10 @@ export async function GET(
 
   const config = getProviderConfig(provider);
 
-  // Заглушка (vk/telegram/нет кредов) — прежнее JSON-поведение.
-  if (!config || !["yandex", "google"].includes(provider)) {
-    const code = searchParams.get("code");
-    const state = searchParams.get("state");
-    if (!code || !state) {
-      return NextResponse.json({ error: "Missing required OAuth callback parameters (code, state)", provider, stub: true }, { status: 400 });
-    }
-    return NextResponse.json({
-      provider,
-      received: { code, state },
-      stub: true,
-      message: "OAuth callback received. Token exchange not implemented for this provider.",
-    });
-  }
+  if (!config) return finishRedirect("Провайдер не настроен");
+  if (provider === "telegram") return finishRedirect("Вход через Telegram не включён");
 
-  // ---- Реальный флоу (yandex / google) ----
+  // ---- Реальный флоу (Yandex / Google / VK ID) ----
   try {
     // 1. CSRF: state из query === state из httpOnly-cookie.
     const code = searchParams.get("code");
@@ -196,11 +258,25 @@ export async function GET(
       return finishRedirect("Неверный state — повторите вход");
     }
 
-    // 2-3. Обмен кода + профиль.
-    const accessToken =
-      provider === "yandex" ? await exchangeYandex(config, code) : await exchangeGoogle(config, code);
-    const profile =
-      provider === "yandex" ? await fetchYandexProfile(accessToken) : await fetchGoogleProfile(accessToken);
+    // 2-3. Обмен кода и проверка личности на стороне провайдера.
+    let profile: OAuthProfile;
+    if (provider === "yandex") {
+      const verifier = request.cookies.get("oauth_verifier_yandex")?.value;
+      if (!verifier) throw new Error("Yandex PKCE verifier is missing");
+      const accessToken = await exchangeYandex(config, code, verifier);
+      profile = await fetchYandexProfile(accessToken);
+    } else if (provider === "google") {
+      const nonce = request.cookies.get("oauth_nonce_google")?.value;
+      if (!nonce) throw new Error("Google OIDC nonce is missing");
+      const tokens = await exchangeGoogle(config, code);
+      profile = await fetchGoogleProfile(tokens.idToken, nonce, config.clientId);
+    } else {
+      const deviceId = searchParams.get("device_id");
+      const verifier = request.cookies.get("oauth_verifier_vk")?.value;
+      if (!deviceId || !verifier) throw new Error("VK ID device_id/PKCE verifier is missing");
+      const tokens = await exchangeVK(config, code, deviceId, state, verifier);
+      profile = await fetchVKProfile(tokens.accessToken, config.clientId, tokens.userId);
+    }
 
     // 4. Создаём одноразовую magic-link сессию через GoTrue Admin API.
     // КРИТИЧНО: никогда не менять пароль уже существующего пользователя ради OAuth.
@@ -242,7 +318,6 @@ export async function GET(
     const userId = sessionData.user.id;
 
     // 4b. Профиль + роль CUSTOMER (идемпотентно).
-    const { supabaseAdmin } = await import("@/lib/supabase/admin");
     await supabaseAdmin.from("profiles").upsert({
       id: userId,
       email: profile.email,
