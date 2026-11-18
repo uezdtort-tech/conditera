@@ -478,6 +478,7 @@ io.use(async (socket, next) => {
     // При недоступности Next API подключение отклоняется (fail-closed).
     const validationResponse = await fetch(`${NEXT_API_BASE}/api/auth/session`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
     });
     if (!validationResponse.ok) {
       return next(new Error("auth: account validation unavailable"));
