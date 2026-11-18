@@ -46,12 +46,10 @@ function getProviderConfig(provider: Provider): {
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
     case "vk": {
-      // Do not route VK ID through the legacy oauth.vk.com endpoint.
-      // VK ID web authorization requires the current OAuth 2.1 + PKCE flow
-      // (code_verifier, code_challenge and device_id). Until that adapter is
-      // implemented and tested end-to-end, fail closed instead of exposing
-      // a button that appears configured but cannot complete authentication.
-      return null;
+      const clientId = process.env.VK_CLIENT_ID;
+      const redirectUri = process.env.VK_OAUTH_REDIRECT;
+      if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
+      return { clientId: clientId!, redirectUri: redirectUri! };
     }
     case "telegram": {
       // Telegram OAuth uses the bot token + redirect URI configured in the
