@@ -83,6 +83,23 @@ test.describe("OAuth providers", () => {
     expect(location.searchParams.get("oauthError")).toBeTruthy();
   });
 
+  test("preserves a safe returnTo when the user cancels provider authorization", async ({ request }) => {
+    const start = await request.get(
+      baseUrl + "/api/auth/oauth/yandex?returnTo=%2Fdashboard%2Forders%3Fstatus%3Dactive",
+      { maxRedirects: 0 }
+    );
+    expect(start.status()).toBe(302);
+
+    const callback = await request.get(
+      baseUrl + "/api/auth/oauth/yandex/callback?error=access_denied",
+      { maxRedirects: 0 }
+    );
+    expect(callback.status()).toBe(302);
+    const location = new URL(callback.headers()["location"]);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("returnTo")).toBe("/dashboard/orders?status=active");
+  });
+
   test("rejects callback without matching state before contacting provider", async ({ request }) => {
     const response = await request.get(
       baseUrl + "/api/auth/oauth/yandex/callback?code=fake-code&state=wrong-state",
