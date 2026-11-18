@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -178,6 +178,16 @@ export function AuthModal() {
   const [ogrn, setOgrn] = useState("");
   const [legalAddress, setLegalAddress] = useState("");
   const [ceoName, setCeoName] = useState("");
+
+  // Согласия не должны сохраняться между разными открытиями окна авторизации.
+  useEffect(() => {
+    if (!authModalOpen) {
+      setOauthConsentPd(false);
+      setOauthConsentTerms(false);
+      oauthLaunchRef.current = false;
+      setOauthStarting(false);
+    }
+  }, [authModalOpen]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
