@@ -29,6 +29,10 @@ test.describe.serial('Integration: full auth flow', () => {
         name: testName,
         phone: testPhone,
         role: 'CUSTOMER',
+        consentPd: true,
+        consentTerms: true,
+        consentOffer: true,
+        consentMarketing: false,
       },
     })
 
