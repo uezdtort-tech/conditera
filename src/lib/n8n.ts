@@ -25,7 +25,8 @@ export type ConditeraEvent =
   | "refund.completed"
   | "chat.message.created"
   | "inventory.low"
-  | "service.booking.created";
+  | "service.booking.created"
+  | "inquiry.created";
 
 const globalForN8n = globalThis as unknown as {
   __conditeraN8nWarned?: boolean;
