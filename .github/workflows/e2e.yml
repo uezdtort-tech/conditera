@@ -71,6 +71,7 @@ env:
   # Используем PGlite для изолированных тестов
   DATABASE_URL: "file:./db/e2e-test.db"
   JWT_SECRET: "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa"
+  JWT_REFRESH_SECRET: "e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa"
   TFA_ENCRYPTION_KEY: "e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
   CRON_SECRET: "e2e_test_cron_secret"
   NEXT_PUBLIC_APP_URL: "http://localhost:3000"
