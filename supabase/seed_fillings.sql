@@ -3,7 +3,18 @@
 -- ====================================================================
 
 INSERT INTO public.fillings (name, description, base_sponge, flavor_group, dietary_tags, price_multiplier, is_seasonal, season_months, color_code, sort_order)
-SELECT * FROM (VALUES
+SELECT
+  seed.name,
+  seed.description,
+  seed.base_sponge,
+  seed.flavor_group,
+  seed.dietary_tags::text[],
+  seed.price_multiplier,
+  seed.is_seasonal,
+  seed.season_months::integer[],
+  seed.color_code,
+  seed.sort_order
+FROM (VALUES
 -- Ягодные
 ('Молочная девочка (малина)', 'Нежный молочный бисквит с малиновым конфитюром', 'milk', 'berry', '{}', 1.0, false, '{}', '#F8B4D9', 1),
 ('Молочная девочка (вишня)', 'Молочный бисквит с вишнёвым конфитюром', 'milk', 'berry', '{}', 1.0, false, '{}', '#C0392B', 2),
