@@ -66,6 +66,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "tool-results/**",
     "supabase/functions/**", // Deno Edge Functions (different runtime)
     "supabase/seed*.sql",
+    "conditera-v2/**", // v2 rebuild (отдельный git-репозиторий, свой lint/tsc; D13: живёт внутри my-project — переживает recycle песочницы)
   ]
 }];
 

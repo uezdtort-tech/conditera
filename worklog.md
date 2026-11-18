@@ -9465,3 +9465,46 @@ Stage Summary:
 **Инфра-заметка:** песочница убивает процессы текущей сессии между вызовами → runtime-верификация только батч-скриптами (start dev → curl/browser → всё в одном вызове).
 
 **Следующий блок по карте:** S2B3 (security: timingSafeEqual, SafeHtml, safe-fetch, SERVICE_ROLE-гигиена).
+
+---
+
+## Task ID: rebuild-exec-S2B3 (2026-11-18, UTC)
+**Запрос владельца:** «Следующий блок по карте: S2B3 выполняй» (S2B3 — security-фундамент).
+
+**Инцидент-контекст (D13):** песочница-recycle уничтожил /home/z/conditera-v2 (коммиты [S1B1]…[S2B2] утеряны; бэкапов не было). Выполнению S2B3 предшествовало ПОЛНОЕ восстановление цепочки зависимостей в новом репозитории /home/z/conditera-v2 — 6 коммитов:
+- d044e95 [S1B1] scaffold: Next 16.4.6 + TS strict + Tailwind 4 + shadcn (36 ui-компонентов из старого проекта, разрешено промптом) + globals.css 2025 целиком + бренд-шрифты; health-матрица (503↔degraded когерентно; auth/storage "unreachable"/"not-configured" подписаны); тема Zustand persist conditera-storage + FOUC-bootstrap; sticky-footer + safe-area; env-соглашение (Supabase, PAYMENT_MODE=STUB, MEILI, DADATA, TELEGRAM, SMTP/Mailpit (решение №14), OAuth-флаги, DEV_AUTH_SHIM/STORAGE_MODE); docker-compose.local.yml (meili :7700, n8n :5678, mailpit SMTP :1025/UI :8025, supabase-postgres — профили); Next 16 proxy-конвенция (middleware.ts → proxy.ts)
+- 3850929 [S1B2] schema: 40 таблиц/33 enum'а (консолидация): BalanceLedger единственный журнал денег (SD-8/D10), единые tfa*-колонки (SD-10/D9, ноль two_factor_* в БД), categories admin-managed (№12), commission_rates (№10), bonusPolicy в site_settings + bonusPolicyOverride (№9), orders.paymentMode STUB (№1), telegramChatId (№5), RECIPE_DEVELOPER (№8), ingredients/allergens/categoryId + reviews-модерация (D11), products price history; Prisma 6.19 + embedded PG :54329 (runtime.mjs из старого проекта); migrate init; идемпотентный seed: 8 категорий, 6/6 демо-юзеров через Admin API (GoTrue хэширует сам), 20 товаров с составом/аллергенами, 10 отзывов, 3 рецепта, тарифы, bonusPolicy, демо-заказ + ledger-проводки
+- edb0428 [S1B3] design-system: обёртки PageHeader/SectionHeading/ShopCard/EmptyState/StatCard/SafeImage; /styleguide (8 табов, noindex, dev-ссылка в футере); sonner БЕЗ next-themes; dark-тема проверена (персист после reload)
+- 1558b10 [S2B1] auth: единый контур GoTrue — @supabase/ssr cookie-сессии (httpOnly sb-*-auth-token), proxy.ts updateSession, роуты register/login/logout/session/oauth/[provider]/2fa(enroll,verify), getCurrentUser fail-closed (D3 закрыт), claims-репликация app_metadata.roles + self-healing (БД — истина), auth-modal (быстрые 5 ролей + полный список), same-origin /auth/v1/[...path] прокси (preview-совместимость: браузер iframe не достаёт 127.0.0.1:3040), sanitize-модуль (register использует)
+- 6349552 [S2B2] RBAC: roles.ts 27 ролей + группы + manual-only; permissions 13 прав (SUPER_ADMIN superset); guard.ts withRole/withPermission/withAdmin; admin-roles (last_admin/manual-only/duplicate + audit admin_actions); API /api/admin/users + /api/admin/roles; UI /admin/roles + ссылка «Роли»; /register-roles; ROLE_MATRIX.md v2
+- ed31edf [S2B3] security (ЦЕЛЕВОЙ БЛОК): CSRF — одноразовый токен (cookie cd_csrf HttpOnly=false + X-CSRF-Token, TTL 15 мин), сравнение ТОЛЬКО sha256+crypto.timingSafeEqual (закрытие D5 — старый proxy.ts:128–149 сравнивал ===), ротация в каждом мутирующем ответе, whitelist: login/register/webhooks/health/csrf-token; гейт в proxy.ts до auth-логики (403); клиентский csrfFetch (auto-токен + подхват ротации); security-заголовки (DENY/nosniff/Referrer-Policy/Permissions-Policy/HSTS-prod/COOP); sanitize.ts + <SafeHtml> (закрытие D4 — единственный способ рендера user-HTML, sanitize прямо перед вставкой); safe-fetch (AbortSignal.timeout 10s, лимит 10MB, SSRF-guard 127/8|10/8|169.254/16|172.16/12|192.168/16|::1|fe80::/10|fc00::/7 + env-whitelist OLLAMA/SUPABASE/N8N/MEILI); rate-limit token-bucket (login 10/мин/IP, register 5/час/IP, 2fa 5/мин/IP → 429+Retry-After; AI per-action — S7B1); masking секретов в логах (паттерн diagnostics/masking.ts); SERVICE_ROLE hygiene (grep 0); docs/SECURITY_BASELINE.md (14 мер + чек-лист приёмки S3–S9)
+
+**Верификация (curl + agent-browser):** register→login→session→logout→401 (fail-closed); ADMIN-запрос при self-register → 403; RBAC: anon 401/customer 403/admin 200; assign→re-login→claims содержит роль; duplicate 409; SUPER_ADMIN 403; last_admin 409; CSRF: logout без токена 403, login с токеном → 401 (CSRF пройден), admin POST без токена 403 (гейт до auth), с токеном → 200 + ротация; rate-limit: 12 подряд → 429+retry-after; заголовки в ответе страницы; XSS: /styleguide Security-таб — script вырезан, javascript: нейтрализован, alert не исполнялся; agent-browser: логин из формы (токен автоподстановка), назначение/снятие роли с Dialog+тостами; mobile 390 NO-OVERFLOW; футер прижат; тема dark persist; tsc 0 / lint 0; health {status:ok, database:ok, auth:ok}.
+
+**Инфра-заметки:** DATABASE_URL персистентной shell засорён file:-URL → prisma/seed/dev: `env -u DATABASE_URL …`; браузерный supabase-js — same-origin через /auth/v1 прокси (env NEXT_PUBLIC_SUPABASE_URL пуст в dev); vitest-раннер настроен, тесты не пишутся (правило плана).
+
+**Следующий блок по карте:** S2B4 (Supabase Storage: 7 бакетов, RLS, /api/upload, magic-bytes, disk-adapter STORAGE_MODE=local).
+
+---
+
+## Task ID: restore+S2B4 (2026-11-18, UTC)
+**Запрос владельца:** «страница сайта не отображается, как восстановишь переходи к следующему блоку».
+
+**1. Восстановление сайта (:3000, старый проект):** dev-сервер не стартовал — два фатальных конфликта роутов после recycle: (a) /api/cart/[itemId] vs /api/cart/[ref] — разные slug-имена одного динамического уровня (карантин [itemId]: мёртвый роут, клиент Gen 7 использует [ref]; FIX_A1_A5 это уже фиксировал); (b) src/app/robots.ts (metadata) vs src/app/robots.txt/route.ts vs public/robots.txt — тройной конфликт /robots.txt (карантины robots.ts и public/robots.txt — канон RFC 9309 в robots.txt/route.ts). Коммит ba0d2a4 в my-project; GET / 200, robots.txt 200, браузер-скриншот ok.
+
+**2. Инцидент D13 №3: /home/z/conditera-v2 снова уничтожен recycle** (коммиты S1B1…S2B3 прошлой сессии потеряны). УРОК УСВОЕН: v2-репозиторий перенесён ВНУТРЬ персистентной зоны — /home/z/my-project/conditera-v2 (my-project переживает recycle — карантины 11-03/11-10/11-16 сохранились). eslint my-project: ignore conditera-v2/** (tsconfig/vitest не трогают — include только src/**).
+
+**3. Восстановление цепочки зависимостей + ЦЕЛЕВОЙ БЛОК S2B4 — 7 коммитов в v2 (порт 3100, PG :54330 embedded, shim :3040):**
+- 0deacc6 [S1B1] scaffold (36 shadcn, токены 2025, health-матрица, docker-compose.local с Mailpit №14)
+- fde8c65 [S1B2] schema 40 моделей/33 enum'а + seed идемпотентный (отклонение: PG :54330 — :54329 занят живым демоном старого проекта, он read-only)
+- e073976 [S1B3] дизайн-система: обёртки + /styleguide 8 табов, dark-персист, mobile 390 no-overflow
+- 40f5774 [S2B1] auth GoTrue-only: SSR-куки, fail-closed, claims self-healing, auth-modal, auth-shim :3040 (DEV_AUTH_SHIM=1); цикл register→session→logout→401, шим-даун→503/401
+- 272b436 [S2B2] rbac: 27 ролей/13 прав, withRole/withAdmin, admin-roles (last_admin/manual-only/duplicate + audit), /admin/roles + /register-roles
+- b738f2e [S2B3] security: CSRF sha256+timingSafeEqual (D5), ротация токена, гейт до auth; заголовки (XFO DENY…); sanitize+SafeHtml (D4), styleguide Security-таб; safe-fetch (timeout 10s, 10MB, SSRF-guard + env-whitelist); rate-limit login 10/мин, register 5/час, 2fa 5/мин → 429; masking; SERVICE_ROLE hygiene; SECURITY_BASELINE.md (14 мер)
+- 0f61230 [S2B4 — ЦЕЛЕВОЙ БЛОК] storage: 7 бакетов (avatars/portfolios/products/recipes публичные; documents/chat-attachments/cms приватные, signed TTL 5 мин), RLS-SQL owner-write {auth.uid()}/* (prod) vs ролевая матрица роута (dev — компенсирующая контроль, baseline §15); POST /api/upload: rate-limit → auth → роли → 413/415 magic-bytes (png/jpeg/webp/gif/pdf + размеры) → uuid-путь → adapter (STORAGE_MODE=local disk / supabase prod-ready); /api/files, DELETE /api/files/[id], /api/storage/signed (HMAC SUPABASE_JWT_SECRET, timingSafeEqual), /storage/public/[...path], cron storage-cleanup (X-Cron-Secret), FileUpload UI + /dashboard/files; FileObject в Prisma; health storage:"local"
+
+**Верификация S2B4:** PNG→products 201 (+размеры), те же байты как text/plain→415, >cap→413, аноним→403 (CSRF-гейт раньше auth) / с токеном→401, customer→products→403; signed URL: владелец 200, подделка подписи 403, просрочка 403, чужой 403, staff 200; DELETE 200 → диск чист → 404; cron без секрета 401/с секретом 200; lint 0/tsc 0; browser: v2-лендинг рендер (скриншот agent-ctx/v2-home-recovered.png), 1280px no-overflow.
+
+**БЭКАПЫ (новое правило, против D13):** после КАЖДОГО блока git bundle → /home/z/my-project/backups/conditera-v2-{S1B1,S1B2,S1B3,S2B1,S2B2,S2B3,S2B4}.bundle (581 KB последний). Восстановление: git clone conditera-v2-S2B4.bundle conditera-v2.
+
+**Следующий блок по карте:** S3B1 (маршруты/навигация App Router).
