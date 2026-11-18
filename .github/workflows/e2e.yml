@@ -171,6 +171,7 @@ jobs:
       - name: Start embedded PostgreSQL, apply migrations and seed E2E data
         run: bun run db:setup
         env:
+          SEED_MODE: demo
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
