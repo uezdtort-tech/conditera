@@ -9452,3 +9452,16 @@ Stage Summary:
 **Ограничения/инциденты:** в персистентной shell DATABASE_URL был засорён file:-URL старого проекта (перебивал .env.local — запуск dev: `env -u DATABASE_URL bun run dev`); MFA/OAuth в dev-шиме не эмулируются (честные 503/501, флаги SUPABASE_MFA_ENABLED/SUPABASE_OAUTH_*_ENABLED); STORAGE — S2B4.
 
 **Следующий блок по карте:** S2B2 (RBAC и роли).
+
+---
+
+## Task ID: rebuild-exec-S2B2 (2026-11-18, UTC)
+**Запрос владельца:** (1) вопрос №5 отчёта S2B1 — SMTP прода: остановиться на Mailpit (решение №14, DECISIONS.md дополнен; env SMTP_HOST/PORT/FROM в .env.example v2, контейнер — S9B1, письма — S6B2); (2) следующий блок карты — S2B2.
+
+**S2B2 в /home/z/conditera-v2 (коммит a635ce4 [S2B2]):** roles.ts v2 (27 ролей = enum, ROLE_CATALOG, группы, MANUAL_ONLY_ROLES); permissions.ts (13 permission'ов, SUPER_ADMIN — супермножество); guard.ts (withRole/withPermission/withAdmin + assertSameOrigin); admin-roles.ts (assign/remove: БД → claims → admin_actions; защиты last_admin/manual-only/duplicate); API /api/admin/users + /api/admin/roles (GET/POST/DELETE) за withAdmin; Prisma AdminAction; UI /admin/roles (поиск/бейджи/Dialog/тосты) + ссылка «Роли» в header; /register-roles (19 ролей из ROLE_CATALOG, SSR+island); docs/ROLE_MATRIX.md v2.
+
+**Верификация:** 13 curl-проверок (401/403/409/last-admin/origin/audit/claims) — verify-s2b2.sh; agent-browser: логин → назначение/снятие «Модератор» (тосты), anonymous-гвард, mobile 390 NO-OVERFLOW; tsc 0/lint 0.
+
+**Инфра-заметка:** песочница убивает процессы текущей сессии между вызовами → runtime-верификация только батч-скриптами (start dev → curl/browser → всё в одном вызове).
+
+**Следующий блок по карте:** S2B3 (security: timingSafeEqual, SafeHtml, safe-fetch, SERVICE_ROLE-гигиена).
