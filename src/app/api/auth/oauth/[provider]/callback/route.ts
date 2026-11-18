@@ -225,6 +225,8 @@ function finishRedirect(
     response.cookies.set("oauth_state_" + provider, "", cookieOptions);
     response.cookies.set("oauth_verifier_" + provider, "", cookieOptions);
     response.cookies.set("oauth_return_to_" + provider, "", cookieOptions);
+    response.cookies.set("oauth_consent_pd_" + provider, "", cookieOptions);
+    response.cookies.set("oauth_consent_terms_" + provider, "", cookieOptions);
     if (provider === "google") response.cookies.set("oauth_nonce_google", "", cookieOptions);
   }
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
@@ -298,6 +300,15 @@ export async function GET(
     if (identityLink?.user_id) {
       userId = identityLink.user_id;
     } else {
+      const consentPd = request.cookies.get("oauth_consent_pd_" + provider)?.value === "1";
+      const consentTerms = request.cookies.get("oauth_consent_terms_" + provider)?.value === "1";
+      if (!consentPd || !consentTerms) {
+        return finishRedirect(
+          "Для создания нового аккаунта необходимо отдельно принять согласие на обработку персональных данных и условия платформы.",
+          provider,
+          returnTo
+        );
+      }
       // Не объединяем существующие аккаунты только по совпадению email.
       const { data: emailOwner, error: emailLookupError } = await supabaseAdmin
         .from("profiles")
@@ -319,6 +330,10 @@ export async function GET(
         avatar_url: profile.avatarUrl,
         oauth_provider: provider,
         oauth_subject: profile.subject,
+        consent_pd_accepted_at: new Date().toISOString(),
+        consent_terms_accepted_at: new Date().toISOString(),
+        consent_pd_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
+        consent_terms_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
       };
       const { data: authData, error: authCreateError } = await supabaseAdmin.auth.admin.createUser({
         email: profile.email,
