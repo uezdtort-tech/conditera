@@ -49,6 +49,8 @@ services:
       # Пути должны совпадать с фактическими bind mounts ниже.
       MIGRATIONS_DIR: /conditera-migrations
       SEEDS_DIR: /docker-entrypoint-initdb.d/seed
+      # Production никогда не загружает тестовые аккаунты, рецепты и промокоды.
+      SEED_MODE: none
     # НЕ пробрасываем порт наружу — только через supabase-kong
     expose:
       - "5432"
