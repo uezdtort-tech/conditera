@@ -405,7 +405,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const { error: consentErr } = await supabaseAdmin.from("user_consent_events").insert(consentEvents);
     if (consentErr) {
       console.error("[register] consent journal insert error:", consentErr.message);
-      if (authData?.user?.id) await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+      if (authData?.user?.id) {
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+      } else if (authErr) {
+        try {
+          const { getPool } = await import("@/lib/postgrest/pool");
+          await getPool().query("DELETE FROM auth.users WHERE id = $1", [userId]);
+        } catch (cleanupError) {
+          console.error("[register] local auth rollback failed:", cleanupError);
+        }
+      }
       await supabaseAdmin.from("user_roles").delete().eq("user_id", userId);
       await supabaseAdmin.from("profiles").delete().eq("id", userId);
       return NextResponse.json(
