@@ -20,7 +20,7 @@ import { randomUUID } from 'crypto'
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 // Test data — используем детерминированные ID, чтобы тесты были повторяемыми.
-const TEST_ORDER_ID = `e2e-order-${Date.now()}`;
+const TEST_ORDER_ID = randomUUID();
 const TEST_PAYMENT_ID = `e2e-payment-${Date.now()}`;
 const TEST_CUSTOMER_ID = `e2e-customer-${Date.now()}`;
 const TEST_CUSTOMER_EMAIL = `e2e-customer-${Date.now()}@example.com`;
