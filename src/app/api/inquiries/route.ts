@@ -58,30 +58,74 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const filter = request.nextUrl.searchParams.get("filter") || "own";
     const city = request.nextUrl.searchParams.get("city");
-    let query = supabaseAdmin.from("inquiries").select("*, negotiations:negotiations(*)");
+    const isAdmin = user.roles.includes("ADMIN") || user.roles.includes("SUPER_ADMIN");
+    const isConfectioner = user.roles.includes("CONFECTIONER");
 
-    if (filter === "available") {
-      if (!user.roles.includes("CONFECTIONER") && !user.roles.includes("ADMIN") && !user.roles.includes("SUPER_ADMIN")) {
-        return errorResponse("Только кондитеры могут просматривать доступные запросы", 403);
-      }
-      query = query.eq("status", "open");
-      if (city) query = query.eq("city", city);
-    } else if (filter === "own") {
-      query = query.eq("user_id", user.id);
-    } else {
+    if (filter === "available" && !isConfectioner && !isAdmin) {
+      return errorResponse("Только кондитеры могут просматривать доступные запросы", 403);
+    }
+    if (filter !== "available" && filter !== "own") {
       return errorResponse("Неизвестный фильтр запросов", 400);
     }
 
-    const { data, error } = await query.order("submitted_at", { ascending: false });
-    if (error) {
-      console.error("[inquiries] GET failed:", error.message);
-      return errorResponse("Не удалось загрузить запросы", 500);
-    }
-    const rows = data || [];
-    const visible = filter === "available" && !user.roles.includes("ADMIN") && !user.roles.includes("SUPER_ADMIN")
-      ? rows.filter((inquiry) => Array.isArray(inquiry.negotiations) && inquiry.negotiations.some((negotiation: { confectioner_id?: string }) => negotiation.confectioner_id === user.id))
-      : rows;
-    return NextResponse.json({ inquiries: visible });
+    // POST пишет через прямой PostgreSQL transaction (withClaims). Чтение
+    // через PostgREST здесь давало пустой список в локальном runtime при том,
+    // что запись уже была в основной БД. Читаем тем же DB-контрактом.
+    const inquiries = await withClaims(
+      { role: "service_role", sub: user.id, raw: { role: "service_role", sub: user.id } },
+      async (client) => {
+        const params: unknown[] = [];
+        let where = "";
+        if (filter === "own") {
+          params.push(user.id);
+          where = "i.user_id = $1::uuid";
+        } else {
+          where = "i.status = 'open'";
+          if (!isAdmin) {
+            params.push(user.id);
+            where += ` AND EXISTS (
+              SELECT 1 FROM public.negotiations access_n
+              WHERE access_n.inquiry_id = i.id
+                AND access_n.confectioner_id = $1::uuid
+            )`;
+          }
+          if (city) {
+            params.push(city);
+            where += ` AND i.city = $${params.length}`;
+          }
+        }
+
+        const inquiryResult = await client.query<Record<string, unknown> & { id: string }>(
+          `SELECT i.*
+             FROM public.inquiries i
+            WHERE ${where}
+            ORDER BY i.submitted_at DESC`,
+          params
+        );
+        const rows = inquiryResult.rows;
+        if (rows.length === 0) return [];
+
+        const ids = rows.map((row) => row.id);
+        const negotiationsResult = await client.query<Record<string, unknown> & { inquiry_id: string }>(
+          `SELECT n.*
+             FROM public.negotiations n
+            WHERE n.inquiry_id = ANY($1::uuid[])`,
+          [ids]
+        );
+        const byInquiry = new Map<string, Array<Record<string, unknown>>>();
+        for (const negotiation of negotiationsResult.rows) {
+          const list = byInquiry.get(negotiation.inquiry_id) || [];
+          list.push(negotiation);
+          byInquiry.set(negotiation.inquiry_id, list);
+        }
+        return rows.map((row) => ({
+          ...row,
+          negotiations: byInquiry.get(row.id) || [],
+        }));
+      }
+    );
+
+    return NextResponse.json({ inquiries });
   } catch (error) {
     console.error("[inquiries] GET error:", error instanceof Error ? error.message : String(error));
     return errorResponse("Внутренняя ошибка сервера", 500);
