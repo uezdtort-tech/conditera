@@ -85,6 +85,8 @@ function buildAuthorizationUrl(
     case "google": {
       params.set("scope", "openid email profile");
       params.set("nonce", nonce);
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "S256");
       params.set("access_type", "offline");
       params.set("prompt", "consent");
       return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -176,7 +178,7 @@ export async function GET(
     maxAge: 600,
     path: "/api/auth/oauth",
   });
-  if (provider === "vk" || provider === "yandex") {
+  if (provider === "google" || provider === "vk" || provider === "yandex") {
     response.cookies.set(`oauth_verifier_${provider}`, codeVerifier, {
       httpOnly: true,
       sameSite: "lax",
