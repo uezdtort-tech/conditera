@@ -264,7 +264,7 @@ export async function GET(
   const returnTo = requestedReturnTo.startsWith("/") &&
     !requestedReturnTo.startsWith("//") &&
     !requestedReturnTo.includes("\\") &&
-    !/[\\r\\n]/.test(requestedReturnTo)
+    !/[\r\n]/.test(requestedReturnTo)
     ? requestedReturnTo
     : "/dashboard";
 
