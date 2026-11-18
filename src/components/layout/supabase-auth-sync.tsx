@@ -59,6 +59,7 @@ async function fetchStoreUser(): Promise<User | null> {
 
 export function SupabaseAuthSync() {
   const setSupabaseUser = useAppStore((s) => s.setSupabaseUser);
+  const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +89,7 @@ export function SupabaseAuthSync() {
             createdAt: String(u.createdAt ?? new Date().toISOString()),
             city: u.city ?? undefined,
           } as never);
+          setAuthModalOpen(false);
         } else {
           setSupabaseUser(null);
         }
@@ -119,7 +121,7 @@ export function SupabaseAuthSync() {
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [setSupabaseUser]);
+  }, [setSupabaseUser, setAuthModalOpen]);
 
   return null;
 }
