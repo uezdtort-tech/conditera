@@ -111,16 +111,12 @@ export interface AuthenticatedUser {
   accountType: string;
 }
 
-interface BlockedUserCacheEntry {
-  ts: number;
-  blocked: boolean;
-}
-
 interface UserRow {
   id: string;
   is_blocked: boolean | null;
   name: string | null;
   email: string | null;
+  account_type: string | null;
 }
 
 interface SupabaseError {
@@ -254,13 +250,11 @@ function extractTokenFromRequest(request: Request): string | null {
  * Возвращает null если:
  *   • ни один источник не дал валидный токен
  *   • токен невалиден (verifyAccessToken вернул null)
- *   • пользователь заблокирован (is_blocked=true в БД)
+ *   • профиль отсутствует/заблокирован или не удалось проверить БД
  *
- * Кэш проверки blocked: 60 секунд в globalThis — чтобы не делать запрос БД
- * на каждый запрос к API с одним и тем же пользователем.
- *
- * Fail-closed: профиль обязан существовать и быть доступен для проверки.
- * При ошибке БД, отсутствии профиля или исключении запрос отклоняется.
+ * Роли и атрибуты пользователя читаются из БД на каждом запросе, а не из
+ * потенциально устаревших JWT claims. Изменение/отзыв роли применяется сразу.
+ * Fail-closed: при любой ошибке чтения запрос отклоняется.
  */
 export async function getUserFromRequest(request: Request): Promise<AuthenticatedUser | null> {
   const token = extractTokenFromRequest(request);
@@ -273,61 +267,61 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
   if (!payload || !userId) return null;
 
-  // Проверяем, не заблокирован ли пользователь (кэш 60 секунд)
-  const cacheKey = `__blocked_check_${userId}`;
-  const cacheStore = globalThis as unknown as Record<string, BlockedUserCacheEntry>;
-  const cached = cacheStore[cacheKey];
-  if (cached && Date.now() - cached.ts < 60_000) {
-    if (cached.blocked) return null;
-    return buildUserFromPayload(payload);
-  }
-
   try {
-    const result = await supabaseAdmin
+    const profileResult = await supabaseAdmin
       .from("profiles")
-      .select("id, is_blocked, name, email")
+      .select("id, is_blocked, name, email, account_type")
       .eq("id", userId)
       .maybeSingle() as { data: UserRow | null; error: SupabaseError | null };
-    const user = result.data;
-    const error = result.error;
 
-    if (error) {
-      console.error("[auth] profile/blocked-check failed; rejecting request:", error.message);
+    if (profileResult.error) {
+      console.error("[auth] profile validation failed; rejecting request:", profileResult.error.message);
       return null;
     }
 
-    // Валидной подписи JWT недостаточно: пользователь должен существовать
-    // в каноническом профиле. Это также закрывает доступ удалённым и
-    // неинициализированным аккаунтам.
-    if (!user) {
-      console.warn("[auth] profile not found; rejecting request:", userId);
+    const profile = profileResult.data;
+    if (!profile || profile.is_blocked === true) {
+      console.warn("[auth] profile missing or blocked; rejecting request:", userId);
       return null;
     }
 
-    const isBlocked = user.is_blocked === true;
-    cacheStore[cacheKey] = { ts: Date.now(), blocked: isBlocked };
-    if (isBlocked) return null;
+    // JWT claims не являются источником актуальных полномочий: роли могли
+    // быть отозваны или изменены после выдачи access token.
+    const rolesResult = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("is_active", true);
+
+    if (rolesResult.error) {
+      console.error("[auth] role lookup failed; rejecting request:", rolesResult.error.message);
+      return null;
+    }
+
+    const roles = (rolesResult.data || []).map((item: { role: string }) => item.role);
+    return buildUserFromPayload(payload, profile, roles);
   } catch (err) {
-    // Недоступность БД не должна превращаться в обход авторизации.
     console.error(
-      "[auth] profile/blocked-check threw; rejecting request:",
+      "[auth] authentication state lookup threw; rejecting request:",
       err instanceof Error ? err.message : String(err)
     );
     return null;
   }
-
-  return buildUserFromPayload(payload);
 }
 
-function buildUserFromPayload(payload: JwtPayload): AuthenticatedUser {
+function buildUserFromPayload(
+  payload: JwtPayload,
+  profile: UserRow,
+  roles: string[]
+): AuthenticatedUser {
   const sub = (payload as { sub?: string }).sub;
   return {
-    id: payload.userId || sub || "",
-    userId: payload.userId || sub || "",
-    email: payload.email || "",
-    name: typeof payload.name === "string" ? payload.name : undefined,
-    roles: payload.roles || [],
-    accountType: payload.accountType || "",
+    id: profile.id,
+    userId: profile.id,
+    email: profile.email || payload.email || "",
+    name: profile.name || (typeof payload.name === "string" ? payload.name : undefined),
+    roles,
+    accountType: profile.account_type || payload.accountType || "",
   };
 }
 
