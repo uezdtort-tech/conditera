@@ -2,6 +2,9 @@
 
 > Дата: 2026-11-18. Автор: дежурный агент (сессия web-dd1ef6d6).
 > Статус: одобрено владельцем («давай пересоздадим проект!»).
+> **v2.1 (18.11): по прямому указанию владельца платформа — Supabase:
+> Auth (GoTrue), Storage (файлы пользователей и исполнителей) и иные
+> сервисы. Промпты S1/S2/S6/S9 синхронизированы.**
 > Каждый блок = отдельный самодостаточный промпт в `docs/rebuild/prompts/`.
 
 ---
@@ -37,7 +40,7 @@
 | # | Дефект | Где | Как закрывается в v2 |
 |---|---|---|---|
 | D1 | Тройная персистентность: Prisma-схема + supabase-js + 86 SQL-миграций + «Prisma shim» | весь src/lib/supabase | S1B2: одна Prisma-схема |
-| D2 | Dual-auth: jose HS256 (cd_session) + GoTrue + fallback-INSERT в auth.users | src/lib/auth.ts (375), api/auth/* | S2B1: одна схема сессий, fail-closed |
+| D2 | Dual-auth: jose HS256 (cd_session) + GoTrue + fallback-INSERT в auth.users | src/lib/auth.ts (375), api/auth/* | S2B1: единственный контур — Supabase Auth (GoTrue); без собственных JWT и fallback-INSERT |
 | D3 | Fail-open при session-resolve | auth.ts:293–296 | S2B1: fail-closed |
 | D4 | Stored-XSS через dangerouslySetInnerHTML | admin-email-tab.tsx:303, email/inbound | S2B3 + S5B3: санитизация по умолчанию |
 | D5 | Timing-unsafe сравнения секретов | proxy.ts:128–149 | S2B3: crypto.timingSafeEqual |
@@ -63,16 +66,34 @@
 - **Корень нового проекта**: `/home/z/conditera-v2` (чистый репозиторий git).
   Старый `/home/z/my-project` — только чтение (референс). Переключение порта
   3000 и замена прод-деплоя — финальный шаг S9B1, отдельным поручением.
-- **Персистентность**: Prisma ORM + PostgreSQL — единственный источник
-  истины. 86 старых миграций консолидируются в одну начальную схему
-  (блок S1B2 по инвентаризации S0B2).
-- **Auth**: одна схема — httpOnly-куки `cd_session`/`cd_refresh` (jose HS256),
-  refresh-ротация, TOTP 2FA, fail-closed. Без GoTrue и fallback-INSERT.
+- **Платформа — Supabase (указание владельца 18.11, v2.1)**:
+  - **Auth (GoTrue)** — ЕДИНСТВЕННЫЙ контур аутентификации: регистрация,
+    вход, сессии, refresh, OAuth, MFA ведёт Supabase. Собственный
+    jose-контур, dual-auth и fallback-INSERT в auth.users — ЗАПРЕЩЕНЫ
+    (закрыть D2/D3). Роли — истина в profiles, репликация в JWT
+    (app_metadata.roles через Admin API). Fail-closed: GoTrue
+    недоступен → пользователь null / 503, никогда не «демо-пользователь».
+  - **Storage** — хранение загруженных файлов пользователей и
+    исполнителей (аватары, портфолио, фото товаров, документы/сертификаты,
+    вложения чата): бакеты + RLS-политики + единый upload-роут — блок S2B4.
+  - **Postgres** — БД платформы; app-данные пишет Prisma (единственный
+    контур записи, закрыть D1); auth.users/роли — только через Supabase
+    Admin API (service-role, серверный env).
+  - **Realtime** — опционально (presence/typing чата, S6B1); основной
+    транспорт чатов — socket.io :3030 через гейтвей.
+- **Персистентность app-данных**: Prisma ORM; 86 старых миграций
+  консолидируются в одну начальную схему (блок S1B2 по инвентаризации
+  S0B2).
 - **UI**: Next App Router маршруты вместо SPA-компонентов в page.tsx;
   дизайн-система 2025 переносится как токены + компоненты.
 - **AI**: как в e5dd2d8 (env-конфиг, таймауты, rate-limit per-action).
 - **Автоматизация**: единый cron-реестр + n8n-приёмник (порт 5678) —
   покрываются все 20 эндпоинтов.
+- **Локальный dev**: в песочнице GoTrue/Storage недоступны (норма dev
+  «auth=unreachable») — v2 использует явные флаги DEV_AUTH_SHIM=1
+  (mock-GoTrue на :3040) и STORAGE_MODE=local (disk-adapter); в prod —
+  реальные сервисы Supabase-проекта владельца. Shim/adapter никогда не
+  включаются по умолчанию и не попадают в prod.
 
 ---
 
@@ -85,9 +106,10 @@
 | S1 Фундамент | S1B1 Каркас проекта и гейты | prompts/S1B1-scaffold.md | S0B2 |
 | S1 | S1B2 Единая схема данных (Prisma) | prompts/S1B2-database.md | S1B1 |
 | S1 | S1B3 Дизайн-система 2025 + тема | prompts/S1B3-design-system.md | S1B1 |
-| S2 Auth/RBAC | S2B1 Single-auth сессии | prompts/S2B1-auth.md | S1B2 |
+| S2 Auth/RBAC | S2B1 Supabase Auth (GoTrue) | prompts/S2B1-auth.md | S1B2 |
 | S2 | S2B2 RBAC и роли | prompts/S2B2-rbac.md | S2B1 |
 | S2 | S2B3 Security-фундамент | prompts/S2B3-security.md | S2B1 |
+| S2 | S2B4 Supabase Storage: файлы пользователей/исполнителей | prompts/S2B4-storage.md | S2B1, S1B2 |
 | S3 Публичный сайт | S3B1 Маршруты и навигация | prompts/S3B1-routes.md | S1B3 |
 | S3 | S3B2 Каталог и карточки | prompts/S3B2-catalog.md | S3B1, S1B2 |
 | S3 | S3B3 SEO + Метрика + PWA | prompts/S3B3-seo-metrika.md | S3B1 |
@@ -136,9 +158,19 @@
   раннер: `bun run dev` (порт 3000), `bun run lint`, `bunx tsc --noEmit`.
 - Tailwind CSS 4 + shadcn/ui (стиль New York, иконки Lucide). Запрещены
   indigo/blue оттенки вне явного запроса владельца.
-- Данные: Prisma ORM — единственный источник истины (prisma/schema.prisma,
-  `prisma migrate`). Локальная БД: embedded PostgreSQL :54329
-  (`node scripts/db/runtime.mjs start|status`). Сид — `scripts/db/seed.ts`.
+- Данные: Prisma ORM — единственный контур записи app-данных
+  (prisma/schema.prisma, `prisma migrate`). Локальная БД: embedded
+  PostgreSQL :54329 (`node scripts/db/runtime.mjs start|status`). Сид —
+  `scripts/db/seed.ts`.
+- Supabase (указание владельца): Auth (GoTrue) — единственный контур
+  аутентификации; Storage — файлы пользователей/исполнителей (блок S2B4);
+  клиенты @supabase/supabase-js + @supabase/ssr. Env-ключи:
+  NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  SUPABASE_SERVICE_ROLE_KEY (ТОЛЬКО серверный код), SUPABASE_JWT_SECRET
+  (верификация JWT в websocket-сервисе). Записи в auth.users — только
+  через Admin API. Fail-closed: недоступность Auth → null/503; dev-shim
+  (DEV_AUTH_SHIM=1) и disk-adapter (STORAGE_MODE=local) — только по
+  явному флагу, никогда в prod.
 - Backend: только Route Handlers `src/app/api/**/route.ts`. Server actions
   запрещены. z-ai-web-dev-sdk — только в backend-коде.
 - UI: дизайн-система 2025 — токены в globals.css, классы `card-hover`,

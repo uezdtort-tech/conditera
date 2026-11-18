@@ -19,8 +19,10 @@
 - Данные: только Prisma (Next-сторона); сервис чата — свой лёгкий
   стор (in-memory + синхронизация в PG через DATABASE_URL Prisma
   клиента — единая БД).
-- Безопасность: JWT-проверка cd_session при handshake (jose verify,
-  секрет из env); комнаты по参与者; rate-limit сообщений (30/мин).
+- Безопасность: JWT-проверка при handshake — Supabase access token
+  (socket.handshake.auth.token), верификация jose с секретом
+  SUPABASE_JWT_SECRET (env) либо через supabase.auth.getUser; комнаты
+  по участникам; rate-limit сообщений (30/мин).
 - Процесс: коммит `[S6B1] ...`; tsc→vitest→agent-browser; worklog.md.
 - Запреты: прод/секреты; старый проект — только чтение.
 
@@ -34,11 +36,14 @@ unread-счётчики, online-статусы — end-to-end через гей�
    body, createdAt, readAt). Индексы: (conversationId, createdAt).
 2. mini-services/chat-service/index.ts (bun, socket.io):
    - порт 3030 (в коде константа PORT=3030, не из env);
-   - handshake: middleware — verify JWT из cookie cd_session
-     (socket.handshake.headers.cookie) → attach {userId, roles};
+   - handshake: middleware — verify Supabase access token из
+     socket.handshake.auth.token (jose verify с SUPABASE_JWT_SECRET)
+     → attach {userId, roles из app_metadata.roles};
      невалид → disconnect;
    - события: join:conversation (проверка участника!), message:send
-     (rate-limit, sanitize body: plain text, ≤2000 симв), message:read;
+     (rate-limit, sanitize body: plain text, ≤2000 симв,
+     attachment?: {fileId} — проверка владения/доступа через files
+     из S2B4), message:read;
    - broadcast: message:new (в комнату), conversation:updated;
    - persistence: INSERT Message через Prisma; история — GET
      /api/chat/conversations/:id/messages (Next-сторона, guard
@@ -72,8 +77,8 @@ unread-счётчики, online-статусы — end-to-end через гей�
 - Не хранить сообщения в памяти без персистенции.
 
 ## 7. КРИТЕРИИ ПРИЁМКИ
-- [ ] Handshake без валидного cd_session → disconnect (проверка curl
-      + браузер);
+- [ ] Handshake без валидного Supabase access token → disconnect
+      (проверка curl + браузер);
 - [ ] Сообщение проходит в реальном времени в 2 браузерах и пишется в
       БД; unread у получателя; read-метки работают;
 - [ ] Не-участник беседы: join → отказ (проверка тестом из curl);

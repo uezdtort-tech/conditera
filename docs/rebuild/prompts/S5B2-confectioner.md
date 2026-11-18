@@ -32,7 +32,8 @@
      textarea с предупреждением о plain-тексте),
      СОСТАВ (ingredients — теги-чипы), АЛЛЕРГЕНЫ (мультиселект из
      фиксированного списка: орехи, молоко, яйца, глютен, соя, мёд…),
-     изображения (URL-список на MVP — загрузка файлов в S9B1);
+     изображения (загрузка через /api/upload → Supabase Storage,
+     bucket products, S2B4; без Storage в dev — STORAGE_MODE=local);
    - POST /api/vendor/products (CSRF) — только свои;
    - isPublished переключатель.
 3. Заказы /vendor/orders: входящие по своим товарам; статусы:

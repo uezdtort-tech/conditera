@@ -48,12 +48,17 @@ CSRF-защита всех state-changing API, security-заголовки, об
 4. Центральный fetch-хелпер src/lib/http/safe-fetch.ts: обязательный
    AbortSignal.timeout(ms, default 10000), ограничение размера ответа,
    запрет внутренних адресов (SSRF-guard: блок 169.254/10./127.
-   кроме whitelist OLLAMA_BASE_URL) — применяется во всех будущих
-   исходящих вызовах (YooKassa, Метрика, n8n, Ollama).
+   кроме whitelist: OLLAMA_BASE_URL, NEXT_PUBLIC_SUPABASE_URL,
+   N8N_WEBHOOK_BASE_URL) — применяется во всех будущих исходящих
+   вызовах (YooKassa, Метрика, n8n, Ollama, Supabase).
 5. Rate-limit: src/lib/security/rate-limit.ts — in-memory token bucket
    (ключ+окно), конфиг per-route (login: 10/мин/IP; register: 5/час/IP;
    AI: per-action — SD-5). Применить к auth-эндпоинтам S2B1.
-6. Заголовочная защита куки-сессий уже в S2B1 — проверить и задокумент.
+6. Секреты Supabase: SUPABASE_SERVICE_ROLE_KEY — ТОЛЬКО серверный код
+   (Route Handlers/Admin API/Storage-скрипты); ключ в клиентском
+   бандле — БЛОКЕР (проверять сборкой); anon-ключ на клиенте — норма.
+   Куки-сессии @supabase/ssr — httpOnly, документировать схему в
+   SECURITY_BASELINE.md. Секреты Supabase — в env-списке S1B1.
 7. Документ docs/SECURITY_BASELINE.md v2: список мер, как проверять
    (чек-лист приёмки каждого блока S3–S9 включает «CSRF-токен нужен,
    sanitize для user-HTML, safe-fetch для исходящих»).

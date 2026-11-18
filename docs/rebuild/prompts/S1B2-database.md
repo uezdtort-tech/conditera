@@ -12,9 +12,12 @@
 ## 2. СТЕК И НЕИЗМЕНЯЕМЫЕ ПРАВИЛА
 - Next.js 16 (App Router) + TypeScript strict; bun (dev :3000, lint, tsc).
 - Tailwind CSS 4 + shadcn/ui (New York, Lucide); без indigo/blue.
-- Данные: Prisma ORM — ЕДИНСТВЕННЫЙ источник истины; supabase-js НЕ
-  используется; RLS не используется — права проверяют requireRole-гварды
-  (S2B2). Миграции: `prisma migrate` (каталог prisma/migrations).
+- Данные: Prisma — единственный контур записи app-данных; supabase-js —
+  ТОЛЬКО Auth/Storage (S2B1/S2B4), в контур записи app-данных не входит
+  (закрыть D1). auth.users — управляется Supabase Auth: Prisma-модели
+  НЕ объявляют FK на него, хранится userId UUID. Права — requireRole-
+  гварды (S2B2) + RLS на бакетах Storage (S2B4). Миграции:
+  `prisma migrate` (каталог prisma/migrations).
 - Backend: только Route Handlers; server actions запрещены.
 - Процесс: один блок = один коммит `[S1B2] ...`; верификация tsc→vitest→
   браузер; worklog.md; тесты не писать.
@@ -44,8 +47,10 @@ prisma/schema.prisma v2, покрывающая все таблицы из ре�
    - payouts: связь с balance_ledger обязательна, поле status enum
      (pending|approved|completed|rejected), дваFA-подтверждение — колонка
      completedTfaAt (SD-10, закрыть легаси-роут D9);
-   - sessions: id, userId, tokenHash (sha256), expiresAt, revokedAt,
-     userAgent, ip — для refresh-ротации (S2B1);
+   - СЕССИЙ-таблицы НЕТ: refresh-токены и сессии ведёт Supabase Auth
+     (GoTrue, S2B1) — дублирующая таблица sessions ЗАПРЕЩЕНА (уроки
+     D1/D2); profiles.userId — UUID из auth.users, уникальный, роль
+     (enum UserRole) — истина в profiles;
    - enums вместо строковых литералов: UserRole (26 значений — взять из
      старого prisma/schema.prisma: CUSTOMER, CONFECTIONER, ADMIN,
      SUPER_ADMIN, COURIER, SUPPLIER, ANIMATOR_AGENCY, SUPPORT, FRANCHISEE,
@@ -60,11 +65,16 @@ prisma/schema.prisma v2, покрывающая все таблицы из ре�
    - runtime.mjs — initdb/start/status/stop embedded PostgreSQL :54329
      (скопировать рабочий скрипт старого проекта scripts/db/runtime.mjs);
    - setup.mjs — запуск PG → prisma migrate deploy → seed (упрощённая
-     версия; БЕЗ supabase-шагов);
+     версия). Демо-пользователи создаются через Supabase Admin API
+     (service-role) при доступном Auth; если недоступен и шим выключен —
+     seed app-таблиц продолжается с пометкой «auth-users: отложено»
+     (не падать);
    - seed.ts — демо-данные: категории, 6 демо-пользователей по ролям
-     (customer/confectioner/admin/support/decor/animator, пароль Demo123!
-     через хэш bcrypt), 20 товаров с составом/аллергенами/категориями,
-     10 отзывов, 3 рецепта, настройки site_settings.
+     (customer/confectioner/admin/support/decor/animator, пароль
+     Demo123! — создание через Supabase Admin API, GoTrue хэширует
+     сам; bcrypt вручную НЕ использовать), 20 товаров с составом/
+     аллергенами/категориями, 10 отзывов, 3 рецепта, настройки
+     site_settings.
 4. Прогнать: `node scripts/db/runtime.mjs start` → `bunx prisma migrate dev
    --name init` → `bunx prisma db seed` (или tsx scripts/db/seed.ts —
    как настроено). Убедиться, что повторный setup идемпотентен.
@@ -84,7 +94,8 @@ prisma/schema.prisma v2, покрывающая все таблицы из ре�
   (это денежный контур — консолидация без потери колонок).
 
 ## 6. ЗАПРЕТЫ
-- НЕ смешивать supabase-js и Prisma в один контур записи.
+- НЕ смешивать supabase-js и Prisma в один контур записи app-данных
+  (auth.users — только через Admin API; app-таблицы — только Prisma).
 - Не создавать дублирующие/легаси-колонки «на всякий случай».
 - Не выполнять SQL руками в обход migrate.
 - Не трогать старый проект (только чтение).
@@ -93,7 +104,8 @@ prisma/schema.prisma v2, покрывающая все таблицы из ре�
 - [ ] prisma/schema.prisma валидна: `bunx prisma validate` — ok;
 - [ ] `bunx prisma migrate dev` применяет init-миграцию без ошибок;
 - [ ] seed идемпотентен (повторный запуск не дублирует данные);
-- [ ] balance_ledger, sessions, categories, ingredients/allergens в схеме;
+- [ ] balance_ledger, profiles (userId UUID), categories,
+      ingredients/allergens в схеме;
 - [ ] 2FA-колонки едины (нет two_factor_*);
 - [ ] GET /api/health → database:"ok";
 - [ ] tsc 0, lint 0; коммит [S1B2]; worklog дополнен.

@@ -36,12 +36,17 @@
    и зафиксировать её в docs/ROLE_MATRIX.md v2.
 3. Гвард-обёртка src/lib/auth/guard.ts:
    `withRole(handler, ...roles)` — обёртка Route Handler: 401 без
-   сессии, 403 без роли, иначе передаёт user в handler. Поддержка
-   permission-гвардов: `withPermission("payouts.approve")`.
+   сессии, 403 без роли, иначе передаёт user в handler. Роли — из
+   claims app_metadata.roles (сессия Supabase, S2B1) с проверкой
+   profiles; БД — истина при расхождении (перезаписать claims через
+   Admin API). Поддержка permission-гвардов:
+   `withPermission("payouts.approve")`.
 4. Admin-эндпоинты (все за guardAdmin):
    - GET /api/admin/roles/:userId — роли пользователя;
-   - POST /api/admin/roles — назначить роль (audit-лог в таблице
-     admin_actions: actorId, action, targetId, meta, createdAt);
+   - POST /api/admin/roles — назначить роль: обновить profiles +
+     реплицировать claims через Supabase Admin API
+     (auth.admin.updateUserById, app_metadata.roles); audit-лог в
+     admin_actions: actorId, action, targetId, meta, createdAt;
    - DELETE /api/admin/roles — снять роль;
    - GET /api/admin/users?query= — поиск по email/имени (пагинация).
 5. Дашборд-страница «Пользователи и роли» (dashboard админа, S5B3
@@ -56,7 +61,8 @@
 
 ## 5. ЧТО ВЗЯТЬ ИЗ СТАРОГО ПРОЕКТА
 - docs/API_AUTH_MATRIX.md и docs/ROLE_MATRIX.md — сопоставление прав;
-- src/lib/supabase/auth.ts — паттерн requireRole (но без GoTrue);
+- src/lib/supabase/auth.ts + src/lib/role-guards.ts — паттерн
+  requireRole (адаптировать под сессию Supabase S2B1);
 - src/components/dashboard/* роли-табы — как референс поверхности.
 
 ## 6. ЗАПРЕТЫ
@@ -68,8 +74,8 @@
 ## 7. КРИТЕРИИ ПРИЁМКИ
 - [ ] permissions.ts + ROLE_MATRIX.md v2 покрывают все 26 ролей;
 - [ ] withRole/withPermission работают: 401/403/200 кейсы (curl);
-- [ ] admin-назначение роли пишет admin_actions и сразу влияет на
-      сессию (новый access-токен → роль видна);
+- [ ] admin-назначение роли пишет admin_actions, обновляет profiles
+      и app_metadata.roles (после refresh/login JWT содержит роль);
 - [ ] страница ролей работает на demo-данных (admin@demo.ru);
 - [ ] tsc 0, lint 0; коммит [S2B2]; worklog дополнен.
 

@@ -9412,3 +9412,24 @@ Stage Summary:
 **Принцип промптов:** каждый самодостаточен (роль/контекст/цель/шаги 1..N/что взять из старого/запреты/критерии приёмки/верификация/артефакты + неизменяемый «СТЕК И ПРАВИЛА»); один блок = одна сессия агента; зависимости в карте README §3; v2 в /home/z/conditera-v2, старый проект — read-only референс.
 
 **Коммит:** см. следующий [S0B0] rebuild-plan.
+
+## Task ID: rebuild-v21-supabase (2026-11-18, UTC)
+**Указание владельца:** «применяем Supabase, так как используем через её авторизацию и хранение загруженных файлов пользователями и исполнителями в storage, а также иные сервисы». Это закрыло и отложенный вопрос о Storage (ответ: ДА, Supabase Storage).
+
+**Конфликт с планом v2 (82b58d0):** S2B1 запрещал GoTrue («Не подключать Supabase Auth»), блок Storage отсутствовал вовсе → план переписан на v2.1 Supabase-first.
+
+**Правки docs/rebuild:**
+- README.md: пометка v2.1; архитектура — Supabase Auth (GoTrue) ЕДИНСТВЕННЫЙ контур (без собственных JWT и fallback-INSERT — закрытие D2/D3), Storage для файлов пользователей/исполнителей, Postgres+Prisma (app-данные), Realtime опционально; карта этапов + блок S2B4; базовый контекст — env-ключи Supabase, fail-closed, dev-флаги.
+- S1B1: клиенты @supabase/supabase-js + @supabase/ssr; env NEXT_PUBLIC_SUPABASE_URL/ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, DEV_AUTH_SHIM, STORAGE_MODE; health-компоненты auth/storage.
+- S1B2: auth.users делегирован Supabase (Prisma без FK на него, profiles.userId UUID); таблица sessions УДАЛЕНА из схемы (дубли сессий запрещены — урок D1/D2); seed-пользователи через Admin API (GoTrue хэширует сам).
+- S2B1: ПОЛНАЯ переработка — Supabase Auth: signUp с role в options.data, signInWithPassword, @supabase/ssr cookie-сессии, репликация ролей в app_metadata.roles (Admin API) с self-healing из profiles, MFA TOTP, OAuth-колбэки, fail-closed getCurrentUser, dev-shim GoTrue на :3040 только при DEV_AUTH_SHIM=1 (в prod-сборку не попадает), seed демо-юзеров через Admin API.
+- S2B2: назначение ролей через Admin API (updateUserById → app_metadata.roles); гварды читают claims, БД — истина при расхождении.
+- S2B3: SUPABASE_SERVICE_ROLE_KEY — сервер-only, ключ в бандле = блокер; SSRF-whitelist дополнен NEXT_PUBLIC_SUPABASE_URL/N8N_WEBHOOK_BASE_URL.
+- NEW S2B4-storage.md: 7 бакетов (avatars, portfolios, products, recipes, documents[приватный], chat-attachments[приватный], cms[приватный]) + RLS-политики (owner-write {auth.uid()}/*, public-read, signed URL TTL 5 мин), единый POST /api/upload с ролевой матрицей, magic-bytes mime, uuid-пути, модель files, disk-adapter STORAGE_MODE=local, cron storage-cleanup, file-upload UI.
+- S6B1: handshake чата — Supabase JWT (SUPABASE_JWT_SECRET), вложения через S2B4; исправлен мусорный символ «参与者» в правиле.
+- S9B1: parity-чек-лист дополнен проектом Supabase (ключи/бакеты); миграция auth.users/Storage старого прод-проекта — только по поручению владельца.
+- S5B2: фото товаров → /api/upload (S2B4) вместо «URL-список на MVP»; S3B2: галерея каталога — публичные URL Storage.
+
+**Ограничения/учёт среды:** локально GoTrue/Storage в песочнице недоступны («auth=unreachable» — норма dev) → v2.1 предусматривает явные DEV_AUTH_SHIM=1 и STORAGE_MODE=local; в prod — реальные сервисы Supabase-проекта владельца. Shim/adapter никогда не включаются по умолчанию.
+
+**Ограничения соблюдены:** старый код не изменён (только docs/rebuild + worklog), прод не тронут, push/deploy нет.

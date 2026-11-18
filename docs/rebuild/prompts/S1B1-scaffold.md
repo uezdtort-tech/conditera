@@ -14,9 +14,13 @@ CONDITERA v2 в `/home/z/conditera-v2`.
   раннер: `bun run dev` (порт 3000), `bun run lint`, `bunx tsc --noEmit`.
 - Tailwind CSS 4 + shadcn/ui (стиль New York, иконки Lucide). Запрещены
   indigo/blue оттенки вне явного запроса владельца.
-- Данные: Prisma ORM — единственный источник истины (prisma/schema.prisma).
-  Локальная БД: embedded PostgreSQL :54329 (скрипты — блок S1B2, здесь не
-  нужен). Server actions запрещены — только Route Handlers.
+- Данные: Prisma ORM — единственный контур записи app-данных
+  (prisma/schema.prisma). Локальная БД: embedded PostgreSQL :54329
+  (скрипты — блок S1B2, здесь не нужен). Server actions запрещены —
+  только Route Handlers.
+- Supabase (указание владельца): Auth + Storage через
+  @supabase/supabase-js и @supabase/ssr; клиенты подключаются
+  в этом блоке (наполнение — S2B1/S2B4).
 - UI: дизайн-система 2025 (токены в globals.css, `card-hover`, `fade-up`,
   `btn-primary-gradient`); mobile-first; sticky footer: корневой wrapper
   `min-h-screen flex flex-col`, футеру `mt-auto` + safe-area inset; длинные
@@ -36,7 +40,9 @@ sticky-footer, CI-ready скрипты.
 ## 4. ШАГИ
 1. Инициализировать Next.js 16 проект в /home/z/conditera-v2 (bun create
    next-app, TypeScript, App Router, Tailwind CSS 4, ESLint, src/ каталог).
-   Добавить shadcn/ui (New York), Lucide.
+   Добавить shadcn/ui (New York), Lucide; поставить @supabase/supabase-js
+   и @supabase/ssr; создать src/lib/supabase/{browser,server,admin}.ts —
+   тонкие клиенты-заглушки (наполняются в S2B1/S2B4).
 2. Структура каталогов (создать с .gitkeep, где пусто):
    - src/app/(public)/ — публичные маршруты (наполнят S3B*);
    - src/app/(dashboard)/ — кабинеты (S5B*);
@@ -46,17 +52,23 @@ sticky-footer, CI-ready скрипты.
    - scripts/db/ (заглушки под S1B2);
    - docs/, logs/agent/, prisma/.
 3. env-соглашение: создать `.env.example` (только имена ключей с
-   комментариями): DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET,
-   CRON_SECRET, N8N_WEBHOOK_BASE_URL, OLLAMA_BASE_URL, OLLAMA_MODEL,
+   комментариями): DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL,
+   NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+   SUPABASE_JWT_SECRET, DEV_AUTH_SHIM, STORAGE_MODE, CRON_SECRET,
+   N8N_WEBHOOK_BASE_URL, OLLAMA_BASE_URL, OLLAMA_MODEL,
    AI_PROVIDER_ORDER, AI_ZAI_MODEL, AI_TEMPERATURE, AI_MAX_TOKENS,
    NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_YANDEX_METRIKA_ID,
    YANDEX_METRIKA_OAUTH_TOKEN, YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY,
    TELEGRAM_BOT_TOKEN. Проверить, что .env* в .gitignore.
 4. Health-эндпоинт `src/app/api/health/route.ts`: GET → JSON
-   {status: "ok"|"degraded", app, database, n8n, auth, version,
+   {status: "ok"|"degraded", app, database, auth, storage, n8n, version,
    timestamp, environment}. Логика: db=true → ok; иначе 503+degraded
-   (когерентность кода и тела — урок старого проекта). Проверка БД —
-   SELECT 1 через prisma (заглушка: если DATABASE_URL нет → "not-configured").
+   (когерентность кода и тела — урок старого проекта). auth/storage —
+   probe Supabase с таймаутом 2s; если ключи не заданы/сервис недоступен
+   → "unreachable" (допустимое dev-состояние, явно подписанное в ответе;
+   при DEV_AUTH_SHIM=1/STORAGE_MODE=local — проверяется шим/adapter).
+   Проверка БД — SELECT 1 через prisma (заглушка: если DATABASE_URL нет →
+   "not-configured").
 5. Корневой layout: `<html lang="ru">`, ThemeProvider (Zustand persist,
    ключ `conditera-storage`, поле state.theme, class на <html>), шапка и
    футер-заглушки, корневой wrapper `min-h-screen flex flex-col`, футер
@@ -88,8 +100,9 @@ sticky-footer, CI-ready скрипты.
 
 ## 7. КРИТЕРИИ ПРИЁМКИ
 - [ ] `bun run dev` поднимается на :3000 без ошибок в логе;
-- [ ] GET /api/health → 200 {"status":"ok",...} (или 503 degraded до БД —
-      тогда когерентно);
+- [ ] GET /api/health → 200 {"status":"ok",...} с компонентами
+      app/database/auth/storage/n8n (503 degraded до БД — когерентно;
+      auth/storage "unreachable" в dev — подписанное состояние);
 - [ ] Тема переключается (светлая/тёмная), ключ localStorage —
       conditera-storage;
 - [ ] Футер прижат к низу при короткой странице;
