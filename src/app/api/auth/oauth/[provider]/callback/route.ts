@@ -179,10 +179,12 @@ async function exchangeVK(
 }
 
 async function fetchVKProfile(accessToken: string, clientId: string, expectedUserId: string): Promise<OAuthProfile> {
-  const res = await fetch("https://id.vk.ru/oauth2/user_info", {
+  const url = new URL("https://id.vk.ru/oauth2/user_info");
+  url.searchParams.set("client_id", clientId);
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: clientId, access_token: accessToken }),
+    body: new URLSearchParams({ access_token: accessToken }),
     signal: AbortSignal.timeout(15_000),
   });
   const json = (await res.json()) as { user?: { user_id?: string | number; email?: string; first_name?: string; last_name?: string; avatar?: string } };
