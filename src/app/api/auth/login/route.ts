@@ -119,7 +119,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .select(
         `
         id, email, name, phone, password_hash, is_blocked, blocked_reason,
-        account_type, city, bonus_balance, loyalty_level, is_verified,
+        account_type, city, bonus_balance, loyalty_level, is_verified, deleted_at,
         two_factor_enabled, two_factor_secret, last_login_at
       `
       )
@@ -178,7 +178,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 4. Проверка блокировки
+    // 4. Проверка блокировки и удаления аккаунта
+    if (user.deleted_at) {
+      return NextResponse.json({ error: "Аккаунт удалён и больше не может использоваться" }, { status: 403 });
+    }
     if (user.is_blocked) {
       return NextResponse.json(
         { error: `Аккаунт заблокирован: ${user.blocked_reason || "причина не указана"}` },
