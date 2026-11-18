@@ -42,6 +42,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       expiresAt?: number;
       email?: string;
       name?: string;
+      returnTo?: string;
     };
     if (!data.accessToken || !data.refreshToken ||
         (data.expiresAt !== undefined && (!Number.isFinite(data.expiresAt) || data.expiresAt <= 0))) {
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
       email: data.email,
       name: data.name,
+      returnTo: data.returnTo,
     }));
   } catch {
     return clearHandoffCookie(NextResponse.json({ error: "Некорректный handoff" }, { status: 400 }));
