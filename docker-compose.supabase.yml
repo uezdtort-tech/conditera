@@ -46,6 +46,9 @@ services:
       POSTGRES_DB: supabase
       POSTGRES_PORT: 5432
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      # Пути должны совпадать с фактическими bind mounts ниже.
+      MIGRATIONS_DIR: /docker-entrypoint-initdb.d/migrations
+      SEEDS_DIR: /docker-entrypoint-initdb.d/seed
     # НЕ пробрасываем порт наружу — только через supabase-kong
     expose:
       - "5432"
