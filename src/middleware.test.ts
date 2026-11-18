@@ -5,7 +5,7 @@ import { middleware } from './proxy'
 /**
  * Тесты CSRF-защиты в middleware.
  * Проверяем:
- *  1. Запрос без токена к защищённому endpoint → 403
+ *  1. Cookie-аутентифицированный запрос без CSRF-токена → 403
  *  2. Запрос с неверным токеном → 403
  *  3. Запрос с корректным токеном (header == cookie) → 200
  *  4. GET-запрос не требует CSRF
@@ -53,25 +53,25 @@ describe('CSRF middleware', () => {
 
   describe('blocks state-changing requests without token', () => {
     it('blocks POST /api/orders without CSRF token', async () => {
-      const req = makeRequest({ method: 'POST', path: '/api/orders' , sessionCookie: 'test-session' })
+      const req = makeRequest({ method: 'POST', path: '/api/orders', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
 
     it('blocks PUT /api/products/123 without CSRF token', async () => {
-      const req = makeRequest({ method: 'PUT', path: '/api/products/123' , sessionCookie: 'test-session' })
+      const req = makeRequest({ method: 'PUT', path: '/api/products/123', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
 
     it('blocks DELETE /api/reviews/456 without CSRF token', async () => {
-      const req = makeRequest({ method: 'DELETE', path: '/api/reviews/456' , sessionCookie: 'test-session' })
+      const req = makeRequest({ method: 'DELETE', path: '/api/reviews/456', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
 
     it('blocks PATCH /api/profile without CSRF token', async () => {
-      const req = makeRequest({ method: 'PATCH', path: '/api/profile' , sessionCookie: 'test-session' })
+      const req = makeRequest({ method: 'PATCH', path: '/api/profile', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
@@ -136,6 +136,7 @@ describe('CSRF middleware', () => {
         method: 'PUT',
         path: '/api/products/123',
         csrfHeader: token,
+        sessionCookie: 'test-session',
         csrfCookie: token,
       })
       const res = await middleware(req)
