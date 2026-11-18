@@ -118,11 +118,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { role: "service_role", sub: user.id, raw: { role: "service_role", sub: user.id } },
       async (client) => {
         const validConfectioners = await client.query<{ user_id: string }>(
-          \`SELECT DISTINCT user_id::text
+          `SELECT DISTINCT user_id::text
              FROM public.user_roles
             WHERE user_id = ANY($1::uuid[])
               AND role::text = 'CONFECTIONER'
-              AND is_active = TRUE\`,
+              AND is_active = TRUE`,
           [selectedIds]
         );
         const validIds = new Set(validConfectioners.rows.map((row) => row.user_id));
@@ -133,14 +133,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
 
         const draftResult = await client.query<{ id: string }>(
-          \`INSERT INTO public.cake_builder_drafts (
+          `INSERT INTO public.cake_builder_drafts (
              user_id, product_type, event_type, base, tiers, shape, filling, coating,
              decorations, dietary, servings, quantity, city, delivery_date, delivery_type,
              address, inscription, comment, step, is_submitted, project_spec
            ) VALUES (
              $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10::text[],
              $11, $12, $13, $14::date, $15, $16, $17, $18, 8, TRUE, $19::jsonb
-           ) RETURNING id::text\`,
+           ) RETURNING id::text`,
           [
             user.id, project.productType, project.eventType || null, project.base || null,
             project.tiers ?? null, project.shape || null, project.filling || null, project.coating || null,
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (!draftId) throw new Error("Не удалось сохранить проект");
 
         const inquiryResult = await client.query<{ id: string }>(
-          \`INSERT INTO public.inquiries (
+          `INSERT INTO public.inquiries (
              user_id, product_type, event_type, base, tiers, shape, filling, coating,
              decorations, dietary, servings, quantity, city, delivery_date, delivery_type,
              address, inscription, comment, estimated_price, estimated_delivery_cost,
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
              $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10::text[],
              $11, $12, $13, $14::date, $15, $16, $17, $18, $19, $20,
              $21::jsonb, 'open', $22::timestamptz, $23
-           ) RETURNING id::text\`,
+           ) RETURNING id::text`,
           [
             user.id, project.productType, project.eventType || null, project.base || null,
             project.tiers ?? null, project.shape || null, project.filling || null, project.coating || null,
@@ -175,14 +175,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (!inquiryId) throw new Error("Не удалось создать запрос кондитерам");
 
         const negotiationsResult = await client.query<{ id: string; confectioner_id: string }>(
-          \`INSERT INTO public.negotiations (
+          `INSERT INTO public.negotiations (
              inquiry_id, user_id, confectioner_id, discount_requested, discount_percent,
              discount_comment, status, expires_at
            )
            SELECT $1::uuid, $2::uuid, selected.confectioner_id, $4::boolean, $5::integer,
                   $6::text, 'pending_confectioner', $7::timestamptz
              FROM unnest($3::uuid[]) AS selected(confectioner_id)
-           RETURNING id::text, confectioner_id::text\`,
+           RETURNING id::text, confectioner_id::text`,
           [inquiryId, user.id, selectedIds, input.requestDiscount, input.requestDiscount ? input.discountPercent : 0, input.requestDiscount ? input.discountComment : "", expiresAt]
         );
 
