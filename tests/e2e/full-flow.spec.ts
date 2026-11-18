@@ -82,7 +82,7 @@ test.describe("Auth flow", () => {
     // Должен редиректить на /login или показать страницу входа
     await page.waitForTimeout(2000);
     const url = page.url();
-    expect(url).toContain("login").toBeTruthy();
+    expect(url).toContain("login");
   });
 });
 
