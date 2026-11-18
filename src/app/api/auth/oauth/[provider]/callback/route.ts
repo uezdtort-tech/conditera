@@ -218,7 +218,8 @@ async function rollbackOAuthUser(userId: string): Promise<void> {
 function finishRedirect(
   error?: string,
   provider?: Provider,
-  returnTo: string = "/dashboard"
+  returnTo: string = "/dashboard",
+  secureCookies = process.env.NODE_ENV === "production"
 ): NextResponse {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const url = new URL(error ? "/login" : returnTo, baseUrl);
@@ -232,7 +233,7 @@ function finishRedirect(
     const cookieOptions = {
       httpOnly: true,
       sameSite: "lax" as const,
-      secure: process.env.NODE_ENV === "production",
+      secure: secureCookies,
       maxAge: 0,
       path: "/api/auth/oauth",
     };
@@ -263,6 +264,7 @@ async function handleOAuthCallback(
 
   const { searchParams } = new URL(request.url);
   const storedReturnTo = request.cookies.get("oauth_return_to_" + provider)?.value;
+  const secureCookies = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   let requestedReturnTo = "/dashboard";
   if (storedReturnTo) {
     try {
@@ -280,10 +282,10 @@ async function handleOAuthCallback(
     : "/dashboard";
 
   const oauthError = searchParams.get("error");
-  if (oauthError) return finishRedirect("Вход отменён или отклонён провайдером", provider, returnTo);
+  if (oauthError) return finishRedirect("Вход отменён или отклонён провайдером", provider, returnTo, secureCookies);
 
   const config = getProviderConfig(provider);
-  if (!config) return finishRedirect("Провайдер не настроен", provider, returnTo);
+  if (!config) return finishRedirect("Провайдер не настроен", provider, returnTo, secureCookies);
 
   let createdUserForRollback: string | null = null;
   try {
@@ -291,7 +293,7 @@ async function handleOAuthCallback(
     const state = searchParams.get("state");
     const cookieState = request.cookies.get("oauth_state_" + provider)?.value;
     if (!code || !state || !cookieState || state !== cookieState) {
-      return finishRedirect("Неверный state — повторите вход", provider, returnTo);
+      return finishRedirect("Неверный state — повторите вход", provider, returnTo, secureCookies);
     }
 
     let profile: OAuthProfile;
@@ -335,7 +337,8 @@ async function handleOAuthCallback(
         return finishRedirect(
           "Для создания нового аккаунта необходимо отдельно согласиться на обработку персональных данных и принять пользовательское соглашение.",
           provider,
-          returnTo
+          returnTo,
+          secureCookies
         );
       }
       // Не объединяем существующие аккаунты только по совпадению email.
@@ -550,7 +553,7 @@ async function handleOAuthCallback(
         console.error("[oauth/" + provider + "/callback] rollback failed", cleanupError);
       }
     }
-    return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo);
+    return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo, secureCookies);
   }
 }
 
