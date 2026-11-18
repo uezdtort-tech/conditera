@@ -47,6 +47,10 @@ interface RegisterRequestBody {
     ogrn?: string;
     companyName?: string;
   } | null;
+  consentPd?: boolean;
+  consentTerms?: boolean;
+  consentOffer?: boolean;
+  consentMarketing?: boolean;
 }
 
 interface SanitizedUser {
@@ -95,6 +99,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       role = "CUSTOMER",
       accountType = "individual",
       legalInfo,
+      consentPd,
+      consentTerms,
+      consentOffer,
+      consentMarketing = false,
     } = body;
 
     // 1.5. Валидация роли — только разрешённые для саморегистрации.
@@ -137,6 +145,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (typeof email !== "string" || typeof password !== "string") {
       return NextResponse.json(
         { error: "email и password должны быть строками" },
+        { status: 400 }
+      );
+    }
+    if (consentPd !== true || consentTerms !== true || consentOffer !== true) {
+      return NextResponse.json(
+        { error: "Необходимо отдельно дать согласие на обработку персональных данных и принять условия платформы" },
         { status: 400 }
       );
     }
@@ -350,6 +364,72 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await supabaseAdmin.from("profiles").delete().eq("id", userId);
       return NextResponse.json(
         { error: "Ошибка при назначении роли", details: roleErr.message },
+        { status: 500 }
+      );
+    }
+
+    // 9.5. Фиксация отдельных согласий (152-ФЗ): ПД и условия обязательны,
+    // рекламные сообщения — только при отдельном добровольном opt-in.
+    const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+    const consentIp = (forwardedFor || request.headers.get("x-real-ip") || "").slice(0, 64) || null;
+    const consentAgent = request.headers.get("user-agent")?.slice(0, 512) || null;
+    const consentEvents = [
+      {
+        user_id: userId,
+        event_type: "grant",
+        consent_type: "personal_data",
+        document_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
+        source: "password_registration",
+        ip_address: consentIp,
+        user_agent: consentAgent,
+      },
+      {
+        user_id: userId,
+        event_type: "grant",
+        consent_type: "terms",
+        document_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
+        source: "password_registration",
+        ip_address: consentIp,
+        user_agent: consentAgent,
+      },
+      {
+        user_id: userId,
+        event_type: "grant",
+        consent_type: "offer",
+        document_version: process.env.LEGAL_OFFER_VERSION || "2026-11-18.1",
+        source: "password_registration",
+        ip_address: consentIp,
+        user_agent: consentAgent,
+      },
+    ];
+    if (consentMarketing === true) {
+      consentEvents.push({
+        user_id: userId,
+        event_type: "grant",
+        consent_type: "marketing",
+        document_version: process.env.LEGAL_MARKETING_VERSION || "2026-11-18.1",
+        source: "password_registration",
+        ip_address: consentIp,
+        user_agent: consentAgent,
+      });
+    }
+    const { error: consentErr } = await supabaseAdmin.from("user_consent_events").insert(consentEvents);
+    if (consentErr) {
+      console.error("[register] consent journal insert error:", consentErr.message);
+      if (authData?.user?.id) {
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
+      } else if (authErr) {
+        try {
+          const { getPool } = await import("@/lib/postgrest/pool");
+          await getPool().query("DELETE FROM auth.users WHERE id = $1", [userId]);
+        } catch (cleanupError) {
+          console.error("[register] local auth rollback failed:", cleanupError);
+        }
+      }
+      await supabaseAdmin.from("user_roles").delete().eq("user_id", userId);
+      await supabaseAdmin.from("profiles").delete().eq("id", userId);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать согласия. Регистрация не завершена." },
         { status: 500 }
       );
     }

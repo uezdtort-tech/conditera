@@ -7,7 +7,7 @@
 // configured), constructs and returns the provider's authorization URL.
 
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
 
@@ -33,8 +33,10 @@ function getProviderConfig(provider: Provider): {
   switch (provider) {
     case "google": {
       const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
-      if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
+      // Callback uses Google's confidential-client token exchange.
+      if (isStubValue(clientId) || isStubValue(clientSecret) || isStubValue(redirectUri)) return null;
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
     case "yandex": {
@@ -49,13 +51,9 @@ function getProviderConfig(provider: Provider): {
       if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
-    case "telegram": {
-      // Telegram OAuth uses the bot token + redirect URI configured in the
-      // Telegram login widget. We don't expose the bot token to the browser.
-      const redirectUri = process.env.TELEGRAM_OAUTH_REDIRECT;
-      if (isStubValue(redirectUri)) return null;
-      return { clientId: "telegram", redirectUri: redirectUri! };
-    }
+    case "telegram":
+      // Telegram Login uses a separate signed-widget flow, not this OAuth code flow.
+      return null;
     default:
       return null;
   }
@@ -68,7 +66,9 @@ function getProviderConfig(provider: Provider): {
 function buildAuthorizationUrl(
   provider: Provider,
   config: { clientId: string; redirectUri: string },
-  state: string
+  state: string,
+  codeChallenge: string,
+  nonce: string
 ): string {
   const params = new URLSearchParams({
     client_id: config.clientId,
@@ -80,18 +80,24 @@ function buildAuthorizationUrl(
   switch (provider) {
     case "google": {
       params.set("scope", "openid email profile");
-      params.set("access_type", "offline");
-      params.set("prompt", "consent");
+      params.set("nonce", nonce);
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "S256");
+      params.set("prompt", "select_account");
       return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
     case "yandex": {
       params.set("scope", "login:email login:info");
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "S256");
       return `https://oauth.yandex.ru/authorize?${params.toString()}`;
     }
     case "vk": {
+      // Современный VK ID (OAuth 2.1), не legacy oauth.vk.com.
       params.set("scope", "email");
-      params.set("v", "5.199");
-      return `https://oauth.vk.com/authorize?${params.toString()}`;
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "s256");
+      return `https://id.vk.ru/authorize?${params.toString()}`;
     }
     case "telegram": {
       // Telegram Login Widget uses a JS-based flow; here we return the bot
@@ -152,8 +158,19 @@ export async function GET(
   // Production mode — construct the authorization URL.
   // `state` — CSRF-токен: кладём в httpOnly-cookie и сверяем в callback
   // (сравнение параметра с cookie, cookie живёт 10 минут, путь — наш callback).
-  const state = randomBytes(16).toString("hex");
-  const redirectUrl = buildAuthorizationUrl(provider, config, state);
+  const requestedReturnTo = request.nextUrl.searchParams.get("returnTo") || "/dashboard";
+  const returnTo = requestedReturnTo.startsWith("/") &&
+    !requestedReturnTo.startsWith("//") &&
+    !requestedReturnTo.includes("\\") &&
+    !/[\r\n]/.test(requestedReturnTo)
+    ? requestedReturnTo
+    : "/dashboard";
+
+  const state = randomBytes(32).toString("base64url");
+  const codeVerifier = randomBytes(48).toString("base64url");
+  const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+  const nonce = randomBytes(32).toString("base64url");
+  const redirectUrl = buildAuthorizationUrl(provider, config, state, codeChallenge, nonce);
 
   const response = NextResponse.redirect(redirectUrl, { status: 302 });
   response.cookies.set(`oauth_state_${provider}`, state, {
@@ -164,5 +181,36 @@ export async function GET(
     maxAge: 600,
     path: "/api/auth/oauth",
   });
+  response.cookies.set(`oauth_return_to_${provider}`, returnTo, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 600,
+    path: "/api/auth/oauth",
+  });
+  response.cookies.set("oauth_consent_pd_" + provider, request.nextUrl.searchParams.get("consentPd") === "1" ? "1" : "0", {
+    httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/api/auth/oauth",
+  });
+  response.cookies.set("oauth_consent_terms_" + provider, request.nextUrl.searchParams.get("consentTerms") === "1" ? "1" : "0", {
+    httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/api/auth/oauth",
+  });
+  if (provider === "google" || provider === "vk" || provider === "yandex") {
+    response.cookies.set(`oauth_verifier_${provider}`, codeVerifier, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 600,
+      path: "/api/auth/oauth",
+    });
+  }
+  if (provider === "google") {
+    response.cookies.set("oauth_nonce_google", nonce, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 600,
+      path: "/api/auth/oauth",
+    });
+  }
   return response;
 }

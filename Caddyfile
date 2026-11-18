@@ -15,21 +15,50 @@ conditera.ru, www.conditera.ru {
         # Редирект www → корень (если зашли на www.conditera.ru)
         # (Caddy автоматически делает это через 'www.conditera.ru' в сертификате)
 
-        # ===== Маршрутизация =====
-        # API (Next.js Route Handlers) — с health check
-        handle /api/* {
-                reverse_proxy web:3000 {
-                        # Health check — опрашивает /api/health каждые 10с
-                        health_uri /api/health
-                        health_interval 10s
-                        # Если web недоступен — вернуть 503 вместо 502
-                        # Таймауты для медленных API (генерация PDF, поиск, и т.д.)
+        # ===== Маршрутизация Supabase и API приложения =====
+        # NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api.
+        # Supabase JS обращается к /api/auth/v1, /api/rest/v1,
+        # /api/realtime/v1 и /api/storage/v1. Снимаем префикс /api
+        # и передаём запросы в Kong.
+        @supabase_auth path /api/auth/v1/*
+        handle @supabase_auth {
+                uri strip_prefix /api
+                reverse_proxy supabase-kong:8000 {
                         transport http {
                                 read_timeout 60s
                                 write_timeout 60s
                                 dial_timeout 5s
                         }
                 }
+                header Cache-Control "no-store, no-cache, must-revalidate, private"
+                header Pragma "no-cache"
+        }
+
+        @supabase_api path /api/rest/v1/* /api/realtime/v1/* /api/storage/v1/*
+        handle @supabase_api {
+                uri strip_prefix /api
+                reverse_proxy supabase-kong:8000 {
+                        transport http {
+                                read_timeout 60s
+                                write_timeout 60s
+                                dial_timeout 5s
+                        }
+                }
+        }
+
+        # Остальные /api/* — Route Handlers Next.js.
+        handle /api/* {
+                reverse_proxy web:3000 {
+                        health_uri /api/health
+                        health_interval 10s
+                        transport http {
+                                read_timeout 60s
+                                write_timeout 60s
+                                dial_timeout 5s
+                        }
+                }
+                header Cache-Control "no-store, no-cache, must-revalidate, private"
+                header Pragma "no-cache"
         }
 
         # WebSocket (Socket.IO чат)
@@ -97,19 +126,6 @@ conditera.ru, www.conditera.ru {
                 Access-Control-Allow-Credentials "true"
                 # Cache-Control для sensitive endpoints (по умолчанию)
                 # Cache-Control "no-store" — для /api/auth/* (см. отдельный блок ниже)
-        }
-
-        # Для sensitive endpoints — no-store
-        @api_auth {
-                path /api/auth/* /api/payment/* /api/profile/* /api/admin/*
-        }
-        handle @api_auth {
-                reverse_proxy web:3000 {
-                        health_uri /api/health
-                        health_interval 10s
-                }
-                header Cache-Control "no-store, no-cache, must-revalidate, private"
-                header Pragma "no-cache"
         }
 
         # ===== Сжатие =====

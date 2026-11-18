@@ -22,7 +22,6 @@ import { useAppStore } from "@/lib/store";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { AuthModal } from "@/components/layout/auth-modal";
-import { SupabaseAuthSync } from "@/components/layout/supabase-auth-sync";
 import { PromoPopup } from "@/components/layout/promo-popup";
 import { CartDrawer } from "@/components/marketplace/cart-drawer";
 import { ChatWidget } from "@/components/chat/chat-widget";
@@ -220,8 +219,7 @@ export default function DashboardPage(): React.JSX.Element {
           </div>
         </main>
         <Footer />
-        <SupabaseAuthSync />
-        <AuthModal />
+          <AuthModal />
         <PromoPopup />
         <CartDrawer />
         <ChatWidget initialOrderId={chatOrderId ?? undefined} />
@@ -234,7 +232,6 @@ export default function DashboardPage(): React.JSX.Element {
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
       <main className="flex-1">{renderDashboard()}</main>
-      <SupabaseAuthSync />
         <AuthModal />
       <PromoPopup />
       <CartDrawer />

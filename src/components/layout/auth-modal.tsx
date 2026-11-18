@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -153,6 +153,14 @@ export function AuthModal() {
   const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
   const [phone, setPhone] = useState("");
   // Регистрация
+  const oauthLaunchRef = useRef(false);
+  const [oauthStarting, setOauthStarting] = useState(false);
+  const [oauthConsentPd, setOauthConsentPd] = useState(false);
+  const [oauthConsentTerms, setOauthConsentTerms] = useState(false);
+  const [consentPd, setConsentPd] = useState(false);
+  const [consentTerms, setConsentTerms] = useState(false);
+  const [consentOffer, setConsentOffer] = useState(false);
+  const [consentNews, setConsentNews] = useState(false);
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPhone, setRegisterPhone] = useState("");
@@ -170,6 +178,16 @@ export function AuthModal() {
   const [ogrn, setOgrn] = useState("");
   const [legalAddress, setLegalAddress] = useState("");
   const [ceoName, setCeoName] = useState("");
+
+  // Согласия не должны сохраняться между разными открытиями окна авторизации.
+  useEffect(() => {
+    if (!authModalOpen) {
+      setOauthConsentPd(false);
+      setOauthConsentTerms(false);
+      oauthLaunchRef.current = false;
+      setOauthStarting(false);
+    }
+  }, [authModalOpen]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,21 +248,40 @@ export function AuthModal() {
     }
   };
 
-  // OAuth через Яндекс и ВК: сначала проверяем, настроен ли провайдер
-  // (иначе навигация показала бы JSON-заглушку), потом редирект на initiation,
-  // который 302-ит на страницу провайдера.
-  const handleOAuth = async (provider: "yandex" | "vk") => {
+  // OAuth: серверный flow для Yandex ID, VK ID и Google.
+  // Новая регистрация требует отдельного согласия на ПД и принятия условий.
+  const handleOAuth = async (provider: "yandex" | "vk" | "google") => {
+    // Для существующего OAuth-аккаунта согласия повторно не требуются.
+    // Если провайдер впервые создаёт аккаунт, callback потребует оба согласия.
+
+    if (oauthLaunchRef.current) return;
+    oauthLaunchRef.current = true;
+    setOauthStarting(true);
     try {
-      const res = await fetch(`/api/auth/oauth/${provider}?mode=check`);
+      const res = await fetch("/api/auth/oauth/" + provider + "?mode=check");
       const data = (await res.json()) as { configured?: boolean };
       if (!data.configured) {
-        toast.error(`Вход через ${provider === "yandex" ? "Яндекс" : "ВКонтакте"} пока не настроен`, {
+        const label = provider === "yandex" ? "Яндекс" : provider === "vk" ? "ВКонтакте" : "Google";
+        toast.error("Вход через " + label + " пока не настроен", {
           description: "Провайдер OAuth не сконфигурирован в окружении.",
         });
+        oauthLaunchRef.current = false;
+        setOauthStarting(false);
         return;
       }
-      window.location.href = `${window.location.origin}/api/auth/oauth/${provider}`;
+      const queryReturnTo = new URLSearchParams(window.location.search).get("returnTo");
+      const currentPath = window.location.pathname + window.location.search;
+      const fallbackReturnTo = ["/login", "/register", "/auth/login"].includes(window.location.pathname)
+        ? "/dashboard"
+        : currentPath;
+      const returnTo = queryReturnTo || fallbackReturnTo;
+      const params = new URLSearchParams({ returnTo });
+      if (oauthConsentPd) params.set("consentPd", "1");
+      if (oauthConsentTerms) params.set("consentTerms", "1");
+      window.location.href = window.location.origin + "/api/auth/oauth/" + provider + "?" + params.toString();
     } catch {
+      oauthLaunchRef.current = false;
+      setOauthStarting(false);
       toast.error("Не удалось запустить вход через соцсеть");
     }
   };
@@ -252,6 +289,10 @@ export function AuthModal() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegisterError(null);
+    if (!consentPd || !consentTerms || !consentOffer) {
+      setRegisterError("Дайте согласие на обработку персональных данных, примите пользовательское соглашение и публичную оферту");
+      return;
+    }
     if (!registerName || !registerEmail || !registerPassword || !registerPhone) {
       setRegisterError("Заполните все обязательные поля: имя, телефон, email, пароль");
       return;
@@ -301,6 +342,10 @@ export function AuthModal() {
           role: registerRole, // роль из UI уже совпадает с enum user_role (CUSTOMER, CONFECTIONER, SUPPLIER, ANIMATOR_AGENCY…)
           accountType,
           legalInfo,
+          consentPd,
+          consentTerms,
+          consentOffer,
+          consentMarketing: consentNews,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -504,30 +549,54 @@ export function AuthModal() {
               </div>
             </div>
 
-            {/* OAuth кнопки */}
-            <div className="grid grid-cols-2 gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOAuth("yandex")}
-                className="gap-2"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
-                  <text x="12" y="16" textAnchor="middle" fontSize="10" fontWeight="bold" fill="currentColor">Я</text>
+            {/* OAuth согласия — отдельны от необязательной рекламной рассылки */}
+            <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={oauthConsentPd}
+                  onChange={(event) => setOauthConsentPd(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                />
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  Даю отдельное <a href="/about?legal=consent" target="_blank" rel="noreferrer" className="font-medium text-primary underline">согласие на обработку персональных данных</a> для работы Conditera.
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={oauthConsentTerms}
+                  onChange={(event) => setOauthConsentTerms(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                />
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  Принимаю <a href="/about?legal=terms" target="_blank" rel="noreferrer" className="font-medium text-primary underline">пользовательское соглашение</a>.
+                </span>
+              </label>
+            </div>
+
+            {/* OAuth кнопки с официальными цветами брендов */}
+            <div className="grid grid-cols-3 gap-2">
+              <Button type="button" variant="outline" onClick={() => handleOAuth("yandex")} disabled={oauthStarting} className="gap-1.5 px-2">
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#FC3F1D" d="M14.2 2.5h-2.1c-4.1 0-6.6 2.1-6.6 5.7 0 2.7 1.3 4.4 3.8 5.9L5 21.5h3.4l4.8-7.7-1.4-.9c-1.8-1.1-2.6-2.3-2.6-4.5 0-2.3 1.5-3.7 4-3.7h1v16.8h3.1V2.5h-3.1z"/>
                 </svg>
-                Яндекс
+                <span className="text-xs">Яндекс</span>
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOAuth("vk")}
-                className="gap-2"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12.785 16.241s.288-.032.435-.193c.135-.148.131-.426.131-.426s-.019-1.302.582-1.495c.593-.19 1.354 1.27 2.16 1.83.61.42 1.075.328 1.075.328l2.154-.03s1.126-.07.592-.957c-.044-.072-.311-.654-1.6-1.844-1.35-1.255-1.169-1.052.458-3.22.99-1.319 1.387-2.124 1.262-2.466-.117-.327-.84-.24-.84-.24l-2.4.015s-.178-.024-.31.054c-.13.077-.213.256-.213.256s-.382 1.024-.892 1.895c-1.075 1.84-1.504 1.937-1.681 1.823-.413-.27-.31-1.067-.31-1.635 0-1.775.267-2.515-.519-2.706-.262-.064-.454-.106-1.123-.113-.858-.009-1.585.003-1.996.207-.274.135-.485.437-.356.454.159.021.519.099.71.36.246.337.237 1.094.237 1.094s.142 2.108-.33 2.37c-.325.18-.77-.187-1.731-1.838-.489-.842-.857-1.772-.857-1.772s-.07-.176-.198-.27c-.155-.114-.371-.15-.371-.15l-2.282.015s-.342.01-.467.158c-.112.132-.009.405-.009.405s1.786 4.179 3.807 6.286c1.854 1.932 3.962 1.805 3.962 1.805h.956z"/>
+              <Button type="button" variant="outline" onClick={() => handleOAuth("vk")} disabled={oauthStarting} className="gap-1.5 px-2">
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#0077FF" d="M12.785 16.241s.288-.032.435-.193c.135-.148.131-.426.131-.426s-.019-1.302.582-1.495c.593-.19 1.354 1.27 2.16 1.83.61.42 1.075.328 1.075.328l2.154-.03s1.126-.07.592-.957c-.044-.072-.311-.654-1.6-1.844-1.35-1.255-1.169-1.052.458-3.22.99-1.319 1.387-2.124 1.262-2.466-.117-.327-.84-.24-.84-.24l-2.4.015s-.178-.024-.31.054c-.13.077-.213.256-.213.256s-.382 1.024-.892 1.895c-1.075 1.84-1.504 1.937-1.681 1.823-.413-.27-.31-1.067-.31-1.635 0-1.775.267-2.515-.519-2.706-.262-.064-.454-.106-1.123-.113-.858-.009-1.585.003-1.996.207-.274.135-.485.437-.356.454.159.021.519.099.71.36.246.337.237 1.094.237 1.094s.142 2.108-.33 2.37c-.325.18-.77-.187-1.731-1.838-.489-.842-.857-1.772-.857-1.772s-.07-.176-.198-.27c-.155-.114-.371-.15-.371-.15l-2.282.015s-.342.01-.467.158c-.112.132-.009.405-.009.405s1.786 4.179 3.807 6.286c1.854 1.932 3.962 1.805 3.962 1.805h.956z"/>
                 </svg>
-                ВКонтакте
+                <span className="text-xs">ВКонтакте</span>
+              </Button>
+              <Button type="button" variant="outline" onClick={() => handleOAuth("google")} disabled={oauthStarting} className="gap-1.5 px-2">
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 48 48" aria-hidden="true">
+                  <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11c-.5 2.5-2 4.6-4.3 6v5h7c4.1-3.8 6.4-9.3 6.4-14.7z"/>
+                  <path fill="#34A853" d="M24 44c5.8 0 10.7-1.9 14.3-5.1l-7-5c-1.9 1.3-4.3 2.1-7.3 2.1-5.6 0-10.3-3.8-12-8.9H4.8v5.2C8.4 39.2 15.6 44 24 44z"/>
+                  <path fill="#FBBC05" d="M12 27.1c-.4-1.3-.7-2.6-.7-4.1s.2-2.8.7-4.1v-5.2H4.8C3.3 16.7 2.5 19.8 2.5 23s.8 6.3 2.3 9.3l7.2-5.2z"/>
+                  <path fill="#EA4335" d="M24 10c3.1 0 5.9 1.1 8.1 3.2l6.1-6.1C34.7 3.6 29.8 2 24 2 15.6 2 8.4 6.8 4.8 13.7l7.2 5.2c1.7-5.1 6.4-8.9 12-8.9z"/>
+                </svg>
+                <span className="text-xs">Google</span>
               </Button>
             </div>
           </TabsContent>
@@ -884,6 +953,8 @@ export function AuthModal() {
                     type="checkbox"
                     id="consent-pd"
                     required
+                    checked={consentPd}
+                    onChange={(event) => setConsentPd(event.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-primary shrink-0"
                   />
                   <span className="text-xs text-muted-foreground leading-relaxed">
@@ -895,16 +966,24 @@ export function AuthModal() {
                     type="checkbox"
                     id="consent-terms"
                     required
+                    checked={consentTerms}
+                    onChange={(event) => setConsentTerms(event.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-primary shrink-0"
                   />
                   <span className="text-xs text-muted-foreground leading-relaxed">
-                    Я ознакомился и принимаю условия <a href="/about?legal=terms" target="_blank" className="text-primary underline font-medium">пользовательского соглашения</a> и <a href="/about?legal=offer" target="_blank" className="text-primary underline font-medium">договора-оферты</a>.
+                    Я ознакомился и принимаю условия <a href="/about?legal=terms" target="_blank" className="text-primary underline font-medium">пользовательского соглашения</a>.
                   </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" id="consent-offer" required checked={consentOffer} onChange={(event) => setConsentOffer(event.target.checked)} className="w-4 h-4 mt-0.5 accent-primary shrink-0" />
+                  <span className="text-xs text-muted-foreground leading-relaxed">Принимаю условия <a href="/about?legal=offer" target="_blank" className="text-primary underline font-medium">публичной оферты</a>.</span>
                 </label>
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     id="consent-news"
+                    checked={consentNews}
+                    onChange={(event) => setConsentNews(event.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-primary shrink-0"
                   />
                   <span className="text-xs text-muted-foreground leading-relaxed">
