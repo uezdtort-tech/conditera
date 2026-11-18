@@ -259,7 +259,8 @@ function extractTokenFromRequest(request: Request): string | null {
  * Кэш проверки blocked: 60 секунд в globalThis — чтобы не делать запрос БД
  * на каждый запрос к API с одним и тем же пользователем.
  *
- * Fail-open: при ошибке БД лог пропускается, пользователь допускается.
+ * Fail-closed: профиль обязан существовать и быть доступен для проверки.
+ * При ошибке БД, отсутствии профиля или исключении запрос отклоняется.
  */
 export async function getUserFromRequest(request: Request): Promise<AuthenticatedUser | null> {
   const token = extractTokenFromRequest(request);
@@ -291,17 +292,28 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
     const error = result.error;
 
     if (error) {
-      console.warn("[auth] blocked-check failed:", error.message);
-      // Fail-open — продолжаем без проверки блокировки.
-      return buildUserFromPayload(payload);
+      console.error("[auth] profile/blocked-check failed; rejecting request:", error.message);
+      return null;
     }
 
-    const isBlocked = user?.is_blocked === true;
+    // Валидной подписи JWT недостаточно: пользователь должен существовать
+    // в каноническом профиле. Это также закрывает доступ удалённым и
+    // неинициализированным аккаунтам.
+    if (!user) {
+      console.warn("[auth] profile not found; rejecting request:", userId);
+      return null;
+    }
+
+    const isBlocked = user.is_blocked === true;
     cacheStore[cacheKey] = { ts: Date.now(), blocked: isBlocked };
     if (isBlocked) return null;
   } catch (err) {
-    // If DB check fails, allow (don't block legitimate users due to DB issues)
-    console.warn("[auth] blocked-check error:", err instanceof Error ? err.message : String(err));
+    // Недоступность БД не должна превращаться в обход авторизации.
+    console.error(
+      "[auth] profile/blocked-check threw; rejecting request:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
   }
 
   return buildUserFromPayload(payload);
