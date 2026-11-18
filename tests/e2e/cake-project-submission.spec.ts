@@ -27,10 +27,19 @@ test.describe("Создание проекта торта и переговор�
     const confectionerToken = confectionerBody.accessToken as string;
     expect(confectionerBody.user?.id || confectionerBody.id).toBe(DEMO_CONFECTIONER_ID);
 
+    // Один APIRequestContext хранит cookie последнего login; возвращаем cookie заказчика,
+    // чтобы cookie и явный Bearer token не представляли разные учётные записи.
+    const customerLoginForSubmit = await request.post(APP + "/api/auth/login", {
+      data: { email: "customer@demo.ru", password: DEMO_PASSWORD },
+    });
+    expect(customerLoginForSubmit.ok()).toBeTruthy();
+    const customerSubmitBody = await customerLoginForSubmit.json();
+    const customerSubmitToken = customerSubmitBody.accessToken as string;
+
     const deliveryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const response = await request.post(APP + "/api/inquiries", {
       headers: {
-        Authorization: "Bearer " + customerToken,
+        Authorization: "Bearer " + customerSubmitToken,
         "x-csrf-token": csrfBody.token,
       },
       data: {
@@ -69,7 +78,7 @@ test.describe("Создание проекта торта и переговор�
     expect(result.negotiations).toHaveLength(1);
 
     const own = await request.get(APP + "/api/inquiries", {
-      headers: { Authorization: "Bearer " + customerToken },
+      headers: { Authorization: "Bearer " + customerSubmitToken },
     });
     expect(own.ok(), await own.text()).toBeTruthy();
     const ownBody = await own.json();
@@ -79,8 +88,13 @@ test.describe("Создание проекта торта и переговор�
     expect(inquiry.estimated_price).toBe(750000);
     expect(inquiry.project_spec.price.productKopecks).toBe(750000);
 
+    const confectionerLoginForAvailable = await request.post(APP + "/api/auth/login", {
+      data: { email: "confectioner@demo.ru", password: DEMO_PASSWORD },
+    });
+    expect(confectionerLoginForAvailable.ok()).toBeTruthy();
+    const confectionerAvailableBody = await confectionerLoginForAvailable.json();
     const available = await request.get(APP + "/api/inquiries?filter=available", {
-      headers: { Authorization: "Bearer " + confectionerToken },
+      headers: { Authorization: "Bearer " + (confectionerAvailableBody.accessToken as string) },
     });
     expect(available.ok(), await available.text()).toBeTruthy();
     const availableBody = await available.json();
