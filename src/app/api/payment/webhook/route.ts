@@ -176,6 +176,11 @@ export async function POST(request: NextRequest) {
     if (!orderId) {
       return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
     }
+    // order_id в схеме — UUID. Некорректный metadata.orderId является
+    // ошибкой входного webhook, а не внутренней ошибкой БД (500).
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId)) {
+      return NextResponse.json({ error: "Invalid orderId in webhook metadata" }, { status: 400 });
+    }
 
     // === PAY-1: СВЕРКА СОБЫТИЯ С ПРОВАЙДЕРОМ ===
     const pv = await verifyEventWithProvider(event, object, wireKop);
