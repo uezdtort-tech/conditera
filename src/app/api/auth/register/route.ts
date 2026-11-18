@@ -49,6 +49,7 @@ interface RegisterRequestBody {
   } | null;
   consentPd?: boolean;
   consentTerms?: boolean;
+  consentOffer?: boolean;
   consentMarketing?: boolean;
 }
 
@@ -100,6 +101,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       legalInfo,
       consentPd,
       consentTerms,
+      consentOffer,
       consentMarketing = false,
     } = body;
 
@@ -146,7 +148,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
-    if (consentPd !== true || consentTerms !== true) {
+    if (consentPd !== true || consentTerms !== true || consentOffer !== true) {
       return NextResponse.json(
         { error: "Необходимо отдельно дать согласие на обработку персональных данных и принять условия платформы" },
         { status: 400 }
@@ -386,6 +388,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         event_type: "grant",
         consent_type: "terms",
         document_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
+        source: "password_registration",
+        ip_address: consentIp,
+        user_agent: consentAgent,
+      },
+      {
+        user_id: userId,
+        event_type: "grant",
+        consent_type: "offer",
+        document_version: process.env.LEGAL_OFFER_VERSION || "2026-11-18.1",
         source: "password_registration",
         ip_address: consentIp,
         user_agent: consentAgent,
