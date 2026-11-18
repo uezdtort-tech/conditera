@@ -63,7 +63,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // 2. Найти пользователя
     const { data: user, error } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, name, is_blocked, account_type")
+      .select("id, email, name, is_blocked, account_type, deleted_at")
       .eq("id", payload.userId)
       .maybeSingle();
 
@@ -72,6 +72,10 @@ export async function POST(request: NextRequest): Promise<Response> {
         { error: "Пользователь не найден" },
         { status: 403 }
       );
+    }
+
+    if (user.deleted_at) {
+      return NextResponse.json({ error: "Аккаунт удалён" }, { status: 403 });
     }
 
     if (user.is_blocked) {
