@@ -32,6 +32,7 @@ export default function OAuthFinishPage() {
           ok?: boolean;
           error?: string;
           session?: { access_token: string; refresh_token: string; expires_at?: number };
+          returnTo?: string;
         };
         if (!res.ok || !data.session) {
           throw new Error(data.error || "Не удалось завершить вход");
@@ -44,7 +45,14 @@ export default function OAuthFinishPage() {
         setDone(true);
         // Перезагрузка: useAuth/onAuthStateChange подхватит сессию,
         // роутер отрисует дашборд покупателя.
-        window.location.href = "/";
+        const requestedReturnTo = data.returnTo || "/dashboard";
+        const safeReturnTo = requestedReturnTo.startsWith("/") &&
+          !requestedReturnTo.startsWith("//") &&
+          !requestedReturnTo.includes("\\") &&
+          !/[\r\n]/.test(requestedReturnTo)
+          ? requestedReturnTo
+          : "/dashboard";
+        window.location.replace(safeReturnTo);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Ошибка входа");
       }
