@@ -341,9 +341,11 @@ export async function GET(
         email: profile.email,
         email_confirm: true,
         user_metadata: {
+          name: profile.name,
           full_name: profile.name,
           avatar_url: profile.avatarUrl,
           oauth_provider: provider,
+          oauth_subject: profile.subject,
         },
       });
       if (createUserError) {
@@ -414,7 +416,7 @@ export async function GET(
     // тип аккаунта и настройки уже существующего пользователя.
     const { data: existingProfile, error: profileLookupError } = await supabaseAdmin
       .from("profiles")
-      .select("id")
+      .select("id, name")
       .eq("id", userId)
       .maybeSingle();
     if (profileLookupError) throw new Error("Не удалось проверить профиль пользователя");
@@ -426,6 +428,12 @@ export async function GET(
         account_type: "individual",
       });
       if (profileInsertError) throw new Error("Не удалось создать профиль пользователя");
+    } else if (!existingProfile.name || existingProfile.name === targetEmail.split("@")[0]) {
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from("profiles")
+        .update({ name: profile.name })
+        .eq("id", userId);
+      if (profileUpdateError) throw new Error("Не удалось обновить имя нового OAuth-профиля");
     }
 
     const { data: rolesData, error: rolesLookupError } = await supabaseAdmin
