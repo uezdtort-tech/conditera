@@ -73,7 +73,8 @@ env:
   TFA_ENCRYPTION_KEY: "e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
   CRON_SECRET: "e2e_test_cron_secret"
   NEXT_PUBLIC_APP_URL: "http://localhost:3000"
-  NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+  NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3000"
+  SUPABASE_INTERNAL_URL: "http://127.0.0.1:3000"
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
   NODE_ENV: test
   YANDEX_CLIENT_ID: e2e-yandex-client
