@@ -16,6 +16,7 @@
  * Запуск:
  *   npx playwright test tests/e2e/payment-webhook-idempotency.spec.ts --project=chromium
  */
+import { randomUUID } from 'crypto'
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 // Test data — используем детерминированные ID, чтобы тесты были повторяемыми.
@@ -158,7 +159,7 @@ test.describe.serial('Payment webhook idempotency', () => {
   });
 
   test('7. Webhook payment.canceled → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-cancel-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-cancel-p-${Date.now()}`;
 
     const body = makeWebhook('payment.canceled', orderId, paymentId, 'canceled');
@@ -256,7 +257,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
 test.describe('Payment webhook — edge cases', () => {
   test('разные status для одного orderId — обновляется статус', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-status-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-status-p-${Date.now()}`;
 
     // 1. pending → обработан
