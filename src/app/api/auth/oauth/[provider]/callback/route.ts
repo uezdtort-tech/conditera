@@ -526,8 +526,9 @@ export async function GET(
 
     const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
     const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
+    const finalResponse = setSessionCookies(response, { accessToken, refreshToken });
     createdUserForRollback = null;
-    return setSessionCookies(response, { accessToken, refreshToken });
+    return finalResponse;
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error("[oauth/" + provider + "/callback]", detail);
