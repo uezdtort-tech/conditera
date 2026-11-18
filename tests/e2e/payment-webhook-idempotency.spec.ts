@@ -188,7 +188,7 @@ test.describe.serial('Payment webhook idempotency', () => {
   });
 
   test('9. Unknown event → 200 OK (логируется, не падает)', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-unknown-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-unknown-p-${Date.now()}`;
 
     const body = makeWebhook('payment.unknown_event', orderId, paymentId, 'unknown');
@@ -202,46 +202,22 @@ test.describe.serial('Payment webhook idempotency', () => {
     expect([200, 404]).toContain(response.status());
   });
 
-  test('10. Idempotency: три повторных webhook → side-effects не дублируются', async ({ request }: { request: APIRequestContext }) => {
-    // Создаём уникальный order_id для этого теста
-    const orderId = `e2e-triple-${Date.now()}`;
+  test('10. Повторные webhook для отсутствующего заказа отклоняются одинаково', async ({ request }: { request: APIRequestContext }) => {
+    const orderId = randomUUID();
     const paymentId = `e2e-triple-p-${Date.now()}`;
-
     const body = makeWebhook('payment.succeeded', orderId, paymentId);
 
-    // Отправляем 3 раза подряд
-    const r1 = await request.post('/api/payment/webhook', {
-      data: body,
-      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
-    });
-    const r2 = await request.post('/api/payment/webhook', {
-      data: body,
-      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
-    });
-    const r3 = await request.post('/api/payment/webhook', {
-      data: body,
-      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
-    });
-
-    // Все три должны вернуть тот же статус
-    expect(r1.status()).toBe(r2.status());
-    expect(r2.status()).toBe(r3.status());
-
-    // Если первый вернул 200 — второй и третий должны быть idempotent: true
-    if (r1.status() === 200) {
-      const j1 = await r1.json();
-      const j2 = await r2.json();
-      const j3 = await r3.json();
-
-      expect(j1.success).toBe(true);
-      // Второй и третий — идемпотентные
-      if (j2.idempotent !== undefined) {
-        expect(j2.idempotent).toBe(true);
-      }
-      if (j3.idempotent !== undefined) {
-        expect(j3.idempotent).toBe(true);
-      }
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await request.post('/api/payment/webhook', {
+        data: body,
+        headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
+      });
+      statuses.push(response.status());
     }
+
+    // Для несуществующего заказа корректный результат — 404, а не фиктивная обработка.
+    expect(statuses).toEqual([404, 404, 404]);
   });
 
   test('11. GET /api/payment/webhook → 200 status ok', async ({ request }: { request: APIRequestContext }) => {
