@@ -173,6 +173,7 @@ export async function GET(
   const redirectUrl = buildAuthorizationUrl(provider, config, state, codeChallenge, nonce);
 
   const secureCookies = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
+  const secureCookies = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   const response = NextResponse.redirect(redirectUrl, { status: 302 });
   response.cookies.set(`oauth_state_${provider}`, state, {
     httpOnly: true,
