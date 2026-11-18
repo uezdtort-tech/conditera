@@ -83,8 +83,7 @@ function buildAuthorizationUrl(
       params.set("nonce", nonce);
       params.set("code_challenge", codeChallenge);
       params.set("code_challenge_method", "S256");
-      params.set("access_type", "offline");
-      params.set("prompt", "consent");
+      params.set("prompt", "select_account");
       return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
     case "yandex": {
