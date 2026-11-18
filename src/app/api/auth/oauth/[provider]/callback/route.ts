@@ -395,10 +395,13 @@ export async function GET(
 
     const { data: profileRow, error: profileError } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, name, account_type, is_blocked")
+      .select("id, email, name, account_type, is_blocked, deleted_at")
       .eq("id", userId)
       .maybeSingle();
     if (profileError || !profileRow) throw new Error("Профиль пользователя не найден");
+    if (profileRow.deleted_at) {
+      return finishRedirect("Этот аккаунт был удалён. Для продолжения обратитесь в поддержку.", provider, returnTo);
+    }
     if (profileRow.is_blocked) {
       return finishRedirect("Вход в аккаунт ограничен. Обратитесь в поддержку.", provider, returnTo);
     }
