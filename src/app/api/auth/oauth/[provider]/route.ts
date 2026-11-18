@@ -33,8 +33,10 @@ function getProviderConfig(provider: Provider): {
   switch (provider) {
     case "google": {
       const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
-      if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
+      // Callback uses Google's confidential-client token exchange.
+      if (isStubValue(clientId) || isStubValue(clientSecret) || isStubValue(redirectUri)) return null;
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
     case "yandex": {
