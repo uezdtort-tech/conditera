@@ -158,6 +158,14 @@ export async function GET(
   // Production mode — construct the authorization URL.
   // `state` — CSRF-токен: кладём в httpOnly-cookie и сверяем в callback
   // (сравнение параметра с cookie, cookie живёт 10 минут, путь — наш callback).
+  const requestedReturnTo = request.nextUrl.searchParams.get("returnTo") || "/dashboard";
+  const returnTo = requestedReturnTo.startsWith("/") &&
+    !requestedReturnTo.startsWith("//") &&
+    !requestedReturnTo.includes("\\") &&
+    !/[\r\n]/.test(requestedReturnTo)
+    ? requestedReturnTo
+    : "/dashboard";
+
   const state = randomBytes(32).toString("base64url");
   const codeVerifier = randomBytes(48).toString("base64url");
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
@@ -169,6 +177,13 @@ export async function GET(
     httpOnly: true,
     sameSite: "lax",
     // Secure в production (HTTPS-деплой); в dev/preview без TLS остаётся false
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 600,
+    path: "/api/auth/oauth",
+  });
+  response.cookies.set(`oauth_return_to_${provider}`, returnTo, {
+    httpOnly: true,
+    sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     maxAge: 600,
     path: "/api/auth/oauth",
