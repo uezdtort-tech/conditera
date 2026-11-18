@@ -297,6 +297,7 @@ export async function GET(
     if (identityLookupError) throw new Error("Не удалось проверить связь OAuth-аккаунта");
 
     let userId: string;
+    let createdNewUser = false;
     if (identityLink?.user_id) {
       userId = identityLink.user_id;
     } else {
@@ -356,6 +357,7 @@ export async function GET(
       } else {
         userId = authData.user.id;
       }
+      createdNewUser = true;
 
       const { error: profileUpsertError } = await supabaseAdmin.from("profiles").upsert({
         id: userId,
@@ -395,6 +397,42 @@ export async function GET(
         .insert({ user_id: userId, role: "CUSTOMER", is_active: true });
       if (roleInsertError) throw new Error("Не удалось назначить роль покупателя");
       roles = ["CUSTOMER"];
+    }
+
+    if (createdNewUser) {
+      const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+      const ipAddress = (forwardedFor || request.headers.get("x-real-ip") || "").slice(0, 64) || null;
+      const userAgent = request.headers.get("user-agent")?.slice(0, 512) || null;
+      const { error: consentInsertError } = await supabaseAdmin.from("user_consent_events").insert([
+        {
+          user_id: userId,
+          event_type: "grant",
+          consent_type: "personal_data",
+          document_version: process.env.LEGAL_PRIVACY_VERSION || "2026-11-18.1",
+          source: "oauth",
+          provider,
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        },
+        {
+          user_id: userId,
+          event_type: "grant",
+          consent_type: "terms",
+          document_version: process.env.LEGAL_TERMS_VERSION || "2026-11-18.1",
+          source: "oauth",
+          provider,
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        },
+      ]);
+      if (consentInsertError) {
+        try {
+          await supabaseAdmin.auth.admin.deleteUser(userId);
+        } catch (cleanupError) {
+          console.error("[oauth] Failed to roll back user after consent journal error", cleanupError);
+        }
+        throw new Error("Не удалось зафиксировать обязательные согласия. Аккаунт не активирован.");
+      }
     }
 
     if (!identityLink?.user_id) {
