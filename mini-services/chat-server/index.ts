@@ -458,7 +458,7 @@ io.use(async (socket, next) => {
       return next(new Error("auth: token required"));
     }
 
-    // Проверяем подпись и срок действия
+    // Быстрая локальная проверка подписи и срока действия.
     const { payload } = await jwtVerify(token, JWT_SECRET, {
       algorithms: ["HS256"],
     });
@@ -467,18 +467,41 @@ io.use(async (socket, next) => {
       return next(new Error("auth: invalid token (no userId)"));
     }
 
-    // Проверяем, что это не TFA-pending токен (используется только для логина)
+    // Временный токен второго фактора не может открыть чат.
     if ((payload as any).tfa_pending) {
       return next(new Error("auth: TFA pending token cannot be used for chat"));
     }
 
-    // userId/roles/email берём из JWT — клиент не может их подделать
-    (socket as any).userId = payload.userId as string;
-    (socket as any).userEmail = payload.email as string;
-    (socket as any).userRoles = (payload.roles as string[]) || [];
+    // Повторная серверная проверка через Next API — JWT claims могут быть
+    // устаревшими после блокировки, удаления профиля или отзыва роли.
+    // При недоступности Next API подключение отклоняется (fail-closed).
+    const validationResponse = await fetch(`${NEXT_API_BASE}/api/auth/session`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!validationResponse.ok) {
+      return next(new Error("auth: account validation unavailable"));
+    }
+    const validation = (await validationResponse.json()) as {
+      user?: {
+        id?: string;
+        email?: string;
+        name?: string;
+        roles?: string[];
+      } | null;
+    };
+    const currentUser = validation.user;
+    if (!currentUser?.id || currentUser.id !== payload.userId) {
+      return next(new Error("auth: unauthorized"));
+    }
+
+    // Идентичность и полномочия берём из БД через общий auth-контракт.
+    (socket as any).userId = currentUser.id;
+    (socket as any).userEmail = currentUser.email || "";
+    (socket as any).userRoles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
     (socket as any).userName =
+      currentUser.name ||
       (socket.handshake.auth?.userName as string) ||
-      (payload.email as string) ||
+      currentUser.email ||
       "Пользователь";
     (socket as any).userAvatar = socket.handshake.auth?.userAvatar as string;
 
