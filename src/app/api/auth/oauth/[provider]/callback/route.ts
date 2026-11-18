@@ -245,11 +245,19 @@ export async function GET(
   }
 
   const { searchParams } = new URL(request.url);
+  const requestedReturnTo = request.cookies.get("oauth_return_to_" + provider)?.value || "/dashboard";
+  const returnTo = requestedReturnTo.startsWith("/") &&
+    !requestedReturnTo.startsWith("//") &&
+    !requestedReturnTo.includes("\\") &&
+    !/[\\r\\n]/.test(requestedReturnTo)
+    ? requestedReturnTo
+    : "/dashboard";
+
   const oauthError = searchParams.get("error");
-  if (oauthError) return finishRedirect("Вход отменён или отклонён провайдером", provider);
+  if (oauthError) return finishRedirect("Вход отменён или отклонён провайдером", provider, returnTo);
 
   const config = getProviderConfig(provider);
-  if (!config) return finishRedirect("Провайдер не настроен", provider);
+  if (!config) return finishRedirect("Провайдер не настроен", provider, returnTo);
 
   try {
     const code = searchParams.get("code");
@@ -258,14 +266,6 @@ export async function GET(
     if (!code || !state || !cookieState || state !== cookieState) {
       return finishRedirect("Неверный state — повторите вход", provider);
     }
-
-    const requestedReturnTo = request.cookies.get("oauth_return_to_" + provider)?.value || "/dashboard";
-    const returnTo = requestedReturnTo.startsWith("/") &&
-      !requestedReturnTo.startsWith("//") &&
-      !requestedReturnTo.includes("\\") &&
-      !/[\\r\\n]/.test(requestedReturnTo)
-      ? requestedReturnTo
-      : "/dashboard";
 
     let profile: OAuthProfile;
     if (provider === "yandex") {
