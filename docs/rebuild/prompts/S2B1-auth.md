@@ -75,7 +75,12 @@ JWT/сессионных таблиц.
    - POST /api/auth/oauth/[provider] + GET .../callback:
      signInWithOAuth → redirect → обмен кода на сессию → upsert
      profiles → redirect на исходную страницу (паттерн старого
-     oauth-колбэка).
+     oauth-колбэка). Провайдеры по решению владельца №6: Yandex, VK,
+     Google — настройки в консоли Supabase уже есть у владельца; в v2
+     включаются env-гвоздями SUPABASE_OAUTH_YANDEX_ENABLED /
+     SUPABASE_OAUTH_VK_ENABLED / SUPABASE_OAUTH_GOOGLE_ENABLED (секреты —
+     в консоли Supabase, не в коде); в dev-шиме OAuth эмулируется
+     «мгновенным входом» демо-провайдера только при DEV_AUTH_SHIM=1.
 3. Синхронизация ролей в JWT: истина — profiles; репликация в
    app_metadata.roles через auth.admin.updateUserById при регистрации
    (после signUp), назначении/снятии роли админом (S2B2). Гварды читают

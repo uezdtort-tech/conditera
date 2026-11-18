@@ -60,7 +60,17 @@ prisma/schema.prisma v2, покрывающая все таблицы из ре�
      QUALITY_INSPECTOR, CERTIFICATION_AGENT, GUEST), OrderStatus,
      PaymentStatus, LedgerKind и т.д.;
    - индексы: все FK, email (unique, lowercase-храним), status+createdAt
-     для выборок списков.
+     для выборок списков;
+   - РЕШЕНИЯ ВЛАДЕЛЬЦА (DECISIONS.md):UserRole пополняется значением
+     RECIPE_DEVELOPER (псевдороль, решение №8 — admin-assigned);
+     категории — admin-managed (№12): таблица categories + в админ-кабинете
+     CRUD (S5B3), исполнители только выбирают; №10 — таблица
+     commission_rates (id, kind, rate, active, updatedAt) — стандартные
+     тарифы комиссии, редактируемые админом; №9 — бонусная политика:
+     глобальные параметры в site_settings (JSON bonusPolicy) + поле
+     bonusPolicyOverride (JSON, nullable) в profiles для точечного
+     override конкретного исполнителя; №1 — orders.paymentMode
+     (enum PaymentMode: STUB|YOOKASSA, default STUB).
 3. Скрипты БД в scripts/db/ (перенести и упростить из старого проекта):
    - runtime.mjs — initdb/start/status/stop embedded PostgreSQL :54329
      (скопировать рабочий скрипт старого проекта scripts/db/runtime.mjs);

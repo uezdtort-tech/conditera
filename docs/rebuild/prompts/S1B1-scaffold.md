@@ -1,6 +1,7 @@
 # ПРОМПТ S1B1 — Каркас проекта и гейты качества
 
-Этап 1 «Фундамент» | Блок 1. Зависимости: S0B2 (spec-registry.md).
+Этап 1 «Фундамент» | Блок 1. Зависимости: S0B2 (spec-registry.md),
+DECISIONS.md (реестр 13 решений владельца — читать ДО работ).
 > Скопируйте текст ниже целиком в нового агента.
 
 ---
@@ -50,7 +51,11 @@ sticky-footer, CI-ready скрипты.
    - src/components/{ui,pages,dashboard,layout,ai};
    - src/lib/{db,auth,ai,validation,utils}.ts (заглушки-экспорты);
    - scripts/db/ (заглушки под S1B2);
-   - docs/, logs/agent/, prisma/.
+   - docs/, logs/agent/, prisma/;
+   - docker-compose.local.yml (каркас локального стека по решению
+     владельца №4: сервисы-заготовки n8n :5678, supabase-стек,
+     meilisearch :7700 — профили, реальных образов в песочнице не
+     тянуть; наполнение — S8B2/S9B1).
 3. env-соглашение: создать `.env.example` (только имена ключей с
    комментариями): DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL,
    NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
@@ -59,7 +64,11 @@ sticky-footer, CI-ready скрипты.
    AI_PROVIDER_ORDER, AI_ZAI_MODEL, AI_TEMPERATURE, AI_MAX_TOKENS,
    NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_YANDEX_METRIKA_ID,
    YANDEX_METRIKA_OAUTH_TOKEN, YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY,
-   TELEGRAM_BOT_TOKEN. Проверить, что .env* в .gitignore.
+   TELEGRAM_BOT_TOKEN, MEILI_MASTER_KEY, NEXT_PUBLIC_MEILI_HOST,
+   DADATA_API_KEY, DADATA_SECRET_KEY, SUPABASE_OAUTH_YANDEX_ENABLED,
+   SUPABASE_OAUTH_VK_ENABLED, SUPABASE_OAUTH_GOOGLE_ENABLED,
+   PAYMENT_MODE (values: STUB|YOOKASSA, default STUB — решение владельца
+   №1). Проверить, что .env* в .gitignore.
 4. Health-эндпоинт `src/app/api/health/route.ts`: GET → JSON
    {status: "ok"|"degraded", app, database, auth, storage, n8n, version,
    timestamp, environment}. Логика: db=true → ok; иначе 503+degraded

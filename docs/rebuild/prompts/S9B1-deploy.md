@@ -10,6 +10,13 @@
 проекта: прод отставал на ~300 коммитов из-за ручного деплоя, Docker
 собирался npm'ом. Одна команда — один воспроизводимый релиз.
 
+## 0. РЕШЕНИЕ ВЛАДЕЛЬЦА №3/№4 (DECISIONS.md)
+Целевой деплой: домен **conditera.ru** на **локальной машине владельца**,
+белый IP **185.218.111.176**. Топология — Caddy (:80/:443, авто-HTTPS,
+base старого Caddyfile) → web :3000; локальный Docker-стек рядом:
+n8n :5678, Supabase-стек (GoTrue/Storage/PostgREST/Postgres), Meilisearch
+:7700 — всё в docker-compose проекта. Cloudflare-tunnel-ветка не требуется.
+
 ## 2. СТЕК И НЕИЗМЕНЯЕМЫЕ ПРАВИЛА
 - Артефакты деплоя: Dockerfile (база oven/bun:1), docker-compose
   (app + postgres + n8n + caddy/traefik по желанию владельца).
