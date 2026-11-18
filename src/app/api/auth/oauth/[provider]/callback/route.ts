@@ -207,8 +207,11 @@ function finishRedirect(
   returnTo: string = "/dashboard"
 ): NextResponse {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const url = new URL(error ? "/oauth/finish" : returnTo, baseUrl);
-  if (error) url.searchParams.set("error", error);
+  const url = new URL(error ? "/login" : returnTo, baseUrl);
+  if (error) {
+    url.searchParams.set("oauthError", error);
+    url.searchParams.set("returnTo", returnTo);
+  }
   const response = NextResponse.redirect(url, { status: 302 });
 
   if (provider) {
