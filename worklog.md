@@ -9433,3 +9433,22 @@ Stage Summary:
 **Ограничения/учёт среды:** локально GoTrue/Storage в песочнице недоступны («auth=unreachable» — норма dev) → v2.1 предусматривает явные DEV_AUTH_SHIM=1 и STORAGE_MODE=local; в prod — реальные сервисы Supabase-проекта владельца. Shim/adapter никогда не включаются по умолчанию.
 
 **Ограничения соблюдены:** старый код не изменён (только docs/rebuild + worklog), прод не тронут, push/deploy нет.
+
+---
+
+## Task ID: rebuild-exec-S1B1-S2B1 (2026-11-18, UTC)
+**Запрос владельца:** «Дальше по карте — S1B3 (дизайн-система), затем S2B1 (Supabase Auth)».
+
+**Контекст:** conditera-v2 ещё не существовал (прошлые сессии довели план до v2.1 + 13 решений владельца) → перед S1B3/S2B1 закрыты зависимости S1B1 (каркас) и S1B2 (схема). 13 решений владельца зафиксированы в docs/rebuild/DECISIONS.md ([S0B3]) и синхронизированы в промпты S1B1/S1B2/S2B1/S4B2/S9B1.
+
+**v2 репозиторий /home/z/conditera-v2 (4 коммита):**
+- [S1B1] scaffold: Next 16.4.6 + TS strict + Tailwind 4 + shadcn (34 компонента) + globals.css 2025 целиком + бренд-шрифты; health-матрица (503↔degraded когерентно, auth/storage «unreachable» подписаны); тема Zustand persist conditera-storage + FOUC-bootstrap; sticky-footer; env-соглашение (Supabase, PAYMENT_MODE=STUB, MEILI, DADATA, TELEGRAM, OAuth-флаги); docker-compose.local.yml каркас (n8n/Supabase/Meilisearch — решение №4); allowedDevOrigins space-z.ai.
+- [S1B2] schema: ~45 моделей/30 enum'ов (консолидация); БЕЗ sessions/RefreshToken/Account (D1/D2); единые tfa*-колонки (SD-10/D9); BalanceLedger единственный журнал денег (SD-8/D10); PayoutRequest(status enum, ledgerEntryId, completedTfaAt); Review модерация + products ingredients/allergens/categoryId (D11); решения владельца: RECIPE_DEVELOPER (№8), CommissionRate (№10), bonusPolicyOverride + site_settings.bonusPolicy (№9), orders.paymentMode STUB (№1), categories admin-managed (№12), telegramChatId (№5); embedded PG :54329 (runtime.mjs), migrate init, идемпотентный seed (6 демо-юзеров через Admin API, 8 категорий, 20 товаров, 10 отзывов, 3 рецепта, тарифы, bonusPolicy); health database=ok.
+- [S1B3] design-system: обёртки PageHeader/SectionHeading/ShopCard/EmptyState/StatCard/SafeImage; sonner БЕЗ next-themes; /styleguide (7 табов, noindex, dev-ссылка в футере); dark-тема полная; card-hover verified (lift −3px + малиновая обводка + 0.35s; reduced-motion гварды).
+- [S2B1] auth: единый контур GoTrue — клиенты @supabase/ssr (httpOnly-куки), middleware updateSession, роуты register/login/logout/session/oauth/2fa, getCurrentUser fail-closed (D3 закрыт), guards requireRole/requireAdmin, claims-репликация app_metadata.roles + self-healing (БД — истина), auth-modal (19 ролей, быстрые 5), seed 6/6 через admin API; mini-services/auth-shim :3040 (DEV_AUTH_SHIM=1 гвард, JWT HS256 SUPABASE_JWT_SECRET, CORS, JSON-хранилище) + server-side /auth/v1 прокси (preview-совместимость); OAuth Yandex/VK/Google под env-флагами (секреты в консоли Supabase).
+
+**Верификация:** tsc 0 / lint 0 (v2); /api/health {status:ok, database:ok, auth:ok}; curl-цикл register→session→logout→401, неверный пароль 401 (единое сообщение), ADMIN→403, JWT-claims декодированы, шим-даун→503 fail-closed; agent-browser: модалка→вход demo→тост+имя→выход→401; /styleguide light/dark скриншоты; mobile 390px без overflow.
+
+**Ограничения/инциденты:** в персистентной shell DATABASE_URL был засорён file:-URL старого проекта (перебивал .env.local — запуск dev: `env -u DATABASE_URL bun run dev`); MFA/OAuth в dev-шиме не эмулируются (честные 503/501, флаги SUPABASE_MFA_ENABLED/SUPABASE_OAUTH_*_ENABLED); STORAGE — S2B4.
+
+**Следующий блок по карте:** S2B2 (RBAC и роли).
