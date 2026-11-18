@@ -132,13 +132,8 @@ else
   echo "  ✗ auth.users (отсутствует)"
   ALL_OK=0
 fi
-STORAGE_OBJECTS_EXISTS=$(PSQL -tAc "SELECT to_regclass('storage.objects') IS NOT NULL" | xargs)
-if [ "$STORAGE_OBJECTS_EXISTS" = "t" ]; then
-  echo "  ✓ storage.objects"
-else
-  echo "  ✗ storage.objects (отсутствует)"
-  ALL_OK=0
-fi
+# storage.objects создаётся миграциями Storage API после старта DB-контейнера.
+# Его наличие проверяется поздним runtime preflight, а не initdb-скриптом.
 CRITICAL_TABLES="profiles user_roles products product_categories orders order_items confectioners audit_log fillings builder_config site_settings cms_pages confectioner_transactions payments refunds inventory_items inventory_movements inventory_write_offs chat_channels oauth_identity_links user_consent_events schema_migrations"
 for t in $CRITICAL_TABLES; do
   EXISTS=$(PSQL -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='${t}' LIMIT 1;" | xargs)
