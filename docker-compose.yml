@@ -33,6 +33,7 @@ services:
       # POSTGRES_USER/DB нужны для init-scripts/01-apply-migrations.sh
       - POSTGRES_USER=conditera
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PGPASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=conditera
       # Скрипт мигратора использует libpq; DATABASE_URL сам по себе не читается psql.
       - PGHOST=db
