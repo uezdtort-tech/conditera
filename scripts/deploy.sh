@@ -211,20 +211,10 @@ summary() {
 
 # ===== Main =====
 main() {
-  log "Starting production deploy..."
-
+  log "Legacy deploy script is disabled for database safety."
   check_dir
-  pull_code
-  check_env
-  apply_migrations
-  deploy_functions
-  setup_cron
-  restart_services
-  health_check
-  cleanup
-  summary
+  err "Автоматический deploy запрещён: проект пока содержит два независимых PostgreSQL и старый сценарий запускает оба Compose-стека. Сначала выполните read-only проверку: bash scripts/db-preflight.sh. Никакие git pull, миграции, перезапуски и очистки этим скриптом не выполняются."
 
-  log "Deploy completed successfully!"
 }
 
 # Run
