@@ -1,15 +1,13 @@
 // GET /api/auth/oauth/[provider]/callback
 //
-// Реальный OAuth-callback для Yandex и Google (+ stub-режим для остальных).
+// Реальный OAuth-callback для Yandex и Google; VK ID требует отдельного PKCE-потока.
 //
 // Флоу:
 //   1. Сверяем state (query) с httpOnly-cookie oauth_state_<provider> (CSRF).
 //   2. Обмениваем code на access_token (token endpoint провайдера).
 //   3. Забираем профиль (email, имя, аватар).
-//   4. Находим/создаём пользователя в GoTrue через Admin API
-//      (email_confirm=true, случайный пароль), синхронизируем profiles
-//      и роль CUSTOMER.
-//   5. Server-side signInWithPassword → валидная GoTrue-сессия.
+//   4. GoTrue Admin API выпускает одноразовую magic-link без смены пароля.
+//   5. Сервер проверяет одноразовый token_hash и получает GoTrue-сессию.
 //   6. Передаём сессию в браузер через одноразовый httpOnly-cookie
 //      (60 сек) → /oauth/finish → /api/auth/oauth/handoff →
 //      supabaseBrowser.auth.setSession() (тот же стейт, что после обычного
@@ -19,7 +17,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { randomBytes } from "crypto";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
 
@@ -95,8 +92,8 @@ async function fetchYandexProfile(accessToken: string): Promise<OAuthProfile> {
     is_avatar_empty?: boolean;
     default_avatar_id?: string;
   };
-  const email = json.default_email || (json.login?.includes("@") ? json.login : `${json.login}@yandex.ru`);
-  if (!email) throw new Error("Yandex profile: email not available");
+  const email = json.default_email;
+  if (!email) throw new Error("Yandex profile: provider did not return an email address");
   const name = json.real_name || json.display_name || "Пользователь Яндекса";
   const avatarUrl =
     !json.is_avatar_empty && json.default_avatar_id
