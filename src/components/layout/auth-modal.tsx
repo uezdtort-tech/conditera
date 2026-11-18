@@ -241,7 +241,7 @@ export function AuthModal() {
   // Новая регистрация требует отдельного согласия на ПД и принятия условий.
   const handleOAuth = async (provider: "yandex" | "vk" | "google") => {
     if (!oauthConsentPd || !oauthConsentTerms || !oauthConsentOffer) {
-      toast.error("Подтвердите согласие на обработку персональных данных и условия платформы");
+      toast.error("Подтвердите согласие на обработку персональных данных, пользовательское соглашение и публичную оферту");
       return;
     }
     try {
@@ -266,7 +266,7 @@ export function AuthModal() {
     e.preventDefault();
     setRegisterError(null);
     if (!consentPd || !consentTerms || !consentOffer) {
-      setRegisterError("Дайте отдельное согласие на обработку персональных данных и примите условия платформы");
+      setRegisterError("Дайте согласие на обработку персональных данных, примите пользовательское соглашение и публичную оферту");
       return;
     }
     if (!registerName || !registerEmail || !registerPassword || !registerPhone) {
