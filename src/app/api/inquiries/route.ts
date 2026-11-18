@@ -77,7 +77,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       console.error("[inquiries] GET failed:", error.message);
       return errorResponse("Не удалось загрузить запросы", 500);
     }
-    return NextResponse.json({ inquiries: data || [] });
+    const rows = data || [];
+    const visible = filter === "available" && !user.roles.includes("ADMIN") && !user.roles.includes("SUPER_ADMIN")
+      ? rows.filter((inquiry) => Array.isArray(inquiry.negotiations) && inquiry.negotiations.some((negotiation: { confectioner_id?: string }) => negotiation.confectioner_id === user.id))
+      : rows;
+    return NextResponse.json({ inquiries: visible });
   } catch (error) {
     console.error("[inquiries] GET error:", error instanceof Error ? error.message : String(error));
     return errorResponse("Внутренняя ошибка сервера", 500);
@@ -118,11 +122,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { role: "service_role", sub: user.id, raw: { role: "service_role", sub: user.id } },
       async (client) => {
         const validConfectioners = await client.query<{ user_id: string }>(
-          `SELECT DISTINCT user_id::text
-             FROM public.user_roles
-            WHERE user_id = ANY($1::uuid[])
-              AND role::text = 'CONFECTIONER'
-              AND is_active = TRUE`,
+          `SELECT DISTINCT ur.user_id::text
+             FROM public.user_roles ur
+             JOIN public.confectioners c ON c."userId" = ur.user_id::text
+            WHERE ur.user_id = ANY($1::uuid[])
+              AND ur.role::text = 'CONFECTIONER'
+              AND ur.is_active = TRUE
+              AND c.verified = TRUE
+              AND c."verificationStatus" = 'approved'`,
           [selectedIds]
         );
         const validIds = new Set(validConfectioners.rows.map((row) => row.user_id));
