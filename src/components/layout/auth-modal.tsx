@@ -155,6 +155,9 @@ export function AuthModal() {
   // Регистрация
   const [oauthConsentPd, setOauthConsentPd] = useState(false);
   const [oauthConsentTerms, setOauthConsentTerms] = useState(false);
+  const [consentPd, setConsentPd] = useState(false);
+  const [consentTerms, setConsentTerms] = useState(false);
+  const [consentNews, setConsentNews] = useState(false);
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPhone, setRegisterPhone] = useState("");
@@ -260,6 +263,10 @@ export function AuthModal() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegisterError(null);
+    if (!consentPd || !consentTerms) {
+      setRegisterError("Дайте отдельное согласие на обработку персональных данных и примите условия платформы");
+      return;
+    }
     if (!registerName || !registerEmail || !registerPassword || !registerPhone) {
       setRegisterError("Заполните все обязательные поля: имя, телефон, email, пароль");
       return;
@@ -309,6 +316,9 @@ export function AuthModal() {
           role: registerRole, // роль из UI уже совпадает с enum user_role (CUSTOMER, CONFECTIONER, SUPPLIER, ANIMATOR_AGENCY…)
           accountType,
           legalInfo,
+          consentPd,
+          consentTerms,
+          consentMarketing: consentNews,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -916,6 +926,8 @@ export function AuthModal() {
                     type="checkbox"
                     id="consent-pd"
                     required
+                    checked={consentPd}
+                    onChange={(event) => setConsentPd(event.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-primary shrink-0"
                   />
                   <span className="text-xs text-muted-foreground leading-relaxed">
@@ -927,6 +939,8 @@ export function AuthModal() {
                     type="checkbox"
                     id="consent-terms"
                     required
+                    checked={consentTerms}
+                    onChange={(event) => setConsentTerms(event.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-primary shrink-0"
                   />
                   <span className="text-xs text-muted-foreground leading-relaxed">
@@ -937,6 +951,8 @@ export function AuthModal() {
                   <input
                     type="checkbox"
                     id="consent-news"
+                    checked={consentNews}
+                    onChange={(event) => setConsentNews(event.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-primary shrink-0"
                   />
                   <span className="text-xs text-muted-foreground leading-relaxed">
