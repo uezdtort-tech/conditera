@@ -194,7 +194,9 @@ export async function GET(
     const profile =
       provider === "yandex" ? await fetchYandexProfile(accessToken) : await fetchGoogleProfile(accessToken);
 
-    // 4. GoTrue Admin API: найти или создать пользователя.
+    // 4. Создаём одноразовую magic-link сессию через GoTrue Admin API.
+    // КРИТИЧНО: никогда не менять пароль уже существующего пользователя ради OAuth.
+    // Такой подход ломает парольный вход и может перехватить чужой аккаунт.
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -202,43 +204,34 @@ export async function GET(
       throw new Error("Supabase env vars not configured");
     }
 
-    const tempPassword = randomBytes(24).toString("base64url");
-    let userId: string;
-
-    const adminRes = await fetch(`${supabaseUrl}/admin/users?page=1&per_page=1&email=${encodeURIComponent(profile.email)}`, {
-      headers: { Authorization: `Bearer ${serviceRole}`, apikey: serviceRole },
-      signal: AbortSignal.timeout(15_000),
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
+    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+      type: "magiclink",
+      email: profile.email,
+      options: {
+        redirectTo: new URL("/oauth/finish", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").toString(),
+        data: {
+          full_name: profile.name,
+          avatar_url: profile.avatarUrl,
+          oauth_provider: provider,
+        },
+      },
     });
-    const adminList = (await adminRes.json()) as { users?: Array<{ id: string; email?: string }> };
-    const existing = (adminList.users || []).find((u) => u.email?.toLowerCase() === profile.email);
-
-    if (existing) {
-      userId = existing.id;
-      // Обновляем пароль на известный нам → сможем signInWithPassword ниже.
-      await fetch(`${supabaseUrl}/admin/users/${userId}`, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${serviceRole}`, apikey: serviceRole, "Content-Type": "application/json" },
-        body: JSON.stringify({ password: tempPassword }),
-        signal: AbortSignal.timeout(15_000),
-      });
-    } else {
-      const createRes = await fetch(`${supabaseUrl}/admin/users`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${serviceRole}`, apikey: serviceRole, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: profile.email,
-          password: tempPassword,
-          email_confirm: true,
-          user_metadata: { full_name: profile.name, avatar_url: profile.avatarUrl, oauth_provider: provider },
-        }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      const created = (await createRes.json()) as { id?: string; msg?: string };
-      if (!createRes.ok || !created.id) {
-        throw new Error(`GoTrue create user: ${created.msg || createRes.status}`);
-      }
-      userId = created.id;
+    const tokenHash = linkData?.properties?.hashed_token;
+    if (linkError || !tokenHash) {
+      throw new Error(`GoTrue magic-link generation failed: ${linkError?.message || "token hash missing"}`);
     }
+
+    // Обмениваем одноразовый hash на настоящую GoTrue-сессию на сервере.
+    const ssr = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
+    const { data: sessionData, error: verifyError } = await ssr.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: "magiclink",
+    });
+    if (verifyError || !sessionData.session || !sessionData.user) {
+      throw new Error(`GoTrue magic-link verification failed: ${verifyError?.message || "session missing"}`);
+    }
+    const userId = sessionData.user.id;
 
     // 4b. Профиль + роль CUSTOMER (идемпотентно).
     const { supabaseAdmin } = await import("@/lib/supabase/admin");
@@ -260,15 +253,6 @@ export async function GET(
     }
 
     // 5. Server-side GoTrue-сессия.
-    const ssr = createClient(supabaseUrl, anonKey, { auth: { persistSession: false } });
-    const { data: sessionData, error: signInErr } = await ssr.auth.signInWithPassword({
-      email: profile.email,
-      password: tempPassword,
-    });
-    if (signInErr || !sessionData.session) {
-      throw new Error(`GoTrue signIn: ${signInErr?.message || "no session"}`);
-    }
-
     // 6. Одноразовый handoff-cookie → /oauth/finish.
     const handoff = {
       accessToken: sessionData.session.access_token,
