@@ -15,7 +15,7 @@ async function registerUser(
       email,
       password: PASSWORD,
       name: "E2E " + role + " " + RUN_ID,
-      phone: "+7999" + RUN_ID.slice(-7) + (suffix === "customer" ? "1" : "2"),
+      phone: "+7900" + RUN_ID.slice(-6) + (suffix === "customer" ? "1" : "2"),
       role,
       consentPd: true,
       consentTerms: true,
