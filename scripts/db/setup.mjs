@@ -423,13 +423,35 @@ function ensureEnvKeys() {
       .map((l) => l.slice(0, l.indexOf("=")).trim())
   );
 
-  const jwtSecret = crypto.randomBytes(48).toString("hex");
-  const jwtRefresh = crypto.randomBytes(48).toString("hex");
+  const existingValue = (key) =>
+    lines.find((line) => line.startsWith(`${key}=`))?.slice(key.length + 1) || "";
+  // В CI/production process.env имеет приоритет над .env.local и должен
+  // быть тем же ключом, которым подписываются локальные Supabase JWT.
+  const jwtSecret = process.env.JWT_SECRET || existingValue("JWT_SECRET") || crypto.randomBytes(48).toString("hex");
+  const jwtRefresh = process.env.JWT_REFRESH_SECRET || existingValue("JWT_REFRESH_SECRET") || crypto.randomBytes(48).toString("hex");
   const additions = [];
   const add = (key, value) => {
+    if (process.env[key]) {
+      console.log(`  = ${key}: supplied by process environment`);
+      return;
+    }
     if (present.has(key)) {
-      const currentVal = lines.find((l) => l.startsWith(`${key}=`))?.slice(key.length + 1) || "";
+      const currentVal = existingValue(key);
       console.log(`  = ${key}: ${maskSecret(currentVal)} (kept)`);
+      return;
+    }
+    additions.push(`${key}=${value}`);
+    console.log(`  + ${key}: ${maskSecret(value)}`);
+  };
+  const addOrReplaceGenerated = (key, value) => {
+    if (process.env[key]) {
+      console.log(`  = ${key}: supplied by process environment`);
+      return;
+    }
+    const index = lines.findIndex((line) => line.startsWith(`${key}=`));
+    if (index >= 0) {
+      lines[index] = `${key}=${value}`;
+      console.log(`  ~ ${key}: regenerated for the effective JWT_SECRET`);
       return;
     }
     additions.push(`${key}=${value}`);
@@ -450,11 +472,9 @@ function ensureEnvKeys() {
   add("OLLAMA_MODEL", "llama3.2");
   add("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
   add("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:3000");
-  const effectiveSecret = present.has("JWT_SECRET")
-    ? lines.find((l) => l.startsWith("JWT_SECRET="))?.slice("JWT_SECRET=".length) || jwtSecret
-    : jwtSecret;
-  add("SUPABASE_SERVICE_ROLE_KEY", generateSupabaseJwt("service_role", effectiveSecret));
-  add("NEXT_PUBLIC_SUPABASE_ANON_KEY", generateSupabaseJwt("anon", effectiveSecret));
+  const effectiveSecret = process.env.JWT_SECRET || existingValue("JWT_SECRET") || jwtSecret;
+  addOrReplaceGenerated("SUPABASE_SERVICE_ROLE_KEY", generateSupabaseJwt("service_role", effectiveSecret));
+  addOrReplaceGenerated("NEXT_PUBLIC_SUPABASE_ANON_KEY", generateSupabaseJwt("anon", effectiveSecret));
 
   if (additions.length > 0) {
     let content = existing;
