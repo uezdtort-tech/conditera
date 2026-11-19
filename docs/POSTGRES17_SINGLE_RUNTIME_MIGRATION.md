@@ -17,9 +17,16 @@
 | Supabase CLI | `major_version = 15` | локальный CLI-контур | управляется CLI |
 
 Это три разных PostgreSQL-кластера в Compose-контурах, а не один общий сервер.
-Production-приложение подключается к `db:5432/conditera`, а Auth/REST/
-Realtime/Storage/Meta/Analytics Supabase подключаются к `supabase-db:5432/supabase`.
-Следовательно, текущая конфигурация НЕ соответствует требованию единого PostgreSQL.
+Production Compose содержит два разных production PostgreSQL-кластера. `migrator`
+получает `DATABASE_URL` на `db:5432/conditera` (PG18), а `web` получает
+`DATABASE_URL` через PgBouncer к тому же PG18. При этом `src/lib/supabase/admin.ts`
+и SSR-клиент используют Supabase JS, чей серверный URL выбирается через
+`SUPABASE_INTERNAL_URL`/`NEXT_PUBLIC_SUPABASE_URL` и ведёт к Supabase Kong,
+а его сервисы подключены к `supabase-db:5432/supabase` (PG15). Кроме того,
+`supabase-db` монтирует те же `supabase/migrations` в init scripts, тогда как
+отдельный `migrator` применяет их к PG18. Это создаёт риск двух расходящихся
+копий прикладной схемы и миграций. Точный список прямых `pg`-потребителей
+`DATABASE_URL` должен быть подтверждён поиском по коду до отключения PG18.
 
 ## 2. Целевая архитектура
 
@@ -29,10 +36,14 @@ Realtime/Storage/Meta/Analytics Supabase подключаются к `supabase-d
 - Один PostgreSQL cluster и одна целевая база приложения/Supabase.
 - Схемы Supabase (`auth`, `storage`, `_realtime`, служебные схемы) и
   прикладная схема `public` сосуществуют в этой базе.
-- Prisma/Next.js, Supabase Auth, PostgREST, Realtime, Storage, Meta и Analytics
-  используют один и тот же PostgreSQL server; не поднимать отдельный
-  `postgres:18` рядом с Supabase.
-- PgBouncer/Supavisor — только пулер к этому же серверу, не отдельная БД.
+- Next.js Supabase JS-клиенты, Auth, PostgREST, Realtime, Storage, Meta и
+  Analytics используют один и тот же PostgreSQL server и одну целевую БД.
+- Все прямые SQL-клиенты (`pg`, migrator, backup/maintenance scripts) также
+  направляются на эту же БД; пулер является только сетевой точкой доступа
+  к тому же серверу.
+- Prisma не является runtime-слоем: `src/lib/db.ts` экспортирует
+  `supabaseAdmin`, а `prisma/schema.prisma` прямо помечен deprecated.
+  Не строить план миграции вокруг Prisma.
 - Dev/test должны повторять ту же major-версию и структуру схем, но могут
   использовать отдельные изолированные данные и volumes. Они не являются
   дополнительными production-инсталляциями.
@@ -101,9 +112,12 @@ Realtime/Storage/Meta/Analytics Supabase подключаются к `supabase-d
 
 - Зафиксировать одну целевую базу с Supabase-служебными схемами и прикладной
   схемой `public`; не оставлять отдельную БД приложения на другом сервере.
-- Настроить Prisma `DATABASE_URL` и `DIRECT_DATABASE_URL` на один
-  PostgreSQL server и целевую БД; pooled URL допустим только как endpoint
-  пулера к тому же серверу.
+- Настроить `SUPABASE_INTERNAL_URL` на внутренний Kong единого Supabase runtime;
+  браузерный `NEXT_PUBLIC_SUPABASE_URL` оставить публичным HTTPS URL.
+- Настроить `DATABASE_URL` и `DIRECT_DATABASE_URL` для всех реально
+  существующих прямых SQL-потребителей на ту же целевую БД. Удалить старую
+  маршрутизацию через отдельные `db`/`pgbouncer` только после проверки полного
+  списка потребителей и переноса их задач на единый endpoint.
 - Все Supabase services должны продолжать обращаться к тому же серверу и
   правильным служебным схемам.
 - Проверить init order, healthchecks, DNS service aliases и отсутствие
@@ -133,11 +147,13 @@ Realtime/Storage/Meta/Analytics Supabase подключаются к `supabase-d
 ## 5. Исправление, внесённое в этой ветке
 
 В `supabase/config.toml` значение `db.major_version` установлено в `17`,
-чтобы CLI target соответствовал выбранной целевой версии.
+чтобы CLI target соответствовал выбранной целевой версии. Это локальная
+CLI-конфигурация и само по себе не меняет образы или данные production.
 
 Это НЕ означает, что production Compose уже переведён на PG17 или что данные
 уже объединены. Production Supabase Compose всё ещё содержит PG15, а
-прикладной Compose — PG18. Обновлять эти образы без выполнения этапов A–C
+прикладной Compose — PG18. Также не утверждается, что Prisma используется
+приложением: текущий runtime использует Supabase JS и отдельные прямые SQL-клиенты. Обновлять эти образы без выполнения этапов A–C
 опасно из-за несовместимости data directories.
 
 ## 6. Критерии завершения
