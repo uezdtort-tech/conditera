@@ -1,0 +1,33 @@
+name: Embedded PostgreSQL 17 runtime validation
+
+on:
+  push:
+    branches:
+      - fix/postgres17-supabase-consolidation
+    paths:
+      - "package.json"
+      - "bun.lock"
+      - "scripts/db/runtime.mjs"
+      - ".github/workflows/embedded-pg17-runtime.yml"
+  pull_request:
+    paths:
+      - "package.json"
+      - "bun.lock"
+      - "scripts/db/runtime.mjs"
+      - ".github/workflows/embedded-pg17-runtime.yml"
+  workflow_dispatch:
+
+jobs:
+  verify-native-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install locked dependencies and native PostgreSQL binaries
+        run: bun install --frozen-lockfile
+      - name: Verify embedded PostgreSQL major version
+        run: node --input-type=module -e "import { resolveBinaries } from './scripts/db/runtime.mjs'; console.log(resolveBinaries().postgres)"
