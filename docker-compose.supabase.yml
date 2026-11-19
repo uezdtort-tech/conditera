@@ -316,6 +316,36 @@ services:
     networks:
       - conditera-net
 
+  # ===== Прикладные миграции после инициализации Supabase Storage =====
+  # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
+  # только после того, как Storage API создал свои таблицы.
+  supabase-app-migrator:
+    image: supabase/postgres:15.6.1.141
+    container_name: conditera-supabase-app-migrator
+    restart: "no"
+    command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
+    environment:
+      PGHOST: supabase-db
+      PGPORT: 5432
+      PGUSER: supabase
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      PGDATABASE: supabase
+      MIGRATIONS_DIR: /conditera-migrations
+      SEEDS_DIR: /seeds
+      SEED_MODE: none
+    volumes:
+      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
+      - ./supabase/migrations:/conditera-migrations:ro
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-storage:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+
   # ===== imgproxy (обработка изображений) =====
   supabase-imgproxy:
     image: darthsim/imgproxy:v3.24.0
