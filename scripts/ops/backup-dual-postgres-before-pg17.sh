@@ -65,11 +65,17 @@ SUPABASE_SYSTEM_ID="$(container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SU
   container_psql "$APP_CONTAINER" "$APP_USER" "$APP_DATABASE" "SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' ORDER BY nspname;"
   printf '\n[supabase_schemas]\n'
   container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SUPABASE_DATABASE" "SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' ORDER BY nspname;"
+  printf '\n[app_table_estimates]\n'
+  container_psql "$APP_CONTAINER" "$APP_USER" "$APP_DATABASE" "SELECT schemaname || '.' || relname || '|' || n_live_tup || '|' || pg_total_relation_size(relid) FROM pg_stat_user_tables ORDER BY schemaname, relname;"
+  printf '\n[supabase_table_estimates]\n'
+  container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SUPABASE_DATABASE" "SELECT schemaname || '.' || relname || '|' || n_live_tup || '|' || pg_total_relation_size(relid) FROM pg_stat_user_tables ORDER BY schemaname, relname;"
 } > "$OUT/manifest.txt"
 
 printf 'Снимаю дампы БД и глобальных ролей...\n'
 container_dump "$APP_CONTAINER" "$APP_USER" "$APP_DATABASE" "$OUT/app-$APP_DATABASE.dump"
 container_dump "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SUPABASE_DATABASE" "$OUT/supabase-$SUPABASE_DATABASE.dump"
+docker exec "$APP_CONTAINER" pg_restore --list < "$OUT/app-$APP_DATABASE.dump" > "$OUT/app-restore-toc.txt"
+docker exec "$SUPABASE_CONTAINER" pg_restore --list < "$OUT/supabase-$SUPABASE_DATABASE.dump" > "$OUT/supabase-restore-toc.txt"
 
 docker exec "$APP_CONTAINER" sh -lc 'pg_dumpall -U "$POSTGRES_USER" --globals-only' > "$OUT/app-globals.sql"
 docker exec "$SUPABASE_CONTAINER" sh -lc 'pg_dumpall -U "$POSTGRES_USER" --globals-only' > "$OUT/supabase-globals.sql"
