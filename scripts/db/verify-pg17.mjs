@@ -16,6 +16,8 @@ const root = resolve(import.meta.dirname, "../..");
 const migrationsDir = join(root, "supabase", "migrations");
 const compatFile = join(root, "supabase", "compat", "0000_supabase_compat.sql");
 const databaseUrl = process.env.DATABASE_URL;
+const expectedMajor = Number(process.env.EXPECTED_POSTGRES_MAJOR || 17);
+const skipUnavailableExtensions = process.env.SKIP_UNAVAILABLE_EXTENSIONS === "1";
 
 if (!databaseUrl) {
   console.error("DATABASE_URL is required");
@@ -123,13 +125,22 @@ try {
   );
   const versionNum = versionResult.rows[0].version_num;
   const major = Math.floor(versionNum / 10000);
-  if (major !== 17) {
-    throw new Error(`Expected PostgreSQL 17, received major ${major}: ${versionResult.rows[0].version}`);
+  if (major !== expectedMajor) {
+    throw new Error(`Expected PostgreSQL ${expectedMajor}, received major ${major}: ${versionResult.rows[0].version}`);
   }
-  console.log(`PostgreSQL target verified: ${versionResult.rows[0].version}`);
+  console.log(`PostgreSQL ${expectedMajor} source verified: ${versionResult.rows[0].version}`);
 
-  console.log("Applying isolated local auth/storage compatibility fixture...");
+  console.log("Applying isolated auth/storage compatibility fixture...");
   await client.query(readFileSync(compatFile, "utf8"));
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS public.schema_migrations (
+      filename text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  const availableResult = await client.query("SELECT name FROM pg_available_extensions");
+  const availableExtensions = new Set(availableResult.rows.map((row) => row.name));
 
   const files = readdirSync(migrationsDir)
     .filter((name) => name.endsWith(".sql"))
@@ -142,8 +153,15 @@ try {
       // ADD VALUE must commit before a later statement can use the new enum label.
       const statements = splitSqlStatements(readFileSync(join(migrationsDir, file), "utf8"));
       for (const statement of statements) {
+        const extensionMatch = statement.match(/^CREATE\\s+EXTENSION\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:"([^"]+)"|([a-zA-Z0-9_-]+))/i);
+        const extensionName = extensionMatch?.[1] || extensionMatch?.[2];
+        if (extensionName && !availableExtensions.has(extensionName) && skipUnavailableExtensions) {
+          console.log(`  SKIP extension ${extensionName}: not packaged in this PostgreSQL distribution`);
+          continue;
+        }
         await client.query(statement);
       }
+      await client.query("INSERT INTO public.schema_migrations (filename) VALUES ($1) ON CONFLICT (filename) DO NOTHING", [file]);
       console.log(`  PASS ${file} (${statements.length} statements)`);
     } catch (error) {
       throw new Error(`Migration ${file} failed: ${error.message}`, { cause: error });
@@ -184,14 +202,14 @@ try {
   );
 
   console.log("");
-  console.log("POSTGRESQL 17 MIGRATION CHECK PASSED");
+  console.log(`POSTGRESQL ${expectedMajor} MIGRATION CHECK PASSED`);
   console.log(`Migrations: ${files.length}`);
   console.log(`Required extensions: ${requiredExtensions.join(", ")}`);
   console.log(`Critical tables: ${requiredTables.length}`);
   console.log(`Public RLS policies: ${policyResult.rows[0].count}`);
   console.log(`Public tables with RLS enabled: ${rlsResult.rows[0].count}`);
 } catch (error) {
-  console.error("\nPOSTGRESQL 17 MIGRATION CHECK FAILED");
+  console.error(`\nPOSTGRESQL ${expectedMajor} MIGRATION CHECK FAILED`);
   console.error(error.stack || error.message);
   process.exitCode = 1;
 } finally {
