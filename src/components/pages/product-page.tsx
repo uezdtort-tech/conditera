@@ -1142,10 +1142,12 @@ export function ProductPage() {
       </Tabs>
 
       {/* === Срезы торта по начинкам (новый тренд) === */}
-      {product.fillings && product.fillings.length > 0 && (
+      {product.slices && product.slices.length > 0 && (
         <ProductSliceGallery
           productId={product.id}
-          fillings={product.fillings}
+          fillings={product.slices
+            .filter((slice) => Boolean(slice.fillingName))
+            .map((slice) => ({ name: slice.fillingName as string }))}
         />
       )}
 
