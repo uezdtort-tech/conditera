@@ -54,9 +54,11 @@ function Get-ContainerInventory {
   }
 
   if ($state -ne "running") {
-    $base.databaseAudit = [ordered]@{ status = "skipped"; reason = "container is not running" }
+    $base.databaseAudit = [ordered]@{ server_version = "not-running"; system_identifier = $null }
+    $base.databaseAuditStatus = "skipped"
     return [pscustomobject]$base
   }
+  $base.databaseAudit = [ordered]@{ server_version = "not-audited"; system_identifier = $null }
 
   $sql = @'
 SELECT jsonb_build_object(
@@ -125,9 +127,9 @@ $outDir = Join-Path $root $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 try { $app = Get-ContainerInventory -Name $AppContainer -Database $AppDatabase -User $AppUser }
-catch { $app = [pscustomobject]@{ container = $AppContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
+catch { $app = [pscustomobject]@{ container = $AppContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAudit = [pscustomobject]@{ server_version = "not-found"; system_identifier = $null }; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
 try { $supabase = Get-ContainerInventory -Name $SupabaseContainer -Database $SupabaseDatabase -User $SupabaseUser }
-catch { $supabase = [pscustomobject]@{ container = $SupabaseContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
+catch { $supabase = [pscustomobject]@{ container = $SupabaseContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAudit = [pscustomobject]@{ server_version = "not-found"; system_identifier = $null }; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
 
 $composeAppServices = ""
 $composeSupabaseServices = ""
