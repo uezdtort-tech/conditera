@@ -28,7 +28,11 @@ command -v docker >/dev/null 2>&1 || { echo "Docker CLI не найден"; exit
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose plugin не найден"; exit 1; }
 
 if [ "$MODE" = "supabase" ]; then
-  COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.supabase.yml)
+  if [ ! -f .env.production ]; then
+    echo "Не найден .env.production; запуск единого Supabase runtime отменён."
+    exit 1
+  fi
+  COMPOSE=(docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml)
   echo "→ Запуск единственного PostgreSQL 17 и штатного Supabase Auth..."
   "${COMPOSE[@]}" up -d db db-bootstrap supabase-auth
   echo "→ Применение SQL-миграций через одноразовый migrator..."
@@ -36,7 +40,7 @@ if [ "$MODE" = "supabase" ]; then
   echo "→ Запуск Supabase API и PgBouncer..."
   "${COMPOSE[@]}" up -d pgbouncer supabase-kong
   CONTAINER_NAME="conditera-db"
-  CHECK_DB_USER="supabase_admin"
+  CHECK_DB_USER="postgres"
   CHECK_DB_NAME="conditera"
   DB_HOST="localhost"
   DB_PORT="6432"
@@ -47,7 +51,7 @@ else
   echo "→ Запуск dev-БД на Supabase PostgreSQL 17..."
   "${COMPOSE[@]}" up -d db-dev
   CONTAINER_NAME="uyezdny-db-dev"
-  CHECK_DB_USER="supabase_admin"
+  CHECK_DB_USER="postgres"
   CHECK_DB_NAME="uyezdny_konditer_dev"
   DB_HOST="localhost"
   DB_PORT="5433"
@@ -81,7 +85,7 @@ if [ "$MODE" != "supabase" ]; then
 fi
 
 echo "→ Проверка критических таблиц..."
-TABLE_COUNT="$(docker exec "$CONTAINER_ID" psql -U "$CHECK_DB_USER" -d "$DB_NAME" -Atqc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")"
+TABLE_COUNT="$(docker exec -u postgres "$CONTAINER_ID" psql -U "$CHECK_DB_USER" -d "$DB_NAME" -Atqc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")"
 MISSING=""
 for table in profiles user_roles products product_categories orders order_items confectioners audit_log fillings builder_config site_settings cms_pages confectioner_transactions schema_migrations; do
   exists="$(docker exec "$CONTAINER_ID" psql -U "$CHECK_DB_USER" -d "$DB_NAME" -Atqc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table' LIMIT 1")"
