@@ -34,7 +34,7 @@ GRANT anon, authenticated, service_role TO uyezdny;
 SELECT format('GRANT CONNECT ON DATABASE %I TO uyezdny', current_database())
 \gexec
 GRANT USAGE, CREATE ON SCHEMA public TO uyezdny;
-GRANT USAGE ON SCHEMA auth, storage, extensions TO uyezdny;
+GRANT USAGE ON SCHEMA auth, storage, extensions, pgsodium TO uyezdny;
 SQL
 
 PGUSER="$POSTGRES_USER" \
