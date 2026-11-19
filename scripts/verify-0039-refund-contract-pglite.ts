@@ -64,6 +64,9 @@ CREATE TABLE public.confectioners (
   "userId" text not null
 );
 INSERT INTO public.confectioners (id, "userId") VALUES ('conf-a', '${USER}');
+ALTER TABLE public.confectioners ENABLE ROW LEVEL SECURITY;
+CREATE POLICY confectioners_select_own ON public.confectioners
+  FOR SELECT TO authenticated USING ("userId" = auth.uid()::text);
 CREATE TABLE public.confectioner_transactions (
   id text primary key,
   "confectionerId" text not null references public.confectioners(id),
