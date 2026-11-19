@@ -53,6 +53,7 @@ services:
       - "5432"
     volumes:
       - supabase_db_data_pg17:/var/lib/postgresql/data
+      - supabase_db_config_pg17:/etc/postgresql-custom
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase_admin -d supabase"]
       interval: 10s
@@ -535,6 +536,7 @@ services:
 volumes:
   supabase_db_data:
   supabase_db_data_pg17:
+  supabase_db_config_pg17:
   supabase_storage_data:
   supabase_vector_data:
 
