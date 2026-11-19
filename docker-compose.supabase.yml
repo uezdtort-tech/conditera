@@ -211,12 +211,6 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
     deploy:
       resources:
         limits:
@@ -294,13 +288,13 @@ services:
       - supabase_storage_data:/mnt/storage
     depends_on:
       supabase-db:
-        condition: service_healthy
+        condition: service_started
       supabase-meta:
-        condition: service_healthy
+        condition: service_started
       supabase-rest:
-        condition: service_healthy
+        condition: service_started
       supabase-imgproxy:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:5000/status || exit 1"]
       interval: 30s
@@ -394,12 +388,6 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
     deploy:
       resources:
         limits:
