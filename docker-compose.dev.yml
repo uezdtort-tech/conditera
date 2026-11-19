@@ -4,8 +4,6 @@
 # Включает: PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n
 # Next.js запускается отдельно через `npm run dev:local`
 
-version: "3.8"
-
 services:
   # ===== PostgreSQL 17 (основной dev-контур) =====
   # Новый volume изолирован от прежних данных PG18.
