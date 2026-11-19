@@ -16,6 +16,7 @@ AS $function$
     SELECT 1
     FROM public.products p
     WHERE p.id::text = p_product_id
+      AND p.deleted_at IS NULL
       AND (
         p.confectioner_id = auth.uid()
         OR EXISTS (
