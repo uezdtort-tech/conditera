@@ -87,9 +87,9 @@ SELECT jsonb_build_object(
   'functions', (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema')),
   'sequences', (SELECT count(*) FROM information_schema.sequences WHERE sequence_schema NOT IN ('pg_catalog','information_schema')),
   'roles', (SELECT coalesce(jsonb_agg(jsonb_build_object('name', rolname, 'superuser', rolsuper, 'bypassRls', rolbypassrls, 'canLogin', rolcanlogin) ORDER BY rolname), '[]'::jsonb) FROM pg_roles),
-  'authUsers', CASE WHEN to_regclass('auth.users') IS NULL THEN NULL ELSE (SELECT count(*) FROM auth.users) END,
-  'storageObjects', CASE WHEN to_regclass('storage.objects') IS NULL THEN NULL ELSE (SELECT count(*) FROM storage.objects) END,
-  'migrationLedger', CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN NULL ELSE (SELECT count(*) FROM public.schema_migrations) END
+  'authUsers', CASE WHEN to_regclass('auth.users') IS NULL THEN NULL ELSE (xpath('/row/c/text()', query_to_xml('SELECT count(*) AS c FROM auth.users', false, false, '')))[1]::text::bigint END,
+  'storageObjects', CASE WHEN to_regclass('storage.objects') IS NULL THEN NULL ELSE (xpath('/row/c/text()', query_to_xml('SELECT count(*) AS c FROM storage.objects', false, false, '')))[1]::text::bigint END,
+  'migrationLedger', CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN NULL ELSE (xpath('/row/c/text()', query_to_xml('SELECT count(*) AS c FROM public.schema_migrations', false, false, '')))[1]::text::bigint END
 );
 '@
 
