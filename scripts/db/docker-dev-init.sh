@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Dev-only bootstrap for the Supabase PostgreSQL image.
-# Supabase image initialization runs first; this script then creates the
-# Conditera login role, installs the local compatibility layer and applies
-# migrations/seeds. The application role is not a superuser.
+# Supabase image initialization runs first; this script installs the local
+# compatibility layer, creates a restricted app login, then applies migrations.
 set -Eeuo pipefail
 
 : "${POSTGRES_USER:?POSTGRES_USER is required}"
@@ -14,8 +13,11 @@ if [[ "$DB_EXISTS" != "1" ]]; then
   createdb -U "$POSTGRES_USER" "$POSTGRES_DB"
 fi
 
-# Create a restricted application login. Supabase services and migrations
-# continue to use the image's supabase_admin bootstrap role.
+# Local compatibility objects are required before the first Conditera migration.
+psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -f /compat/0000_supabase_compat.sql
+
+# Restricted login used by the application; never grant it superuser.
 psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v app_password=uyezdny_dev_pass <<'SQL'
 SELECT format('CREATE ROLE uyezdny LOGIN PASSWORD %L', :'app_password')
@@ -23,13 +25,11 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'uyezdny')
 \gexec
 ALTER ROLE uyezdny LOGIN PASSWORD :'app_password';
 GRANT anon, authenticated, service_role TO uyezdny;
-GRANT CONNECT ON DATABASE uyezdny_konditer_dev TO uyezdny;
+SELECT format('GRANT CONNECT ON DATABASE %I TO uyezdny', current_database())
+\gexec
 GRANT USAGE, CREATE ON SCHEMA public TO uyezdny;
 GRANT USAGE ON SCHEMA auth, storage, extensions TO uyezdny;
 SQL
-
-psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -f /compat/0000_supabase_compat.sql
 
 PGUSER="$POSTGRES_USER" \
 PGDATABASE="$POSTGRES_DB" \
