@@ -77,7 +77,9 @@ jobs:
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration up -d supabase-app-migrator-pg17-migration; then
             docker logs conditera-supabase-db-pg17-migration || true
+            docker inspect -f '{{json .State.Health}}' conditera-supabase-rest-pg17-migration || true
             docker logs conditera-supabase-rest-pg17-migration || true
+            docker inspect -f '{{json .State.Health}}' conditera-supabase-meta-pg17-migration || true
             docker logs conditera-supabase-meta-pg17-migration || true
             docker logs conditera-supabase-storage-pg17-migration || true
             docker logs conditera-supabase-app-migrator-pg17-migration || true
