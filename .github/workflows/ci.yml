@@ -166,9 +166,46 @@ jobs:
           context: .
           file: ./Dockerfile.simplex-bridge
           push: false
+          load: true
           tags: conditera-simplex-bridge:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke-test SimpleX CLI and bridge runtime
+        env:
+          IMAGE: conditera-simplex-bridge:${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          # Проверяем, что скачанный официальный ELF действительно запускается
+          # на glibc runtime, а не только проходит file/ldd при сборке.
+          docker run --rm --entrypoint simplex-chat "$IMAGE" --help >/tmp/simplex-help.txt
+          grep -qi "simplex" /tmp/simplex-help.txt
+
+          docker run -d --name conditera-simplex-bridge-ci \
+            -e NODE_ENV=test \
+            -e SIMPLEX_CLI_PORT=5225 \
+            -e BRIDGE_PORT=5226 \
+            -p 5226:5226 "$IMAGE"
+          cleanup() { docker logs conditera-simplex-bridge-ci || true; docker rm -f conditera-simplex-bridge-ci >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          READY=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5226/health >/tmp/simplex-health.json; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            echo "SimpleX bridge health endpoint did not become ready."
+            exit 1
+          fi
+          grep -q '"service":"conditera-simplex-bridge"' /tmp/simplex-health.json
+          # Health endpoint не должен маскировать отсутствие CLI-процесса.
+          docker exec conditera-simplex-bridge-ci sh -lc \
+            'for p in /proc/[0-9]*/cmdline; do tr "\000" " " < "$p" 2>/dev/null; done | grep -q "simplex-chat"'
+          echo "SimpleX CLI binary and bridge runtime smoke test passed."
 
   # ===== 5. Security checks =====
   # npm audit убран: в репозитории bun.lock (npm audit требует package-lock).
