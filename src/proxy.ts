@@ -18,6 +18,7 @@
  * Используем TextEncoder для конвертации в bytes и ручной constant-time comparison.
  */
 import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE } from "@/lib/session-cookies";
 
 // Список путей, для которых CSRF-проверка пропускается.
 // Это endpoints куда стучатся внешние сервисы (YooKassa, n8n, SimpleX, cron).
@@ -113,9 +114,22 @@ export async function proxy(request: NextRequest) {
   const response = await updateSession(request);
 
   // === CSRF enforcement (cryptographic, double-submit cookie) ===
+  // CSRF нужен только для cookie-аутентификации: браузер автоматически
+  // прикладывает такие credentials к cross-site запросам. Анонимный запрос
+  // должен дойти до route handler и получить штатный 401, а Bearer-клиенты
+  // используют явный Authorization header и не подвержены CSRF.
+  const hasBearerAuth =
+    request.headers.get("authorization")?.toLowerCase().startsWith("bearer ") ?? false;
+  const hasAppCookieAuth = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+  const hasSupabaseCookieAuth = request.cookies
+    .getAll()
+    .some(({ name, value }) => /^sb-[A-Za-z0-9_-]+-auth-token(?:\.\d+)?$/.test(name) && Boolean(value));
+  const requiresCsrf = (hasAppCookieAuth || hasSupabaseCookieAuth) && !hasBearerAuth;
+
   if (
     pathname.startsWith("/api/") &&
     ["POST", "PUT", "PATCH", "DELETE"].includes(method) &&
+    requiresCsrf &&
     !isCsrfExempt(pathname, method)
   ) {
     const headerToken = request.headers.get("x-csrf-token");

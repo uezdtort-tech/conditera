@@ -179,6 +179,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Validate database bootstrap and preflight scripts
+        run: |
+          bash -n supabase/init-scripts/01-apply-migrations.sh
+          bash -n scripts/deploy.sh
+          bash -n scripts/db-preflight.sh
+          grep -Fq 'MIGRATIONS_DIR: /conditera-migrations' docker-compose.supabase.yml
+          grep -Fq 'zz-conditera-apply-migrations.sh' docker-compose.supabase.yml
+          grep -Fq ':/conditera-migrations:ro' docker-compose.supabase.yml
+          grep -Fq 'SEEDS_DIR: /docker-entrypoint-initdb.d/seed' docker-compose.supabase.yml
+          grep -Fq 'SEED_MODE: none' docker-compose.supabase.yml
+          grep -Fq 'SEED_MODE="${SEED_MODE:-none}"' supabase/init-scripts/01-apply-migrations.sh
+          grep -Fq 'PGHOST=db' docker-compose.yml
+          grep -Fq 'PGDATABASE=conditera' docker-compose.yml
+          echo "Database bootstrap configuration checks passed"
+
       - name: Check for secrets in code
         run: |
           # Проверка на закоммиченные секреты

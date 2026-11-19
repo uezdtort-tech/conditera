@@ -187,7 +187,7 @@ test.describe('API v2.0 — AI assistant', () => {
     expect(response.status).toBe(401)
   })
 
-  test('POST /api/ai-assistant/chat без поля message → 422 (с CSRF)', async () => {
+  test('POST /api/ai-assistant/chat без авторизации отклоняется до проверки тела → 401', async () => {
     const csrf = await getCsrfToken()
     const response = await apiFetch('/api/ai-assistant/chat', {
       method: 'POST',
@@ -198,10 +198,10 @@ test.describe('API v2.0 — AI assistant', () => {
       },
       body: JSON.stringify({}),  // пустое тело — без message
     })
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(401)
   })
 
-  test('POST /api/ai-assistant/chat с слишком длинным message → 422', async () => {
+  test('POST /api/ai-assistant/chat с слишком длинным message без авторизации → 401', async () => {
     const csrf = await getCsrfToken()
     const longMessage = 'а'.repeat(5001)  // > 5000 символов
     const response = await apiFetch('/api/ai-assistant/chat', {
@@ -213,7 +213,7 @@ test.describe('API v2.0 — AI assistant', () => {
       },
       body: JSON.stringify({ message: longMessage }),
     })
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(401)
   })
 
   test('POST /api/ai-assistant/feedback без авторизации → 401', async () => {
@@ -225,7 +225,7 @@ test.describe('API v2.0 — AI assistant', () => {
     expect(response.status).toBe(401)
   })
 
-  test('POST /api/ai-assistant/feedback с невалидным log_id → 422 (с CSRF)', async () => {
+  test('POST /api/ai-assistant/feedback без авторизации отклоняется до проверки log_id → 401', async () => {
     const csrf = await getCsrfToken()
     const response = await apiFetch('/api/ai-assistant/feedback', {
       method: 'POST',
@@ -236,7 +236,7 @@ test.describe('API v2.0 — AI assistant', () => {
       },
       body: JSON.stringify({ log_id: -1, was_helpful: true }),
     })
-    expect(response.status).toBe(422)
+    expect(response.status).toBe(401)
   })
 
   test('GET /api/ai-assistant/conversations без авторизации → 401', async () => {

@@ -36,8 +36,15 @@ async function fetchStoreUser(): Promise<User | null> {
   const authUser = session?.user;
   if (!authUser) return null;
 
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    supabaseBrowser.from("profiles").select("*").eq("id", authUser.id).single(),
+  const [
+    { data: profile, error: profileError },
+    { data: roles, error: rolesError },
+  ] = await Promise.all([
+    supabaseBrowser
+      .from("profiles")
+      .select("id, name, phone, avatar_url, city, created_at, is_blocked, deleted_at")
+      .eq("id", authUser.id)
+      .single(),
     supabaseBrowser
       .from("user_roles")
       .select("role")
@@ -45,15 +52,21 @@ async function fetchStoreUser(): Promise<User | null> {
       .eq("is_active", true),
   ]);
 
+  // UI не должен восстанавливать удалённую/заблокированную учётную запись
+  // или подменять ошибку чтения ролей фиктивной ролью CUSTOMER.
+  if (profileError || !profile || profile.is_blocked === true || Boolean(profile.deleted_at) || rolesError) {
+    return null;
+  }
+
   return {
     id: authUser.id,
     email: authUser.email ?? "",
-    name: profile?.name || authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Пользователь",
-    phone: profile?.phone ?? authUser.phone ?? undefined,
-    avatar: profile?.avatar_url ?? authUser.user_metadata?.avatar_url ?? undefined,
-    roles: (roles?.map((r) => r.role as user_role) ?? ["CUSTOMER"]) as User["roles"],
-    createdAt: profile?.created_at ?? authUser.created_at ?? new Date().toISOString(),
-    city: profile?.city ?? undefined,
+    name: profile.name || authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Пользователь",
+    phone: profile.phone ?? authUser.phone ?? undefined,
+    avatar: profile.avatar_url ?? authUser.user_metadata?.avatar_url ?? undefined,
+    roles: (roles || []).map((r) => r.role as user_role) as User["roles"],
+    createdAt: profile.created_at ?? authUser.created_at ?? new Date().toISOString(),
+    city: profile.city ?? undefined,
   };
 }
 

@@ -33,7 +33,13 @@ services:
       # POSTGRES_USER/DB нужны для init-scripts/01-apply-migrations.sh
       - POSTGRES_USER=conditera
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PGPASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=conditera
+      # Скрипт мигратора использует libpq; DATABASE_URL сам по себе не читается psql.
+      - PGHOST=db
+      - PGPORT=5432
+      - PGUSER=conditera
+      - PGDATABASE=conditera
     depends_on:
       db:
         condition: service_healthy
@@ -132,13 +138,10 @@ services:
       - conditera-net
 
   # ===== PostgreSQL (продакшн БД) =====
-  # ВАЖНО: Используем postgres:18-alpine — актуальный major release.
-  # Если у вас в volume postgres_data лежат данные от старой версии (PG16/17),
-  # нужно либо сделать pg_upgrade, либо удалить volume:
-  #   docker compose down
-  #   docker volume rm conditera_postgres_data  (или conditera_postgres_data)
-  #   docker compose up -d
-  # Volume postgres_data_v18 — новый, чистый, без конфликтов версий.
+  # ВАЖНО: версия PostgreSQL должна совпадать с форматом существующего volume.
+  # НЕЛЬЗЯ удалять volume для "исправления" несовместимости major-версии.
+  # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
+  # с резервной копией и контрольной сверкой данных.
   db:
     image: postgres:18-alpine
     container_name: conditera-db
@@ -315,9 +318,12 @@ services:
       - REDIS_URL=redis://redis:6379
       - CHAT_PORT=3030
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - NEXT_API_URL=${NEXT_API_URL:-http://web:3000}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
     depends_on:
       redis:
+        condition: service_healthy
+      web:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3030/health"]

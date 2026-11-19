@@ -172,33 +172,34 @@ export async function GET(
   const nonce = randomBytes(32).toString("base64url");
   const redirectUrl = buildAuthorizationUrl(provider, config, state, codeChallenge, nonce);
 
+  const secureCookies = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   const response = NextResponse.redirect(redirectUrl, { status: 302 });
   response.cookies.set(`oauth_state_${provider}`, state, {
     httpOnly: true,
     sameSite: "lax",
     // Secure в production (HTTPS-деплой); в dev/preview без TLS остаётся false
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookies,
     maxAge: 600,
     path: "/api/auth/oauth",
   });
   response.cookies.set(`oauth_return_to_${provider}`, returnTo, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookies,
     maxAge: 600,
     path: "/api/auth/oauth",
   });
   response.cookies.set("oauth_consent_pd_" + provider, request.nextUrl.searchParams.get("consentPd") === "1" ? "1" : "0", {
-    httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/api/auth/oauth",
+    httpOnly: true, sameSite: "lax", secure: secureCookies, maxAge: 600, path: "/api/auth/oauth",
   });
   response.cookies.set("oauth_consent_terms_" + provider, request.nextUrl.searchParams.get("consentTerms") === "1" ? "1" : "0", {
-    httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 600, path: "/api/auth/oauth",
+    httpOnly: true, sameSite: "lax", secure: secureCookies, maxAge: 600, path: "/api/auth/oauth",
   });
   if (provider === "google" || provider === "vk" || provider === "yandex") {
     response.cookies.set(`oauth_verifier_${provider}`, codeVerifier, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: secureCookies,
       maxAge: 600,
       path: "/api/auth/oauth",
     });
@@ -207,7 +208,7 @@ export async function GET(
     response.cookies.set("oauth_nonce_google", nonce, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: secureCookies,
       maxAge: 600,
       path: "/api/auth/oauth",
     });

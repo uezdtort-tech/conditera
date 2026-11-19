@@ -4,10 +4,10 @@
 # Применение миграций «Уездный кондитер» БЕЗОПАСНО и ИДЕМПОТЕНТНО.
 #
 # Механизм: таблица-журнал public.schema_migrations(filename PRIMARY KEY).
-#   • Файл применяется РОВНО ОДИН РАЗ (запись в журнале после успеха).
-#   • Каждый файл — в отдельной транзакции с ON_ERROR_STOP=1 (fail-fast):
-#     ошибка SQL останавливает процесс с ненулевым кодом выхода.
-#   • Повторный запуск пропускает уже применённые файлы.
+#   • Файл отмечается в журнале только после успешного выполнения.
+#   • psql работает с ON_ERROR_STOP=1 (fail-fast); внешняя транзакция не
+#     навязывается, поскольку отдельные миграции могут управлять транзакциями.
+#   • Повторный запуск пропускает уже отмеченные файлы.
 #
 # Подключение: стандартные переменные libpq (PGHOST/PGPORT/PGUSER/PGPASSWORD/
 # PGDATABASE). При запуске внутри postgres-контейнера используются
@@ -24,12 +24,16 @@
 
 set -e
 
-PSQL() {
-  psql -v ON_ERROR_STOP=1 -q "$@"
-}
-
 PSQL_USER="${PGUSER:-${POSTGRES_USER:-postgres}}"
 PSQL_DB="${PGDATABASE:-${POSTGRES_DB:-postgres}}"
+
+# Все операции журнала обязаны идти в ту же БД/под тем же пользователем,
+# что и сами SQL-файлы. Раньше PSQL() не передавал -U/-d и мог создать
+# schema_migrations в postgres, применяя сами миграции в другой БД.
+PSQL() {
+  psql -v ON_ERROR_STOP=1 -q -U "$PSQL_USER" -d "$PSQL_DB" "$@"
+}
+
 
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
 SEEDS_DIR="${SEEDS_DIR:-/seeds}"
@@ -57,7 +61,8 @@ APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 # ===== 1. Миграции по порядку =====
 MIGRATION_COUNT=0
 SKIPPED_COUNT=0
-for sql_file in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
+for sql_file in "$MIGRATIONS_DIR"/*.sql; do
+  [ -e "$sql_file" ] || continue
   filename=$(basename "$sql_file")
 
   ALREADY=$(PSQL -tAc "SELECT 1 FROM public.schema_migrations WHERE filename='${filename}'" || true)
@@ -83,21 +88,30 @@ done
 
 echo "✅ Применено: ${MIGRATION_COUNT}, пропущено (уже в журнале): ${SKIPPED_COUNT} (было применено ранее: ${APPLIED_BEFORE})"
 
-# ===== 2. Seed данные — только при первичной инициализации =====
-if [ "$FRESH_DB" = "1" ] && [ -d "$SEEDS_DIR" ]; then
+# ===== 2. Seed данные — только явный opt-in для локальной демонстрации =====
+# По умолчанию НИЧЕГО из demo seed не загружается в production.
+# Базовые категории и начинки перенесены в 0062_reference_catalog.sql.
+SEED_MODE="${SEED_MODE:-none}"
+if [ "$SEED_MODE" = "demo" ] && [ "$FRESH_DB" = "1" ] && [ -d "$SEEDS_DIR" ]; then
   echo ""
-  echo "=== Seed данные (первичная инициализация) ==="
+  echo "=== DEMO seed включён явно (SEED_MODE=demo) ==="
   SEED_COUNT=0
-  for sql_file in $(ls "$SEEDS_DIR"/*.sql 2>/dev/null | sort); do
-    echo "→ Seed: $(basename "$sql_file")"
+  for sql_file in "$SEEDS_DIR"/*.sql; do
+    [ -e "$sql_file" ] || continue
+    echo "→ DEMO seed: $(basename "$sql_file")"
     if psql -v ON_ERROR_STOP=1 -U "$PSQL_USER" -d "$PSQL_DB" -f "$sql_file"; then
       SEED_COUNT=$((SEED_COUNT + 1))
     else
-      echo "❌ SEED УПАЛ: $(basename "$sql_file")"
+      echo "❌ DEMO SEED УПАЛ: $(basename "$sql_file")"
       exit 1
     fi
   done
-  echo "✅ Загружено seed-файлов: ${SEED_COUNT}"
+  echo "Загружено demo seed-файлов: ${SEED_COUNT}"
+elif [ "$SEED_MODE" != "none" ] && [ "$SEED_MODE" != "demo" ]; then
+  echo "❌ Неизвестный SEED_MODE='$SEED_MODE' (допустимы none или demo)"
+  exit 1
+else
+  echo "Demo seed пропущен (SEED_MODE=$SEED_MODE)"
 fi
 
 # ===== 3. Сводка =====
@@ -110,8 +124,17 @@ echo "RLS-политик: ${POLICY_COUNT}"
 
 echo ""
 echo "=== Проверка критических таблиц ==="
-CRITICAL_TABLES="profiles user_roles products product_categories orders order_items confectioners audit_log fillings builder_config site_settings cms_pages confectioner_transactions schema_migrations"
 ALL_OK=1
+AUTH_USERS_EXISTS=$(PSQL -tAc "SELECT to_regclass('auth.users') IS NOT NULL" | xargs)
+if [ "$AUTH_USERS_EXISTS" = "t" ]; then
+  echo "  ✓ auth.users"
+else
+  echo "  ✗ auth.users (отсутствует)"
+  ALL_OK=0
+fi
+# storage.objects создаётся миграциями Storage API после старта DB-контейнера.
+# Его наличие проверяется поздним runtime preflight, а не initdb-скриптом.
+CRITICAL_TABLES="profiles user_roles products product_categories orders order_items confectioners audit_log fillings builder_config site_settings cms_pages confectioner_transactions payments refunds inventory_items inventory_movements inventory_write_offs chat_channels oauth_identity_links user_consent_events schema_migrations"
 for t in $CRITICAL_TABLES; do
   EXISTS=$(PSQL -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='${t}' LIMIT 1;" | xargs)
   if [ "$EXISTS" = "1" ]; then

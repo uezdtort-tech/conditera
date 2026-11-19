@@ -82,7 +82,7 @@ test.describe("Auth flow", () => {
     // Должен редиректить на /login или показать страницу входа
     await page.waitForTimeout(2000);
     const url = page.url();
-    expect(url).toContain("login").toBeTruthy();
+    expect(url).toContain("login");
   });
 });
 
@@ -187,7 +187,7 @@ test.describe("SEO", () => {
     const response = await request.get(`${BASE_URL}/robots.txt`);
     expect(response.ok()).toBeTruthy();
     const body = await response.text();
-    expect(body).toContain("User-agent");
+    expect(body.toLowerCase()).toContain("user-agent");
   });
 
   test("sitemap.xml is accessible", async ({ request }) => {

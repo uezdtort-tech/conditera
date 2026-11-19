@@ -130,6 +130,7 @@ test.describe.serial('Integration: full auth flow', () => {
     // Попытка POST на защищённый endpoint без CSRF
     const response = await request.post('/api/loyalty/partners', {
       data: { company_name: 'Test', company_type: 'bank', contact_email: 'test@test.com' },
+      headers: { Cookie: 'cd_session=e2e-cookie-session' },
     })
     expect(response.status()).toBe(403)
     const body = await response.json()
@@ -208,6 +209,7 @@ test.describe('Integration: public API endpoints', () => {
   test('POST /api/orders without CSRF → 403', async ({ request }) => {
     const response = await request.post('/api/orders', {
       data: { items: [] },
+      headers: { Cookie: 'cd_session=e2e-cookie-session' },
     })
     expect(response.status()).toBe(403)
   })

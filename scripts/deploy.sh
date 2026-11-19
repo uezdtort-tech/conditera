@@ -54,38 +54,18 @@ check_env() {
 
 # 3. Apply Supabase migrations
 apply_migrations() {
-  log "Applying Supabase migrations..."
+  log "Applying complete migration chain via ledger-migrator..."
 
-  # Проверка что Supabase запущен
-  if ! docker ps --format '{{.Names}}' | grep -q "conditera-supabase-db"; then
-    warn "Supabase DB не запущен. Запускаю..."
-    docker-compose -f $SUPABASE_COMPOSE_FILE up -d
-    sleep 30
+  # Защита от прежней архитектуры с двумя независимыми PostgreSQL.
+  # Применять одну и ту же схему в разные БД по отдельности нельзя:
+  # Auth/Storage и бизнес-таблицы должны работать в одном кластере.
+  if docker ps --format '{{.Names}}' | grep -Fxq "conditera-supabase-db"; then
+    err "Обнаружен отдельный conditera-supabase-db. Ручной deploy остановлен: сначала требуется безопасное объединение PostgreSQL с резервной копией и проверкой данных."
   fi
 
-  # Применяем миграции по порядку
-  for migration in 0001_init 0002_marketplace 0003_search_function 0004_cake_builder_chat 0005_crm_cms; do
-    local SQL_FILE="supabase/migrations/${migration}.sql"
-    if [ -f "$SQL_FILE" ]; then
-      log "  Applying ${migration}.sql..."
-      docker exec -i conditera-supabase-db psql -U supabase -d supabase < "$SQL_FILE" || warn "Migration ${migration} failed (might already be applied)"
-    fi
-  done
+  docker compose run --rm migrator
+  log "✓ Полная цепочка миграций обработана ledger-migrator"
 
-  # Seed данные (только при первом запуске)
-  if [ ! -f ".seed-applied" ]; then
-    log "Applying seed data..."
-    for seed in seed seed_cms_crm; do
-      local SEED_FILE="supabase/${seed}.sql"
-      if [ -f "$SEED_FILE" ]; then
-        docker exec -i conditera-supabase-db psql -U supabase -d supabase < "$SEED_FILE" || warn "Seed ${seed} failed"
-      fi
-    done
-    touch .seed-applied
-    log "✓ Seed данные применены"
-  fi
-
-  log "✓ Миграции применены"
 }
 
 # 4. Deploy Edge Functions
@@ -231,20 +211,10 @@ summary() {
 
 # ===== Main =====
 main() {
-  log "Starting production deploy..."
-
+  log "Legacy deploy script is disabled for database safety."
   check_dir
-  pull_code
-  check_env
-  apply_migrations
-  deploy_functions
-  setup_cron
-  restart_services
-  health_check
-  cleanup
-  summary
+  err "Автоматический deploy запрещён: проект пока содержит два независимых PostgreSQL и старый сценарий запускает оба Compose-стека. Сначала выполните read-only проверку: bash scripts/db-preflight.sh. Никакие git pull, миграции, перезапуски и очистки этим скриптом не выполняются."
 
-  log "Deploy completed successfully!"
 }
 
 # Run

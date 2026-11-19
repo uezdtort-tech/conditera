@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { verifyAccessToken, type JwtPayload } from "@/lib/auth";
+import { getUserFromRequest } from "@/lib/auth";
 import { SESSION_COOKIE } from "@/lib/session-cookies";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -20,40 +20,27 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // === 1. App-сессия (cd_session) ===
-  const appToken = request.cookies.get(SESSION_COOKIE)?.value;
+  const bearerToken = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const appToken = request.cookies.get(SESSION_COOKIE)?.value || bearerToken;
   if (appToken) {
-    const payload = (await verifyAccessToken(appToken)) as JwtPayload | null;
-    const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
-    if (payload && userId) {
-      // display-name: старые JWT могли не содержать name-claim — догружаем
-      // из profiles (источник истины), фолбэк — claim/префикс email
-      let displayName =
-        (payload as { name?: string }).name ||
-        payload.email?.split("@")[0] ||
-        "Пользователь";
-      try {
-        const { data: profileName } = await supabaseAdmin
-          .from("profiles")
-          .select("name")
-          .eq("id", userId)
-          .maybeSingle() as { data: { name: string | null } | null; error: unknown };
-        if (profileName?.name) displayName = profileName.name;
-      } catch {
-        // профиль недоступен — используем claim/префикс
-      }
-      return NextResponse.json({
-        user: {
-          id: userId,
-          email: payload.email || "",
-          name: displayName,
-          roles: payload.roles || [],
-          accountType: payload.accountType || "",
-        },
-        accessToken: appToken,
-        sessionMode: "app",
-        expires: null,
-      });
+    // Не доверяем claims токена для ролей/профиля. Повторно проверяем
+    // актуальное состояние аккаунта через общий fail-closed auth guard.
+    const appUser = await getUserFromRequest(request);
+    if (!appUser) {
+      return NextResponse.json({ user: null }, { status: 200 });
     }
+    return NextResponse.json({
+      user: {
+        id: appUser.id,
+        email: appUser.email,
+        name: appUser.name,
+        roles: appUser.roles,
+        accountType: appUser.accountType,
+      },
+      accessToken: appToken,
+      sessionMode: "app",
+      expires: null,
+    });
   }
 
   // === 2. Supabase GoTrue-сессия ===
@@ -88,17 +75,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Загрузить profile + roles
     const [profileRes, rolesRes] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", user.id).single(),
+      supabase.from("profiles").select("id, email, name, avatar_url, is_blocked, deleted_at, account_type").eq("id", user.id).single(),
       supabase.from("user_roles").select("role, is_active").eq("user_id", user.id).eq("is_active", true),
     ]);
+
+    // GoTrue-only/legacy session: профиль и роли тоже проверяются fail-closed.
+    if (
+      profileRes.error ||
+      !profileRes.data ||
+      profileRes.data.is_blocked === true ||
+      Boolean(profileRes.data.deleted_at) ||
+      rolesRes.error
+    ) {
+      return NextResponse.json({ user: null }, { status: 200 });
+    }
 
     return NextResponse.json({
       user: {
         id: user.id,
-        email: user.email,
-        name: profileRes.data?.name || user.email?.split("@")[0],
-        avatar_url: profileRes.data?.avatar_url || user.user_metadata?.avatar_url || null,
+        email: profileRes.data.email || user.email,
+        name: profileRes.data.name || user.email?.split("@")[0],
+        avatar_url: profileRes.data.avatar_url || user.user_metadata?.avatar_url || null,
         roles: (rolesRes.data || []).map((r) => r.role),
+        accountType: profileRes.data.account_type || "individual",
       },
       profile: profileRes.data,
       expires: null,

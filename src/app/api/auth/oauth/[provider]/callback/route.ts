@@ -215,10 +215,23 @@ async function rollbackOAuthUser(userId: string): Promise<void> {
   throw error;
 }
 
+function readRequestCookie(request: NextRequest, name: string): string | undefined {
+  // Сначала читаем исходный Cookie header: NextRequest.cookies может нормализовать
+  // percent-encoded значение, а для returnTo важно сохранить исходную строку.
+  const raw = request.headers.get("cookie") || "";
+  for (const part of raw.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0) continue;
+    if (part.slice(0, separator).trim() === name) return part.slice(separator + 1).trim();
+  }
+  return request.cookies.get(name)?.value;
+}
+
 function finishRedirect(
   error?: string,
   provider?: Provider,
-  returnTo: string = "/dashboard"
+  returnTo: string = "/dashboard",
+  secureCookies = process.env.NODE_ENV === "production"
 ): NextResponse {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const url = new URL(error ? "/login" : returnTo, baseUrl);
@@ -232,7 +245,7 @@ function finishRedirect(
     const cookieOptions = {
       httpOnly: true,
       sameSite: "lax" as const,
-      secure: process.env.NODE_ENV === "production",
+      secure: secureCookies,
       maxAge: 0,
       path: "/api/auth/oauth",
     };
@@ -248,11 +261,13 @@ function finishRedirect(
   return response;
 }
 
-export async function GET(
+async function handleOAuthCallback(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string }> }
 ): Promise<NextResponse> {
-  const { provider: rawProvider } = await params;
+  const routeParams = params ? await params : undefined;
+  const pathSegments = new URL(request.url).pathname.split("/").filter(Boolean);
+  const rawProvider = routeParams?.provider || pathSegments[pathSegments.length - 2] || "";
   const provider = rawProvider.toLowerCase() as Provider;
 
   if (!SUPPORTED_PROVIDERS.includes(provider)) {
@@ -260,19 +275,30 @@ export async function GET(
   }
 
   const { searchParams } = new URL(request.url);
-  const requestedReturnTo = request.cookies.get("oauth_return_to_" + provider)?.value || "/dashboard";
+  const storedReturnTo = readRequestCookie(request, "oauth_return_to_" + provider);
+  console.info("[oauth/callback] returnTo cookie present:", Boolean(storedReturnTo));
+  const secureCookies = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
+  let requestedReturnTo = "/dashboard";
+  if (storedReturnTo) {
+    try {
+      // Next.js cookie API отдаёт percent-encoded value из Set-Cookie.
+      requestedReturnTo = decodeURIComponent(storedReturnTo);
+    } catch {
+      requestedReturnTo = "/dashboard";
+    }
+  }
   const returnTo = requestedReturnTo.startsWith("/") &&
     !requestedReturnTo.startsWith("//") &&
     !requestedReturnTo.includes("\\") &&
-    !/[\\r\\n]/.test(requestedReturnTo)
+    !/[\r\n]/.test(requestedReturnTo)
     ? requestedReturnTo
     : "/dashboard";
 
   const oauthError = searchParams.get("error");
-  if (oauthError) return finishRedirect("Вход отменён или отклонён провайдером", provider, returnTo);
+  if (oauthError) return finishRedirect("Вход отменён или отклонён провайдером", provider, returnTo, secureCookies);
 
   const config = getProviderConfig(provider);
-  if (!config) return finishRedirect("Провайдер не настроен", provider, returnTo);
+  if (!config) return finishRedirect("Провайдер не настроен", provider, returnTo, secureCookies);
 
   let createdUserForRollback: string | null = null;
   try {
@@ -280,7 +306,7 @@ export async function GET(
     const state = searchParams.get("state");
     const cookieState = request.cookies.get("oauth_state_" + provider)?.value;
     if (!code || !state || !cookieState || state !== cookieState) {
-      return finishRedirect("Неверный state — повторите вход", provider, returnTo);
+      return finishRedirect("Неверный state — повторите вход", provider, returnTo, secureCookies);
     }
 
     let profile: OAuthProfile;
@@ -324,7 +350,8 @@ export async function GET(
         return finishRedirect(
           "Для создания нового аккаунта необходимо отдельно согласиться на обработку персональных данных и принять пользовательское соглашение.",
           provider,
-          returnTo
+          returnTo,
+          secureCookies
         );
       }
       // Не объединяем существующие аккаунты только по совпадению email.
@@ -338,7 +365,8 @@ export async function GET(
         return finishRedirect(
           "Для этого email уже есть аккаунт. Войдите привычным способом; привязка этого провайдера пока не включена.",
           provider,
-          returnTo
+          returnTo,
+          secureCookies
         );
       }
 
@@ -395,12 +423,15 @@ export async function GET(
 
     const { data: profileRow, error: profileError } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, name, account_type, is_blocked")
+      .select("id, email, name, account_type, is_blocked, deleted_at")
       .eq("id", userId)
       .maybeSingle();
     if (profileError || !profileRow) throw new Error("Профиль пользователя не найден");
+    if (profileRow.deleted_at) {
+      return finishRedirect("Этот аккаунт был удалён. Для продолжения обратитесь в поддержку.", provider, returnTo, secureCookies);
+    }
     if (profileRow.is_blocked) {
-      return finishRedirect("Вход в аккаунт ограничен. Обратитесь в поддержку.", provider, returnTo);
+      return finishRedirect("Вход в аккаунт ограничен. Обратитесь в поддержку.", provider, returnTo, secureCookies);
     }
 
     const { data: rolesData, error: rolesError } = await supabaseAdmin
@@ -539,6 +570,28 @@ export async function GET(
         console.error("[oauth/" + provider + "/callback] rollback failed", cleanupError);
       }
     }
-    return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo);
+    return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo, secureCookies);
+  }
+}
+
+
+// Последний защитный рубеж: даже непредвиденная ошибка в очистке cookies,
+// разборе callback или сборке ответа не должна оставлять пользователя на 500.
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ provider: string }> }
+): Promise<NextResponse> {
+  try {
+    return await handleOAuthCallback(request, context);
+  } catch (error: unknown) {
+    console.error(
+      "[oauth/callback] unhandled failure:",
+      error instanceof Error ? error.message : String(error)
+    );
+    const target = new URL("/login", request.url);
+    target.searchParams.set("oauthError", "Не удалось завершить вход. Попробуйте ещё раз.");
+    const response = NextResponse.redirect(target, 302);
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    return response;
   }
 }

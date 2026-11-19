@@ -63,7 +63,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // 2. Найти пользователя
     const { data: user, error } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, name, is_blocked, account_type")
+      .select("id, email, name, is_blocked, account_type, deleted_at")
       .eq("id", payload.userId)
       .maybeSingle();
 
@@ -74,6 +74,10 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    if (user.deleted_at) {
+      return NextResponse.json({ error: "Аккаунт удалён" }, { status: 403 });
+    }
+
     if (user.is_blocked) {
       return NextResponse.json(
         { error: "Пользователь заблокирован" },
@@ -82,11 +86,15 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     // 3. Получить активные роли пользователя
-    const { data: rolesData } = await supabaseAdmin
+    const { data: rolesData, error: rolesError } = await supabaseAdmin
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
       .eq("is_active", true);
+    if (rolesError) {
+      console.error("[auth/refresh] active role lookup failed; refusing token refresh:", rolesError.message);
+      return NextResponse.json({ error: "Не удалось проверить права доступа" }, { status: 503 });
+    }
     const roles = (rolesData || []).map((r: any) => r.role as string);
 
     // 4. Создать новый access token

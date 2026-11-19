@@ -16,10 +16,11 @@
  * Запуск:
  *   npx playwright test tests/e2e/payment-webhook-idempotency.spec.ts --project=chromium
  */
+import { randomUUID } from 'crypto'
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 // Test data — используем детерминированные ID, чтобы тесты были повторяемыми.
-const TEST_ORDER_ID = `e2e-order-${Date.now()}`;
+const TEST_ORDER_ID = randomUUID();
 const TEST_PAYMENT_ID = `e2e-payment-${Date.now()}`;
 const TEST_CUSTOMER_ID = `e2e-customer-${Date.now()}`;
 const TEST_CUSTOMER_EMAIL = `e2e-customer-${Date.now()}@example.com`;
@@ -57,8 +58,9 @@ test.describe.serial('Payment webhook idempotency', () => {
     const response = await request.post('/api/payment/webhook', {
       data: body,
       headers: {
-        // В dev mode verifyWebhook пропускает — тесты могут без IP.
+        // CI запускает production runtime: передаём адрес из официального allowlist YooKassa.
         'content-type': 'application/json',
+        'x-real-ip': '185.71.76.13',
       },
     });
 
@@ -78,11 +80,11 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response1 = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
     const response2 = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // Оба запроса должны возвращать одинаковый статус (200 или 404)
@@ -118,7 +120,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response = await request.post('/api/payment/webhook', {
       data: badBody,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect(response.status()).toBe(400);
@@ -132,7 +134,7 @@ test.describe.serial('Payment webhook idempotency', () => {
 
     const response = await request.post('/api/payment/webhook', {
       data: badBody,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect(response.status()).toBe(400);
@@ -141,7 +143,7 @@ test.describe.serial('Payment webhook idempotency', () => {
   test('5. Полностью пустой body → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
     const response = await request.post('/api/payment/webhook', {
       data: '',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect(response.status()).toBe(400);
@@ -150,21 +152,21 @@ test.describe.serial('Payment webhook idempotency', () => {
   test('6. Невалидный JSON → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
     const response = await request.post('/api/payment/webhook', {
       data: '{not valid json',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect([400, 500]).toContain(response.status());
   });
 
   test('7. Webhook payment.canceled → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-cancel-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-cancel-p-${Date.now()}`;
 
     const body = makeWebhook('payment.canceled', orderId, paymentId, 'canceled');
 
     const response = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // 200 (OK) или 404 (если order не существует) — оба валидны.
@@ -172,74 +174,50 @@ test.describe.serial('Payment webhook idempotency', () => {
   });
 
   test('8. Webhook refund.succeeded → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-refund-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-refund-p-${Date.now()}`;
 
     const body = makeWebhook('refund.succeeded', orderId, paymentId, 'succeeded');
 
     const response = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     expect([200, 404]).toContain(response.status());
   });
 
   test('9. Unknown event → 200 OK (логируется, не падает)', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-unknown-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-unknown-p-${Date.now()}`;
 
     const body = makeWebhook('payment.unknown_event', orderId, paymentId, 'unknown');
 
     const response = await request.post('/api/payment/webhook', {
       data: body,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // Unknown event должен просто логироваться — возвращаем 200 success.
     expect([200, 404]).toContain(response.status());
   });
 
-  test('10. Idempotency: три повторных webhook → side-effects не дублируются', async ({ request }: { request: APIRequestContext }) => {
-    // Создаём уникальный order_id для этого теста
-    const orderId = `e2e-triple-${Date.now()}`;
+  test('10. Повторные webhook для отсутствующего заказа отклоняются одинаково', async ({ request }: { request: APIRequestContext }) => {
+    const orderId = randomUUID();
     const paymentId = `e2e-triple-p-${Date.now()}`;
-
     const body = makeWebhook('payment.succeeded', orderId, paymentId);
 
-    // Отправляем 3 раза подряд
-    const r1 = await request.post('/api/payment/webhook', {
-      data: body,
-      headers: { 'content-type': 'application/json' },
-    });
-    const r2 = await request.post('/api/payment/webhook', {
-      data: body,
-      headers: { 'content-type': 'application/json' },
-    });
-    const r3 = await request.post('/api/payment/webhook', {
-      data: body,
-      headers: { 'content-type': 'application/json' },
-    });
-
-    // Все три должны вернуть тот же статус
-    expect(r1.status()).toBe(r2.status());
-    expect(r2.status()).toBe(r3.status());
-
-    // Если первый вернул 200 — второй и третий должны быть idempotent: true
-    if (r1.status() === 200) {
-      const j1 = await r1.json();
-      const j2 = await r2.json();
-      const j3 = await r3.json();
-
-      expect(j1.success).toBe(true);
-      // Второй и третий — идемпотентные
-      if (j2.idempotent !== undefined) {
-        expect(j2.idempotent).toBe(true);
-      }
-      if (j3.idempotent !== undefined) {
-        expect(j3.idempotent).toBe(true);
-      }
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await request.post('/api/payment/webhook', {
+        data: body,
+        headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
+      });
+      statuses.push(response.status());
     }
+
+    // Для несуществующего заказа корректный результат — 404, а не фиктивная обработка.
+    expect(statuses).toEqual([404, 404, 404]);
   });
 
   test('11. GET /api/payment/webhook → 200 status ok', async ({ request }: { request: APIRequestContext }) => {
@@ -255,25 +233,25 @@ test.describe.serial('Payment webhook idempotency', () => {
 
 test.describe('Payment webhook — edge cases', () => {
   test('разные status для одного orderId — обновляется статус', async ({ request }: { request: APIRequestContext }) => {
-    const orderId = `e2e-status-${Date.now()}`;
+    const orderId = randomUUID();
     const paymentId = `e2e-status-p-${Date.now()}`;
 
     // 1. pending → обработан
     const r1 = await request.post('/api/payment/webhook', {
       data: makeWebhook('payment.waiting_for_capture', orderId, paymentId, 'waiting_for_capture'),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // 2. succeeded — новый статус, не idempotent, обрабатывается
     const r2 = await request.post('/api/payment/webhook', {
       data: makeWebhook('payment.succeeded', orderId, paymentId, 'succeeded'),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // 3. succeeded повторно — idempotent
     const r3 = await request.post('/api/payment/webhook', {
       data: makeWebhook('payment.succeeded', orderId, paymentId, 'succeeded'),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
     // Все запросы должны завершиться успешно (или с 404 если order не существует)

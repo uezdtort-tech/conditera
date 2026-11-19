@@ -13,10 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { FillingSlicePreview } from "@/components/cake-slice/cake-slice-visualizer";
-import {
-  CAKE_BUILDER_OPTIONS,
-  MOCK_CONFECTIONERS,
-} from "@/lib/mock-data";
+import { CAKE_BUILDER_OPTIONS } from "@/lib/mock-data";
 import { formatCurrency, calculateDelivery } from "@/lib/finance";
 import { calculateRegionalPriceSync } from "@/lib/regional-pricing";
 import Image from "next/image";
@@ -36,6 +33,7 @@ import {
   Percent,
 } from "lucide-react";
 import { toast } from "sonner";
+import { csrfFetch } from "@/lib/api-client";
 import { useState } from "react";
 import type { CakeBuilderState } from "@/lib/types";
 
@@ -61,10 +59,9 @@ export function CakeBuilderDialog() {
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
   const confectioners = useAppStore((s) => s.confectioners);
-  const negotiations = useAppStore((s) => s.negotiations);
-  const user = useAppStore((s) => s.user);
 
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedConfectioners, setSelectedConfectioners] = useState<string[]>([]);
   const [requestDiscount, setRequestDiscount] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
@@ -128,7 +125,7 @@ export function CakeBuilderDialog() {
       case 6:
         return true;
       case 7:
-        return !!cakeBuilder.city && !!cakeBuilder.deliveryDate && !!cakeBuilder.deliveryType;
+        return !!cakeBuilder.city && !!cakeBuilder.deliveryDate && !!cakeBuilder.deliveryType && (cakeBuilder.deliveryType === "pickup" || Boolean(cakeBuilder.address?.trim()));
       case 8:
         return selectedConfectioners.length > 0;
       default:
@@ -138,11 +135,12 @@ export function CakeBuilderDialog() {
 
   // Кондитеры в выбранном городе
   const availableConfectioners = confectioners.filter((c) => {
+    // Не показываем демо-записи: в реальном проекте выбираются только аккаунты пользователей.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(c.userId)) return false;
     if (!cakeBuilder.city) return true;
     const cityMatch = c.city === cakeBuilder.city;
     const deliveryCities = (c.location as { deliveryCities?: string[] })?.deliveryCities;
-    const servesCity = deliveryCities?.includes(cakeBuilder.city);
-    return cityMatch || servesCity || c.city === "Москва"; // fallback
+    return cityMatch || Boolean(deliveryCities?.includes(cakeBuilder.city));
   });
 
   const toggleConfectioner = (id: string) => {
@@ -151,41 +149,37 @@ export function CakeBuilderDialog() {
     );
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!canProceed()) {
       toast.error("Заполните обязательные поля");
       return;
     }
     if (step < 8) {
       updateCakeBuilder({ step: step + 1 });
-    } else {
-      // submit — отправка запросов выбранным кондитерам
-      if (!isAuthenticated) {
-        setCakeBuilderOpen(false);
-        setAuthModalOpen(true);
-        toast.info("Войдите, чтобы отправить запрос кондитерам");
-        return;
-      }
+      return;
+    }
+    if (!isAuthenticated) {
+      setCakeBuilderOpen(false);
+      setAuthModalOpen(true);
+      toast.info("Войдите, чтобы отправить проект кондитерам");
+      return;
+    }
+    if (isSubmitting) return;
 
-      // Создаём negotiation для каждого выбранного кондитера
-      const newNegotiations = selectedConfectioners.map((confId) => {
-        const conf = confectioners.find((c) => c.id === confId);
-        return {
-          id: `neg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          inquiryId: `inq_${Date.now()}`,
-          customerId: user?.id || "guest",
-          customerName: user?.name || "Гость",
-          customerAvatar: user?.avatar,
-          confectionerId: confId,
-          confectionerName: conf?.businessName || "Кондитер",
-          confectionerAvatar: conf?.avatar,
-          originalRequest: {
+    setIsSubmitting(true);
+    try {
+      const response = await csrfFetch("/api/inquiries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project: {
             productType: cakeBuilder.productType || "cake",
-            productTypeLabel: productTypeMeta?.label || "Торт",
-            eventType: cakeBuilder.eventType || "",
-            base: cakeBuilder.base || "",
-            filling: cakeBuilder.filling || "",
-            coating: cakeBuilder.coating || "",
+            eventType: cakeBuilder.eventType || null,
+            base: cakeBuilder.base || null,
+            tiers: cakeBuilder.tiers ?? null,
+            shape: cakeBuilder.shape || null,
+            filling: cakeBuilder.filling || null,
+            coating: cakeBuilder.coating || null,
             decorations: cakeBuilder.decorations || [],
             dietary: cakeBuilder.dietary || [],
             servings: cakeBuilder.servings || productTypeMeta?.defaultServings || 8,
@@ -193,38 +187,37 @@ export function CakeBuilderDialog() {
             city: cakeBuilder.city || "",
             deliveryDate: cakeBuilder.deliveryDate || "",
             deliveryType: cakeBuilder.deliveryType || "delivery",
+            address: cakeBuilder.address || "",
             inscription: cakeBuilder.inscription || "",
             comment: cakeBuilder.comment || "",
-            estimatedPrice: regionalPrice + deliveryCost,
           },
-          // Запрос скидки
-          discountRequested: requestDiscount,
+          confectionerIds: selectedConfectioners,
+          estimatedPriceRubles: regionalPrice,
+          estimatedDeliveryCostRubles: deliveryCost,
+          requestDiscount,
           discountPercent: requestDiscount ? discountPercent : 0,
           discountComment: requestDiscount ? discountComment : "",
-          quotedItems: [],
-          quotedTotal: 0,
-          quotedDeliveryCost: 0,
-          quotedPrepTime: "",
-          status: "pending_confectioner" as const,
-          revisions: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-        };
+        }),
       });
 
-      // Добавляем negotiations в store
-      useAppStore.setState({ negotiations: [...negotiations, ...newNegotiations] });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || "Не удалось отправить проект (HTTP " + response.status + ")");
+      }
 
       setSubmitted(true);
       toast.success(
-        `Запрос отправлен ${selectedConfectioners.length} кондитер(ам)!`,
+        "Проект отправлен " + (result.negotiationsCount || selectedConfectioners.length) + " кондитер(ам)!",
         {
           description: requestDiscount && discountPercent > 0
-            ? `Запрошена скидка ${discountPercent}%. Ответы придут в течение 48 часов.`
-            : "Кондитеры предложат цену в течение 48 часов. Согласование — в личном кабинете.",
+            ? "Запрошена скидка " + discountPercent + "%. Ответы появятся в личном кабинете."
+            : "Кондитеры получат запрос и смогут предложить цену. Ответы появятся в личном кабинете.",
         }
       );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить проект");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -852,11 +845,11 @@ export function CakeBuilderDialog() {
                       ) : (
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
                           {availableConfectioners.map((conf) => {
-                            const isSelected = selectedConfectioners.includes(conf.id);
+                            const isSelected = selectedConfectioners.includes(conf.userId);
                             return (
                               <button
                                 key={conf.id}
-                                onClick={() => toggleConfectioner(conf.id)}
+                                onClick={() => toggleConfectioner(conf.userId)}
                                 className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
                                   isSelected
                                     ? "border-primary bg-primary/5 ring-2 ring-primary/20"
@@ -944,11 +937,11 @@ export function CakeBuilderDialog() {
                   : `Шаг ${step + 1} из 9`}
               </div>
 
-              <Button onClick={handleNext} disabled={!canProceed()}>
+              <Button onClick={handleNext} disabled={!canProceed() || isSubmitting}>
                 {step === 8 ? (
                   <>
                     <Sparkles className="h-4 w-4 mr-1" />
-                    Отправить запрос{selectedConfectioners.length > 0 ? ` (${selectedConfectioners.length})` : ""}
+                    {isSubmitting ? "Отправляем проект..." : "Отправить запрос" + (selectedConfectioners.length > 0 ? " (" + selectedConfectioners.length + ")" : "")}
                   </>
                 ) : (
                   <>
