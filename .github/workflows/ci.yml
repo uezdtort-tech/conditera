@@ -200,6 +200,12 @@ jobs:
             fi
           done
 
+          # Exercise production bootstrap before Storage API creates its schema.
+          docker cp supabase/init-scripts/90-create-conditera-db.sql "$TARGET_ID:/tmp/90-create-conditera-db.sql"
+          docker exec -e PGPASSWORD=postgres -e CONDITERA_DB_PASSWORD=ci_conditera_password_32_chars "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f /tmp/90-create-conditera-db.sql
+          APP_ROLE="$(docker exec -e PGPASSWORD=postgres "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
+          test "$APP_ROLE" = "false:true"
+
           # Build the same Storage schema as the pinned storage-api image,
           # while reusing the Supabase roles created by the official Postgres image.
           curl -fsSL https://raw.githubusercontent.com/supabase/storage/v1.14.5/migrations/tenant/0002-storage-schema.sql -o "$RUNNER_TEMP/storage-v1.14.5-0002.sql"
@@ -246,11 +252,6 @@ jobs:
             docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES ('$USER_ID'::uuid, 'pg18-compat-$USER_ID@example.invalid', '') ON CONFLICT (id) DO NOTHING"
           done <<< "$PG18_AUTH_USER_IDS"
 
-          # Exercise the actual bootstrap SQL used by docker-compose.yml.
-          docker cp supabase/init-scripts/90-create-conditera-db.sql "$TARGET_ID:/tmp/90-create-conditera-db.sql"
-          docker exec -e PGPASSWORD=postgres -e CONDITERA_DB_PASSWORD=ci_conditera_password_32_chars "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f /tmp/90-create-conditera-db.sql
-          APP_ROLE="$(docker exec -e PGPASSWORD=postgres "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
-          test "$APP_ROLE" = "false:true"
 
       - name: Merge official Supabase PG15 data and Conditera PG18 business schema into PG17
         shell: bash
