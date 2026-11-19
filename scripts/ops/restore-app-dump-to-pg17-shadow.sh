@@ -26,7 +26,7 @@ command -v docker >/dev/null 2>&1 || fail "Docker CLI не найден."
 docker info >/dev/null 2>&1 || fail "Docker daemon недоступен."
 
 PG17_CONTAINER="${PG17_CONTAINER:-conditera-supabase-db-pg17-migration}"
-PG17_USER="${PG17_USER:-supabase}"
+PG17_USER="${PG17_USER:-supabase_admin}"
 PG17_DATABASE="${PG17_DATABASE:-supabase}"
 STAGING_DATABASE="${STAGING_DATABASE:-conditera_app_shadow}"
 RESTORE_IMAGE="${PG_RESTORE_IMAGE:-postgres:18-alpine}"
