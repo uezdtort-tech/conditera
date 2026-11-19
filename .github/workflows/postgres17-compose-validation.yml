@@ -65,6 +65,13 @@ jobs:
           assert target["image"] == "supabase/postgres:17.12.0.001", target.get("image")
           assert "pg17-migration" in target.get("profiles", []), target.get("profiles")
           assert target.get("ports") in (None, []), target.get("ports")
+          isolated_network = config["networks"]["pg17-migration-net"]
+          assert isolated_network.get("internal") is True, isolated_network
+          pg17_services = [name for name in services if name.endswith("-pg17-migration")]
+          assert len(pg17_services) == 7, pg17_services
+          for name in pg17_services:
+              service_networks = services[name].get("networks", {})
+              assert set(service_networks) == {"pg17-migration-net"}, (name, service_networks)
           target_named_volumes = [volume["source"] for volume in target.get("volumes", []) if volume.get("type") == "volume"]
           storage = services["supabase-storage-pg17-migration"]
           storage_named_volumes = [volume["source"] for volume in storage.get("volumes", []) if volume.get("type") == "volume"]
