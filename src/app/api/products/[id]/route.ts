@@ -157,11 +157,14 @@ export async function GET(
     const mergedImages = [...new Set([...mediaPhotoUrls, ...colImages, ...tableImages])];
 
     // Срезы (фото разреза + подпись) — для карточки с fallback
-    const { data: slices } = await supabaseAdmin
+    const { data: slices, error: slicesError } = await supabaseAdmin
       .from("product_slices")
       .select("id, fillingName, image, config, caption, sortOrder")
       .eq("productId", product.id)
       .order("sortOrder", { ascending: true });
+    if (slicesError) {
+      console.error("[products] GET product slices enrichment error:", slicesError.message);
+    }
 
     // Отзывы (approved) + имена авторов из profiles; photos — JSONB-массив URL
     // (POST /api/reviews, миграция 0057) — витрина показывает их в отзыве
@@ -200,7 +203,7 @@ export async function GET(
       });
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       product: {
         ...product,
         images: mergedImages,
@@ -209,7 +212,12 @@ export async function GET(
       },
       slices: slices || [],
       reviews: enrichedReviews,
+      dataStatus: {
+        productSlices: slicesError ? "unavailable" : "ok",
+      },
     });
+    if (slicesError) response.headers.set("X-Cond itera-Data-Degraded", "product-slices");
+    return response;
   } catch (error: any) {
     console.error("GET /api/products/[id] error:", error?.message);
     return NextResponse.json(
