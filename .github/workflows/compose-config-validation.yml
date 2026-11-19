@@ -10,6 +10,8 @@ on:
       - "docker-compose.supabase.yml"
       - "scripts/db/docker-dev-init.sh"
       - "scripts/db/ensure-supabase-init.sh"
+      - "supabase/pg17-init/**"
+      - "scripts/ops/pg17-init/**"
       - ".github/workflows/compose-config-validation.yml"
   pull_request:
     paths:
@@ -18,6 +20,8 @@ on:
       - "docker-compose.supabase.yml"
       - "scripts/db/docker-dev-init.sh"
       - "scripts/db/ensure-supabase-init.sh"
+      - "supabase/pg17-init/**"
+      - "scripts/ops/pg17-init/**"
       - ".github/workflows/compose-config-validation.yml"
   workflow_dispatch:
 
