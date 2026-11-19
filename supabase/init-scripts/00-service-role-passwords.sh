@@ -15,6 +15,9 @@ for role in authenticator pgbouncer supabase_auth_admin supabase_functions_admin
     "${PSQL[@]}" --set=pgpass="$POSTGRES_PASSWORD" <<SQL
 ALTER ROLE "$role" WITH PASSWORD :'pgpass';
 SQL
+    if [[ "$role" == "supabase_storage_admin" ]]; then
+      "${PSQL[@]}" --command="GRANT CREATE ON DATABASE \"$POSTGRES_DB\" TO supabase_storage_admin;"
+    fi
     printf 'Установлен пароль внутренней роли %s.\n' "$role"
   fi
 done
