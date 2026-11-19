@@ -25,7 +25,7 @@ chown "$postgres_entry" "$root$pgdata"
 if [ ! -s "$root$pgdata/PG_VERSION" ]; then
   if grep -q -- '--pwfile=<(printf' "$entrypoint"; then
     sed -i 's|--pwfile=<(printf .*"$POSTGRES_PASSWORD")|--pwfile=/run/initdb-password|' "$entrypoint"
-    sed -i '/^[[:space:]]*docker_init_database_dir$/a\\    rm -f /run/initdb-password' "$entrypoint"
+    sed -i '/^[[:space:]]*docker_init_database_dir$/a\    rm -f /run/initdb-password' "$entrypoint"
   fi
 
   if ! grep -q -- '--pwfile=/run/initdb-password' "$entrypoint" ||
@@ -36,14 +36,14 @@ if [ ! -s "$root$pgdata/PG_VERSION" ]; then
 
   password_file="$root/run/initdb-password"
   umask 077
-  printf '%s\\n' "$POSTGRES_PASSWORD" > "$password_file"
+  printf '%s\n' "$POSTGRES_PASSWORD" > "$password_file"
   chown "$postgres_entry" "$password_file"
   chmod 600 "$password_file"
 fi
 
 # Run the official image entrypoint as postgres. Bypass gosu, whose
 # /proc/self/exe dependency is unavailable in this chroot runtime.
-exec chroot --userspec="$postgres_entry" "$root" \\
-  /usr/local/bin/docker-entrypoint.sh postgres -D "$pgdata" \\
-  -c config_file=/etc/postgresql/postgresql.conf \\
+exec chroot --userspec="$postgres_entry" "$root" \
+  /usr/local/bin/docker-entrypoint.sh postgres -D "$pgdata" \
+  -c config_file=/etc/postgresql/postgresql.conf \
   -c dynamic_shared_memory_type=mmap
