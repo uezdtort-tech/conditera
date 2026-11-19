@@ -19,6 +19,10 @@ on:
       - ".github/workflows/compose-config-validation.yml"
   workflow_dispatch:
 
+concurrency:
+  group: compose-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate-compose:
     runs-on: ubuntu-latest
