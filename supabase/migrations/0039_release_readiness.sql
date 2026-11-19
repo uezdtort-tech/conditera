@@ -27,22 +27,31 @@ ALTER TABLE public.confectioner_transactions ENABLE ROW LEVEL SECURITY;
 -- Убираем наследованный от 0011:314 широкий доступ
 REVOKE ALL ON public.confectioner_transactions FROM anon, authenticated;
 
--- Владелец видит СВОИ транзакции (service_role обходит RLS — полный доступ)
-DO $$
+-- Владелец видит СВОИ транзакции, если в конкретной версии схемы
+-- присутствует user_id. В текущей Prisma-схеме (0017) используется
+-- confectionerId TEXT, поэтому при отсутствии user_id сохраняем default-deny.
+-- service_role обходит RLS и сохраняет полный служебный доступ.
+DO $
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'confectioner_transactions'
+      AND column_name = 'user_id'
+  ) AND NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'public'
       AND tablename = 'confectioner_transactions'
       AND policyname = 'confectioner_transactions_owner_select'
   ) THEN
-    CREATE POLICY confectioner_transactions_owner_select
+    EXECUTE 'CREATE POLICY confectioner_transactions_owner_select
       ON public.confectioner_transactions
       FOR SELECT
       TO authenticated
-      USING (user_id = auth.uid());
+      USING (user_id = auth.uid())';
   END IF;
-END $$;
+END $;
 
 GRANT SELECT ON public.confectioner_transactions TO authenticated;
 
