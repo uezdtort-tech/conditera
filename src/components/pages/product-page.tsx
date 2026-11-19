@@ -219,6 +219,7 @@ export function ProductPage() {
     }
   }, [product?.id]);
 
+
   // Минимальный заказ (0052) — держим количество в рамках правила товара
   useEffect(() => {
     const min =
@@ -685,17 +686,18 @@ export function ProductPage() {
           <Separator />
 
           {/* Customization */}
-          {product.fillings && product.fillings.length > 0 && (
-            <div className="space-y-4">
-              <div>
-                <Label className="font-medium flex items-center gap-2">
-                  Начинка
-                  <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
-                    срез торта
-                  </Badge>
-                </Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {product.fillings.map((f, i) => (
+          {(product.fillings?.length || product.coatings?.length || product.decorations?.length || 0) > 0 && (
+            <div id="product-customization" className="space-y-4">
+              {product.fillings && product.fillings.length > 0 && (
+                <div>
+                  <Label className="font-medium flex items-center gap-2">
+                    Начинка
+                    <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
+                      срез торта
+                    </Badge>
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    {product.fillings.map((f, i) => (
                     <button
                       key={i}
                       onClick={() => setSelectedFilling(i)}
@@ -716,10 +718,11 @@ export function ProductPage() {
                       </div>
                     </button>
                   ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {product.coatings && (
+              {product.coatings && product.coatings.length > 0 && (
                 <div>
                   <Label className="font-medium">Покрытие</Label>
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -745,7 +748,7 @@ export function ProductPage() {
                 </div>
               )}
 
-              {product.decorations && (
+              {product.decorations && product.decorations.length > 0 && (
                 <div>
                   <Label className="font-medium">Декор</Label>
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -1138,12 +1141,9 @@ export function ProductPage() {
         </TabsContent>
       </Tabs>
 
-      {/* === Срезы торта по начинкам (новый тренд) === */}
-      {product.fillings && product.fillings.length > 0 && (
-        <ProductSliceGallery
-          productId={product.id}
-          fillings={product.fillings}
-        />
+      {/* === Реальные срезы товара из product_slices === */}
+      {product.slices && product.slices.length > 0 && (
+        <ProductSliceGallery productId={product.id} />
       )}
 
       {/* Cross-sell: bundles, decor, similar */}
