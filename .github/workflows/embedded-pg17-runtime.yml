@@ -53,3 +53,8 @@ jobs:
             await stop().catch(() => {});
           }
           NODE
+      - name: Run unit tests and TypeScript checks
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          bun run test
+          bun run typecheck
