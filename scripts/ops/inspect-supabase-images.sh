@@ -16,17 +16,24 @@ declare -A IMAGES=(
   [kong]="library/kong:2.8.1"
   [imgproxy]="darthsim/imgproxy:v3.24.0"
   [postgres_meta]="supabase/postgres-meta:v0.83.2"
-  [studio]="supabase/studio:2025.06.23-sha-2cd0383"
+  [studio_compose]="supabase/studio:2025.06.23-sha-2cd0383"
+  [studio_stable_candidate]="supabase/studio:2026.11.02-sha-a05e7ec"
   [logflare]="supabase/logflare:1.4.0"
   [vector]="timberio/vector:0.28.1-debian"
 )
 
+FAILED_IMAGES=0
 for name in "${!IMAGES[@]}"; do
   image="${IMAGES[$name]}"
   safe_name="supabase-image-audit-$name-$$"
   echo "Inspecting $image"
 
-  docker pull "$image"
+  if ! docker pull "$image"; then
+    printf '{"image":"%s","pullStatus":"not-found-or-unavailable"}\n' "$image" > "$OUT/$name.metadata.json"
+    : > "$OUT/$name.rootfs-candidates.txt"
+    FAILED_IMAGES=1
+    continue
+  fi
   docker image inspect "$image" | jq '.[0] | {
     Id,
     RepoTags,
@@ -57,3 +64,7 @@ for name in "${!IMAGES[@]}"; do
 done
 
 printf 'Image contract audit complete: %s\n' "$OUT"
+if [[ "$FAILED_IMAGES" -ne 0 ]]; then
+  echo "One or more pinned images could not be pulled; see metadata reports."
+  exit 1
+fi
