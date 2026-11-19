@@ -163,8 +163,9 @@ function connectToCLI() {
 
   cliSocket.on("open", () => {
     console.log("[bridge] ✓ Connected to SimpleX CLI");
-    // Инициализация — получить список пользователей
-    sendRaw("/_users");
+    // Актуальный SimpleX Bot API: /users -> usersList (см. bots/api/COMMANDS.md).
+    // Не используем legacy /_users: он не возвращает ожидаемый userProfile.
+    sendRaw("/users");
   });
 
   cliSocket.on("message", async (raw: Buffer) => {
@@ -250,13 +251,32 @@ async function handleCLIMessage(msg: any) {
       console.log(`[bridge] Chat cleared: ${resp.chatInfo?.chatId}`);
       break;
 
-    case "userProfile":
-      // Ответ на /_users
-      if (!isInitialized && resp.userProfile?.userId) {
-        activeProfile = resp.userProfile.userId;
+    case "usersList": {
+      // Актуальный ответ на /users: users[] содержит UserInfo, внутри user.
+      const users = Array.isArray(resp.users) ? resp.users : [];
+      const active = users.find((item: any) => item.user?.activeUser) ?? users[0];
+      const userId = active?.user?.userId;
+      if (userId !== undefined && userId !== null) {
+        activeProfile = String(userId);
         isInitialized = true;
-        console.log(`[bridge] ✓ Active profile: ${activeProfile}`);
+        console.log(`[bridge] ✓ Active profile initialized: ${activeProfile}`);
+      } else {
+        console.error("[bridge] SimpleX /users returned no usable profile:", JSON.stringify(resp));
       }
+      break;
+    }
+
+    // Совместимость со старым форматом ответа, если CLI вернёт его в будущем.
+    case "userProfile":
+      if (!isInitialized && resp.userProfile?.userId !== undefined) {
+        activeProfile = String(resp.userProfile.userId);
+        isInitialized = true;
+        console.log(`[bridge] ✓ Active profile initialized: ${activeProfile}`);
+      }
+      break;
+
+    case "chatCmdError":
+      console.error("[bridge] SimpleX rejected a command:", JSON.stringify(resp.chatError ?? resp));
       break;
 
     case "contactConnected":
