@@ -219,6 +219,17 @@ export function ProductPage() {
     }
   }, [product?.id]);
 
+  useEffect(() => {
+    if (nav.params?.customize !== "true" || !product) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("product-customization")?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [product?.id, nav.params?.customize]);
+
 
   // Минимальный заказ (0052) — держим количество в рамках правила товара
   useEffect(() => {

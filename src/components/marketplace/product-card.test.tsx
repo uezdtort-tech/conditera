@@ -86,5 +86,23 @@ describe("ProductCard cake slice preview", () => {
     expect(storeMock.state.navigate).not.toHaveBeenCalled();
   });
 
+  it("открывает блок персонализации товара по действию «Настроить»", () => {
+    const product = makeProduct();
+    product.fillings = [{ name: "Фисташка", priceModifier: 0 }];
+    render(<ProductCard product={product} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Настроить Торт «Малина»" }));
+
+    expect(storeMock.state.navigate).toHaveBeenCalledWith("product", {
+      id: "product-1",
+      customize: "true",
+    });
+  });
+
+  it("не показывает настройку, если у товара нет вариантов", () => {
+    render(<ProductCard product={makeProduct()} />);
+    expect(screen.queryByRole("button", { name: /Настроить/ })).not.toBeInTheDocument();
+  });
+
 
 });
