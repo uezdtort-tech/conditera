@@ -1,0 +1,29 @@
+name: PostgreSQL backup tooling validation
+
+on:
+  push:
+    branches:
+      - work/pg17-single-postgres-current-main
+    paths:
+      - "scripts/ops/backup-dual-postgres-before-pg17.sh"
+      - ".github/workflows/postgres-backup-tooling.yml"
+  pull_request:
+    paths:
+      - "scripts/ops/backup-dual-postgres-before-pg17.sh"
+      - ".github/workflows/postgres-backup-tooling.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-backup-tool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверка синтаксиса Bash
+        run: bash -n scripts/ops/backup-dual-postgres-before-pg17.sh
+      - name: Установка ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Статическая проверка ShellCheck
+        run: shellcheck --severity=warning scripts/ops/backup-dual-postgres-before-pg17.sh
