@@ -206,7 +206,7 @@ function preprocessStatement(stmt) {
 
   // pgsodium is conditionally installed inside a DO block for Supabase PG17.
   // Skip the complete block in vanilla PostgreSQL where pgsodium is unavailable.
-  if (/CREATE\\s+EXTENSION\\s+pgsodium/i.test(s) && SKIP_EXTENSIONS.includes("pgsodium")) {
+  if (/CREATE\s+EXTENSION\s+pgsodium/i.test(s) && SKIP_EXTENSIONS.includes("pgsodium")) {
     return { skip: true, reason: "pgsodium not available locally" };
   }
 
