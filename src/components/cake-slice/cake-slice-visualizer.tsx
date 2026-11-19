@@ -797,9 +797,9 @@ export function ProductSliceGallery({
   const [selectedSlice, setSelectedSlice] = useState<ProductSliceItem | null>(null);
 
   const getSliceConfig = (slice: ProductSliceItem): SliceConfig => {
-    const config = slice?.config;
-    if (config && Array.isArray(config.layers)) return config as SliceConfig;
-    return detectPreset({ name: slice?.fillingName || slice?.caption || "Торт" });
+    const config = slice.config as Record<string, unknown> | null | undefined;
+    if (config && Array.isArray(config.layers)) return config as unknown as SliceConfig;
+    return detectPreset({ name: slice.fillingName || slice.caption || "Торт" });
   };
 
   const handleLoad3DScene = async () => {
