@@ -23,7 +23,7 @@ services:
       - -c
       - config_file=/etc/postgresql/postgresql.conf
     environment:
-      POSTGRES_USER: supabase
+      POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       POSTGRES_DB: supabase
       POSTGRES_PORT: 5432
@@ -41,7 +41,7 @@ services:
       - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supabase -d supabase"]
+      test: ["CMD-SHELL", "pg_isready -U supabase_admin -d supabase"]
       interval: 10s
       timeout: 5s
       retries: 10
