@@ -31,6 +31,38 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
+  # ===== Целевой PostgreSQL 17 для безопасной миграции =====
+  # Включается отдельно: --profile pg17-migration.
+  # Не подключён к приложению и не заменяет действующий PG15 автоматически.
+  # Новый volume изолирован; старый supabase_db_data остаётся нетронутым.
+  supabase-db-pg17:
+    image: supabase/postgres:17.12.0.001
+    container_name: conditera-supabase-db-pg17
+    profiles: ["pg17-migration"]
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    environment:
+      POSTGRES_USER: supabase_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: supabase
+      POSTGRES_PORT: 5432
+    expose:
+      - "5432"
+    volumes:
+      - supabase_db_data_pg17:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supabase_admin -d supabase"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *default-logging
+    networks:
+      - conditera-net
+
   # ===== PostgreSQL 15 с расширениями =====
   supabase-db:
     image: supabase/postgres:15.6.1.141
@@ -503,6 +535,7 @@ services:
 
 volumes:
   supabase_db_data:
+  supabase_db_data_pg17:
   supabase_storage_data:
   supabase_vector_data:
 
