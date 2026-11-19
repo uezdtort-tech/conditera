@@ -88,6 +88,9 @@ async function main() {
     INSERT INTO public.confectioners (id, "userId", verified) VALUES
       ('conf-a', '11111111-1111-4111-8111-111111111111', false),
       ('conf-b', '22222222-2222-4222-8222-222222222222', false);
+    ALTER TABLE public.confectioners ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY confectioners_select_public ON public.confectioners FOR SELECT USING (verified = true);
+    CREATE POLICY confectioners_select_own ON public.confectioners FOR SELECT TO authenticated USING ("userId" = auth.uid()::text);
     CREATE TABLE public.confectioner_transactions (
       id TEXT PRIMARY KEY,
       "confectionerId" TEXT NOT NULL REFERENCES public.confectioners(id),
