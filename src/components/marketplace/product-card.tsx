@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale } from "lucide-react";
+import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale, SlidersHorizontal } from "lucide-react";
 import {
   formatCurrency,
   getProductPaymentOptions,
@@ -47,6 +47,15 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
     e.stopPropagation();
     onCompare?.();
   };
+
+  const handleCustomize = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate("product", { id: product.id, customize: "true" });
+  };
+
+  const hasCustomization = Boolean(
+    product.fillings?.length || product.coatings?.length || product.decorations?.length
+  );
 
   return (
     <Card
@@ -205,6 +214,19 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
             </div>
             <div className="mt-0.5 text-[11px] text-muted-foreground">Цена за изделие</div>
           </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            {hasCustomization && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCustomize}
+                className="h-11 gap-2 rounded-xl px-3"
+                aria-label={`Настроить ${product.title}`}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span>Настроить</span>
+              </Button>
+            )}
           <Button
             size="lg"
             onClick={handleAddToCart}
@@ -217,6 +239,7 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
             <ShoppingCart className="h-4 w-4" />
             <span className="hidden sm:inline">В корзину</span>
           </Button>
+          </div>
         </div>
       </div>
     </Card>
