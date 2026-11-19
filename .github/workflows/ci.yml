@@ -177,7 +177,10 @@ jobs:
 
           docker exec "$SOURCE18_ID" pg_dump -U postgres -d conditera --data-only --schema=auth --schema=storage --no-owner > "$RUNNER_TEMP/auth-storage-data.sql"
           test -s "$RUNNER_TEMP/auth-storage-data.sql"
-          docker exec -i "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/auth-storage-data.sql"
+          # The PG18 client adds a setting unknown to PG15; remove only that
+          # client-side SET line for this fixture transfer (data/DDL unchanged).
+          sed '/^SET transaction_timeout = 0;$/d' "$RUNNER_TEMP/auth-storage-data.sql" > "$RUNNER_TEMP/auth-storage-data-pg15.sql"
+          docker exec -i "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/auth-storage-data-pg15.sql"
 
           docker exec "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES ('00000000-0000-4000-8000-000000000015', 'pg15-only@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
           docker exec "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"pg15\"}'::jsonb)"
