@@ -14,6 +14,9 @@ COMMIT;
 BEGIN;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-000000000001', true);
+SELECT auth.uid() AS owner_uid,
+       public.can_manage_product_slices('10000000-0000-0000-0000-000000000002') AS can_manage_own_draft,
+       public.can_read_product_slices('10000000-0000-0000-0000-000000000002') AS can_read_own_draft;
 DO $test$
 BEGIN
   IF (SELECT count(*) FROM public.product_slices) <> 3 THEN
