@@ -326,20 +326,96 @@ fi
 # === Применение миграций ===
 if [ $new_migrations -gt 0 ]; then
   echo ""
-  warn "Найдены новые миграции БД. Применять автоматически?"
-  echo "  Если БД запущена через docker-compose.supabase.yml — мы можем применить автоматически."
-  read -p "Применить миграции? (yes/no) " APPLY_MIGS
+  warn "Найдены новые миграции БД. Применять через штатный migrator?"
+  echo "  Миграции выполняются только в единой БД conditera на PostgreSQL 17."
+  read -p "Сделать резервную копию и запустить migrator? (yes/no) " APPLY_MIGS
   if [ "$APPLY_MIGS" = "yes" ]; then
-    info "Применение миграций через psql..."
-    for mig_file in $(echo "$ADDED_MIGS" | tr '\n' ' '); do
-      [ -z "$mig_file" ] && continue
-      log "Применение $mig_file"
-      docker exec -i conditera-supabase-db psql -U postgres -d postgres < "$mig_file" 2>&1 | grep -v "^$" || true
-    done
-    log "Миграции применены"
+    [[ -f .env.production ]] || err "Не найден .env.production. Миграции не запускались."
+    command -v docker >/dev/null 2>&1 || err "Docker CLI не найден."
+    DB_CONTAINER="$(docker ps --filter 'name=^/conditera-db
+fi
+
+# === Проверка env ===
+echo ""
+info "Проверка .env после обновления..."
+bash scripts/env-check.sh || true
+
+# === Сборка ===
+echo ""
+info "Пересборка проекта..."
+read -p "Запустить npm run build? (yes/no) " BUILD
+if [ "$BUILD" = "yes" ]; then
+  npm run build
+  log "Сборка завершена"
+fi
+
+echo ""
+echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
+echo -e "  ${GREEN}${BOLD}ОБНОВЛЕНИЕ ЗАВЕРШЕНО${NC}"
+echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
+echo ""
+echo "  Бэкап до обновления: $BACKUP_DIR"
+echo ""
+echo "  Следующие шаги:"
+echo "    1. Если добавились env-переменные — заполните их:  bash scripts/setup-env.sh dev"
+echo "    2. Проверьте готовность:                          bash scripts/env-check.sh"
+echo "    3. Если вы в production — перезапустите сервисы:  bash scripts/deploy.sh"
+echo ""
+ --format '{{.ID}}' | head -n1)"
+    [[ -n "$DB_CONTAINER" ]] || err "conditera-db не запущен. Автоматический cutover или создание пустой БД запрещены."
+    PG_VERSION="$(docker exec "$DB_CONTAINER" psql -U supabase_admin -d conditera -Atqc "SHOW server_version_num" 2>/dev/null)" || err "Не удалось проверить PostgreSQL/БД conditera."
+    [[ "$PG_VERSION" =~ ^[0-9]+$ ]] || err "Некорректный номер версии PostgreSQL: '$PG_VERSION'."
+    [[ $((PG_VERSION / 10000)) -eq 17 ]] || err "Нужен уже подготовленный PostgreSQL 17. Текущую БД скрипт не переключает."
+    mkdir -p backups
+    STAMP="$(date +%Y%m%d_%H%M%S)"
+    DB_BACKUP="backups/prearchive-conditera-$STAMP.dump"
+    STORAGE_BACKUP="backups/prearchive-storage-$STAMP.tar.gz"
+    docker exec "$DB_CONTAINER" pg_dump -U supabase_admin -d conditera --format=custom --no-owner --no-acl > "$DB_BACKUP" || err "Резервная копия БД не создана."
+    [[ -s "$DB_BACKUP" ]] || err "Резервная копия БД пуста."
+    docker run --rm -i --entrypoint pg_restore supabase/postgres:17.6.1.136 --list < "$DB_BACKUP" > "$DB_BACKUP.list" || err "Проверка резервной копии БД не прошла."
+    STORAGE_CONTAINER="$(docker ps --filter 'name=^/conditera-supabase-storage
+fi
+
+# === Проверка env ===
+echo ""
+info "Проверка .env после обновления..."
+bash scripts/env-check.sh || true
+
+# === Сборка ===
+echo ""
+info "Пересборка проекта..."
+read -p "Запустить npm run build? (yes/no) " BUILD
+if [ "$BUILD" = "yes" ]; then
+  npm run build
+  log "Сборка завершена"
+fi
+
+echo ""
+echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
+echo -e "  ${GREEN}${BOLD}ОБНОВЛЕНИЕ ЗАВЕРШЕНО${NC}"
+echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
+echo ""
+echo "  Бэкап до обновления: $BACKUP_DIR"
+echo ""
+echo "  Следующие шаги:"
+echo "    1. Если добавились env-переменные — заполните их:  bash scripts/setup-env.sh dev"
+echo "    2. Проверьте готовность:                          bash scripts/env-check.sh"
+echo "    3. Если вы в production — перезапустите сервисы:  bash scripts/deploy.sh"
+echo ""
+ --format '{{.ID}}' | head -n1)"
+    [[ -n "$STORAGE_CONTAINER" ]] || err "Supabase Storage не запущен; резервная копия файлов не создана."
+    docker exec "$STORAGE_CONTAINER" tar -C /mnt/storage -czf - . > "$STORAGE_BACKUP" || err "Архив Storage не создан."
+    tar -tzf "$STORAGE_BACKUP" >/dev/null || err "Проверка архива Storage не прошла."
+    COMPOSE=(docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml)
+    "${COMPOSE[@]}" config --quiet || err "Compose-конфигурация недействительна."
+    "${COMPOSE[@]}" run --rm migrator || err "Штатный migrator завершился с ошибкой."
+    APPLIED="$(docker exec "$DB_CONTAINER" psql -U supabase_admin -d conditera -Atqc "SELECT count(*) FROM public.schema_migrations")"
+    EXPECTED="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+    [[ "$APPLIED" == "$EXPECTED" ]] || err "Журнал миграций неполон: $APPLIED/$EXPECTED."
+    log "Миграции завершены; до запуска созданы и проверены резервные копии БД и Storage."
   else
-    warn "Миграции НЕ применены. Примените их вручную:"
-    echo "  psql -h localhost -p 54322 -U postgres -d postgres -f <migration.sql>"
+    warn "Миграции НЕ применены. Production БД и Docker services не изменялись."
+    echo "  Повторите обновление после подготовки и проверки единой БД PostgreSQL 17."
   fi
 fi
 

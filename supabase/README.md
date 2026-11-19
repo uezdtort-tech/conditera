@@ -1,284 +1,134 @@
-# Self-hosted Supabase — инструкция по запуску
+# Supabase runtime Conditera — PostgreSQL 17
 
-## 🚀 Быстрый старт (dev)
+## Архитектура текущей ветки
 
-### 1. Установить переменные окружения
+Conditera и self-hosted Supabase подключаются к **одному PostgreSQL 17**:
 
-Скопируйте `.env.example` в `.env` и заполните:
+- единственный DB-контейнер: `conditera-db` (Compose service `db`);
+- единственная рабочая БД: `conditera`;
+- административная роль: `supabase_admin`;
+- прикладная роль: `conditera`;
+- Supabase Auth, PostgREST, Realtime, Storage, Kong, Studio, postgres-meta, imgproxy и Logflare остаются отдельными сервис-контейнерами и используют тот же DB endpoint;
+- файлы Supabase Storage хранятся отдельно в постоянном volume `supabase_storage_data`.
 
-```bash
-cp .env.example .env
-```
+Отдельной БД `supabase` и отдельного контейнера `supabase-db` в новой конфигурации нет. Это **единая БД**, но пока ещё не единый контейнер для всех сервисов Supabase.
 
-Сгенерируйте секреты (одной командой):
+## Критически важно перед запуском
 
-```bash
-openssl rand -hex 32  # POSTGRES_PASSWORD
-openssl rand -hex 32  # JWT_SECRET
-openssl rand -hex 32  # ENCRYPTOR_KEY
-openssl rand -hex 64  # SECRET_KEY_BASE
-openssl rand -hex 32  # LOGFLARE_API_KEY
-openssl rand -hex 16  # LOGFLARE_DASHBOARD_PASSWORD
-```
+Ветка PG17 использует отдельный новый volume `conditera_postgres_data_pg17`. Он не открывает и не преобразует существующие PG15/PG18 volumes.
 
-Сгенерируйте Supabase API keys (нужен `supabase` CLI):
+До production cutover необходимо:
+1. сделать проверенные резервные копии обеих действующих БД и Storage files;
+2. инвентаризировать таблицы и строки в обеих БД, включая бизнес-данные, Auth, Storage, журналы и фоновые задания;
+3. восстановить и сверить данные в PostgreSQL 17;
+4. подтвердить проверками приложения и затем отдельно разрешить переключение.
 
-```bash
-# Установить Supabase CLI
-brew install supabase/tap/supabase  # macOS
-# или: npm install -g supabase  # через npm
+**Не запускайте новый production Compose поверх старых контейнеров до выполнения этого переноса.** Не выполняйте `docker compose down -v`, `docker volume rm` и не переиспользуйте PG15/PG18 data directories под PG17. Этот проект не выполняет автоматический production cutover.
 
-# Сгенерировать anon + service_role keys
-supabase gen keys --project-id conditera
-```
+## Переменные окружения
 
-Вставьте сгенерированные ключи в `.env`:
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
+Для Compose используется корневой `.env.production`. В нём должны быть как минимум:
 
-### 2. Запустить Supabase stack
+- `POSTGRES_PASSWORD` — пароль административной роли Supabase;
+- `CONDITERA_DB_PASSWORD` — пароль прикладной роли (может быть равен POSTGRES_PASSWORD, если отдельный пароль не задан);
+- `JWT_SECRET`, `ANON_KEY`, `SERVICE_ROLE_KEY`;
+- `ENCRYPTOR_KEY`, `SECRET_KEY_BASE`;
+- переменные SMTP, OAuth providers, Redis/Meilisearch и прочие обязательные значения из `.env.production.example`.
 
-```bash
-docker-compose -f docker-compose.supabase.yml up -d
-```
+Не помещайте реальные production-секреты в Git.
 
-Проверить что все 10 контейнеров запущены:
-```bash
-docker-compose -f docker-compose.supabase.yml ps
-# Все должны быть "Up" или "healthy"
-```
+## Проверка Compose без запуска контейнеров
 
-### 3. Применить миграции
+Из корня репозитория:
 
 ```bash
-# Установить supabase CLI если ещё не установлен
-npm install -g supabase
-
-# Линк к локальному проекту
-supabase link --project-ref conditera
-
-# Применить миграции
-supabase db push
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml config --quiet
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml config --services
 ```
 
-Или вручную через psql:
-```bash
-docker exec -i conditera-supabase-db psql -U supabase -d supabase < supabase/migrations/0001_init.sql
-```
+Это проверяет синтаксис и объединение Compose-файлов, но не запускает сервисы и не проверяет сетевое взаимодействие.
 
-### 4. Открыть Supabase Studio
+## Локальная разработка
 
-http://localhost:8100 — web UI для управления всем Supabase:
-- Table Editor — просмотр/редактирование таблиц
-- Authentication — список пользователей, OAuth настройки
-- Storage — файлы (создать buckets: avatars, product_images, documents)
-- SQL Editor — выполнение SQL запросов
-- Edge Functions — deploy и логи
-- Logs — просмотр логов через Logflare
-
-### 5. Создать Storage Buckets
-
-В Supabase Studio → Storage → New bucket:
-- `avatars` (public) — аватары пользователей
-- `product_images` (public) — фото товаров
-- `documents` (private) — счета, договоры, налоговые отчёты
-- `messages` (private) — вложения чата
-
-### 6. Запустить Next.js
+Отдельная dev-БД PostgreSQL 17 запускается командой:
 
 ```bash
-npm run dev:local
-# Открыть http://localhost:3000
+./scripts/init-db.sh
 ```
 
-### 7. Зарегистрировать первого админа
+Полный Supabase + Conditera dev stack:
 
-1. Открыть http://localhost:3000 → кликнуть «Войти» → Регистрация
-2. Указать email + пароль
-3. В Supabase Studio → Authentication → Users — найти пользователя
-4. В Table Editor → user_roles → вставить новую строку:
-   ```
-   user_id: <ваш user id>
-   role: ADMIN
-   is_active: true
-   ```
-
-Готово! Теперь у вас есть рабочий Supabase + Next.js стек.
-
-## 📦 Что входит в стек
-
-### 10 Supabase сервисов
-
-| Сервис | Контейнер | Порт | Назначение |
-|---|---|---|---|
-| PostgreSQL 15 | conditera-supabase-db | 5432 (внутр.) | БД с расширениями pgsodium, pg_cron, pg_trgm |
-| Kong API Gateway | conditera-supabase-kong | **8000** | Единая точка входа для всех API |
-| GoTrue (Auth) | conditera-supabase-auth | 9999 (внутр.) | Email/pass, OAuth, Magic Link, 2FA |
-| PostgREST | conditera-supabase-rest | 3000 (внутр.) | Auto REST API из БД схемы |
-| Realtime | conditera-supabase-realtime | 4000 (внутр.) | WebSocket подписки на postgres_changes |
-| Storage | conditera-supabase-storage | 5000 (внутр.) | S3-совместимое хранилище |
-| imgproxy | conditera-supabase-imgproxy | 5001 (внутр.) | Обработка изображений |
-| postgres-meta | conditera-supabase-meta | 8080 (внутр.) | Управление схемой БД |
-| Supabase Studio | conditera-supabase-studio | **8100** | Web UI админка |
-| Logflare Analytics | conditera-supabase-analytics | 4000 (внутр.) | Логирование |
-
-### Порты (изменены чтобы не конфликтовать с Next.js на :3000)
-- **8000** — Kong (главный API gateway)
-- **8100** — Supabase Studio (web UI)
-- **3000** — Next.js (остаётся как было)
-
-## 🔌 Подключение из Next.js
-
-В коде использовать:
-
-```typescript
-// Client component (браузер)
-import { supabaseBrowser } from '@/lib/supabase/browser';
-const { data: { user } } = await supabaseBrowser.auth.getUser();
-
-// Server component / Route Handler
-import { getSupabaseServer } from '@/lib/supabase/server';
-const supabase = await getSupabaseServer();
-const { data: profiles } = await supabase.from('profiles').select('*');
-
-// Admin operations (полный доступ в обход RLS)
-import { supabaseAdmin } from '@/lib/supabase/admin';
-await supabaseAdmin.from('user_roles').insert({ user_id, role: 'ADMIN' });
-```
-
-## 📊 Структура файлов
-
-```
-supabase/
-├── config.toml                      # Конфиг Supabase CLI
-├── kong.yml                         # Kong API gateway routing
-├── init-scripts/                    # SQL инициализация
-├── migrations/                      # SQL миграции (применяются через supabase db push)
-│   └── 0001_init.sql                # profiles, user_roles, addresses, triggers, RLS
-└── functions/                       # Edge Functions (Deno)
-    ├── abandoned-cart/              # Брошенная корзина (pg_cron каждый час)
-    ├── daily-digest/                # Ежедневный дайджест (9:00 MSK)
-    ├── bonus-expiry/                # Сгорание бонусов (00:00 MSK)
-    ├── telegram-webhook/            # Приём webhook от Telegram
-    ├── yookassa-webhook/            # Приём webhook от Yookassa
-    └── send-notification/           # Отправка уведомлений в @conditera канал
-```
-
-## 🔐 Безопасность
-
-### Row Level Security (RLS)
-Все таблицы с user data имеют RLS политики:
-- `profiles` — пользователь видит/редактирует только свой профиль (админ видит все)
-- `user_roles` — пользователь видит только свои роли (админ может назначать)
-- `addresses` — пользователь видит/создаёт/удаляет только свои адреса
-- `notification_preferences` — пользователь видит/редактирует только свои
-
-Пример RLS политики:
-```sql
-CREATE POLICY "profiles_select_own" ON public.profiles
-  FOR SELECT USING (auth.uid() = id);
-```
-
-### API Keys
-- **`NEXT_PUBLIC_SUPABASE_ANON_KEY`** — виден в браузере, обходит RLS только через PUBLIC-политики
-- **`SUPABASE_SERVICE_ROLE_KEY`** — полный доступ в обход RLS, НИКОГДА не попадает в браузер
-
-### JWT Secret
-Используется для подписи JWT токенов (access + refresh). Минимум 32 символа. При компрометации — rotate.
-
-## 🛠️ Команды
-
-### Запуск/остановка
 ```bash
-# Запуск всего стека
-docker-compose -f docker-compose.supabase.yml up -d
-
-# Остановка
-docker-compose -f docker-compose.supabase.yml down
-
-# Полная очистка (УДАЛИТ ВСЕ ДАННЫЕ!)
-docker-compose -f docker-compose.supabase.yml down -v
+./scripts/init-db.sh supabase
 ```
 
-### База данных
+Режим `supabase` использует общий Compose-проект и общий DB endpoint. Запускайте его на отдельной dev-среде, а не поверх действующего production PG15/PG18 окружения.
+
+## Миграции
+
+Миграции применяются штатным одноразовым сервисом migrator с журналом `public.schema_migrations`. Не используйте `supabase db push` к случайно привязанному удалённому проекту и не запускайте SQL-файлы вручную с игнорированием ошибок.
+
+После того как единая БД PG17 восстановлена и проверена, штатный запуск migrator выполняется через объединённый Compose-проект:
+
 ```bash
-# Применить миграции
-supabase db push
-
-# Создать новую миграцию
-supabase migration new add_table_name
-
-# Сгенерировать TypeScript типы из схемы
-supabase gen types typescript --local > src/lib/supabase/types.ts
-
-# Backup
-docker exec conditera-supabase-db pg_dump -U supabase supabase > backup_$(date +%Y%m%d).sql
-
-# Восстановить
-cat backup_20260817.sql | docker exec -i conditera-supabase-db psql -U supabase -d supabase
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml run --rm migrator
 ```
 
-### Edge Functions
+Перед миграциями требуется резервная копия БД и файлов Storage. Скрипты `scripts/deploy.sh` и `scripts/update-from-archive.sh` проверяют версию PG17 и делают backup до migrator; они **не выполняют перенос PG15/PG18**.
+
+## Резервное копирование
+
+Резервная копия общей БД:
+
 ```bash
-# Deploy функции
-supabase functions deploy telegram-webhook
-
-# Логи функции
-supabase functions logs telegram-webhook
-
-# Локальный запуск
-supabase functions serve telegram-webhook
+mkdir -p backups
+docker exec conditera-db pg_dump -U supabase_admin -d conditera --format=custom --no-owner --no-acl > backups/conditera-$(date +%Y%m%d_%H%M%S).dump
+docker run --rm -i --entrypoint pg_restore supabase/postgres:17.6.1.136 --list < backups/conditera-YYYYMMDD_HHMMSS.dump
 ```
 
-### Просмотр логов
+Резервная копия файлов Storage:
+
 ```bash
-# Все сервисы
-docker-compose -f docker-compose.supabase.yml logs -f --tail=50
-
-# Только GoTrue (auth)
-docker-compose -f docker-compose.supabase.yml logs -f supabase-auth
-
-# Только PostgreSQL
-docker-compose -f docker-compose.supabase.yml logs -f supabase-db
+docker exec conditera-supabase-storage tar -C /mnt/storage -czf - . > backups/storage-$(date +%Y%m%d_%H%M%S).tar.gz
+tar -tzf backups/storage-YYYYMMDD_HHMMSS.tar.gz
 ```
 
-## 🐛 Устранение проблем
+Проверка каталога dump и tar не заменяет пробное восстановление. Восстанавливайте backup сначала в отдельную изолированную БД/среду и сверяйте контрольные количества, внешние ключи, роли, grants и доступ к файлам. Не восстанавливайте тестовый dump поверх рабочей БД.
 
-### Проблема: Studio не открывается на :8100
-**Решение:** Проверить что контейнер `conditera-supabase-studio` healthy:
+## Порты и сервисы
+
+| Компонент | Compose service | Внутренний порт | Назначение |
+|---|---|---:|---|
+| PostgreSQL 17 | `db` | 5432 | Единственная БД `conditera` |
+| PgBouncer | `pgbouncer` | 5432 | Пул соединений приложения |
+| GoTrue | `supabase-auth` | 9999 | Аутентификация |
+| PostgREST | `supabase-rest` | 3000 | REST API |
+| Realtime | `supabase-realtime` | 4000 | WebSocket подписки |
+| Storage API | `supabase-storage` | 5000 | Хранилище файлов |
+| Kong | `supabase-kong` | 8000 | API gateway |
+| postgres-meta | `supabase-meta` | 8080 | Управление схемой |
+| Supabase Studio | `supabase-studio` | 3000 | Панель управления |
+| imgproxy | `supabase-imgproxy` | 5001 | Изображения |
+| Logflare | `supabase-analytics` | 4000 | Логи |
+| Vector | `supabase-vector` | 9001 | Сбор логов |
+
+На хост проброшены web :3000, Kong :8000 и Studio :8100; другие service ports остаются внутри общей Docker-сети, если Compose не задаёт иное.
+
+## Управление сервисами
+
+Во всех командах используйте оба Compose-файла:
+
 ```bash
-docker ps | grep studio
-# Если unhealthy — посмотреть логи:
-docker logs conditera-supabase-studio
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml ps
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml logs -f --tail=100 db
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml logs -f supabase-auth
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.supabase.yml stop
 ```
 
-### Проблема: Cannot connect to localhost:8000
-**Решение:** Kong не запустился. Проверить:
-```bash
-docker logs conditera-supabase-kong
-# Если "permission denied" — sudo chown -R $USER:$USER ./supabase
-```
+Не используйте `down -v`: эта команда удаляет persistent volumes. Для остановки сервисов достаточно `stop`.
 
-### Проблема: RLS блокирует все запросы
-**Решение:** Проверить что в запросе передаётся JWT:
-```typescript
-// Правильно (браузер автоматически добавляет JWT из cookies)
-const { data } = await supabaseBrowser.from('profiles').select('*');
+## Ограничения, которые ещё остаются
 
-// На сервере:
-const supabase = await getSupabaseServer(); // автоматически достаёт JWT из cookies
-const { data } = await supabase.from('profiles').select('*');
-```
-
-### Проблема: PGlite WASM error в build
-**Решение:** Это в v1.0. В v2.0 PGlite полностью убран — используйте только Supabase Postgres.
-
-## 📚 Документация
-
-- [Supabase self-hosting](https://supabase.com/docs/guides/self-hosting)
-- [Supabase Auth](https://supabase.com/docs/guides/auth)
-- [Supabase Realtime](https://supabase.com/docs/guides/realtime)
-- [Supabase Storage](https://supabase.com/docs/guides/storage)
-- [Supabase Edge Functions](https://supabase.com/docs/guides/functions)
-- [Row Level Security](https://www.postgresql.org/docs/15/ddl-rowsecurity.html)
-- [Next.js + Supabase SSR](https://supabase.com/docs/guides/auth/server-side/nextjs)
+- Supabase API services пока работают в отдельных контейнерах; требование собрать полный Supabase Runtime в один контейнер ещё не реализовано.
+- Edge Runtime / Edge Functions не включены в этот Compose overlay. Нельзя считать Edge Functions развёрнутыми или отправлять их через Supabase CLI в удалённый проект как часть local deploy.
+- Успешный CI merge проверяет тестовые данные и структуру. Он не является разрешением на перенос фактических production-данных и не заменяет инвентаризацию старых томов.
