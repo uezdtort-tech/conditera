@@ -132,6 +132,8 @@ try {
 
   console.log("Applying isolated auth/storage compatibility fixture...");
   await client.query(readFileSync(compatFile, "utf8"));
+  // Match Supabase default search_path: extension functions in the extensions schema are callable without qualification.
+  await client.query('SET search_path TO "$user", public, extensions');
   await client.query(`
     CREATE TABLE IF NOT EXISTS public.schema_migrations (
       filename text PRIMARY KEY,
