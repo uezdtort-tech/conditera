@@ -13,6 +13,7 @@ import {
   Cake, Upload, Edit3, Trash2, Plus, Download, Eye, X, Sparkles, Loader2, Image as ImageIcon, Boxes,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { ProductSliceItem } from "@/lib/types";
 import { getCsrfToken, getSessionAuthHeaders } from "@/lib/api-client";
 
 // ===== Типы =====
@@ -785,41 +786,17 @@ export function CakeSliceVisualizer({
 // ===== Компонент-галерея: все срезы продукта =====
 export function ProductSliceGallery({
   productId,
+  slices,
 }: {
   productId: string;
+  slices: ProductSliceItem[];
 }) {
-  const [slices, setSlices] = useState<any[]>([]);
   const [show3DModal, setShow3DModal] = useState(false);
   const [scene3d, setScene3d] = useState<any>(null);
   const [loading3d, setLoading3d] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [selectedSlice, setSelectedSlice] = useState<any | null>(null);
+  const [selectedSlice, setSelectedSlice] = useState<ProductSliceItem | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    const loadSlices = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/products/${productId}/slices`);
-        if (res.ok) {
-          const data = await res.json();
-          if (active) setSlices(Array.isArray(data.slices) ? data.slices : []);
-        } else if (active) {
-          setSlices([]);
-        }
-      } catch {
-        if (active) setSlices([]);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    void loadSlices();
-    return () => {
-      active = false;
-    };
-  }, [productId]);
-
-  const getSliceConfig = (slice: any): SliceConfig => {
+  const getSliceConfig = (slice: ProductSliceItem): SliceConfig => {
     const config = slice?.config;
     if (config && Array.isArray(config.layers)) return config as SliceConfig;
     return detectPreset({ name: slice?.fillingName || slice?.caption || "Торт" });
@@ -848,13 +825,6 @@ export function ProductSliceGallery({
     }
   };
 
-  if (loading) {
-    return (
-      <Card className="p-4">
-        <div className="text-sm text-muted-foreground">Загрузка срезов...</div>
-      </Card>
-    );
-  }
   if (slices.length === 0) return null;
 
   const selectedName = selectedSlice?.fillingName || selectedSlice?.caption || "Разрез торта";
