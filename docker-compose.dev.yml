@@ -23,6 +23,7 @@ services:
       POSTGRES_DB: uyezdny_konditer_dev
     volumes:
       - uyezdny-db-dev-data-v17:/var/lib/postgresql/data
+      - uyezdny-db-dev-config-v17:/etc/postgresql-custom
       - ./supabase/migrations:/migrations:ro
       - ./supabase/seed.sql:/seeds/01-seed.sql:ro
       - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
@@ -131,6 +132,7 @@ services:
 
 volumes:
   uyezdny-db-dev-data-v17:
+  uyezdny-db-dev-config-v17:
   uyezdny-db-dev-data-v18:
   uyezdny-meili-dev-data:
   uyezdny-n8n-dev-data:
