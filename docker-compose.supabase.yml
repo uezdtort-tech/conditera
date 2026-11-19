@@ -66,7 +66,7 @@ services:
       - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supabase -d supabase"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U supabase -d supabase"]
       interval: 10s
       timeout: 5s
       retries: 10
