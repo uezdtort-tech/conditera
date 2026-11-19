@@ -194,29 +194,29 @@ jobs:
             cat "$RUNNER_TEMP/storage-v1.14.5-0002.sql"
           } > "$RUNNER_TEMP/storage-schema.sql"
 
-          docker exec -i "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/storage-schema.sql"
-          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/storage-schema.sql"
+          docker exec -e PGPASSWORD=postgres -i "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/storage-schema.sql"
+          docker exec -e PGPASSWORD=postgres -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/storage-schema.sql"
 
           # Storage tables are created by the Storage API migration. Hand ownership
           # to its service role for this isolated compatibility test.
           for DB_ID in "$SOURCE15_ID" "$TARGET_ID"; do
             DB_NAME="supabase"
             if [ "$DB_ID" = "$TARGET_ID" ]; then DB_NAME="conditera"; fi
-            docker exec "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "ALTER TABLE storage.buckets OWNER TO supabase_storage_admin; ALTER TABLE storage.objects OWNER TO supabase_storage_admin; ALTER TABLE storage.migrations OWNER TO supabase_storage_admin; GRANT ALL ON SCHEMA storage TO supabase_storage_admin; GRANT ALL ON ALL TABLES IN SCHEMA storage TO supabase_storage_admin; GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO supabase_storage_admin;"
+            docker exec -e PGPASSWORD=postgres "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "ALTER TABLE storage.buckets OWNER TO supabase_storage_admin; ALTER TABLE storage.objects OWNER TO supabase_storage_admin; ALTER TABLE storage.migrations OWNER TO supabase_storage_admin; GRANT ALL ON SCHEMA storage TO supabase_storage_admin; GRANT ALL ON ALL TABLES IN SCHEMA storage TO supabase_storage_admin; GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO supabase_storage_admin;"
           done
 
           PROFILE_ID="$(docker exec "$SOURCE18_ID" psql -U postgres -d conditera -Atqc "SELECT id::text FROM public.profiles ORDER BY id LIMIT 1")"
           test -n "$PROFILE_ID"
           echo "MIGRATION_PROFILE_ID=$PROFILE_ID" >> "$GITHUB_ENV"
 
-          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -v profile_id="$PROFILE_ID" -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES (:'profile_id'::uuid, 'pg18-profile-link@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
+          docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -v profile_id="$PROFILE_ID" -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES (:'profile_id'::uuid, 'pg18-profile-link@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
           docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.buckets (id, name) VALUES ('media', 'media') ON CONFLICT (id) DO NOTHING"
           docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"official-supabase-pg15\"}'::jsonb)"
 
           # Exercise the actual bootstrap SQL used by docker-compose.yml.
           docker cp supabase/init-scripts/90-create-conditera-db.sql "$TARGET_ID:/tmp/90-create-conditera-db.sql"
           docker exec -e PGPASSWORD=postgres -e CONDITERA_DB_PASSWORD=ci_conditera_password_32_chars "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f /tmp/90-create-conditera-db.sql
-          APP_ROLE="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
+          APP_ROLE="$(docker exec -e PGPASSWORD=postgres "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
           test "$APP_ROLE" = "false:true"
 
       - name: Merge official Supabase PG15 data and Conditera PG18 business schema into PG17
