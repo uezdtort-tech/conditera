@@ -81,11 +81,13 @@ jobs:
       - name: Запустить PG17 и Supabase Storage, затем применить отложенную миграцию
         run: |
           COMPOSE="docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration"
-          if ! $COMPOSE up -d supabase-storage-pg17-migration; then
+          if ! $COMPOSE up -d supabase-storage-pg17-migration supabase-auth-pg17-migration supabase-realtime-pg17-migration; then
             docker logs conditera-supabase-db-pg17-migration || true
             docker logs conditera-supabase-rest-pg17-migration || true
             docker logs conditera-supabase-meta-pg17-migration || true
             docker logs conditera-supabase-storage-pg17-migration || true
+            docker logs conditera-supabase-auth-pg17-migration || true
+            docker logs conditera-supabase-realtime-pg17-migration || true
             exit 1
           fi
           READY=0
@@ -114,6 +116,8 @@ jobs:
           fi
           docker run --rm --network container:conditera-supabase-rest-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:3000/ >/dev/null
           docker run --rm --network container:conditera-supabase-meta-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/health >/dev/null
+          docker run --rm --network container:conditera-supabase-auth-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:9999/health >/dev/null
+          docker run --rm --network container:conditera-supabase-realtime-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:4000/ >/dev/null
           if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
             docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
