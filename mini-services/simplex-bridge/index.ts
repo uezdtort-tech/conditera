@@ -44,11 +44,13 @@ const pendingCommands = new Map<string, { resolve: Function; reject: Function; t
 // === Health endpoint для Docker healthcheck + UI ===
 const healthServer = createServer((req, res) => {
   if (req.url === "/health" || req.url === "/healthz") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    const cliConnected = !!cliSocket && cliSocket.readyState === WebSocket.OPEN;
+    const ready = cliConnected && isInitialized;
+    res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
-      status: "ok",
+      status: ready ? "ok" : "starting",
       service: "conditera-simplex-bridge",
-      cliConnected: !!cliSocket && cliSocket.readyState === WebSocket.OPEN,
+      cliConnected,
       isInitialized,
       activeProfile,
       pendingCommands: pendingCommands.size,
