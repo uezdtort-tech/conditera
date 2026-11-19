@@ -56,7 +56,7 @@ import {
   calculateInstallmentPayment,
   INSTALLMENT_PROVIDERS,
 } from "@/lib/finance";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useLiveProductDetail } from "@/lib/supabase/use-marketplace";
 import type { Review } from "@/lib/types";
@@ -212,12 +212,19 @@ export function ProductPage() {
   const [selectedCoating, setSelectedCoating] = useState(0);
   const [selectedDecoration, setSelectedDecoration] = useState(0);
   const [inscription, setInscription] = useState("");
+  const customizationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (product) {
       addRecentlyViewed(product.id);
     }
   }, [product?.id]);
+
+  useEffect(() => {
+    if (nav.params?.customize === "true" && product) {
+      customizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [product?.id, nav.params?.customize]);
 
   // Минимальный заказ (0052) — держим количество в рамках правила товара
   useEffect(() => {
@@ -686,7 +693,7 @@ export function ProductPage() {
 
           {/* Customization */}
           {product.fillings && product.fillings.length > 0 && (
-            <div className="space-y-4">
+            <div ref={customizationRef} id="product-customization" className="space-y-4">
               <div>
                 <Label className="font-medium flex items-center gap-2">
                   Начинка
