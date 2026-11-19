@@ -237,28 +237,28 @@ jobs:
 
           # Restore every Auth/Storage data table except migration ledgers:
           # schema and roles are initialized by official Supabase PG17 + Storage API migrations.
-          docker exec "$SOURCE15_ID" pg_dump -U supabase_admin -d supabase --data-only --schema=auth --schema=storage --exclude-table=auth.schema_migrations --exclude-table=storage.migrations --no-owner --format=plain > "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
+          docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" pg_dump -U supabase_admin -d supabase --data-only --schema=auth --schema=storage --exclude-table=auth.schema_migrations --exclude-table=storage.migrations --no-owner --format=plain > "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
           test -s "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
-          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
+          docker exec -e PGPASSWORD=postgres -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
 
           # Merge the Conditera business schema into the pre-initialized Supabase
           # public schema; never drop the Supabase-owned public schema itself.
           docker exec "$SOURCE18_ID" pg_dump -U postgres -d conditera --schema=public --no-owner --format=plain > "$RUNNER_TEMP/conditera18-public.sql"
           test -s "$RUNNER_TEMP/conditera18-public.sql"
           sed '/^CREATE SCHEMA public;$/d' "$RUNNER_TEMP/conditera18-public.sql" > "$RUNNER_TEMP/conditera18-public-existing-schema.sql"
-          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/conditera18-public-existing-schema.sql"
+          docker exec -e PGPASSWORD=postgres -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/conditera18-public-existing-schema.sql"
 
           SOURCE18_COUNTS="$(docker exec "$SOURCE18_ID" psql -U postgres -d conditera -Atqc "SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text;")"
-          SOURCE15_COUNTS="$(docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -Atqc "SELECT (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
-          TARGET_COUNTS="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text || ':' || (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
+          SOURCE15_COUNTS="$(docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -Atqc "SELECT (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
+          TARGET_COUNTS="$(docker exec -e PGPASSWORD=postgres "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text || ':' || (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
           EXPECTED_COUNTS="$SOURCE18_COUNTS:$SOURCE15_COUNTS"
           echo "Expected merged counts: $EXPECTED_COUNTS"
           echo "PostgreSQL 17 single-database counts: $TARGET_COUNTS"
           test "$EXPECTED_COUNTS" = "$TARGET_COUNTS"
 
-          ORPHANS="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT count(*) FROM public.profiles p LEFT JOIN auth.users u ON u.id = p.id WHERE p.id = '$MIGRATION_PROFILE_ID' AND u.id IS NULL;")"
+          ORPHANS="$(docker exec -e PGPASSWORD=postgres "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT count(*) FROM public.profiles p LEFT JOIN auth.users u ON u.id = p.id WHERE p.id = '$MIGRATION_PROFILE_ID' AND u.id IS NULL;")"
           test "$ORPHANS" = "0"
-          APP_ROLE="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
+          APP_ROLE="$(docker exec -e PGPASSWORD=postgres "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
           test "$APP_ROLE" = "false:true"
           echo "OFFICIAL SUPABASE PG15 + CONDITERA PG18 -> PG17 SINGLE DATABASE MERGE PASSED"
 
