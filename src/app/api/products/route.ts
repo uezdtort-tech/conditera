@@ -269,6 +269,44 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         });
       }
 
+      // Отдельная таблица product_slices содержит именно изображения разреза.
+      // Не используем detailImages: там могут быть упаковка и любые другие детали.
+      const sliceMap: Record<string, Array<{
+        id: string;
+        fillingName: string | null;
+        image: string;
+        caption: string | null;
+        sortOrder: number;
+      }>> = {};
+      if (productIds.length > 0) {
+        const { data: sliceRows, error: sliceError } = await supabaseAdmin
+          .from("product_slices")
+          .select("id, productId, fillingName, image, caption, sortOrder")
+          .in("productId", productIds)
+          .order("sortOrder", { ascending: true });
+        if (sliceError) {
+          console.error("[products] GET slices enrichment error:", sliceError.message);
+        } else {
+          (sliceRows || []).forEach((slice: {
+            id: string;
+            productId: string;
+            fillingName: string | null;
+            image: string;
+            caption: string | null;
+            sortOrder: number;
+          }) => {
+            if (!sliceMap[slice.productId]) sliceMap[slice.productId] = [];
+            sliceMap[slice.productId].push({
+              id: slice.id,
+              fillingName: slice.fillingName,
+              image: slice.image,
+              caption: slice.caption,
+              sortOrder: slice.sortOrder,
+            });
+          });
+        }
+      }
+
       return rows.map((p) => {
         const confId = p.confectioner_id as string;
         const conf = confId ? confectionerMap[confId] : null;
@@ -282,6 +320,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         return {
           ...p,
           images: mergedImages,
+          slices: sliceMap[p.id as string] || [],
           category_slug: categorySlug,
           confectioner: conf
             ? {
