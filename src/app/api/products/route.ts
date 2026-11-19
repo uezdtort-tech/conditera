@@ -218,6 +218,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     /** Enrichment страницы: кондитер, изображения, обложка, category_slug. */
+    let sliceEnrichmentUnavailable = false;
+    const respondWithSliceStatus = (payload: Record<string, unknown>) => {
+      const response = NextResponse.json({
+        ...payload,
+        dataStatus: {
+          productSlices: sliceEnrichmentUnavailable ? "unavailable" : "ok",
+        },
+      });
+      if (sliceEnrichmentUnavailable) {
+        response.headers.set("X-Cond itera-Data-Degraded", "product-slices");
+      }
+      return response;
+    };
+
     const enrichProducts = async (
       rows: Record<string, unknown>[]
     ): Promise<Record<string, unknown>[]> => {
@@ -285,6 +299,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           .in("productId", productIds)
           .order("sortOrder", { ascending: true });
         if (sliceError) {
+          sliceEnrichmentUnavailable = true;
           console.error("[products] GET slices enrichment error:", sliceError.message);
         } else {
           (sliceRows || []).forEach((slice: {
@@ -404,7 +419,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
 
       const enrichedProducts = await enrichProducts(pageRows);
-      return NextResponse.json({ products: enrichedProducts, total, limit, offset });
+      return respondWithSliceStatus({ products: enrichedProducts, total, limit, offset });
     }
 
     // ==== Обычный путь (без q/advanced) — прежние PostgREST-фильтры ====
@@ -463,7 +478,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const enrichedProducts = await enrichProducts((products || []) as Record<string, unknown>[]);
 
-    return NextResponse.json({
+    return respondWithSliceStatus({
       products: enrichedProducts,
       total: countError ? enrichedProducts.length : (totalCount ?? 0),
       limit,
