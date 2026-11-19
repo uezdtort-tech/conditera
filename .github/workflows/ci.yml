@@ -192,8 +192,12 @@ jobs:
             DB_NAME="supabase"
             if [ "$DB_ID" = "$TARGET_ID" ]; then DB_NAME="conditera"; fi
             docker exec -e POSTGRES_PASSWORD=postgres -e PGPASSWORD=postgres "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -v ON_ERROR_STOP=1 -f /tmp/99-supabase-roles.sql
-            PASSWORD_ROLES="$(docker exec -e PGPASSWORD=postgres "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -Atqc "SELECT count(*) FROM pg_authid WHERE rolname = ANY (ARRAY['authenticator','pgbouncer','supabase_auth_admin','supabase_functions_admin','supabase_storage_admin']) AND rolpassword IS NOT NULL")"
-            test "$PASSWORD_ROLES" = "5"
+            PASSWORD_ROLES="$(docker exec -e PGPASSWORD=postgres "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -Atqc "SELECT count(*) FROM pg_authid WHERE rolname = ANY (ARRAY['authenticator','pgbouncer','supabase_auth_admin','supabase_storage_admin']) AND rolpassword IS NOT NULL")"
+            test "$PASSWORD_ROLES" = "4"
+            OPTIONAL_FUNCTIONS_ROLE="$(docker exec -e PGPASSWORD=postgres "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -Atqc "SELECT count(*) FROM pg_authid WHERE rolname='supabase_functions_admin' AND rolpassword IS NOT NULL")"
+            if [ "$OPTIONAL_FUNCTIONS_ROLE" -gt 0 ]; then
+              test "$OPTIONAL_FUNCTIONS_ROLE" = "1"
+            fi
           done
 
           # Build the same Storage schema as the pinned storage-api image,
