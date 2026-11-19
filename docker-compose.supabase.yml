@@ -628,6 +628,7 @@ volumes:
   supabase_db_data_pg17:
   supabase_db_config_pg17:
   supabase_storage_data:
+  supabase_storage_data_pg17:
   supabase_vector_data:
 
 networks:
