@@ -34,7 +34,7 @@ jobs:
       - name: Boot embedded PostgreSQL and run a real query
         shell: bash
         run: |
-          node --input-type=module <<'NODE'
+          timeout 180s node --input-type=module <<'NODE'
           import { start, ensureDatabase, stop, EMBEDDED_URL } from "./scripts/db/runtime.mjs";
           import pg from "pg";
           let client;
