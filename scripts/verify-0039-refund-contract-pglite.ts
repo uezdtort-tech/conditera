@@ -59,12 +59,20 @@ CREATE TABLE public.profiles (
   tfa_backup_codes text[],
   updated_at timestamptz
 );
+CREATE TABLE public.confectioners (
+  id text primary key,
+  "userId" text not null
+);
+INSERT INTO public.confectioners (id, "userId") VALUES ('conf-a', '${USER}');
 CREATE TABLE public.confectioner_transactions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid,
+  id text primary key,
+  "confectionerId" text not null references public.confectioners(id),
   amount numeric,
   created_at timestamptz default now()
 );
+INSERT INTO public.confectioner_transactions (id, "confectionerId", amount)
+VALUES ('tx-a', 'conf-a', 100);
+GRANT SELECT ON public.confectioners TO authenticated;
 INSERT INTO auth.users (id) VALUES ('${USER}');
 INSERT INTO public.profiles (id, two_factor_backup_codes, tfa_backup_codes)
 VALUES ('${USER}', ARRAY['hash_a','hash_b'], ARRAY['hash_c']);
