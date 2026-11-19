@@ -18,16 +18,21 @@ services:
       POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: uyezdny_dev_pass
       POSTGRES_DB: uyezdny_konditer_dev
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - cron.database_name=uyezdny_konditer_dev
     volumes:
       - uyezdny-db-dev-data-v17:/var/lib/postgresql/data
-      # Mount migrations & seeds so init script can apply them.
-      # NOTE: files in /docker-entrypoint-initdb.d/ run only on FIRST init
-      # (when data volume is empty). For re-runs use ./scripts/init-db.sh.
+      # Keep business SQL separate from Supabase image init scripts.
+      # scripts/init-db.sh runs it only after the Supabase DB is healthy.
       - ./supabase/migrations:/migrations:ro
       - ./supabase/seed.sql:/seeds/01-seed.sql:ro
       - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
-      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/01-apply-migrations.sh:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase_admin -d uyezdny_konditer_dev"]
