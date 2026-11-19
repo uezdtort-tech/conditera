@@ -229,6 +229,7 @@ services:
     container_name: conditera-supabase-realtime
     restart: unless-stopped
     environment:
+      APP_NAME: realtime
       DB_HOST: supabase-db
       DB_PORT: 5432
       DB_USER: supabase
