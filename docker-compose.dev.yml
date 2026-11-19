@@ -21,6 +21,7 @@ services:
       POSTGRES_USER: uyezdny
       POSTGRES_PASSWORD: uyezdny_dev_pass
       POSTGRES_DB: uyezdny_konditer_dev
+      POSTGRES_INITDB_ARGS: "--auth-local=trust --auth-host=scram-sha-256"
     volumes:
       - uyezdny-db-dev-data-v17:/var/lib/postgresql/data
       - ./supabase/migrations:/migrations:ro
