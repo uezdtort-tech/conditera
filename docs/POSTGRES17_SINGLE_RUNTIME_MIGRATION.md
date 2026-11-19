@@ -70,7 +70,7 @@ Production Compose содержит два разных production PostgreSQL-к
 - `pg_database`, `pg_extension`, `pg_roles`, `pg_tables`,
   `pg_policies`, `pg_publication`, `pg_replication_slots`;
 - количество строк и объём ключевых таблиц;
-- `schema_migrations`, Prisma migration history и Supabase migration history;
+- `schema_migrations` и любые дополнительные migration ledgers/источники миграций, найденные поиском по репозиторию;
 - функции, триггеры, типы, sequence, grants, RLS, публикации Realtime;
 - зависимости Storage metadata и файлового volume;
 - все фактические connection strings из Compose/env names (значения секретов
@@ -123,14 +123,13 @@ Production Compose содержит два разных production PostgreSQL-к
 - Проверить init order, healthchecks, DNS service aliases и отсутствие
   циклических `depends_on`.
 - Сверить все миграции до последней включительно, применить их один раз
-  управляемым migrator-ом. Не запускать одновременно init-scripts,
-  Prisma migrate и Supabase CLI на одних и тех же объектах без явного
-  разграничения владельца миграций.
+  управляемым migrator-ом. Не запускать одновременно init-scripts, migrator и Supabase CLI на одних
+  и тех же объектах без явного разграничения владельца миграций.
 
 ### Этап E — переключение и приёмка
 
 Переключение разрешено только после тестов на временном окружении:
-- Prisma CRUD и транзакции;
+- прикладные CRUD/транзакции через Supabase JS и прямые SQL-клиенты;
 - Supabase Auth signup/signin/refresh/logout и OAuth callback;
 - PostgREST с anon/authenticated/service_role;
 - RLS положительные и отрицательные сценарии;
