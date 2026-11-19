@@ -22,11 +22,15 @@ Production Compose содержит два разных production PostgreSQL-к
 `DATABASE_URL` через PgBouncer к тому же PG18. При этом `src/lib/supabase/admin.ts`
 и SSR-клиент используют Supabase JS, чей серверный URL выбирается через
 `SUPABASE_INTERNAL_URL`/`NEXT_PUBLIC_SUPABASE_URL` и ведёт к Supabase Kong,
-а его сервисы подключены к `supabase-db:5432/supabase` (PG15). Кроме того,
-`supabase-db` монтирует те же `supabase/migrations` в init scripts, тогда как
-отдельный `migrator` применяет их к PG18. Это создаёт риск двух расходящихся
-копий прикладной схемы и миграций. Точный список прямых `pg`-потребителей
-`DATABASE_URL` должен быть подтверждён поиском по коду до отключения PG18.
+а его сервисы подключены к `supabase-db:5432/supabase` (PG15). Одновременно
+часть серверных API использует собственный SQL/PostgREST-слой:
+`src/lib/postgrest/pool.ts` → `DATABASE_URL` (PG18), а `withClaims()` выполняет
+`SET LOCAL ROLE anon/authenticated/service_role` и задаёт JWT claims для RLS.
+Маршруты `/rest/v1/*`, `/storage/v1/*` и множество `src/lib/ops/*` используют
+этот пул напрямую. Кроме того, `supabase-db` монтирует те же
+`supabase/migrations` в init scripts, тогда как отдельный `migrator` применяет
+их к PG18. Получается не просто два кластера, а две конкурирующие базы данных
+для разных частей одного продукта и риск двух расходящихся копий схемы.
 
 ## 2. Целевая архитектура
 
@@ -38,9 +42,14 @@ Production Compose содержит два разных production PostgreSQL-к
   прикладная схема `public` сосуществуют в этой базе.
 - Next.js Supabase JS-клиенты, Auth, PostgREST, Realtime, Storage, Meta и
   Analytics используют один и тот же PostgreSQL server и одну целевую БД.
-- Все прямые SQL-клиенты (`pg`, migrator, backup/maintenance scripts) также
-  направляются на эту же БД; пулер является только сетевой точкой доступа
-  к тому же серверу.
+- Все прямые SQL-клиенты (`src/lib/postgrest/pool.ts`, migrator,
+  backup/maintenance scripts) направляются на ту же БД; пулер является только
+  сетевой точкой доступа к тому же серверу.
+- Для прямого `pg`-пула нужен отдельный минимально привилегированный login-role,
+  которому явно разрешено `SET LOCAL ROLE` только в `anon`, `authenticated` и
+  `service_role`. Нельзя использовать superuser или неограниченный
+  `supabase_admin` как runtime credentials. Проверить членство ролей, grants,
+  RLS и отрицательные сценарии после переноса.
 - Prisma не является runtime-слоем: `src/lib/db.ts` экспортирует
   `supabaseAdmin`, а `prisma/schema.prisma` прямо помечен deprecated.
   Не строить план миграции вокруг Prisma.
@@ -107,6 +116,10 @@ Production Compose содержит два разных production PostgreSQL-к
 - До переключения сравнить схему и данные источника/приёмника. Отдельно
   разрешить конфликты ролей, владельцев, расширений, sequence и миграционных
   журналов; не затирать системные схемы Supabase прикладным дампом.
+- Перенести прикладные объекты `public` из PG18 в целевую БД PG17, но не
+  переносить поверх целевых `auth`, `storage`, `realtime`, `extensions` и
+  других служебных схем Supabase. Отдельно сверить `auth.users` с профилями
+  и `user_roles`, не создавать вторую систему идентификации.
 
 ### Этап D — один database endpoint для приложения и Supabase
 
@@ -114,10 +127,10 @@ Production Compose содержит два разных production PostgreSQL-к
   схемой `public`; не оставлять отдельную БД приложения на другом сервере.
 - Настроить `SUPABASE_INTERNAL_URL` на внутренний Kong единого Supabase runtime;
   браузерный `NEXT_PUBLIC_SUPABASE_URL` оставить публичным HTTPS URL.
-- Настроить `DATABASE_URL` и `DIRECT_DATABASE_URL` для всех реально
-  существующих прямых SQL-потребителей на ту же целевую БД. Удалить старую
-  маршрутизацию через отдельные `db`/`pgbouncer` только после проверки полного
-  списка потребителей и переноса их задач на единый endpoint.
+- Настроить `DATABASE_URL`/`DIRECT_DATABASE_URL` и `src/lib/postgrest/pool.ts`
+  на ту же целевую БД. Удалить старую маршрутизацию через отдельные `db` /
+  `pgbouncer` только после проверки полного списка SQL-потребителей и
+  подтверждения, что все runtime-операции идут в единую базу.
 - Все Supabase services должны продолжать обращаться к тому же серверу и
   правильным служебным схемам.
 - Проверить init order, healthchecks, DNS service aliases и отсутствие
@@ -125,6 +138,10 @@ Production Compose содержит два разных production PostgreSQL-к
 - Сверить все миграции до последней включительно, применить их один раз
   управляемым migrator-ом. Не запускать одновременно init-scripts, migrator и Supabase CLI на одних
   и тех же объектах без явного разграничения владельца миграций.
+- `supabase/compat/0000_supabase_compat.sql` предназначен для vanilla PG /
+  локального PGlite-совместимого контура. Не применять его поверх настоящей
+  Supabase-БД: он создаёт stub-объекты `auth.users` и `storage.*`, конфликтующие
+  с реальными сервисными схемами.
 
 ### Этап E — переключение и приёмка
 
