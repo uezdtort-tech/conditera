@@ -4,17 +4,22 @@ set -eu
 root="${SUPABASE_RUNTIME_ROOT:-/opt/supabase/services}/postgres"
 pgdata="${PGDATA:-/var/lib/postgresql/data}"
 
-# Resolve the image's own postgres account instead of assuming a numeric UID.
-postgres_uid="$(chroot "$root" /usr/bin/id -u postgres)"
-postgres_gid="$(chroot "$root" /usr/bin/id -g postgres)"
+# Read the image's account database from the extracted rootfs. Do not assume
+# that the minimal PostgreSQL image contains coreutils' id/chown utilities.
+passwd_file="$root/etc/passwd"
+postgres_entry="$(awk -F: '$1 == "postgres" { print $3 ":" $4; exit }' "$passwd_file")"
+if [ -z "$postgres_entry" ]; then
+  echo "postgres account is missing from $passwd_file" >&2
+  exit 1
+fi
 
-# A fresh Docker volume is root-owned. Correct only the mount root; existing
-# database files retain their original ownership and are not recursively changed.
-chroot "$root" /usr/bin/chown "$postgres_uid:$postgres_gid" "$pgdata"
+# Docker mounts a fresh named volume over PGDATA. Fix only the mount root;
+# never recursively rewrite ownership of an existing database directory.
+/usr/bin/chown "$postgres_entry" "$root$pgdata"
 
-# Run the official entrypoint as postgres. This deliberately bypasses gosu,
-# which requires /proc/self/exe and cannot work in an unmounted chroot /proc.
-exec chroot --userspec="$postgres_uid:$postgres_gid" "$root" \
+# Run the official image entrypoint as postgres. Bypass gosu, whose
+# /proc/self/exe dependency is unavailable in this chroot runtime.
+exec chroot --userspec="$postgres_entry" "$root" \
   /usr/local/bin/docker-entrypoint.sh postgres -D "$pgdata" \
   -c config_file=/etc/postgresql/postgresql.conf \
   -c dynamic_shared_memory_type=mmap
