@@ -6,6 +6,7 @@ param(
   [string]$SupabaseContainer = $(if ($env:SUPABASE_PG_CONTAINER) { $env:SUPABASE_PG_CONTAINER } else { "conditera-supabase-db" }),
   [string]$SupabaseDatabase = $(if ($env:SUPABASE_PG_DATABASE) { $env:SUPABASE_PG_DATABASE } else { "supabase" }),
   [string]$SupabaseUser = $(if ($env:SUPABASE_PG_USER) { $env:SUPABASE_PG_USER } else { "supabase" }),
+  [string]$EnvFile = $(if ($env:PRODUCTION_ENV_FILE) { $env:PRODUCTION_ENV_FILE } elseif (Test-Path ".env.production") { ".env.production" } elseif (Test-Path ".env.local") { ".env.local" } else { "" }),
   [string]$OutputRoot = $(if ($env:PRODUCTION_AUDIT_ROOT) { $env:PRODUCTION_AUDIT_ROOT } else { ".\backups\production-audit" })
 )
 
@@ -145,11 +146,11 @@ function Get-ContainerInventory {
   }
 
   if ($state -ne "running") {
-    $base.databaseAudit = [ordered]@{ server_version = "not-running"; system_identifier = $null }
+    $base.databaseAudit = [ordered]@{ database = $null; server_version = "not-running"; system_identifier = $null }
     $base.databaseAuditStatus = "skipped"
     return [pscustomobject]$base
   }
-  $base.databaseAudit = [ordered]@{ server_version = "not-audited"; system_identifier = $null }
+  $base.databaseAudit = [ordered]@{ database = $null; server_version = "not-audited"; system_identifier = $null }
 
   $sql = @'
 SELECT jsonb_build_object(
@@ -208,8 +209,9 @@ if (-not (Test-Path "docker-compose.yml") -or -not (Test-Path "docker-compose.su
 $dockerVersion = Invoke-DockerText -Arguments @("version", "--format", "{{.Server.Version}}")
 $dockerInfo = Invoke-DockerText -Arguments @("info", "--format", "{{.OSType}}/{{.Architecture}}")
 $composeEnvArgs = @()
-if (Test-Path ".env.production") {
-  $composeEnvArgs = @("--env-file", ".env.production")
+if ($EnvFile) {
+  if (-not (Test-Path $EnvFile)) { throw "Compose env-файл не найден: $EnvFile" }
+  $composeEnvArgs = @("--env-file", $EnvFile)
 }
 
 $root = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $OutputRoot))
@@ -218,7 +220,7 @@ $outDir = Join-Path $root $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 try { $app = Get-ContainerInventory -Name $AppContainer -Database $AppDatabase -User $AppUser }
-catch { $app = [pscustomobject]@{ container = $AppContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAudit = [pscustomobject]@{ server_version = "not-found"; system_identifier = $null }; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
+catch { $app = [pscustomobject]@{ container = $AppContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAudit = [pscustomobject]@{ database = $null; server_version = "not-found"; system_identifier = $null }; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
 try { $supabase = Get-ContainerInventory -Name $SupabaseContainer -Database $SupabaseDatabase -User $SupabaseUser }
 catch { $supabase = [pscustomobject]@{ container = $SupabaseContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAudit = [pscustomobject]@{ server_version = "not-found"; system_identifier = $null }; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
 
@@ -250,6 +252,7 @@ $report = [ordered]@{
   }
   docker = [ordered]@{ serverVersion = $dockerVersion; platform = $dockerInfo }
   dockerRuntime = $dockerRuntime
+  composeEnvFile = if ($EnvFile) { [System.IO.Path]::GetFullPath($EnvFile) } else { "Docker Compose default .env resolution" }
   compose = [ordered]@{
     services = [ordered]@{
       application = @($composeAppServices -split "\r?\n" | Where-Object { $_ })
