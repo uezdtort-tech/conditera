@@ -15,7 +15,8 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera')
 
 ALTER ROLE conditera LOGIN PASSWORD :'app_password';
 GRANT anon, authenticated, service_role TO conditera;
-GRANT CONNECT ON DATABASE supabase TO conditera;
+SELECT format('GRANT CONNECT ON DATABASE %I TO conditera', current_database())
+\gexec
 GRANT USAGE, CREATE ON SCHEMA public TO conditera;
 GRANT USAGE ON SCHEMA auth, storage, extensions TO conditera;
 ALTER DEFAULT PRIVILEGES FOR ROLE conditera IN SCHEMA public GRANT ALL ON TABLES TO conditera;
