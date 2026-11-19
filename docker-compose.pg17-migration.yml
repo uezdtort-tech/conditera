@@ -73,12 +73,6 @@ services:
     depends_on:
       supabase-db-pg17-migration:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
     networks:
       - conditera-net
 
@@ -98,12 +92,6 @@ services:
     depends_on:
       supabase-db-pg17-migration:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
     networks:
       - conditera-net
 
