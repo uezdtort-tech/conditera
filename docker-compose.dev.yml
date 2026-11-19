@@ -21,9 +21,20 @@ services:
       POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: uyezdny_dev_pass
       POSTGRES_DB: uyezdny_konditer_dev
+      JWT_EXP: ${JWT_EXPIRY:-3600}
     volumes:
       - uyezdny-db-dev-data-v17:/var/lib/postgresql/data
       - uyezdny-db-dev-config-v17:/etc/postgresql-custom
+      - ./supabase/pg17-init/00000000000000-initial-schema.sql:/docker-entrypoint-initdb.d/init-scripts/00000000000000-initial-schema.sql:ro
+      - ./supabase/pg17-init/00000000000002-storage-schema.sql:/docker-entrypoint-initdb.d/init-scripts/00000000000002-storage-schema.sql:ro
+      - ./supabase/pg17-init/00000000000003-post-setup.sql:/docker-entrypoint-initdb.d/init-scripts/00000000000003-post-setup.sql:ro
+      - ./supabase/pg17-init/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./supabase/pg17-init/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      - ./supabase/pg17-init/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:ro
+      - ./supabase/pg17-init/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:ro
+      - ./supabase/pg17-init/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
+      - ./supabase/pg17-init/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:ro
+      - ./supabase/pg17-init/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:ro
       - ./supabase/migrations:/migrations:ro
       - ./supabase/seed.sql:/seeds/01-seed.sql:ro
       - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
