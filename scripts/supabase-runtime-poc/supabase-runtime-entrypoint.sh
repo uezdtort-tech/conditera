@@ -121,8 +121,8 @@ sed \
   -e "s|http://supabase-realtime:4000|http://127.0.0.1:4000|g" \
   -e "s|http://supabase-storage:5000|http://127.0.0.1:5000|g" \
   -e "s|http://supabase-meta:8080|http://127.0.0.1:8080|g" \
-  -e "s|${ANON_KEY}|$ANON_KEY|g" \
-  -e "s|${SERVICE_ROLE_KEY}|$SERVICE_ROLE_KEY|g" \
+  -e "s|\$\{ANON_KEY\}|$ANON_KEY|g" \
+  -e "s|\$\{SERVICE_ROLE_KEY\}|$SERVICE_ROLE_KEY|g" \
   /opt/supabase/kong.yml.template \
   > /opt/supabase/services/kong/var/lib/kong/kong.yml
 
