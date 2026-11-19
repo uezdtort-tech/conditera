@@ -11,8 +11,12 @@ services:
   # Новый volume изолирован от прежних данных PG18.
   # Старый volume сохранён отдельным профилем pg18-legacy — ничего не удаляется.
   db-dev:
-    image: postgres:17-alpine
+    image: supabase/postgres:17.12.0.001
     container_name: uyezdny-db-dev
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
     ports:
       - "5433:5432"
     environment:
@@ -25,7 +29,9 @@ services:
       - ./supabase/seed.sql:/seeds/01-seed.sql:ro
       - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
-      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/01-apply-migrations.sh:ro
+      - ./supabase/compat/0000_supabase_compat.sql:/compat/0000_supabase_compat.sql:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
+      - ./scripts/db/docker-dev-init.sh:/docker-entrypoint-initdb.d/98-conditera-dev-init.sh:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U uyezdny -d uyezdny_konditer_dev"]
