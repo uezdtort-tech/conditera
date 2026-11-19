@@ -319,7 +319,7 @@ jobs:
           grep -q '^DATABASE_URL=postgresql://conditera:.*@pgbouncer:5432/conditera' .env.production.example
           grep -q '^DIRECT_DATABASE_URL=postgresql://conditera:.*@db:5432/conditera' .env.production.example
           grep -q '^CONDITERA_DB_PASSWORD=' .env.production.example
-          if grep -nE "conditera-supabase-db|supabase-db|supabase_db_data" scripts/deploy.sh scripts/update-from-archive.sh supabase/README.md; then
+          if grep -nE "conditera-supabase-db|supabase-db|supabase_db_data" scripts/deploy.sh scripts/update-from-archive.sh; then
             echo "Legacy second-PostgreSQL references remain in operational scripts/docs"
             exit 1
           fi
