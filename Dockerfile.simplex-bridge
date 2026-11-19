@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # SimpleX Chat CLI: фиксированная версия; проверяем ELF и отсутствие
 # недостающих динамических библиотек прямо при сборке образа.
 RUN wget -qO /usr/local/bin/simplex-chat \
-      "https://github.com/simplex-chat/simplex-chat/releases/download/v7.1.4/simplex-chat-ubuntu-22_04-x86-64" \
+      "https://github.com/simplex-chat/simplex-chat/releases/download/v7.1.4/simplex-chat-ubuntu-22_04-x86_64" \
     && chmod +x /usr/local/bin/simplex-chat \
     && test -s /usr/local/bin/simplex-chat \
     && file /usr/local/bin/simplex-chat | grep -q "ELF" \
