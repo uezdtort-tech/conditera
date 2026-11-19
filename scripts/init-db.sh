@@ -81,7 +81,13 @@ fi
 
 if [ "$MODE" != "supabase" ]; then
   echo "→ Применение миграций с журналом и fail-fast..."
-  docker exec "$CONTAINER_ID" sh /docker-entrypoint-initdb.d/01-apply-migrations.sh
+  docker exec \
+    -e PGHOST=127.0.0.1 \
+    -e PGPORT=5432 \
+    -e PGUSER="$CHECK_DB_USER" \
+    -e PGPASSWORD="$DB_PASS" \
+    -e PGDATABASE="$DB_NAME" \
+    "$CONTAINER_ID" sh /scripts/01-apply-migrations.sh
 fi
 
 echo "→ Проверка критических таблиц..."
