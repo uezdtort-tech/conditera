@@ -1,0 +1,49 @@
+name: Supabase PostgreSQL 17 image smoke test
+
+on:
+  push:
+    branches:
+      - fix/postgres17-supabase-consolidation
+    paths:
+      - "docker-compose.supabase.yml"
+      - ".github/workflows/supabase-pg17-image.yml"
+  pull_request:
+    paths:
+      - "docker-compose.supabase.yml"
+      - ".github/workflows/supabase-pg17-image.yml"
+  workflow_dispatch:
+
+jobs:
+  start-pg17-target:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: "ci-only-postgres-password"
+      JWT_SECRET: "ci-only-jwt-secret-at-least-32-characters-long"
+      ENCRYPTOR_KEY: "01234567890123456789012345678901"
+      SECRET_KEY_BASE: "0123456789012345678901234567890123456789012345678901234567890123"
+      ANON_KEY: "ci-only-anon-key"
+      SERVICE_ROLE_KEY: "ci-only-service-role-key"
+      SMTP_HOST: "localhost"
+      SMTP_USER: "ci"
+      SMTP_PASSWORD: "ci"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start isolated PostgreSQL 17 target
+        run: docker compose -f docker-compose.supabase.yml --profile pg17-migration up -d supabase-db-pg17
+      - name: Verify PostgreSQL 17 and Supabase roles
+        shell: bash
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 pg_isready -U supabase_admin -d supabase >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          version="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase_admin -d supabase -Atc 'SHOW server_version_num')"
+          [[ "$version" == 17* ]] || { echo "Expected PostgreSQL 17, got $version"; exit 1; }
+          roles="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase_admin -d supabase -Atc "SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role','supabase_admin')")"
+          [[ "$roles" == "4" ]] || { echo "Expected core Supabase roles, got count=$roles"; exit 1; }
+          echo "PostgreSQL server_version_num=$version; core roles=$roles"
+      - name: Stop CI database
+        if: always()
+        run: docker compose -f docker-compose.supabase.yml down
