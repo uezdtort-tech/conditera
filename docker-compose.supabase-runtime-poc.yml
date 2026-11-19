@@ -1,0 +1,53 @@
+# Experimental only: one container holds the complete Supabase runtime.
+# Never use this file with production volumes or credentials.
+services:
+  supabase-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.supabase-runtime-poc
+    image: conditera/supabase-runtime-poc:local
+    container_name: conditera-supabase-runtime-poc
+    restart: "no"
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: supabase_admin
+      POSTGRES_DB: supabase
+      POSTGRES_PORT: "5432"
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:?Set a throwaway POSTGRES_PASSWORD}
+      JWT_SECRET: \${JWT_SECRET:?Set a throwaway JWT_SECRET}
+      ANON_KEY: \${ANON_KEY:?Set a throwaway ANON_KEY JWT}
+      SERVICE_ROLE_KEY: \${SERVICE_ROLE_KEY:?Set a throwaway SERVICE_ROLE_KEY JWT}
+      SECRET_KEY_BASE: \${SECRET_KEY_BASE:?Set a throwaway SECRET_KEY_BASE}
+      PG_META_CRYPTO_KEY: \${PG_META_CRYPTO_KEY:?Set a throwaway PG_META_CRYPTO_KEY}
+      REALTIME_DB_ENC_KEY: \${REALTIME_DB_ENC_KEY:?Set a throwaway REALTIME_DB_ENC_KEY}
+      GOTRUE_MAILER_AUTOCONFIRM: \${GOTRUE_MAILER_AUTOCONFIRM:-false}
+      API_EXTERNAL_URL: \${API_EXTERNAL_URL:-http://localhost:18000}
+      SUPABASE_PUBLIC_URL: \${SUPABASE_PUBLIC_URL:-http://localhost:18000}
+      SITE_URL: \${SITE_URL:-http://localhost:3000}
+      SMTP_HOST: \${SMTP_HOST:-localhost}
+      SMTP_PORT: \${SMTP_PORT:-25}
+      SMTP_ADMIN_EMAIL: \${SMTP_ADMIN_EMAIL:-noreply@conditera.ru}
+      SMTP_SENDER_NAME: \${SMTP_SENDER_NAME:-Conditera}
+      EXTERNAL_GOOGLE_ENABLED: \${EXTERNAL_GOOGLE_ENABLED:-false}
+      EXTERNAL_GOOGLE_CLIENT_ID: \${EXTERNAL_GOOGLE_CLIENT_ID:-}
+      EXTERNAL_GOOGLE_SECRET: \${EXTERNAL_GOOGLE_SECRET:-}
+      EXTERNAL_YANDEX_ENABLED: \${EXTERNAL_YANDEX_ENABLED:-false}
+      EXTERNAL_YANDEX_CLIENT_ID: \${EXTERNAL_YANDEX_CLIENT_ID:-}
+      EXTERNAL_YANDEX_SECRET: \${EXTERNAL_YANDEX_SECRET:-}
+      EXTERNAL_VK_ENABLED: \${EXTERNAL_VK_ENABLED:-false}
+      EXTERNAL_VK_CLIENT_ID: \${EXTERNAL_VK_CLIENT_ID:-}
+      EXTERNAL_VK_SECRET: \${EXTERNAL_VK_SECRET:-}
+    volumes:
+      - supabase_runtime_pgdata_poc:/opt/supabase/services/postgres/var/lib/postgresql/data
+      - supabase_runtime_storage_poc:/opt/supabase/services/storage/var/lib/storage
+      - supabase_runtime_storage_poc:/opt/supabase/services/imgproxy/var/lib/storage
+    ports:
+      - "127.0.0.1:18000:8000"
+    expose:
+      - "5432"
+    labels:
+      conditera.runtime: single-container-poc
+
+volumes:
+  supabase_runtime_pgdata_poc:
+  supabase_runtime_storage_poc:
