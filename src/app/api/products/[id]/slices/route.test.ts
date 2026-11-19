@@ -10,16 +10,19 @@ const mocks = vi.hoisted(() => {
     delete: ReturnType<typeof vi.fn>;
     single: ReturnType<typeof vi.fn>;
     maybeSingle: ReturnType<typeof vi.fn>;
+    order: ReturnType<typeof vi.fn>;
+    then: ReturnType<typeof vi.fn>;
   };
 
   const state = {
     user: { userId: "auth-user-1", roles: ["CONFECTIONER"] },
     confectioner: { data: { id: "confectioner-1" }, error: null } as DbResult,
-    product: { data: { id: "product-1", confectioner_id: "confectioner-1" }, error: null } as DbResult,
+    product: { data: { id: "product-1", confectioner_id: "auth-user-1", status: "published", deleted_at: null }, error: null } as DbResult,
     inserted: { data: { id: "slice-1", productId: "product-1" }, error: null } as DbResult,
     deleted: { data: { id: "slice-1" }, error: null } as DbResult,
     insertPayload: null as Record<string, unknown> | null,
     fromCalls: [] as string[],
+    slices: { data: [{ id: "slice-1", productId: "product-1" }], error: null } as DbResult,
   };
 
   const from = vi.fn((table: string) => {
@@ -27,6 +30,8 @@ const mocks = vi.hoisted(() => {
     const query = {} as Query;
     query.select = vi.fn(() => query);
     query.eq = vi.fn(() => query);
+    query.order = vi.fn(() => query);
+    query.then = vi.fn((resolve, reject) => Promise.resolve(state.slices).then(resolve, reject));
     query.insert = vi.fn((payload: Record<string, unknown>) => {
       state.insertPayload = payload;
       return query;
@@ -49,7 +54,7 @@ vi.mock("@/lib/auth", () => ({
   getUserFromRequest: vi.fn(async () => mocks.state.user),
 }));
 
-import { POST, DELETE } from "@/app/api/products/[id]/slices/route";
+import { GET, POST, DELETE } from "@/app/api/products/[id]/slices/route";
 
 function postRequest(body: unknown) {
   return new NextRequest("http://localhost/api/products/product-1/slices", {
@@ -69,12 +74,65 @@ describe("product slices API persistence and access", () => {
   beforeEach(() => {
     mocks.state.user = { userId: "auth-user-1", roles: ["CONFECTIONER"] };
     mocks.state.confectioner = { data: { id: "confectioner-1" }, error: null };
-    mocks.state.product = { data: { id: "product-1", confectioner_id: "confectioner-1" }, error: null };
+    mocks.state.product = { data: { id: "product-1", confectioner_id: "auth-user-1", status: "published", deleted_at: null }, error: null };
     mocks.state.inserted = { data: { id: "slice-1", productId: "product-1" }, error: null };
     mocks.state.deleted = { data: { id: "slice-1" }, error: null };
     mocks.state.insertPayload = null;
     mocks.state.fromCalls = [];
+    mocks.state.slices = { data: [{ id: "slice-1", productId: "product-1" }], error: null };
     mocks.from.mockClear();
+  });
+
+  it("публично отдаёт разрезы только опубликованного товара", async () => {
+    const response = await GET(new NextRequest("http://localhost/api/products/product-1/slices"), {
+      params: Promise.resolve({ id: "product-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.state.fromCalls).toEqual(["products", "product_slices"]);
+  });
+
+  it("не раскрывает разрезы черновика постороннему пользователю", async () => {
+    mocks.state.user = { userId: "customer-2", roles: ["CUSTOMER"] };
+    mocks.state.product = {
+      data: { id: "product-1", confectioner_id: "auth-user-1", status: "draft", deleted_at: null },
+      error: null,
+    };
+
+    const response = await GET(new NextRequest("http://localhost/api/products/product-1/slices"), {
+      params: Promise.resolve({ id: "product-1" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(mocks.state.fromCalls).toEqual(["products"]);
+  });
+
+  it("разрешает владельцу читать разрезы собственного черновика", async () => {
+    mocks.state.product = {
+      data: { id: "product-1", confectioner_id: "auth-user-1", status: "draft", deleted_at: null },
+      error: null,
+    };
+
+    const response = await GET(new NextRequest("http://localhost/api/products/product-1/slices"), {
+      params: Promise.resolve({ id: "product-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.state.fromCalls).toEqual(["products", "product_slices"]);
+  });
+
+  it("не раскрывает разрезы удалённого товара", async () => {
+    mocks.state.product = {
+      data: { id: "product-1", confectioner_id: "auth-user-1", status: "published", deleted_at: "2026-01-01" },
+      error: null,
+    };
+
+    const response = await GET(new NextRequest("http://localhost/api/products/product-1/slices"), {
+      params: Promise.resolve({ id: "product-1" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(mocks.state.fromCalls).toEqual(["products"]);
   });
 
   it("сохраняет запись с реальным UUID и обязательными временными полями", async () => {
@@ -103,7 +161,7 @@ describe("product slices API persistence and access", () => {
   });
 
   it("не позволяет кондитеру удалить разрез чужого товара", async () => {
-    mocks.state.product = { data: { id: "product-1", confectioner_id: "other-confectioner" }, error: null };
+    mocks.state.product = { data: { id: "product-1", confectioner_id: "auth-user-2", status: "published", deleted_at: null }, error: null };
 
     const response = await DELETE(deleteRequest(), {
       params: Promise.resolve({ id: "product-1" }),

@@ -35,10 +35,10 @@ describe("assertProductSliceOwnership", () => {
     mocked.query.maybeSingle.mockClear();
   });
 
-  it("разрешает запись владельцу по ID профиля кондитера, а не user ID", async () => {
+  it("сверяет владельца товара с auth user ID, а не с ID бизнес-профиля", async () => {
     mocked.setResults({
-      confectioners: { data: { id: "confectioner-1" }, error: null },
-      products: { data: { id: "product-1", confectioner_id: "confectioner-1" }, error: null },
+      confectioners: { data: { id: "business-profile-987" }, error: null },
+      products: { data: { id: "product-1", confectioner_id: "auth-user-1" }, error: null },
     });
 
     await expect(assertProductSliceOwnership("product-1", "auth-user-1")).resolves.toBeUndefined();
@@ -50,8 +50,8 @@ describe("assertProductSliceOwnership", () => {
 
   it("запрещает изменение чужого товара", async () => {
     mocked.setResults({
-      confectioners: { data: { id: "confectioner-1" }, error: null },
-      products: { data: { id: "product-1", confectioner_id: "confectioner-2" }, error: null },
+      confectioners: { data: { id: "business-profile-987" }, error: null },
+      products: { data: { id: "product-1", confectioner_id: "auth-user-2" }, error: null },
     });
     await expect(assertProductSliceOwnership("product-1", "auth-user-1"))
       .rejects.toMatchObject({ status: 403 });
@@ -68,7 +68,7 @@ describe("assertProductSliceOwnership", () => {
 
   it("не разрешает запись, если товар отсутствует", async () => {
     mocked.setResults({
-      confectioners: { data: { id: "confectioner-1" }, error: null },
+      confectioners: { data: { id: "business-profile-987" }, error: null },
       products: { data: null, error: null },
     });
     await expect(assertProductSliceOwnership("missing", "auth-user-1"))
@@ -85,7 +85,7 @@ describe("assertProductSliceOwnership", () => {
 
   it("закрывает запись при ошибке чтения товара", async () => {
     mocked.setResults({
-      confectioners: { data: { id: "confectioner-1" }, error: null },
+      confectioners: { data: { id: "business-profile-987" }, error: null },
       products: { data: null, error: { message: "connection refused" } },
     });
     await expect(assertProductSliceOwnership("product-1", "auth-user-1"))
@@ -94,7 +94,7 @@ describe("assertProductSliceOwnership", () => {
 
   it("закрывает запись, если у товара отсутствует владелец", async () => {
     mocked.setResults({
-      confectioners: { data: { id: "confectioner-1" }, error: null },
+      confectioners: { data: { id: "business-profile-987" }, error: null },
       products: { data: { id: "product-1", confectioner_id: null }, error: null },
     });
     await expect(assertProductSliceOwnership("product-1", "auth-user-1"))

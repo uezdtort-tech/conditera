@@ -48,12 +48,38 @@ async function requireConfectioner(request: NextRequest) {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: RouteParams
 ): Promise<NextResponse> {
   try {
     const { id: productId } = await params;
     if (!productId) throw new HttpError(400, "Product ID required");
+
+    // Admin SDK bypasses RLS, поэтому публичный endpoint сам проверяет
+    // видимость товара до чтения связанных разрезов.
+    const { data: product, error: productError } = await supabaseAdmin
+      .from("products")
+      .select("id, status, deleted_at, confectioner_id")
+      .eq("id", productId)
+      .maybeSingle() as {
+        data: { id: string; status: string; deleted_at: string | null; confectioner_id: string | null } | null;
+        error: SupabaseError | null;
+      };
+
+    if (productError) {
+      console.error("[slices] product visibility lookup failed:", productError.message);
+      throw new HttpError(500, "Не удалось проверить доступ к товару");
+    }
+    if (!product || product.deleted_at) throw new HttpError(404, "Товар не найден");
+    if (product.status !== "published") {
+      const user = await getUserFromRequest(request);
+      const isAdmin = Boolean(user?.roles.some((role) => role === "ADMIN" || role === "SUPER_ADMIN"));
+      const isOwner = Boolean(
+        user?.roles.includes("CONFECTIONER") &&
+        product.confectioner_id === user.userId
+      );
+      if (!isAdmin && !isOwner) throw new HttpError(404, "Товар не найден");
+    }
 
     const { data, error } = await supabaseAdmin
       .from("product_slices")
