@@ -282,6 +282,7 @@ jobs:
           touch .env.production
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml config --quiet
           docker compose -f docker-compose.dev.yml config --quiet
+          bash -n scripts/init-db.sh
           docker build --target migrator -t conditera-migrator:ci .
 
   # ===== 3. Build =====
