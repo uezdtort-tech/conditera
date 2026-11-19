@@ -227,7 +227,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         },
       });
       if (sliceEnrichmentUnavailable) {
-        response.headers.set("X-Cond itera-Data-Degraded", "product-slices");
+        response.headers.set("X-Conditera-Data-Degraded", "product-slices");
       }
       return response;
     };
