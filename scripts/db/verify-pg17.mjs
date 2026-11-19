@@ -22,6 +22,81 @@ if (!databaseUrl) {
   process.exit(2);
 }
 
+function splitSqlStatements(sql) {
+  const statements = [];
+  let current = "";
+  let i = 0;
+  let inDollarQuote = null;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next2 = sql.slice(i, i + 2);
+
+    if (next2 === "--" && !inDollarQuote && !inSingleQuote && !inDoubleQuote) {
+      while (i < sql.length && sql[i] !== "\n") i++;
+      continue;
+    }
+    if (next2 === "/*" && !inDollarQuote && !inSingleQuote && !inDoubleQuote) {
+      i += 2;
+      while (i < sql.length && sql.slice(i, i + 2) !== "*/") i++;
+      i += 2;
+      continue;
+    }
+    if (ch === "$" && !inDollarQuote && !inSingleQuote && !inDoubleQuote) {
+      const match = sql.slice(i).match(/^\$[A-Za-z0-9_]*\$/);
+      if (match) {
+        current += match[0];
+        i += match[0].length;
+        inDollarQuote = match[0];
+        continue;
+      }
+    }
+    if (inDollarQuote && sql.slice(i, i + inDollarQuote.length) === inDollarQuote) {
+      current += inDollarQuote;
+      i += inDollarQuote.length;
+      inDollarQuote = null;
+      continue;
+    }
+    if (ch === "'" && !inDollarQuote && !inDoubleQuote) {
+      if (inSingleQuote && sql[i + 1] === "'") {
+        current += "''";
+        i += 2;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"' && !inDollarQuote && !inSingleQuote) {
+      if (inDoubleQuote && sql[i + 1] === '"') {
+        current += '""';
+        i += 2;
+        continue;
+      }
+      inDoubleQuote = !inDoubleQuote;
+      current += ch;
+      i++;
+      continue;
+    }
+    if (ch === ";" && !inDollarQuote && !inSingleQuote && !inDoubleQuote) {
+      const statement = current.trim();
+      if (statement) statements.push(statement);
+      current = "";
+      i++;
+      continue;
+    }
+    current += ch;
+    i++;
+  }
+
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
 function naturalMigrationSort(a, b) {
   const pa = a.match(/^(\d+)(.*)$/);
   const pb = b.match(/^(\d+)(.*)$/);
@@ -63,10 +138,13 @@ try {
   console.log(`Applying ${files.length} SQL migrations...`);
   for (const file of files) {
     try {
-      // node-postgres uses the simple-query protocol for a multi-statement
-      // string, preserving migration files' own transaction boundaries.
-      await client.query(readFileSync(join(migrationsDir, file), "utf8"));
-      console.log(`  PASS ${file}`);
+      // Run one statement at a time, like psql -f. In particular, ALTER TYPE
+      // ADD VALUE must commit before a later statement can use the new enum label.
+      const statements = splitSqlStatements(readFileSync(join(migrationsDir, file), "utf8"));
+      for (const statement of statements) {
+        await client.query(statement);
+      }
+      console.log(`  PASS ${file} (${statements.length} statements)`);
     } catch (error) {
       throw new Error(`Migration ${file} failed: ${error.message}`, { cause: error });
     }
