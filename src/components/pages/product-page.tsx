@@ -1143,7 +1143,7 @@ export function ProductPage() {
 
       {/* === Реальные срезы товара из product_slices === */}
       {product.slices && product.slices.length > 0 && (
-        <ProductSliceGallery productId={product.id} />
+        <ProductSliceGallery productId={product.id} slices={product.slices} />
       )}
 
       {/* Cross-sell: bundles, decor, similar */}
