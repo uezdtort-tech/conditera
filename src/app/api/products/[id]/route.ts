@@ -216,7 +216,7 @@ export async function GET(
         productSlices: slicesError ? "unavailable" : "ok",
       },
     });
-    if (slicesError) response.headers.set("X-Cond itera-Data-Degraded", "product-slices");
+    if (slicesError) response.headers.set("X-Conditera-Data-Degraded", "product-slices");
     return response;
   } catch (error: any) {
     console.error("GET /api/products/[id] error:", error?.message);
