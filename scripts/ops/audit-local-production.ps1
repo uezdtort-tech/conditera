@@ -11,7 +11,7 @@ param(
 )
 
 # Только SELECT и docker inspect. Не запускает/останавливает контейнеры,
-# не меняет БД/volumes и не читает значения секретов.
+# не меняет БД/volumes; значения Env/секретов не выбирает и не пишет в отчёт.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -25,7 +25,7 @@ function Invoke-DockerText {
 }
 
 function Get-DockerRuntimeInventory {
-  # Снимок всех контейнеров/образов/volumes/networks без чтения Env и секретов.
+  # Docker inspect используется для allowlist-полей; Config.Env не включается в отчёт.
   $containerIdsText = Invoke-DockerText -Arguments @("ps", "-aq")
   $containers = @()
   $containerIds = @()
@@ -179,11 +179,11 @@ function Get-ContainerInventory {
   }
 
   if ($state -ne "running") {
-    $base.databaseAudit = [ordered]@{ database = $null; server_version = "not-running"; system_identifier = $null }
+    $base.databaseAudit = [ordered]@{ database = $null; server_version = "not-running"; system_identifier = $null; postmaster_start_time = $null; is_in_recovery = $null }
     $base.databaseAuditStatus = "skipped"
     return [pscustomobject]$base
   }
-  $base.databaseAudit = [ordered]@{ database = $null; server_version = "not-audited"; system_identifier = $null }
+  $base.databaseAudit = [ordered]@{ database = $null; server_version = "not-audited"; system_identifier = $null; postmaster_start_time = $null; is_in_recovery = $null }
 
   $sql = @'
 SELECT jsonb_build_object(
@@ -191,6 +191,8 @@ SELECT jsonb_build_object(
   'server_version', current_setting('server_version'),
   'server_version_num', current_setting('server_version_num')::integer,
   'system_identifier', (SELECT system_identifier::text FROM pg_control_system()),
+  'postmaster_start_time', pg_postmaster_start_time(),
+  'is_in_recovery', pg_is_in_recovery(),
   'schemas', (SELECT coalesce(jsonb_agg(nspname ORDER BY nspname), '[]'::jsonb) FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema'),
   'extensions', (SELECT coalesce(jsonb_agg(jsonb_build_object('name', extname, 'version', extversion) ORDER BY extname), '[]'::jsonb) FROM pg_extension),
   'tables', (
@@ -278,6 +280,11 @@ $sameCluster = $app.databaseAudit.system_identifier -and
 $sameDatabase = $app.databaseAudit.database -and
   $supabase.databaseAudit.database -and
   ($app.databaseAudit.database -eq $supabase.databaseAudit.database)
+$samePostgresProcess = $app.databaseAudit.postmaster_start_time -and
+  $supabase.databaseAudit.postmaster_start_time -and
+  ($app.databaseAudit.postmaster_start_time -eq $supabase.databaseAudit.postmaster_start_time) -and
+  ($app.databaseAudit.is_in_recovery -eq $false) -and
+  ($supabase.databaseAudit.is_in_recovery -eq $false)
 
 $report = [ordered]@{
   generatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
@@ -285,7 +292,10 @@ $report = [ordered]@{
   databaseTopology = [ordered]@{
     samePostgresCluster = [bool]$sameCluster
     sameDatabaseName = [bool]$sameDatabase
-    singleDatabaseTarget = [bool]($sameCluster -and $sameDatabase)
+    samePostgresServerProcess = [bool]$samePostgresProcess
+    applicationInRecovery = $app.databaseAudit.is_in_recovery
+    supabaseInRecovery = $supabase.databaseAudit.is_in_recovery
+    singleDatabaseTarget = [bool]($sameCluster -and $sameDatabase -and $samePostgresProcess)
   }
   docker = [ordered]@{ serverVersion = $dockerVersion; platform = $dockerInfo }
   dockerRuntime = $dockerRuntime
@@ -308,7 +318,7 @@ $report = [ordered]@{
     containersStartedOrStopped = $false
     databasesModified = $false
     volumesModified = $false
-    secretsCollected = $false
+    secretValuesIncludedInReport = $false
   }
 }
 
@@ -324,7 +334,8 @@ $summary = @(
   "Supabase PostgreSQL: $($supabase.state) / $($supabase.health) / $($supabase.databaseAudit.server_version)",
   "Same PostgreSQL cluster: $sameCluster",
   "Same database name: $sameDatabase",
-  "Single database target: $($sameCluster -and $sameDatabase)",
+  "Same PostgreSQL server process: $samePostgresProcess",
+  "Single database target: $($sameCluster -and $sameDatabase -and $samePostgresProcess)",
   "Report: $jsonPath",
   "No containers, databases or volumes were changed."
 )
@@ -351,4 +362,8 @@ if (-not $sameDatabase) {
   Write-Error "SPLIT_POSTGRES_DATABASES: подключения ведут в разные базы одного кластера. Единый источник данных не подтверждён."
   exit 5
 }
-Write-Host "OK: прямое подключение приложения и Supabase API ведут в одну базу одного PostgreSQL-кластера."
+if (-not $samePostgresProcess) {
+  Write-Error "SPLIT_POSTGRES_ENDPOINTS: подключения завершаются в разных процессах PostgreSQL или один endpoint является standby. Единая рабочая точка записи не подтверждена."
+  exit 6
+}
+Write-Host "OK: оба подключения ведут в одну базу и один процесс PostgreSQL вне recovery."
