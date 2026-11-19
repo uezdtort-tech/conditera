@@ -175,88 +175,87 @@ jobs:
           node scripts/db/verify-pg17.mjs
           DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5433/conditera node scripts/db/setup.mjs --seed-only
 
-      - name: Prepare PostgreSQL 15 Supabase source and preserve auth/storage data
+      - name: Prepare official Supabase PG15 source and PG17 single-database target
         shell: bash
         run: |
           set -euo pipefail
-          SOURCE15_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "postgres:15-alpine" { print $1; exit }')"
+          SOURCE15_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "supabase/postgres:15.6.1.141" { print $1; exit }')"
           SOURCE18_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "postgres:18-alpine" { print $1; exit }')"
-          test -n "$SOURCE15_ID"
-          test -n "$SOURCE18_ID"
-
-          docker cp supabase/compat/0000_supabase_compat.sql "$SOURCE15_ID:/tmp/compat.sql"
-          docker exec "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 -f /tmp/compat.sql
-          docker exec "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 -c "TRUNCATE auth.users, storage.objects, storage.buckets CASCADE"
-
-          docker exec "$SOURCE18_ID" pg_dump -U postgres -d conditera --data-only --schema=auth --schema=storage --no-owner > "$RUNNER_TEMP/auth-storage-data.sql"
-          test -s "$RUNNER_TEMP/auth-storage-data.sql"
-          # The PG18 client adds a setting unknown to PG15; remove only that
-          # client-side SET line for this fixture transfer (data/DDL unchanged).
-          sed '/^SET transaction_timeout = 0;$/d' "$RUNNER_TEMP/auth-storage-data.sql" > "$RUNNER_TEMP/auth-storage-data-pg15.sql"
-          docker exec -i "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/auth-storage-data-pg15.sql"
-
-          docker exec "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES ('00000000-0000-4000-8000-000000000015', 'pg15-only@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
-          docker exec "$SOURCE15_ID" psql -U postgres -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"pg15\"}'::jsonb)"
-
-      - name: Merge PostgreSQL 15 Supabase schemas and PostgreSQL 18 Conditera data into PostgreSQL 17
-        shell: bash
-        run: |
-          set -euo pipefail
-          SOURCE15_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "postgres:15-alpine" { print $1; exit }')"
-          SOURCE18_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "postgres:18-alpine" { print $1; exit }')"
-          TARGET_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "supabase/postgres:17.6.1.136" { print $1; exit }')"
+          TARGET_ID="$(docker ps --filter publish=5435 --format '{{.ID}}' | head -1)"
           test -n "$SOURCE15_ID"
           test -n "$SOURCE18_ID"
           test -n "$TARGET_ID"
 
-          docker exec "$TARGET_ID" createdb -U supabase_admin -T template0 conditera
-          docker exec "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE conditera SET search_path TO public, extensions"
-          docker exec -i "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
-          DO $do$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase') THEN
-              EXECUTE 'CREATE ROLE supabase NOLOGIN';
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera') THEN
-              EXECUTE 'CREATE ROLE conditera NOLOGIN';
-            END IF;
-          END
-          $do$;
-          SQL
-          docker exec "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET cron.database_name = 'conditera'"
-          docker restart "$TARGET_ID" >/dev/null
-          for attempt in $(seq 1 30); do
-            if docker exec "$TARGET_ID" pg_isready -U supabase_admin -d postgres >/dev/null 2>&1; then break; fi
-            sleep 2
+          # Build the same Storage schema as the pinned storage-api image,
+          # while reusing the Supabase roles created by the official Postgres image.
+          curl -fsSL https://raw.githubusercontent.com/supabase/storage/v1.14.5/migrations/tenant/0002-storage-schema.sql -o "$RUNNER_TEMP/storage-v1.14.5-0002.sql"
+          {
+            printf "SET storage.install_roles = 'false';\n"
+            cat "$RUNNER_TEMP/storage-v1.14.5-0002.sql"
+          } > "$RUNNER_TEMP/storage-schema.sql"
+
+          docker exec -i "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/storage-schema.sql"
+          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/storage-schema.sql"
+
+          # Storage tables are created by the Storage API migration. Hand ownership
+          # to its service role for this isolated compatibility test.
+          for DB_ID in "$SOURCE15_ID" "$TARGET_ID"; do
+            DB_NAME="supabase"
+            if [ "$DB_ID" = "$TARGET_ID" ]; then DB_NAME="conditera"; fi
+            docker exec "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "ALTER TABLE storage.buckets OWNER TO supabase_storage_admin; ALTER TABLE storage.objects OWNER TO supabase_storage_admin; ALTER TABLE storage.migrations OWNER TO supabase_storage_admin; GRANT ALL ON SCHEMA storage TO supabase_storage_admin; GRANT ALL ON ALL TABLES IN SCHEMA storage TO supabase_storage_admin; GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO supabase_storage_admin;"
           done
-          docker exec "$TARGET_ID" pg_isready -U supabase_admin -d postgres
 
-          docker exec "$SOURCE15_ID" pg_dump -U postgres -d supabase --no-owner --format=plain --exclude-schema=public > "$RUNNER_TEMP/supabase15-system.sql"
-          test -s "$RUNNER_TEMP/supabase15-system.sql"
-          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/supabase15-system.sql"
+          PROFILE_ID="$(docker exec "$SOURCE18_ID" psql -U postgres -d conditera -Atqc "SELECT id::text FROM public.profiles ORDER BY id LIMIT 1")"
+          test -n "$PROFILE_ID"
+          echo "MIGRATION_PROFILE_ID=$PROFILE_ID" >> "$GITHUB_ENV"
 
-          docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE SCHEMA IF NOT EXISTS pgsodium; CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA extensions; CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions; CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions; CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium; CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA extensions;"
+          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -v profile_id="$PROFILE_ID" -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES (:'profile_id'::uuid, 'pg18-profile-link@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
+          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.buckets (id, name) VALUES ('media', 'media') ON CONFLICT (id) DO NOTHING"
+          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"official-supabase-pg15\"}'::jsonb)"
 
+          # Exercise the actual bootstrap SQL used by docker-compose.yml.
+          docker cp supabase/init-scripts/90-create-conditera-db.sql "$TARGET_ID:/tmp/90-create-conditera-db.sql"
+          docker exec -e PGPASSWORD=postgres -e CONDITERA_DB_PASSWORD=ci_conditera_password_32_chars "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f /tmp/90-create-conditera-db.sql
+          APP_ROLE="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
+          test "$APP_ROLE" = "false:true"
+
+      - name: Merge official Supabase PG15 data and Conditera PG18 business schema into PG17
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE15_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "supabase/postgres:15.6.1.141" { print $1; exit }')"
+          SOURCE18_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "postgres:18-alpine" { print $1; exit }')"
+          TARGET_ID="$(docker ps --filter publish=5435 --format '{{.ID}}' | head -1)"
+          test -n "$SOURCE15_ID"
+          test -n "$SOURCE18_ID"
+          test -n "$TARGET_ID"
+
+          # Restore every Auth/Storage data table except migration ledgers:
+          # schema and roles are initialized by official Supabase PG17 + Storage API migrations.
+          docker exec "$SOURCE15_ID" pg_dump -U supabase_admin -d supabase --data-only --schema=auth --schema=storage --exclude-table=auth.schema_migrations --exclude-table=storage.migrations --no-owner --format=plain > "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
+          test -s "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
+          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
+
+          # Merge the Conditera business schema into the pre-initialized Supabase
+          # public schema; never drop the Supabase-owned public schema itself.
           docker exec "$SOURCE18_ID" pg_dump -U postgres -d conditera --schema=public --no-owner --format=plain > "$RUNNER_TEMP/conditera18-public.sql"
           test -s "$RUNNER_TEMP/conditera18-public.sql"
-          docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE"
-          if ! grep -q "CREATE SCHEMA public" "$RUNNER_TEMP/conditera18-public.sql"; then
-            docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -c "CREATE SCHEMA public AUTHORIZATION supabase_admin"
-          fi
-          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/conditera18-public.sql"
-
-          docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS btree_gist; CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions"
+          sed '/^CREATE SCHEMA public;$/d' "$RUNNER_TEMP/conditera18-public.sql" > "$RUNNER_TEMP/conditera18-public-existing-schema.sql"
+          docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/conditera18-public-existing-schema.sql"
 
           SOURCE18_COUNTS="$(docker exec "$SOURCE18_ID" psql -U postgres -d conditera -Atqc "SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text;")"
-          SOURCE15_COUNTS="$(docker exec "$SOURCE15_ID" psql -U postgres -d supabase -Atqc "SELECT (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
+          SOURCE15_COUNTS="$(docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -Atqc "SELECT (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
           TARGET_COUNTS="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text || ':' || (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
           EXPECTED_COUNTS="$SOURCE18_COUNTS:$SOURCE15_COUNTS"
           echo "Expected merged counts: $EXPECTED_COUNTS"
-          echo "PostgreSQL 17 merged counts: $TARGET_COUNTS"
+          echo "PostgreSQL 17 single-database counts: $TARGET_COUNTS"
           test "$EXPECTED_COUNTS" = "$TARGET_COUNTS"
-          ORPHANS="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT count(*) FROM public.profiles p LEFT JOIN auth.users u ON u.id = p.id WHERE u.id IS NULL;")"
+
+          ORPHANS="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT count(*) FROM public.profiles p LEFT JOIN auth.users u ON u.id = p.id WHERE p.id = '$MIGRATION_PROFILE_ID' AND u.id IS NULL;")"
           test "$ORPHANS" = "0"
-          echo "SUPABASE PG15 + CONDITERA PG18 -> PG17 MERGE PASSED"
+          APP_ROLE="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT rolsuper::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname='conditera'")"
+          test "$APP_ROLE" = "false:true"
+          echo "OFFICIAL SUPABASE PG15 + CONDITERA PG18 -> PG17 SINGLE DATABASE MERGE PASSED"
 
       - name: Validate unified PostgreSQL 17 Docker Compose configuration
         env:
