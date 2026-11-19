@@ -10,6 +10,7 @@ on:
       - "supabase/config.toml"
       - "supabase/migrations/**"
       - "supabase/init-scripts/**"
+      - "supabase/init-scripts/00-service-role-passwords.sh"
       - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
       - ".github/workflows/postgres17-compose-validation.yml"
   pull_request:
