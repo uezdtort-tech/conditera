@@ -204,28 +204,17 @@ function preprocessStatement(stmt) {
     }
   }
 
+  // pgsodium is conditionally installed inside a DO block for Supabase PG17.
+  // Skip the complete block in vanilla PostgreSQL where pgsodium is unavailable.
+  if (/CREATE\s+EXTENSION\s+pgsodium/i.test(s) && SKIP_EXTENSIONS.includes("pgsodium")) {
+    return { skip: true, reason: "pgsodium not available locally" };
+  }
+
   // 3.2. Схема extensions → public (uuid-ossp/pgcrypto/pg_trgm и т.п.)
   s = s.replace(/WITH\s+SCHEMA\s+extensions/gi, "WITH SCHEMA public");
 
   // 3.3. uuid_generate_v4() → gen_random_uuid()
   s = s.replace(/\buuid_generate_v4\s*\(\s*\)/gi, "gen_random_uuid()");
-
-  // 3.4. 0039: политика confectioner_transactions_owner_select сравнивает
-  // user_id = auth.uid(), но локальная таблица (0017) колонки user_id не имеет
-  // (там confectionerId TEXT). Скипаем политику: таблица остаётся default-deny
-  // для anon/authenticated (цель 0039 — закрыть широкий GRANT 0011:314),
-  // service_role (BYPASSRLS) сохраняет полный доступ.
-  if (
-    /CREATE\s+POLICY/i.test(s) &&
-    /confectioner_transactions/i.test(s) &&
-    /user_id\s*=\s*auth\.uid\(\)/i.test(s)
-  ) {
-    return {
-      skip: true,
-      reason:
-        "confectioner_transactions owner-policy: local table has no user_id column (0017 uses confectionerId TEXT); table stays default-deny for non-service roles",
-    };
-  }
 
   return { skip: false, sql: s };
 }

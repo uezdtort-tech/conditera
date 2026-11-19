@@ -59,7 +59,7 @@ async function main() {
     CREATE ROLE anon NOLOGIN;
     CREATE ROLE authenticated NOLOGIN;
     CREATE SCHEMA auth;
-    CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT NULL::UUID $$;
+    CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $auth_uid$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::UUID $auth_uid$;
   `);
 
   // Минимальная фикстура pre-0039.
@@ -80,13 +80,28 @@ async function main() {
       refund_amount NUMERIC,
       updated_at TIMESTAMPTZ
     );
+    CREATE TABLE public.confectioners (
+      id TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      verified BOOLEAN NOT NULL DEFAULT false
+    );
+    INSERT INTO public.confectioners (id, "userId", verified) VALUES
+      ('conf-a', '11111111-1111-4111-8111-111111111111', false),
+      ('conf-b', '22222222-2222-4222-8222-222222222222', false);
+    ALTER TABLE public.confectioners ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY confectioners_select_public ON public.confectioners FOR SELECT USING (verified = true);
+    CREATE POLICY confectioners_select_own ON public.confectioners FOR SELECT TO authenticated USING ("userId" = auth.uid()::text);
     CREATE TABLE public.confectioner_transactions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID,
+      id TEXT PRIMARY KEY,
+      "confectionerId" TEXT NOT NULL REFERENCES public.confectioners(id),
       amount INTEGER,
       type TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
     );
+    INSERT INTO public.confectioner_transactions (id, "confectionerId", amount, type) VALUES
+      ('tx-a', 'conf-a', 100, 'income'),
+      ('tx-b', 'conf-b', 200, 'income');
+    GRANT SELECT ON public.confectioners TO authenticated;
     GRANT SELECT ON public.confectioner_transactions TO anon, authenticated;
     INSERT INTO public.payments (id, amount, status) VALUES
       (gen_random_uuid(), 1000, 'succeeded');
@@ -106,7 +121,7 @@ async function main() {
   const pol = await db.query<{ cnt: string }>(
     `SELECT count(*)::text AS cnt FROM pg_policies WHERE schemaname='public' AND tablename='confectioner_transactions' AND policyname='confectioner_transactions_owner_select'`
   );
-  if (pol.rows[0]?.cnt === "1") ok("политика owner_select создана (USING user_id = auth.uid())");
+  if (pol.rows[0]?.cnt === "1") ok("политика owner_select создана через confectioners.userId");
   else fail("политика owner_select создана");
 
   const anonSel = await db.query<{ allowed: boolean }>(
@@ -120,6 +135,18 @@ async function main() {
   );
   if (authSel.rows[0]?.allowed === true) ok("authenticated — SELECT оставлен");
   else fail("authenticated — SELECT оставлен");
+
+  // Проверяем фактическую изоляцию строк: владелец видит только транзакции своего confectionerId.
+  await db.exec("SET ROLE authenticated");
+  await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", ["11111111-1111-4111-8111-111111111111"]);
+  const ownRows = await db.query<{ cnt: string }>("SELECT count(*)::text AS cnt FROM public.confectioner_transactions");
+  if (ownRows.rows[0]?.cnt === "1") ok("authenticated видит транзакции своего кондитера");
+  else fail("authenticated видит только свои транзакции", ownRows.rows[0]?.cnt ?? "нет результата");
+  await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", ["22222222-2222-4222-8222-222222222222"]);
+  const otherRows = await db.query<{ cnt: string }>("SELECT count(*)::text AS cnt FROM public.confectioner_transactions");
+  if (otherRows.rows[0]?.cnt === "1") ok("второй пользователь видит только собственную запись");
+  else fail("изоляция второго пользователя", otherRows.rows[0]?.cnt ?? "нет результата");
+  await db.exec("RESET ROLE");
 
   // ===== 2. consume_tfa_backup_code_v2 =====
   const hash1 = "sha256hex_aaa111";

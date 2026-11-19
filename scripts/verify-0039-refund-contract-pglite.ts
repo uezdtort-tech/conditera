@@ -32,7 +32,7 @@ function fail(label: string, detail = "") { failed++; console.log(`  ✗ FAIL ${
 
 const USER = "11111111-1111-1111-1111-111111111111";
 
-/** Минимальная фикстура: payments + profiles + confectioner_transactions + auth-схема. */
+/** Минимальная фикстура: payments + profiles + confectioners + confectioner_transactions + auth-схема. */
 const FIXTURE = `
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE auth.users (id uuid primary key default gen_random_uuid());
@@ -59,12 +59,23 @@ CREATE TABLE public.profiles (
   tfa_backup_codes text[],
   updated_at timestamptz
 );
+CREATE TABLE public.confectioners (
+  id text primary key,
+  "userId" text not null
+);
+INSERT INTO public.confectioners (id, "userId") VALUES ('conf-a', '${USER}');
+ALTER TABLE public.confectioners ENABLE ROW LEVEL SECURITY;
+CREATE POLICY confectioners_select_own ON public.confectioners
+  FOR SELECT TO authenticated USING ("userId" = auth.uid()::text);
 CREATE TABLE public.confectioner_transactions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid,
+  id text primary key,
+  "confectionerId" text not null references public.confectioners(id),
   amount numeric,
   created_at timestamptz default now()
 );
+INSERT INTO public.confectioner_transactions (id, "confectionerId", amount)
+VALUES ('tx-a', 'conf-a', 100);
+GRANT SELECT ON public.confectioners TO authenticated;
 INSERT INTO auth.users (id) VALUES ('${USER}');
 INSERT INTO public.profiles (id, two_factor_backup_codes, tfa_backup_codes)
 VALUES ('${USER}', ARRAY['hash_a','hash_b'], ARRAY['hash_c']);
@@ -124,7 +135,6 @@ async function main() {
 
   console.log("\n=== КОНТРАКТ F-2: reserve_refund (0035) + webhook — единственный писатель ===");
   await db.exec(`
-    CREATE TABLE public.confectioners (id text primary key);
     CREATE OR REPLACE FUNCTION public.reserve_refund(p_payment_id UUID, p_amount NUMERIC)
     RETURNS NUMERIC LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
     DECLARE v_new NUMERIC;

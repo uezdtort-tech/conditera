@@ -61,6 +61,7 @@ APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 # ===== 1. Миграции по порядку =====
 MIGRATION_COUNT=0
 SKIPPED_COUNT=0
+DEFERRED_COUNT=0
 for sql_file in "$MIGRATIONS_DIR"/*.sql; do
   [ -e "$sql_file" ] || continue
   filename=$(basename "$sql_file")
@@ -69,6 +70,18 @@ for sql_file in "$MIGRATIONS_DIR"/*.sql; do
   if [ "$ALREADY" = "1" ]; then
     SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
     continue
+  fi
+
+  # 0026 creates RLS policies on storage.objects and inserts storage.buckets.
+  # Supabase Storage API creates these tables only after the DB container is healthy.
+  # Defer this migration during initdb; the post-Storage migrator reruns this script.
+  if [ "$filename" = "0026_storage_buckets_and_confectioners_rls.sql" ]; then
+    STORAGE_TABLES_READY=$(PSQL -tAc "SELECT (to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL)" | xargs)
+    if [ "$STORAGE_TABLES_READY" != "t" ]; then
+      echo "⏭ Откладываю ${filename}: таблицы Supabase Storage ещё не созданы"
+      DEFERRED_COUNT=$((DEFERRED_COUNT + 1))
+      continue
+    fi
   fi
 
   echo "→ Применяю: ${filename}"
@@ -86,7 +99,7 @@ for sql_file in "$MIGRATIONS_DIR"/*.sql; do
   fi
 done
 
-echo "✅ Применено: ${MIGRATION_COUNT}, пропущено (уже в журнале): ${SKIPPED_COUNT} (было применено ранее: ${APPLIED_BEFORE})"
+echo "✅ Применено: ${MIGRATION_COUNT}, пропущено: ${SKIPPED_COUNT}, отложено до готовности Storage: ${DEFERRED_COUNT} (было применено ранее: ${APPLIED_BEFORE})"
 
 # ===== 2. Seed данные — только явный opt-in для локальной демонстрации =====
 # По умолчанию НИЧЕГО из demo seed не загружается в production.
