@@ -1,10 +1,10 @@
 # ====================================================================
 # docker-compose.supabase.yml — Self-hosted Supabase для «Уездный кондитер»
 # ====================================================================
-# Запуск: docker-compose -f docker-compose.supabase.yml up -d
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.supabase.yml up -d
 #
 # Включает 10 сервисов Supabase (mini-stack):
-#   - supabase-db (PostgreSQL 15 с расширениями: pgsodium, pg_cron, pg_trgm)
+#   - db (PostgreSQL 15 с расширениями: pgsodium, pg_cron, pg_trgm)
 #   - supabase-kong (API gateway на :8000)
 #   - supabase-auth (GoTrue — auth сервис)
 #   - supabase-rest (PostgREST — auto REST API)
@@ -31,48 +31,11 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # ===== PostgreSQL 15 с расширениями =====
-  supabase-db:
-    image: supabase/postgres:15.6.1.141
-    container_name: conditera-supabase-db
-    restart: unless-stopped
-    command:
-      - postgres
-      - -c
-      - config_file=/etc/postgresql/postgresql.conf
-    environment:
-      POSTGRES_USER: supabase
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      POSTGRES_DB: supabase
-      POSTGRES_PORT: 5432
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
-    # НЕ пробрасываем порт наружу — только через supabase-kong
-    expose:
-      - "5432"
-    volumes:
-      - supabase_db_data:/var/lib/postgresql/data
-      - ./supabase/init-scripts:/docker-entrypoint-initdb.d:ro
-      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
-      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/seed/01-seed.sql:ro
-      - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
-      - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supabase -d supabase"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    logging: *default-logging
-    networks:
-      - conditera-net
+  # ===== Migrator waits for real Supabase Auth schema =====
+  migrator:
+    depends_on:
+      supabase-auth:
+        condition: service_healthy
 
   # ===== Kong API Gateway =====
   # Единая точка входа для всех Supabase сервисов
@@ -93,8 +56,10 @@ services:
     volumes:
       - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 10s
@@ -123,7 +88,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=auth
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@db:5432/conditera?search_path=auth
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -168,8 +133,10 @@ services:
       GOTRUE_EXTERNAL_VK_SECRET: ${EXTERNAL_VK_SECRET:-}
       GOTRUE_EXTERNAL_VK_REDIRECT_URI: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/callback
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9999/health || exit 1"]
       interval: 30s
@@ -194,14 +161,16 @@ services:
     container_name: conditera-supabase-rest
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=public
+      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@db:5432/conditera?search_path=public
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       PGRST_DB_USE_LEGACY_GUCS: "false"
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
       interval: 30s
@@ -226,11 +195,11 @@ services:
     container_name: conditera-supabase-realtime
     restart: unless-stopped
     environment:
-      DB_HOST: supabase-db
+      DB_HOST: db
       DB_PORT: 5432
-      DB_USER: supabase
+      DB_USER: supabase_admin
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      DB_NAME: supabase
+      DB_NAME: conditera
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       PORT: 4000
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -242,8 +211,10 @@ services:
       DB_ENC_KEY: ${ENCRYPTOR_KEY:?ENCRYPTOR_KEY required}
       API_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:4000/ || exit 1"]
       interval: 30s
@@ -272,7 +243,7 @@ services:
       SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=storage
+      DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@db:5432/conditera?search_path=storage
       PG_META_URL: http://supabase-meta:8080
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /mnt/storage
@@ -285,8 +256,10 @@ services:
     volumes:
       - supabase_storage_data:/mnt/storage
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
       supabase-rest:
         condition: service_healthy
       supabase-imgproxy:
@@ -345,15 +318,17 @@ services:
     restart: unless-stopped
     environment:
       PG_META_PORT: 8080
-      PG_META_DB_HOST: supabase-db
+      PG_META_DB_HOST: db
       PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: supabase
-      PG_META_DB_USER: supabase
+      PG_META_DB_NAME: conditera
+      PG_META_DB_USER: supabase_admin_admin
       PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       PG_META_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 30s
@@ -397,8 +372,10 @@ services:
     ports:
       - "8100:3000"  # Studio web UI → http://localhost:8100
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
       supabase-meta:
         condition: service_healthy
     healthcheck:
@@ -437,10 +414,12 @@ services:
       LOGFLARE_DASHBOARD_PASSWORD: ${LOGFLARE_DASHBOARD_PASSWORD:-devpass}
       LOGFLARE_MIN_LOG_DURATION_MS: 0
       LOGFLARE_LOGTTL: "604800"
-      DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DB_DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@db:5432/conditera
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:4000/healthz || exit 1"]
       interval: 30s
@@ -476,11 +455,13 @@ services:
       - ./supabase/vector.yaml:/etc/vector/vector.yaml:ro
       - supabase_vector_data:/var/lib/vector
     environment:
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@db:5432/conditera
       LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-dev-key}
     depends_on:
-      supabase-db:
+      db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
       supabase-analytics:
         condition: service_started
     healthcheck:
@@ -502,7 +483,6 @@ services:
       - conditera-net
 
 volumes:
-  supabase_db_data:
   supabase_storage_data:
   supabase_vector_data:
 
