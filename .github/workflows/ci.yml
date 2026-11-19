@@ -253,6 +253,23 @@ jobs:
           done <<< "$PG18_AUTH_USER_IDS"
 
 
+      - name: Read-only inventory of both legacy database schemas
+        env:
+          AUDIT_PG15_DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5434/supabase
+          AUDIT_PG18_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/conditera
+        run: |
+          mkdir -p audit-artifacts
+          node scripts/db/audit-dual-postgres.mjs > audit-artifacts/pg15-pg18-inventory.json
+          node -e "const r=require('./audit-artifacts/pg15-pg18-inventory.json'); if(!r.sources.pg15.read_only_verified || !r.sources.pg18.read_only_verified || r.destructive_statements_executed) process.exit(1); console.log(JSON.stringify({pg15Tables:r.sources.pg15.table_count,pg18Tables:r.sources.pg18.table_count,tablePresenceDifferences:r.comparison.table_presence},null,2))"
+
+      - name: Upload dual PostgreSQL inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: dual-postgres-pg15-pg18-inventory
+          path: audit-artifacts/pg15-pg18-inventory.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Merge official Supabase PG15 data and Conditera PG18 business schema into PG17
         shell: bash
         run: |
