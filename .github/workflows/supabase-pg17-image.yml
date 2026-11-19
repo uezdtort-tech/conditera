@@ -62,7 +62,7 @@ jobs:
           [[ "$auth_users" == "t" ]] || { echo "auth.users is missing"; exit 1; }
           supabase_db="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U supabase_admin -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname='_supabase'")"
           [[ "$supabase_db" == "1" ]] || { echo "_supabase database is missing"; exit 1; }
-          analytics_count="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U supabase -d _supabase -Atc "SELECT count(*) FROM pg_namespace WHERE nspname IN ('_analytics','_supavisor')")"
+          analytics_count="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U supabase_admin -d _supabase -Atc "SELECT count(*) FROM pg_namespace WHERE nspname IN ('_analytics','_supavisor')")"
           [[ "$analytics_count" == "2" ]] || { echo "Supabase internal schemas missing: $analytics_count/2"; exit 1; }
           docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 sh -lc 'test -s /etc/postgresql-custom/pgsodium_root.key'
           echo "pgsodium root key is present in the dedicated config volume"
