@@ -31,6 +31,11 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
+  web:
+    depends_on:
+      supabase-kong:
+        condition: service_healthy
+
   # ===== Migrator waits for real Supabase Auth schema =====
   migrator:
     depends_on:
