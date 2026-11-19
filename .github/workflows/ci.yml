@@ -110,6 +110,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
+      postgres18:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: conditera
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d conditera"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v7
 
@@ -125,6 +138,35 @@ jobs:
         env:
           DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/postgres
         run: node scripts/db/verify-pg17.mjs
+
+      - name: Prepare PostgreSQL 18 source using Conditera migrations and seeds
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/conditera
+        run: node scripts/db/setup.mjs
+
+      - name: Verify logical restore from PostgreSQL 18 into PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "postgres:18-alpine" { print $1; exit }')"
+          TARGET_ID="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 == "supabase/postgres:17.6.1.136" { print $1; exit }')"
+          test -n "$SOURCE_ID"
+          test -n "$TARGET_ID"
+
+          docker exec "$TARGET_ID" createdb -U supabase_admin -T template0 restore_probe
+          docker exec "$SOURCE_ID" pg_dump -U postgres -d conditera --no-owner --no-acl --format=plain > "$RUNNER_TEMP/pg18-to-pg17.sql"
+          test -s "$RUNNER_TEMP/pg18-to-pg17.sql"
+
+          docker exec -i "$TARGET_ID" psql -U supabase_admin -d restore_probe -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/pg18-to-pg17.sql"
+
+          COUNT_SQL="SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text;"
+          SOURCE_COUNTS="$(docker exec "$SOURCE_ID" psql -U postgres -d conditera -Atqc "$COUNT_SQL")"
+          TARGET_COUNTS="$(docker exec "$TARGET_ID" psql -U supabase_admin -d restore_probe -Atqc "$COUNT_SQL")"
+
+          echo "PostgreSQL 18 source counts: $SOURCE_COUNTS"
+          echo "PostgreSQL 17 restored counts: $TARGET_COUNTS"
+          test "$SOURCE_COUNTS" = "$TARGET_COUNTS"
+          echo "LOGICAL RESTORE PG18 -> PG17 PASSED"
 
   # ===== 3. Build =====
   build:
