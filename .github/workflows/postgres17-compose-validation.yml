@@ -72,10 +72,17 @@ jobs:
           PY
       - name: Запустить целевой PG17, Supabase Storage и отложенный мигратор
         run: |
-          docker compose \
+          if ! docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
-            --profile pg17-migration up -d supabase-app-migrator-pg17-migration
+            --profile pg17-migration up -d supabase-app-migrator-pg17-migration; then
+            docker logs conditera-supabase-db-pg17-migration || true
+            docker logs conditera-supabase-rest-pg17-migration || true
+            docker logs conditera-supabase-meta-pg17-migration || true
+            docker logs conditera-supabase-storage-pg17-migration || true
+            docker logs conditera-supabase-app-migrator-pg17-migration || true
+            exit 1
+          fi
           for attempt in $(seq 1 90); do
             DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-db-pg17-migration)
             STORAGE_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-storage-pg17-migration 2>/dev/null || echo missing)
