@@ -49,9 +49,6 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
       JWT_EXP: ${JWT_EXPIRY:-3600}
-      MIGRATIONS_DIR: /migrations
-      SEEDS_DIR: /seeds
-      CONDITERA_DB_PASSWORD: ${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD}}
     expose:
       - "5432"
     volumes:
@@ -67,13 +64,7 @@ services:
       - ./supabase/pg17-init/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
       - ./supabase/pg17-init/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:ro
       - ./supabase/pg17-init/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:ro
-      - ./supabase/migrations:/migrations:ro
-      - ./supabase/seed.sql:/seeds/01-seed.sql:ro
-      - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
-      - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
       - ./scripts/db/ensure-supabase-init.sh:/docker-entrypoint-initdb.d/zz-00-supabase-init.sh:ro
-      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/zz-10-conditera-migrations.sh:ro
-      - ./scripts/ops/pg17-init/99-conditera-role.sh:/docker-entrypoint-initdb.d/zz-20-conditera-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase_admin -d postgres"]
       interval: 10s
