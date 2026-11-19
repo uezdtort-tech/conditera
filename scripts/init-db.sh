@@ -37,7 +37,7 @@ if [ "$MODE" = "supabase" ]; then
   "${COMPOSE[@]}" up -d pgbouncer supabase-kong
   CONTAINER_NAME="conditera-db"
   CHECK_DB_USER="supabase_admin"
-  CHECK_DB_NAME="postgres"
+  CHECK_DB_NAME="conditera"
   DB_HOST="localhost"
   DB_PORT="6432"
   DB_USER="conditera"
