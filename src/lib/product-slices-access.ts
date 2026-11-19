@@ -10,8 +10,9 @@ interface ProductOwnershipRow {
 }
 
 /**
- * Проверяет владение через профиль confectioners.
- * products.confectioner_id хранит ID профиля кондитера, а не auth user ID.
+ * Проверяет наличие профиля кондитера и владельца товара.
+ * ВАЖНО: products.confectioner_id остаётся UUID auth.users(id)
+ * (миграции 0002 и 0027); он НЕ равен public.confectioners.id.
  * Любая ошибка/неопределённость закрывает изменение.
  */
 export async function assertProductSliceOwnership(productId: string, userId: string): Promise<void> {
@@ -44,7 +45,8 @@ export async function assertProductSliceOwnership(productId: string, userId: str
     throw new HttpError(500, "Не удалось проверить владельца товара");
   }
   if (!product) throw new HttpError(404, "Товар не найден");
-  if (product.confectioner_id !== confectioner.id) {
+  // Products остаётся связан с auth.users(id), что явно закреплено в 0027.
+  if (product.confectioner_id !== userId) {
     throw new HttpError(403, "Нет прав на этот продукт");
   }
 }
