@@ -20,6 +20,7 @@ CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
 CREATE SCHEMA IF NOT EXISTS pgsodium AUTHORIZATION supabase_admin;
 CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;
+GRANT USAGE ON SCHEMA pgsodium TO postgres, anon, authenticated, service_role;
 
 -- ===== 2. Enums =====
 
