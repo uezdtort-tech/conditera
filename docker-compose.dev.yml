@@ -29,6 +29,7 @@ services:
       - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
       - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
+      - ./scripts/db/ensure-supabase-init.sh:/docker-entrypoint-initdb.d/zz-00-supabase-init.sh:ro
       - ./scripts/db/docker-dev-init.sh:/docker-entrypoint-initdb.d/98-conditera-dev-init.sh:ro
     restart: unless-stopped
     healthcheck:
