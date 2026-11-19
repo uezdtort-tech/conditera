@@ -37,6 +37,7 @@ services:
       - "5432"
     volumes:
       - supabase_pg17_migration_data:/var/lib/postgresql/data
+      - ./supabase/init-scripts/00-service-role-passwords.sh:/docker-entrypoint-initdb.d/zz-conditera-00-role-passwords.sh:ro
       - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/zz-conditera-apply-migrations.sh:ro
       - ./supabase/migrations:/conditera-migrations:ro
       - ./supabase/seed.sql:/docker-entrypoint-initdb.d/seed/01-seed.sql:ro
