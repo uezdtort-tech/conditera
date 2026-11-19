@@ -7,6 +7,7 @@ on:
     paths:
       - "scripts/ops/backup-dual-postgres-before-pg17.sh"
       - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
+      - "supabase/init-scripts/01-apply-migrations.sh"
       - ".github/workflows/postgres-migration-scripts-validation.yml"
   pull_request:
     paths:
@@ -27,9 +28,11 @@ jobs:
         run: |
           bash -n scripts/ops/backup-dual-postgres-before-pg17.sh
           bash -n scripts/ops/restore-app-dump-to-pg17-shadow.sh
+          bash -n supabase/init-scripts/01-apply-migrations.sh
       - name: Установить ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Выполнить ShellCheck
         run: |
           shellcheck --severity=warning scripts/ops/backup-dual-postgres-before-pg17.sh
           shellcheck --severity=warning scripts/ops/restore-app-dump-to-pg17-shadow.sh
+          shellcheck --severity=warning supabase/init-scripts/01-apply-migrations.sh
