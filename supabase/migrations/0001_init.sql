@@ -18,7 +18,15 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA extensions;
+-- Supabase PG17 image preinstalls pgsodium in its required dedicated schema.
+-- Do not request a conflicting schema when the extension is already present.
+DO $
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgsodium') THEN
+    CREATE EXTENSION pgsodium WITH SCHEMA extensions;
+  END IF;
+END
+$;
 
 -- ===== 2. Enums =====
 
