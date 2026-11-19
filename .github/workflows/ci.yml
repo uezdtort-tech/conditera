@@ -206,12 +206,17 @@ jobs:
           done
 
           PROFILE_ID="$(docker exec "$SOURCE18_ID" psql -U postgres -d conditera -Atqc "SELECT id::text FROM public.profiles ORDER BY id LIMIT 1")"
-          test -n "$PROFILE_ID"
+          if [[ ! "$PROFILE_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+            echo "Expected a valid profile UUID from PostgreSQL 18; received: '$PROFILE_ID'"
+            exit 1
+          fi
           echo "MIGRATION_PROFILE_ID=$PROFILE_ID" >> "$GITHUB_ENV"
 
-          docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -v profile_id="$PROFILE_ID" -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES (:'profile_id'::uuid, 'pg18-profile-link@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
-          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.buckets (id, name) VALUES ('media', 'media') ON CONFLICT (id) DO NOTHING"
-          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"official-supabase-pg15\"}'::jsonb)"
+          # PROFILE_ID came directly from the source DB and was validated as a UUID;
+          # quote it as a SQL literal instead of relying on psql -v inside -c.
+          docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES ('$PROFILE_ID'::uuid, 'pg18-profile-link@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
+          docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.buckets (id, name) VALUES ('media', 'media') ON CONFLICT (id) DO NOTHING"
+          docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"official-supabase-pg15\"}'::jsonb)"
 
           # Exercise the actual bootstrap SQL used by docker-compose.yml.
           docker cp supabase/init-scripts/90-create-conditera-db.sql "$TARGET_ID:/tmp/90-create-conditera-db.sql"
