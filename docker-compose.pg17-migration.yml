@@ -44,7 +44,7 @@ services:
       - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supabase_admin -d supabase"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d supabase"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -99,7 +99,7 @@ services:
     image: supabase/storage-api:v1.14.5
     container_name: conditera-supabase-storage-pg17-migration
     profiles: ["pg17-migration"]
-    restart: "no"
+    restart: on-failure
     environment:
       ANON_KEY: ${ANON_KEY:?ANON_KEY required}
       SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
