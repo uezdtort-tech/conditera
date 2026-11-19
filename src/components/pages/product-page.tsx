@@ -686,7 +686,7 @@ export function ProductPage() {
           <Separator />
 
           {/* Customization */}
-          {(product.fillings?.length || product.coatings?.length || product.decorations?.length) ? (
+          {(product.fillings?.length || product.coatings?.length || product.decorations?.length || 0) > 0 && (
             <div id="product-customization" className="space-y-4">
               {product.fillings && product.fillings.length > 0 && (
                 <div>
