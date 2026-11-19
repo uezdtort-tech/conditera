@@ -463,6 +463,8 @@ services:
     profiles: ["simplex", "full"]
     env_file:
       - .env.production
+    volumes:
+      - simplex_bridge_data:/data
     environment:
       - SIMPLEX_CLI_WS=ws://localhost:5225
       - BACKEND_WEBHOOK=${NEXT_PUBLIC_APP_URL}/api/simplex/incoming
@@ -479,7 +481,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -550,6 +552,7 @@ volumes:
   caddy_config:
   n8n_data:
   smp_data:
+  simplex_bridge_data:
   meili_data:
   mailu_data:
   mailu_mail:
