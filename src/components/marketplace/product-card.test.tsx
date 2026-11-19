@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ProductCard } from "@/components/marketplace/product-card";
 import type { Product } from "@/lib/types";
 
@@ -51,7 +51,7 @@ describe("ProductCard cake slice preview", () => {
 
   it("пропускает пустое изображение и выбирает первый реальный разрез", () => {
     render(<ProductCard product={makeProduct([
-      { id: "slice-empty", image: null, fillingName: "Пустая запись" },
+      { id: "slice-empty", image: "", fillingName: "Пустая запись" },
       { id: "slice-real", image: "/slice-real.jpg", fillingName: "Фисташка" },
     ])} />);
 
@@ -61,7 +61,31 @@ describe("ProductCard cake slice preview", () => {
   });
 
   it("не показывает метку разреза, если реального изображения нет", () => {
-    render(<ProductCard product={makeProduct([{ id: "slice-empty", image: null }])} />);
+    render(<ProductCard product={makeProduct([{ id: "slice-empty", image: "" }])} />);
     expect(screen.queryByText("Разрез")).not.toBeInTheDocument();
+  });
+
+  it("показывает действие сравнения внутри карточки и вызывает переданный обработчик", () => {
+    const onCompare = vi.fn();
+    render(<ProductCard product={makeProduct()} onCompare={onCompare} />);
+    fireEvent.click(screen.getByRole("button", { name: "Добавить к сравнению" }));
+    expect(onCompare).toHaveBeenCalledTimes(1);
+    expect(storeMock.state.navigate).not.toHaveBeenCalled();
+  });
+
+  it("показывает настройку только для товаров с вариантами и открывает блок персонализации", () => {
+    const product = makeProduct();
+    product.fillings = [{ name: "Малина", priceModifier: 0 }];
+    render(<ProductCard product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Настроить Торт «Малина»" }));
+    expect(storeMock.state.navigate).toHaveBeenCalledWith("product", {
+      id: "product-1",
+      customize: "true",
+    });
+  });
+
+  it("не показывает действие настройки для товара без вариантов", () => {
+    render(<ProductCard product={makeProduct()} />);
+    expect(screen.queryByRole("button", { name: /Настроить/ })).not.toBeInTheDocument();
   });
 });
