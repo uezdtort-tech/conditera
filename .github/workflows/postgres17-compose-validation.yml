@@ -62,10 +62,10 @@ jobs:
           current_data = [v for v in current.get("volumes", []) if v.get("target") == "/var/lib/postgresql/data"]
           assert len(target_data) == 1, f"PG17 data mounts: {target.get('volumes')}"
           assert len(current_data) == 1, f"PG15 data mounts: {current.get('volumes')}"
-          assert target_data[0]["source"] == "conditera_supabase_pg17_migration_data", f"PG17 volume: {target_data[0]}"
+          assert target_data[0]["source"] == "supabase_pg17_migration_data", f"PG17 volume mount: {target_data[0]}"
           assert current.get("image") == "supabase/postgres:15.6.1.141", f"Existing PG15 image changed: {current.get('image')}"
           assert current_data[0]["source"] != target_data[0]["source"], "PG15 and PG17 must never share a data volume"
-          assert "conditera_supabase_pg17_migration_data" in config["volumes"]
+          assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data", f"PG17 named volume: {config['volumes']['supabase_pg17_migration_data']}"
           assert config["networks"]["pg17-migration-net"]["internal"] is True, "PG17 migration network must be internal"
           assert all(not str(v.get("source", "")).startswith("./supabase/") for v in target.get("volumes", [])), f"Target must not run app init scripts: {target.get('volumes')}"
           print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
