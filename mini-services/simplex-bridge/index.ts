@@ -44,11 +44,13 @@ const pendingCommands = new Map<string, { resolve: Function; reject: Function; t
 // === Health endpoint для Docker healthcheck + UI ===
 const healthServer = createServer((req, res) => {
   if (req.url === "/health" || req.url === "/healthz") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    const cliConnected = !!cliSocket && cliSocket.readyState === WebSocket.OPEN;
+    const ready = cliConnected && isInitialized && activeProfile !== null;
+    res.writeHead(ready ? 200 : 503, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
-      status: "ok",
+      status: ready ? "ok" : "starting",
       service: "conditera-simplex-bridge",
-      cliConnected: !!cliSocket && cliSocket.readyState === WebSocket.OPEN,
+      cliConnected,
       isInitialized,
       activeProfile,
       pendingCommands: pendingCommands.size,
@@ -161,8 +163,9 @@ function connectToCLI() {
 
   cliSocket.on("open", () => {
     console.log("[bridge] ✓ Connected to SimpleX CLI");
-    // Инициализация — получить список пользователей
-    sendRaw("/_users");
+    // SimpleX Bot API: /users возвращает usersList с UserInfo.
+    // Старый /_users не соответствует актуальному протоколу и оставлял bridge неинициализированным.
+    sendRaw("/users");
   });
 
   cliSocket.on("message", async (raw: Buffer) => {
@@ -248,13 +251,31 @@ async function handleCLIMessage(msg: any) {
       console.log(`[bridge] Chat cleared: ${resp.chatInfo?.chatId}`);
       break;
 
-    case "userProfile":
-      // Ответ на /_users
-      if (!isInitialized && resp.userProfile?.userId) {
-        activeProfile = resp.userProfile.userId;
+    case "usersList": {
+      const users = Array.isArray(resp.users) ? resp.users : [];
+      const active = users.find((item: any) => item.user?.activeUser) ?? users[0];
+      const userId = active?.user?.userId;
+      if (userId !== undefined && userId !== null) {
+        activeProfile = String(userId);
         isInitialized = true;
-        console.log(`[bridge] ✓ Active profile: ${activeProfile}`);
+        console.log(`[bridge] ✓ Active profile initialized: ${activeProfile}`);
+      } else {
+        console.error("[bridge] SimpleX /users returned no usable profile:", JSON.stringify(resp));
       }
+      break;
+    }
+
+    case "userProfile":
+      // Backward compatibility with older CLI response format.
+      if (!isInitialized && resp.userProfile?.userId !== undefined) {
+        activeProfile = String(resp.userProfile.userId);
+        isInitialized = true;
+        console.log(`[bridge] ✓ Active profile initialized: ${activeProfile}`);
+      }
+      break;
+
+    case "chatCmdError":
+      console.error("[bridge] SimpleX rejected a command:", JSON.stringify(resp.chatError ?? resp));
       break;
 
     case "contactConnected":
