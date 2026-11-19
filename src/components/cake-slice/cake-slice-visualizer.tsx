@@ -990,6 +990,31 @@ export function ProductSliceGallery({
   );
 }
 
+// ===== Превью сохранённой конфигурации среза =====
+export function ProductSliceConfigPreview({
+  config,
+  fillingName,
+  size = 48,
+}: {
+  config?: unknown;
+  fillingName: string;
+  size?: number;
+}) {
+  const candidate = config as SliceConfig | null | undefined;
+  const resolved = candidate && Array.isArray(candidate.layers)
+    ? candidate
+    : detectPreset({ name: fillingName });
+  return (
+    <div
+      className="flex items-center justify-center overflow-hidden rounded-lg bg-muted/20"
+      style={{ width: size, height: size }}
+      aria-label={`Схема разреза: ${fillingName}`}
+    >
+      <SliceSVG config={resolved} size={size - 4} />
+    </div>
+  );
+}
+
 // ===== Компонент-виджет для конструктора тортов =====
 export function FillingSlicePreview({
   fillingName,
