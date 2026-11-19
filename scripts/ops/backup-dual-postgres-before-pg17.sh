@@ -86,6 +86,8 @@ SUPABASE_SYSTEM_ID="$(container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SU
 printf 'Снимаю дампы БД и глобальных ролей...\n'
 container_dump "$APP_CONTAINER" "$APP_USER" "$APP_DATABASE" "$OUT/app-$APP_DATABASE.dump"
 container_dump "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SUPABASE_DATABASE" "$OUT/supabase-$SUPABASE_DATABASE.dump"
+docker exec "$APP_CONTAINER" pg_dump -U "$APP_USER" -d "$APP_DATABASE" --schema-only > "$OUT/app-schema.sql"
+docker exec "$SUPABASE_CONTAINER" pg_dump -U "$SUPABASE_USER" -d "$SUPABASE_DATABASE" --schema-only > "$OUT/supabase-schema.sql"
 docker exec "$APP_CONTAINER" pg_restore --list < "$OUT/app-$APP_DATABASE.dump" > "$OUT/app-restore-toc.txt"
 docker exec "$SUPABASE_CONTAINER" pg_restore --list < "$OUT/supabase-$SUPABASE_DATABASE.dump" > "$OUT/supabase-restore-toc.txt"
 
