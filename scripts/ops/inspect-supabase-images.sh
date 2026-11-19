@@ -62,6 +62,9 @@ for name in "${!IMAGES[@]}"; do
   }' > "$OUT/$name.metadata.json"
 
   container="$(docker create --name "$safe_name" "$image")"
+  # Read-only rootfs metadata needed to evaluate a single-container packaging POC.
+  docker cp "$container:/etc/os-release" "$OUT/$name.os-release" >/dev/null 2>&1 || true
+  docker cp "$container:/etc/passwd" "$OUT/$name.passwd" >/dev/null 2>&1 || true
   cleanup() {
     docker rm -v "$safe_name" >/dev/null 2>&1 || true
   }
