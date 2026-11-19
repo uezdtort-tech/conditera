@@ -27,9 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-only-postgres-password
-      JWT_SECRET: ci-only-jwt-secret-which-is-long-enough-for-compose-validation
-      ANON_KEY: ci-only-anon-key
-      SERVICE_ROLE_KEY: ci-only-service-role-key
+      JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
+      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
+      SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
       ENCRYPTOR_KEY: ci-only-encryptor-key
       SECRET_KEY_BASE: ci-only-secret-key-base
     steps:
@@ -69,35 +69,42 @@ jobs:
           assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data"
           print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
           PY
-      - name: Запустить чистый целевой Supabase PostgreSQL 17 и применить миграции
+      - name: Запустить целевой PG17, Supabase Storage и отложенный мигратор
         run: |
           docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
-            --profile pg17-migration up -d supabase-db-pg17-migration
-          for attempt in $(seq 1 60); do
-            STATUS=$(docker inspect -f '{{.State.Status}}' conditera-supabase-db-pg17-migration)
-            HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-db-pg17-migration)
-            if [ "$STATUS" = "exited" ] || [ "$STATUS" = "dead" ]; then
-              docker logs conditera-supabase-db-pg17-migration
-              exit 1
-            fi
-            if [ "$HEALTH" = "healthy" ]; then
-              exit 0
+            --profile pg17-migration up -d supabase-app-migrator-pg17-migration
+          for attempt in $(seq 1 90); do
+            DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-db-pg17-migration)
+            STORAGE_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-storage-pg17-migration 2>/dev/null || echo missing)
+            MIGRATOR_STATE=$(docker inspect -f '{{.State.Status}}' conditera-supabase-app-migrator-pg17-migration 2>/dev/null || echo missing)
+            if [ "$MIGRATOR_STATE" = "exited" ]; then
+              EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' conditera-supabase-app-migrator-pg17-migration)
+              if [ "$EXIT_CODE" != "0" ]; then
+                docker logs conditera-supabase-app-migrator-pg17-migration || true
+                docker logs conditera-supabase-storage-pg17-migration || true
+                exit 1
+              fi
+              if [ "$DB_HEALTH" = "healthy" ] && [ "$STORAGE_HEALTH" = "healthy" ]; then
+                exit 0
+              fi
             fi
             sleep 5
           done
-          docker logs conditera-supabase-db-pg17-migration
-          echo "PG17 target did not become healthy within 300 seconds."
+          docker logs conditera-supabase-db-pg17-migration || true
+          docker logs conditera-supabase-storage-pg17-migration || true
+          docker logs conditera-supabase-app-migrator-pg17-migration || true
+          echo "PG17 + Storage + application migrations did not complete within 450 seconds."
           exit 1
-      - name: Проверить PostgreSQL 17, Supabase Auth и прикладные миграции
+      - name: Проверить PostgreSQL 17, Supabase Auth, Storage и прикладные миграции
         run: |
           docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration exec -T supabase-db-pg17-migration \
             psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
-            "SELECT current_setting('server_version_num')::int BETWEEN 170000 AND 179999 AND to_regclass('auth.users') IS NOT NULL AND to_regclass('public.schema_migrations') IS NOT NULL;" | grep -qx t
+            "SELECT current_setting('server_version_num')::int BETWEEN 170000 AND 179999 AND to_regclass('auth.users') IS NOT NULL AND to_regclass('public.schema_migrations') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL;" | grep -qx t
           MIGRATIONS=$(docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
@@ -105,6 +112,20 @@ jobs:
             psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
             "SELECT count(*) FROM public.schema_migrations;")
           test "$MIGRATIONS" -gt 0
+          STORAGE_MIGRATION=$(docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration exec -T supabase-db-pg17-migration \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            "SELECT count(*) FROM public.schema_migrations WHERE filename='0026_storage_buckets_and_confectioners_rls.sql';")
+          test "$STORAGE_MIGRATION" = "1"
+          BUCKETS=$(docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration exec -T supabase-db-pg17-migration \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            "SELECT count(*) FROM storage.buckets WHERE id IN ('avatars','covers','portfolio','product_images','documents','messages');")
+          test "$BUCKETS" = "6"
           for table in profiles user_roles products orders inventory_items chat_channels oauth_identity_links user_consent_events; do
             docker compose \
               -f docker-compose.supabase.yml \
@@ -113,7 +134,7 @@ jobs:
               psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
               "SELECT to_regclass('public.$table') IS NOT NULL;" | grep -qx t
           done
-          echo "PG17 migrations applied: $MIGRATIONS"
+          echo "PG17 schema migrations: $MIGRATIONS; Storage migration: $STORAGE_MIGRATION; buckets: $BUCKETS"
       - name: Очистить только временный кластер GitHub Actions
         if: always()
         run: |
