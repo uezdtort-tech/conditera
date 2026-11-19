@@ -44,7 +44,7 @@ for name in "${!IMAGES[@]}"; do
   # to the host. awk exits successfully even when no candidate path is found.
   docker export "$container" |
     tar -tf - |
-    awk 'BEGIN { IGNORECASE=1 } /(^|\/)(entrypoint[^/]*|docker-entrypoint[^/]*|gotrue|postgrest|realtime|storage-api|kong|nginx|postgres|beam.smp|node|supervisord)(\/|$|\.)/' |
+    awk 'tolower($0) ~ /(^|\/)(entrypoint[^/]*|docker-entrypoint[^/]*|gotrue|postgrest|realtime|storage-api|kong|nginx|postgres|beam.smp|node|supervisord)(\/|$|\.)/' |
     sort -u > "$OUT/$name.rootfs-candidates.txt"
 
   cleanup
