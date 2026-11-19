@@ -117,9 +117,9 @@ $outDir = Join-Path $root $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 try { $app = Get-ContainerInventory -Name $AppContainer -Database $AppDatabase -User $AppUser }
-catch { $app = [pscustomobject]@{ container = $AppContainer; exists = $false; error = $_.Exception.Message } }
+catch { $app = [pscustomobject]@{ container = $AppContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
 try { $supabase = Get-ContainerInventory -Name $SupabaseContainer -Database $SupabaseDatabase -User $SupabaseUser }
-catch { $supabase = [pscustomobject]@{ container = $SupabaseContainer; exists = $false; error = $_.Exception.Message } }
+catch { $supabase = [pscustomobject]@{ container = $SupabaseContainer; exists = $false; state = "not-found"; health = "unknown"; databaseAuditStatus = "not-run"; error = $_.Exception.Message } }
 
 $composeAppServices = ""
 $composeSupabaseServices = ""
