@@ -91,20 +91,16 @@ jobs:
           READY=0
           for attempt in $(seq 1 90); do
             DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-db-pg17-migration 2>/dev/null || echo missing)
-            REST_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-rest-pg17-migration 2>/dev/null || echo missing)
-            META_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-meta-pg17-migration 2>/dev/null || echo missing)
             STORAGE_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-storage-pg17-migration 2>/dev/null || echo missing)
-            if [ "$REST_HEALTH" = "unhealthy" ] || [ "$META_HEALTH" = "unhealthy" ] || [ "$STORAGE_HEALTH" = "unhealthy" ]; then
+            if [ "$STORAGE_HEALTH" = "unhealthy" ]; then
               docker inspect -f 'DB_HEALTH={{json .State.Health}}' conditera-supabase-db-pg17-migration || true
-              docker inspect -f 'REST_HEALTH={{json .State.Health}}' conditera-supabase-rest-pg17-migration || true
-              docker inspect -f 'META_HEALTH={{json .State.Health}}' conditera-supabase-meta-pg17-migration || true
               docker inspect -f 'STORAGE_HEALTH={{json .State.Health}}' conditera-supabase-storage-pg17-migration || true
               docker logs conditera-supabase-rest-pg17-migration || true
               docker logs conditera-supabase-meta-pg17-migration || true
               docker logs conditera-supabase-storage-pg17-migration || true
               exit 1
             fi
-            if [ "$DB_HEALTH" = "healthy" ] && [ "$REST_HEALTH" = "healthy" ] && [ "$META_HEALTH" = "healthy" ] && [ "$STORAGE_HEALTH" = "healthy" ]; then
+            if [ "$DB_HEALTH" = "healthy" ] && [ "$STORAGE_HEALTH" = "healthy" ]; then
               READY=1
               break
             fi
@@ -112,14 +108,12 @@ jobs:
           done
           if [ "$READY" != "1" ]; then
             docker inspect -f 'DB_HEALTH={{json .State.Health}}' conditera-supabase-db-pg17-migration || true
-            docker inspect -f 'REST_HEALTH={{json .State.Health}}' conditera-supabase-rest-pg17-migration || true
-            docker inspect -f 'META_HEALTH={{json .State.Health}}' conditera-supabase-meta-pg17-migration || true
             docker inspect -f 'STORAGE_HEALTH={{json .State.Health}}' conditera-supabase-storage-pg17-migration || true
-            docker logs conditera-supabase-rest-pg17-migration || true
-            docker logs conditera-supabase-meta-pg17-migration || true
             docker logs conditera-supabase-storage-pg17-migration || true
             exit 1
           fi
+          docker run --rm --network container:conditera-supabase-rest-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:3000/ >/dev/null
+          docker run --rm --network container:conditera-supabase-meta-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/health >/dev/null
           if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
             docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
