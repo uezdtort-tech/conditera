@@ -1,0 +1,35 @@
+name: PostgreSQL migration scripts validation
+
+on:
+  push:
+    branches:
+      - work/pg17-compose-validation-and-import
+    paths:
+      - "scripts/ops/backup-dual-postgres-before-pg17.sh"
+      - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
+      - ".github/workflows/postgres-migration-scripts-validation.yml"
+  pull_request:
+    paths:
+      - "scripts/ops/backup-dual-postgres-before-pg17.sh"
+      - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
+      - ".github/workflows/postgres-migration-scripts-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить синтаксис Bash
+        run: |
+          bash -n scripts/ops/backup-dual-postgres-before-pg17.sh
+          bash -n scripts/ops/restore-app-dump-to-pg17-shadow.sh
+      - name: Установить ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Выполнить ShellCheck
+        run: |
+          shellcheck --severity=warning scripts/ops/backup-dual-postgres-before-pg17.sh
+          shellcheck --severity=warning scripts/ops/restore-app-dump-to-pg17-shadow.sh
