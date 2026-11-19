@@ -94,7 +94,7 @@ echo "→ Проверка критических таблиц..."
 TABLE_COUNT="$(docker exec -u postgres "$CONTAINER_ID" psql -U "$CHECK_DB_USER" -d "$DB_NAME" -Atqc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")"
 MISSING=""
 for table in profiles user_roles products product_categories orders order_items confectioners audit_log fillings builder_config site_settings cms_pages confectioner_transactions schema_migrations; do
-  exists="$(docker exec "$CONTAINER_ID" psql -U "$CHECK_DB_USER" -d "$DB_NAME" -Atqc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table' LIMIT 1")"
+  exists="$(docker exec -u postgres "$CONTAINER_ID" psql -U "$CHECK_DB_USER" -d "$DB_NAME" -Atqc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table' LIMIT 1")"
   if [ "$exists" != "1" ]; then MISSING="$MISSING $table"; fi
 done
 if [ -n "$MISSING" ]; then
