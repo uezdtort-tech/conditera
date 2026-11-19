@@ -9508,3 +9508,24 @@ Stage Summary:
 **БЭКАПЫ (новое правило, против D13):** после КАЖДОГО блока git bundle → /home/z/my-project/backups/conditera-v2-{S1B1,S1B2,S1B3,S2B1,S2B2,S2B3,S2B4}.bundle (581 KB последний). Восстановление: git clone conditera-v2-S2B4.bundle conditera-v2.
 
 **Следующий блок по карте:** S3B1 (маршруты/навигация App Router).
+
+---
+
+## Task ID: d13-5-recovery (2026-11-19, UTC, сессия web-dd1ef6d6)
+**Инцидент D13 №5:** boot-restore ~21:36 UTC уничтожил recreate-2 цепочку v2
+(S1B1 eb49d6f → S1B2 e5ab8ba → S1B3 224f514) в /home/z/my-project/conditera-v2
+(каталог-пустышка остался) И бандлы в /home/z/my-project/backups/.
+
+**Корневая причина потери бандлов:** .gitignore my-project:73 `/backups/` —
+untracked-каталог не переживает recycle. Доказательство: git-tracked
+conditera-pay3.bundle (28.10) пережил все recycle. **Durable-фикс D13:** после
+КАЖДОГО блока v2: `git add -f backups/conditera-v2-*.bundle && git commit` в
+my-project (бандл становится tracked → восстанавливается boot-restore'ом).
+
+**Восстановление (recreate-3):** ground truth — уцелевшие отчёты
+agent-ctx/{S1B1,S1B2,S1B3}-R-zai-code-recreate2.md (уроки 1–8/1–6/1–6) +
+agent-ctx/S2B1-R-zai-code.md (первое исполнение S2B1 сегодня, 9eb3a77) +
+docs/rebuild/prompts/* + DECISIONS.md. Порядок: S1B1-R3 → S1B2-R3 → S1B3-R3 →
+S2B1-R2 (целевой блок по команде владельца «переходи к реализации следующего
+блока S2B1»). Исполнение — субагентами, Task ID 1/3/5/7 (нечётные шаги —
+commits бандлов в my-project).

@@ -92,3 +92,6 @@ upload/storage/
 
 # Товарные медиа (storage каталог сидов/uploads продуктовых медиа)
 /storage/
+
+# D13 durable: вложенный v2-репозиторий (свой git; игнор => git clean -fd не трогает)
+conditera-v2/
