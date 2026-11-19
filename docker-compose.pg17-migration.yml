@@ -231,6 +231,7 @@ services:
       DB_NAME: supabase
       DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
       PORT: 4000
+      RLIMIT_NOFILE: 65536
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       ENCRYPTOR_KEY: ${ENCRYPTOR_KEY:?ENCRYPTOR_KEY required}
       API_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
