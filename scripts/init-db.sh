@@ -40,7 +40,7 @@ if [ "$MODE" = "supabase" ]; then
   echo "→ Запуск Supabase API и PgBouncer..."
   "${COMPOSE[@]}" up -d pgbouncer supabase-kong
   CONTAINER_NAME="conditera-db"
-  CHECK_DB_USER="postgres"
+  CHECK_DB_USER="supabase_admin"
   CHECK_DB_NAME="conditera"
   DB_HOST="localhost"
   DB_PORT="6432"
@@ -51,7 +51,7 @@ else
   echo "→ Запуск dev-БД на Supabase PostgreSQL 17..."
   "${COMPOSE[@]}" up -d db-dev
   CONTAINER_NAME="uyezdny-db-dev"
-  CHECK_DB_USER="postgres"
+  CHECK_DB_USER="supabase_admin"
   CHECK_DB_NAME="uyezdny_konditer_dev"
   DB_PASS="uyezdny_dev_pass"
   DB_HOST="localhost"
@@ -88,7 +88,7 @@ if [ "$MODE" != "supabase" ]; then
     -e PGUSER="$CHECK_DB_USER" \
     -e PGPASSWORD="$DB_PASS" \
     -e PGDATABASE="$DB_NAME" \
-    "$CONTAINER_ID" sh /scripts/01-apply-migrations.sh
+    "$CONTAINER_ID" sh /docker-entrypoint-initdb.d/01-apply-migrations.sh
 fi
 
 echo "→ Проверка критических таблиц..."
