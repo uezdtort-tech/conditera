@@ -1,0 +1,37 @@
+# Experimental vertical PoC: PostgreSQL 17 + official GoTrue in one container.
+# This is NOT the full Supabase Runtime; REST, Realtime, Storage, Kong and Edge
+# Runtime are deliberately not claimed as integrated yet.
+
+FROM golang:1.22.3-alpine3.20 AS gotrue-builder
+ARG SUPABASE_AUTH_VERSION=v2.164.0
+RUN apk add --no-cache make git
+WORKDIR /go/src/github.com/supabase/auth
+RUN git clone --depth 1 --branch "${SUPABASE_AUTH_VERSION}" https://github.com/supabase/auth.git .
+RUN make deps && RELEASE_VERSION=2.164.0 make build
+
+FROM supabase/postgres:17.6.1.136 AS supabase-runtime
+USER root
+
+RUN apk add --no-cache supervisor curl
+
+RUN adduser -D -H -u 1000 -s /sbin/nologin supabase
+
+COPY --from=gotrue-builder /go/src/github.com/supabase/auth/auth /usr/local/bin/auth
+COPY --from=gotrue-builder /go/src/github.com/supabase/auth/migrations /usr/local/etc/auth/migrations
+
+COPY supabase/init-scripts/99-supabase-roles.sql /docker-entrypoint-initdb.d/99-supabase-roles.sql
+COPY supabase/runtime/supervisord.conf /etc/supervisord.conf
+COPY supabase/runtime/wait-for-postgres-and-run-auth.sh /usr/local/bin/wait-for-postgres-and-run-auth.sh
+COPY supabase/runtime/healthcheck.sh /usr/local/bin/supabase-runtime-healthcheck.sh
+RUN chmod 0755 /usr/local/bin/wait-for-postgres-and-run-auth.sh /usr/local/bin/supabase-runtime-healthcheck.sh
+
+ENV GOTRUE_DB_MIGRATIONS_PATH=/usr/local/etc/auth/migrations
+ENV POSTGRES_USER=supabase_admin
+ENV POSTGRES_DB=conditera
+
+EXPOSE 5432 9999
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=45s --retries=12 \
+  CMD ["/usr/local/bin/supabase-runtime-healthcheck.sh"]
+
+ENTRYPOINT ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisord.conf"]
