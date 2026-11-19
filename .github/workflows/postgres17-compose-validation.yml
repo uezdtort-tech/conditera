@@ -8,6 +8,7 @@ on:
       - "docker-compose.supabase.yml"
       - "docker-compose.pg17-migration.yml"
       - "supabase/config.toml"
+      - "supabase/migrations/**"
       - ".github/workflows/postgres17-compose-validation.yml"
   pull_request:
     paths:
