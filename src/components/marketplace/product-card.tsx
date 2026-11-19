@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon } from "lucide-react";
+import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale, SlidersHorizontal } from "lucide-react";
 import {
   formatCurrency,
   getProductPaymentOptions,
@@ -17,9 +17,11 @@ import { cn } from "@/lib/utils";
 interface ProductCardProps {
   product: Product;
   variant?: "default" | "compact";
+  onCompare?: () => void;
+  isCompared?: boolean;
 }
 
-export function ProductCard({ product, variant = "default" }: ProductCardProps) {
+export function ProductCard({ product, variant = "default", onCompare, isCompared = false }: ProductCardProps) {
   const navigate = useAppStore((s) => s.navigate);
   const addToCart = useAppStore((s) => s.addToCart);
   const toggleFavorite = useAppStore((s) => s.toggleFavorite);
@@ -39,6 +41,18 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
     e.stopPropagation();
     toggleFavorite(product.id);
   };
+
+  const handleCompare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onCompare?.();
+  };
+
+  const handleCustomize = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate("product", { id: product.id, customize: "true" });
+  };
+
+  const hasCustomization = Boolean(product.fillings?.length);
 
   return (
     <Card
@@ -73,6 +87,24 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
             )}
           </div>
 
+          <div className="flex shrink-0 items-center gap-2">
+            {onCompare && (
+              <button
+                type="button"
+                onClick={handleCompare}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-full border shadow-md backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  isCompared
+                    ? "border-purple-600 bg-purple-600 text-white"
+                    : "border-white/50 bg-white/90 text-foreground hover:bg-white"
+                )}
+                aria-label={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+                aria-pressed={isCompared}
+                title={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+              >
+                <Scale className="h-[18px] w-[18px]" />
+              </button>
+            )}
           <button
             type="button"
             onClick={handleFavorite}
@@ -82,6 +114,7 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           >
             <Heart className={cn("h-[18px] w-[18px] transition-colors", isFavorite ? "fill-primary text-primary" : "text-foreground/70")} />
           </button>
+          </div>
         </div>
 
         {slicePreview?.image && (
@@ -158,6 +191,19 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
             )}
             {paymentOptions.split && <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[10px] text-amber-800">Сплит</Badge>}
           </div>
+        )}
+
+        {hasCustomization && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleCustomize}
+            className="w-full gap-2 rounded-xl"
+            aria-label={`Настроить ${product.title}`}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Настроить
+          </Button>
         )}
 
         <div className="mt-auto flex items-end justify-between gap-3 border-t border-border/70 pt-3">
