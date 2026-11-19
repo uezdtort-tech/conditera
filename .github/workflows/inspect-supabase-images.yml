@@ -20,6 +20,7 @@ jobs:
           bash -n scripts/ops/inspect-supabase-images.sh
           bash scripts/ops/inspect-supabase-images.sh ./artifacts/supabase-image-contract
       - name: Upload image contract report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: supabase-image-contract
