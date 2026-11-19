@@ -26,7 +26,7 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
   const isFavorite = useAppStore((s) => s.isFavorite(product.id));
   const confectioners = useAppStore((s) => s.confectioners);
   const confectioner = confectioners.find((c) => c.id === product.confectionerId);
-  const detailImage = product.detailImages?.[0];
+  const slicePreview = product.slices?.find((slice) => Boolean(slice.image));
   const paymentOptions = getProductPaymentOptions(product, confectioner);
 
   const handleAddToCart = (e: React.MouseEvent) => {
@@ -84,18 +84,21 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           </button>
         </div>
 
-        {detailImage && (
+        {slicePreview && (
           <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-white/70 bg-white/95 p-1.5 pr-3 shadow-lg backdrop-blur">
             <img
-              src={detailImage}
-              alt={`Дополнительное фото: ${product.title}`}
+              src={slicePreview.image}
+              alt={slicePreview.caption || `Разрез торта «${product.title}»`}
               loading="lazy"
               decoding="async"
               className="h-12 w-12 rounded-lg object-cover"
             />
-            <span className="flex items-center gap-1.5 text-xs font-medium text-stone-700">
-              <ImageIcon className="h-3.5 w-3.5" />
-              Ещё фото
+            <span className="flex flex-col text-xs font-medium leading-tight text-stone-700">
+              <span className="flex items-center gap-1.5">
+                <ImageIcon className="h-3.5 w-3.5" />
+                Разрез
+              </span>
+              {slicePreview.fillingName && <span className="max-w-28 truncate text-[10px] font-normal text-stone-500">{slicePreview.fillingName}</span>}
             </span>
           </div>
         )}
