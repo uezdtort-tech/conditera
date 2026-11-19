@@ -245,6 +245,28 @@ jobs:
           test "$ORPHANS" = "0"
           echo "SUPABASE PG15 + CONDITERA PG18 -> PG17 MERGE PASSED"
 
+      - name: Validate unified PostgreSQL 17 Docker Compose configuration
+        env:
+          POSTGRES_PASSWORD: "ci_postgres_password_32_chars_min"
+          CONDITERA_DB_PASSWORD: "ci_conditera_password_32_chars"
+          MEILI_MASTER_KEY: "ci_meili_master_key_32_chars_minimum"
+          JWT_SECRET: "ci_jwt_secret_32_chars_minimum_aaaaaaaa"
+          CRON_SECRET: "ci_cron_secret_32_chars"
+          N8N_ADMIN_PASSWORD: "ci_n8n_admin_password"
+          SIMPLEX_BRIDGE_API_KEY: "ci_simplex_bridge_api_key"
+          ENCRYPTOR_KEY: "ci_encryptor_key_32_chars_minimum"
+          SECRET_KEY_BASE: "ci_secret_key_base_64_chars_minimum_aaaaaaaaaaaaaaaa"
+          ANON_KEY: "ci_anon_key"
+          SERVICE_ROLE_KEY: "ci_service_role_key"
+          API_EXTERNAL_URL: "http://localhost:8000"
+          SITE_URL: "http://localhost:3000"
+          SMTP_HOST: "localhost"
+        run: |
+          touch .env.production
+          docker compose -f docker-compose.yml -f docker-compose.supabase.yml config --quiet
+          docker compose -f docker-compose.dev.yml config --quiet
+          docker build --target migrator -t conditera-migrator:ci .
+
   # ===== 3. Build =====
   build:
     name: Build Next.js
