@@ -692,17 +692,18 @@ export function ProductPage() {
           <Separator />
 
           {/* Customization */}
-          {product.fillings && product.fillings.length > 0 && (
+          {(product.fillings?.length || product.coatings?.length || product.decorations?.length) ? (
             <div ref={customizationRef} id="product-customization" className="space-y-4">
-              <div>
-                <Label className="font-medium flex items-center gap-2">
-                  Начинка
-                  <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
-                    срез торта
-                  </Badge>
-                </Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {product.fillings.map((f, i) => (
+              {product.fillings && product.fillings.length > 0 && (
+                <div>
+                  <Label className="font-medium flex items-center gap-2">
+                    Начинка
+                    <Badge variant="outline" className="text-[10px] text-primary border-primary/30">
+                      срез торта
+                    </Badge>
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    {product.fillings.map((f, i) => (
                     <button
                       key={i}
                       onClick={() => setSelectedFilling(i)}
@@ -723,8 +724,9 @@ export function ProductPage() {
                       </div>
                     </button>
                   ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {product.coatings && (
                 <div>
