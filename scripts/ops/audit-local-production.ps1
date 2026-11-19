@@ -55,10 +55,14 @@ function Get-DockerRuntimeInventory {
       $composeWorkingDir = $null
       $composeFiles = $null
       if ($null -ne $labels) {
-        $composeProject = $labels.PSObject.Properties["com.docker.compose.project"]?.Value
-        $composeService = $labels.PSObject.Properties["com.docker.compose.service"]?.Value
-        $composeWorkingDir = $labels.PSObject.Properties["com.docker.compose.project.working_dir"]?.Value
-        $composeFiles = $labels.PSObject.Properties["com.docker.compose.project.config_files"]?.Value
+        $label = $labels.PSObject.Properties["com.docker.compose.project"]
+        if ($null -ne $label) { $composeProject = $label.Value }
+        $label = $labels.PSObject.Properties["com.docker.compose.service"]
+        if ($null -ne $label) { $composeService = $label.Value }
+        $label = $labels.PSObject.Properties["com.docker.compose.project.working_dir"]
+        if ($null -ne $label) { $composeWorkingDir = $label.Value }
+        $label = $labels.PSObject.Properties["com.docker.compose.project.config_files"]
+        if ($null -ne $label) { $composeFiles = $label.Value }
       }
       $containers += [pscustomobject]@{
         name = ([string]$item.Name).TrimStart("/")
