@@ -87,10 +87,10 @@ services:
 consumers:
   - username: anon
     keyauth_credentials:
-      - key: ${ANON_KEY}
+      - key: $ANON_KEY
   - username: service_role
     keyauth_credentials:
-      - key: ${SERVICE_ROLE_KEY}
+      - key: $SERVICE_ROLE_KEY
 
 # ===== ACL плагины =====
 plugins:
