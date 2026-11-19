@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon } from "lucide-react";
+import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale } from "lucide-react";
 import {
   formatCurrency,
   getProductPaymentOptions,
@@ -17,9 +17,11 @@ import { cn } from "@/lib/utils";
 interface ProductCardProps {
   product: Product;
   variant?: "default" | "compact";
+  onCompare?: () => void;
+  isCompared?: boolean;
 }
 
-export function ProductCard({ product, variant = "default" }: ProductCardProps) {
+export function ProductCard({ product, variant = "default", onCompare, isCompared = false }: ProductCardProps) {
   const navigate = useAppStore((s) => s.navigate);
   const addToCart = useAppStore((s) => s.addToCart);
   const toggleFavorite = useAppStore((s) => s.toggleFavorite);
@@ -38,6 +40,11 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
   const handleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
     toggleFavorite(product.id);
+  };
+
+  const handleCompare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onCompare?.();
   };
 
   return (
@@ -73,6 +80,24 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
             )}
           </div>
 
+          <div className="flex shrink-0 items-center gap-2">
+            {onCompare && (
+              <button
+                type="button"
+                onClick={handleCompare}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-full border shadow-md backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  isCompared
+                    ? "border-purple-600 bg-purple-600 text-white"
+                    : "border-white/50 bg-white/90 text-foreground hover:bg-white"
+                )}
+                aria-label={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+                aria-pressed={isCompared}
+                title={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+              >
+                <Scale className="h-[18px] w-[18px]" />
+              </button>
+            )}
           <button
             type="button"
             onClick={handleFavorite}
@@ -82,9 +107,10 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           >
             <Heart className={cn("h-[18px] w-[18px] transition-colors", isFavorite ? "fill-primary text-primary" : "text-foreground/70")} />
           </button>
+          </div>
         </div>
 
-        {slicePreview && (
+        {slicePreview?.image && (
           <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-white/70 bg-white/95 p-1.5 pr-3 shadow-lg backdrop-blur">
             <img
               src={slicePreview.image}
