@@ -37,4 +37,4 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 \
   CMD wget -qO- http://localhost:5226/health | grep -q '"cliConnected":true' && wget -qO- http://localhost:5226/health | grep -q '"isInitialized":true' || exit 1
 
 # Node 26 стабильно поддерживает erasable TypeScript syntax без ts-node.
-CMD ["dumb-init", "sh", "-c", "simplex-chat --chat-server-port ${SIMPLEX_CLI_PORT} --database /app/simplex --create-bot-display-name \"${SIMPLEX_PROFILE_NAME:-Conditera}\" & exec node index.ts"]
+CMD ["dumb-init", "sh", "-c", "simplex-chat --chat-server-port ${SIMPLEX_CLI_PORT} --database /data/simplex --create-bot-display-name \"${SIMPLEX_PROFILE_NAME:-Conditera}\" & exec node index.ts"]
