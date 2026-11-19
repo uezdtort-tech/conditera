@@ -50,6 +50,10 @@ function Get-DockerRuntimeInventory {
         }
       }
       $health = if ($null -ne $item.State.Health) { $item.State.Health.Status } else { "no-healthcheck" }
+      $exposedPorts = @()
+      if ($null -ne $item.Config.ExposedPorts) {
+        $exposedPorts = @($item.Config.ExposedPorts.PSObject.Properties.Name)
+      }
       $portBindings = @()
       if ($null -ne $item.NetworkSettings.Ports) {
         foreach ($portEntry in $item.NetworkSettings.Ports.PSObject.Properties) {
@@ -98,7 +102,7 @@ function Get-DockerRuntimeInventory {
         user = $item.Config.User
         entrypoint = @($item.Config.Entrypoint)
         command = @($item.Config.Cmd)
-        exposedPorts = @($item.Config.ExposedPorts.PSObject.Properties.Name)
+        exposedPorts = $exposedPorts
         portBindings = $portBindings
         composeProject = $composeProject
         composeService = $composeService
