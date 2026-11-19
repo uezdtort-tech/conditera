@@ -16,10 +16,33 @@
 -- ===== 1. Расширения =====
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+-- pg_cron is optional. It can only be installed in cron.database_name;
+-- the Conditera application currently delegates scheduled workflows to n8n.
+DO $pg_cron$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_cron')
+     AND current_database() = COALESCE(NULLIF(current_setting('cron.database_name', true), ''), current_database()) THEN
+    EXECUTE 'CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions';
+  ELSE
+    RAISE NOTICE 'Skipping optional pg_cron in database %', current_database();
+  END IF;
+END
+$pg_cron$;
+
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
+
+-- pgsodium is optional and deprecated upstream; no project migration calls
+-- its API. Keep it when the Supabase PostgreSQL distribution provides it.
 CREATE SCHEMA IF NOT EXISTS pgsodium;
-CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium;
+DO $pgsodium$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pgsodium') THEN
+    EXECUTE 'CREATE EXTENSION IF NOT EXISTS pgsodium WITH SCHEMA pgsodium';
+  ELSE
+    RAISE NOTICE 'Skipping optional pgsodium: extension package is unavailable';
+  END IF;
+END
+$pgsodium$;
 
 -- ===== 2. Enums =====
 
