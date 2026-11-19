@@ -1,18 +1,17 @@
 # ===== Docker Compose для dev-режима =====
 # Запуск: docker-compose -f docker-compose.dev.yml up -d
 #
-# Включает: PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n
+# Включает: PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n
 # Next.js запускается отдельно через `npm run dev:local`
 
 version: "3.8"
 
 services:
-  # ===== PostgreSQL 18 (dev) =====
-  # Не удалять volume при несовпадении PG_VERSION.
-  # Сначала определить фактическую версию данных, сделать backup и выполнить
-  # штатный pg_upgrade либо восстановление в новый volume с проверкой данных.
+  # ===== PostgreSQL 17 (основной dev-контур) =====
+  # Новый volume изолирован от прежних данных PG18.
+  # Старый volume сохранён отдельным профилем pg18-legacy — ничего не удаляется.
   db-dev:
-    image: postgres:18-alpine
+    image: postgres:17-alpine
     container_name: uyezdny-db-dev
     ports:
       - "5433:5432"
@@ -21,15 +20,34 @@ services:
       POSTGRES_PASSWORD: uyezdny_dev_pass
       POSTGRES_DB: uyezdny_konditer_dev
     volumes:
-      - uyezdny-db-dev-data-v18:/var/lib/postgresql/data
-      # Mount migrations & seeds so init script can apply them.
-      # NOTE: files in /docker-entrypoint-initdb.d/ run only on FIRST init
-      # (when data volume is empty). For re-runs use ./scripts/init-db.sh.
+      - uyezdny-db-dev-data-v17:/var/lib/postgresql/data
       - ./supabase/migrations:/migrations:ro
       - ./supabase/seed.sql:/seeds/01-seed.sql:ro
       - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
       - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/01-apply-migrations.sh:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uyezdny -d uyezdny_konditer_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===== PostgreSQL 18 (только чтение старого dev-volume/перенос данных) =====
+  # Запуск: docker compose -f docker-compose.dev.yml --profile pg18-legacy up -d db-dev-pg18
+  # Старый volume v18 остаётся доступен и не подключается к PG17.
+  db-dev-pg18:
+    image: postgres:18-alpine
+    container_name: uyezdny-db-dev-pg18
+    profiles: ["pg18-legacy"]
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: uyezdny
+      POSTGRES_PASSWORD: uyezdny_dev_pass
+      POSTGRES_DB: uyezdny_konditer_dev
+    volumes:
+      - uyezdny-db-dev-data-v18:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U uyezdny -d uyezdny_konditer_dev"]
@@ -108,6 +126,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  uyezdny-db-dev-data-v17:
   uyezdny-db-dev-data-v18:
   uyezdny-meili-dev-data:
   uyezdny-n8n-dev-data:
