@@ -355,15 +355,15 @@ if ($app.databaseAuditStatus -ne "success" -or $supabase.databaseAuditStatus -ne
   exit 3
 }
 if (-not $sameCluster) {
-  Write-Warning "SPLIT_POSTGRES_CLUSTERS: приложение и Supabase подключены к разным PostgreSQL-кластерам. Production cutover запрещён."
+  Write-Error "SPLIT_POSTGRES_CLUSTERS: приложение и Supabase подключены к разным PostgreSQL-кластерам. Production cutover запрещён."
   exit 4
 }
 if (-not $sameDatabase) {
-  Write-Warning "SPLIT_POSTGRES_DATABASES: подключения ведут в разные базы одного кластера. Единый источник данных не подтверждён."
+  Write-Error "SPLIT_POSTGRES_DATABASES: подключения ведут в разные базы одного кластера. Единый источник данных не подтверждён."
   exit 5
 }
 if (-not $samePostgresProcess) {
-  Write-Warning "SPLIT_POSTGRES_ENDPOINTS: подключения завершаются в разных процессах PostgreSQL или один endpoint является standby. Единая рабочая точка записи не подтверждена."
+  Write-Error "SPLIT_POSTGRES_ENDPOINTS: подключения завершаются в разных процессах PostgreSQL или один endpoint является standby. Единая рабочая точка записи не подтверждена."
   exit 6
 }
 Write-Host "OK: оба подключения ведут в одну базу и один процесс PostgreSQL вне recovery."
