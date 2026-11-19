@@ -51,7 +51,7 @@ describe("ProductCard cake slice preview", () => {
 
   it("пропускает пустое изображение и выбирает первый реальный разрез", () => {
     render(<ProductCard product={makeProduct([
-      { id: "slice-empty", image: null, fillingName: "Пустая запись" },
+      { id: "slice-empty", image: "", fillingName: "Пустая запись" },
       { id: "slice-real", image: "/slice-real.jpg", fillingName: "Фисташка" },
     ])} />);
 
