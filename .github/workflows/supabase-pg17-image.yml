@@ -9,6 +9,7 @@ on:
       - "scripts/db/ensure-supabase-init.sh"
       - "scripts/ops/pg17-init/**"
       - "supabase/pg17-init/**"
+      - "supabase/migrations/**"
       - ".github/workflows/supabase-pg17-image.yml"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "scripts/db/ensure-supabase-init.sh"
       - "scripts/ops/pg17-init/**"
       - "supabase/pg17-init/**"
+      - "supabase/migrations/**"
       - ".github/workflows/supabase-pg17-image.yml"
   workflow_dispatch:
 
