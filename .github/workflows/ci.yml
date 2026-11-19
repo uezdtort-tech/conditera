@@ -241,6 +241,10 @@ jobs:
           test -s "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
           docker exec -e PGPASSWORD=postgres -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/supabase15-auth-storage-data.sql"
 
+          # Install business-schema extensions before restoring DDL that uses
+          # their operator classes (notably uuid GiST constraints).
+          docker exec -e PGPASSWORD=postgres "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -c "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA extensions;"
+
           # Merge the Conditera business schema into the pre-initialized Supabase
           # public schema; never drop the Supabase-owned public schema itself.
           docker exec "$SOURCE18_ID" pg_dump -U postgres -d conditera --schema=public --no-owner --format=plain > "$RUNNER_TEMP/conditera18-public.sql"
