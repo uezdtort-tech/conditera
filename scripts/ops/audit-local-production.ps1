@@ -49,7 +49,8 @@ function Get-DockerRuntimeInventory {
           }
         }
       }
-      $health = if ($null -ne $item.State.Health) { $item.State.Health.Status } else { "no-healthcheck" }
+      $healthProperty = $item.State.PSObject.Properties["Health"]
+      $health = if ($null -ne $healthProperty -and $null -ne $healthProperty.Value) { $healthProperty.Value.Status } else { "no-healthcheck" }
       $exposedPorts = @()
       if ($null -ne $item.Config.ExposedPorts) {
         $exposedPorts = @($item.Config.ExposedPorts.PSObject.Properties.Name)
@@ -155,7 +156,8 @@ function Get-ContainerInventory {
   $inspectArray = ConvertFrom-Json -InputObject $inspectText
   $inspect = @($inspectArray)[0]
   $state = $inspect.State.Status
-  $health = if ($null -ne $inspect.State.Health) { $inspect.State.Health.Status } else { "no-healthcheck" }
+  $healthProperty = $inspect.State.PSObject.Properties["Health"]
+  $health = if ($null -ne $healthProperty -and $null -ne $healthProperty.Value) { $healthProperty.Value.Status } else { "no-healthcheck" }
 
   $base = [ordered]@{
     container = $Name
