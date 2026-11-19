@@ -13,6 +13,17 @@ if [[ "$DB_EXISTS" != "1" ]]; then
   createdb -U "$POSTGRES_USER" "$POSTGRES_DB"
 fi
 
+# Supabase's pg_net worker expects the conventional local postgres role.
+psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d template1 <<'SQL'
+DO $
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    CREATE ROLE postgres LOGIN SUPERUSER;
+  END IF;
+END
+$;
+SQL
+
 # Local compatibility objects are required before the first Conditera migration.
 psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -f /compat/0000_supabase_compat.sql
