@@ -232,6 +232,20 @@ jobs:
           docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.buckets (id, name) VALUES ('media', 'media') ON CONFLICT (id) DO NOTHING"
           docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '$PROFILE_ID'::uuid, '{\"source\":\"official-supabase-pg15\"}'::jsonb)"
 
+          # The PostgreSQL 18 application fixture contains demo identities in
+          # auth.users. In production their actual Supabase identities come
+          # from the PG15 source; mirror every referenced test UUID there before
+          # exporting Auth data so business foreign keys remain valid.
+          PG18_AUTH_USER_IDS="$(docker exec "$SOURCE18_ID" psql -U postgres -d conditera -Atqc "SELECT id::text FROM auth.users ORDER BY id")"
+          test -n "$PG18_AUTH_USER_IDS"
+          while IFS= read -r USER_ID; do
+            [[ "$USER_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
+              echo "Invalid Auth UUID from PG18 fixture: $USER_ID"
+              exit 1
+            }
+            docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_user_meta_data, created_at, updated_at) VALUES ('$USER_ID'::uuid, 'pg18-compat-$USER_ID@example.invalid', '', now(), '{\"source\":\"pg18-compat-fixture\"}'::jsonb, now(), now()) ON CONFLICT (id) DO NOTHING"
+          done <<< "$PG18_AUTH_USER_IDS"
+
           # Exercise the actual bootstrap SQL used by docker-compose.yml.
           docker cp supabase/init-scripts/90-create-conditera-db.sql "$TARGET_ID:/tmp/90-create-conditera-db.sql"
           docker exec -e PGPASSWORD=postgres -e CONDITERA_DB_PASSWORD=ci_conditera_password_32_chars "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f /tmp/90-create-conditera-db.sql
