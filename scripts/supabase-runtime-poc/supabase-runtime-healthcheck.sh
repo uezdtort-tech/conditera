@@ -11,7 +11,7 @@ curl -fsS --max-time 3 -H "Authorization: Bearer $ANON_KEY" \
   http://127.0.0.1:4000/api/tenants/realtime-dev/health >/dev/null
 curl -fsS --max-time 3 http://127.0.0.1:5000/status >/dev/null
 curl -sS --max-time 3 -o /dev/null http://127.0.0.1:8080/health
-curl -fsS --max-time 3 http://127.0.0.1:8000/auth/v1/health >/dev/null
+curl -fsS --max-time 3 -H "apikey: $ANON_KEY" http://127.0.0.1:8000/auth/v1/health >/dev/null
 /usr/local/lib/supabase-runtime-poc/run-chroot.sh imgproxy 999:999 \
   /usr/local/bin/imgproxy health >/dev/null
 supervisorctl -c /etc/supervisord.conf status | awk '$2 != "RUNNING" { bad=1 } END { exit bad }'
