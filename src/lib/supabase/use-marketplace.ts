@@ -968,7 +968,13 @@ export function useLiveProducts(limit = 60) {
         next: { tags: ["products", "vitrina"], revalidate: 60 },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as { products?: ApiProduct[] };
+      const json = (await res.json()) as {
+        products?: ApiProduct[];
+        dataStatus?: { productSlices?: "ok" | "unavailable" };
+      };
+      if (json.dataStatus?.productSlices === "unavailable") {
+        console.warn("[marketplace] product slices are temporarily unavailable; cutaway images may be omitted");
+      }
       return (json.products ?? []).map(mapApiProductToProduct);
     },
     staleTime: 60 * 1000,
@@ -1038,10 +1044,18 @@ export function useLiveProductDetail(id: string | null | undefined) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as {
         product?: ApiProduct;
+        slices?: ProductSliceItem[] | null;
         reviews?: ApiReview[];
+        dataStatus?: { productSlices?: "ok" | "unavailable" };
       };
+      if (json.dataStatus?.productSlices === "unavailable") {
+        console.warn("[marketplace] product detail slices are temporarily unavailable");
+      }
+      const product = json.product
+        ? mapApiProductToProduct({ ...json.product, slices: json.slices ?? [] })
+        : null;
       return {
-        product: json.product ? mapApiProductToProduct(json.product) : null,
+        product,
         reviews: (json.reviews ?? []).map(mapApiReviewToReview),
       };
     },
