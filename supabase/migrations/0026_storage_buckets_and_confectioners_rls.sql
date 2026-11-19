@@ -147,6 +147,14 @@ CREATE POLICY "confectioners_select_public" ON public.confectioners
   FOR SELECT
   USING (verified = true);
 
+-- Владелец видит собственную карточку даже до верификации.
+-- Это также позволяет RLS транзакций кондитера безопасно проверить связь userId.
+DROP POLICY IF EXISTS "confectioners_select_own" ON public.confectioners;
+CREATE POLICY "confectioners_select_own" ON public.confectioners
+  FOR SELECT
+  TO authenticated
+  USING ("userId" = auth.uid()::text);
+
 -- Админ видит все строки (включая pending/rejected).
 -- Требуется, чтобы текущий пользователь имел роль ADMIN в public.user_roles.
 CREATE POLICY "confectioners_select_admin" ON public.confectioners
