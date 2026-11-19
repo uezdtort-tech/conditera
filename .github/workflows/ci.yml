@@ -186,6 +186,16 @@ jobs:
           test -n "$SOURCE18_ID"
           test -n "$TARGET_ID"
 
+          # Apply the same service-role password init mounted by production Compose.
+          for DB_ID in "$SOURCE15_ID" "$TARGET_ID"; do
+            docker cp supabase/init-scripts/99-supabase-roles.sql "$DB_ID:/tmp/99-supabase-roles.sql"
+            DB_NAME="supabase"
+            if [ "$DB_ID" = "$TARGET_ID" ]; then DB_NAME="conditera"; fi
+            docker exec -e POSTGRES_PASSWORD=postgres -e PGPASSWORD=postgres "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -v ON_ERROR_STOP=1 -f /tmp/99-supabase-roles.sql
+            PASSWORD_ROLES="$(docker exec -e PGPASSWORD=postgres "$DB_ID" psql -U supabase_admin -d "$DB_NAME" -Atqc "SELECT count(*) FROM pg_authid WHERE rolname = ANY (ARRAY['authenticator','pgbouncer','supabase_auth_admin','supabase_functions_admin','supabase_storage_admin']) AND rolpassword IS NOT NULL")"
+            test "$PASSWORD_ROLES" = "5"
+          done
+
           # Build the same Storage schema as the pinned storage-api image,
           # while reusing the Supabase roles created by the official Postgres image.
           curl -fsSL https://raw.githubusercontent.com/supabase/storage/v1.14.5/migrations/tenant/0002-storage-schema.sql -o "$RUNNER_TEMP/storage-v1.14.5-0002.sql"
