@@ -47,17 +47,32 @@ services:
     environment:
       POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      POSTGRES_DB: supabase
+      POSTGRES_DB: postgres
       POSTGRES_PORT: 5432
+      JWT_EXP: ${JWT_EXPIRY:-3600}
+      MIGRATIONS_DIR: /migrations
+      SEEDS_DIR: /seeds
       CONDITERA_DB_PASSWORD: ${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD}}
     expose:
       - "5432"
     volumes:
       - supabase_db_data_pg17:/var/lib/postgresql/data
       - supabase_db_config_pg17:/etc/postgresql-custom
-      - ./scripts/ops/pg17-init/99-conditera-role.sh:/docker-entrypoint-initdb.d/zz-conditera-role.sh:ro
+      - ./supabase/pg17-init/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./supabase/pg17-init/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      - ./supabase/pg17-init/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:ro
+      - ./supabase/pg17-init/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:ro
+      - ./supabase/pg17-init/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
+      - ./supabase/pg17-init/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:ro
+      - ./supabase/pg17-init/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:ro
+      - ./supabase/migrations:/migrations:ro
+      - ./supabase/seed.sql:/seeds/01-seed.sql:ro
+      - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
+      - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/zz-10-conditera-migrations.sh:ro
+      - ./scripts/ops/pg17-init/99-conditera-role.sh:/docker-entrypoint-initdb.d/zz-20-conditera-role.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supabase_admin -d supabase"]
+      test: ["CMD-SHELL", "pg_isready -U supabase_admin -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -86,11 +101,11 @@ services:
       - "5432"
     volumes:
       - supabase_db_data:/var/lib/postgresql/data
-      - ./supabase/init-scripts:/docker-entrypoint-initdb.d:ro
-      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
-      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/seed/01-seed.sql:ro
-      - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
-      - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
+      - ./supabase/migrations:/migrations:ro
+      - ./supabase/seed.sql:/seeds/01-seed.sql:ro
+      - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
+      - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/zz-conditera-migrations.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase -d supabase"]
       interval: 10s
