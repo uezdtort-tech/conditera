@@ -9,7 +9,7 @@ set -Eeuo pipefail
 
 # Некоторые варианты Supabase Postgres entrypoint создают только базу postgres.
 # Гарантируем наличие именно Conditera dev DB до применения compat/migrations.
-DB_EXISTS="$(psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'")"
+DB_EXISTS="$(psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d template1 -Atc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'")"
 if [[ "$DB_EXISTS" != "1" ]]; then
   createdb -U "$POSTGRES_USER" "$POSTGRES_DB"
 fi
