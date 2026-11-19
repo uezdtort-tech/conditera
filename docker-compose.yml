@@ -163,8 +163,6 @@ services:
       - "5432"
     volumes:
       - postgres_data_pg17:/var/lib/postgresql/data
-      # Set passwords for Supabase service roles after the image creates them.
-      - ./supabase/init-scripts/99-supabase-roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-conditera-roles.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase_admin -d conditera"]
       interval: 10s
@@ -189,12 +187,16 @@ services:
     container_name: conditera-db-bootstrap
     restart: "no"
     environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       CONDITERA_DB_PASSWORD: ${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
     volumes:
+      - ./supabase/init-scripts/99-supabase-roles.sql:/bootstrap/99-supabase-roles.sql:ro
       - ./supabase/init-scripts/90-create-conditera-db.sql:/bootstrap/90-create-conditera-db.sql:ro
     entrypoint: ["/bin/sh", "-c"]
-    command: "psql -h db -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f /bootstrap/90-create-conditera-db.sql"
+    command: >
+      psql -h db -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -f /bootstrap/99-supabase-roles.sql &&
+      psql -h db -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -f /bootstrap/90-create-conditera-db.sql
     depends_on:
       db:
         condition: service_healthy
