@@ -83,7 +83,7 @@ function Get-DockerRuntimeInventory {
 
   $networksInventory = @()
   $networkText = Invoke-DockerText -Arguments @("network", "ls", "--format", "{{json .}}")
-  foreach ($line in @($networkText -split "\r?\n" | Where-Object { $_ }) {
+  foreach ($line in @($networkText -split "\r?\n" | Where-Object { $_ })) {
     $networksInventory += (ConvertFrom-Json -InputObject $line)
   }
 
