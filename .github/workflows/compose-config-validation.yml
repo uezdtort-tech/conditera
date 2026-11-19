@@ -12,6 +12,8 @@ on:
       - "scripts/db/ensure-supabase-init.sh"
       - "supabase/pg17-init/**"
       - "supabase/migrations/**"
+      - "supabase/seed*.sql"
+      - "supabase/init-scripts/01-apply-migrations.sh"
       - "scripts/ops/pg17-init/**"
       - ".github/workflows/compose-config-validation.yml"
   pull_request:
@@ -23,6 +25,8 @@ on:
       - "scripts/db/ensure-supabase-init.sh"
       - "supabase/pg17-init/**"
       - "supabase/migrations/**"
+      - "supabase/seed*.sql"
+      - "supabase/init-scripts/01-apply-migrations.sh"
       - "scripts/ops/pg17-init/**"
       - ".github/workflows/compose-config-validation.yml"
   workflow_dispatch:
