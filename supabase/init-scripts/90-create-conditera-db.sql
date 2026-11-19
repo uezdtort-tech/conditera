@@ -30,6 +30,7 @@ GRANT USAGE ON SCHEMA public, auth, storage, extensions TO conditera;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO conditera;
+GRANT USAGE ON ALL TYPES IN SCHEMA public TO conditera;
 
 -- Все будущие бизнес-объекты создаёт supabase_admin через migrator.
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
@@ -38,6 +39,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
   GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO conditera;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO conditera;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
+  GRANT USAGE ON TYPES TO conditera;
 
 ALTER DATABASE conditera SET search_path TO public, extensions;
 
