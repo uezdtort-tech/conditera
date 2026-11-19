@@ -32,7 +32,7 @@ function fail(label: string, detail = "") { failed++; console.log(`  ✗ FAIL ${
 
 const USER = "11111111-1111-1111-1111-111111111111";
 
-/** Минимальная фикстура: payments + profiles + confectioner_transactions + auth-схема. */
+/** Минимальная фикстура: payments + profiles + confectioners + confectioner_transactions + auth-схема. */
 const FIXTURE = `
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE auth.users (id uuid primary key default gen_random_uuid());
@@ -135,7 +135,6 @@ async function main() {
 
   console.log("\n=== КОНТРАКТ F-2: reserve_refund (0035) + webhook — единственный писатель ===");
   await db.exec(`
-    CREATE TABLE public.confectioners (id text primary key);
     CREATE OR REPLACE FUNCTION public.reserve_refund(p_payment_id UUID, p_amount NUMERIC)
     RETURNS NUMERIC LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
     DECLARE v_new NUMERIC;
