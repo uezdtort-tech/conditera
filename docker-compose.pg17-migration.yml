@@ -224,6 +224,7 @@ services:
     profiles: ["pg17-migration"]
     restart: on-failure
     environment:
+      APP_NAME: realtime
       DB_HOST: supabase-db-pg17-migration
       DB_PORT: 5432
       DB_USER: supabase_admin
