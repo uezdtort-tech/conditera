@@ -49,6 +49,17 @@ function Get-DockerRuntimeInventory {
         }
       }
       $health = if ($null -ne $item.State.Health) { $item.State.Health.Status } else { "no-healthcheck" }
+      $labels = $item.Config.Labels
+      $composeProject = $null
+      $composeService = $null
+      $composeWorkingDir = $null
+      $composeFiles = $null
+      if ($null -ne $labels) {
+        $composeProject = $labels.PSObject.Properties["com.docker.compose.project"]?.Value
+        $composeService = $labels.PSObject.Properties["com.docker.compose.service"]?.Value
+        $composeWorkingDir = $labels.PSObject.Properties["com.docker.compose.project.working_dir"]?.Value
+        $composeFiles = $labels.PSObject.Properties["com.docker.compose.project.config_files"]?.Value
+      }
       $containers += [pscustomobject]@{
         name = ([string]$item.Name).TrimStart("/")
         id = $item.Id
@@ -56,10 +67,10 @@ function Get-DockerRuntimeInventory {
         imageId = $item.Image
         state = $item.State.Status
         health = $health
-        composeProject = $item.Config.Labels."com.docker.compose.project"
-        composeService = $item.Config.Labels."com.docker.compose.service"
-        composeWorkingDir = $item.Config.Labels."com.docker.compose.project.working_dir"
-        composeFiles = $item.Config.Labels."com.docker.compose.project.config_files"
+        composeProject = $composeProject
+        composeService = $composeService
+        composeWorkingDir = $composeWorkingDir
+        composeFiles = $composeFiles
         networks = $networks
         mounts = @($item.Mounts | ForEach-Object {
           [pscustomobject]@{
