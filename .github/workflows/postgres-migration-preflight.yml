@@ -1,0 +1,27 @@
+name: PostgreSQL migration tooling
+
+on:
+  push:
+    branches:
+      - fix/postgres17-supabase-consolidation
+    paths:
+      - "scripts/ops/backup-dual-postgres-before-pg17.sh"
+      - ".github/workflows/postgres-migration-preflight.yml"
+  pull_request:
+    paths:
+      - "scripts/ops/backup-dual-postgres-before-pg17.sh"
+      - ".github/workflows/postgres-migration-preflight.yml"
+  workflow_dispatch:
+
+jobs:
+  validate-backup-tool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Bash syntax
+        run: bash -n scripts/ops/backup-dual-postgres-before-pg17.sh
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: scripts/ops
+          severity: warning
