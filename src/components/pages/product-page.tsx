@@ -1143,12 +1143,7 @@ export function ProductPage() {
 
       {/* === Срезы торта по начинкам (новый тренд) === */}
       {product.slices && product.slices.length > 0 && (
-        <ProductSliceGallery
-          productId={product.id}
-          fillings={product.slices
-            .filter((slice) => Boolean(slice.fillingName))
-            .map((slice) => ({ name: slice.fillingName as string }))}
-        />
+        <ProductSliceGallery productId={product.id} />
       )}
 
       {/* Cross-sell: bundles, decor, similar */}
