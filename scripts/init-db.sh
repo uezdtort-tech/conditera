@@ -53,6 +53,7 @@ else
   CONTAINER_NAME="uyezdny-db-dev"
   CHECK_DB_USER="postgres"
   CHECK_DB_NAME="uyezdny_konditer_dev"
+  DB_PASS="uyezdny_dev_pass"
   DB_HOST="localhost"
   DB_PORT="5433"
   DB_USER="supabase_admin"
