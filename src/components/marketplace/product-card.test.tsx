@@ -61,7 +61,7 @@ describe("ProductCard cake slice preview", () => {
   });
 
   it("не показывает метку разреза, если реального изображения нет", () => {
-    render(<ProductCard product={makeProduct([{ id: "slice-empty", image: null }])} />);
+    render(<ProductCard product={makeProduct([{ id: "slice-empty", image: "" }])} />);
     expect(screen.queryByText("Разрез")).not.toBeInTheDocument();
   });
 
