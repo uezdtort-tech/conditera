@@ -56,7 +56,7 @@ import {
   calculateInstallmentPayment,
   INSTALLMENT_PROVIDERS,
 } from "@/lib/finance";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useLiveProductDetail } from "@/lib/supabase/use-marketplace";
 import type { Review } from "@/lib/types";
@@ -212,7 +212,6 @@ export function ProductPage() {
   const [selectedCoating, setSelectedCoating] = useState(0);
   const [selectedDecoration, setSelectedDecoration] = useState(0);
   const [inscription, setInscription] = useState("");
-  const customizationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (product) {
@@ -220,11 +219,6 @@ export function ProductPage() {
     }
   }, [product?.id]);
 
-  useEffect(() => {
-    if (nav.params?.customize === "true" && product) {
-      customizationRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [product?.id, nav.params?.customize]);
 
   // Минимальный заказ (0052) — держим количество в рамках правила товара
   useEffect(() => {
@@ -693,7 +687,7 @@ export function ProductPage() {
 
           {/* Customization */}
           {(product.fillings?.length || product.coatings?.length || product.decorations?.length) ? (
-            <div ref={customizationRef} id="product-customization" className="space-y-4">
+            <div id="product-customization" className="space-y-4">
               {product.fillings && product.fillings.length > 0 && (
                 <div>
                   <Label className="font-medium flex items-center gap-2">
