@@ -31,7 +31,7 @@ REVOKE ALL ON public.confectioner_transactions FROM anon, authenticated;
 -- присутствует user_id. В текущей Prisma-схеме (0017) используется
 -- confectionerId TEXT, поэтому при отсутствии user_id сохраняем default-deny.
 -- service_role обходит RLS и сохраняет полный служебный доступ.
-DO $
+DO $$
 BEGIN
   IF EXISTS (
     SELECT 1
@@ -51,7 +51,7 @@ BEGIN
       TO authenticated
       USING (user_id = auth.uid())';
   END IF;
-END $;
+END $$;
 
 GRANT SELECT ON public.confectioner_transactions TO authenticated;
 
