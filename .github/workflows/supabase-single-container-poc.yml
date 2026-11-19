@@ -30,9 +30,9 @@ jobs:
           set -Eeuo pipefail
           export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
           export POSTGRES_PASSWORD="ci-only-postgres-password"
-          export SECRET_KEY_BASE="ci-only-secret-key-base-64-characters-long-for-realtime"
-          export PG_META_CRYPTO_KEY="ci-only-pg-meta-crypto-key-32chars"
-          export REALTIME_DB_ENC_KEY="ci-only-realtime-db-enc-key-32"
+          export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
+          export REALTIME_DB_ENC_KEY="0123456789abcdef0123456789abcdef"
           python3 - <<'PY' > /tmp/runtime.env
           import base64, hashlib, hmac, json, os, time
           secret = os.environ["JWT_SECRET"].encode()
