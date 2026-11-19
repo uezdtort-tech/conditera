@@ -22,8 +22,6 @@
 # Минимальные требования: 4 GB RAM, 20 GB SSD
 # ====================================================================
 
-version: "3.8"
-
 x-logging: &default-logging
   driver: "json-file"
   options:
