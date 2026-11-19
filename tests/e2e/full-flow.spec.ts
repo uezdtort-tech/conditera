@@ -93,10 +93,19 @@ test.describe("API endpoints", () => {
     expect(response.ok()).toBeTruthy();
   });
 
-  test("GET /api/products returns 200 or 500 (no DB in test)", async ({ request }) => {
+  test("GET /api/products returns published products with slice metadata", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/products`);
-    // 200 если БД есть, 500 если нет — оба варианта допустимы
-    expect([200, 500]).toContain(response.status());
+    expect(response.status()).toBe(200);
+    const body = await response.json() as {
+      products: Array<{ slices?: Array<{ image: string | null }> }>;
+    };
+    expect(Array.isArray(body.products)).toBe(true);
+    for (const product of body.products) {
+      expect(Array.isArray(product.slices)).toBe(true);
+      for (const slice of product.slices ?? []) {
+        expect(slice.image === null || typeof slice.image === "string").toBe(true);
+      }
+    }
   });
 
   test("GET /api/csrf-token returns 200", async ({ request }) => {
