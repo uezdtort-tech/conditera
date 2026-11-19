@@ -1,5 +1,5 @@
--- NOTE: change to your own passwords for production environments
-\set pgpass \`echo "$POSTGRES_PASSWORD"\`
+-- Passwords for the Supabase service roles are inherited from POSTGRES_PASSWORD.
+\getenv pgpass POSTGRES_PASSWORD
 
 ALTER USER authenticator WITH PASSWORD :'pgpass';
 ALTER USER pgbouncer WITH PASSWORD :'pgpass';
