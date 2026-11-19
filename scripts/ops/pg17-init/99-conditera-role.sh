@@ -18,7 +18,7 @@ GRANT anon, authenticated, service_role TO conditera;
 SELECT format('GRANT CONNECT ON DATABASE %I TO conditera', current_database())
 \gexec
 GRANT USAGE, CREATE ON SCHEMA public TO conditera;
-GRANT USAGE ON SCHEMA auth, storage, extensions TO conditera;
+GRANT USAGE ON SCHEMA auth, storage, extensions, pgsodium TO conditera;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO conditera;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO conditera;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO conditera;
