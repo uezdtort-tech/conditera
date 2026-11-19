@@ -95,3 +95,5 @@ COMMENT ON TABLE public.product_slices IS
   'Product cake cross-sections. RLS exposes only published products publicly; owners/admins manage private drafts.';
 
 COMMIT;
+
+-- Owner checks intentionally use auth.users identity, not confectioners.id.
