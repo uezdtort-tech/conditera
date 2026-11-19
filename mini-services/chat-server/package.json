@@ -7,7 +7,7 @@
     "start": "bun index.ts"
   },
   "dependencies": {
-    "socket.io": "^4.7.5",
-    "jose": "^6.2.3"
+    "jose": "^6.2.3",
+    "socket.io": "^4.8.4"
   }
 }
