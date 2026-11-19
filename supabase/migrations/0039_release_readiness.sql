@@ -27,7 +27,8 @@ ALTER TABLE public.confectioner_transactions ENABLE ROW LEVEL SECURITY;
 -- Убираем наследованный от 0011:314 широкий доступ
 REVOKE ALL ON public.confectioner_transactions FROM anon, authenticated;
 
--- Владелец видит СВОИ транзакции (service_role обходит RLS — полный доступ)
+-- Владелец видит транзакции своего кондитера: confectioner_transactions.confectionerId
+-- -> confectioners.id -> confectioners.userId. В таблице нет user_id.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -40,7 +41,14 @@ BEGIN
       ON public.confectioner_transactions
       FOR SELECT
       TO authenticated
-      USING (user_id = auth.uid());
+      USING (
+        EXISTS (
+          SELECT 1
+          FROM public.confectioners c
+          WHERE c.id = "confectionerId"
+            AND c."userId" = auth.uid()::text
+        )
+      );
   END IF;
 END $$;
 
