@@ -194,7 +194,18 @@ jobs:
           test -n "$TARGET_ID"
 
           docker exec "$TARGET_ID" createdb -U supabase_admin -T template0 conditera
-          docker exec "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "CREATE ROLE supabase NOLOGIN; CREATE ROLE conditera NOLOGIN;"
+          docker exec -i "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase') THEN
+              EXECUTE 'CREATE ROLE supabase NOLOGIN';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera') THEN
+              EXECUTE 'CREATE ROLE conditera NOLOGIN';
+            END IF;
+          END
+          $do$;
+          SQL
           docker exec "$TARGET_ID" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET cron.database_name = 'conditera'"
           docker restart "$TARGET_ID" >/dev/null
           for attempt in $(seq 1 30); do
