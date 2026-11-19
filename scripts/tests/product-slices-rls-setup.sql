@@ -20,6 +20,10 @@ CREATE TABLE public.products (
   status text NOT NULL,
   deleted_at timestamptz
 );
+CREATE TABLE public.confectioners (
+  id text PRIMARY KEY,
+  "userId" text NOT NULL UNIQUE
+);
 CREATE TABLE public.user_roles (
   user_id uuid NOT NULL,
   role text NOT NULL,
@@ -51,6 +55,9 @@ INSERT INTO public.products (id, confectioner_id, status, deleted_at) VALUES
   ('10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', 'draft', NULL),
   ('10000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000002', 'published', NULL),
   ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000001', 'published', now());
+
+INSERT INTO public.confectioners (id, "userId") VALUES
+  ('business-profile-987', '20000000-0000-0000-0000-000000000001');
 
 INSERT INTO public.user_roles (user_id, role, is_active) VALUES
   ('20000000-0000-0000-0000-000000000003', 'ADMIN', true);
