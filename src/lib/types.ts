@@ -545,7 +545,7 @@ export interface ProductMediaItem {
 export interface ProductSliceItem {
   id: string;
   fillingName?: string | null;
-  image: string;
+  image: string | null;
   caption?: string | null;
   sortOrder?: number;
 }
