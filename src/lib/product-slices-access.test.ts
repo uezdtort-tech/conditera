@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => {
   let result: { data: unknown; error: { message: string } | null } = { data: null, error: null };
-  const query: Record<string, any> = {};
-  query.select = vi.fn(() => query);
-  query.eq = vi.fn(() => query);
-  query.maybeSingle = vi.fn(async () => result);
+  const query = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    maybeSingle: vi.fn(async () => result),
+  };
+  query.select.mockImplementation(() => query);
+  query.eq.mockImplementation(() => query);
   const from = vi.fn(() => query);
   return { from, query, setResult(value: typeof result) { result = value; } };
 });
