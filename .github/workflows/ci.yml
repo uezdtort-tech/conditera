@@ -184,6 +184,7 @@ jobs:
           docker run -d --name conditera-simplex-bridge-ci \
             -e NODE_ENV=test \
             -e SIMPLEX_CLI_PORT=5225 \
+            -e SIMPLEX_PROFILE_NAME=Conditera-CI \
             -e BRIDGE_PORT=5226 \
             -p 5226:5226 "$IMAGE"
           cleanup() { docker logs conditera-simplex-bridge-ci || true; docker rm -f conditera-simplex-bridge-ci >/dev/null 2>&1 || true; }
@@ -202,6 +203,8 @@ jobs:
             exit 1
           fi
           grep -q '"service":"conditera-simplex-bridge"' /tmp/simplex-health.json
+          grep -q '"cliConnected":true' /tmp/simplex-health.json
+          grep -q '"isInitialized":true' /tmp/simplex-health.json
           # Health endpoint не должен маскировать отсутствие CLI-процесса.
           docker exec conditera-simplex-bridge-ci sh -lc \
             'for p in /proc/[0-9]*/comm; do grep -qx "simplex-chat" "$p" 2>/dev/null && exit 0; done; exit 1'
