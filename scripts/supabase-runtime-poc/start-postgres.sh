@@ -15,7 +15,7 @@ fi
 
 # Docker mounts a fresh named volume over PGDATA. Fix only the mount root;
 # never recursively rewrite ownership of an existing database directory.
-/usr/bin/chown "$postgres_entry" "$root$pgdata"
+chown "$postgres_entry" "$root$pgdata"
 
 # Run the official image entrypoint as postgres. Bypass gosu, whose
 # /proc/self/exe dependency is unavailable in this chroot runtime.
