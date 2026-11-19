@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - ops/read-only-local-production-inventory
     paths:
       - "scripts/ops/audit-local-production.ps1"
       - ".github/workflows/validate-production-audit-script.yml"
