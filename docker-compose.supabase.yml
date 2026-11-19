@@ -75,6 +75,84 @@ services:
     networks:
       - conditera-net
 
+  # Storage API migration runner for the isolated PostgreSQL 17 target.
+  # It applies official storage tenant migrations before Conditera migrations.
+  supabase-storage-pg17:
+    image: supabase/storage-api:v1.14.5
+    container_name: conditera-supabase-storage-pg17
+    profiles: ["pg17-migration"]
+    restart: "no"
+    environment:
+      ANON_KEY: ${ANON_KEY:?ANON_KEY required}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
+      POSTGREST_URL: http://127.0.0.1:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@supabase-db-pg17:5432/postgres?search_path=storage
+      PG_META_URL: http://127.0.0.1:8080
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /mnt/storage
+      TENANT_ID: conditera
+      REGION: us-east-1
+      GLOBAL_S3_BUCKET: conditera-storage
+      GLOBAL_S3_ENDPOINT: http://127.0.0.1:5000
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+      DB_INSTALL_ROLES: "false"
+      DB_SUPER_USER: supabase_admin
+      DB_ANON_ROLE: anon
+      DB_AUTHENTICATED_ROLE: authenticated
+      DB_SERVICE_ROLE: service_role
+    volumes:
+      - supabase_storage_data_pg17:/mnt/storage
+    depends_on:
+      supabase-db-pg17:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # Conditera migrations run only after Storage API has created storage.buckets.
+  conditera-migrator-pg17:
+    image: supabase/postgres:17.12.0.001
+    container_name: conditera-pg17-migrator
+    profiles: ["pg17-migration"]
+    restart: "no"
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      set -euo pipefail;
+      export PGUSER="$POSTGRES_USER" PGDATABASE="$POSTGRES_DB" PGHOST="$PGHOST" PGPORT=5432 PGPASSWORD="$POSTGRES_PASSWORD";
+      bash /scripts/01-apply-migrations.sh;
+      bash /scripts/99-conditera-role.sh
+    environment:
+      POSTGRES_USER: supabase_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: postgres
+      PGHOST: supabase-db-pg17
+      PGPORT: 5432
+      CONDITERA_DB_PASSWORD: ${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD}}
+      MIGRATIONS_DIR: /migrations
+      SEEDS_DIR: /seeds
+    volumes:
+      - ./supabase/migrations:/migrations:ro
+      - ./supabase/seed.sql:/seeds/01-seed.sql:ro
+      - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
+      - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
+      - ./scripts/ops/pg17-init/99-conditera-role.sh:/scripts/99-conditera-role.sh:ro
+    depends_on:
+      supabase-db-pg17:
+        condition: service_healthy
+      supabase-storage-pg17:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - conditera-net
+
   # ===== PostgreSQL 15 с расширениями =====
   supabase-db:
     image: supabase/postgres:15.6.1.141
