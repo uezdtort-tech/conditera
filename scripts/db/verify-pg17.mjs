@@ -153,7 +153,7 @@ try {
       // ADD VALUE must commit before a later statement can use the new enum label.
       const statements = splitSqlStatements(readFileSync(join(migrationsDir, file), "utf8"));
       for (const statement of statements) {
-        const extensionMatch = statement.match(/^CREATE\\s+EXTENSION\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(?:"([^"]+)"|([a-zA-Z0-9_-]+))/i);
+        const extensionMatch = statement.match(/^CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([a-zA-Z0-9_-]+))/i);
         const extensionName = extensionMatch?.[1] || extensionMatch?.[2];
         if (extensionName && !availableExtensions.has(extensionName) && skipUnavailableExtensions) {
           console.log(`  SKIP extension ${extensionName}: not packaged in this PostgreSQL distribution`);
