@@ -1,0 +1,98 @@
+name: Validate local production audit script
+
+on:
+  pull_request:
+    paths:
+      - "scripts/ops/audit-local-production.ps1"
+      - ".github/workflows/validate-production-audit-script.yml"
+  push:
+    branches:
+      - main
+      - ops/read-only-local-production-inventory
+    paths:
+      - "scripts/ops/audit-local-production.ps1"
+      - ".github/workflows/validate-production-audit-script.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-powershell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse PowerShell script without executing it
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/ops/audit-local-production.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List
+            exit 1
+          }
+          Write-Host "PowerShell syntax OK"
+
+      - name: Test read-only audit against disposable PostgreSQL fixtures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          APP=conditera-audit-app
+          SUPA=conditera-audit-supabase
+          cleanup() {
+            docker rm -fv "$APP" "$SUPA" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run -d --name "$APP" \
+            -e POSTGRES_USER=conditera \
+            -e POSTGRES_PASSWORD=ci-audit-password \
+            -e POSTGRES_DB=conditera \
+            postgres:18-alpine
+          docker run -d --name "$SUPA" \
+            -e POSTGRES_USER=supabase \
+            -e POSTGRES_PASSWORD=ci-audit-password \
+            -e POSTGRES_DB=supabase \
+            postgres:17-alpine
+
+          for attempt in $(seq 1 60); do
+            APP_READY=0
+            SUPA_READY=0
+            docker exec "$APP" pg_isready -U conditera -d conditera >/dev/null 2>&1 && APP_READY=1
+            docker exec "$SUPA" pg_isready -U supabase -d supabase >/dev/null 2>&1 && SUPA_READY=1
+            if [ "$APP_READY" = 1 ] && [ "$SUPA_READY" = 1 ]; then break; fi
+            sleep 2
+          done
+          test "$APP_READY" = 1
+          test "$SUPA_READY" = 1
+
+          # Two independent clusters must be rejected with exit code 4.
+          set +e
+          pwsh -NoProfile -File scripts/ops/audit-local-production.ps1 \
+            -AppContainer "$APP" -AppDatabase conditera -AppUser conditera \
+            -SupabaseContainer "$SUPA" -SupabaseDatabase supabase -SupabaseUser supabase \
+            -OutputRoot /tmp/conditera-audit-split
+          CODE=$?
+          set -e
+          test "$CODE" -eq 4
+
+          # Same cluster but different databases must be rejected with exit code 5.
+          docker exec "$APP" psql -X -v ON_ERROR_STOP=1 -U conditera -d postgres -c "CREATE DATABASE supabase;"
+          set +e
+          pwsh -NoProfile -File scripts/ops/audit-local-production.ps1 \
+            -AppContainer "$APP" -AppDatabase conditera -AppUser conditera \
+            -SupabaseContainer "$APP" -SupabaseDatabase supabase -SupabaseUser conditera \
+            -OutputRoot /tmp/conditera-audit-two-databases
+          CODE=$?
+          set -e
+          test "$CODE" -eq 5
+
+          # Same container, same database and same postmaster must pass.
+          pwsh -NoProfile -File scripts/ops/audit-local-production.ps1 \
+            -AppContainer "$APP" -AppDatabase conditera -AppUser conditera \
+            -SupabaseContainer "$APP" -SupabaseDatabase conditera -SupabaseUser conditera \
+            -OutputRoot /tmp/conditera-audit-single-target
