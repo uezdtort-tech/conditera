@@ -78,6 +78,7 @@ SELECT jsonb_build_object(
       FROM information_schema.tables
       WHERE table_type = 'BASE TABLE'
         AND table_schema NOT IN ('pg_catalog', 'information_schema')
+        AND table_name IN ('profiles', 'users', 'products', 'orders', 'recipes', 'confectioners', 'product_slices', 'schema_migrations', 'objects')
     ) counts
   ),
   'rlsEnabledTables', (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog','information_schema') AND c.relrowsecurity),
@@ -108,8 +109,15 @@ SELECT jsonb_build_object(
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   throw "Docker CLI не найден."
 }
+if (-not (Test-Path "docker-compose.yml") -or -not (Test-Path "docker-compose.supabase.yml")) {
+  throw "Запустите скрипт из корня репозитория Conditera."
+}
 $dockerVersion = Invoke-DockerText -Arguments @("version", "--format", "{{.Server.Version}}")
 $dockerInfo = Invoke-DockerText -Arguments @("info", "--format", "{{.OSType}}/{{.Architecture}}")
+$composeEnvArgs = @()
+if (Test-Path ".env.production") {
+  $composeEnvArgs = @("--env-file", ".env.production")
+}
 
 $root = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $OutputRoot))
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
@@ -123,8 +131,8 @@ catch { $supabase = [pscustomobject]@{ container = $SupabaseContainer; exists = 
 
 $composeAppServices = ""
 $composeSupabaseServices = ""
-try { $composeAppServices = Invoke-DockerText -Arguments @("compose", "-f", "docker-compose.yml", "config", "--services") } catch { $composeAppServices = "ERROR: " + $_.Exception.Message }
-try { $composeSupabaseServices = Invoke-DockerText -Arguments @("compose", "-f", "docker-compose.supabase.yml", "config", "--services") } catch { $composeSupabaseServices = "ERROR: " + $_.Exception.Message }
+try { $composeAppServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.yml", "config", "--services")) } catch { $composeAppServices = "ERROR: " + $_.Exception.Message }
+try { $composeSupabaseServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "config", "--services")) } catch { $composeSupabaseServices = "ERROR: " + $_.Exception.Message }
 
 $report = [ordered]@{
   generatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
