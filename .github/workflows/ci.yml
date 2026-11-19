@@ -316,6 +316,9 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml config --quiet
           docker compose -f docker-compose.dev.yml config --quiet
           bash -n scripts/init-db.sh scripts/deploy.sh scripts/update-from-archive.sh
+          grep -q '^DATABASE_URL=postgresql://conditera:.*@pgbouncer:5432/conditera' .env.production.example
+          grep -q '^DIRECT_DATABASE_URL=postgresql://conditera:.*@db:5432/conditera' .env.production.example
+          grep -q '^CONDITERA_DB_PASSWORD=' .env.production.example
           if grep -nE "conditera-supabase-db|supabase-db|supabase_db_data" scripts/deploy.sh scripts/update-from-archive.sh supabase/README.md; then
             echo "Legacy second-PostgreSQL references remain in operational scripts/docs"
             exit 1
