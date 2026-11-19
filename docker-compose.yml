@@ -131,14 +131,11 @@ services:
     networks:
       - conditera-net
 
-  # ===== PostgreSQL (продакшн БД) =====
-  # ВАЖНО: Используем postgres:18-alpine — актуальный major release.
-  # Если у вас в volume postgres_data лежат данные от старой версии (PG16/17),
-  # нужно либо сделать pg_upgrade, либо удалить volume:
-  #   docker compose down
-  #   docker volume rm conditera_postgres_data  (или conditera_postgres_data)
-  #   docker compose up -d
-  # Volume postgres_data_v18 — новый, чистый, без конфликтов версий.
+  # ===== PostgreSQL (текущий production-кластер приложения) =====
+  # Не удалять и не пересоздавать volume при смене major-версии.
+  # PostgreSQL не открывает data directory другого major-релиза напрямую.
+  # Переход на PG17 выполняется только после независимого backup,
+  # проверки совместимости и контролируемой миграции с сохранением rollback.
   db:
     image: postgres:18-alpine
     container_name: conditera-db
