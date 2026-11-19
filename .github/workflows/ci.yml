@@ -204,7 +204,7 @@ jobs:
           grep -q '"service":"conditera-simplex-bridge"' /tmp/simplex-health.json
           # Health endpoint не должен маскировать отсутствие CLI-процесса.
           docker exec conditera-simplex-bridge-ci sh -lc \
-            'for p in /proc/[0-9]*/cmdline; do tr "\000" " " < "$p" 2>/dev/null; done | grep -q "simplex-chat"'
+            'for p in /proc/[0-9]*/comm; do grep -qx "simplex-chat" "$p" 2>/dev/null && exit 0; done; exit 1'
           echo "SimpleX CLI binary and bridge runtime smoke test passed."
 
   # ===== 5. Security checks =====
