@@ -728,7 +728,7 @@ export function ProductPage() {
                 </div>
               )}
 
-              {product.coatings && (
+              {product.coatings && product.coatings.length > 0 && (
                 <div>
                   <Label className="font-medium">Покрытие</Label>
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -754,7 +754,7 @@ export function ProductPage() {
                 </div>
               )}
 
-              {product.decorations && (
+              {product.decorations && product.decorations.length > 0 && (
                 <div>
                   <Label className="font-medium">Декор</Label>
                   <div className="grid grid-cols-2 gap-2 mt-2">
