@@ -274,7 +274,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const sliceMap: Record<string, Array<{
         id: string;
         fillingName: string | null;
-        image: string;
+        image: string | null;
         caption: string | null;
         sortOrder: number;
       }>> = {};
