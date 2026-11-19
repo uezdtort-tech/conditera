@@ -23,7 +23,8 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
 DO $pgsodium$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgsodium') THEN
-    CREATE EXTENSION pgsodium WITH SCHEMA extensions;
+    CREATE SCHEMA IF NOT EXISTS pgsodium;
+    CREATE EXTENSION pgsodium WITH SCHEMA pgsodium;
   END IF;
 END
 $pgsodium$;
