@@ -41,8 +41,8 @@ jobs:
           done
           version="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase_admin -d supabase -Atc 'SHOW server_version_num')"
           [[ "$version" == 17* ]] || { echo "Expected PostgreSQL 17, got $version"; exit 1; }
-          roles="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase_admin -d supabase -Atc "SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role','supabase_admin')")"
-          [[ "$roles" == "4" ]] || { echo "Expected core Supabase roles, got count=$roles"; exit 1; }
+          roles="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase_admin -d supabase -Atc "SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role','supabase_admin','postgres')")"
+          [[ "$roles" == "5" ]] || { echo "Expected core Supabase and postgres roles, got count=$roles"; exit 1; }
           echo "PostgreSQL server_version_num=$version; core roles=$roles"
           docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 sh -lc 'test -s /etc/postgresql-custom/pgsodium_root.key'
           echo "pgsodium root key is present in the dedicated config volume"
