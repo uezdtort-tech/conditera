@@ -1,34 +1,26 @@
 /**
- * GET /api/products/[id]/slices — список срезов торта для продукта
- * POST /api/products/[id]/slices — создать новый срез (модель или загрузить)
- * DELETE /api/products/[id]/slices?sliceId=... — удалить срез
+ * GET    /api/products/[id]/slices — список реальных срезов товара.
+ * POST   /api/products/[id]/slices — сохранить срез владельцем-кондитером.
+ * DELETE /api/products/[id]/slices?sliceId=... — удалить срез владельцем.
  *
- * Кондитер может:
- *   1. Смоделировать срез через визуализатор (config: JSON)
- *   2. Загрузить фотографию (image: URL после /api/upload)
- *   3. Комбинировать: изображение + config как fallback
- *
- * Безопасность:
- *   • POST/DELETE: требует роль CONFECTIONER + ownership check.
- *   • POST: safeJsonBody + валидация (fillingName обязателен, image ИЛИ config).
- *   • При сбое БД — mock-ответ для dev.
- *   • Type-safe interfaces.
+ * Все операции записи fail-closed: ошибка проверки владельца или БД никогда
+ * не превращается в фиктивный успешный ответ.
  */
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
+import { assertProductSliceOwnership } from "@/lib/product-slices-access";
 
 export const runtime = "nodejs";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
-
 interface SupabaseError {
   message: string;
 }
-
 interface ProductSliceRow {
   id: string;
   productId: string;
@@ -38,20 +30,21 @@ interface ProductSliceRow {
   caption: string | null;
   sortOrder: number;
   createdAt: string;
+  updatedAt: string;
 }
-
-interface ProductRow {
-  id: string;
-  confectioner_id: string;
-  title: string;
-}
-
 interface CreateSliceBody {
-  fillingName?: string;
-  image?: string;
+  fillingName?: unknown;
+  image?: unknown;
   config?: unknown;
-  caption?: string;
-  sortOrder?: number;
+  caption?: unknown;
+  sortOrder?: unknown;
+}
+
+async function requireConfectioner(request: NextRequest) {
+  const user = await getUserFromRequest(request);
+  if (!user) throw new HttpError(401, "Не авторизован");
+  if (!user.roles.includes("CONFECTIONER")) throw new HttpError(403, "Только кондитер");
+  return user;
 }
 
 export async function GET(
@@ -62,22 +55,21 @@ export async function GET(
     const { id: productId } = await params;
     if (!productId) throw new HttpError(400, "Product ID required");
 
-    let slices: ProductSliceRow[] = [];
-    try {
-      const { data, error } = await supabaseAdmin
-        .from("product_slices")
-        .select("*")
-        .eq("productId", productId)
-        .order("sortOrder", { ascending: true })
-        .order("createdAt", { ascending: true }) as { data: ProductSliceRow[] | null; error: SupabaseError | null };
+    const { data, error } = await supabaseAdmin
+      .from("product_slices")
+      .select("id, productId, fillingName, image, config, caption, sortOrder, createdAt, updatedAt")
+      .eq("productId", productId)
+      .order("sortOrder", { ascending: true })
+      .order("createdAt", { ascending: true }) as {
+        data: ProductSliceRow[] | null;
+        error: SupabaseError | null;
+      };
 
-      if (error) throw error;
-      slices = data || [];
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("[slices] GET query failed:", msg);
+    if (error) {
+      console.error("[slices] GET query failed:", error.message);
+      throw new HttpError(500, "Не удалось загрузить разрезы");
     }
-
+    const slices = data || [];
     return NextResponse.json({ slices, total: slices.length });
   } catch (error) {
     return handleRouteError(error);
@@ -92,83 +84,66 @@ export async function POST(
     const { id: productId } = await params;
     if (!productId) throw new HttpError(400, "Product ID required");
 
-    const user = await getUserFromRequest(request);
-    if (!user) throw new HttpError(401, "Не авторизован");
-
-    if (!user.roles.includes("CONFECTIONER")) {
-      throw new HttpError(403, "Только кондитер");
+    const user = await requireConfectioner(request);
+    const { data: body, error: parseError } = await safeJsonBody<CreateSliceBody>(request);
+    if (parseError || !body) {
+      throw new HttpError(400, parseError || "Тело запроса обязательно");
     }
 
-    const { data: body, error: parseErr } = await safeJsonBody<CreateSliceBody>(request);
-    if (parseErr) {
-      throw new HttpError(400, parseErr);
+    const fillingName = typeof body.fillingName === "string" ? body.fillingName.trim() : "";
+    if (!fillingName || fillingName.length > 120) {
+      throw new HttpError(400, "fillingName обязательно и должно быть не длиннее 120 символов");
     }
-    if (!body) {
-      throw new HttpError(400, "Тело запроса обязательно");
-    }
-
-    if (typeof body.fillingName !== "string" || body.fillingName.trim().length === 0) {
-      throw new HttpError(400, "fillingName обязательно");
-    }
-    if (!body.image && !body.config) {
+    const image = typeof body.image === "string" && body.image.trim() ? body.image.trim() : null;
+    const config = body.config && typeof body.config === "object" && !Array.isArray(body.config)
+      ? body.config
+      : null;
+    if (!image && !config) {
       throw new HttpError(400, "Нужно указать image (URL) или config (SVG-конфигурация)");
     }
-
-    // Проверяем, что продукт принадлежит этому кондитеру
-    try {
-      const { data: product, error } = await supabaseAdmin
-        .from("products")
-        .select("id, confectioner_id, title")
-        .eq("id", productId)
-        .maybeSingle() as { data: ProductRow | null; error: SupabaseError | null };
-
-      if (error) throw error;
-      if (product && product.confectioner_id !== user.userId) {
-        throw new HttpError(403, "Нет прав на этот продукт");
-      }
-    } catch (e) {
-      if (e instanceof HttpError) throw e;
-      // БД недоступна — в dev позволяем
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("[slices] ownership check failed:", msg);
+    if (body.image !== undefined && body.image !== null && typeof body.image !== "string") {
+      throw new HttpError(400, "image должен быть строкой URL");
+    }
+    if (body.config !== undefined && body.config !== null && config === null) {
+      throw new HttpError(400, "config должен быть JSON-объектом");
+    }
+    if (body.caption !== undefined && body.caption !== null &&
+        (typeof body.caption !== "string" || body.caption.length > 500)) {
+      throw new HttpError(400, "caption должен быть строкой не длиннее 500 символов");
+    }
+    const sortOrder = body.sortOrder === undefined ? 0 : body.sortOrder;
+    if (typeof sortOrder !== "number" || !Number.isInteger(sortOrder) ||
+        sortOrder < 0 || sortOrder > 100000) {
+      throw new HttpError(400, "sortOrder должен быть целым числом от 0 до 100000");
     }
 
-    const sortOrder = typeof body.sortOrder === "number" ? body.sortOrder : 0;
+    await assertProductSliceOwnership(productId, user.userId);
 
-    let slice: ProductSliceRow;
-    try {
-      const { data, error: insertErr } = await supabaseAdmin
-        .from("product_slices")
-        .insert({
-          productId: productId,
-          fillingName: body.fillingName,
-          image: body.image || null,
-          config: body.config || null,
-          caption: body.caption || null,
-          sortOrder: sortOrder,
-          createdAt: new Date().toISOString(),
-        })
-        .select("*")
-        .single() as { data: ProductSliceRow | null; error: SupabaseError | null };
-
-      if (insertErr || !data) throw insertErr;
-      slice = data;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error("[slices] create failed:", msg);
-      // Возвращаем mock-ответ для dev
-      slice = {
-        id: `temp-${Date.now()}`,
-        productId: productId,
-        fillingName: body.fillingName,
-        image: body.image || null,
-        config: body.config || null,
-        caption: body.caption || null,
-        sortOrder: sortOrder,
-        createdAt: new Date().toISOString(),
+    // В миграции 0017 для id и updatedAt нет DEFAULT — задаём их явно.
+    const now = new Date().toISOString();
+    const { data: slice, error: insertError } = await supabaseAdmin
+      .from("product_slices")
+      .insert({
+        id: randomUUID(),
+        productId,
+        fillingName,
+        image,
+        config,
+        caption: typeof body.caption === "string" ? body.caption.trim() || null : null,
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .select("id, productId, fillingName, image, config, caption, sortOrder, createdAt, updatedAt")
+      .single() as {
+        data: ProductSliceRow | null;
+        error: SupabaseError | null;
       };
-    }
 
+    if (insertError || !slice) {
+      console.error("[slices] create failed:", insertError?.message || "empty insert result");
+      throw new HttpError(500, "Не удалось сохранить разрез");
+    }
     return NextResponse.json({ slice }, { status: 201 });
   } catch (error) {
     return handleRouteError(error);
@@ -182,30 +157,28 @@ export async function DELETE(
   try {
     const { id: productId } = await params;
     if (!productId) throw new HttpError(400, "Product ID required");
-
     const sliceId = request.nextUrl.searchParams.get("sliceId");
-    if (!sliceId) {
-      throw new HttpError(400, "sliceId обязателен");
+    if (!sliceId) throw new HttpError(400, "sliceId обязателен");
+
+    const user = await requireConfectioner(request);
+    await assertProductSliceOwnership(productId, user.userId);
+
+    const { data, error } = await supabaseAdmin
+      .from("product_slices")
+      .delete()
+      .eq("id", sliceId)
+      .eq("productId", productId)
+      .select("id")
+      .maybeSingle() as {
+        data: { id: string } | null;
+        error: SupabaseError | null;
+      };
+
+    if (error) {
+      console.error("[slices] delete failed:", error.message);
+      throw new HttpError(500, "Не удалось удалить разрез");
     }
-
-    const user = await getUserFromRequest(request);
-    if (!user) throw new HttpError(401, "Не авторизован");
-
-    try {
-      const { error } = await supabaseAdmin
-        .from("product_slices")
-        .delete()
-        .eq("id", sliceId)
-        .eq("productId", productId);
-
-      if (error) {
-        console.warn("[slices] delete failed:", error.message);
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("[slices] delete error:", msg);
-    }
-
+    if (!data) throw new HttpError(404, "Разрез не найден");
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleRouteError(error);
