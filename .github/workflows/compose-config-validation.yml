@@ -58,8 +58,29 @@ jobs:
         run: docker compose -f docker-compose.dev.yml config --quiet
       - name: Validate Supabase Compose
         run: docker compose -f docker-compose.supabase.yml config --quiet
-      - name: Start PostgreSQL 17 dev database and run migrations
-        run: docker compose -f docker-compose.dev.yml up -d db-dev
+      - name: Start PostgreSQL 17 dev database and Storage API migrations
+        run: docker compose -f docker-compose.dev.yml up -d db-dev supabase-storage-dev
+      - name: Wait for dev Storage API migrations
+        shell: bash
+        run: |
+          for attempt in $(seq 1 90); do
+            health="$(docker inspect --format '{{.State.Health.Status}}' uyezdny-storage-dev 2>/dev/null || true)"
+            if [[ "$health" == "healthy" ]]; then
+              echo "Dev Storage API migrations completed"
+              exit 0
+            fi
+            state="$(docker inspect --format '{{.State.Status}}' uyezdny-storage-dev 2>/dev/null || true)"
+            if [[ "$state" == "exited" || "$state" == "dead" ]]; then
+              docker compose -f docker-compose.dev.yml logs supabase-storage-dev
+              exit 1
+            fi
+            sleep 5
+          done
+          docker compose -f docker-compose.dev.yml logs supabase-storage-dev
+          echo "Dev Storage API did not become healthy"
+          exit 1
+      - name: Apply Conditera dev migrations
+        run: docker compose -f docker-compose.dev.yml run --rm conditera-migrator-dev
       - name: Verify dev database and core schema
         shell: bash
         run: |
