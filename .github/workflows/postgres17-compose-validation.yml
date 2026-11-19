@@ -60,10 +60,10 @@ jobs:
           assert target.get("ports") in (None, []), target.get("ports")
           target_sources = [volume["source"] for volume in target.get("volumes", [])]
           current_sources = [volume["source"] for volume in current.get("volumes", [])]
-          assert "conditera_supabase_pg17_migration_data" in target_sources, target_sources
+          assert "supabase_pg17_migration_data" in target_sources, target_sources
           assert current["image"] == "supabase/postgres:15.6.1.141", current.get("image")
           assert "supabase_db_data" in current_sources, current_sources
           assert set(current_sources).isdisjoint(target_sources), (current_sources, target_sources)
-          assert "conditera_supabase_pg17_migration_data" in config["volumes"]
+          assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data"
           print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
           PY
