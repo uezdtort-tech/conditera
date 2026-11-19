@@ -1,14 +1,36 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { HttpError } from "@/lib/http-helpers";
 
+interface ConfectionerRow {
+  id: string;
+}
 interface ProductOwnershipRow {
   id: string;
   confectioner_id: string | null;
 }
 
-/** Fail-closed check: only the actual product owner may change cake slices. */
+/**
+ * Проверяет владение через профиль confectioners.
+ * products.confectioner_id хранит ID профиля кондитера, а не auth user ID.
+ * Любая ошибка/неопределённость закрывает изменение.
+ */
 export async function assertProductSliceOwnership(productId: string, userId: string): Promise<void> {
-  const { data, error } = await supabaseAdmin
+  const { data: confectioner, error: confectionerError } = await supabaseAdmin
+    .from("confectioners")
+    .select("id")
+    .eq("userId", userId)
+    .maybeSingle() as {
+      data: ConfectionerRow | null;
+      error: { message: string } | null;
+    };
+
+  if (confectionerError) {
+    console.error("[product-slices] confectioner lookup failed:", confectionerError.message);
+    throw new HttpError(500, "Не удалось проверить профиль кондитера");
+  }
+  if (!confectioner) throw new HttpError(404, "Профиль кондитера не найден");
+
+  const { data: product, error: productError } = await supabaseAdmin
     .from("products")
     .select("id, confectioner_id")
     .eq("id", productId)
@@ -17,10 +39,12 @@ export async function assertProductSliceOwnership(productId: string, userId: str
       error: { message: string } | null;
     };
 
-  if (error) {
-    console.error("[product-slices] ownership lookup failed:", error.message);
+  if (productError) {
+    console.error("[product-slices] product lookup failed:", productError.message);
     throw new HttpError(500, "Не удалось проверить владельца товара");
   }
-  if (!data) throw new HttpError(404, "Товар не найден");
-  if (data.confectioner_id !== userId) throw new HttpError(403, "Нет прав на этот продукт");
+  if (!product) throw new HttpError(404, "Товар не найден");
+  if (product.confectioner_id !== confectioner.id) {
+    throw new HttpError(403, "Нет прав на этот продукт");
+  }
 }
