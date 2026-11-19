@@ -542,6 +542,14 @@ export interface ProductMediaItem {
   status?: "pending" | "approved" | "rejected";
 }
 
+export interface ProductSliceItem {
+  id: string;
+  fillingName?: string | null;
+  image: string;
+  caption?: string | null;
+  sortOrder?: number;
+}
+
 export interface Product {
   id: string;
   title: string;
@@ -599,6 +607,8 @@ export interface Product {
   };
   // Дополнительные изображения (детали, разрез, упаковка)
   detailImages?: string[];
+  // Реальные фотографии разреза из product_slices; не подменяются произвольными detailImages.
+  slices?: ProductSliceItem[];
   arEnabled?: boolean;
   // Видимость товара (админ может скрыть товар платформы)
   isHidden?: boolean;
