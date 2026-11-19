@@ -19,7 +19,8 @@ RUN adduser -D -H -u 1000 -s /sbin/nologin supabase
 COPY --from=gotrue-builder /go/src/github.com/supabase/auth/auth /usr/local/bin/auth
 COPY --from=gotrue-builder /go/src/github.com/supabase/auth/migrations /usr/local/etc/auth/migrations
 
-COPY supabase/init-scripts/99-supabase-roles.sql /docker-entrypoint-initdb.d/99-supabase-roles.sql
+RUN mkdir -p /docker-entrypoint-initdb.d/init-scripts
+COPY supabase/init-scripts/99-supabase-roles.sql /docker-entrypoint-initdb.d/init-scripts/99-supabase-roles.sql
 COPY supabase/runtime/supervisord.conf /etc/supervisord.conf
 COPY supabase/runtime/wait-for-postgres-and-run-auth.sh /usr/local/bin/wait-for-postgres-and-run-auth.sh
 COPY supabase/runtime/healthcheck.sh /usr/local/bin/supabase-runtime-healthcheck.sh
