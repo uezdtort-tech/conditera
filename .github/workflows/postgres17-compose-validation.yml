@@ -70,28 +70,24 @@ jobs:
           assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data"
           print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
           PY
-      - name: Запустить целевой PG17, Supabase Storage и отложенный мигратор
+      - name: Запустить PG17 и Supabase Storage, затем применить отложенную миграцию
         run: |
-          if ! docker compose \
-            -f docker-compose.supabase.yml \
-            -f docker-compose.pg17-migration.yml \
-            --profile pg17-migration up -d supabase-app-migrator-pg17-migration; then
+          COMPOSE="docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration"
+          if ! $COMPOSE up -d supabase-storage-pg17-migration; then
             docker logs conditera-supabase-db-pg17-migration || true
-            docker inspect -f '{{json .State.Health}}' conditera-supabase-rest-pg17-migration || true
             docker logs conditera-supabase-rest-pg17-migration || true
-            docker inspect -f '{{json .State.Health}}' conditera-supabase-meta-pg17-migration || true
             docker logs conditera-supabase-meta-pg17-migration || true
             docker logs conditera-supabase-storage-pg17-migration || true
-            docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
           fi
+          READY=0
           for attempt in $(seq 1 90); do
-            DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-db-pg17-migration)
+            DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-db-pg17-migration 2>/dev/null || echo missing)
             REST_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-rest-pg17-migration 2>/dev/null || echo missing)
             META_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-meta-pg17-migration 2>/dev/null || echo missing)
             STORAGE_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-storage-pg17-migration 2>/dev/null || echo missing)
-            MIGRATOR_STATE=$(docker inspect -f '{{.State.Status}}' conditera-supabase-app-migrator-pg17-migration 2>/dev/null || echo missing)
             if [ "$REST_HEALTH" = "unhealthy" ] || [ "$META_HEALTH" = "unhealthy" ] || [ "$STORAGE_HEALTH" = "unhealthy" ]; then
+              docker inspect -f 'DB_HEALTH={{json .State.Health}}' conditera-supabase-db-pg17-migration || true
               docker inspect -f 'REST_HEALTH={{json .State.Health}}' conditera-supabase-rest-pg17-migration || true
               docker inspect -f 'META_HEALTH={{json .State.Health}}' conditera-supabase-meta-pg17-migration || true
               docker inspect -f 'STORAGE_HEALTH={{json .State.Health}}' conditera-supabase-storage-pg17-migration || true
@@ -100,23 +96,40 @@ jobs:
               docker logs conditera-supabase-storage-pg17-migration || true
               exit 1
             fi
-            if [ "$MIGRATOR_STATE" = "exited" ]; then
-              EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' conditera-supabase-app-migrator-pg17-migration)
-              if [ "$EXIT_CODE" != "0" ]; then
-                docker logs conditera-supabase-app-migrator-pg17-migration || true
-                docker logs conditera-supabase-storage-pg17-migration || true
-                exit 1
-              fi
-              if [ "$DB_HEALTH" = "healthy" ] && [ "$STORAGE_HEALTH" = "healthy" ]; then
-                exit 0
-              fi
+            if [ "$DB_HEALTH" = "healthy" ] && [ "$REST_HEALTH" = "healthy" ] && [ "$META_HEALTH" = "healthy" ] && [ "$STORAGE_HEALTH" = "healthy" ]; then
+              READY=1
+              break
             fi
             sleep 5
           done
-          docker logs conditera-supabase-db-pg17-migration || true
-          docker logs conditera-supabase-storage-pg17-migration || true
+          if [ "$READY" != "1" ]; then
+            docker inspect -f 'DB_HEALTH={{json .State.Health}}' conditera-supabase-db-pg17-migration || true
+            docker inspect -f 'REST_HEALTH={{json .State.Health}}' conditera-supabase-rest-pg17-migration || true
+            docker inspect -f 'META_HEALTH={{json .State.Health}}' conditera-supabase-meta-pg17-migration || true
+            docker inspect -f 'STORAGE_HEALTH={{json .State.Health}}' conditera-supabase-storage-pg17-migration || true
+            docker logs conditera-supabase-rest-pg17-migration || true
+            docker logs conditera-supabase-meta-pg17-migration || true
+            docker logs conditera-supabase-storage-pg17-migration || true
+            exit 1
+          fi
+          if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
+            docker logs conditera-supabase-app-migrator-pg17-migration || true
+            exit 1
+          fi
+          for attempt in $(seq 1 90); do
+            MIGRATOR_STATE=$(docker inspect -f '{{.State.Status}}' conditera-supabase-app-migrator-pg17-migration 2>/dev/null || echo missing)
+            if [ "$MIGRATOR_STATE" = "exited" ]; then
+              EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' conditera-supabase-app-migrator-pg17-migration)
+              if [ "$EXIT_CODE" = "0" ]; then
+                exit 0
+              fi
+              docker logs conditera-supabase-app-migrator-pg17-migration || true
+              exit 1
+            fi
+            sleep 5
+          done
           docker logs conditera-supabase-app-migrator-pg17-migration || true
-          echo "PG17 + Storage + application migrations did not complete within 450 seconds."
+          echo "PG17 application migration runner did not finish within 450 seconds."
           exit 1
       - name: Проверить PostgreSQL 17, Supabase Auth, Storage и прикладные миграции
         run: |
