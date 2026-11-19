@@ -37,8 +37,22 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Целевой production-хост — локальный Windows ПК владельца.
+  # Этот исторический workflow подключается по SSH к удалённому VPS.
+  # Он намеренно блокируется до создания и проверки локального release workflow.
+  release-target-guard:
+    name: Block unapproved remote deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop — remote VPS is not the approved production target
+        run: |
+          echo "::error::Production Conditera размещается на локальном ПК владельца. Этот workflow разворачивает удалённый VPS и не должен использоваться."
+          echo "::error::Сначала реализуйте и проверьте Docker Desktop runtime и локальную процедуру выпуска."
+          exit 78
+
   # ===== 1. Build & Push (образ = точный коммит) =====
   build-and-push:
+    needs: release-target-guard
     name: Build & Push (sha tag)
     runs-on: ubuntu-latest
     permissions:
