@@ -294,6 +294,8 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
+      supabase-meta:
+        condition: service_healthy
       supabase-rest:
         condition: service_healthy
       supabase-imgproxy:
