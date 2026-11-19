@@ -220,7 +220,6 @@ services:
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE required}
       ERL_AFLAGS: "+sbwt none +sbwtdcpu none +sbwtdio none"
       DB_ENC_KEY: ${ENCRYPTOR_KEY:?ENCRYPTOR_KEY required}
-      API_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
     depends_on:
       db:
         condition: service_healthy
