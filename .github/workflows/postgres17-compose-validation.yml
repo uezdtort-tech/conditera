@@ -133,7 +133,14 @@ jobs:
           fi
           if ! docker run --rm --network container:conditera-supabase-meta-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/health >/dev/null; then docker logs conditera-supabase-meta-pg17-migration || true; exit 1; fi
           if ! docker run --rm --network container:conditera-supabase-auth-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:9999/health >/dev/null; then docker logs conditera-supabase-auth-pg17-migration || true; exit 1; fi
-          if ! docker run --rm --network container:conditera-supabase-realtime-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:4000/api/health >/dev/null; then docker logs conditera-supabase-realtime-pg17-migration || true; exit 1; fi
+          REALTIME_STATUS=$(docker run --rm --network container:conditera-supabase-realtime-pg17-migration curlimages/curl:8.12.1 -sS -o /dev/null -w '%{http_code}' --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:4000/api/health || true)
+          if ! [[ "$REALTIME_STATUS" =~ ^(2[0-9]{2}|404)$ ]]; then
+            echo "Realtime HTTP endpoint did not respond as expected (HTTP $REALTIME_STATUS)."
+            docker logs conditera-supabase-realtime-pg17-migration || true
+            exit 1
+          fi
+          REALTIME_MIGRATIONS=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc "SELECT to_regclass('_realtime.schema_migrations') IS NOT NULL;")
+          test "$REALTIME_MIGRATIONS" = "t"
           if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
             docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
