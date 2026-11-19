@@ -1,0 +1,37 @@
+name: Validate local production audit script
+
+on:
+  pull_request:
+    paths:
+      - "scripts/ops/audit-local-production.ps1"
+      - ".github/workflows/validate-production-audit-script.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/ops/audit-local-production.ps1"
+      - ".github/workflows/validate-production-audit-script.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-powershell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse PowerShell script without executing it
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/ops/audit-local-production.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | Format-List
+            exit 1
+          }
+          Write-Host "PowerShell syntax OK"
