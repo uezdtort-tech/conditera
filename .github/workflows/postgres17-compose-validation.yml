@@ -40,6 +40,30 @@ jobs:
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration config --quiet
+      - name: Проверить PG17 image и обязательные расширения
+        run: |
+          set -euo pipefail
+          docker run -d --name conditera-pg17-image-check \
+            -e POSTGRES_USER=supabase \
+            -e POSTGRES_PASSWORD=ci-only-postgres-password \
+            -e POSTGRES_DB=supabase \
+            supabase/postgres:17.12.0.001
+          trap 'docker rm -f conditera-pg17-image-check >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 60); do
+            if docker exec conditera-pg17-image-check pg_isready -U supabase -d supabase >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec conditera-pg17-image-check pg_isready -U supabase -d supabase
+          for extension in uuid-ossp pgcrypto pg_cron pg_trgm pgsodium btree_gist; do
+            docker exec conditera-pg17-image-check psql -X -U supabase -d supabase -Atqc \
+              "SELECT 1 FROM pg_available_extensions WHERE name = '$extension'" | grep -qx 1 || {
+                echo "Отсутствует обязательное расширение PG17: $extension" >&2
+                exit 1
+              }
+          done
+          docker exec conditera-pg17-image-check psql -X -U supabase -d supabase -Atqc "SHOW server_version"
       - name: Проверить изоляцию целевого кластера и сохранность действующего PG15
         run: |
           docker compose \
