@@ -52,7 +52,9 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
     navigate("product", { id: product.id, customize: "true" });
   };
 
-  const hasCustomization = Boolean(product.fillings?.length);
+  const hasCustomization = Boolean(
+    product.fillings?.length || product.coatings?.length || product.decorations?.length
+  );
 
   return (
     <Card
