@@ -8,12 +8,9 @@ version: "3.8"
 
 services:
   # ===== PostgreSQL 18 (dev) =====
-  # ВАЖНО: postgres:18-alpine — актуальный major release.
-  # Старый volume uyezdny-db-dev-data мог содержать данные от PG16/17 —
-  # если контейнер падает с ошибкой "PG_VERSION mismatch", удалите volume:
-  #   docker-compose -f docker-compose.dev.yml down
-  #   docker volume rm uyezdny_uyezdny-db-dev-data
-  #   docker-compose -f docker-compose.dev.yml up -d
+  # Не удалять volume при несовпадении PG_VERSION.
+  # Сначала определить фактическую версию данных, сделать backup и выполнить
+  # штатный pg_upgrade либо восстановление в новый volume с проверкой данных.
   db-dev:
     image: postgres:18-alpine
     container_name: uyezdny-db-dev
