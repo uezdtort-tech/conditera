@@ -12,20 +12,21 @@ STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, auth
 AS $function$
-  SELECT
-    EXISTS (
-      SELECT 1
-      FROM public.products p
-      WHERE p.id::text = p_product_id
-        AND p.confectioner_id = auth.uid()
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM public.user_roles ur
-      WHERE ur.user_id = auth.uid()
-        AND ur.role IN ('ADMIN', 'SUPER_ADMIN')
-        AND ur.is_active = true
-    );
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.products p
+    WHERE p.id::text = p_product_id
+      AND (
+        p.confectioner_id = auth.uid()
+        OR EXISTS (
+          SELECT 1
+          FROM public.user_roles ur
+          WHERE ur.user_id = auth.uid()
+            AND ur.role IN ('ADMIN', 'SUPER_ADMIN')
+            AND ur.is_active = true
+        )
+      )
+  );
 $function$;
 
 CREATE OR REPLACE FUNCTION public.can_read_product_slices(p_product_id text)
