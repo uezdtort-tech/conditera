@@ -23,6 +23,78 @@ function Invoke-DockerText {
   return ($result -join [Environment]::NewLine)
 }
 
+function Get-DockerRuntimeInventory {
+  # Снимок всех контейнеров/образов/volumes/networks без чтения Env и секретов.
+  $containerIdsText = Invoke-DockerText -Arguments @("ps", "-aq")
+  $containers = @()
+  $containerIds = @($containerIdsText -split "\r?\n" | Where-Object { $_ })
+  if ($containerIds.Count -gt 0) {
+    $inspectText = Invoke-DockerText -Arguments (@("inspect") + $containerIds)
+    $rawContainers = @(ConvertFrom-Json -InputObject $inspectText)
+    foreach ($item in $rawContainers) {
+      $networks = @()
+      if ($null -ne $item.NetworkSettings.Networks) {
+        foreach ($networkName in $item.NetworkSettings.Networks.PSObject.Properties.Name) {
+          $network = $item.NetworkSettings.Networks.PSObject.Properties[$networkName].Value
+          $networks += [pscustomobject]@{
+            name = $networkName
+            ipAddress = $network.IPAddress
+            gateway = $network.Gateway
+            aliases = @($network.Aliases)
+          }
+        }
+      }
+      $health = if ($null -ne $item.State.Health) { $item.State.Health.Status } else { "no-healthcheck" }
+      $containers += [pscustomobject]@{
+        name = ([string]$item.Name).TrimStart("/")
+        id = $item.Id
+        image = $item.Config.Image
+        imageId = $item.Image
+        state = $item.State.Status
+        health = $health
+        composeProject = $item.Config.Labels."com.docker.compose.project"
+        composeService = $item.Config.Labels."com.docker.compose.service"
+        composeWorkingDir = $item.Config.Labels."com.docker.compose.project.working_dir"
+        composeFiles = $item.Config.Labels."com.docker.compose.project.config_files"
+        networks = $networks
+        mounts = @($item.Mounts | ForEach-Object {
+          [pscustomobject]@{
+            type = $_.Type
+            name = $_.Name
+            destination = $_.Destination
+            readWrite = $_.RW
+          }
+        })
+      }
+    }
+  }
+
+  $images = @()
+  $imageText = Invoke-DockerText -Arguments @("image", "ls", "--no-trunc", "--format", "{{json .}}")
+  foreach ($line in @($imageText -split "\r?\n" | Where-Object { $_ })) {
+    $images += (ConvertFrom-Json -InputObject $line)
+  }
+
+  $volumes = @()
+  $volumeText = Invoke-DockerText -Arguments @("volume", "ls", "--format", "{{json .}}")
+  foreach ($line in @($volumeText -split "\r?\n" | Where-Object { $_ })) {
+    $volumes += (ConvertFrom-Json -InputObject $line)
+  }
+
+  $networksInventory = @()
+  $networkText = Invoke-DockerText -Arguments @("network", "ls", "--format", "{{json .}}")
+  foreach ($line in @($networkText -split "\r?\n" | Where-Object { $_ }) {
+    $networksInventory += (ConvertFrom-Json -InputObject $line)
+  }
+
+  return [pscustomobject]@{
+    containers = $containers
+    images = $images
+    volumes = $volumes
+    networks = $networksInventory
+  }
+}
+
 function Get-ContainerInventory {
   param([string]$Name, [string]$Database, [string]$User)
 
@@ -133,8 +205,14 @@ catch { $supabase = [pscustomobject]@{ container = $SupabaseContainer; exists = 
 
 $composeAppServices = ""
 $composeSupabaseServices = ""
+$composeAppImages = ""
+$composeSupabaseImages = ""
 try { $composeAppServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.yml", "config", "--services")) } catch { $composeAppServices = "ERROR: " + $_.Exception.Message }
 try { $composeSupabaseServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "config", "--services")) } catch { $composeSupabaseServices = "ERROR: " + $_.Exception.Message }
+try { $composeAppImages = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.yml", "config", "--images")) } catch { $composeAppImages = "ERROR: " + $_.Exception.Message }
+try { $composeSupabaseImages = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "config", "--images")) } catch { $composeSupabaseImages = "ERROR: " + $_.Exception.Message }
+
+$dockerRuntime = Get-DockerRuntimeInventory
 
 $sameCluster = $app.databaseAudit.system_identifier -and
   $supabase.databaseAudit.system_identifier -and
@@ -152,9 +230,16 @@ $report = [ordered]@{
     singleDatabaseTarget = [bool]($sameCluster -and $sameDatabase)
   }
   docker = [ordered]@{ serverVersion = $dockerVersion; platform = $dockerInfo }
-  composeServices = [ordered]@{
-    application = @($composeAppServices -split "\r?\n" | Where-Object { $_ })
-    supabase = @($composeSupabaseServices -split "\r?\n" | Where-Object { $_ })
+  dockerRuntime = $dockerRuntime
+  compose = [ordered]@{
+    services = [ordered]@{
+      application = @($composeAppServices -split "\r?\n" | Where-Object { $_ })
+      supabase = @($composeSupabaseServices -split "\r?\n" | Where-Object { $_ })
+    }
+    images = [ordered]@{
+      application = @($composeAppImages -split "\r?\n" | Where-Object { $_ })
+      supabase = @($composeSupabaseImages -split "\r?\n" | Where-Object { $_ })
+    }
   }
   applicationPostgres = $app
   supabasePostgres = $supabase
@@ -173,6 +258,7 @@ $summary = @(
   "Conditera production inventory — READ ONLY",
   "UTC: $($report.generatedAtUtc)",
   "Docker: $dockerVersion ($dockerInfo)",
+  "Docker inventory: $($dockerRuntime.containers.Count) containers, $($dockerRuntime.images.Count) images, $($dockerRuntime.volumes.Count) volumes, $($dockerRuntime.networks.Count) networks",
   "App PostgreSQL: $($app.state) / $($app.health) / $($app.databaseAudit.server_version)",
   "Supabase PostgreSQL: $($supabase.state) / $($supabase.health) / $($supabase.databaseAudit.server_version)",
   "Same PostgreSQL cluster: $sameCluster",
