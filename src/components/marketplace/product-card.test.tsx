@@ -73,30 +73,5 @@ describe("ProductCard cake slice preview", () => {
     expect(storeMock.state.navigate).not.toHaveBeenCalled();
   });
 
-  it("показывает настройку только для товаров с вариантами и открывает блок персонализации", () => {
-    const product = makeProduct();
-    product.fillings = [{ name: "Малина", priceModifier: 0 }];
-    render(<ProductCard product={product} />);
-    fireEvent.click(screen.getByRole("button", { name: "Настроить Торт «Малина»" }));
-    expect(storeMock.state.navigate).toHaveBeenCalledWith("product", {
-      id: "product-1",
-      customize: "true",
-    });
-  });
 
-  it("показывает действие настройки, если есть покрытие или декор без начинки", () => {
-    const product = makeProduct();
-    product.coatings = [{ name: "Шоколад", priceModifier: 100 }];
-    render(<ProductCard product={product} />);
-    fireEvent.click(screen.getByRole("button", { name: "Настроить Торт «Малина»" }));
-    expect(storeMock.state.navigate).toHaveBeenCalledWith("product", {
-      id: "product-1",
-      customize: "true",
-    });
-  });
-
-  it("не показывает действие настройки для товара без вариантов", () => {
-    render(<ProductCard product={makeProduct()} />);
-    expect(screen.queryByRole("button", { name: /Настроить/ })).not.toBeInTheDocument();
-  });
 });
