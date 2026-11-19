@@ -1,0 +1,66 @@
+name: PostgreSQL 17 migration Compose validation
+
+on:
+  push:
+    branches:
+      - work/pg17-single-postgres-current-main
+    paths:
+      - "docker-compose.supabase.yml"
+      - "docker-compose.pg17-migration.yml"
+      - "supabase/config.toml"
+      - ".github/workflows/postgres17-compose-validation.yml"
+  pull_request:
+    paths:
+      - "docker-compose.supabase.yml"
+      - "docker-compose.pg17-migration.yml"
+      - "supabase/config.toml"
+      - ".github/workflows/postgres17-compose-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-compose:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-only-postgres-password
+      JWT_SECRET: ci-only-jwt-secret-which-is-long-enough-for-compose-validation
+      ANON_KEY: ci-only-anon-key
+      SERVICE_ROLE_KEY: ci-only-service-role-key
+      ENCRYPTOR_KEY: ci-only-encryptor-key
+      SECRET_KEY_BASE: ci-only-secret-key-base
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить доступность Docker Compose
+        run: docker compose version
+      - name: Проверить объединённую конфигурацию Supabase + PG17
+        run: |
+          docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration config --quiet
+      - name: Проверить изоляцию целевого кластера и сохранность действующего PG15
+        run: |
+          docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration config --format json > /tmp/conditera-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("/tmp/conditera-compose.json").read_text())
+          services = config["services"]
+          target = services["supabase-db-pg17-migration"]
+          current = services["supabase-db"]
+
+          assert target["image"] == "supabase/postgres:17.12.0.001", target.get("image")
+          assert "pg17-migration" in target.get("profiles", []), target.get("profiles")
+          assert target.get("ports") in (None, []), target.get("ports")
+          assert target["volumes"][0]["source"] == "conditera_supabase_pg17_migration_data"
+          assert current["image"] == "supabase/postgres:15.6.1.141", current.get("image")
+          assert current["volumes"][0]["source"] != target["volumes"][0]["source"]
+          assert "conditera_supabase_pg17_migration_data" in config["volumes"]
+          print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
+          PY
