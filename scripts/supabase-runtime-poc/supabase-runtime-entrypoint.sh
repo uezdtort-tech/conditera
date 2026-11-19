@@ -114,6 +114,12 @@ for service in postgres gotrue postgrest realtime storage meta imgproxy kong; do
   [ ! -f /etc/hostname ] || cp /etc/hostname "$root/etc/hostname"
 done
 
+# COPY from image stages normalizes ownership to root. Restore only the writable
+# service directories needed by their non-root runtime users.
+mkdir -p /opt/supabase/services/storage/var/lib/storage
+chown 1000:1000 /opt/supabase/services/storage/var/lib/storage
+chown -R 65534:65534 /opt/supabase/services/realtime/app
+chown -R 1001:1001 /opt/supabase/services/kong/usr/local/kong
 mkdir -p /opt/supabase/services/kong/var/lib/kong
 sed \
   -e "s|http://supabase-auth:9999|http://127.0.0.1:9999|g" \
