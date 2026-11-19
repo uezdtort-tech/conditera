@@ -110,9 +110,13 @@ for service in postgres gotrue postgrest realtime storage meta imgproxy kong; do
       mknod -m 666 "$node" c "$2" "$3"
     fi
   done
-  [ ! -f /etc/resolv.conf ] || cp /etc/resolv.conf "$root/etc/resolv.conf"
-  [ ! -f /etc/hosts ] || cp /etc/hosts "$root/etc/hosts"
-  [ ! -f /etc/hostname ] || cp /etc/hostname "$root/etc/hostname"
+  mkdir -p "$root/etc"
+  for file in resolv.conf hosts hostname; do
+    if [ -f "/etc/$file" ]; then
+      rm -f "$root/etc/$file"
+      cp "/etc/$file" "$root/etc/$file"
+    fi
+  done
 done
 
 # COPY from image stages normalizes ownership to root. Restore only the writable
@@ -120,6 +124,7 @@ done
 mkdir -p /opt/supabase/services/storage/var/lib/storage
 chown 1000:1000 /opt/supabase/services/storage/var/lib/storage
 chown -R 65534:65534 /opt/supabase/services/realtime/app
+mkdir -p /opt/supabase/services/kong/usr/local/kong
 chown -R 1001:1001 /opt/supabase/services/kong/usr/local/kong
 mkdir -p /opt/supabase/services/kong/var/lib/kong
 sed \
