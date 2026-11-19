@@ -18,6 +18,8 @@ on:
       - "docker-compose.pg17-migration.yml"
       - "supabase/config.toml"
       - "supabase/migrations/**"
+      - "supabase/init-scripts/**"
+      - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
       - ".github/workflows/postgres17-compose-validation.yml"
   workflow_dispatch:
 
