@@ -14,6 +14,11 @@ declare -A IMAGES=(
   [realtime]="supabase/realtime:v2.34.21"
   [storage]="supabase/storage-api:v1.14.5"
   [kong]="library/kong:2.8.1"
+  [imgproxy]="darthsim/imgproxy:v3.24.0"
+  [postgres_meta]="supabase/postgres-meta:v0.83.2"
+  [studio]="supabase/studio:2025.06.23-sha-2cd0383"
+  [logflare]="supabase/logflare:1.4.0"
+  [vector]="timberio/vector:0.28.1-debian"
 )
 
 for name in "${!IMAGES[@]}"; do
