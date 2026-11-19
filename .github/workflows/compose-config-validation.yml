@@ -44,3 +44,22 @@ jobs:
         run: docker compose -f docker-compose.dev.yml config --quiet
       - name: Validate Supabase Compose
         run: docker compose -f docker-compose.supabase.yml config --quiet
+      - name: Start PostgreSQL 17 dev database and run migrations
+        run: docker compose -f docker-compose.dev.yml up -d db-dev
+      - name: Verify dev database and core schema
+        shell: bash
+        run: |
+          for attempt in $(seq 1 90); do
+            if docker compose -f docker-compose.dev.yml exec -T db-dev pg_isready -U uyezdny -d uyezdny_konditer_dev >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          version="$(docker compose -f docker-compose.dev.yml exec -T db-dev psql -U uyezdny -d uyezdny_konditer_dev -Atc 'SHOW server_version_num')"
+          [[ "$version" == 17* ]] || { echo "Expected PostgreSQL 17, got $version"; docker compose -f docker-compose.dev.yml logs db-dev; exit 1; }
+          count="$(docker compose -f docker-compose.dev.yml exec -T db-dev psql -U uyezdny -d uyezdny_konditer_dev -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('profiles','user_roles','products','orders','schema_migrations')")"
+          [[ "$count" == "5" ]] || { echo "Core Conditera tables missing: $count/5"; docker compose -f docker-compose.dev.yml logs db-dev; exit 1; }
+          echo "PostgreSQL $version; core Conditera tables=$count/5"
+      - name: Stop dev database
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down
