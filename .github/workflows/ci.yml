@@ -191,15 +191,21 @@ jobs:
           trap cleanup EXIT
 
           READY=0
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:5226/health >/tmp/simplex-health.json; then
-              READY=1
-              break
+          # Первый запуск CLI создаёт профиль и применяет миграции SQLite.
+          # Это может занимать больше минуты на чистом volume, поэтому
+          # smoke-test ждёт до 180 секунд, не убивая ещё запускающийся процесс.
+          for attempt in $(seq 1 90); do
+            if curl --silent --show-error http://127.0.0.1:5226/health >/tmp/simplex-health.json; then
+              if grep -q '"status":"ok"' /tmp/simplex-health.json; then
+                READY=1
+                break
+              fi
             fi
             sleep 2
           done
           if [ "$READY" != "1" ]; then
-            echo "SimpleX bridge health endpoint did not become ready."
+            echo "SimpleX bridge health endpoint did not become ready within 180 seconds."
+            cat /tmp/simplex-health.json 2>/dev/null || true
             exit 1
           fi
           grep -q '"service":"conditera-simplex-bridge"' /tmp/simplex-health.json
