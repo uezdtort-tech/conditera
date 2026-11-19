@@ -1,0 +1,63 @@
+# Изолированный целевой Supabase PostgreSQL 17 для миграционной репетиции.
+#
+# Запускать ТОЛЬКО вместе с docker-compose.supabase.yml:
+# docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml \
+#   --profile pg17-migration up -d supabase-db-pg17-migration
+#
+# Сервис не заменяет действующий supabase-db, не подключается к его volume
+# и не принимает трафик приложения. Он создаёт отдельный чистый целевой кластер
+# для проверки совместимости и восстановления копий. Переключение выполняется
+# отдельным изменением Compose только после сверки данных и E2E-проверок.
+#
+# Не использовать с production-трафиком и не удалять volume без отдельного
+# подтверждённого плана отката.
+
+services:
+  supabase-db-pg17-migration:
+    image: supabase/postgres:17.12.0.001
+    container_name: conditera-supabase-db-pg17-migration
+    profiles: ["pg17-migration"]
+    restart: "no"
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    environment:
+      POSTGRES_USER: supabase
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: supabase
+      POSTGRES_PORT: 5432
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      MIGRATIONS_DIR: /conditera-migrations
+      SEEDS_DIR: /docker-entrypoint-initdb.d/seed
+      SEED_MODE: none
+    expose:
+      - "5432"
+    volumes:
+      - supabase_pg17_migration_data:/var/lib/postgresql/data
+      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/zz-conditera-apply-migrations.sh:ro
+      - ./supabase/migrations:/conditera-migrations:ro
+      - ./supabase/seed.sql:/docker-entrypoint-initdb.d/seed/01-seed.sql:ro
+      - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
+      - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supabase -d supabase"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - conditera-net
+
+volumes:
+  supabase_pg17_migration_data:
+    name: conditera_supabase_pg17_migration_data
+
+networks:
+  conditera-net:
+    driver: bridge
