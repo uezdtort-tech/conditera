@@ -34,6 +34,11 @@ services:
       - POSTGRES_USER=supabase_admin
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=conditera
+      - PGHOST=db
+      - PGPORT=5432
+      - PGUSER=supabase_admin
+      - PGPASSWORD=${POSTGRES_PASSWORD}
+      - PGDATABASE=conditera
     depends_on:
       db:
         condition: service_healthy
