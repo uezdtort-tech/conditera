@@ -13,6 +13,32 @@
 
 Это не два имени одной БД, а два отдельных PostgreSQL-кластера с разными форматами данных, ролями, расширениями и томами. Миграции приложения и Auth поэтому могут оказаться в разных местах.
 
+## Фактическая маршрутизация запросов приложения (проверка исходников main)
+
+Раздел добавлен после проверки не только Compose, но и всех 43 результатов поиска по `getPool` в текущем коде.
+
+### Два независимых пути к данным
+
+| Путь | Код | Фактическое назначение в production |
+|---|---|---|
+| Supabase JS admin | `src/lib/supabase/admin.ts` → `resolveSupabaseServerUrl()` | `SUPABASE_INTERNAL_URL` (если задан) или Supabase URL → Kong → GoTrue/PostgREST/Storage на кластере PG15, БД `supabase` |
+| Supabase browser/SSR | `src/lib/supabase/browser.ts`, `server.ts` | Публичный Supabase URL → Kong → тот же кластер PG15; в локальном режиме URL может быть same-origin |
+| Прямой PostgreSQL | `src/lib/postgrest/pool.ts` → `DATABASE_URL` | В production Compose: PgBouncer → `conditera-db`, PG18, БД `conditera` |
+| Локальный REST shim | `src/app/rest/v1/[...path]/route.ts` | Прямой `getPool()` → PG18; это не тот же сервер, что внешний Kong/PostgREST |
+| Локальный Storage shim | `src/app/storage/v1/[...path]/route.ts` | Файлы в `upload/storage`, метаданные `storage.objects` через PG18; production Supabase Storage использует отдельный Storage volume и PG15 |
+
+### Подтверждённые пересечения двух кластеров
+
+- `src/app/api/products/route.ts`: административное создание товара проверяет `auth.users` и читает имя из `public.profiles` через прямой PG Pool (PG18), затем создаёт/читает товар и категории через `supabaseAdmin` (PG15). Один пользовательский сценарий опирается на обе базы.
+- `src/app/api/auth/register/route.ts`: штатное создание Auth-пользователя и профиля идёт через GoTrue/Supabase Admin (PG15); прямые операции с `auth.users` через PG Pool оставлены для локального fallback/компенсации. Это означает различие поведения dev и production.
+- `src/lib/ops/*` и API производственных сценариев используют прямой PG Pool (PG18) для `orders`, `order_production`, `order_production_checklist`, `inventory_items`, `recipe_ingredients`, `purchase_drafts`, `capacity_reservations`, `domain_events`, `order_media`, `chat_channels/messages` и других операционных таблиц.
+- Каталог, Auth, роли, профили, товары, категории, разрезы и Storage через `supabaseAdmin`/GoTrue/PostgREST работают через Supabase API (PG15). Одни и те же логические сущности могут иметь копии схемы в обоих кластерах, но это не доказывает совпадение строк или идентификаторов.
+- В результате простая смена `DATABASE_URL` или `SUPABASE_INTERNAL_URL` не объединяет систему: она меняет только один путь и может оставить часть запросов на старой базе.
+
+### Следствие для переноса
+
+Перед выбором целевого кластера нужна таблица «источник истины → таблица → операции чтения/записи → зависимости/FK → файлы Storage». Отдельно сверяются UUID пользователей между `auth.users`, `profiles`, `user_roles`, `confectioners`; товары/медиа/разрезы; заказы/позиции/платежи/возвраты/выплаты; склад/рецептуры/производственные задачи; чаты/события; Storage metadata и физические файлы. Нельзя копировать таблицы вслепую или считать одну из баз disposable.
+
 ## Исправления в этом изменении
 
 - Скрипт миграций теперь выполняет все обращения к журналу `schema_migrations` с теми же `PGUSER/PGDATABASE`, что и SQL-файлы. Раньше журнал мог создаваться в БД `postgres`, а миграции применяться в `conditera`.
