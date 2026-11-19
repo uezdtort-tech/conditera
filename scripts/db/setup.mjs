@@ -53,6 +53,7 @@ const IDEMPOTENT_SQLSTATES = new Set([
   "42704", // undefined_object (ветки DROP/COMMENT без IF EXISTS)
 ]);
 
+const SKIP_EXTENSIONS = ["pg_cron", "pgsodium"]; // отсутствуют в vanilla PG
 const DEMO_PASSWORD = "Demo123!";
 
 // ============================================================================
@@ -192,15 +193,15 @@ function splitSqlStatements(sql) {
 // ============================================================================
 // 3. Препроцессинг операторов (Supabase-измы → vanilla PG)
 // ============================================================================
-function preprocessStatement(stmt, availableExtensions) {
+function preprocessStatement(stmt) {
   let s = stmt;
 
   // 3.1. CREATE EXTENSION: pg_cron/pgsodium — скип; остальное остаётся
   const extMatch = s.match(/^CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?["']?([a-zA-Z0-9_-]+)["']?/i);
   if (extMatch) {
     const ext = extMatch[1].toLowerCase();
-    if (!availableExtensions.has(ext)) {
-      return { skip: true, reason: `${ext} is not installed in this PostgreSQL distribution` };
+    if (SKIP_EXTENSIONS.includes(ext)) {
+      return { skip: true, reason: `${ext} not available locally` };
     }
   }
 
@@ -477,10 +478,6 @@ function ensureEnvKeys() {
 // 7. Применение файла SQL с savepoint-обработкой ошибок
 // ============================================================================
 async function runStatements(client, statements, { label, mode, inTx }) {
-  // Decide from the connected server, not from a hard-coded "vanilla PG" list:
-  // Supabase PostgreSQL ships pg_cron/pgsodium, while local vanilla PG may not.
-  const extensionResult = await client.query("SELECT name FROM pg_available_extensions");
-  const availableExtensions = new Set(extensionResult.rows.map((row) => row.name));
   let applied = 0;
   let skipped = 0;
   let warned = 0;
@@ -488,7 +485,7 @@ async function runStatements(client, statements, { label, mode, inTx }) {
     const raw = statements[idx];
     if (!raw) continue;
     if (isTxControl(raw)) continue;
-    const prep = preprocessStatement(raw, availableExtensions);
+    const prep = preprocessStatement(raw);
     if (prep.skip) {
       console.log(`  [skip] ${label}: ${prep.reason}`);
       skipped++;
