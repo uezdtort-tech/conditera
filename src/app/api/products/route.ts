@@ -291,7 +291,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             id: string;
             productId: string;
             fillingName: string | null;
-            image: string;
+            image: string | null;
             caption: string | null;
             sortOrder: number;
           }) => {
