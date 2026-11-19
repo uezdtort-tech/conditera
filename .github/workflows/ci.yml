@@ -243,7 +243,7 @@ jobs:
               echo "Invalid Auth UUID from PG18 fixture: $USER_ID"
               exit 1
             }
-            docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_user_meta_data, created_at, updated_at) VALUES ('$USER_ID'::uuid, 'pg18-compat-$USER_ID@example.invalid', '', now(), '{\"source\":\"pg18-compat-fixture\"}'::jsonb, now(), now()) ON CONFLICT (id) DO NOTHING"
+            docker exec -e PGPASSWORD=postgres "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES ('$USER_ID'::uuid, 'pg18-compat-$USER_ID@example.invalid', '') ON CONFLICT (id) DO NOTHING"
           done <<< "$PG18_AUTH_USER_IDS"
 
           # Exercise the actual bootstrap SQL used by docker-compose.yml.
