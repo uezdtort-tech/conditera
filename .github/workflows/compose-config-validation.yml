@@ -9,6 +9,7 @@ on:
       - "docker-compose.dev.yml"
       - "docker-compose.supabase.yml"
       - "scripts/db/docker-dev-init.sh"
+      - "scripts/db/ensure-supabase-init.sh"
       - ".github/workflows/compose-config-validation.yml"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "docker-compose.dev.yml"
       - "docker-compose.supabase.yml"
       - "scripts/db/docker-dev-init.sh"
+      - "scripts/db/ensure-supabase-init.sh"
       - ".github/workflows/compose-config-validation.yml"
   workflow_dispatch:
 
