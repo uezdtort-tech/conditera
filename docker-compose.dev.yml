@@ -37,19 +37,79 @@ services:
       - ./supabase/pg17-init/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
       - ./supabase/pg17-init/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:ro
       - ./supabase/pg17-init/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:ro
-      - ./supabase/migrations:/migrations:ro
-      - ./supabase/seed.sql:/seeds/01-seed.sql:ro
-      - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
-      - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
-      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
       - ./scripts/db/ensure-supabase-init.sh:/docker-entrypoint-initdb.d/zz-00-supabase-init.sh:ro
-      - ./scripts/db/docker-dev-init.sh:/docker-entrypoint-initdb.d/zz-10-conditera-dev-init.sh:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase_admin -d uyezdny_konditer_dev"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+
+  # Storage API performs its own versioned tenant migrations on startup.
+  supabase-storage-dev:
+    image: supabase/storage-api:v1.14.5
+    container_name: uyezdny-storage-dev
+    restart: unless-stopped
+    environment:
+      ANON_KEY: ${ANON_KEY:-dev-anon-key}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:-dev-service-role-key}
+      POSTGREST_URL: http://127.0.0.1:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me-32-characters-min}
+      DATABASE_URL: postgres://supabase_admin:uyezdny_dev_pass@db-dev:5432/uyezdny_konditer_dev?search_path=storage
+      PG_META_URL: http://127.0.0.1:8080
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /mnt/storage
+      TENANT_ID: uyezdny-dev
+      REGION: us-east-1
+      GLOBAL_S3_BUCKET: uyezdny-dev-storage
+      GLOBAL_S3_ENDPOINT: http://127.0.0.1:5000
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+      DB_INSTALL_ROLES: "false"
+      DB_SUPER_USER: supabase_admin
+      DB_ANON_ROLE: anon
+      DB_AUTHENTICATED_ROLE: authenticated
+      DB_SERVICE_ROLE: service_role
+    volumes:
+      - uyezdny-storage-dev-data:/mnt/storage
+    depends_on:
+      db-dev:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Apply Conditera migrations only after Storage API migrations complete.
+  conditera-migrator-dev:
+    image: supabase/postgres:17.12.0.001
+    container_name: uyezdny-migrator-dev
+    restart: "no"
+    entrypoint: ["/bin/bash", "-lc"]
+    command: "bash /scripts/docker-dev-init.sh"
+    environment:
+      POSTGRES_USER: supabase_admin
+      POSTGRES_PASSWORD: uyezdny_dev_pass
+      POSTGRES_DB: uyezdny_konditer_dev
+      PGHOST: db-dev
+      PGPORT: 5432
+      CONDITERA_DB_PASSWORD: uyezdny_dev_pass
+      MIGRATIONS_DIR: /migrations
+      SEEDS_DIR: /seeds
+    volumes:
+      - ./supabase/migrations:/migrations:ro
+      - ./supabase/seed.sql:/seeds/01-seed.sql:ro
+      - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
+      - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
+      - ./scripts/db/docker-dev-init.sh:/scripts/docker-dev-init.sh:ro
+    depends_on:
+      db-dev:
+        condition: service_healthy
+      supabase-storage-dev:
+        condition: service_healthy
 
   # ===== PostgreSQL 18 (только чтение старого dev-volume/перенос данных) =====
   # Запуск: docker compose -f docker-compose.dev.yml --profile pg18-legacy up -d db-dev-pg18
@@ -147,5 +207,6 @@ volumes:
   uyezdny-db-dev-data-v17:
   uyezdny-db-dev-config-v17:
   uyezdny-db-dev-data-v18:
+  uyezdny-storage-dev-data:
   uyezdny-meili-dev-data:
   uyezdny-n8n-dev-data:
