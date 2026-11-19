@@ -1,0 +1,51 @@
+name: Product slices RLS regression
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/0064_product_slices_rls.sql"
+      - "scripts/tests/product-slices-rls-setup.sql"
+      - "scripts/tests/product-slices-rls-regression.sql"
+      - ".github/workflows/product-slices-rls-regression.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/0064_product_slices_rls.sql"
+      - "scripts/tests/product-slices-rls-setup.sql"
+      - "scripts/tests/product-slices-rls-regression.sql"
+      - ".github/workflows/product-slices-rls-regression.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  postgres17-rls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start isolated PostgreSQL 17
+        run: |
+          docker run -d --name product-slices-rls-pg \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=conditera \
+            -p 55432:5432 postgres:17-alpine
+          for attempt in $(seq 1 30); do
+            if docker exec product-slices-rls-pg pg_isready -U postgres -d conditera; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs product-slices-rls-pg
+          exit 1
+      - name: Create isolated schema fixture
+        run: |
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-setup.sql
+      - name: Apply production migration
+        run: |
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < supabase/migrations/0064_product_slices_rls.sql
+      - name: Verify anonymous, owner, admin and service-role access
+        run: |
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-regression.sql
+      - name: Cleanup isolated PostgreSQL
+        if: always()
+        run: docker rm -f product-slices-rls-pg >/dev/null 2>&1 || true
