@@ -56,6 +56,120 @@ services:
     networks:
       - conditera-net
 
+  # Supabase services for the isolated PG17 rehearsal. They create the real
+  # Storage schema before the deferred Conditera migration 0026 is applied.
+  supabase-rest-pg17-migration:
+    image: postgrest/postgrest:v12.2.0
+    container_name: conditera-supabase-rest-pg17-migration
+    profiles: ["pg17-migration"]
+    restart: "no"
+    environment:
+      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase?search_path=public
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    depends_on:
+      supabase-db-pg17-migration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - conditera-net
+
+  supabase-meta-pg17-migration:
+    image: supabase/postgres-meta:v0.83.2
+    container_name: conditera-supabase-meta-pg17-migration
+    profiles: ["pg17-migration"]
+    restart: "no"
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db-pg17-migration
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: supabase
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      PG_META_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+    depends_on:
+      supabase-db-pg17-migration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - conditera-net
+
+  supabase-storage-pg17-migration:
+    image: supabase/storage-api:v1.14.5
+    container_name: conditera-supabase-storage-pg17-migration
+    profiles: ["pg17-migration"]
+    restart: "no"
+    environment:
+      ANON_KEY: ${ANON_KEY:?ANON_KEY required}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
+      POSTGREST_URL: http://supabase-rest-pg17-migration:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase?search_path=storage
+      PG_META_URL: http://supabase-meta-pg17-migration:8080
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /mnt/storage
+      TENANT_ID: conditera
+      REGION: us-east-1
+      GLOBAL_S3_BUCKET: conditera-storage
+      GLOBAL_S3_ENDPOINT: http://supabase-storage-pg17-migration:5000
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - supabase_pg17_migration_storage_data:/mnt/storage
+    depends_on:
+      supabase-db-pg17-migration:
+        condition: service_healthy
+      supabase-rest-pg17-migration:
+        condition: service_healthy
+      supabase-meta-pg17-migration:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - conditera-net
+
+  supabase-app-migrator-pg17-migration:
+    image: supabase/postgres:17.12.0.001
+    container_name: conditera-supabase-app-migrator-pg17-migration
+    profiles: ["pg17-migration"]
+    restart: "no"
+    command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
+    environment:
+      PGHOST: supabase-db-pg17-migration
+      PGPORT: 5432
+      PGUSER: supabase_admin
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      PGDATABASE: supabase
+      MIGRATIONS_DIR: /conditera-migrations
+      SEEDS_DIR: /seeds
+      SEED_MODE: none
+    volumes:
+      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
+      - ./supabase/migrations:/conditera-migrations:ro
+    depends_on:
+      supabase-db-pg17-migration:
+        condition: service_healthy
+      supabase-storage-pg17-migration:
+        condition: service_healthy
+    networks:
+      - conditera-net
+
+
 volumes:
   supabase_pg17_migration_data:
     name: conditera_supabase_pg17_migration_data
