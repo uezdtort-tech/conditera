@@ -105,8 +105,9 @@ jobs:
           set -Eeuo pipefail
           test "$(docker ps -q --filter label=conditera.runtime=single-container-poc | wc -l)" -eq 1
           docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status
-          curl --fail --silent --show-error http://127.0.0.1:18000/auth/v1/health
-          curl --fail --silent --show-error http://127.0.0.1:18000/storage/v1/status
+          ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
+          curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/auth/v1/health
+          curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/storage/v1/status
 
       - name: Verify Auth signup, Storage upload/download and PostgreSQL schemas
         shell: bash
@@ -137,6 +138,7 @@ jobs:
             --data-binary @/tmp/runtime-poc.txt \
             http://127.0.0.1:18000/storage/v1/object/runtime-poc/health.txt
           curl --fail --silent --show-error \
+            -H "apikey: $ANON_KEY" \
             http://127.0.0.1:18000/storage/v1/object/public/runtime-poc/health.txt \
             -o /tmp/runtime-poc-downloaded.txt
           cmp /tmp/runtime-poc.txt /tmp/runtime-poc-downloaded.txt
