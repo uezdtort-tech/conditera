@@ -24,7 +24,7 @@ ALTER ROLE conditera
 GRANT anon, authenticated, service_role TO conditera;
 
 GRANT CONNECT ON DATABASE conditera TO conditera;
-GRANT USAGE ON SCHEMA public, auth, storage, extensions TO conditera;
+GRANT USAGE ON SCHEMA public, auth, extensions TO conditera;
 
 -- Приложение выполняет серверные запросы к бизнес-схеме через DATABASE_URL.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera;
