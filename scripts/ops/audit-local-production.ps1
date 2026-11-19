@@ -27,15 +27,19 @@ function Get-DockerRuntimeInventory {
   # Снимок всех контейнеров/образов/volumes/networks без чтения Env и секретов.
   $containerIdsText = Invoke-DockerText -Arguments @("ps", "-aq")
   $containers = @()
-  $containerIds = @($containerIdsText -split "\r?\n" | Where-Object { $_ })
+  $containerIds = @()
+  foreach ($id in ($containerIdsText -split "\r?\n")) {
+    if (-not [string]::IsNullOrWhiteSpace($id)) { $containerIds += $id.Trim() }
+  }
   if ($containerIds.Count -gt 0) {
     $inspectText = Invoke-DockerText -Arguments (@("inspect") + $containerIds)
     $rawContainers = @(ConvertFrom-Json -InputObject $inspectText)
     foreach ($item in $rawContainers) {
       $networks = @()
       if ($null -ne $item.NetworkSettings.Networks) {
-        foreach ($networkName in $item.NetworkSettings.Networks.PSObject.Properties.Name) {
-          $network = $item.NetworkSettings.Networks.PSObject.Properties[$networkName].Value
+        foreach ($networkEntry in $item.NetworkSettings.Networks.PSObject.Properties) {
+          $networkName = $networkEntry.Name
+          $network = $networkEntry.Value
           $networks += [pscustomobject]@{
             name = $networkName
             ipAddress = $network.IPAddress
@@ -71,20 +75,20 @@ function Get-DockerRuntimeInventory {
 
   $images = @()
   $imageText = Invoke-DockerText -Arguments @("image", "ls", "--no-trunc", "--format", "{{json .}}")
-  foreach ($line in @($imageText -split "\r?\n" | Where-Object { $_ })) {
-    $images += (ConvertFrom-Json -InputObject $line)
+  foreach ($line in ($imageText -split "\r?\n")) {
+    if (-not [string]::IsNullOrWhiteSpace($line)) { $images += (ConvertFrom-Json -InputObject $line) }
   }
 
   $volumes = @()
   $volumeText = Invoke-DockerText -Arguments @("volume", "ls", "--format", "{{json .}}")
-  foreach ($line in @($volumeText -split "\r?\n" | Where-Object { $_ })) {
-    $volumes += (ConvertFrom-Json -InputObject $line)
+  foreach ($line in ($volumeText -split "\r?\n")) {
+    if (-not [string]::IsNullOrWhiteSpace($line)) { $volumes += (ConvertFrom-Json -InputObject $line) }
   }
 
   $networksInventory = @()
   $networkText = Invoke-DockerText -Arguments @("network", "ls", "--format", "{{json .}}")
-  foreach ($line in @($networkText -split "\r?\n" | Where-Object { $_ })) {
-    $networksInventory += (ConvertFrom-Json -InputObject $line)
+  foreach ($line in ($networkText -split "\r?\n")) {
+    if (-not [string]::IsNullOrWhiteSpace($line)) { $networksInventory += (ConvertFrom-Json -InputObject $line) }
   }
 
   return [pscustomobject]@{
