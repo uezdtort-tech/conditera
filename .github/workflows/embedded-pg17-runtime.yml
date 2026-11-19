@@ -17,6 +17,10 @@ on:
       - ".github/workflows/embedded-pg17-runtime.yml"
   workflow_dispatch:
 
+concurrency:
+  group: embedded-pg17-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify-native-runtime:
     strategy:
