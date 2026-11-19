@@ -69,7 +69,9 @@ jobs:
           [[ "$version" == 17* ]] || { echo "Expected PostgreSQL 17, got $version"; docker compose -f docker-compose.dev.yml logs db-dev; exit 1; }
           count="$(docker compose -f docker-compose.dev.yml exec -T db-dev env PGPASSWORD=uyezdny_dev_pass PGCONNECT_TIMEOUT=3 psql -h 127.0.0.1 -U uyezdny -d uyezdny_konditer_dev -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('profiles','user_roles','products','orders','schema_migrations')")"
           [[ "$count" == "5" ]] || { echo "Core Conditera tables missing: $count/5"; docker compose -f docker-compose.dev.yml logs db-dev; exit 1; }
-          echo "PostgreSQL $version; core Conditera tables=$count/5"
+          roles="$(docker compose -f docker-compose.dev.yml exec -T db-dev env PGPASSWORD=uyezdny_dev_pass PGCONNECT_TIMEOUT=3 psql -h 127.0.0.1 -U supabase_admin -d uyezdny_konditer_dev -Atc "SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role','supabase_admin','postgres','uyezdny')")"
+          [[ "$roles" == "6" ]] || { echo "Expected six Supabase/app roles, got $roles"; docker compose -f docker-compose.dev.yml logs db-dev; exit 1; }
+          echo "PostgreSQL $version; core Conditera tables=$count/5; roles=$roles/6"
           docker compose -f docker-compose.dev.yml exec -T db-dev sh -lc 'test -s /etc/postgresql-custom/pgsodium_root.key'
           echo "Dev pgsodium root key persisted in its dedicated config volume"
       - name: Stop dev database
