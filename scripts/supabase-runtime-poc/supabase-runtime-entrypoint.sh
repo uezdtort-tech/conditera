@@ -87,7 +87,8 @@ export ENABLE_IMAGE_TRANSFORMATION=true
 export REQUEST_ALLOW_X_FORWARDED_PATH=true
 export FILE_SIZE_LIMIT="${FILE_SIZE_LIMIT:-52428800}"
 
-export IMGPROXY_LOCAL_FILESYSTEM_ROOT=/
+# Imgproxy may read only the shared Storage mount, never the service rootfs.
+export IMGPROXY_LOCAL_FILESYSTEM_ROOT=/var/lib/storage
 export IMGPROXY_USE_ETAG=true
 export IMGPROXY_AUTO_WEBP="${IMGPROXY_AUTO_WEBP:-true}"
 export IMGPROXY_MAX_SRC_RESOLUTION=16.8
