@@ -127,13 +127,13 @@ jobs:
       postgres15:
         image: supabase/postgres:15.6.1.141
         env:
-          POSTGRES_USER: supabase
+          POSTGRES_USER: supabase_admin
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: supabase
         ports:
           - 5434:5432
         options: >-
-          --health-cmd "pg_isready -U supabase -d supabase"
+          --health-cmd "pg_isready -U supabase_admin -d supabase"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
@@ -172,15 +172,15 @@ jobs:
           test -n "$SOURCE18_ID"
 
           docker cp supabase/compat/0000_supabase_compat.sql "$SOURCE15_ID:/tmp/compat.sql"
-          docker exec "$SOURCE15_ID" psql -U supabase -d supabase -v ON_ERROR_STOP=1 -f /tmp/compat.sql
-          docker exec "$SOURCE15_ID" psql -U supabase -d supabase -v ON_ERROR_STOP=1 -c "TRUNCATE auth.users, storage.objects, storage.buckets CASCADE"
+          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -f /tmp/compat.sql
+          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "TRUNCATE auth.users, storage.objects, storage.buckets CASCADE"
 
           docker exec "$SOURCE18_ID" pg_dump -U postgres -d conditera --data-only --schema=auth --schema=storage --no-owner > "$RUNNER_TEMP/auth-storage-data.sql"
           test -s "$RUNNER_TEMP/auth-storage-data.sql"
-          docker exec -i "$SOURCE15_ID" psql -U supabase -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/auth-storage-data.sql"
+          docker exec -i "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/auth-storage-data.sql"
 
-          docker exec "$SOURCE15_ID" psql -U supabase -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES ('00000000-0000-4000-8000-000000000015', 'pg15-only@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
-          docker exec "$SOURCE15_ID" psql -U supabase -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"pg15\"}'::jsonb)"
+          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO auth.users (id, email, encrypted_password) VALUES ('00000000-0000-4000-8000-000000000015', 'pg15-only@example.test', 'test-hash') ON CONFLICT (id) DO NOTHING"
+          docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 -c "INSERT INTO storage.objects (bucket_id, name, owner, metadata) VALUES ('media', 'pg15-only-object.txt', '00000000-0000-4000-8000-000000000015', '{\"source\":\"pg15\"}'::jsonb)"
 
       - name: Merge PostgreSQL 15 Supabase schemas and PostgreSQL 18 Conditera data into PostgreSQL 17
         shell: bash
@@ -214,7 +214,7 @@ jobs:
           done
           docker exec "$TARGET_ID" pg_isready -U supabase_admin -d postgres
 
-          docker exec "$SOURCE15_ID" pg_dump -U supabase -d supabase --no-owner --format=plain --exclude-schema=public > "$RUNNER_TEMP/supabase15-system.sql"
+          docker exec "$SOURCE15_ID" pg_dump -U supabase_admin -d supabase --no-owner --format=plain --exclude-schema=public > "$RUNNER_TEMP/supabase15-system.sql"
           test -s "$RUNNER_TEMP/supabase15-system.sql"
           docker exec -i "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 < "$RUNNER_TEMP/supabase15-system.sql"
 
@@ -231,7 +231,7 @@ jobs:
           docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS btree_gist; CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions"
 
           SOURCE18_COUNTS="$(docker exec "$SOURCE18_ID" psql -U postgres -d conditera -Atqc "SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text;")"
-          SOURCE15_COUNTS="$(docker exec "$SOURCE15_ID" psql -U supabase -d supabase -Atqc "SELECT (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
+          SOURCE15_COUNTS="$(docker exec "$SOURCE15_ID" psql -U supabase_admin -d supabase -Atqc "SELECT (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
           TARGET_COUNTS="$(docker exec "$TARGET_ID" psql -U supabase_admin -d conditera -Atqc "SELECT (SELECT count(*) FROM public.schema_migrations)::text || ':' || (SELECT count(*) FROM public.profiles)::text || ':' || (SELECT count(*) FROM public.products)::text || ':' || (SELECT count(*) FROM public.orders)::text || ':' || (SELECT count(*) FROM public.confectioner_transactions)::text || ':' || (SELECT count(*) FROM auth.users)::text || ':' || (SELECT count(*) FROM storage.buckets)::text || ':' || (SELECT count(*) FROM storage.objects)::text;")"
           EXPECTED_COUNTS="$SOURCE18_COUNTS:$SOURCE15_COUNTS"
           echo "Expected merged counts: $EXPECTED_COUNTS"
