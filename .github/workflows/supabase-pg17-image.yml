@@ -37,7 +37,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Start isolated PostgreSQL 17 target
-        run: docker compose -f docker-compose.supabase.yml --profile pg17-migration up -d supabase-db-pg17
+        run: docker compose -f docker-compose.supabase.yml --profile pg17-migration up -d supabase-db-pg17 supabase-storage-pg17
+      - name: Wait for Supabase Storage migrations
+        shell: bash
+        run: |
+          for attempt in $(seq 1 90); do
+            health="$(docker inspect --format '{{.State.Health.Status}}' conditera-supabase-storage-pg17 2>/dev/null || true)"
+            if [[ "$health" == "healthy" ]]; then
+              echo "Storage API migrations completed"
+              exit 0
+            fi
+            state="$(docker inspect --format '{{.State.Status}}' conditera-supabase-storage-pg17 2>/dev/null || true)"
+            if [[ "$state" == "exited" || "$state" == "dead" ]]; then
+              docker compose -f docker-compose.supabase.yml --profile pg17-migration logs supabase-storage-pg17
+              exit 1
+            fi
+            sleep 5
+          done
+          docker compose -f docker-compose.supabase.yml --profile pg17-migration logs supabase-storage-pg17
+          echo "Storage API did not become healthy in time"
+          exit 1
+      - name: Apply Conditera migrations after Storage API
+        run: docker compose -f docker-compose.supabase.yml --profile pg17-migration run --rm conditera-migrator-pg17
       - name: Verify PostgreSQL 17 and Supabase roles
         shell: bash
         run: |
