@@ -45,8 +45,8 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '20000000-0000-0000-0000-000000000003', true);
 DO $test$
 BEGIN
-  IF (SELECT count(*) FROM public.product_slices) <> 5 THEN
-    RAISE EXCEPTION 'admin must see all existing slices including the owner-created row';
+  IF (SELECT count(*) FROM public.product_slices) <> 4 THEN
+    RAISE EXCEPTION 'admin must see all non-deleted product slices including the owner-created row';
   END IF;
 END
 $test$;
