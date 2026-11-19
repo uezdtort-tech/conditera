@@ -163,6 +163,8 @@ services:
       - "5432"
     volumes:
       - postgres_data_pg17:/var/lib/postgresql/data
+      # Set passwords for Supabase service roles after the image creates them.
+      - ./supabase/init-scripts/99-supabase-roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-conditera-roles.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase_admin -d conditera"]
       interval: 10s
