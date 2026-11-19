@@ -107,6 +107,7 @@ services:
       - ./supabase/seed.sql:/seeds/01-seed.sql:ro
       - ./supabase/seed_cms_crm.sql:/seeds/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/seeds/03-seed_fillings.sql:ro
+      - ./scripts/db/ensure-supabase-init.sh:/docker-entrypoint-initdb.d/zz-00-supabase-init.sh:ro
       - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/zz-conditera-migrations.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U supabase -d supabase"]
