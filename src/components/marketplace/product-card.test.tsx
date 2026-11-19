@@ -60,9 +60,22 @@ describe("ProductCard cake slice preview", () => {
     expect(screen.queryByText("Пустая запись")).not.toBeInTheDocument();
   });
 
-  it("не показывает метку разреза, если реального изображения нет", () => {
+  it("не показывает метку разреза, если нет ни изображения, ни конфигурации", () => {
     render(<ProductCard product={makeProduct([{ id: "slice-empty", image: "" }])} />);
     expect(screen.queryByText("Разрез")).not.toBeInTheDocument();
+  });
+
+  it("показывает конфигурационный срез, если фотографии ещё нет", () => {
+    render(<ProductCard product={makeProduct([{
+      id: "slice-config",
+      image: "",
+      fillingName: "Фисташка",
+      config: {
+        layers: [{ type: "cream", color: "#f0e2b6", label: "Фисташковый крем", height: 1 }],
+      },
+    }])} />);
+    expect(screen.getByText("Разрез")).toBeInTheDocument();
+    expect(screen.getByText("Фисташка")).toBeInTheDocument();
   });
 
   it("показывает действие сравнения внутри карточки и вызывает переданный обработчик", () => {
