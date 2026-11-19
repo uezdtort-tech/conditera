@@ -84,7 +84,7 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           </button>
         </div>
 
-        {slicePreview && (
+        {slicePreview?.image && (
           <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-white/70 bg-white/95 p-1.5 pr-3 shadow-lg backdrop-blur">
             <img
               src={slicePreview.image}
