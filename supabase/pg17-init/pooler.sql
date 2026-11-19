@@ -1,6 +1,7 @@
-\set pguser \`echo "$POSTGRES_USER"\`
+\getenv pguser POSTGRES_USER
+\getenv pgdb POSTGRES_DB
 
-\c _supabase
-create schema if not exists _supavisor;
-alter schema _supavisor owner to :"pguser";
-\c :pgdb
+\connect _supabase
+CREATE SCHEMA IF NOT EXISTS _supavisor;
+ALTER SCHEMA _supavisor OWNER TO :"pguser";
+\connect :pgdb
