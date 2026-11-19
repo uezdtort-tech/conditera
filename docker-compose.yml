@@ -195,9 +195,9 @@ services:
   # ===== PgBouncer (connection pooling для PostgreSQL) =====
   # Мультиплексирует соединения: 200 клиентских → 20 реальных к БД.
   # Prisma открывает connection per query → без пулера PostgreSQL падает при 100+ юзеров.
-  # Режим transaction: поддерживает все Prisma-операции, но НЕ поддерживает
+  # Режим transaction: для stateless API-запросов; session-level features
   # session-level features (temp tables, SET без транзакции, LISTEN/NOTIFY).
-  # Для Prisma этого достаточно — все запросы в явных транзакциях.
+  # не использовать через этот пулер (temp tables, SET, LISTEN/NOTIFY).
   pgbouncer:
     image: pgbouncer/pgbouncer:latest
     container_name: conditera-pgbouncer
@@ -208,7 +208,7 @@ services:
       DB_USER: conditera
       DB_PASSWORD: ${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DB_NAME: conditera
-      # Pool mode: transaction (рекомендуется для Prisma)
+      # Pool mode: transaction
       POOL_MODE: transaction
       # Максимум клиентских соединений к пулеру
       MAX_CLIENT_CONN: 200
