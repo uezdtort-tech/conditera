@@ -8,6 +8,10 @@ set -Eeuo pipefail
 : "${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}"
 : "${PG_META_CRYPTO_KEY:?PG_META_CRYPTO_KEY is required}"
 : "${REALTIME_DB_ENC_KEY:?REALTIME_DB_ENC_KEY is required}"
+if [ "${#REALTIME_DB_ENC_KEY}" -ne 32 ]; then
+  echo "REALTIME_DB_ENC_KEY must contain exactly 32 ASCII characters" >&2
+  exit 1
+fi
 
 export POSTGRES_USER="${POSTGRES_USER:-supabase_admin}"
 export POSTGRES_DB="${POSTGRES_DB:-supabase}"
