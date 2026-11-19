@@ -5,6 +5,7 @@
 # Запуск из корня репозитория на Docker-хосте:
 #   bash scripts/ops/backup-dual-postgres-before-pg17.sh
 #
+# Перед запуском оператор обязан включить maintenance mode и остановить все записи в приложение/Storage.
 # Скрипт НЕ останавливает контейнеры, монтирует Storage только для чтения, НЕ меняет БД и НЕ удаляет volumes.
 # Он создаёт логические дампы PostgreSQL, отдельную копию файлового volume Supabase Storage и диагностический манифест.
 # Секреты подключения берутся из локальной авторизации внутри контейнеров.
@@ -24,6 +25,7 @@ STORAGE_IMAGE="${BACKUP_HELPER_IMAGE:-alpine:3.21.3}"
 BACKUP_ROOT="${PG_BACKUP_ROOT:-./backups/postgres-pre-pg17}"
 
 fail() { printf 'ОШИБКА: %s\n' "$*" >&2; exit 1; }
+[[ "${BACKUP_MAINTENANCE_MODE:-0}" == "1" ]] || fail "Сначала включите maintenance mode и остановите все записи; затем задайте BACKUP_MAINTENANCE_MODE=1."
 command -v docker >/dev/null 2>&1 || fail "Docker CLI не найден."
 docker info >/dev/null 2>&1 || fail "Docker daemon недоступен."
 docker inspect "$APP_CONTAINER" >/dev/null 2>&1 || fail "Не найден контейнер приложения: $APP_CONTAINER"
@@ -100,11 +102,11 @@ docker exec "$SUPABASE_CONTAINER" sh -lc 'pg_dumpall -U "$POSTGRES_USER" --globa
 
 # Storage files are not inside PostgreSQL: back up the named volume separately.
 # Mount it read-only in a short-lived helper container; never stop or mutate Storage.
-STORAGE_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "${STORAGE_MOUNT}"}}{{.Name}}{{end}}{{end}}' "$STORAGE_CONTAINER")"
+STORAGE_VOLUME="$(docker inspect -f "{{range .Mounts}}{{if eq .Destination \"$STORAGE_MOUNT\"}}{{.Name}}{{end}}{{end}}" "$STORAGE_CONTAINER")"
 [[ -n "$STORAGE_VOLUME" ]] || fail "Не найден named volume Storage на ${STORAGE_CONTAINER}:${STORAGE_MOUNT}; резервирование неполное."
 docker volume inspect "$STORAGE_VOLUME" >/dev/null 2>&1 || fail "Docker volume Storage не найден: $STORAGE_VOLUME"
 printf 'Резервирую Storage volume %s (read-only)...\n' "$STORAGE_VOLUME"
-docker run --rm --network none -v "$STORAGE_VOLUME:/source:ro" "$STORAGE_IMAGE" \\
+docker run --rm --network none -v "$STORAGE_VOLUME:/source:ro" "$STORAGE_IMAGE" \
   tar -C /source -czf - . > "$OUT/storage-files.tar.gz"
 test -s "$OUT/storage-files.tar.gz" || fail "Пустой архив Storage."
 docker run --rm -i --network none "$STORAGE_IMAGE" tar -tzf - < "$OUT/storage-files.tar.gz" >/dev/null || fail "Архив Storage не прошёл проверку tar."
