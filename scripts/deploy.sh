@@ -1,251 +1,131 @@
-#!/bin/bash
-# ============================================================
-# deploy.sh — Production deploy скрипт
-# ============================================================
-# Запуск на сервере: bash scripts/deploy.sh
-# Запуск локально: bash scripts/deploy.sh --remote
-# ============================================================
+#!/usr/bin/env bash
+# Безопасное развёртывание Conditera поверх уже подготовленной единой БД PG17.
+#
+# Скрипт НЕ мигрирует существующие PG15/PG18 тома и НЕ создаёт пустую БД
+# вместо действующей. Перед запуском PG17 должен быть отдельно подготовлен,
+# восстановлен из проверенного production backup и проверен оператором.
 
-set -euo pipefail
+set -Eeuo pipefail
 
-# Конфигурация
-PROJECT_DIR="/opt/conditera"
-COMPOSE_FILE="docker-compose.yml"
-SUPABASE_COMPOSE_FILE="docker-compose.supabase.yml"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
-# Цвета для вывода
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-log() { echo -e "${GREEN}[$(date +'%H:%M:%S')]${NC} $1"; }
-warn() { echo -e "${YELLOW}[$(date +'%H:%M:%S')] WARN:${NC} $1"; }
-err() { echo -e "${RED}[$(date +'%H:%M:%S')] ERROR:${NC} $1"; exit 1; }
+log()  { printf "$GREEN[%s]$NC %s\n" "$(date +'%H:%M:%S')" "$*"; }
+warn() { printf "$YELLOW[%s] WARN:$NC %s\n" "$(date +'%H:%M:%S')" "$*"; }
+err()  { printf "$RED[%s] ERROR:$NC %s\n" "$(date +'%H:%M:%S')" "$*" >&2; exit 1; }
 
-# Проверка что мы в правильной директории
-check_dir() {
-  if [ ! -f "package.json" ] || [ ! -f "docker-compose.yml" ]; then
-    err "Не в корне проекта. Запустите из директории проекта."
-  fi
+ENV_FILE=".env.production"
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.supabase.yml)
+
+check_prerequisites() {
+  [[ -f package.json && -f docker-compose.yml && -f docker-compose.supabase.yml ]] || err "Запустите скрипт из корня Conditera."
+  [[ -f "$ENV_FILE" ]] || err "Не найден $ENV_FILE. Production deploy остановлен."
+  command -v docker >/dev/null 2>&1 || err "Docker CLI не найден."
+  docker compose version >/dev/null 2>&1 || err "Docker Compose plugin недоступен."
+  bash scripts/env-check.sh production || err "$ENV_FILE не прошёл production-проверку."
+  "${COMPOSE[@]}" config --quiet || err "Объединённая Compose-конфигурация недействительна."
 }
 
-# 1. Pull latest code
 pull_code() {
-  log "Pulling latest code..."
-  git pull origin main
-}
-
-# 2. Check .env.production
-check_env() {
-  if [ ! -f ".env.production" ]; then
-    err ".env.production не найден! Создайте его:"
-    echo "  bash scripts/setup-env.sh prod"
-    echo "  ИЛИ скопируйте: cp .env.production.example .env.production"
-    exit 1
+  if [[ "${SKIP_GIT_PULL:-0}" == "1" ]]; then
+    log "SKIP_GIT_PULL=1: пропускаю git pull."
+    return
   fi
-
-  # Делегируем в env-check.sh — он проверяет ВСЕ переменные с понятными сообщениями
-  log "Running env-check.sh production..."
-  bash scripts/env-check.sh production || err ".env.production не прошёл проверку. Заполните недостающие переменные: bash scripts/setup-env.sh prod"
-
-  log "✓ .env.production проверен"
+  log "Обновление кода из origin/main..."
+  git pull --ff-only origin main || err "Не удалось выполнить git pull --ff-only. Рабочее дерево/ветку проверьте вручную."
 }
 
-# 3. Apply Supabase migrations
+assert_pg17_ready() {
+  local container version major db_name
+  container="$(docker ps --filter 'name=^/conditera-db$' --format '{{.ID}}' | head -n1)"
+  [[ -n "$container" ]] || err "Единый контейнер conditera-db ещё не запущен. Автоматический cutover PG15/PG18 запрещён этим скриптом."
+  version="$(docker exec "$container" psql -U supabase_admin -d conditera -Atqc "SHOW server_version_num" 2>/dev/null)" || err "Не удалось подключиться к conditera-db/conditera от supabase_admin."
+  [[ "$version" =~ ^[0-9]+$ ]] || err "Сервер вернул некорректный номер версии PostgreSQL: '$version'."
+  major=$((version / 10000))
+  [[ "$major" -eq 17 ]] || err "Обнаружен PostgreSQL $major вместо 17. Скрипт не переключает major version и не переносит тома автоматически."
+  db_name="$(docker exec "$container" psql -U supabase_admin -d conditera -Atqc "SELECT current_database()")"
+  [[ "$db_name" == "conditera" ]] || err "Подключились не к целевой БД conditera."
+  log "Подтверждён единый PostgreSQL $major, база conditera."
+}
+
+backup_data() {
+  local stamp db_backup storage_backup storage_container
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  mkdir -p backups
+  db_backup="backups/predeploy-conditera-pg17-$stamp.dump"
+  log "Резервное копирование БД перед миграциями: $db_backup"
+  docker exec conditera-db pg_dump -U supabase_admin -d conditera --format=custom --no-owner --no-acl > "$db_backup" || err "pg_dump завершился с ошибкой."
+  [[ -s "$db_backup" ]] || err "Создан пустой файл резервной копии БД."
+  docker run --rm -i --entrypoint pg_restore supabase/postgres:17.6.1.136 --list < "$db_backup" > "$db_backup.list" || err "Проверка каталога резервной копии БД не прошла."
+  [[ -s "$db_backup.list" ]] || err "Каталог резервной копии БД пуст."
+
+  storage_container="$(docker ps --filter 'name=^/conditera-supabase-storage$' --format '{{.ID}}' | head -n1)"
+  [[ -n "$storage_container" ]] || err "Supabase Storage не запущен; резервное копирование файлов Storage не выполнено."
+  storage_backup="backups/predeploy-storage-$stamp.tar.gz"
+  log "Резервное копирование файлов Supabase Storage: $storage_backup"
+  docker exec "$storage_container" tar -C /mnt/storage -czf - . > "$storage_backup" || err "Архивирование файлов Storage завершилось с ошибкой."
+  [[ -s "$storage_backup" ]] || err "Создан пустой архив Storage."
+  tar -tzf "$storage_backup" >/dev/null || err "Проверка архива Storage не прошла."
+  log "Бэкап БД и файлов Storage проверен."
+}
+
 apply_migrations() {
-  log "Applying Supabase migrations..."
+  log "Запуск штатного migrator через общий Compose-проект..."
+  "${COMPOSE[@]}" run --rm migrator || err "Миграции остановлены с ошибкой. Web не будет обновлён."
+  local applied expected
+  applied="$(docker exec conditera-db psql -U supabase_admin -d conditera -Atqc "SELECT count(*) FROM public.schema_migrations")" || err "Не удалось прочитать журнал schema_migrations."
+  expected="$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+  [[ "$applied" == "$expected" ]] || err "В журнале $applied миграций, в репозитории $expected. Развёртывание остановлено."
+  log "Журнал миграций проверен: $applied/$expected."
+}
 
-  # Проверка что Supabase запущен
-  if ! docker ps --format '{{.Names}}' | grep -q "conditera-supabase-db"; then
-    warn "Supabase DB не запущен. Запускаю..."
-    docker-compose -f $SUPABASE_COMPOSE_FILE up -d
-    sleep 30
-  fi
+start_stack() {
+  log "Запуск единого Compose-проекта Conditera + Supabase..."
+  "${COMPOSE[@]}" up -d --build || err "Compose не смог запустить сервисы."
+}
 
-  # Применяем миграции по порядку
-  for migration in 0001_init 0002_marketplace 0003_search_function 0004_cake_builder_chat 0005_crm_cms; do
-    local SQL_FILE="supabase/migrations/${migration}.sql"
-    if [ -f "$SQL_FILE" ]; then
-      log "  Applying ${migration}.sql..."
-      docker exec -i conditera-supabase-db psql -U supabase -d supabase < "$SQL_FILE" || warn "Migration ${migration} failed (might already be applied)"
+wait_http() {
+  local name="$1" url="$2" attempts="${3:-24}"
+  for attempt in $(seq 1 "$attempts"); do
+    if curl --connect-timeout 3 --max-time 8 -fsS "$url" >/dev/null 2>&1; then
+      log "$name отвечает: $url"
+      return 0
     fi
+    sleep 5
   done
-
-  # Seed данные (только при первом запуске)
-  if [ ! -f ".seed-applied" ]; then
-    log "Applying seed data..."
-    for seed in seed seed_cms_crm; do
-      local SEED_FILE="supabase/${seed}.sql"
-      if [ -f "$SEED_FILE" ]; then
-        docker exec -i conditera-supabase-db psql -U supabase -d supabase < "$SEED_FILE" || warn "Seed ${seed} failed"
-      fi
-    done
-    touch .seed-applied
-    log "✓ Seed данные применены"
-  fi
-
-  log "✓ Миграции применены"
+  err "$name не стал отвечать: $url"
 }
 
-# 4. Deploy Edge Functions
-deploy_functions() {
-  log "Deploying Edge Functions..."
-
-  if command -v supabase &> /dev/null; then
-    for func in telegram-webhook send-notification yookassa-webhook abandoned-cart daily-digest bonus-expiry; do
-      local FUNC_DIR="supabase/functions/${func}"
-      if [ -d "$FUNC_DIR" ]; then
-        log "  Deploying ${func}..."
-        supabase functions deploy "$func" --project-ref conditera || warn "Function ${func} deploy failed"
-      fi
-    done
-    log "✓ Edge Functions deployed"
-  else
-    warn "Supabase CLI не установлен — пропускаю deploy функций"
-  fi
-}
-
-# 5. Setup pg_cron schedules
-setup_cron() {
-  log "Setting up pg_cron schedules..."
-
-  # abandoned-cart (каждый час)
-  docker exec conditera-supabase-db psql -U supabase -d supabase -c "
-    SELECT cron.schedule('abandoned-cart', '0 * * * *',
-      \$\$SELECT net.http_post(
-        url := 'http://supabase-kong:8000/functions/v1/abandoned-cart',
-        headers := '{\"Content-Type\":\"application/json\"}'::jsonb,
-        body := '{}'::jsonb
-      )\$\$);
-  " 2>/dev/null || warn "cron schedule abandoned-cart failed (might already exist)"
-
-  # daily-digest (9:00 MSK)
-  docker exec conditera-supabase-db psql -U supabase -d supabase -c "
-    SELECT cron.schedule('daily-digest', '0 9 * * *',
-      \$\$SELECT net.http_post(
-        url := 'http://supabase-kong:8000/functions/v1/daily-digest',
-        headers := '{\"Content-Type\":\"application/json\"}'::jsonb,
-        body := '{}'::jsonb
-      )\$\$);
-  " 2>/dev/null || warn "cron schedule daily-digest failed"
-
-  # bonus-expiry (00:00 MSK)
-  docker exec conditera-supabase-db psql -U supabase -d supabase -c "
-    SELECT cron.schedule('bonus-expiry', '0 0 * * *',
-      \$\$SELECT net.http_post(
-        url := 'http://supabase-kong:8000/functions/v1/bonus-expiry',
-        headers := '{\"Content-Type\":\"application/json\"}'::jsonb,
-        body := '{}'::jsonb
-      )\$\$);
-  " 2>/dev/null || warn "cron schedule bonus-expiry failed"
-
-  # cleanup-typing (каждую минуту)
-  docker exec conditera-supabase-db psql -U supabase -d supabase -c "
-    SELECT cron.schedule('cleanup-typing', '* * * * *',
-      \$\$DELETE FROM public.chat_typing WHERE expires_at < NOW()\$\$);
-  " 2>/dev/null || warn "cron schedule cleanup-typing failed"
-
-  log "✓ pg_cron schedules настроены"
-}
-
-# 6. Restart services
-restart_services() {
-  log "Restarting services..."
-
-  # Pull latest images
-  docker-compose -f $SUPABASE_COMPOSE_FILE pull 2>/dev/null || true
-  docker-compose pull 2>/dev/null || true
-
-  # Restart Supabase
-  docker-compose -f $SUPABASE_COMPOSE_FILE up -d
-  sleep 15
-
-  # Restart web
-  docker-compose up -d --no-deps web
-  sleep 10
-
-  log "✓ Сервисы перезапущены"
-}
-
-# 7. Health check
 health_check() {
-  log "Running health check..."
-
-  local RETRIES=5
-  local SLEEP=5
-
-  for i in $(seq 1 $RETRIES); do
-    local WEB_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:3000/api/health 2>/dev/null || echo "000")
-    local KONG_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:8000/ 2>/dev/null || echo "000")
-
-    if [ "$WEB_STATUS" = "200" ]; then
-      log "✓ Web: HTTP 200 (OK)"
-      break
-    else
-      warn "Web: HTTP $WEB_STATUS (attempt $i/$RETRIES)"
-      sleep $SLEEP
-    fi
-  done
-
-  if [ "$WEB_STATUS" != "200" ]; then
-    err "Web не отвечает! Проверьте логи: docker-compose logs web"
-  fi
-
-  # Запускаем full health-check скрипт
-  if [ -f "scripts/health-check.sh" ]; then
-    log "Running full health-check.sh..."
-    bash scripts/health-check.sh http://localhost:3000 || warn "Some endpoints failed"
+  log "Проверка web и Supabase Auth..."
+  wait_http "Web" "http://127.0.0.1:3000/api/health"
+  wait_http "Supabase Auth" "http://127.0.0.1:8000/auth/v1/health"
+  "${COMPOSE[@]}" ps
+  if ! "${COMPOSE[@]}" config --services | grep -qx 'supabase-edge-runtime'; then
+    warn "В текущем Compose нет Edge Runtime. Edge Functions пока не считаются развёрнутыми; скрипт не отправляет их в удалённый Supabase проект."
   fi
 }
 
-# 8. Cleanup
-cleanup() {
-  log "Cleaning up old Docker images..."
-  docker image prune -f 2>/dev/null || true
-  log "✓ Cleanup complete"
-}
-
-# 9. Summary
-summary() {
-  echo ""
-  echo "═══════════════════════════════════════════════════════════"
-  echo "  🎉 DEPLOY SUCCESSFUL!"
-  echo "═══════════════════════════════════════════════════════════"
-  echo ""
-  echo "  Web:        https://conditera.ru"
-  echo "  Health:     https://conditera.ru/api/health"
-  echo "  Studio:     http://localhost:8100"
-  echo "  Kong API:   http://localhost:8000"
-  echo ""
-  echo "  Версия:     $(git rev-parse --short HEAD)"
-  echo "  Дата:       $(date)"
-  echo ""
-  echo "  Команды:"
-  echo "    Логи:       docker-compose logs -f --tail=50"
-  echo "    Статус:     docker-compose ps"
-  echo "    Backup БД: docker exec conditera-supabase-db pg_dump -U supabase supabase > backup_$(date +%Y%m%d).sql"
-  echo ""
-  echo "═══════════════════════════════════════════════════════════"
-}
-
-# ===== Main =====
 main() {
-  log "Starting production deploy..."
-
-  check_dir
+  log "Подготовка production deployment."
+  check_prerequisites
   pull_code
-  check_env
-  apply_migrations
-  deploy_functions
-  setup_cron
-  restart_services
-  health_check
-  cleanup
-  summary
 
-  log "Deploy completed successfully!"
+  # Если работает старый PG18/PG15 контейнер, preflight остановится
+  # ДО backup/migrator/up и не создаст чистую БД поверх действующих данных.
+  assert_pg17_ready
+  backup_data
+  apply_migrations
+  start_stack
+  health_check
+
+  log "Deployment завершён. Старые PostgreSQL volumes не удалялись и не изменялись."
+  log "Резервные копии БД и Storage находятся в backups/."
 }
 
-# Run
 main "$@"
