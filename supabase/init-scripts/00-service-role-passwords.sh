@@ -12,8 +12,9 @@ PSQL=(psql -X -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES
 for role in authenticator pgbouncer supabase_auth_admin supabase_functions_admin supabase_storage_admin; do
   exists="$("${PSQL[@]}" -Atqc "SELECT 1 FROM pg_roles WHERE rolname = '$role'")"
   if [[ "$exists" == "1" ]]; then
-    "${PSQL[@]}" --set=pgpass="$POSTGRES_PASSWORD" \
-      --command="ALTER ROLE \"$role\" WITH PASSWORD :'pgpass';"
+    "${PSQL[@]}" --set=pgpass="$POSTGRES_PASSWORD" <<SQL
+ALTER ROLE "$role" WITH PASSWORD :'pgpass';
+SQL
     printf 'Установлен пароль внутренней роли %s.\n' "$role"
   fi
 done
