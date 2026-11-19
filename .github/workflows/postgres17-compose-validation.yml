@@ -125,7 +125,12 @@ jobs:
             docker logs conditera-supabase-realtime-pg17-migration || true
             exit 1
           fi
-          if ! docker run --rm --network container:conditera-supabase-rest-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:3000/ >/dev/null; then docker logs conditera-supabase-rest-pg17-migration || true; exit 1; fi
+          REST_STATUS=$(docker run --rm --network container:conditera-supabase-rest-pg17-migration curlimages/curl:8.12.1 -sS -o /dev/null -w '%{http_code}' --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:3000/ || true)
+          if ! [[ "$REST_STATUS" =~ ^(2[0-9]{2}|404)$ ]]; then
+            echo "PostgREST did not become reachable (HTTP $REST_STATUS)."
+            docker logs conditera-supabase-rest-pg17-migration || true
+            exit 1
+          fi
           if ! docker run --rm --network container:conditera-supabase-meta-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/health >/dev/null; then docker logs conditera-supabase-meta-pg17-migration || true; exit 1; fi
           if ! docker run --rm --network container:conditera-supabase-auth-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:9999/health >/dev/null; then docker logs conditera-supabase-auth-pg17-migration || true; exit 1; fi
           if ! docker run --rm --network container:conditera-supabase-realtime-pg17-migration curlimages/curl:8.12.1 -fsS --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:4000/api/health >/dev/null; then docker logs conditera-supabase-realtime-pg17-migration || true; exit 1; fi
