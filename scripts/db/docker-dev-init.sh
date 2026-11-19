@@ -34,7 +34,7 @@ GRANT anon, authenticated, service_role TO uyezdny;
 SELECT format('GRANT CONNECT ON DATABASE %I TO uyezdny', current_database())
 \gexec
 GRANT USAGE, CREATE ON SCHEMA public TO uyezdny;
-GRANT USAGE ON SCHEMA auth, storage, extensions, pgsodium TO uyezdny;
+GRANT USAGE ON SCHEMA auth, storage, extensions TO uyezdny;
 SQL
 
 PGUSER="$POSTGRES_USER" \
@@ -50,6 +50,7 @@ psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO uyezdny;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO uyezdny;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO uyezdny;
+GRANT USAGE ON SCHEMA pgsodium TO uyezdny;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO uyezdny;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON SEQUENCES TO uyezdny;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO uyezdny;
