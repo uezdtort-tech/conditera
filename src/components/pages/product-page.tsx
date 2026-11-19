@@ -1141,7 +1141,7 @@ export function ProductPage() {
         </TabsContent>
       </Tabs>
 
-      {/* === Срезы торта по начинкам (новый тренд) === */}
+      {/* === Реальные срезы товара из product_slices === */}
       {product.slices && product.slices.length > 0 && (
         <ProductSliceGallery productId={product.id} />
       )}
