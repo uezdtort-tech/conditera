@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale, SlidersHorizontal } from "lucide-react";
+import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale } from "lucide-react";
 import {
   formatCurrency,
   getProductPaymentOptions,
@@ -46,15 +46,6 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
     e.stopPropagation();
     onCompare?.();
   };
-
-  const handleCustomize = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigate("product", { id: product.id, customize: "true" });
-  };
-
-  const hasCustomization = Boolean(
-    product.fillings?.length || product.coatings?.length || product.decorations?.length
-  );
 
   return (
     <Card
@@ -193,19 +184,6 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
             )}
             {paymentOptions.split && <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[10px] text-amber-800">Сплит</Badge>}
           </div>
-        )}
-
-        {hasCustomization && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleCustomize}
-            className="w-full gap-2 rounded-xl"
-            aria-label={`Настроить ${product.title}`}
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            Настроить
-          </Button>
         )}
 
         <div className="mt-auto flex items-end justify-between gap-3 border-t border-border/70 pt-3">
