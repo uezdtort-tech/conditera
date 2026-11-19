@@ -1,0 +1,60 @@
+# Experimental all-in-one Supabase runtime proof of concept.
+# Every Supabase process runs inside this one container; no sibling Supabase containers.
+FROM supabase/postgres:17.6.1.136 AS postgres
+FROM supabase/gotrue:v2.197.0 AS gotrue
+FROM postgrest/postgrest:v14.18 AS postgrest
+FROM supabase/realtime:v2.148.3 AS realtime
+FROM supabase/storage-api:v1.89.12 AS storage
+FROM supabase/postgres-meta:v0.100.0 AS meta
+FROM darthsim/imgproxy:v4.0.21 AS imgproxy
+FROM kong:3.9.3 AS kong
+
+FROM alpine:3.20 AS runtime
+
+RUN apk add --no-cache bash coreutils curl ca-certificates openssl supervisor
+
+ENV SUPABASE_RUNTIME_ROOT=/opt/supabase/services \
+    POSTGRES_PORT=5432 \
+    POSTGRES_USER=supabase_admin \
+    POSTGRES_DB=supabase \
+    GOTRUE_API_HOST=127.0.0.1 \
+    GOTRUE_API_PORT=9999 \
+    PGRST_SERVER_HOST=127.0.0.1 \
+    PGRST_SERVER_PORT=3000 \
+    PGRST_ADMIN_SERVER_HOST=127.0.0.1 \
+    PGRST_ADMIN_SERVER_PORT=3001 \
+    PG_META_PORT=8080 \
+    PORT=4000 \
+    IMGPROXY_BIND=127.0.0.1:5001 \
+    KONG_DATABASE=off \
+    KONG_PROXY_LISTEN=0.0.0.0:8000 \
+    KONG_ADMIN_LISTEN=127.0.0.1:8001
+
+COPY --from=postgres / /opt/supabase/services/postgres/
+COPY --from=gotrue / /opt/supabase/services/gotrue/
+COPY --from=postgrest / /opt/supabase/services/postgrest/
+COPY --from=realtime / /opt/supabase/services/realtime/
+COPY --from=storage / /opt/supabase/services/storage/
+COPY --from=meta / /opt/supabase/services/meta/
+COPY --from=imgproxy / /opt/supabase/services/imgproxy/
+COPY --from=kong / /opt/supabase/services/kong/
+
+COPY supabase/kong.yml /opt/supabase/kong.yml.template
+COPY supabase/init-scripts/00-service-role-passwords.sh \
+  /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-00-role-passwords.sh
+COPY supabase/init-scripts/02-realtime-schema.sql \
+  /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-schema.sql
+
+COPY scripts/supabase-runtime-poc/ /usr/local/lib/supabase-runtime-poc/
+COPY scripts/supabase-runtime-poc/supervisord.conf /etc/supervisord.conf
+
+RUN chmod +x /usr/local/lib/supabase-runtime-poc/*.sh \
+    && mkdir -p /var/log/supervisor /run/supervisor \
+    && ln -sf /usr/local/lib/supabase-runtime-poc/supabase-runtime-entrypoint.sh /usr/local/bin/supabase-runtime-entrypoint.sh \
+    && ln -sf /usr/local/lib/supabase-runtime-poc/supabase-runtime-healthcheck.sh /usr/local/bin/supabase-runtime-healthcheck.sh
+
+EXPOSE 5432 8000
+HEALTHCHECK --interval=20s --timeout=10s --start-period=180s --retries=5 \
+  CMD ["/usr/local/bin/supabase-runtime-healthcheck.sh"]
+
+ENTRYPOINT ["/usr/local/bin/supabase-runtime-entrypoint.sh"]
