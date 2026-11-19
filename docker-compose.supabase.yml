@@ -41,6 +41,10 @@ services:
     depends_on:
       supabase-auth:
         condition: service_healthy
+      # Storage API owns storage.buckets/objects; its migrations must finish
+      # before Conditera migrations create Storage RLS policies.
+      supabase-storage:
+        condition: service_healthy
 
   # ===== Kong API Gateway =====
   # Единая точка входа для всех Supabase сервисов
@@ -180,8 +184,6 @@ services:
         condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
-      migrator:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
       interval: 30s
@@ -224,8 +226,6 @@ services:
       db:
         condition: service_healthy
       db-bootstrap:
-        condition: service_completed_successfully
-      migrator:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:4000/ || exit 1"]
@@ -271,8 +271,6 @@ services:
       db:
         condition: service_healthy
       db-bootstrap:
-        condition: service_completed_successfully
-      migrator:
         condition: service_completed_successfully
       supabase-rest:
         condition: service_healthy
@@ -344,8 +342,6 @@ services:
       db:
         condition: service_healthy
       db-bootstrap:
-        condition: service_completed_successfully
-      migrator:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
@@ -437,8 +433,6 @@ services:
       db:
         condition: service_healthy
       db-bootstrap:
-        condition: service_completed_successfully
-      migrator:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:4000/healthz || exit 1"]
