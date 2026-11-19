@@ -159,6 +159,92 @@ services:
       - conditera-net
 
 
+  # Auth и Realtime подключаются к тому же PG17 кластеру, без второго DB runtime.
+  supabase-auth-pg17-migration:
+    image: supabase/gotrue:v2.164.0
+    container_name: conditera-supabase-auth-pg17-migration
+    profiles: ["pg17-migration"]
+    restart: on-failure
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase?search_path=auth
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_ENABLE_ANONYMOUS_SIGNUPS: "false"
+      GOTRUE_ENABLE_SIGNUP: "true"
+      GOTRUE_ENABLE_EMAIL_SIGNUP: "true"
+      GOTRUE_ENABLE_EMAIL_AUTOCONFIRM: "true"
+      GOTRUE_ENABLE_SMS_SIGNUP: "false"
+      GOTRUE_ENABLE_SMS_AUTOCONFIRM: "false"
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/confirmation
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/invite
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/recovery
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/email-change-confirmation
+      GOTRUE_MAILER_TEMPLATES_INVITE: /etc/gotrue/templates/invite.html
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: /etc/gotrue/templates/confirmation.html
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: /etc/gotrue/templates/recovery.html
+      GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: /etc/gotrue/templates/email_change.html
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-noreply@conditera.ru}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-127.0.0.1}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASSWORD:-}
+      GOTRUE_SMTP_MAX_FREQUENCY: 1s
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ADMIN_GROUPS: admin
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${EXTERNAL_GOOGLE_ENABLED:-false}
+      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${EXTERNAL_GOOGLE_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_GOOGLE_SECRET: ${EXTERNAL_GOOGLE_SECRET:-}
+      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/callback
+      GOTRUE_EXTERNAL_YANDEX_ENABLED: ${EXTERNAL_YANDEX_ENABLED:-false}
+      GOTRUE_EXTERNAL_YANDEX_CLIENT_ID: ${EXTERNAL_YANDEX_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_YANDEX_SECRET: ${EXTERNAL_YANDEX_SECRET:-}
+      GOTRUE_EXTERNAL_YANDEX_REDIRECT_URI: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/callback
+      GOTRUE_EXTERNAL_VK_ENABLED: ${EXTERNAL_VK_ENABLED:-false}
+      GOTRUE_EXTERNAL_VK_CLIENT_ID: ${EXTERNAL_VK_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_VK_SECRET: ${EXTERNAL_VK_SECRET:-}
+      GOTRUE_EXTERNAL_VK_REDIRECT_URI: ${API_EXTERNAL_URL:-http://localhost:8000}/auth/v1/callback
+    depends_on:
+      supabase-db-pg17-migration:
+        condition: service_healthy
+    networks:
+      - conditera-net
+
+  supabase-realtime-pg17-migration:
+    image: supabase/realtime:v2.34.21
+    container_name: conditera-supabase-realtime-pg17-migration
+    profiles: ["pg17-migration"]
+    restart: on-failure
+    environment:
+      DB_HOST: supabase-db-pg17-migration
+      DB_PORT: 5432
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      DB_NAME: supabase
+      DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
+      PORT: 4000
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      ENCRYPTOR_KEY: ${ENCRYPTOR_KEY:?ENCRYPTOR_KEY required}
+      API_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      REPLICATION_MODE: RLS
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE required}
+      ERL_AFLAGS: +sbwt none +sbwtdcpu none +sbwtdio none
+      DB_ENC_KEY: ${ENCRYPTOR_KEY:?ENCRYPTOR_KEY required}
+    depends_on:
+      supabase-db-pg17-migration:
+        condition: service_healthy
+    networks:
+      - conditera-net
+
+
 volumes:
   supabase_pg17_migration_data:
     name: conditera_supabase_pg17_migration_data
