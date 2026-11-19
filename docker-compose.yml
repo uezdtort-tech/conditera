@@ -29,14 +29,16 @@ services:
     environment:
       # Миграции идут НАПРЯМУЮ к PostgreSQL (не через PgBouncer!)
       # PgBouncer в transaction mode не поддерживает DDL операции
-      - DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/conditera?schema=public
+      - DATABASE_URL=postgresql://supabase_admin:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/conditera?schema=public
       # POSTGRES_USER/DB нужны для init-scripts/01-apply-migrations.sh
-      - POSTGRES_USER=conditera
+      - POSTGRES_USER=supabase_admin
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=conditera
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     logging: *default-logging
     networks:
       - conditera-net
@@ -61,8 +63,8 @@ services:
       - APP_VERSION=${WEB_TAG:-dev}
       # Подключение через PgBouncer (порт 5432 внутри контейнера pgbouncer)
       # PgBouncer мультиплексирует соединения к реальной БД (db:5432)
-      - DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@pgbouncer:5432/conditera?schema=public&pgbouncer=true
-      - DIRECT_DATABASE_URL=postgresql://conditera:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/conditera?schema=public
+      - DATABASE_URL=postgresql://conditera:${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}@pgbouncer:5432/conditera?schema=public&pgbouncer=true
+      - DIRECT_DATABASE_URL=postgresql://conditera:${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}@db:5432/conditera?schema=public
       - REDIS_URL=redis://redis:6379
       - MEILISearch_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
@@ -131,33 +133,34 @@ services:
     networks:
       - conditera-net
 
-  # ===== PostgreSQL (продакшн БД) =====
-  # ВАЖНО: Используем postgres:18-alpine — актуальный major release.
-  # Если у вас в volume postgres_data лежат данные от старой версии (PG16/17),
-  # нужно либо сделать pg_upgrade, либо удалить volume:
-  #   docker compose down
-  #   docker volume rm conditera_postgres_data  (или conditera_postgres_data)
-  #   docker compose up -d
-  # Volume postgres_data_v18 — новый, чистый, без конфликтов версий.
+  # ===== Единственный PostgreSQL для Conditera + Supabase =====
+  # PG17 Supabase image содержит штатные расширения и роли Supabase.
+  # База postgres служит административной; рабочая БД conditera создаётся
+  # db-bootstrap и содержит и системные схемы Supabase, и бизнес-схему Conditera.
   db:
-    image: postgres:18-alpine
+    image: supabase/postgres:17.6.1.136
     container_name: conditera-db
     <<: *default-restart
     environment:
-      POSTGRES_USER: conditera
+      POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      POSTGRES_DB: conditera
-    # НЕ пробрасываем порт 5432 наружу — БД доступна только в сети conditera-net
+      POSTGRES_DB: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
     expose:
       - "5432"
     volumes:
-      - postgres_data_v18:/var/lib/postgresql/data
+      - postgres_data_pg17:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U conditera -d conditera"]
+      test: ["CMD-SHELL", "pg_isready -U supabase_admin -d postgres"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -166,6 +169,25 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    logging: *default-logging
+    networks:
+      - conditera-net
+
+  # ===== Одноразовая подготовка общей рабочей БД и роли приложения =====
+  db-bootstrap:
+    image: supabase/postgres:17.6.1.136
+    container_name: conditera-db-bootstrap
+    restart: "no"
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      CONDITERA_DB_PASSWORD: ${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
+    volumes:
+      - ./supabase/init-scripts/90-create-conditera-db.sql:/bootstrap/90-create-conditera-db.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: "psql -h db -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f /bootstrap/90-create-conditera-db.sql"
+    depends_on:
+      db:
+        condition: service_healthy
     logging: *default-logging
     networks:
       - conditera-net
@@ -184,7 +206,7 @@ services:
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: conditera
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      DB_PASSWORD: ${CONDITERA_DB_PASSWORD:-${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}}
       DB_NAME: conditera
       # Pool mode: transaction (рекомендуется для Prisma)
       POOL_MODE: transaction
@@ -214,8 +236,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -u conditera"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U conditera -d conditera"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -538,7 +562,8 @@ services:
       - conditera-net
 
 volumes:
-  postgres_data_v18:
+  postgres_data_pg17:
+    name: conditera_postgres_data_pg17
   redis_data:
   caddy_data:
   caddy_config:
