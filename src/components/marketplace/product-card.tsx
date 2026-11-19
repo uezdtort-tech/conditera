@@ -12,6 +12,7 @@ import {
   formatInstallmentPlan,
 } from "@/lib/finance";
 import type { Product } from "@/lib/types";
+import { ProductSliceConfigPreview } from "@/components/cake-slice/cake-slice-visualizer";
 import { cn } from "@/lib/utils";
 
 interface ProductCardProps {
@@ -28,7 +29,7 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
   const isFavorite = useAppStore((s) => s.isFavorite(product.id));
   const confectioners = useAppStore((s) => s.confectioners);
   const confectioner = confectioners.find((c) => c.id === product.confectionerId);
-  const slicePreview = product.slices?.find((slice) => Boolean(slice.image));
+  const slicePreview = product.slices?.find((slice) => Boolean(slice.image || slice.config));
   const paymentOptions = getProductPaymentOptions(product, confectioner);
 
   const handleAddToCart = (e: React.MouseEvent) => {
@@ -110,15 +111,23 @@ export function ProductCard({ product, variant = "default", onCompare, isCompare
           </div>
         </div>
 
-        {slicePreview?.image && (
+        {slicePreview && (
           <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-white/70 bg-white/95 p-1.5 pr-3 shadow-lg backdrop-blur">
-            <img
-              src={slicePreview.image}
-              alt={slicePreview.caption || `Разрез торта «${product.title}»`}
-              loading="lazy"
-              decoding="async"
-              className="h-12 w-12 rounded-lg object-cover"
-            />
+            {slicePreview.image ? (
+              <img
+                src={slicePreview.image}
+                alt={slicePreview.caption || `Разрез торта «${product.title}»`}
+                loading="lazy"
+                decoding="async"
+                className="h-12 w-12 rounded-lg object-cover"
+              />
+            ) : (
+              <ProductSliceConfigPreview
+                config={slicePreview.config}
+                fillingName={slicePreview.fillingName || "Торт"}
+                size={48}
+              />
+            )}
             <span className="flex flex-col text-xs font-medium leading-tight text-stone-700">
               <span className="flex items-center gap-1.5">
                 <ImageIcon className="h-3.5 w-3.5" />
