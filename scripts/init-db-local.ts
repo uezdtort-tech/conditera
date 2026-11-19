@@ -151,7 +151,7 @@ function preprocessForPglite(sql: string): string {
   out = out.replace(/WITH SCHEMA extensions/gi, "WITH SCHEMA public");
 
   // 2. pgsodium is wrapped in a DO block for Supabase PG17; skip that whole block in PGlite.
-  out = out.replace(/DO\\s+\\$pgsodium\\$[\\s\\S]*?END\\s+\\$pgsodium\\$;/gi, "-- skipped: pgsodium extension is unavailable in PGlite");
+  out = out.replace(/DO\s+\$pgsodium\$[\s\S]*?END\s+\$pgsodium\$;/gi, "-- skipped: pgsodium extension is unavailable in PGlite");
 
   // 3. Skip ALL CREATE EXTENSION statements — PGlite bundles pgcrypto,
   //    pg_trgm (partial), but doesn't accept the CREATE EXTENSION syntax.
