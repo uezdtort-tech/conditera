@@ -96,7 +96,7 @@ jobs:
             STORAGE_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-storage-pg17-migration 2>/dev/null || echo missing)
             AUTH_STATE=$(docker inspect -f '{{.State.Status}}' conditera-supabase-auth-pg17-migration 2>/dev/null || echo missing)
             REALTIME_STATE=$(docker inspect -f '{{.State.Status}}' conditera-supabase-realtime-pg17-migration 2>/dev/null || echo missing)
-            if [ "$AUTH_STATE" = "exited" ] || [ "$REALTIME_STATE" = "exited" ] || [ "$AUTH_STATE" = "dead" ] || [ "$REALTIME_STATE" = "dead" ]; then
+            if [ "$AUTH_STATE" = "exited" ] || [ "$REALTIME_STATE" = "exited" ] || [ "$AUTH_STATE" = "dead" ] || [ "$REALTIME_STATE" = "dead" ] || [ "$AUTH_STATE" = "restarting" ] || [ "$REALTIME_STATE" = "restarting" ]; then
               docker logs conditera-supabase-auth-pg17-migration || true
               docker logs conditera-supabase-realtime-pg17-migration || true
               exit 1
