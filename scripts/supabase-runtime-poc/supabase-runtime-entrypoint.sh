@@ -11,6 +11,8 @@ set -Eeuo pipefail
 export POSTGRES_USER="${POSTGRES_USER:-supabase_admin}"
 export POSTGRES_DB="${POSTGRES_DB:-supabase}"
 export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+# Preserve the official Supabase Postgres image data path inside chroot.
+export PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 export API_EXTERNAL_URL="${API_EXTERNAL_URL:-http://localhost:8000}"
 export SUPABASE_PUBLIC_URL="${SUPABASE_PUBLIC_URL:-$API_EXTERNAL_URL}"
 export SITE_URL="${SITE_URL:-http://localhost:3000}"
