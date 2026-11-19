@@ -288,13 +288,13 @@ services:
       - supabase_storage_data:/mnt/storage
     depends_on:
       supabase-db:
-        condition: service_started
+        condition: service_healthy
       supabase-meta:
         condition: service_started
       supabase-rest:
         condition: service_started
       supabase-imgproxy:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:5000/status || exit 1"]
       interval: 30s
