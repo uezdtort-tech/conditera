@@ -9529,3 +9529,63 @@ docs/rebuild/prompts/* + DECISIONS.md. Порядок: S1B1-R3 → S1B2-R3 → S
 S2B1-R2 (целевой блок по команде владельца «переходи к реализации следующего
 блока S2B1»). Исполнение — субагентами, Task ID 1/3/5/7 (нечётные шаги —
 commits бандлов в my-project).
+
+---
+
+## Task ID: recreate-3-S1B1-S2B1 (2026-11-19, UTC, сессия web-dd1ef6d6)
+**Запрос владельца:** «переходи к реализации следующего блока S2B1» (после
+recreate-2 S1B1→S1B3, уничтоженного D13 №5 при boot-restore 21:36 UTC).
+
+**Durable-фикс D13 (новый протокол):** каждый бандл v2 после блока становится
+git-TRACKED в my-project (`git add -f backups/…` + commit) — доказано, что
+tracked-файлы переживают recycle (conditera-pay3.bundle с 28.10). Плюс
+conditera-v2/ добавлен в .gitignore my-project (git clean -fd не трогает
+ignored). Бандлы recreate-3: S1B1-1040b86 (97.6 KB), S1B2-23b0c98 (154.5 KB),
+S1B3-9879fe4 (561.9 KB), S2B1-95057b8 (612.5 KB) — все verify OK.
+Восстановление: git clone backups/conditera-v2-S2B1-95057b8.bundle conditera-v2.
+
+**Цепочка recreate-3 (v2 /home/z/my-project/conditera-v2, 6 коммитов):**
+- 1040b86 [S1B1] scaffold: Next 16.4.6 + TS 5.9.3 strict, Tailwind 4.3.5,
+  shadcn button/card, globals.css 2025 целиком (1347 строк, diff=NONE),
+  health-матрица (top-level решает только БД), тема Zustand conditera-storage,
+  proxy.ts (Next 16 конвенция), env-соглашение, docker-compose.local
+  (meili/n8n/mailpit/PG:54330 профили), allowedDevOrigins. Уроки 1–8 предш.
+  исполнений применены; новые: :5678 занят хилом старого проекта (n8n-проба
+  «ok» — усилить различение в S8B2).
+- 23b0c98 [S1B2] database: 46 моделей/36 enum'ов, embedded PG :54330 (гард
+  порта до импорта runtime), migrate 20261119221321_init, идемпотентный seed
+  (profiles=7, confectionerProfiles=2, categories=8, products=20, reviews=10,
+  recipes=3, siteSettings=3 bonusPolicy, commissionRates=3, демо-заказ STUB +
+  ledger), db-фасад + fail-closed заглушки queries. Уроки: 8 недокументир.
+  enum'ов консолидированы из строковых литералов v1; prisma CLI читает только
+  .env; bun pm trust для embedded-postgres.
+- 9879fe4 [S1B3] design-system: полный shadcn-набор (sonner 2.0.8 адаптир.,
+  next-themes удалён), обёртки shared/ (PageHeader/SectionHeading/ShopCard
+  stretched-link/EmptyState/StatCard/SafeImage без useEffect), /styleguide
+  11 секций (noindex, 404 в prod, dev-ссылка в футере), бренд-шрифты
+  Brokgauz/TriodPostnaja/Neucha, .dark diff=NONE, анимации через @utility
+  (Tailwind 4: variant-префиксы не работают в plain-CSS — урок №7).
+- 95057b8 [S2B1 — ЦЕЛЕВОЙ БЛОК] auth: GoTrue-единственный контур — клиенты
+  @supabase/ssr (httpOnly через cookieOptions), same-origin /auth/v1 прокси
+  (preview-совместимость), proxy.ts updateSession (fail-open публичные /
+  fail-closed app-данные), lib/auth/{roles,current,guards,claims,oauth,
+  sanitize,client-store,errors}, роуты register/login/logout/session/oauth
+  [provider]+callback/2fa enroll+verify, claims self-healing (profiles —
+  истина), fail-closed getCurrentUser (D3 закрыт), auth-modal (чипы 6 ролей),
+  auth-menu, seed 4 учётки Demo123! через Admin API, dev-шим :3040
+  (mini-services/auth-shim, DEV_AUTH_SHIM=1 гвард, HS256, JSON-стор,
+  FLAT-форма ответов). Fixes: JWT в register-куке без ролей → re-grant
+  signInWithPassword после self-heal; кука ssr 0.12 с префиксом «base64-».
+
+**Верификация финальная (независимая, одним батчем):** shim :3040 200;
+/api/health 200 {"status":"ok","database":"ok","auth":"ok","storage":"local"};
+session anon → 401 (fail-closed); login customer@demo.ru → 200; session →
+{user, roles:['CUSTOMER']}; Set-Cookie HttpOnly + SameSite=lax. Гейты
+субагентов: register 201 → session 200 → logout → 401; неверный пароль 401
+единое сообщение; ADMIN → 403; JWT claims app_metadata.roles=['CUSTOMER'];
+oauth off → 403 / demo → 200; 2fa → 503 {mfaDisabled:true}; kill шима →
+401/503/200 без подмены; agent-browser: модалка → вход demo → тост+имя →
+выход; mobile 390 no-overflow. lint 0 / tsc 0.
+
+**Следующий блок по карте:** S2B2 (RBAC и роли) — guards, ROLE_LABELS_RU и
+self-healing claims уже готовы как фундамент.
