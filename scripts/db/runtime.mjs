@@ -105,7 +105,7 @@ export function resolveBinaries() {
   // Не допускаем незаметный запуск локальной БД другой major-версии:
   // production target и supabase/config.toml закреплены на PostgreSQL 17.
   const versionResult = run(wanted.postgres, ["--version"], { env: childEnv(binDir) });
-  const versionMatch = versionResult.stdout.match(/PostgreSQL\\)\\s+(\\d+)/);
+  const versionMatch = versionResult.stdout.match(/PostgreSQL\)\s+(\d+)/);
   if (versionResult.status !== 0 || !versionMatch || Number(versionMatch[1]) !== 17) {
     const actual = versionResult.stdout.trim() || versionResult.stderr.trim() || "версия не определена";
     throw new Error(
