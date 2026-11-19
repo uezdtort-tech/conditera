@@ -69,6 +69,18 @@ SUPABASE_SYSTEM_ID="$(container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SU
   container_psql "$APP_CONTAINER" "$APP_USER" "$APP_DATABASE" "SELECT schemaname || '.' || relname || '|' || n_live_tup || '|' || pg_total_relation_size(relid) FROM pg_stat_user_tables ORDER BY schemaname, relname;"
   printf '\n[supabase_table_estimates]\n'
   container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SUPABASE_DATABASE" "SELECT schemaname || '.' || relname || '|' || n_live_tup || '|' || pg_total_relation_size(relid) FROM pg_stat_user_tables ORDER BY schemaname, relname;"
+  printf '\n[app_migration_ledger]\n'
+  if [[ "$(container_psql "$APP_CONTAINER" "$APP_USER" "$APP_DATABASE" "SELECT to_regclass('public.schema_migrations') IS NOT NULL;")" == "t" ]]; then
+    container_psql "$APP_CONTAINER" "$APP_USER" "$APP_DATABASE" "SELECT filename FROM public.schema_migrations ORDER BY filename;"
+  else
+    printf '<schema_migrations absent>\n'
+  fi
+  printf '\n[supabase_migration_ledger]\n'
+  if [[ "$(container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SUPABASE_DATABASE" "SELECT to_regclass('public.schema_migrations') IS NOT NULL;")" == "t" ]]; then
+    container_psql "$SUPABASE_CONTAINER" "$SUPABASE_USER" "$SUPABASE_DATABASE" "SELECT filename FROM public.schema_migrations ORDER BY filename;"
+  else
+    printf '<schema_migrations absent>\n'
+  fi
 } > "$OUT/manifest.txt"
 
 printf 'Снимаю дампы БД и глобальных ролей...\n'
