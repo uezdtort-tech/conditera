@@ -756,34 +756,14 @@ export function CatalogPage() {
             </Card>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filtered.map((p) =>
-                compareMode ? (
-                  <div key={p.id} className="relative">
-                    <ProductCard product={p} />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleCompare(p.id);
-                      }}
-                      aria-label={
-                        compareIds.includes(p.id)
-                          ? "Убрать из сравнения"
-                          : "Добавить к сравнению"
-                      }
-                      className={`absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold shadow-sm transition-colors ${
-                        compareIds.includes(p.id)
-                          ? "bg-purple-600 text-white border-purple-600"
-                          : "bg-background/95 text-foreground border-border hover:border-purple-400"
-                      }`}
-                    >
-                      {compareIds.includes(p.id) ? "✓" : "+"}
-                    </button>
-                  </div>
-                ) : (
-                  <ProductCard key={p.id} product={p} />
-                )
-              )}
+              {filtered.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  onCompare={compareMode ? () => toggleCompare(p.id) : undefined}
+                  isCompared={compareIds.includes(p.id)}
+                />
+              ))}
             </div>
           )}
         </div>

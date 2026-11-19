@@ -5,28 +5,31 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon } from "lucide-react";
+import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale } from "lucide-react";
 import {
   formatCurrency,
   getProductPaymentOptions,
   formatInstallmentPlan,
 } from "@/lib/finance";
 import type { Product } from "@/lib/types";
+import { ProductSliceConfigPreview } from "@/components/cake-slice/cake-slice-visualizer";
 import { cn } from "@/lib/utils";
 
 interface ProductCardProps {
   product: Product;
   variant?: "default" | "compact";
+  onCompare?: () => void;
+  isCompared?: boolean;
 }
 
-export function ProductCard({ product, variant = "default" }: ProductCardProps) {
+export function ProductCard({ product, variant = "default", onCompare, isCompared = false }: ProductCardProps) {
   const navigate = useAppStore((s) => s.navigate);
   const addToCart = useAppStore((s) => s.addToCart);
   const toggleFavorite = useAppStore((s) => s.toggleFavorite);
   const isFavorite = useAppStore((s) => s.isFavorite(product.id));
   const confectioners = useAppStore((s) => s.confectioners);
   const confectioner = confectioners.find((c) => c.id === product.confectionerId);
-  const slicePreview = product.slices?.find((slice) => Boolean(slice.image));
+  const slicePreview = product.slices?.find((slice) => Boolean(slice.image || slice.config));
   const paymentOptions = getProductPaymentOptions(product, confectioner);
 
   const handleAddToCart = (e: React.MouseEvent) => {
@@ -38,6 +41,11 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
   const handleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation();
     toggleFavorite(product.id);
+  };
+
+  const handleCompare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onCompare?.();
   };
 
   return (
@@ -73,6 +81,24 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
             )}
           </div>
 
+          <div className="flex shrink-0 items-center gap-2">
+            {onCompare && (
+              <button
+                type="button"
+                onClick={handleCompare}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-full border shadow-md backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  isCompared
+                    ? "border-purple-600 bg-purple-600 text-white"
+                    : "border-white/50 bg-white/90 text-foreground hover:bg-white"
+                )}
+                aria-label={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+                aria-pressed={isCompared}
+                title={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+              >
+                <Scale className="h-[18px] w-[18px]" />
+              </button>
+            )}
           <button
             type="button"
             onClick={handleFavorite}
@@ -82,17 +108,26 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           >
             <Heart className={cn("h-[18px] w-[18px] transition-colors", isFavorite ? "fill-primary text-primary" : "text-foreground/70")} />
           </button>
+          </div>
         </div>
 
         {slicePreview && (
           <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-white/70 bg-white/95 p-1.5 pr-3 shadow-lg backdrop-blur">
-            <img
-              src={slicePreview.image}
-              alt={slicePreview.caption || `Разрез торта «${product.title}»`}
-              loading="lazy"
-              decoding="async"
-              className="h-12 w-12 rounded-lg object-cover"
-            />
+            {slicePreview.image ? (
+              <img
+                src={slicePreview.image}
+                alt={slicePreview.caption || `Разрез торта «${product.title}»`}
+                loading="lazy"
+                decoding="async"
+                className="h-12 w-12 rounded-lg object-cover"
+              />
+            ) : (
+              <ProductSliceConfigPreview
+                config={slicePreview.config}
+                fillingName={slicePreview.fillingName || "Торт"}
+                size={48}
+              />
+            )}
             <span className="flex flex-col text-xs font-medium leading-tight text-stone-700">
               <span className="flex items-center gap-1.5">
                 <ImageIcon className="h-3.5 w-3.5" />

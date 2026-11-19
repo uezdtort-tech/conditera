@@ -13,6 +13,7 @@ import {
   Cake, Upload, Edit3, Trash2, Plus, Download, Eye, X, Sparkles, Loader2, Image as ImageIcon, Boxes,
 } from "lucide-react";
 import { toast } from "sonner";
+import type { ProductSliceItem } from "@/lib/types";
 import { getCsrfToken, getSessionAuthHeaders } from "@/lib/api-client";
 
 // ===== Типы =====
@@ -785,46 +786,22 @@ export function CakeSliceVisualizer({
 // ===== Компонент-галерея: все срезы продукта =====
 export function ProductSliceGallery({
   productId,
-  fillings,
-  editable = false,
+  slices,
 }: {
   productId: string;
-  fillings: { name: string; priceModifier?: number }[];
-  editable?: boolean;
+  slices: ProductSliceItem[];
 }) {
-  const [slices, setSlices] = useState<any[]>([]);
   const [show3DModal, setShow3DModal] = useState(false);
   const [scene3d, setScene3d] = useState<any>(null);
   const [loading3d, setLoading3d] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [selectedSlice, setSelectedSlice] = useState<any | null>(null);
+  const [selectedSlice, setSelectedSlice] = useState<ProductSliceItem | null>(null);
 
-  useEffect(() => {
-    loadSlices();
-  }, [productId]);
-
-  const loadSlices = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/products/${productId}/slices`);
-      if (res.ok) {
-        const data = await res.json();
-        setSlices(data.slices || []);
-      }
-    } catch (err) {
-      // В dev используем presets
-    } finally {
-      setLoading(false);
-    }
+  const getSliceConfig = (slice: ProductSliceItem): SliceConfig => {
+    const config = slice.config as Record<string, unknown> | null | undefined;
+    if (config && Array.isArray(config.layers)) return config as unknown as SliceConfig;
+    return detectPreset({ name: slice.fillingName || slice.caption || "Торт" });
   };
 
-  // Маппим срезы к начинкам продукта
-  const fillingsWithSlices = fillings.map((filling, i) => {
-    const slice = slices.find((s) => s.fillingName === filling.name);
-    return { ...filling, slice, index: i };
-  });
-
-  // === Загрузка 3D-сцены из среза ===
   const handleLoad3DScene = async () => {
     setLoading3d(true);
     setShow3DModal(true);
@@ -841,27 +818,24 @@ export function ProductSliceGallery({
           toast.success("3D-сцена сгенерирована из среза");
         }
       }
-    } catch (err) {
+    } catch {
       toast.error("Ошибка загрузки 3D-сцены");
     } finally {
       setLoading3d(false);
     }
   };
 
-  if (loading) {
-    return (
-      <Card className="p-4">
-        <div className="text-sm text-muted-foreground">Загрузка срезов...</div>
-      </Card>
-    );
-  }
+  if (slices.length === 0) return null;
+
+  const selectedName = selectedSlice?.fillingName || selectedSlice?.caption || "Разрез торта";
+  const selectedConfig = selectedSlice ? getSliceConfig(selectedSlice) : null;
 
   return (
     <Card className="p-4">
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <Cake className="h-4 w-4 text-primary" />
-        <h3 className="font-semibold text-sm">Срезы торта по начинкам</h3>
-        <Badge variant="outline" className="text-[10px]">{fillings.length}</Badge>
+        <h3 className="font-semibold text-sm">Срезы торта</h3>
+        <Badge variant="outline" className="text-[10px]">{slices.length}</Badge>
         <Button
           size="sm"
           variant="outline"
@@ -879,82 +853,58 @@ export function ProductSliceGallery({
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-        {fillingsWithSlices.map((fw) => (
-          <button
-            key={fw.index}
-            onClick={() => setSelectedSlice({
-              name: fw.name,
-              slice: fw.slice,
-              priceModifier: fw.priceModifier,
-            })}
-            className="border rounded-lg p-2 hover:border-primary/40 transition-colors text-left"
-          >
-            <div className="aspect-square rounded-md bg-muted/30 flex items-center justify-center mb-2 overflow-hidden">
-              {fw.slice?.image ? (
-                <img
-                  src={fw.slice.image}
-                  alt={fw.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <SliceSVG
-                  config={fw.slice?.config || detectPreset({ name: fw.name })}
-                  size={120}
-                />
-              )}
-            </div>
-            <div className="text-xs font-medium truncate">{fw.name}</div>
-            {fw.priceModifier !== undefined && fw.priceModifier > 0 && (
-              <div className="text-[10px] text-muted-foreground">
-                +{fw.priceModifier} ₽
+        {slices.map((slice) => {
+          const name = slice.fillingName || slice.caption || "Разрез торта";
+          return (
+            <button
+              key={slice.id}
+              type="button"
+              onClick={() => setSelectedSlice(slice)}
+              className="border rounded-lg p-2 hover:border-primary/40 transition-colors text-left"
+              aria-label={`Открыть срез: ${name}`}
+            >
+              <div className="aspect-square rounded-md bg-muted/30 flex items-center justify-center mb-2 overflow-hidden">
+                {slice.image ? (
+                  <img src={slice.image} alt={name} className="w-full h-full object-cover" />
+                ) : (
+                  <SliceSVG config={getSliceConfig(slice)} size={120} />
+                )}
               </div>
-            )}
-          </button>
-        ))}
+              <div className="text-xs font-medium truncate">{name}</div>
+              {slice.caption && slice.fillingName && slice.caption !== slice.fillingName && (
+                <div className="text-[10px] text-muted-foreground truncate">{slice.caption}</div>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Modal — увеличенный срез */}
-      {selectedSlice && (
-        <Dialog open={!!selectedSlice} onOpenChange={(v) => !v && setSelectedSlice(null)}>
+      {selectedSlice && selectedConfig && (
+        <Dialog open onOpenChange={(open) => !open && setSelectedSlice(null)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Cake className="h-5 w-5 text-primary" />
-                {selectedSlice.name}
+                {selectedName}
               </DialogTitle>
-              {selectedSlice.priceModifier !== undefined && selectedSlice.priceModifier > 0 && (
-                <DialogDescription>
-                  Доплата за начинку: +{selectedSlice.priceModifier} ₽
-                </DialogDescription>
-              )}
             </DialogHeader>
-
             <div className="flex justify-center">
               <div className="rounded-lg border bg-muted/30 p-4">
-                {selectedSlice.slice?.image ? (
+                {selectedSlice.image ? (
                   <img
-                    src={selectedSlice.slice.image}
-                    alt={selectedSlice.name}
+                    src={selectedSlice.image}
+                    alt={selectedName}
                     className="rounded-md max-w-full max-h-80 object-contain"
                   />
                 ) : (
-                  <SliceSVG
-                    config={selectedSlice.slice?.config || detectPreset({ name: selectedSlice.name })}
-                    size={280}
-                  />
+                  <SliceSVG config={selectedConfig} size={280} />
                 )}
               </div>
             </div>
-
-            {/* Легенда слоёв */}
             <div className="flex flex-wrap gap-2 justify-center">
-              {(selectedSlice.slice?.config?.layers ||
-                detectPreset({ name: selectedSlice.name }).layers).map((layer: SliceLayer, i: number) => (
-                <Badge key={i} variant="outline" className="text-[10px] gap-1.5">
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: layer.color }}
-                  />
+              {selectedConfig.layers.map((layer: SliceLayer, index: number) => (
+                <Badge key={index} variant="outline" className="text-[10px] gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: layer.color }} />
                   {layer.label}
                 </Badge>
               ))}
@@ -963,7 +913,6 @@ export function ProductSliceGallery({
         </Dialog>
       )}
 
-      {/* === Modal: 3D-сцена из среза === */}
       <Dialog open={show3DModal} onOpenChange={setShow3DModal}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -984,62 +933,35 @@ export function ProductSliceGallery({
             </div>
           ) : scene3d ? (
             <div className="space-y-3">
-              {/* Превью слоёв (визуальная схема) */}
               <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-4">
                 <div className="text-xs font-medium text-purple-900 mb-2">
                   Структура 3D-сцены ({scene3d.meshes?.length || 0} элементов):
                 </div>
                 <div className="space-y-1 max-h-60 overflow-y-auto">
-                  {scene3d.meshes?.map((mesh: any, i: number) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 text-xs bg-white/60 rounded px-2 py-1"
-                    >
-                      <span
-                        className="h-3 w-3 rounded shrink-0"
-                        style={{ backgroundColor: mesh.material?.color || "#ccc" }}
-                      />
-                      <span className="font-mono text-[10px] text-muted-foreground w-20 shrink-0">
-                        {mesh.type}
-                      </span>
+                  {scene3d.meshes?.map((mesh: any, index: number) => (
+                    <div key={index} className="flex items-center gap-2 text-xs bg-white/60 rounded px-2 py-1">
+                      <span className="h-3 w-3 rounded shrink-0" style={{ backgroundColor: mesh.material?.color || "#ccc" }} />
+                      <span className="font-mono text-[10px] text-muted-foreground w-20 shrink-0">{mesh.type}</span>
                       <span className="flex-1 truncate">{mesh.label || "—"}</span>
-                      {mesh.layerType && (
-                        <Badge variant="outline" className="text-[9px] shrink-0">
-                          {mesh.layerType}
-                        </Badge>
-                      )}
+                      {mesh.layerType && <Badge variant="outline" className="text-[9px] shrink-0">{mesh.layerType}</Badge>}
                     </div>
                   ))}
                 </div>
               </div>
-
-              {/* Метаданные сцены */}
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div className="bg-muted/30 rounded p-2 text-center">
                   <div className="text-muted-foreground">Высота</div>
                   <div className="font-semibold">{(scene3d.totalHeight || 0).toFixed(2)} ед.</div>
                 </div>
                 <div className="bg-muted/30 rounded p-2 text-center">
-                  <div className="text-muted-foreground">Радиус</div>
-                  <div className="font-semibold">{(scene3d.radius || 0).toFixed(2)} ед.</div>
+                  <div className="text-muted-foreground">Диаметр</div>
+                  <div className="font-semibold">{(scene3d.diameter || 0).toFixed(2)} ед.</div>
                 </div>
                 <div className="bg-muted/30 rounded p-2 text-center">
-                  <div className="text-muted-foreground">Слоёв</div>
-                  <div className="font-semibold">
-                    {scene3d.meshes?.filter((m: any) => m.layerType?.includes("biscuit") || m.layerType?.includes("cream") || m.layerType?.includes("chocolate") || m.layerType?.includes("berry") || m.layerType?.includes("caramel") || m.layerType?.includes("mousse") || m.layerType?.includes("fruit") || m.layerType?.includes("nuts")).length || 0}
-                  </div>
+                  <div className="text-muted-foreground">Начинка</div>
+                  <div className="font-semibold">{scene3d.fillingName || "—"}</div>
                 </div>
               </div>
-
-              {/* Источник */}
-              <div className="text-xs text-muted-foreground">
-                Источник: <Badge variant="outline" className="text-[10px]">{scene3d.source || "slice_config"}</Badge>
-                {scene3d.fillingName && (
-                  <span> · Начинка: <b>{scene3d.fillingName}</b></span>
-                )}
-              </div>
-
-              {/* JSON для разработчиков */}
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                   Показать JSON-конфигурацию Three.js
@@ -1048,7 +970,6 @@ export function ProductSliceGallery({
                   {JSON.stringify(scene3d, null, 2)}
                 </pre>
               </details>
-
               <p className="text-xs text-muted-foreground">
                 💡 Эта конфигурация совместима с Three.js. AR-viewer автоматически
                 использует её как fallback, если у товара нет готовой GLB-модели.
@@ -1059,13 +980,38 @@ export function ProductSliceGallery({
               <Boxes className="h-12 w-12 mx-auto mb-2 text-muted-foreground opacity-40" />
               <p className="text-sm text-muted-foreground">
                 Недостаточно данных для генерации 3D-сцены.
-                Добавьте срез к одной из начинок.
+                Добавьте срез к товару.
               </p>
             </div>
           )}
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+// ===== Превью сохранённой конфигурации среза =====
+export function ProductSliceConfigPreview({
+  config,
+  fillingName,
+  size = 48,
+}: {
+  config?: unknown;
+  fillingName: string;
+  size?: number;
+}) {
+  const candidate = config as SliceConfig | null | undefined;
+  const resolved = candidate && Array.isArray(candidate.layers)
+    ? candidate
+    : detectPreset({ name: fillingName });
+  return (
+    <div
+      className="flex items-center justify-center overflow-hidden rounded-lg bg-muted/20"
+      style={{ width: size, height: size }}
+      aria-label={`Схема разреза: ${fillingName}`}
+    >
+      <SliceSVG config={resolved} size={size - 4} />
+    </div>
   );
 }
 

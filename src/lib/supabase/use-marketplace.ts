@@ -31,6 +31,7 @@ import type {
   Product as StoreProduct,
   ProductCategory,
   ProductMediaItem,
+  ProductSliceItem,
   Review,
 } from "@/lib/types";
 
@@ -831,6 +832,7 @@ interface ApiProduct {
   dietary_features?: string[] | null;
   category_slug?: string | null;
   media?: ProductMediaItem[];
+  slices?: ProductSliceItem[] | null;
   confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
 }
 
@@ -949,6 +951,8 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     dietaryFeatures: p.dietary_features ?? [],
     // media приходит из API уже в camelCase (ProductMediaItem[])
     media: Array.isArray(p.media) ? p.media : undefined,
+    // ProductCard получает только реальные записи product_slices из API.
+    slices: Array.isArray(p.slices) ? p.slices : [],
   };
 }
 
