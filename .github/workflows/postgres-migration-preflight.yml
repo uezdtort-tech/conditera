@@ -20,8 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Bash syntax
         run: bash -n scripts/ops/backup-dual-postgres-before-pg17.sh
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@master
-        with:
-          scandir: scripts/ops
-          severity: warning
+        run: shellcheck --severity=warning scripts/ops/backup-dual-postgres-before-pg17.sh
