@@ -101,6 +101,7 @@ jobs:
       postgres:
         image: supabase/postgres:17.6.1.136
         env:
+          POSTGRES_USER: supabase_admin
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
         ports:
@@ -126,6 +127,7 @@ jobs:
       postgres15:
         image: supabase/postgres:15.6.1.141
         env:
+          POSTGRES_USER: supabase_admin
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: supabase
         ports:
