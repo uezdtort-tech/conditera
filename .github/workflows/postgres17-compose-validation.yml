@@ -220,6 +220,7 @@ jobs:
       - name: Очистить только временный кластер GitHub Actions
         if: always()
         run: |
+          docker rm -fv conditera-pg18-source >/dev/null 2>&1 || true
           docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
