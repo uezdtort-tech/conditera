@@ -34,19 +34,19 @@ jobs:
         shell: bash
         run: |
           for attempt in $(seq 1 60); do
-            if docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 pg_isready -U supabase -d supabase >/dev/null 2>&1; then
+            if docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 pg_isready -h 127.0.0.1 -U supabase -d supabase >/dev/null 2>&1; then
               break
             fi
             sleep 2
           done
-          version="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase -d supabase -Atc 'SHOW server_version_num')"
+          version="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U supabase -d supabase -Atc 'SHOW server_version_num')"
           [[ "$version" == 17* ]] || { echo "Expected PostgreSQL 17, got $version"; exit 1; }
-          roles="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase -d supabase -Atc "SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role','supabase','supabase_admin','postgres','conditera')")"
+          roles="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U supabase -d supabase -Atc "SELECT count(*) FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role','supabase','supabase_admin','postgres','conditera')")"
           [[ "$roles" == "7" ]] || { echo "Expected Supabase and Conditera roles, got count=$roles"; exit 1; }
           echo "PostgreSQL server_version_num=$version; core roles=$roles"
-          app_superuser="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase -d supabase -Atc "SELECT rolsuper FROM pg_roles WHERE rolname='conditera'")"
+          app_superuser="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U supabase -d supabase -Atc "SELECT rolsuper FROM pg_roles WHERE rolname='conditera'")"
           [[ "$app_superuser" == "f" ]] || { echo "Conditera runtime role must not be superuser"; exit 1; }
-          membership="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 psql -U supabase -d supabase -Atc "SELECT pg_has_role('conditera','service_role','MEMBER')")"
+          membership="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U supabase -d supabase -Atc "SELECT pg_has_role('conditera','service_role','MEMBER')")"
           [[ "$membership" == "t" ]] || { echo "Conditera role cannot SET ROLE service_role"; exit 1; }
           app_login="$(docker compose -f docker-compose.supabase.yml exec -T supabase-db-pg17 env PGPASSWORD=ci-only-postgres-password psql -h 127.0.0.1 -U conditera -d postgres -Atc 'SELECT 1')"
           [[ "$app_login" == "1" ]] || { echo "Conditera app login failed"; exit 1; }
