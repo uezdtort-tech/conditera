@@ -325,6 +325,81 @@ jobs:
           fi
           docker build --target migrator -t conditera-migrator:ci .
 
+      - name: Build experimental single-container PostgreSQL 17 + GoTrue runtime
+        run: docker build -f Dockerfile.supabase-runtime -t conditera-supabase-runtime:poc .
+
+      - name: Start and test PostgreSQL 17 + GoTrue in one container
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONTAINER="conditera-supabase-runtime-poc"
+          docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+          cleanup() {
+            docker logs "$CONTAINER" 2>&1 | tail -120 || true
+            docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          POSTGRES_PASSWORD_VALUE="ci_runtime_pg17_password_32_chars"
+          JWT_SECRET_VALUE="ci_runtime_jwt_secret_32_chars_minimum_aaaaaaaa"
+          docker run -d --name "$CONTAINER" \
+            -p 127.0.0.1:15432:5432 \
+            -p 127.0.0.1:19999:9999 \
+            -e POSTGRES_USER=supabase_admin \
+            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD_VALUE" \
+            -e POSTGRES_DB=conditera \
+            -e GOTRUE_API_HOST=0.0.0.0 \
+            -e GOTRUE_API_PORT=9999 \
+            -e GOTRUE_DB_DRIVER=postgres \
+            -e GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:$POSTGRES_PASSWORD_VALUE@127.0.0.1:5432/conditera?search_path=auth" \
+            -e GOTRUE_DB_MIGRATIONS_PATH=/usr/local/etc/auth/migrations \
+            -e GOTRUE_JWT_SECRET="$JWT_SECRET_VALUE" \
+            -e GOTRUE_SITE_URL=http://localhost:3000 \
+            -e API_EXTERNAL_URL=http://localhost:8000 \
+            -e GOTRUE_EXTERNAL_EMAIL_ENABLED=true \
+            -e GOTRUE_DISABLE_SIGNUP=false \
+            -e GOTRUE_ENABLE_EMAIL_AUTOCONFIRM=true \
+            -e GOTRUE_SMTP_HOST=127.0.0.1 \
+            -e GOTRUE_SMTP_PORT=1025 \
+            -e GOTRUE_SMTP_ADMIN_EMAIL=noreply@example.test \
+            conditera-supabase-runtime:poc
+
+          ready=0
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:19999/health >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != "1" ]; then
+            echo "GoTrue did not become healthy inside the shared PG17 container"
+            docker logs "$CONTAINER" || true
+            exit 1
+          fi
+
+          docker exec "$CONTAINER" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_isready -h 127.0.0.1 -U supabase_admin -d conditera'
+          PG_MAJOR="$(docker exec "$CONTAINER" psql -U supabase_admin -d conditera -Atqc "SELECT current_setting('server_version_num')::int / 10000")"
+          test "$PG_MAJOR" = "17"
+          AUTH_TABLES="$(docker exec "$CONTAINER" psql -U supabase_admin -d conditera -Atqc "SELECT count(*) FROM information_schema.tables WHERE table_schema='auth' AND table_name IN ('users','identities','sessions','refresh_tokens','schema_migrations')")"
+          test "$AUTH_TABLES" -ge 5
+          docker exec "$CONTAINER" supervisorctl status
+          echo "POC PASS: PostgreSQL $PG_MAJOR and GoTrue are healthy in one Docker container."
+
+          # Verify container restart: both supervised processes must come back.
+          docker restart "$CONTAINER" >/dev/null
+          ready=0
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent --show-error --max-time 3 http://127.0.0.1:19999/health >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = "1"
+          docker exec "$CONTAINER" supervisorctl status
+          echo "POC RESTART PASS: PostgreSQL and GoTrue recovered after container restart."
+
   # ===== 3. Build =====
   build:
     name: Build Next.js
