@@ -1,4 +1,4 @@
-\set pguser \`echo "$POSTGRES_USER"\`
+\getenv pguser POSTGRES_USER
 
-create schema if not exists _realtime;
-alter schema _realtime owner to :"pguser";
+CREATE SCHEMA IF NOT EXISTS _realtime;
+ALTER SCHEMA _realtime OWNER TO :"pguser";
