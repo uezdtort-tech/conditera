@@ -34,6 +34,7 @@ declare -A IMAGES=(
   [official_logflare]="supabase/logflare:1.50.15"
   [official_vector]="timberio/vector:0.53.0-alpine"
   [official_kong]="kong/kong:3.9.3"
+  [official_envoy]="envoyproxy/envoy:v1.39.6"
 )
 
 FAILED_IMAGES=0
