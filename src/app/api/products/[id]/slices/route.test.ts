@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
   const state = {
     user: { userId: "auth-user-1", roles: ["CONFECTIONER"] },
     confectioner: { data: { id: "confectioner-1" }, error: null } as DbResult,
-    product: { data: { id: "product-1", confectioner_id: "confectioner-1" }, error: null } as DbResult,
+    product: { data: { id: "product-1", confectioner_id: "auth-user-1", status: "published", deleted_at: null }, error: null } as DbResult,
     inserted: { data: { id: "slice-1", productId: "product-1" }, error: null } as DbResult,
     deleted: { data: { id: "slice-1" }, error: null } as DbResult,
     insertPayload: null as Record<string, unknown> | null,
@@ -69,7 +69,7 @@ describe("product slices API persistence and access", () => {
   beforeEach(() => {
     mocks.state.user = { userId: "auth-user-1", roles: ["CONFECTIONER"] };
     mocks.state.confectioner = { data: { id: "confectioner-1" }, error: null };
-    mocks.state.product = { data: { id: "product-1", confectioner_id: "confectioner-1" }, error: null };
+    mocks.state.product = { data: { id: "product-1", confectioner_id: "auth-user-1", status: "published", deleted_at: null }, error: null };
     mocks.state.inserted = { data: { id: "slice-1", productId: "product-1" }, error: null };
     mocks.state.deleted = { data: { id: "slice-1" }, error: null };
     mocks.state.insertPayload = null;
@@ -103,7 +103,7 @@ describe("product slices API persistence and access", () => {
   });
 
   it("не позволяет кондитеру удалить разрез чужого товара", async () => {
-    mocks.state.product = { data: { id: "product-1", confectioner_id: "other-confectioner" }, error: null };
+    mocks.state.product = { data: { id: "product-1", confectioner_id: "auth-user-2", status: "published", deleted_at: null }, error: null };
 
     const response = await DELETE(deleteRequest(), {
       params: Promise.resolve({ id: "product-1" }),
