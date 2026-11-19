@@ -66,6 +66,7 @@ services:
       GLOBAL_S3_ENDPOINT: http://127.0.0.1:5000
       ENABLE_IMAGE_TRANSFORMATION: "false"
       DB_INSTALL_ROLES: "false"
+      S3_PROTOCOL_ENABLED: "false"
       DB_SUPER_USER: supabase_admin
       DB_ANON_ROLE: anon
       DB_AUTHENTICATED_ROLE: authenticated
