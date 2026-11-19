@@ -211,23 +211,6 @@ function preprocessStatement(stmt) {
   // 3.3. uuid_generate_v4() → gen_random_uuid()
   s = s.replace(/\buuid_generate_v4\s*\(\s*\)/gi, "gen_random_uuid()");
 
-  // 3.4. 0039: политика confectioner_transactions_owner_select сравнивает
-  // user_id = auth.uid(), но локальная таблица (0017) колонки user_id не имеет
-  // (там confectionerId TEXT). Скипаем политику: таблица остаётся default-deny
-  // для anon/authenticated (цель 0039 — закрыть широкий GRANT 0011:314),
-  // service_role (BYPASSRLS) сохраняет полный доступ.
-  if (
-    /CREATE\s+POLICY/i.test(s) &&
-    /confectioner_transactions/i.test(s) &&
-    /user_id\s*=\s*auth\.uid\(\)/i.test(s)
-  ) {
-    return {
-      skip: true,
-      reason:
-        "confectioner_transactions owner-policy: local table has no user_id column (0017 uses confectionerId TEXT); table stays default-deny for non-service roles",
-    };
-  }
-
   return { skip: false, sql: s };
 }
 
