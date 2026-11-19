@@ -18,7 +18,14 @@ AS $function$
     WHERE p.id::text = p_product_id
       AND p.deleted_at IS NULL
       AND (
-        p.confectioner_id = auth.uid()
+        (
+          p.confectioner_id = auth.uid()
+          AND EXISTS (
+            SELECT 1
+            FROM public.confectioners c
+            WHERE c."userId" = auth.uid()::text
+          )
+        )
         OR EXISTS (
           SELECT 1
           FROM public.user_roles ur
