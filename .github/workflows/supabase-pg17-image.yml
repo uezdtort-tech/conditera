@@ -10,6 +10,8 @@ on:
       - "scripts/ops/pg17-init/**"
       - "supabase/pg17-init/**"
       - "supabase/migrations/**"
+      - "supabase/seed*.sql"
+      - "supabase/init-scripts/01-apply-migrations.sh"
       - ".github/workflows/supabase-pg17-image.yml"
   pull_request:
     paths:
@@ -18,6 +20,8 @@ on:
       - "scripts/ops/pg17-init/**"
       - "supabase/pg17-init/**"
       - "supabase/migrations/**"
+      - "supabase/seed*.sql"
+      - "supabase/init-scripts/01-apply-migrations.sh"
       - ".github/workflows/supabase-pg17-image.yml"
   workflow_dispatch:
 
