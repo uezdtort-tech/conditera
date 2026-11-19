@@ -136,9 +136,21 @@ $composeSupabaseServices = ""
 try { $composeAppServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.yml", "config", "--services")) } catch { $composeAppServices = "ERROR: " + $_.Exception.Message }
 try { $composeSupabaseServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "config", "--services")) } catch { $composeSupabaseServices = "ERROR: " + $_.Exception.Message }
 
+$sameCluster = $app.databaseAudit.system_identifier -and
+  $supabase.databaseAudit.system_identifier -and
+  ($app.databaseAudit.system_identifier -eq $supabase.databaseAudit.system_identifier)
+$sameDatabase = $app.databaseAudit.database -and
+  $supabase.databaseAudit.database -and
+  ($app.databaseAudit.database -eq $supabase.databaseAudit.database)
+
 $report = [ordered]@{
   generatedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
   mode = "READ_ONLY"
+  databaseTopology = [ordered]@{
+    samePostgresCluster = [bool]$sameCluster
+    sameDatabaseName = [bool]$sameDatabase
+    singleDatabaseTarget = [bool]($sameCluster -and $sameDatabase)
+  }
   docker = [ordered]@{ serverVersion = $dockerVersion; platform = $dockerInfo }
   composeServices = [ordered]@{
     application = @($composeAppServices -split "\r?\n" | Where-Object { $_ })
@@ -163,6 +175,9 @@ $summary = @(
   "Docker: $dockerVersion ($dockerInfo)",
   "App PostgreSQL: $($app.state) / $($app.health) / $($app.databaseAudit.server_version)",
   "Supabase PostgreSQL: $($supabase.state) / $($supabase.health) / $($supabase.databaseAudit.server_version)",
+  "Same PostgreSQL cluster: $sameCluster",
+  "Same database name: $sameDatabase",
+  "Single database target: $($sameCluster -and $sameDatabase)",
   "Report: $jsonPath",
   "No containers, databases or volumes were changed."
 )
@@ -181,7 +196,12 @@ if ($app.databaseAuditStatus -ne "success" -or $supabase.databaseAuditStatus -ne
   Write-Warning "Не удалось прочитать обе БД. Смотрите production-inventory.json."
   exit 3
 }
-if ($app.databaseAudit.system_identifier -eq $supabase.databaseAudit.system_identifier) {
-  throw "Оба подключения вернули одинаковый system_identifier: возможно, контейнеры/URL указывают на один кластер."
+if (-not $sameCluster) {
+  Write-Error "SPLIT_POSTGRES_CLUSTERS: приложение и Supabase подключены к разным PostgreSQL-кластерам. Production cutover запрещён."
+  exit 4
 }
-Write-Host "OK: два разных PostgreSQL-кластера инвентаризированы без изменений."
+if (-not $sameDatabase) {
+  Write-Error "SPLIT_POSTGRES_DATABASES: подключения ведут в разные базы одного кластера. Единый источник данных не подтверждён."
+  exit 5
+}
+Write-Host "OK: прямое подключение приложения и Supabase API ведут в одну базу одного PostgreSQL-кластера."
