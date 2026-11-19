@@ -50,6 +50,24 @@ function Get-DockerRuntimeInventory {
         }
       }
       $health = if ($null -ne $item.State.Health) { $item.State.Health.Status } else { "no-healthcheck" }
+      $portBindings = @()
+      if ($null -ne $item.NetworkSettings.Ports) {
+        foreach ($portEntry in $item.NetworkSettings.Ports.PSObject.Properties) {
+          $hostBindings = @()
+          foreach ($binding in @($portEntry.Value)) {
+            if ($null -ne $binding) {
+              $hostBindings += [pscustomobject]@{
+                hostIp = $binding.HostIp
+                hostPort = $binding.HostPort
+              }
+            }
+          }
+          $portBindings += [pscustomobject]@{
+            containerPort = $portEntry.Name
+            hostBindings = $hostBindings
+          }
+        }
+      }
       $labels = $item.Config.Labels
       $composeProject = $null
       $composeService = $null
@@ -72,6 +90,16 @@ function Get-DockerRuntimeInventory {
         imageId = $item.Image
         state = $item.State.Status
         health = $health
+        startedAt = $item.State.StartedAt
+        exitCode = $item.State.ExitCode
+        oomKilled = $item.State.OOMKilled
+        restartPolicy = $item.HostConfig.RestartPolicy.Name
+        networkMode = $item.HostConfig.NetworkMode
+        user = $item.Config.User
+        entrypoint = @($item.Config.Entrypoint)
+        command = @($item.Config.Cmd)
+        exposedPorts = @($item.Config.ExposedPorts.PSObject.Properties.Name)
+        portBindings = $portBindings
         composeProject = $composeProject
         composeService = $composeService
         composeWorkingDir = $composeWorkingDir
@@ -81,6 +109,7 @@ function Get-DockerRuntimeInventory {
           [pscustomobject]@{
             type = $_.Type
             name = $_.Name
+            source = $_.Source
             destination = $_.Destination
             readWrite = $_.RW
           }
