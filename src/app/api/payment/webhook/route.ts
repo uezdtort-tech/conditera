@@ -296,7 +296,7 @@ export async function POST(request: NextRequest) {
         // полный остаток назад провайдеру. Ключ совпадает с cancel-route
         // (refundPayment default), поэтому параллельные/повторные webhook
         // не создадут второй возврат.
-        if (order.status === "CANCELLED") {
+        if (order.status === "CANCELLED" || order.status === "REFUNDED") {
           if (payment?.status === "refunded") {
             return NextResponse.json({ success: true, skipped: "already_refunded" });
           }
