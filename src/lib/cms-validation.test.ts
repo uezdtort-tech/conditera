@@ -7,6 +7,8 @@ describe("CMS validation", () => {
     expect(isSafeCmsUrl("/images/banner.webp")).toBe(true);
     expect(isSafeCmsUrl("javascript:alert(1)")).toBe(false);
     expect(isSafeCmsUrl("//evil.example/path")).toBe(false);
+    expect(isSafeCmsUrl("/\\\\evil.example/path")).toBe(false);
+    expect(isSafeCmsUrl("https://user:pass@example.com/path")).toBe(false);
     expect(isSafeCmsUrl("http://example.com")).toBe(false);
     expect(isSafeCmsUrl("data:text/html,hello")).toBe(false);
     expect(isSafeCmsUrl("x".repeat(2049))).toBe(false);
