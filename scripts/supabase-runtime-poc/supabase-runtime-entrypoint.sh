@@ -161,8 +161,13 @@ chown -R 65534:65534 /opt/supabase/services/realtime/app
 mkdir -p /opt/supabase/services/kong/usr/local/kong
 chown -R 1001:1001 /opt/supabase/services/kong/usr/local/kong
 mkdir -p /opt/supabase/services/kong/var/lib/kong
-mkdir -p /opt/supabase/services/kong/tmp/kong
+mkdir -p /opt/supabase/services/kong/tmp/kong/logs
+# Nginx opens the prefix-relative error log before Kong can finish booting.
+# Pre-create the file and make the complete prefix path writable by Kong UID.
+touch /opt/supabase/services/kong/tmp/kong/logs/error.log
 chown -R 1001:1001 /opt/supabase/services/kong/tmp/kong
+chmod 0755 /opt/supabase/services/kong/tmp/kong /opt/supabase/services/kong/tmp/kong/logs
+chmod 0644 /opt/supabase/services/kong/tmp/kong/logs/error.log
 mkdir -p /opt/supabase/services/kong/tmp
 touch /opt/supabase/services/kong/tmp/kong-error.log
 touch /opt/supabase/services/kong/tmp/kong-proxy-access.log
