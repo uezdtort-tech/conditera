@@ -139,7 +139,7 @@ function useCmsHomepageSections() {
   return sections;
 }
 
-function CmsHomepageBlocks({ sections }: { sections: PublicCmsHomeSection[] }) {
+function useCmsHomepageBlocks() {
   const [blocks, setBlocks] = useState<PublicCmsHomeBlock[]>([]);
   useEffect(() => {
     const controller = new AbortController();
@@ -153,43 +153,48 @@ function CmsHomepageBlocks({ sections }: { sections: PublicCmsHomeSection[] }) {
       });
     return () => controller.abort();
   }, []);
+  return blocks;
+}
 
-  const groups = [...sections]
-    .filter((section) => section.is_enabled)
-    .sort((a, b) => a.sort_order - b.sort_order || a.section.localeCompare(b.section))
-    .map(({ section, title }) => ({ section, title, items: blocks.filter((block) => block.section === section) }))
-    .filter((group) => group.items.length > 0);
+function CmsHomepageSectionBlocks({
+  section,
+  title,
+  blocks,
+}: {
+  section: string;
+  title: string;
+  blocks: PublicCmsHomeBlock[];
+}) {
+  const items = blocks
+    .filter((block) => block.section === section)
+    .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
 
-  if (groups.length === 0) return null;
+  if (items.length === 0) return null;
   return (
-    <div className="space-y-12">
-      {groups.map((group) => (
-        <section key={group.section} className="container mx-auto px-4">
-          <div className="text-center mb-6">
-            <h2 className="font-display text-2xl sm:text-3xl font-bold">{group.title}</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {group.items.map((block) => (
-              <Card key={block.id} className="overflow-hidden p-0">
-                {block.image_url && (
-                  <img src={block.image_url} alt={block.title} className="w-full aspect-[16/9] object-cover" loading="lazy" />
-                )}
-                <div className="p-5 space-y-2">
-                  {block.title && <h3 className="font-semibold text-lg">{block.title}</h3>}
-                  {block.subtitle && <p className="text-sm text-muted-foreground">{block.subtitle}</p>}
-                  {block.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.content}</p>}
-                  {block.link_url && block.link_text && (
-                    <a href={block.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
-                      {block.link_text} <ArrowRight className="h-4 w-4" />
-                    </a>
-                  )}
-                </div>
-              </Card>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
+    <section className="container mx-auto px-4">
+      <div className="text-center mb-6">
+        <h2 className="font-display text-2xl sm:text-3xl font-bold">{title}</h2>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {items.map((block) => (
+          <Card key={block.id} className="overflow-hidden p-0">
+            {block.image_url && (
+              <img src={block.image_url} alt={block.title} className="w-full aspect-[16/9] object-cover" loading="lazy" />
+            )}
+            <div className="p-5 space-y-2">
+              {block.title && <h3 className="font-semibold text-lg">{block.title}</h3>}
+              {block.subtitle && <p className="text-sm text-muted-foreground">{block.subtitle}</p>}
+              {block.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.content}</p>}
+              {block.link_url && block.link_text && (
+                <a href={block.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+                  {block.link_text} <ArrowRight className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -231,6 +236,7 @@ export function HomePage() {
   const products = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
   const cmsSections = useCmsHomepageSections();
+  const cmsHomeBlocks = useCmsHomepageBlocks();
   const cmsSectionEnabled = (key: string) => cmsSections.find((section) => section.section === key)?.is_enabled ?? true;
   const cmsSectionTitle = (key: string, fallback: string) => cmsSections.find((section) => section.section === key)?.title || fallback;
 
@@ -825,7 +831,11 @@ export function HomePage() {
       )}
 
       <CmsHomepageBanners />
-      <CmsHomepageBlocks sections={cmsSections} />
+      <CmsHomepageSectionBlocks
+        section="hero"
+        title={cmsSectionTitle("hero", "От редакции")}
+        blocks={cmsHomeBlocks}
+      />
 
       {/* ===== БЕГУЩАЯ СТРОКА РЕАЛЬНЫХ КОНДИТЕРОВ ===== */}
       <ConfectionersMarquee />
@@ -1188,6 +1198,11 @@ export function HomePage() {
         .map((section) => (
           <Fragment key={section.section}>
             {cmsSectionNodes[section.section as keyof typeof cmsSectionNodes]}
+            <CmsHomepageSectionBlocks
+              section={section.section}
+              title={section.title}
+              blocks={cmsHomeBlocks}
+            />
           </Fragment>
         ))}
 
