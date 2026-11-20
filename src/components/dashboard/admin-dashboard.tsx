@@ -24,7 +24,7 @@ import {
 import {
   Package, Coins, TrendingUp, Settings, LogOut,
   ShoppingCart, Users, ShieldAlert, ScrollText, Flag,
-  LayoutDashboard, MessageSquare, Edit, Image as ImageIcon,
+  LayoutDashboard, MessageSquare, Edit, Image as ImageIcon, Palette,
   Mail, ShieldCheck, FileText, CalendarDays, Tags, Globe,
   Zap, Database, Cake, Building2, Navigation,
   Utensils, MapPin, Star, Store, UserX,
@@ -33,8 +33,8 @@ import {
 import { formatCurrency, ORDER_STATUS_LABELS } from "@/lib/finance";
 import { BlacklistTab } from "@/components/dashboard/blacklist-tab";
 import {
-  AdminCmsHomeTab, AdminBannersTab, AdminCmsPagesTab,
-  AdminReviewsModerationTab, AdminSettingsTab, AdminNavMenuTab,
+  AdminCmsHomeTab, AdminBannersTab, AdminCmsPagesTab, AdminCmsMediaTab,
+  AdminReviewsModerationTab, AdminSettingsTab, AdminNavMenuTab, AdminDesignTab,
 } from "@/components/dashboard/admin-cms-tabs";
 import {
   AdminTastingLocationsTab, AdminVenuesTab, AdminPrintingServicesTab,
@@ -90,8 +90,10 @@ const TAB_GROUPS = [
       { id: "cms-home", label: "Главная", icon: LayoutDashboard },
       { id: "cms-banners", label: "Баннеры", icon: ImageIcon },
       { id: "cms-pages", label: "Страницы", icon: Edit },
+      { id: "cms-media", label: "Медиатека", icon: Images },
       { id: "reviews", label: "Отзывы", icon: MessageSquare },
       { id: "nav-menu", label: "Навигация", icon: Navigation },
+      { id: "cms-design", label: "Дизайн сайта", icon: Palette },
     ],
   },
   {
@@ -322,8 +324,10 @@ export function AdminDashboard() {
       case "cms-home": return <AdminCmsHomeTab />;
       case "cms-banners": return <AdminBannersTab />;
       case "cms-pages": return <AdminCmsPagesTab />;
+      case "cms-media": return <AdminCmsMediaTab />;
       case "reviews": return <AdminReviewsModerationTab />;
       case "nav-menu": return <AdminNavMenuTab />;
+      case "cms-design": return <AdminDesignTab />;
       case "settings": return <AdminSettingsTab />;
       case "profile": return <ProfileSettings />;
       case "crm-tickets": return <AdminTicketsTab />;

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
+import { resolveCmsNavigationView } from "@/lib/cms-navigation";
 import { serverLogout } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,14 @@ import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { GlobalSearch } from "@/components/ui/enhanced-components";
 import { VisualSearchButton } from "@/components/visual-search/visual-search-button";
 import type { ViewKey, Role } from "@/lib/types";
+
+type PublicCmsNavItem = {
+  id: string;
+  location: "header" | "footer" | "mobile";
+  label: string;
+  url: string;
+  sort_order: number;
+};
 
 // ===== Навигация: основные разделы =====
 const NAV_MAIN: { label: string; view: ViewKey; icon: typeof Cake }[] = [
@@ -189,7 +198,12 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const navigate = useAppStore((s) => s.navigate);
+  const navigateToView = (...args: Parameters<typeof navigate>) => {
+    navigate(...args);
+    if (pathname.startsWith("/pages/")) router.push("/");
+  };
   const nav = useAppStore((s) => s.nav);
   const user = useAppStore((s) => s.user);
   const activeRole = useAppStore((s) => s.activeRole);
@@ -206,6 +220,28 @@ export function Header() {
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [cmsNavItems, setCmsNavItems] = useState<PublicCmsNavItem[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/nav-menu", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Navigation unavailable")))
+      .then((payload: { items?: PublicCmsNavItem[] }) => {
+        if (!controller.signal.aborted) setCmsNavItems(Array.isArray(payload.items) ? payload.items : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCmsNavItems([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const openCmsNavItem = (item: PublicCmsNavItem) => {
+    const appView = resolveCmsNavigationView(item.url);
+    if (appView) navigateToView(appView);
+    else if (item.url.startsWith("/") && !item.url.startsWith("//")) router.push(item.url);
+    else return;
+    setMobileMenuOpen(false);
+  };
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const currentView = nav.view;
@@ -214,7 +250,7 @@ export function Header() {
 
   const goToDashboard = () => {
     if (!activeRole) return;
-    navigate(DASHBOARD_MAP[activeRole] || "home");
+    navigateToView(DASHBOARD_MAP[activeRole] || "home");
   };
 
   // Единый logout: сервер чистит httpOnly cookies (cd_session/cd_refresh) +
@@ -236,7 +272,7 @@ export function Header() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      navigate("catalog", { q: searchQuery.trim() });
+      navigateToView("catalog", { q: searchQuery.trim() });
       setMobileSearchOpen(false);
       setSearchQuery("");
     }
@@ -258,7 +294,7 @@ export function Header() {
         <div className="container mx-auto px-4">
           <div className="flex h-16 items-center justify-between gap-3">
             {/* Logo */}
-            <button onClick={() => navigate("home")} className="flex items-center gap-2 shrink-0 group" aria-label="Уездный кондитер — на главную">
+            <button onClick={() => navigateToView("home")} className="flex items-center gap-2 shrink-0 group" aria-label="Уездный кондитер — на главную">
               <img src="/logo.png" alt="Уездный кондитер" className="h-12 w-12 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform" />
               <div className="hidden sm:block text-left leading-tight">
                 <div className="logo-text text-lg text-foreground">Уездный кондитер</div>
@@ -286,12 +322,12 @@ export function Header() {
             {/* Actions */}
             <div className="flex items-center gap-1 sm:gap-2 ml-auto">
               {/* Конструктор */}
-              <Button variant="default" size="sm" onClick={() => navigate("cake-builder")} className="hidden md:flex bg-gradient-to-r from-primary to-accent hover:opacity-90">
+              <Button variant="default" size="sm" onClick={() => navigateToView("cake-builder")} className="hidden md:flex bg-gradient-to-r from-primary to-accent hover:opacity-90">
                 <Cake className="h-4 w-4 mr-1.5" />Конструктор
               </Button>
 
               {/* Favorites */}
-              <Button variant="ghost" size="icon" onClick={() => navigate("dashboard-customer", { tab: "favorites" })} className="relative h-9 w-9" aria-label="Избранное">
+              <Button variant="ghost" size="icon" onClick={() => navigateToView("dashboard-customer", { tab: "favorites" })} className="relative h-9 w-9" aria-label="Избранное">
                 <Heart className="h-4 w-4" />
                 {favorites.length > 0 && <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[10px] bg-primary text-primary-foreground">{favorites.length}</Badge>}
               </Button>
@@ -402,7 +438,7 @@ export function Header() {
 
                   <div className="p-3 space-y-1 max-h-[calc(100vh-80px)] overflow-y-auto">
                     {/* Конструктор */}
-                    <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={() => { navigate("cake-builder"); setMobileMenuOpen(false); }}>
+                    <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={() => { navigateToView("cake-builder"); setMobileMenuOpen(false); }}>
                       <Cake className="h-4 w-4 mr-2" />Конструктор торта
                     </Button>
 
@@ -410,7 +446,7 @@ export function Header() {
                     <div className="pt-2">
                       <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 mb-1">Навигация</div>
                       {NAV_MAIN.map((link) => (
-                        <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-md ${isActive(link.view) ? "bg-primary/10 text-primary" : "hover:bg-accent"}`}>
+                        <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-md ${isActive(link.view) ? "bg-primary/10 text-primary" : "hover:bg-accent"}`}>
                           <link.icon className="h-4 w-4" />{link.label}
                         </button>
                       ))}
@@ -425,11 +461,11 @@ export function Header() {
                       {expandedSection === "cats" && (
                         <div className="grid grid-cols-2 gap-1 px-1 pb-2">
                           {confectioneryCats.slice(0, 12).map((cat) => (
-                            <button key={cat.slug} onClick={() => { navigate("catalog", { category: cat.slug }); setMobileMenuOpen(false); }} className="flex items-center gap-1.5 px-2 py-1.5 text-xs hover:bg-accent rounded-md text-left">
+                            <button key={cat.slug} onClick={() => { navigateToView("catalog", { category: cat.slug }); setMobileMenuOpen(false); }} className="flex items-center gap-1.5 px-2 py-1.5 text-xs hover:bg-accent rounded-md text-left">
                               <span>{cat.icon}</span><span className="truncate">{cat.name}</span>
                             </button>
                           ))}
-                          <button onClick={() => { navigate("catalog"); setMobileMenuOpen(false); }} className="col-span-2 text-center text-xs text-primary hover:underline py-1">Все категории →</button>
+                          <button onClick={() => { navigateToView("catalog"); setMobileMenuOpen(false); }} className="col-span-2 text-center text-xs text-primary hover:underline py-1">Все категории →</button>
                         </div>
                       )}
                     </div>
@@ -443,7 +479,7 @@ export function Header() {
                       {expandedSection === "b2b" && (
                         <div className="space-y-0.5 px-1 pb-2">
                           {NAV_B2B.map((link) => (
-                            <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
+                            <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
                               <link.icon className="h-4 w-4 text-muted-foreground" /><span>{link.label}</span>
                             </button>
                           ))}
@@ -460,7 +496,7 @@ export function Header() {
                       {expandedSection === "biz" && (
                         <div className="space-y-0.5 px-1 pb-2">
                           {NAV_BUSINESS.map((link) => (
-                            <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
+                            <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
                               <link.icon className="h-4 w-4 text-muted-foreground" /><div><div>{link.label}</div><div className="text-[10px] text-muted-foreground">{link.desc}</div></div>
                             </button>
                           ))}
@@ -477,8 +513,13 @@ export function Header() {
                       {expandedSection === "info" && (
                         <div className="space-y-0.5 px-1 pb-2">
                           {NAV_INFO.map((link) => (
-                            <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
+                            <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
                               <link.icon className="h-4 w-4 text-muted-foreground" /><span>{link.label}</span>
+                            </button>
+                          ))}
+                          {cmsNavItems.filter((item) => item.location === "mobile" || item.location === "header").map((item) => (
+                            <button key={item.id} onClick={() => openCmsNavItem(item)} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md text-left">
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" /><span>{item.label}</span>
                             </button>
                           ))}
                         </div>
@@ -516,12 +557,12 @@ export function Header() {
                       <div className="flex items-center gap-1.5 mb-2 px-2"><span>{CATEGORY_GROUPS[0].icon}</span><span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{CATEGORY_GROUPS[0].name}</span></div>
                       <div className="space-y-0.5">
                         {confectioneryCats.slice(0, 10).map((cat) => (
-                          <button key={cat.slug} onClick={() => navigate("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
+                          <button key={cat.slug} onClick={() => navigateToView("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
                             <span className="text-base">{cat.icon}</span><span className="flex-1 group-hover:text-primary">{cat.name}</span>
                             {cat.count > 0 && <span className="text-[10px] text-muted-foreground">{cat.count}</span>}
                           </button>
                         ))}
-                        <button onClick={() => navigate("catalog")} className="w-full flex items-center gap-1 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-primary font-medium">Все категории <ChevronRight className="h-3 w-3" /></button>
+                        <button onClick={() => navigateToView("catalog")} className="w-full flex items-center gap-1 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-primary font-medium">Все категории <ChevronRight className="h-3 w-3" /></button>
                       </div>
                     </div>
                     <div className="p-3 border-r">
@@ -530,7 +571,7 @@ export function Header() {
                         {supplyCats.map((cat) => {
                           const link = (cat as { link?: string }).link;
                           return (
-                            <button key={cat.slug} onClick={() => link ? navigate(link as never) : navigate("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
+                            <button key={cat.slug} onClick={() => link ? navigateToView(link as never) : navigateToView("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
                               <span className="text-base">{cat.icon}</span><span className="flex-1 group-hover:text-primary">{cat.name}</span>
                               <ChevronRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
                             </button>
@@ -541,15 +582,15 @@ export function Header() {
                     <div className="p-3 bg-accent/30">
                       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 px-1">Популярное</div>
                       <div className="space-y-2">
-                        <button onClick={() => navigate("cake-builder")} className="w-full text-left p-2 rounded-lg bg-gradient-to-br from-primary/10 to-accent/40 hover:shadow-md transition group">
+                        <button onClick={() => navigateToView("cake-builder")} className="w-full text-left p-2 rounded-lg bg-gradient-to-br from-primary/10 to-accent/40 hover:shadow-md transition group">
                           <div className="flex items-center gap-2 mb-1"><Cake className="h-4 w-4 text-primary" /><span className="text-sm font-semibold">Конструктор торта</span></div>
                           <div className="text-[10px] text-muted-foreground">Соберите свой торт за 8 шагов</div>
                         </button>
-                        <button onClick={() => navigate("ready-made")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
+                        <button onClick={() => navigateToView("ready-made")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
                           <div className="flex items-center gap-2 mb-1"><Zap className="h-4 w-4 text-amber-500" /><span className="text-sm font-semibold">Готовые изделия</span></div>
                           <div className="text-[10px] text-muted-foreground">В наличии, быстрая доставка</div>
                         </button>
-                        <button onClick={() => navigate("promotions")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
+                        <button onClick={() => navigateToView("promotions")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
                           <div className="flex items-center gap-2 mb-1"><Flame className="h-4 w-4 text-rose-500" /><span className="text-sm font-semibold">Акции и скидки</span></div>
                           <div className="text-[10px] text-muted-foreground">Выгодные предложения</div>
                         </button>
@@ -560,19 +601,19 @@ export function Header() {
               </DropdownMenu>
 
               {/* Кондитеры */}
-              <button onClick={() => navigate("confectioners")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("confectioners") || isActive("confectioner-profile") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
+              <button onClick={() => navigateToView("confectioners")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("confectioners") || isActive("confectioner-profile") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
                 <Users className="h-4 w-4" />Кондитеры
                 {(isActive("confectioners") || isActive("confectioner-profile")) && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full" />}
               </button>
 
               {/* Акции */}
-              <button onClick={() => navigate("promotions")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("promotions") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
+              <button onClick={() => navigateToView("promotions")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("promotions") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
                 <Flame className="h-4 w-4" />Акции
                 {isActive("promotions") && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full" />}
               </button>
 
               {/* Рецепты */}
-              <button onClick={() => navigate("recipes")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("recipes") || isActive("recipe-detail") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
+              <button onClick={() => navigateToView("recipes")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("recipes") || isActive("recipe-detail") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
                 <BookOpen className="h-4 w-4" />Рецепты
                 {(isActive("recipes") || isActive("recipe-detail")) && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full" />}
               </button>
@@ -589,7 +630,7 @@ export function Header() {
                 <DropdownMenuContent align="start" className="w-80 p-0">
                   <div className="p-2">
                     {NAV_B2B.map((link) => (
-                      <button key={link.view} onClick={() => navigate(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                      <button key={link.view} onClick={() => navigateToView(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
                         <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition"><link.icon className="h-4 w-4 text-primary" /></div>
                         <div className="flex-1 min-w-0"><div className="text-sm font-medium group-hover:text-primary">{link.label}</div><div className="text-[11px] text-muted-foreground line-clamp-1">{link.desc}</div></div>
                       </button>
@@ -608,7 +649,7 @@ export function Header() {
                 <DropdownMenuContent align="start" className="w-72 p-0">
                   <div className="p-2">
                     {NAV_BUSINESS.map((link) => (
-                      <button key={link.view} onClick={() => navigate(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                      <button key={link.view} onClick={() => navigateToView(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
                         <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/20 transition"><link.icon className="h-4 w-4 text-emerald-600" /></div>
                         <div className="flex-1 min-w-0"><div className="text-sm font-medium group-hover:text-primary">{link.label}</div><div className="text-[11px] text-muted-foreground line-clamp-1">{link.desc}</div></div>
                       </button>
@@ -627,9 +668,15 @@ export function Header() {
                 <DropdownMenuContent align="start" className="w-72 p-0">
                   <div className="p-2">
                     {NAV_INFO.map((link) => (
-                      <button key={link.view} onClick={() => navigate(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                      <button key={link.view} onClick={() => navigateToView(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
                         <link.icon className="h-4 w-4 text-muted-foreground group-hover:text-primary mt-0.5 shrink-0" />
                         <div className="flex-1 min-w-0"><div className="text-sm font-medium group-hover:text-primary">{link.label}</div><div className="text-[11px] text-muted-foreground line-clamp-1">{link.desc}</div></div>
+                      </button>
+                    ))}
+                    {cmsNavItems.filter((item) => item.location === "header").map((item) => (
+                      <button key={item.id} onClick={() => openCmsNavItem(item)} className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+                        <span className="text-sm font-medium group-hover:text-primary">{item.label}</span>
                       </button>
                     ))}
                   </div>
@@ -638,13 +685,13 @@ export function Header() {
 
               {/* Быстрые ссылки справа */}
               <div className="ml-auto flex items-center gap-1">
-                <button onClick={() => navigate("ready-made")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
+                <button onClick={() => navigateToView("ready-made")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
                   <Zap className="h-3.5 w-3.5" />Готовые
                 </button>
-                <button onClick={() => navigate("gift-certificates")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
+                <button onClick={() => navigateToView("gift-certificates")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
                   <Gift className="h-3.5 w-3.5" />Сертификаты
                 </button>
-                <button onClick={() => navigate("contacts")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
+                <button onClick={() => navigateToView("contacts")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
                   <Phone className="h-3.5 w-3.5" />Контакты
                 </button>
               </div>
@@ -667,7 +714,7 @@ export function Header() {
             <div className="text-xs text-muted-foreground mb-2">Популярные запросы:</div>
             <div className="flex flex-wrap gap-2">
               {["Торт на день рождения", "Красный бархат", "Капкейки", "Чизкейк", "Макаронс", "Веганский торт"].map((q) => (
-                <button key={q} onClick={() => { navigate("catalog", { q }); setMobileSearchOpen(false); }} className="px-3 py-1.5 text-sm rounded-full border border-border bg-card hover:border-primary/40">{q}</button>
+                <button key={q} onClick={() => { navigateToView("catalog", { q }); setMobileSearchOpen(false); }} className="px-3 py-1.5 text-sm rounded-full border border-border bg-card hover:border-primary/40">{q}</button>
               ))}
             </div>
           </div>

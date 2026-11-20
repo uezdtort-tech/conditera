@@ -41,8 +41,162 @@ import {
   Check,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
+
+type PublicCmsBanner = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  link_url: string | null;
+  text: string | null;
+  cta_text: string | null;
+  sort_order: number;
+};
+
+function CmsHomepageBanners() {
+  const [banners, setBanners] = useState<PublicCmsBanner[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/banners?position=home_hero", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Banners unavailable")))
+      .then((payload: { banners?: PublicCmsBanner[] }) => {
+        if (!controller.signal.aborted) setBanners(Array.isArray(payload.banners) ? payload.banners : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBanners([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (banners.length === 0) return null;
+  return (
+    <section className="container mx-auto px-4 py-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {banners.map((banner) => (
+          <Card key={banner.id} className="overflow-hidden p-0">
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-h-44">
+              {banner.image_url && <img src={banner.image_url} alt={banner.title} className="w-full h-full min-h-44 object-cover" loading="lazy" decoding="async" />}
+              <div className="p-5 flex flex-col items-start justify-center gap-2">
+                <h2 className="font-display text-xl font-semibold">{banner.title}</h2>
+                {banner.text && <p className="text-sm text-muted-foreground">{banner.text}</p>}
+                {banner.link_url && banner.cta_text && (
+                  <a href={banner.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+                    {banner.cta_text}<ArrowRight className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+type PublicCmsHomeBlock = {
+  id: string;
+  section: string;
+  title: string;
+  subtitle: string;
+  content: string;
+  image_url: string | null;
+  link_url: string | null;
+  link_text: string;
+  sort_order: number;
+};
+
+type PublicCmsHomeSection = {
+  section: string;
+  title: string;
+  sort_order: number;
+  is_enabled: boolean;
+};
+
+const DEFAULT_CMS_HOME_SECTIONS: PublicCmsHomeSection[] = [
+  { section: "hero", title: "От редакции", sort_order: 10, is_enabled: true },
+  { section: "advantages", title: "Наши преимущества", sort_order: 20, is_enabled: true },
+  { section: "steps", title: "Как это работает", sort_order: 30, is_enabled: true },
+  { section: "stats", title: "О платформе", sort_order: 40, is_enabled: true },
+  { section: "testimonials", title: "Истории клиентов", sort_order: 50, is_enabled: true },
+  { section: "cta_confectioner", title: "Для кондитеров", sort_order: 60, is_enabled: true },
+];
+
+function useCmsHomepageSections() {
+  const [sections, setSections] = useState<PublicCmsHomeSection[]>(DEFAULT_CMS_HOME_SECTIONS);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/sections?public=true", { signal: controller.signal, cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS sections unavailable")))
+      .then((payload: { sections?: PublicCmsHomeSection[] }) => {
+        if (!controller.signal.aborted && Array.isArray(payload.sections) && payload.sections.length === DEFAULT_CMS_HOME_SECTIONS.length) setSections(payload.sections);
+      })
+      .catch(() => {
+        // Preserve built-in defaults when CMS is temporarily unavailable.
+      });
+    return () => controller.abort();
+  }, []);
+  return sections;
+}
+
+function useCmsHomepageBlocks() {
+  const [blocks, setBlocks] = useState<PublicCmsHomeBlock[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/blocks?public=true", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS unavailable")))
+      .then((payload: { blocks?: PublicCmsHomeBlock[] }) => {
+        if (!controller.signal.aborted) setBlocks(Array.isArray(payload.blocks) ? payload.blocks : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBlocks([]);
+      });
+    return () => controller.abort();
+  }, []);
+  return blocks;
+}
+
+function CmsHomepageSectionBlocks({
+  section,
+  title,
+  blocks,
+}: {
+  section: string;
+  title: string;
+  blocks: PublicCmsHomeBlock[];
+}) {
+  const items = blocks
+    .filter((block) => block.section === section)
+    .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
+
+  if (items.length === 0) return null;
+  return (
+    <section className="container mx-auto px-4">
+      <div className="text-center mb-6">
+        <h2 className="font-display text-2xl sm:text-3xl font-bold">{title}</h2>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {items.map((block) => (
+          <Card key={block.id} className="overflow-hidden p-0">
+            {block.image_url && (
+              <img src={block.image_url} alt={block.title} className="w-full aspect-[16/9] object-cover" loading="lazy" />
+            )}
+            <div className="p-5 space-y-2">
+              {block.title && <h3 className="font-semibold text-lg">{block.title}</h3>}
+              {block.subtitle && <p className="text-sm text-muted-foreground">{block.subtitle}</p>}
+              {block.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.content}</p>}
+              {block.link_url && block.link_text && (
+                <a href={block.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+                  {block.link_text} <ArrowRight className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
 interface ApiReview {
@@ -81,6 +235,10 @@ export function HomePage() {
   const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
   const products = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
+  const cmsSections = useCmsHomepageSections();
+  const cmsHomeBlocks = useCmsHomepageBlocks();
+  const cmsSectionEnabled = (key: string) => cmsSections.find((section) => section.section === key)?.is_enabled ?? true;
+  const cmsSectionTitle = (key: string, fallback: string) => cmsSections.find((section) => section.section === key)?.title || fallback;
 
   // Реальные данные платформы для честных счётчиков (не выдуманные цифры):
   // кондитеры — из публичного API, товары — hydrated store (live-источник).
@@ -113,9 +271,399 @@ export function HomePage() {
     navigate("catalog", { help: JSON.stringify(answers) });
   };
 
+  const cmsSectionNodes = {
+    advantages: (
+      <>
+      {/* ===== ADVANTAGES ===== */}
+      {cmsSectionEnabled("advantages") && (
+      <section className="relative overflow-hidden py-12">
+        <Image
+          src="/section-bg.png"
+          alt=""
+          fill
+          sizes="100vw"
+          quality={60}
+          className="object-cover -z-10"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
+        <div className="container mx-auto px-4 relative">
+        <div className="text-center mb-10">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold">
+{cmsSectionTitle("advantages", "Почему выбирают нас")}
+          </h2>
+          <p className="text-muted-foreground mt-2 max-w-2xl mx-auto">
+            Уездный кондитер — это не просто маркетплейс. Это экосистема для
+            домашних кондитеров и любителей сладкого по всей России.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[
+            {
+              icon: ShieldCheck,
+              title: "Эскроу-система расчётов",
+              text: "Средства холдируются 24 часа после доставки. Если что-то не так — возвращаем деньги. Безопасно для обеих сторон.",
+              color: "text-emerald-600 bg-emerald-100",
+            },
+            {
+              icon: Award,
+              title: "Верификация кондитеров",
+              text: "Каждый кондитер проходит проверку документов. Системы доверия: NEW → TRUSTED → EXPERT → MASTER по результатам работы.",
+              color: "text-primary bg-primary/10",
+            },
+            {
+              icon: Cake,
+              title: "Конструктор тортов",
+              text: "8-шаговый конструктор: тип мероприятия, основа, начинка, покрытие, декор, диетические предпочтения, доставка и резюме.",
+              color: "text-amber-600 bg-amber-100",
+            },
+            {
+              icon: CreditCard,
+              title: "Поддержка самозанятости",
+              text: "Автоматический расчёт НПД: 4% с физлиц, 6% с юрлиц, вычет 10 000 ₽ при регистрации. Полная налоговая отчётность.",
+              color: "text-purple-600 bg-purple-100",
+            },
+            {
+              icon: MessageCircle,
+              title: "Чат в реальном времени",
+              text: "Прямые диалоги с кондитерами, чаты привязанные к заказам, поддержка. Все общение — в одной платформе.",
+              color: "text-blue-600 bg-blue-100",
+            },
+            {
+              icon: Users,
+              title: "Социальный канал",
+              text: "Каждый кондитер имеет свой канал: посты с работами, сторис, подписчики, комментарии. Стройте сообщество вокруг бренда.",
+              color: "text-rose-600 bg-rose-100",
+            },
+          ].map((adv, i) => {
+            const Icon = adv.icon;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+              >
+                <Card className="p-6 h-full hover:shadow-xl transition-all duration-300 card-3d border-border/60">
+                  <div
+                    className={`h-12 w-12 rounded-xl flex items-center justify-center mb-4 ${adv.color} shadow-sm`}
+                  >
+                    <Icon className="h-6 w-6" />
+                  </div>
+                  <h3 className="font-display font-semibold text-lg mb-2">
+                    {adv.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {adv.text}
+                  </p>
+                </Card>
+              </motion.div>
+            );
+          })}
+        </div>
+        </div>
+      </section>
+      )}
+
+      </>
+    ),
+    steps: (
+      <>
+      {/* ===== STEPS ===== */}
+      {cmsSectionEnabled("steps") && (
+      <section className="relative overflow-hidden py-12">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
+        <div className="container mx-auto px-4 relative">
+        <div className="text-center mb-10">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold">
+{cmsSectionTitle("steps", "Как сделать заказ")}
+          </h2>
+          <p className="text-muted-foreground mt-2">
+            Четыре простых шага от выбора до получения
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            {
+              num: "01",
+              title: "Выберите торт",
+              text: "Из каталога или соберите свой в конструкторе за 8 шагов",
+              icon: Search,
+            },
+            {
+              num: "02",
+              title: "Свяжитесь с кондитером",
+              text: "Уточните детали, согласуйте сроки и цену через чат",
+              icon: MessageCircle,
+            },
+            {
+              num: "03",
+              title: "Оплатите безопасно",
+              text: "Деньги на эскроу-счёте 24 часа — гарантия получения заказа",
+              icon: CreditCard,
+            },
+            {
+              num: "04",
+              title: "Получите заказ",
+              text: "Доставка курьером или самовывоз. Оцените кондитера и оставьте отзыв",
+              icon: Truck,
+            },
+          ].map((step, i) => {
+            const Icon = step.icon;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+                className="relative"
+              >
+                <Card className="p-6 h-full relative overflow-hidden">
+                  <div className="absolute top-2 right-3 font-display text-5xl font-bold text-primary/10">
+                    {step.num}
+                  </div>
+                  <div className="relative">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                      <Icon className="h-6 w-6 text-primary" />
+                    </div>
+                    <h3 className="font-display font-semibold mb-2">
+                      {step.title}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">{step.text}</p>
+                  </div>
+                </Card>
+              </motion.div>
+            );
+          })}
+        </div>
+        </div>
+      </section>
+      )}
+
+      </>
+    ),
+    stats: (
+      <>
+      {/* ===== STATS ===== */}
+      {cmsSectionEnabled("stats") && (
+      <section className="container mx-auto px-4">
+        <div className="text-center mb-5">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold">{cmsSectionTitle("stats", "О платформе")}</h2>
+        </div>
+        <div className="rounded-2xl bg-primary text-primary-foreground border-0 overflow-hidden relative mesh-gradient" style={{ background: "none", backgroundColor: "oklch(0.42 0.18 25)" }}>
+          <div className="absolute inset-0 bg-pattern opacity-10" />
+          <div className="relative p-8 lg:p-12 grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
+            {[
+              // Реальные счётчики платформы (БД/API), а не выдуманные цифры
+              { value: verifiedCount, suffix: "", label: "Проверенных кондитеров", icon: Users },
+              { value: productCount, suffix: "", label: "Товаров в каталоге", icon: Cake },
+              { value: cityCount, suffix: "", label: "Городов России", icon: Truck },
+              { value: avgRating, suffix: " / 5", label: "Средний рейтинг товаров", icon: Star, isFloat: true },
+            ].map((stat, i) => {
+              const Icon = stat.icon;
+              return (
+                <div key={i} className="space-y-2">
+                  <Icon className="h-6 w-6 mx-auto opacity-80" />
+                  <div className="font-display text-3xl lg:text-4xl font-bold">
+                    {stat.isFloat ? (
+                      <span>{stat.value > 0 ? `${stat.value} / 5` : "—"}</span>
+                    ) : (
+                      <AnimatedCounter value={stat.value} suffix={stat.suffix} />
+                    )}
+                  </div>
+                  <div className="text-sm opacity-80">{stat.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+      )}
+
+      </>
+    ),
+    testimonials: (
+      <>
+      {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
+      {cmsSectionEnabled("testimonials") && (
+      <section className="container mx-auto px-4">
+        <div className="text-center mb-10">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold">
+{cmsSectionTitle("testimonials", "Отзывы покупателей")}
+          </h2>
+          <p className="text-muted-foreground mt-2">
+            Проверенные отзывы о заказах на платформе
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {realReviews === null
+            ? // Загрузка: скелетоны в той же сетке
+              [0, 1, 2].map((i) => (
+                <Card key={`sk-${i}`} className="p-6 h-full animate-pulse">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-10 w-10 rounded-full bg-muted" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-28 bg-muted rounded" />
+                      <div className="h-2 w-16 bg-muted rounded" />
+                    </div>
+                  </div>
+                  <div className="h-3 w-full bg-muted rounded mb-2" />
+                  <div className="h-3 w-4/5 bg-muted rounded" />
+                </Card>
+              ))
+            : (realReviews.length > 0
+                ? realReviews.slice(0, 6)
+                : [
+                    // Фолбэк при пустой БД — честная заглушка без выдуманных
+                    // цифр (в БД ещё нет отзывов)
+                    {
+                      id: "fallback-1",
+                      rating: 5,
+                      text: "Здесь появятся отзывы покупателей о заказах на платформе.",
+                      author: { name: "Команда Уездного кондитера" },
+                      helpfulCount: 0,
+                      createdAt: "",
+                    },
+                  ]
+              ).map((review, i) => (
+                <motion.div
+                  key={review.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <Card className="p-6 h-full">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Avatar>
+                        <AvatarImage
+                          src={review.author?.avatarUrl}
+                          alt={review.author?.name || "Покупатель"}
+                        />
+                        <AvatarFallback>
+                          {(review.author?.name || "П")[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="font-semibold text-sm">
+                          {review.author?.name || "Покупатель"}
+                        </div>
+                        {review.product?.title && (
+                          <div className="text-xs text-muted-foreground">
+                            {review.product.title}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-0.5 mb-3">
+                      {Array.from({ length: review.rating }).map((_, si) => (
+                        <Star
+                          key={si}
+                          className="h-4 w-4 fill-amber-400 text-amber-400"
+                        />
+                      ))}
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      &laquo;{review.text}&raquo;
+                    </p>
+                  </Card>
+                </motion.div>
+              ))}
+        </div>
+      </section>
+      )}
+
+      </>
+    ),
+    cta_confectioner: (
+      <>
+      {/* ===== CTA BECOME CONFECTIONER ===== */}
+      {cmsSectionEnabled("cta_confectioner") && (
+      <section className="relative overflow-hidden py-12">
+        <Image
+          src="/section-bg.png"
+          alt=""
+          fill
+          sizes="100vw"
+          quality={60}
+          className="object-cover -z-10"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
+        <div className="container mx-auto px-4 relative">
+        <Card className="overflow-hidden border-0 bg-gradient-to-br from-amber-100/80 via-accent/60 to-primary/10 glow-primary backdrop-blur-sm">
+          <div className="p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">
+            <div className="space-y-4">
+              <Badge className="bg-primary text-primary-foreground">
+                <Sparkles className="h-3 w-3 mr-1" />
+                {cmsSectionTitle("cta_confectioner", "Для кондитеров")}
+              </Badge>
+              <h2 className="font-display text-3xl lg:text-4xl font-bold">
+                Продавайте свои торты
+                <br />
+                по всей России
+              </h2>
+              <p className="text-muted-foreground max-w-lg">
+                Присоединяйтесь к кондитерам платформы. Витрина,
+                CRM, финансовая аналитика, социальный канал, помощь с налогами
+                (НПД). Тарифы от 5% комиссии.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  size="lg"
+                  onClick={() => useAppStore.getState().setAuthModalOpen(true)}
+                  className="bg-primary"
+                >
+                  Стать кондитером
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => navigate("for-confectioners")}
+                >
+                  Узнать о тарифах
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {[
+                { val: "5%", label: "Старт комиссии" },
+                { val: "24ч", label: "Эскроу-холд" },
+                { val: "4%", label: "НПД с физлиц" },
+                { val: "190+", label: "Городов России" },
+                { val: "120K", label: "Заказов в год" },
+                { val: "4.9", label: "Рейтинг платформы" },
+              ].map((s, i) => (
+                <div
+                  key={i}
+                  className="bg-background/80 backdrop-blur rounded-xl p-3 border border-border"
+                >
+                  <div className="font-display text-2xl font-bold text-primary">
+                    {s.val}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {s.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+        </div>
+      </section>
+      )}
+
+      </>
+    ),
+  };
+
   return (
     <div className="space-y-20 pb-12">
       {/* ===== HERO ===== */}
+      {cmsSectionEnabled("hero") && (
       <section
         className="relative overflow-hidden"
       >
@@ -149,7 +697,7 @@ export function HomePage() {
             >
               <Badge className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/15">
                 <Sparkles className="h-3 w-3 mr-1" />
-                Маркетплейс от частных кондитеров России
+                {cmsSectionTitle("hero", "Маркетплейс от частных кондитеров России")}
               </Badge>
 
               <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
@@ -280,6 +828,14 @@ export function HomePage() {
           </div>
         </div>
       </section>
+      )}
+
+      <CmsHomepageBanners />
+      <CmsHomepageSectionBlocks
+        section="hero"
+        title={cmsSectionTitle("hero", "От редакции")}
+        blocks={cmsHomeBlocks}
+      />
 
       {/* ===== БЕГУЩАЯ СТРОКА РЕАЛЬНЫХ КОНДИТЕРОВ ===== */}
       <ConfectionersMarquee />
@@ -636,362 +1192,23 @@ export function HomePage() {
         </section>
       )}
 
-      {/* ===== ADVANTAGES ===== */}
-      <section className="relative overflow-hidden py-12">
-        <Image
-          src="/section-bg.png"
-          alt=""
-          fill
-          sizes="100vw"
-          quality={60}
-          className="object-cover -z-10"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
-        <div className="container mx-auto px-4 relative">
-        <div className="text-center mb-10">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold">
-            Почему выбирают нас
-          </h2>
-          <p className="text-muted-foreground mt-2 max-w-2xl mx-auto">
-            Уездный кондитер — это не просто маркетплейс. Это экосистема для
-            домашних кондитеров и любителей сладкого по всей России.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[
-            {
-              icon: ShieldCheck,
-              title: "Эскроу-система расчётов",
-              text: "Средства холдируются 24 часа после доставки. Если что-то не так — возвращаем деньги. Безопасно для обеих сторон.",
-              color: "text-emerald-600 bg-emerald-100",
-            },
-            {
-              icon: Award,
-              title: "Верификация кондитеров",
-              text: "Каждый кондитер проходит проверку документов. Системы доверия: NEW → TRUSTED → EXPERT → MASTER по результатам работы.",
-              color: "text-primary bg-primary/10",
-            },
-            {
-              icon: Cake,
-              title: "Конструктор тортов",
-              text: "8-шаговый конструктор: тип мероприятия, основа, начинка, покрытие, декор, диетические предпочтения, доставка и резюме.",
-              color: "text-amber-600 bg-amber-100",
-            },
-            {
-              icon: CreditCard,
-              title: "Поддержка самозанятости",
-              text: "Автоматический расчёт НПД: 4% с физлиц, 6% с юрлиц, вычет 10 000 ₽ при регистрации. Полная налоговая отчётность.",
-              color: "text-purple-600 bg-purple-100",
-            },
-            {
-              icon: MessageCircle,
-              title: "Чат в реальном времени",
-              text: "Прямые диалоги с кондитерами, чаты привязанные к заказам, поддержка. Все общение — в одной платформе.",
-              color: "text-blue-600 bg-blue-100",
-            },
-            {
-              icon: Users,
-              title: "Социальный канал",
-              text: "Каждый кондитер имеет свой канал: посты с работами, сторис, подписчики, комментарии. Стройте сообщество вокруг бренда.",
-              color: "text-rose-600 bg-rose-100",
-            },
-          ].map((adv, i) => {
-            const Icon = adv.icon;
-            return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-              >
-                <Card className="p-6 h-full hover:shadow-xl transition-all duration-300 card-3d border-border/60">
-                  <div
-                    className={`h-12 w-12 rounded-xl flex items-center justify-center mb-4 ${adv.color} shadow-sm`}
-                  >
-                    <Icon className="h-6 w-6" />
-                  </div>
-                  <h3 className="font-display font-semibold text-lg mb-2">
-                    {adv.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {adv.text}
-                  </p>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </div>
-        </div>
-      </section>
-
-      {/* ===== STEPS ===== */}
-      <section className="relative overflow-hidden py-12">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
-        <div className="container mx-auto px-4 relative">
-        <div className="text-center mb-10">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold">
-            Как сделать заказ
-          </h2>
-          <p className="text-muted-foreground mt-2">
-            Четыре простых шага от выбора до получения
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[
-            {
-              num: "01",
-              title: "Выберите торт",
-              text: "Из каталога или соберите свой в конструкторе за 8 шагов",
-              icon: Search,
-            },
-            {
-              num: "02",
-              title: "Свяжитесь с кондитером",
-              text: "Уточните детали, согласуйте сроки и цену через чат",
-              icon: MessageCircle,
-            },
-            {
-              num: "03",
-              title: "Оплатите безопасно",
-              text: "Деньги на эскроу-счёте 24 часа — гарантия получения заказа",
-              icon: CreditCard,
-            },
-            {
-              num: "04",
-              title: "Получите заказ",
-              text: "Доставка курьером или самовывоз. Оцените кондитера и оставьте отзыв",
-              icon: Truck,
-            },
-          ].map((step, i) => {
-            const Icon = step.icon;
-            return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className="relative"
-              >
-                <Card className="p-6 h-full relative overflow-hidden">
-                  <div className="absolute top-2 right-3 font-display text-5xl font-bold text-primary/10">
-                    {step.num}
-                  </div>
-                  <div className="relative">
-                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                      <Icon className="h-6 w-6 text-primary" />
-                    </div>
-                    <h3 className="font-display font-semibold mb-2">
-                      {step.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">{step.text}</p>
-                  </div>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </div>
-        </div>
-      </section>
-
-      {/* ===== STATS ===== */}
-      <section className="container mx-auto px-4">
-        <div className="rounded-2xl bg-primary text-primary-foreground border-0 overflow-hidden relative mesh-gradient" style={{ background: "none", backgroundColor: "oklch(0.42 0.18 25)" }}>
-          <div className="absolute inset-0 bg-pattern opacity-10" />
-          <div className="relative p-8 lg:p-12 grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
-            {[
-              // Реальные счётчики платформы (БД/API), а не выдуманные цифры
-              { value: verifiedCount, suffix: "", label: "Проверенных кондитеров", icon: Users },
-              { value: productCount, suffix: "", label: "Товаров в каталоге", icon: Cake },
-              { value: cityCount, suffix: "", label: "Городов России", icon: Truck },
-              { value: avgRating, suffix: " / 5", label: "Средний рейтинг товаров", icon: Star, isFloat: true },
-            ].map((stat, i) => {
-              const Icon = stat.icon;
-              return (
-                <div key={i} className="space-y-2">
-                  <Icon className="h-6 w-6 mx-auto opacity-80" />
-                  <div className="font-display text-3xl lg:text-4xl font-bold">
-                    {stat.isFloat ? (
-                      <span>{stat.value > 0 ? `${stat.value} / 5` : "—"}</span>
-                    ) : (
-                      <AnimatedCounter value={stat.value} suffix={stat.suffix} />
-                    )}
-                  </div>
-                  <div className="text-sm opacity-80">{stat.label}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
-      <section className="container mx-auto px-4">
-        <div className="text-center mb-10">
-          <h2 className="font-display text-2xl sm:text-3xl font-bold">
-            Отзывы покупателей
-          </h2>
-          <p className="text-muted-foreground mt-2">
-            Проверенные отзывы о заказах на платформе
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {realReviews === null
-            ? // Загрузка: скелетоны в той же сетке
-              [0, 1, 2].map((i) => (
-                <Card key={`sk-${i}`} className="p-6 h-full animate-pulse">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="h-10 w-10 rounded-full bg-muted" />
-                    <div className="space-y-2">
-                      <div className="h-3 w-28 bg-muted rounded" />
-                      <div className="h-2 w-16 bg-muted rounded" />
-                    </div>
-                  </div>
-                  <div className="h-3 w-full bg-muted rounded mb-2" />
-                  <div className="h-3 w-4/5 bg-muted rounded" />
-                </Card>
-              ))
-            : (realReviews.length > 0
-                ? realReviews.slice(0, 6)
-                : [
-                    // Фолбэк при пустой БД — честная заглушка без выдуманных
-                    // цифр (в БД ещё нет отзывов)
-                    {
-                      id: "fallback-1",
-                      rating: 5,
-                      text: "Здесь появятся отзывы покупателей о заказах на платформе.",
-                      author: { name: "Команда Уездного кондитера" },
-                      helpfulCount: 0,
-                      createdAt: "",
-                    },
-                  ]
-              ).map((review, i) => (
-                <motion.div
-                  key={review.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.05 }}
-                >
-                  <Card className="p-6 h-full">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Avatar>
-                        <AvatarImage
-                          src={review.author?.avatarUrl}
-                          alt={review.author?.name || "Покупатель"}
-                        />
-                        <AvatarFallback>
-                          {(review.author?.name || "П")[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-semibold text-sm">
-                          {review.author?.name || "Покупатель"}
-                        </div>
-                        {review.product?.title && (
-                          <div className="text-xs text-muted-foreground">
-                            {review.product.title}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-0.5 mb-3">
-                      {Array.from({ length: review.rating }).map((_, si) => (
-                        <Star
-                          key={si}
-                          className="h-4 w-4 fill-amber-400 text-amber-400"
-                        />
-                      ))}
-                    </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      &laquo;{review.text}&raquo;
-                    </p>
-                  </Card>
-                </motion.div>
-              ))}
-        </div>
-      </section>
+      {cmsSections
+        .filter((section) => section.section !== "hero" && section.is_enabled)
+        .sort((a, b) => a.sort_order - b.sort_order || a.section.localeCompare(b.section))
+        .map((section) => (
+          <Fragment key={section.section}>
+            {cmsSectionNodes[section.section as keyof typeof cmsSectionNodes]}
+            <CmsHomepageSectionBlocks
+              section={section.section}
+              title={section.title}
+              blocks={cmsHomeBlocks}
+            />
+          </Fragment>
+        ))}
 
       {/* ===== RECENTLY VIEWED ===== */}
       <section className="container mx-auto px-4">
         <RecentlyViewed />
-      </section>
-
-      {/* ===== CTA BECOME CONFECTIONER ===== */}
-      <section className="relative overflow-hidden py-12">
-        <Image
-          src="/section-bg.png"
-          alt=""
-          fill
-          sizes="100vw"
-          quality={60}
-          className="object-cover -z-10"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
-        <div className="container mx-auto px-4 relative">
-        <Card className="overflow-hidden border-0 bg-gradient-to-br from-amber-100/80 via-accent/60 to-primary/10 glow-primary backdrop-blur-sm">
-          <div className="p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">
-            <div className="space-y-4">
-              <Badge className="bg-primary text-primary-foreground">
-                <Sparkles className="h-3 w-3 mr-1" />
-                Для кондитеров
-              </Badge>
-              <h2 className="font-display text-3xl lg:text-4xl font-bold">
-                Продавайте свои торты
-                <br />
-                по всей России
-              </h2>
-              <p className="text-muted-foreground max-w-lg">
-                Присоединяйтесь к кондитерам платформы. Витрина,
-                CRM, финансовая аналитика, социальный канал, помощь с налогами
-                (НПД). Тарифы от 5% комиссии.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  size="lg"
-                  onClick={() => useAppStore.getState().setAuthModalOpen(true)}
-                  className="bg-primary"
-                >
-                  Стать кондитером
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={() => navigate("for-confectioners")}
-                >
-                  Узнать о тарифах
-                </Button>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              {[
-                { val: "5%", label: "Старт комиссии" },
-                { val: "24ч", label: "Эскроу-холд" },
-                { val: "4%", label: "НПД с физлиц" },
-                { val: "190+", label: "Городов России" },
-                { val: "120K", label: "Заказов в год" },
-                { val: "4.9", label: "Рейтинг платформы" },
-              ].map((s, i) => (
-                <div
-                  key={i}
-                  className="bg-background/80 backdrop-blur rounded-xl p-3 border border-border"
-                >
-                  <div className="font-display text-2xl font-bold text-primary">
-                    {s.val}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {s.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
-        </div>
       </section>
 
       {/* P2.2: анкета «Помочь выбрать» — короткий вопросник, подбор детерминированный */}
