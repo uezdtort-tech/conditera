@@ -1,8 +1,8 @@
 /**
  * GET /api/courier/available-orders — список заказов, ожидающих курьера.
  *
- * Возвращает заказы в статусах READY или IN_DELIVERY, у которых ещё не
- * назначен курьер (courier_id IS NULL).
+ * Возвращает только переданные кондитером заказы IN_DELIVERY без
+ * назначенного курьера (courier_id IS NULL).
  *
  * Auth: COURIER role.
  *
