@@ -92,6 +92,14 @@ type CmsHomeSection = {
   isEnabled: boolean;
 };
 
+function sortCmsHomeSections(sections: CmsHomeSection[]) {
+  return [...sections].sort((a, b) => {
+    if (a.key === "hero") return b.key === "hero" ? 0 : -1;
+    if (b.key === "hero") return 1;
+    return a.sortOrder - b.sortOrder || a.key.localeCompare(b.key);
+  });
+}
+
 const DEFAULT_CMS_HOME_SECTIONS: CmsHomeSection[] = CMS_HOME_SECTIONS.map((section, index) => ({
   key: section.key,
   label: section.label,
@@ -188,10 +196,10 @@ export function AdminCmsHomeTab() {
   };
 
   const moveHomeSection = (sectionKey: string, direction: -1 | 1) => {
-    const ordered = [...cmsSections].sort((a, b) => a.sortOrder - b.sortOrder);
+    const ordered = sortCmsHomeSections(cmsSections);
     const index = ordered.findIndex((section) => section.key === sectionKey);
     const target = index + direction;
-    if (index < 0 || target < 0 || target >= ordered.length) return;
+    if (sectionKey === "hero" || index < 0 || target < 1 || target >= ordered.length) return;
     const [moving] = ordered.splice(index, 1);
     ordered.splice(target, 0, moving);
     void persistHomeSections(ordered);
@@ -211,8 +219,7 @@ export function AdminCmsHomeTab() {
       toast.error("Название должно содержать от 1 до 100 символов");
       return;
     }
-    const next = [...cmsSections]
-      .sort((a, b) => a.sortOrder - b.sortOrder)
+    const next = sortCmsHomeSections(cmsSections)
       .map((section) => section.key === sectionKey ? { ...section, label: title } : section);
     const saved = await persistHomeSections(next);
     if (saved) {
@@ -400,7 +407,7 @@ export function AdminCmsHomeTab() {
         <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков CMS…
         </div>
-      ) : [...cmsSections].sort((a, b) => a.sortOrder - b.sortOrder).map((section, sectionIndex, orderedSections) => {
+      ) : sortCmsHomeSections(cmsSections).map((section, sectionIndex, orderedSections) => {
         const blocks = cmsBlocks.filter((block) => block.section === section.key).sort((a, b) => a.sortOrder - b.sortOrder);
         return (
           <Card key={section.key} className={section.isEnabled ? "p-4" : "p-4 opacity-70"}>
@@ -437,13 +444,14 @@ export function AdminCmsHomeTab() {
                   </>
                 )}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
+                {section.key === "hero" && <Badge variant="outline" className="text-[10px]">Первый экран</Badge>}
                 {!section.isEnabled && <Badge variant="outline" className="text-[10px]">Секция скрыта</Badge>}
               </div>
               <div className="flex items-center gap-1">
-                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию выше" title="Переместить секцию выше" disabled={saving || sectionIndex === 0} onClick={() => moveHomeSection(section.key, -1)}>
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию выше" title="Переместить секцию выше" disabled={saving || section.key === "hero" || sectionIndex <= 1} onClick={() => moveHomeSection(section.key, -1)}>
                   <ChevronUp className="h-4 w-4" />
                 </Button>
-                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию ниже" title="Переместить секцию ниже" disabled={saving || sectionIndex === orderedSections.length - 1} onClick={() => moveHomeSection(section.key, 1)}>
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию ниже" title="Переместить секцию ниже" disabled={saving || section.key === "hero" || sectionIndex === orderedSections.length - 1} onClick={() => moveHomeSection(section.key, 1)}>
                   <ChevronDown className="h-4 w-4" />
                 </Button>
                 <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={section.isEnabled ? "Скрыть секцию" : "Показать секцию"} title={section.isEnabled ? "Скрыть секцию" : "Показать секцию"} disabled={saving} onClick={() => toggleHomeSection(section.key)}>
