@@ -52,33 +52,157 @@ import { toast } from "sonner";
 import { csrfFetch } from "@/lib/api-client";
 
 // ==================== CMS: РЕДАКТОР ГЛАВНОЙ СТРАНИЦЫ ====================
+type CmsHomeBlock = {
+  id: string;
+  section: string;
+  title: string;
+  subtitle: string;
+  content: string;
+  image: string;
+  link: string;
+  linkText: string;
+  sortOrder: number;
+  isActive: boolean;
+  metadata: Record<string, unknown>;
+};
+
+const CMS_HOME_SECTIONS = [
+  { key: "hero", label: "Hero (главный баннер)", icon: "🎯" },
+  { key: "stats", label: "Статистика", icon: "📊" },
+  { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
+  { key: "advantages", label: "Преимущества", icon: "⭐" },
+  { key: "steps", label: "Шаги заказа", icon: "📋" },
+  { key: "testimonials", label: "Отзывы", icon: "💬" },
+] as const;
+
+function mapCmsHomeBlock(row: Record<string, unknown>): CmsHomeBlock {
+  return {
+    id: String(row.id),
+    section: String(row.section),
+    title: String(row.title || ""),
+    subtitle: String(row.subtitle || ""),
+    content: String(row.content || ""),
+    image: String(row.image_url || ""),
+    link: String(row.link_url || ""),
+    linkText: String(row.link_text || ""),
+    sortOrder: Number(row.sort_order || 0),
+    isActive: row.is_active !== false,
+    metadata: (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, unknown>,
+  };
+}
+
 export function AdminCmsHomeTab() {
-  const cmsBlocks = useAppStore((s) => s.cmsBlocks);
-  const updateCmsBlock = useAppStore((s) => s.updateCmsBlock);
-  const addCmsBlock = useAppStore((s) => s.addCmsBlock);
-  const deleteCmsBlock = useAppStore((s) => s.deleteCmsBlock);
+  const [cmsBlocks, setCmsBlocks] = useState<CmsHomeBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<any>({});
+  const [editValues, setEditValues] = useState<Partial<CmsHomeBlock>>({});
 
-  const sections = [
-    { key: "hero", label: "Hero (главный баннер)", icon: "🎯" },
-    { key: "stats", label: "Статистика", icon: "📊" },
-    { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
-    { key: "advantages", label: "Преимущества", icon: "⭐" },
-    { key: "steps", label: "Шаги заказа", icon: "📋" },
-    { key: "testimonials", label: "Отзывы", icon: "💬" },
-  ];
-
-  const startEdit = (block: any) => {
-    setEditingId(block.id);
-    setEditValues({ ...block });
+  const loadBlocks = async (signal?: AbortSignal) => {
+    const response = await fetch("/api/cms/blocks", { credentials: "include", signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить блоки");
+    setCmsBlocks(Array.isArray(payload.blocks) ? payload.blocks.map(mapCmsHomeBlock) : []);
   };
 
-  const saveEdit = () => {
-    updateCmsBlock(editingId!, editValues);
-    toast.success("Блок обновлён!");
-    setEditingId(null);
-    setEditValues({});
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadBlocks(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка CMS", { description: error.message });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const saveEdit = async () => {
+    if (!editingId || saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/blocks/${editingId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: editValues.title,
+          subtitle: editValues.subtitle,
+          image: editValues.image,
+          link: editValues.link,
+          linkText: editValues.linkText,
+          isActive: editValues.isActive,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить блок");
+      const saved = mapCmsHomeBlock(payload.block);
+      setCmsBlocks((current) => current.map((block) => block.id === saved.id ? saved : block));
+      setEditingId(null);
+      setEditValues({});
+      toast.success("Блок сохранён в базе данных");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addBlock = async (section: string, sortOrder: number) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/blocks", {
+        method: "POST",
+        body: JSON.stringify({
+          section, title: "Новый блок", subtitle: "", content: "",
+          image: "", link: "", linkText: "", sortOrder, isActive: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось создать блок");
+      setCmsBlocks((current) => [...current, mapCmsHomeBlock(payload.block)]);
+      toast.success("Блок создан и сохранён");
+    } catch (error) {
+      toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateBlock = async (block: CmsHomeBlock, updates: Partial<CmsHomeBlock>) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/blocks/${block.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: updates.isActive }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось обновить блок");
+      const saved = mapCmsHomeBlock(payload.block);
+      setCmsBlocks((current) => current.map((item) => item.id === saved.id ? saved : item));
+      toast.success(saved.isActive ? "Блок опубликован" : "Блок скрыт");
+    } catch (error) {
+      toast.error("Ошибка обновления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeBlock = async (block: CmsHomeBlock) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/blocks/${block.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить блок");
+      setCmsBlocks((current) => current.filter((item) => item.id !== block.id));
+      toast.success("Блок удалён");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -89,13 +213,16 @@ export function AdminCmsHomeTab() {
           Главная страница — CMS
         </h1>
         <p className="text-sm text-muted-foreground">
-          Редактируйте секции главной страницы без кода. Изменения применяются мгновенно.
+          Управление содержимым главной страницы. Изменения сохраняются в PostgreSQL и не теряются после перезагрузки.
         </p>
       </div>
 
-      {/* Блоки по секциям */}
-      {sections.map((section) => {
-        const blocks = cmsBlocks.filter((b) => b.section === section.key);
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков CMS…
+        </div>
+      ) : CMS_HOME_SECTIONS.map((section) => {
+        const blocks = cmsBlocks.filter((block) => block.section === section.key);
         return (
           <Card key={section.key} className="p-4">
             <div className="flex items-center justify-between mb-3">
@@ -104,135 +231,65 @@ export function AdminCmsHomeTab() {
                 {section.label}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
               </h3>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  addCmsBlock({
-                    pageId: null,
-                    section: section.key,
-                    title: "Новый блок",
-                    subtitle: "",
-                    content: "",
-                    image: "",
-                    link: "",
-                    linkText: "",
-                    sortOrder: blocks.length,
-                    isActive: true,
-                    metadata: "{}",
-                    updatedBy: "admin@demo.ru",
-                  });
-                  toast.success("Блок добавлен!");
-                }}
-              >
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, blocks.length)}>
                 <Plus className="h-3 w-3 mr-1" /> Добавить
               </Button>
             </div>
-
             <div className="space-y-2">
               {blocks.map((block) => (
                 <div key={block.id} className="border border-border rounded-lg p-3">
                   {editingId === block.id ? (
-                    /* Режим редактирования */
                     <div className="space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs">Заголовок</Label>
-                          <Input
-                            value={editValues.title || ""}
-                            onChange={(e) => setEditValues({ ...editValues, title: e.target.value })}
-                            className="h-8 text-sm"
-                          />
+                          <Input value={editValues.title || ""} onChange={(e) => setEditValues({ ...editValues, title: e.target.value })} className="h-8 text-sm" maxLength={180} />
                         </div>
                         <div>
-                          <Label className="text-xs">Ссылка (view)</Label>
-                          <Input
-                            value={editValues.link || ""}
-                            onChange={(e) => setEditValues({ ...editValues, link: e.target.value })}
-                            className="h-8 text-sm"
-                            placeholder="catalog, promotions..."
-                          />
+                          <Label className="text-xs">Ссылка</Label>
+                          <Input value={editValues.link || ""} onChange={(e) => setEditValues({ ...editValues, link: e.target.value })} className="h-8 text-sm" placeholder="/catalog" />
                         </div>
                       </div>
                       <div>
                         <Label className="text-xs">Подзаголовок</Label>
-                        <Textarea
-                          value={editValues.subtitle || ""}
-                          onChange={(e) => setEditValues({ ...editValues, subtitle: e.target.value })}
-                          rows={2}
-                          className="text-sm"
-                        />
+                        <Textarea value={editValues.subtitle || ""} onChange={(e) => setEditValues({ ...editValues, subtitle: e.target.value })} rows={2} className="text-sm" maxLength={500} />
                       </div>
                       <div>
                         <Label className="text-xs">Изображение (URL)</Label>
-                        <Input
-                          value={editValues.image || ""}
-                          onChange={(e) => setEditValues({ ...editValues, image: e.target.value })}
-                          className="h-8 text-sm"
-                        />
+                        <Input value={editValues.image || ""} onChange={(e) => setEditValues({ ...editValues, image: e.target.value })} className="h-8 text-sm" />
                       </div>
                       <div>
                         <Label className="text-xs">Текст кнопки</Label>
-                        <Input
-                          value={editValues.linkText || ""}
-                          onChange={(e) => setEditValues({ ...editValues, linkText: e.target.value })}
-                          className="h-8 text-sm"
-                        />
+                        <Input value={editValues.linkText || ""} onChange={(e) => setEditValues({ ...editValues, linkText: e.target.value })} className="h-8 text-sm" maxLength={100} />
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={saveEdit}><Save className="h-3 w-3 mr-1" /> Сохранить</Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Отмена</Button>
+                      <div className="flex gap-2 items-center">
+                        <Button size="sm" disabled={saving} onClick={saveEdit}><Save className="h-3 w-3 mr-1" /> Сохранить</Button>
+                        <Button size="sm" variant="outline" disabled={saving} onClick={() => { setEditingId(null); setEditValues({}); }}>Отмена</Button>
                         <label className="flex items-center gap-1 text-xs cursor-pointer ml-auto">
-                          <Checkbox
-                            checked={editValues.isActive}
-                            onCheckedChange={(v) => setEditValues({ ...editValues, isActive: !!v })}
-                          />
+                          <Checkbox checked={!!editValues.isActive} onCheckedChange={(value) => setEditValues({ ...editValues, isActive: !!value })} />
                           Активен
                         </label>
                       </div>
                     </div>
                   ) : (
-                    /* Режим просмотра */
                     <div className="flex items-start gap-3">
-                      {block.image && (
-                        <img src={block.image} alt="" className="h-12 w-12 rounded object-cover shrink-0" loading="lazy" decoding="async" />
-                      )}
+                      {block.image && <img src={block.image} alt="" className="h-12 w-12 rounded object-cover shrink-0" loading="lazy" decoding="async" />}
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm flex items-center gap-2">
                           {block.title || "(без заголовка)"}
                           {!block.isActive && <Badge variant="outline" className="text-[9px]">Скрыт</Badge>}
                         </div>
-                        {block.subtitle && (
-                          <div className="text-xs text-muted-foreground line-clamp-1">{block.subtitle}</div>
-                        )}
-                        {block.linkText && (
-                          <Badge variant="secondary" className="text-[9px] mt-1">{block.linkText} → {block.link}</Badge>
-                        )}
+                        {block.subtitle && <div className="text-xs text-muted-foreground line-clamp-1">{block.subtitle}</div>}
+                        {block.linkText && <Badge variant="secondary" className="text-[9px] mt-1">{block.linkText} → {block.link}</Badge>}
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(block)}>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={saving} onClick={() => { setEditingId(block.id); setEditValues({ ...block }); }}>
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => {
-                            updateCmsBlock(block.id, { isActive: !block.isActive });
-                            toast.success(block.isActive ? "Скрыт" : "Показан");
-                          }}
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={saving} onClick={() => updateBlock(block, { isActive: !block.isActive })}>
                           {block.isActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => {
-                            deleteCmsBlock(block.id);
-                            toast.success("Удалён");
-                          }}
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" disabled={saving} onClick={() => removeBlock(block)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -240,9 +297,7 @@ export function AdminCmsHomeTab() {
                   )}
                 </div>
               ))}
-              {blocks.length === 0 && (
-                <div className="text-xs text-muted-foreground text-center py-2">Нет блоков в этой секции</div>
-              )}
+              {blocks.length === 0 && <div className="text-xs text-muted-foreground text-center py-2">Нет блоков в этой секции</div>}
             </div>
           </Card>
         );
