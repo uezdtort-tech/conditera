@@ -252,23 +252,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           password,
         });
         if (gtErr) {
-          // Email не подтверждён в GoTrue (register делает email_confirm: false для prod-флоу
-          // письма-подтверждения). Пароль уже проверен Argon2id по profiles выше — владелец
-          // учётных данных подтверждён, поэтому подтверждаем email через admin API и повторяем.
-          if (gtErr.message === "Email not confirmed") {
-            const { error: upErr } = await supabaseAdmin.auth.admin
-              .updateUserById(user.id, { email_confirm: true });
-            if (!upErr) {
-              await ssr.auth.signInWithPassword({ email: emailLower, password });
-            } else {
-              console.warn("[login] GoTrue email confirm update failed:", upErr.message);
-            }
-          } else {
-            console.warn(
-              "[login] GoTrue signInWithPassword failed (legacy-only user?):",
-              gtErr.message,
-            );
-          }
+          // Не подтверждаем email через admin API автоматически: знание пароля
+          // не доказывает владение почтовым ящиком. Собственная app-сессия ниже
+          // остаётся рабочей после проверки profiles.password_hash; GoTrue-cookie
+          // не выдаётся до прохождения штатного подтверждения адреса.
+          console.warn(
+            "[login] GoTrue session unavailable; app JWT remains the session source:",
+            gtErr.message,
+          );
         }
       } catch (gtEx) {
         console.warn(
