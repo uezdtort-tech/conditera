@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/query-provider";
 import { SupabaseAuthSync } from "@/components/layout/supabase-auth-sync";
-import { DesignSettingsRuntime } from "@/components/layout/design-settings-runtime";
+import { PushNotificationManager } from "@/components/pwa/push-notification-manager";
 // NEW v2.0 — глобальный AI-помощник (FAB внизу справа для авторизованных)
 import { AIAssistantWidget } from "@/components/ai/ai-assistant-widget";
 // П.24: Schema.org — Organization и WebSite на каждой странице
@@ -142,7 +142,7 @@ export default function RootLayout({
 
         <QueryProvider>
           <SupabaseAuthSync />
-          <DesignSettingsRuntime />
+          <PushNotificationManager />
           {children}
           <Toaster />
           <SonnerToaster position="top-right" richColors />
