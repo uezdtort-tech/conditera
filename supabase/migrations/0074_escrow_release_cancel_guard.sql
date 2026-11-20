@@ -1,10 +1,9 @@
 -- 0074_escrow_release_cancel_guard.sql
 -- P0: escrow release and order cancellation must be mutually exclusive.
--- The previous release_escrow_order RPC claimed any escrow order regardless
--- of business status. A cancellation racing with cron could therefore credit
--- the confectioner after the order had been cancelled.
+-- Successful COMPLETED orders remain eligible for payout after the hold period.
+-- CANCELLED and REFUNDED orders must never credit the confectioner.
 --
--- Keep the existing RPC contract and grants; add a business-status predicate
+-- Keep the existing RPC contract and grants; add cancellation/refund predicates
 -- to the same atomic UPDATE that claims the escrow row.
 
 CREATE OR REPLACE FUNCTION public.release_escrow_order(
