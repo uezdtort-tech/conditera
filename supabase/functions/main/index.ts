@@ -372,7 +372,16 @@ Deno.serve({ onError }, async (req: Request) => {
   // SUPABASE_FUNCTION_SLUG is listed after the container env snapshot so
   // nothing in it can shadow the value, and it is per-request because only this
   // worker knows which function the request resolved to.
-  const envVarsObj = { ...Deno.env.toObject(), SUPABASE_FUNCTION_SLUG: service_name }
+  const {
+    JWT_SECRET: _jwtSecret,
+    VERIFY_JWT: _verifyJwt,
+    DENO_DIR: _denoDir,
+    PORT: _port,
+    ...functionEnvironment
+  } = Deno.env.toObject()
+  // The router alone verifies JWTs. User workers receive only the explicit
+  // function environment, never JWT_SECRET or database superuser credentials.
+  const envVarsObj = { ...functionEnvironment, SUPABASE_FUNCTION_SLUG: service_name }
   const envVars = Object.keys(envVarsObj).map((k) => [k, envVarsObj[k]])
 
   const callWorker = async (req: Request, retriesLeft = MAX_WORKER_RETRIES): Promise<Response> => {
