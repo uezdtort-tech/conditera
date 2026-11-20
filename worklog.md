@@ -9720,3 +9720,282 @@ timingSafeEqual, SafeHtml, safe-fetch, rate-limit auth/admin, rewrite-
   postgres@…:54330.
 - Следующий блок по карте: S4B1 (корзина + checkout, платежи STUB — решение
   №1; цели Метрики add_to_cart/trackPurchase подключаются там же).
+
+## 2026-11-20 — recreate-3: S4B1 корзина+checkout (продолжение R3-CONT: аудит → фиксы → гейты)
+- Вход: реализация блока уже была в рабочем дереве (5 modified + 12 untracked,
+  HEAD 55faa93); задача продолжения — полный аудит по спеке, фикс дефектов,
+  гейты, артефакты. Базлайн поднят (dev :3100, шим :3040, embedded PG :54330).
+- Аудит: схема (OrderStatus +DRAFT, itemsTotal/discountTotal, НОВЫЙ OrderEvent
+  с журналом переходов) — ок, db:push подтверждён в PG; state-machine (замкнутая
+  карта TRANSITIONS + transitionOrder с SELECT FOR UPDATE и OrderEvent,
+  NEGOTIATING вне маршрута) — ок; delivery (pickup 0 / courier 30000 коп.,
+  4 слота, дата ≥ завтра сервером) — ок; номер CD-YYYY-NNNN + ретрай P2002
+  до 5 — ок; API-контракты корзины/заказов (guest-validate PUBLIC+CSRF+30/мин,
+  merge sum cap 99 + skipped, orders: двойной rate-limit, $transaction с
+  recalc из БД и DRAFT→PENDING внутри, 201 с payment: null) — ок; клиент
+  (persist conditera-cart без цен, csrfFetch, гидрация-safe бейдж, 3-шаговый
+  checkout с обязательным согласием) — ок. Линт-гигиена: 0 `any`, 0 индиго/
+  синего, RU-сообщения, секретов в выводе нет.
+- Дефект аудита (1): /checkout для анонима рендерил клиентскую карточку-гейт
+  (HTTP 200) вместо серверного редиректа — противоречие контракту и паттерну
+  /account/orders. Фикс: серверный redirect /cart?auth=1 (307 верифицирован
+  curl и браузером), мёртвый компонент гейта удалён. Остальное — без правок.
+- Гейты: lint 0 / tsc 0; curl-матрица agent-ctx/s4b1-matrix.sh PASS=34 FAIL=0
+  SKIP=1 (SKIP — GUEST не посеян, фильтр покрыт гвардом; burst 429+Retry-After —
+  последний шаг, retry-after: 60). Независимая спот-верификация: guest-validate
+  unitPrice = цене БД (340000); ТАМПЕР-ПРУФ: заказ с клиентскими полями цены
+  999999999 → 201, сервер пересчитал 680000/30000/0/710000; номер инкремент
+  CD-2026-0013→0014; в БД у каждого checkout-заказа ровно 1 OrderEvent
+  DRAFT→PENDING; anon GET /api/orders → 401; anon /checkout и /account/orders
+  → 307 /cart?auth=1; burst 6-й → 429 + retry-after: 60.
+- agent-browser золотой путь: каталог → товар → «Добавить в корзину» (бейдж 1)
+  → /cart (серверная цена, степпер +1 → 6800) → гость: редирект + модалка входа
+  → login customer@demo.ru → merge гостевой корзины на сервер → checkout:
+  шаг 1 предзаполнен (имя/email профиля), шаг 2 курьер «Москва, Тверская 1» +
+  дата завтра + слот, шаг 3: 6800+300=7100 → согласие → success-тост →
+  /account/orders?created=CD-2026-0020 (баннер, бейдж «Ожидает оплаты»,
+  разбивка). Mobile 390: /cart, /checkout, /account/orders scrollWidth=390
+  (overflow 0); ошибок консоли/страницы 0. Скриншоты agent-ctx/s4b1-r3-*
+  (cart, checkout, account-orders, account-orders-dark, mobile-390).
+- Артефакты: v2-коммиты 9844eb5 ([S4B1] код, 24 файла) + 1d9698b (worklog pin);
+  bundle backups/conditera-v2-S4B1-9844eb5.bundle (1 006 543 B, verify OK,
+  git-tracked коммитом 0439bc3); отчёт agent-ctx/S4B1-R3-zai-code.md.
+- Уроки блока: (1) процессы из вызова шелла умирают между вызовами даже с
+  setsid (контрольный sleep) — дев+матрица+скриншоты строго в одном батче,
+  перезапуск дева между прогонами заодно сбрасывает in-memory лимитер;
+  (2) .env.local не печатать — URL БД показывать только host/path;
+  (3) бандл в my-project добавляется git add -f (папка в .gitignore,
+  прецедент git-tracked бандлов сохранён).
+- Следующий блок по карте: S4B2 — платёжный контур (YooKassa/STUB №1): точка
+  интеграции payment: null в 201 и paymentMode STUB/paymentStatus pending;
+  после оплаты transitionOrder PENDING→CONFIRMED (маршрут зарезервирован);
+  применение промокода в POST /api/orders (скидка → discountTotal,
+  promoCodeId); server-цели Метрики payment_succeeded/refund_processed.
+
+## S4B2-R3 (CONT) — Платежи (2026-11-20 UTC, z-ai-code)
+
+- Контекст: продолжение блока S4B2 — предыдущий агент оставил реализацию
+  незакоммиченной (7 модифицированных + 8 новых путей на 1d9698b); задача:
+  аудит → гейты → коммит → бандл → отчёт.
+- Аудит (все файлы против спеки S4B2 + решений): провайдер-шов provider.ts
+  (PAYMENTS_MODE mock|yookassa, fail-closed 503 payment_provider_unavailable,
+  отката на mock нет), yookassa.ts только через safeFetch, суммы — копейки
+  order.total из БД (клиентские не читаются); ledger.ts — единственная точка
+  записи balance_ledger (repo-grep: INSERT больше нигде нет; seed-демо
+  S1B2 — вне рантайма); pay-роут: CSRF→owner 404→rate 10/мин/user→409,
+  mock-ветка в одной tx (Payment + пара topup/payment + PENDING→CONFIRMED +
+  paymentStatus, метрика fail-open); webhook: источник ДО тела (IP-allowlist,
+  пустой список → всегда 403), event↔status консистентность, дедуп по
+  providerPaymentId → duplicate:true с нулём side-effects; refund: payments.manage,
+  Payment succeeded, tx Refund+Payment refunded+ledger+CONFIRMED→REFUNDED
+  (расширение карты переходов, покрыто тестами). Дефектов КОДА не найдено.
+- Дефекты гейт-СКРИПТОВ (3, исправлены в agent-ctx, спека не ослаблялась):
+  (1) runner pkill -f "next dev" убивал и my-project:3000 → kill по владельцам
+  :3100; (2) фиксированный webhook-id wh-test-001 — прошлый прогон оставлял
+  Payment, идемпотентность честно отдавала duplicate:true и «полный путь» не
+  выполнялся → уникальный id на прогон; (3) ledger-пара проверялась на
+  абсолютный баланс 0 (у демо-аккаунта история проводок) → проверка сумм и
+  непрерывности balanceAfter; browser: клик find text «Оплатить» ловил абзац
+  описания → клик по aria-label; унаследованная вкладка с чанками Turbopack
+  давала ChunkLoadError → close --all + reload + console --clear перед счётом.
+- Гейты: db:push синхронно; lint 0; tsc 0; vitest 19/19 (ledger-core,
+  state-machine-расширение, webhook-валидаторы, IP-allowlist).
+- curl-матрица s4b2-matrix.sh: PASS=36 FAIL=0 (pay-гварды 403/401/404/409,
+  GET /api/orders/[id] owner-only, webhook 403 spoof + идемпотентность
+  ev=1/led=2/fin=1/pay=1, refund 403 customer/200 admin + 409 повтор,
+  burst pay 429+Retry-After). yookassa fail-closed (env yookassa без ключей,
+  рестарт): 503 — PASS=3 FAIL=0, env восстановлен.
+- Спот-верификация (свои curl): ТАМПЕР — pay с {"amount":1} → 200, в БД
+  amount=order.total=370000 (тело игнорируется), пара 370000/-370000;
+  webhook 403 с XFF 8.8.8.8; из 127.0.0.1 ×2 → ok:true, duplicate:true,
+  DB ev(PENDING→CONFIRMED)=1/led=2/fin=1/pay=1; refund 403/200, Refund
+  completed, ledger refund +370000, OrderEvent CONFIRMED→REFUNDED (ADMIN);
+  /checkout/success: аноним 307, чужой 404.
+- agent-browser: свежая сессия → /account/orders (10 кнопок «Оплатить») →
+  клик aria-label → /checkout/success (CD-2026-0040, «Подтверждён», «Оплата
+  получена») → бейдж в списке обновлён, кнопка исчезла (10→9); console/page
+  errors 0; mobile 390 scrollWidth 390 (orders+success); dark-скриншот.
+  Скриншоты s4b2-r3-{success,account-orders,mobile-390,dark}.png.
+- Артефакты: v2-коммиты 561a823 ([S4B2] код: 21 файл, 2299 строк) + f875e9a
+  (docs: worklog + PAYMENTS.md); bundle backups/conditera-v2-S4B2-561a823.bundle
+  (1 052 028 B, verify OK — complete history, main=f875e9a), git-tracked
+  my-project коммитом 07ee097 (только файл бандла). Render-check после docs-
+  коммита: / 200, /catalog 200, /account/orders 307 (анон-гейт), health ok —
+  Tailwind-урок c4c90d5 (md исключены из сканирования) подтверждён.
+- Уроки: идентификаторы тестовых сущностей — на прогон (фиксированные дают
+  ложный duplicate); баланс проверять непрерывностью, не абсолютом; kill
+  только владельцев порта (pkill -f опасен для соседних девов); browser-гейт
+  начинать с чистой сессии; спек-цель WEBHOOK_IPS=127.0.0.1 (dev) — в проде
+  заменить на CIDR YooKassa (чек-лист в docs/PAYMENTS.md §7).
+- Отчёт: agent-ctx/S4B2-R3-zai-code.md (money-flow, ledger-правила,
+  webhook-контракт идемпотентности, go-live чек-лист, гейт-числа, девиации).
+- Следующий блок по карте: S4B3 — escrow/выплаты (payouts.ledgerId NOT NULL
+  — проводки ТОЛЬКО через src/lib/payments/ledger.ts; 2FA-подтверждение
+  completedTfaAt; тариф комиссии №10; queries/ledger.ts stub → реализация).
+
+## S4B3-R3 (CONT) — Эскроу/бонусы/выплаты (2026-11-20 UTC, z-ai-code)
+
+- Task ID: S4B3-R3-CONT. База: HEAD 86ed863 [S4B3] (имплементация прошлой
+  сессии после восстановления из bundle PHASE 0 — репозиторий пережил recycle
+  песочницы; dev :3100 healthy, src/lib/payments полный). Миссия сессии:
+  аудит → гейты → docs/коммит → bundle → корневые артефакты.
+- Аудит спеки vs 86ed863: денежный контур подтверждён чтением всех файлов
+  src/lib/payments + роутов (эскроу hold в tx оплаты через центральный хук
+  transitionOrder на CONFIRMED, release на COMPLETED, refund на
+  CANCELLED/REFUNDED; комиссия №10 — FinancialLedgerEntry, не BalanceLedger;
+  payouts lifecycle с 2FA; UI-страницы с гвардами). grep-аудит: ровно одна
+  точка записи balance_ledger (ledger.ts; seed — оговорённое исключение).
+  Вердикт незакоммиченного диффа verify-ledger.ts: ЛЕГИТИМНЫЙ гард от внешней
+  DATABASE_URL (урок recreate-2 №1) — оставлен, вошёл в docs-коммит.
+- Дефекты КОДА (4, fix 0baca96): (1) bonus.ts resolveRedeemForCheckout —
+  инвертированное условие бросало 400 на УСПЕШНОЙ валидации списания
+  бонусов (гейт-матрица поймала на order#2); (2) admin transition whitelist
+  без PENDING→CANCELLED — неоплаченный заказ нельзя закрыть, возврат бонусов
+  недостижим; (3) /account/payouts и /account/balance редиректили анона на
+  несуществующий /login (404) → паттерн /cart?auth=1; (4) seed назначал
+  товары кондитерам по findMany() без orderBy — недетерминизм (prod-demo-03
+  фактически ушёл другому кондитеру в загруженной БД) → разрешение по slug.
+- БД: загружена ручными тестами прошлой сессии (19 проводок, 8 payouts,
+  payout-резервы съедали баланс кондитера — эскроу-hold не прошёл бы) →
+  TRUNCATE транзакционных таблиц + seed (детерминизм, баланс 351000/1000000).
+- Гейты: lint 0; tsc 0; vitest 39/39; db:push синхронно; verify-ledger 3/3 OK
+  (дважды за прогон матрицы). curl-матрица s4b3-matrix.sh: PASS=47 FAIL=0 ALL
+  GREEN — эскроу held 340000 по confectioner@demo.ru + hold −340000 + снапшот
+  10; переходы → release +306000 + комиссия 340.00 financial_ledger + бонус
+  +17000; order#2 redeem 1700 → discount 170000/total 170000 + проводка
+  −170000; кап 1701 → 400; отмена → возврат +170000 ровно раз; RBAC 403/403/
+  401; payout: pending+hold → approve → 403 tfa_required → 403 tfa_invalid →
+  dev-код completed + completedTfaAt + проводка −50000; reject → +60000
+  возврат; burst 429 Retry-After 59; cron 403/200 ×2.
+- agent-browser PASS=28 FAIL=0: кондитер заявка 500 ₽ → «Ожидает»; админ
+  approve → 2FA-диалог (dev-подсказка без значения) → «Выплачена» + факт 2FA;
+  /account/balance фильтр kind=payout; console/page errors 0; mobile 390
+  scrollWidth=390 ×3; dark. Скриншоты s4b3-r3-{payouts-confectioner,
+  payouts-admin,balance,mobile-390,dark}.png.
+- Дефекты ГЕЙТ-СКРИПТОВ (2): матрица запрашивала financial_ledger
+  snake_case колонками (факт — camelCase без map, 42703) → кавычки; browser
+  инжектил cookie до первого open (about:blank-домен, сессия не поднималась)
+  → open хоста → cookies set.
+- Уроки: инвертированные булевы в валидаторах = всегда-ложный happy-path
+  (покрывать тестом успех, не только ошибки); findMany без orderBy
+  недетерминирован; фоновой процесс из tool-вызова не переживает границу
+  вызовов — dev в том же вызове, что и гейт; перед матрицей TRUNCATE +
+  seed (порядок из-за FK payouts.ledgerId→balance_ledger); Prisma без @map —
+  camelCase в raw-SQL гейтов.
+- Артефакты: v2-коммиты 86ed863 (имплементация) + 0baca96 (fix, 5 файлов) +
+  d15ed8c (docs: worklog + ESCROW-PAYOUTS.md + verify-ledger гард; prose-only
+  подтверждён — md исключены из сканирования Tailwind c4c90d5). Bundle
+  backups/conditera-v2-S4B3-0baca96.bundle (1 122 563 B, verify OK — complete
+  history, main=d15ed8c), git-tracked my-project (только файл бандла).
+  Render-check после docs-коммита: / 200, /catalog 200, /account/balance 307
+  (анон), health ok.
+- Отчёт: agent-ctx/S4B3-R3-zai-code.md (money model, решения Payout-vs-
+  PayoutRequest / 1 балл=1₽ / комиссия 0.10 / группировка эскроу, гейт-числа,
+  verify-ledger сводка, девиации).
+- Следующий блок по карте: S5B1 — кабинет покупателя (customer cabinet;
+  settings/profile, история заказов витринная, рефералки/уведомления по
+  карте этапов S5).
+
+## S5B1 — Кабинет покупателя (recreate-3, 2026-11-20 UTC; финализация S5B1-R3-FINAL)
+
+- Скоуп: единый route-group layout для страниц кабинета покупателя (сайдбар +
+  мобильный переключатель разделов с общим списком пунктов), overview со
+  статистикой из БД, история заказов со статус-табами и клиентскими действиями
+  (подтвердить/отменить), избранное с двухконтурной синхронизацией, профиль +
+  смена пароля, адресная книга.
+- Эндпоинты: подтверждение заказа покупателем (DELIVERED → COMPLETED: эскроу
+  released по строкам заказа, бонус начислен в журнал баланса, OrderEvent с
+  actor CUSTOMER); отмена заказа (неоплаченный PENDING → CANCELLED с возвратом
+  списанных бонусов ровно один раз; оплаченный CONFIRMED → 409
+  paid_contact_support; чужой заказ → 404); избранное GET/POST/DELETE (toggle
+  идемпотентен, анониму 401/403 — csrf-first); профиль PATCH (гейт CSRF);
+  смена пароля (неверный текущий → 400, успех → 200, повторный вход новым);
+  адресная книга CRUD (isDefault ровно один через транзакцию «снять прочие»,
+  лимит 10 → 400, чужой адрес → 404, свой лимит 20 в минуту на пользователя);
+  список заказов с фильтром статуса (мусорное значение → 400).
+- Схема: новая модель Address со снапшот-полями получателя — источник
+  автозаполнения шага «Доставка» в checkout; связь на профиль с каскадом.
+- Дизайн избранного: zustand persist с ключом «conditera-favorites» хранит
+  только id; гость — auth-modal, local-toggle не выполняется; авторизованный —
+  optimistic toggle плюс API; FavoritesSync (смонтирован в меню шапки) при
+  входе заменяет локальный список серверной истиной, при выходе очищает.
+- Решения: layout кабинета вынесен в route-group (общий shell), чужие ресурсы
+  отвечают 404 (не 403, не раскрываем существование), отмена только
+  неоплаченных (оплаченные — через поддержку), rate-limit подтверждения
+  10 в минуту на пользователя с заголовком Retry-After.
+- Гейты recreate-3: lint 0 / tsc 0 (подтверждено финализацией), curl-матрица
+  agent-ctx/s5b1-matrix.sh (анон 307 ×5 страниц, 404/409/429, favorites,
+  профиль, пароль, адреса, возврат бонусов однократный), браузер-гейт
+  agent-ctx/s5b1-r3-browser.sh + скриншоты s5b1-r3-overview.png,
+  s5b1-r3-orders.png, s5b1-r3-favorites.png, s5b1-r3-profile.png
+  (мобильный-390 и тёмная тема НЕ сняты — зафиксировано в отчёте как пробел).
+- Артефакты: коммиты v2 6622617 (код, 35 файлов, +3969/−37) + 93a534a (fix:
+  мобильная навигация кабинета, 4 файла) + 79feae4 (docs: worklog, sha/bundle
+  пин). Bundle backups/conditera-v2-S5B1-93a534a.bundle — 1 185 668 B, verify
+  OK (complete history, main = docs-коммит 79feae4), git-tracked my-project
+  коммитом f649f1c (только файл бандла; backups в gitignore — force-add по
+  конвенции репо). Render-check после docs-коммита: / 200, /catalog 200,
+  /account 307 → /cart?auth=1 (анон), health ok.
+- Отчёт: agent-ctx/S5B1-R3-zai-code.md (эндпоинты, favorites-sync design,
+  решения, гейт-числа, девиации/пробелы).
+- Следующий блок по карте: S5B2 — кабинет кондитера (confectioner cabinet).
+
+### recreate-3 — S5B2: кабинет кондитера (vendor cabinet)
+
+- Скоуп: enum ModerationStatus + колонка Product.moderationStatus (backfill
+  approved), витрина-фильтр approved в каталоге S3B2, pure-правила товара
+  (slug/цена/publish) + vitest; каркас кабинета — layout+guard, товары
+  CRUD+модерация, обработка заказов по карте переходов (OrderEvent via=vendor),
+  календарь, аналитика, print-view. Дев-фиксы: client-safe status-labels,
+  audit (карта переходов/витрина 404), layout guards (дубль шапки/подвала).
+  Диапазон v2 79feae4..f75b3aa: 35 файлов, +4654/−76.
+- Решения: ModerationStatus = pending_moderation/approved/rejected, новый
+  товар → pending_moderation (спека §2); публикация на витрине = approved +
+  isAvailable (фильтр в catalog/queries.ts); PATCH товара НЕ меняет
+  moderationStatus — re-модерация approved при правке → S5B3; vendor-API
+  только CONFECTIONER (БД-истина ConfectionerProfile), кабинет поставщика
+  (SUPPLIER/STUDIO/WHOLESALER) — EmptyState-плейсхолдер, полный кабинет →
+  S5B3; согласование товара пока moderation-stub (db-approve в матрице).
+- Гейты: lint 0 / tsc 0; curl-матрица agent-ctx/s5b2-matrix.sh (анон-редиректы,
+  csrf/роль 403, publish-validation 400, витрина не видит pending, чужие
+  PATCH/DELETE/status/print → 404, invalid jump 400, COMPLETED + эскроу
+  released + verify-ledger, аналитика == db-истина, 429 + Retry-After,
+  render / и /catalog); браузер-гейт agent-ctx/s5b2-r3-browser.sh (console
+  errors == 0, mobile scrollWidth==390) + 6 скриншотов s5b2-r3-{overview,
+  orders,products,analytics,dark,mobile-390}.png.
+- Артефакты: коммиты v2 8c8e077 + 913e2d4 (код), d9ded7f/4ace233/f75b3aa
+  (фиксы), 258c309 (docs: worklog, sha/bundle пин). Bundle
+  backups/conditera-v2-S5B2-f75b3aa.bundle — 1 251 084 B, verify OK (complete
+  history, main = docs-коммит 258c309), git-tracked my-project коммитом
+  1632fc4 (только файл бандла; force-add по конвенции репо).
+- Отчёт: agent-ctx/S5B2-R3-zai-code.md (эндпоинты, решения, гейты, девиации).
+- Следующий блок по карте: S5B3 — re-модерация approved-товаров, кабинет
+  поставщика, админ-модерация вместо stub.
+
+### recreate-3 — S5B3: админ-панель (обзор, модерация, тикеты, email, настройки)
+
+- Скоуп: каркас admin-layout (guard ADMIN, sidebar + mobile-nav), обзор
+  платформы (метрики + журнал admin_actions), модерация товаров и отзывов
+  (approve / reject с причиной, invalid_state 409 на повтор), тикеты
+  (ответ support с авто open→in_progress, закрытие, аудит), входящие
+  письма (просмотрщик HTML через SafeHtml/sanitizeUserHtml, вложения —
+  stored-XSS D4 закрыт на admin-поверхности: window.__xss undefined,
+  alert перехвачен), настройки (bonus_percent, серверная валидация
+  value/key, аудит). Диапазон v2 258c309..25ac7d2: 31 файл, +3987/−11,
+  включая vitest tests/s5b3-admin.test.ts. Коммиты f4c7784 + 25ac7d2.
+- Решения: admin-API — withRole(ADMIN) + CSRF + rate-limit (burst мутаций
+  даёт 429 с Retry-After); confectioner на admin-эндпоинтах → 403; все
+  значимые действия — в append-only admin_actions с читаемыми лейблами;
+  reject требует причину; повторный approve — invalid_state.
+- Гейты: lint 0 / tsc 0; curl-матрица agent-ctx/s5b3-matrix.sh — PASS=98,
+  FAIL=0; браузер-гейт s5b3-r3-browser.sh + s5b3-r3-browser2.sh (console
+  errors 0, mobile scrollWidth==390); 7 скриншотов s5b3-r3-{overview,
+  moderation,tickets,email-xss,settings,dark,mobile-390}.png в agent-ctx.
+- Артефакты: docs-коммит v2 1f10791 ([S5B3] docs: worklog, sha/bundle пин;
+  main в бандле = 1f10791). Bundle backups/conditera-v2-S5B3-25ac7d2.bundle —
+  1 308 204 B, verify OK (complete history), git-tracked my-project
+  коммитом f442c16 (только файл бандла; force-add по конвенции репо).
+- Отчёт: agent-ctx/S5B3-R3-zai-code.md (admin map, D4 closure, gates, shots,
+  девиации).
+- Следующий блок по карте: S6B1 — чаты (customer↔confectioner), S6B2 —
+  email-intake hook (входящие письма как источник тикетов).
