@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
-import { getOrderChecklist, ensureChecklist, setStageDone } from "@/lib/ops/production";
+import { getOrderChecklist, ensureChecklist, setStageDone, getProductionSnapshot } from "@/lib/ops/production";
 import { loadOrderItemsData } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
 
@@ -53,6 +53,14 @@ export async function POST(
     const data = await loadOrderItemsData(id);
     const categorySlug = data?.items.find((item) => item.categorySlug)?.categorySlug ?? null;
     await ensureChecklist(id, categorySlug);
+    const snapshot = await getProductionSnapshot(id);
+    if (snapshot.completedAt) {
+      return NextResponse.json(
+        { error: "PRODUCTION_ALREADY_COMPLETED", message: "Производственные этапы уже закрыты" },
+        { status: 409 }
+      );
+    }
+
     const stages = await getOrderChecklist(id);
     const stage = stages.find((item) => item.stage_key === stageKey);
     if (!stage) return NextResponse.json({ error: "STAGE_NOT_FOUND" }, { status: 404 });
