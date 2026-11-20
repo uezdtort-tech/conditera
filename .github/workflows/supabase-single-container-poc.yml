@@ -10,6 +10,8 @@ on:
       - "docker-compose.yml"
       - "Caddyfile"
       - "scripts/supabase-runtime-poc/**"
+      - "scripts/compose-single-runtime.mjs"
+      - "package.json"
       - "supabase/kong.yml"
       - "supabase/init-scripts/**"
       - "supabase/migrations/**"
@@ -48,8 +50,8 @@ jobs:
           SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
         run: |
           set -Eeuo pipefail
-          touch .env.production
-          trap 'rm -f .env.production' EXIT
+          touch .env.production .env.supabase-runtime
+          trap 'rm -f .env.production .env.supabase-runtime' EXIT
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
           python3 - <<'PY'
           import json
@@ -80,6 +82,7 @@ jobs:
           assert "supabase_runtime_deno_cache" in config["volumes"]
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
+          node scripts/compose-single-runtime.mjs config
 
       - name: Build one-container Supabase runtime
         run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
