@@ -84,6 +84,8 @@ services:
     profiles: ["legacy-supabase"]
   supabase-meta:
     profiles: ["legacy-supabase"]
+  supabase-studio:
+    profiles: ["legacy-supabase"]
   supabase-analytics:
     profiles: ["legacy-supabase"]
   supabase-vector:
