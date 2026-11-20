@@ -18,15 +18,23 @@ fi
 # never recursively rewrite ownership of an existing database directory.
 chown "$postgres_entry" "$root$pgdata"
 
-# The pinned Alpine image does not provide en_US.UTF-8. Keep the database
-# locale aligned with initdb's explicit C locale and avoid an invalid config.
-config_file="$root/etc/postgresql/postgresql.conf"
-if grep -q 'en_US.UTF-8' "$config_file"; then
-  sed -i 's/en_US.UTF-8/C/g' "$config_file"
-fi
-if grep -q 'en_US.UTF-8' "$config_file"; then
-  echo "Unsupported en_US.UTF-8 locale remains in $config_file" >&2
-  exit 1
+# Reproduce the environment declared by the official Supabase Postgres image.
+# The Dockerfile copies the image rootfs, not its image-level ENV metadata.
+export POSTGRES_HOST="${POSTGRES_HOST:-/var/run/postgresql}"
+if [ -f "$root/nix/var/nix/profiles/default/lib/locale/locale-archive" ]; then
+  export LANG="${LANG:-en_US.UTF-8}"
+  export LANGUAGE="${LANGUAGE:-en_US:en}"
+  export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+  export LOCALE_ARCHIVE="${LOCALE_ARCHIVE:-/nix/var/nix/profiles/default/lib/locale/locale-archive}"
+  export POSTGRES_INITDB_ARGS="${POSTGRES_INITDB_ARGS:---allow-group-access --locale-provider=icu --encoding=UTF-8 --icu-locale=en_US.UTF-8}"
+else
+  # Safe fallback for an image without the Nix locale archive.
+  export LANG=C LANGUAGE=C LC_ALL=C
+  export POSTGRES_INITDB_ARGS="${POSTGRES_INITDB_ARGS:---encoding=UTF8 --lc-collate=C --lc-ctype=C}"
+  config_file="$root/etc/postgresql/postgresql.conf"
+  if grep -q 'en_US.UTF-8' "$config_file"; then
+    sed -i 's/en_US.UTF-8/C/g' "$config_file"
+  fi
 fi
 
 # The upstream entrypoint uses Bash process substitution for initdb's
