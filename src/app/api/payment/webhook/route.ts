@@ -120,9 +120,15 @@ async function verifyEventWithProvider(
           : null;
   if (!expectedStatus) return { ok: true }; // прочие события не сверяем
 
+  if (object.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
   const res = await getPaymentStatus(providerPaymentId);
   if (!res.success || !res.payment) return { ok: false };
   if (res.payment.status !== expectedStatus) return { ok: true, skip: "provider_mismatch" };
+  if (res.payment.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
+  if (!object.metadata?.orderId || res.payment.metadata?.orderId !== object.metadata.orderId) {
+    return { ok: true, skip: "metadata_mismatch" };
+  }
+  if (wireKop === null) return { ok: true, skip: "amount_missing" };
   if (wireKop !== null) {
     const providerKop = res.payment.amount?.value
       ? Math.round(Number(res.payment.amount.value) * 100)
@@ -159,18 +165,38 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     let payment = (byProvider as PaymentRow | null) ?? null;
 
-    // === 2. Legacy fallback: metadata.orderId → последний платёж заказа ===
-    // (для платежей, записанных до pay0-2 без yookassa_payment_id)
+    // === 2. Legacy fallback ===
+    // Привязываем webhook только к единственной незаполненной pending-попытке.
+    // Никогда не выбираем «последний платёж» с другим provider ID: это могло
+    // записать статус новой оплаты в чужую попытку после повторного checkout.
     const metaOrderId = object.metadata?.orderId;
-    if (!payment && metaOrderId) {
-      const { data: latest } = await supabaseAdmin
+    if (!payment && metaOrderId && event.startsWith("payment.")) {
+      const { data: legacyRows, error: legacyLookupError } = await supabaseAdmin
         .from("payments")
         .select("id, order_id, amount, status, refund_amount")
         .eq("order_id", metaOrderId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      payment = (latest as PaymentRow | null) ?? null;
+        .is("yookassa_payment_id", null)
+        .in("status", ["pending", "waiting_for_capture"])
+        .limit(2);
+      if (legacyLookupError) {
+        console.error("[webhook] legacy payment lookup failed:", legacyLookupError.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      if (legacyRows?.length === 1) {
+        const candidate = legacyRows[0] as PaymentRow;
+        const { data: linked, error: linkError } = await supabaseAdmin
+          .from("payments")
+          .update({ yookassa_payment_id: providerPaymentId, updated_at: new Date().toISOString() })
+          .eq("id", candidate.id)
+          .is("yookassa_payment_id", null)
+          .select("id, order_id, amount, status, refund_amount")
+          .maybeSingle();
+        if (linkError) {
+          console.error("[webhook] legacy payment link failed:", linkError.message);
+          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        }
+        payment = (linked as PaymentRow | null) ?? null;
+      }
     }
 
     const orderId = payment?.order_id ?? metaOrderId;
@@ -242,6 +268,47 @@ export async function POST(request: NextRequest) {
     if (!order) {
       console.warn(`[webhook] Order ${orderId} not found in DB`);
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    // Если платёж создан в YooKassa, но checkout не успел сохранить payments,
+    // восстанавливаем точную запись по provider ID после проверки провайдера,
+    // суммы, валюты и metadata.orderId. Это исключает зачисление без финансового
+    // ledger и позволяет webhook восстановить редкий сбой записи checkout.
+    if (event.startsWith("payment.") && !payment &&
+        ["payment.succeeded", "payment.waiting_for_capture", "payment.canceled"].includes(event)) {
+      if (wireKop === null || wireKop !== Math.round(Number(order.total) * 100) ||
+          object.amount?.currency !== "RUB") {
+        console.error(`[webhook] cannot recover payment row: amount/currency mismatch order=${orderId}`);
+        return NextResponse.json({ error: "Payment ledger recovery mismatch" }, { status: 500 });
+      }
+      const { error: recoverError } = await supabaseAdmin
+        .from("payments")
+        .upsert(
+          {
+            order_id: orderId,
+            yookassa_payment_id: providerPaymentId,
+            amount: Number(order.total),
+            currency: "RUB",
+            status: "pending",
+            method: "yookassa",
+            metadata: { recovered_from_webhook: true },
+          },
+          { onConflict: "yookassa_payment_id", ignoreDuplicates: true }
+        );
+      if (recoverError) {
+        console.error("[webhook] payment ledger recovery failed:", recoverError.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      const { data: recovered, error: recoveredLookupError } = await supabaseAdmin
+        .from("payments")
+        .select("id, order_id, amount, status, refund_amount")
+        .eq("yookassa_payment_id", providerPaymentId)
+        .maybeSingle();
+      if (recoveredLookupError || !recovered) {
+        console.error("[webhook] recovered payment row not visible:", recoveredLookupError?.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      payment = recovered as PaymentRow;
     }
 
     // Обрабатываем события YooKassa
