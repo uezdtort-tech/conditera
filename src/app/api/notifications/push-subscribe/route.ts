@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
+import { isAllowedPushEndpoint } from "@/lib/push-subscriptions";
 
 export const runtime = "nodejs";
 
@@ -39,20 +40,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const { endpoint, keys } = body;
 
     // Валидация
-    if (!endpoint || typeof endpoint !== "string") {
+    if (!endpoint || typeof endpoint !== "string" || endpoint.length > 4096 ||
+        !isAllowedPushEndpoint(endpoint)) {
       return NextResponse.json(
-        { error: "Missing endpoint" },
+        { error: "Invalid Web Push endpoint" },
         { status: 400 }
       );
     }
-    if (!keys?.p256dh || !keys?.auth) {
+    if (
+      typeof keys?.p256dh !== "string" || !/^[A-Za-z0-9_-]{16,512}$/.test(keys.p256dh) ||
+      typeof keys?.auth !== "string" || !/^[A-Za-z0-9_-]{8,256}$/.test(keys.auth)
+    ) {
       return NextResponse.json(
-        { error: "Missing keys.p256dh or keys.auth" },
+        { error: "Invalid keys.p256dh or keys.auth" },
         { status: 400 }
       );
     }
 
-    // Upsert по endpoint (unique)
+    // A subscription endpoint is globally unique; never let one user claim
+    // or overwrite another user's existing push destination.
+    const { data: existing, error: lookupError } = await supabaseAdmin
+      .from("push_subscriptions")
+      .select("user_id")
+      .eq("endpoint", endpoint)
+      .maybeSingle();
+    if (lookupError) {
+      console.error("[notifications/push-subscribe] ownership lookup failed:", lookupError.message);
+      return NextResponse.json({ error: "Database lookup failed" }, { status: 500 });
+    }
+    if (existing && existing.user_id !== user.id) {
+      return NextResponse.json({ error: "Push endpoint already belongs to another account" }, { status: 409 });
+    }
+
+    // Upsert only after authenticated ownership check.
     const { data: sub, error } = await supabaseAdmin
       .from("push_subscriptions")
       .upsert(
