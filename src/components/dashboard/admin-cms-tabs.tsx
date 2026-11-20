@@ -203,7 +203,7 @@ export function AdminCmsHomeTab() {
     if (saving) return;
     const siblings = cmsBlocks
       .filter((item) => item.section === block.section)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
     const currentIndex = siblings.findIndex((item) => item.id === block.id);
     const targetIndex = currentIndex + direction;
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
@@ -211,37 +211,28 @@ export function AdminCmsHomeTab() {
     const reordered = [...siblings];
     const [moving] = reordered.splice(currentIndex, 1);
     reordered.splice(targetIndex, 0, moving);
-    const previousOrders = new Map(siblings.map((item) => [item.id, item.sortOrder]));
     setSaving(true);
     try {
-      const saved: CmsHomeBlock[] = [];
-      for (const [index, item] of reordered.entries()) {
-        const sortOrder = (index + 1) * 10;
-        if (item.sortOrder === sortOrder) continue;
-        const response = await csrfFetch(`/api/cms/blocks/${item.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ sortOrder }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "Не удалось изменить порядок блоков");
-        saved.push(mapCmsHomeBlock(payload.block));
-      }
+      const response = await csrfFetch("/api/cms/blocks/reorder", {
+        method: "POST",
+        body: JSON.stringify({
+          section: block.section,
+          blockIds: reordered.map((item) => item.id),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось изменить порядок блоков");
+
+      const orderById = new Map(reordered.map((item, index) => [item.id, (index + 1) * 10]));
       setCmsBlocks((current) => current.map((item) => {
-        const updated = saved.find((candidate) => candidate.id === item.id);
-        return updated || item;
+        const sortOrder = orderById.get(item.id);
+        return sortOrder === undefined ? item : { ...item, sortOrder };
       }));
       toast.success("Порядок блоков сохранён");
     } catch (error) {
-      // Best-effort rollback prevents a partially reordered section after a failed request.
-      for (const item of siblings) {
-        const previousOrder = previousOrders.get(item.id);
-        if (previousOrder === undefined) continue;
-        await csrfFetch(`/api/cms/blocks/${item.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ sortOrder: previousOrder }),
-        }).catch(() => undefined);
+      if (error instanceof Error && error.message.includes("Состав секции изменился")) {
+        await loadBlocks().catch(() => undefined);
       }
-      await loadBlocks().catch(() => undefined);
       toast.error("Не удалось изменить порядок", {
         description: error instanceof Error ? error.message : "Неизвестная ошибка",
       });
