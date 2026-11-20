@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { csrfFetch } from "@/lib/api-client";
 
-export function usePushNotifications(enabled = true) {
+export function usePushNotifications(enabled = true, userId?: string) {
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -50,7 +50,7 @@ export function usePushNotifications(enabled = true) {
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, userId]);
 
   const subscribe = useCallback(async (): Promise<boolean> => {
     if (!isSupported) throw new Error("Push-уведомления не поддерживаются браузером");
