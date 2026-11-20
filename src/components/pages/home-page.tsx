@@ -143,7 +143,7 @@ function CmsHomepageBlocks() {
     fetch("/api/cms/sections?public=true", { signal: controller.signal })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS sections unavailable")))
       .then((payload: { sections?: PublicCmsHomeSection[] }) => {
-        if (!controller.signal.aborted && Array.isArray(payload.sections) && payload.sections.length > 0) {
+        if (!controller.signal.aborted && Array.isArray(payload.sections)) {
           setSections(payload.sections);
         }
       })
