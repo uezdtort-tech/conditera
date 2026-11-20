@@ -25,7 +25,6 @@ export async function GET(request: NextRequest) {
       if (auth.response) return auth.response;
     }
     let query = supabaseAdmin.from("cms_home_sections").select("section,title,sort_order,is_enabled");
-    if (publicOnly) query = query.eq("is_enabled", true);
     const { data, error } = await query.order("sort_order").order("section");
     if (error) return NextResponse.json({ error: "Не удалось загрузить композицию главной" }, { status: 500 });
     return NextResponse.json({ sections: data || [] }, {
