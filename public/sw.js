@@ -61,6 +61,7 @@ function isPublicPage(pathname) {
 
 function isPrivateImage(pathname) {
   return (
+    pathname.startsWith("/api/") ||
     pathname.includes("/storage/v1/object/sign/") ||
     pathname.startsWith("/api/uploads/") ||
     pathname.startsWith("/api/private/") ||
