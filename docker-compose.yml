@@ -433,9 +433,10 @@ services:
   # ===== SimpleX SMP server (приватный E2E-канал) =====
   # ВНИМАНИЕ: SimpleX-сервисы (smp-server + simplex-bridge) — опциональны.
   # Они нужны только для E2E-чата PREMIUM-пользователей.
-  # Чтобы запустить стек без SimpleX (например для первого деплоя или тестов):
-  #   docker compose up -d web db redis chat-service n8n caddy
-  # Или создать профиль: docker compose --profile simplex up -d
+  # Канонический стек без SimpleX запускается только через единый PG17 launcher:
+  #   CONDITERA_PG17_CUTOVER_APPROVED=1 node scripts/compose-single-runtime.mjs up -d
+  # Для осознанного включения SimpleX добавьте --profile simplex перед up.
+  # Прямой запуск legacy Compose без overlay не является поддерживаемым production-путём.
   smp-server:
     image: simplexchat/smp-server:v7.0.1
     container_name: conditera-smp
