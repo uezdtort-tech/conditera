@@ -77,6 +77,26 @@ services:
           headers: [Accept, Authorization, Content-Type, apikey, X-Client-Info]
           credentials: true
 
+  # ===== Edge Functions (internal service-role only) =====
+  - name: functions-v1
+    url: http://127.0.0.1:9000/
+    routes:
+      - name: functions-v1-all
+        strip_path: true
+        paths:
+          - /functions/v1/
+    plugins:
+      - name: cors
+        config:
+          origins: ["*"]
+          methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+          headers: [Accept, Authorization, Content-Type, apikey, X-Client-Info]
+          credentials: true
+      - name: key-auth
+        config:
+          key_names: [apikey]
+          hide_credentials: false
+
   # ===== postgres-meta =====
   - name: meta
     url: http://supabase-meta:8080
@@ -118,6 +138,12 @@ plugins:
     service: realtime-v1
     config:
       allow: [anon, service_role]
+      hide_groups_header: true
+
+  - name: acl
+    service: functions-v1
+    config:
+      allow: [service_role]
       hide_groups_header: true
 
   - name: acl
