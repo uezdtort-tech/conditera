@@ -134,9 +134,8 @@ export function AdminCmsHomeTab() {
       sectionsResponse.json().catch(() => ({})),
     ]);
     if (!blocksResponse.ok) throw new Error(blocksPayload.error || "Не удалось загрузить блоки");
-    if (!sectionsResponse.ok) throw new Error(sectionsPayload.error || "Не удалось загрузить композицию главной");
     setCmsBlocks(Array.isArray(blocksPayload.blocks) ? blocksPayload.blocks.map(mapCmsHomeBlock) : []);
-    if (Array.isArray(sectionsPayload.sections) && sectionsPayload.sections.length === CMS_HOME_SECTIONS.length) {
+    if (sectionsResponse.ok && Array.isArray(sectionsPayload.sections) && sectionsPayload.sections.length === CMS_HOME_SECTIONS.length) {
       const mapped: CmsHomeSection[] = sectionsPayload.sections.flatMap((item: { section: string; title: string; sort_order: number; is_enabled: boolean }) => {
         const definition = CMS_HOME_SECTIONS.find((section) => section.key === item.section);
         return definition ? [{
