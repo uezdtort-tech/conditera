@@ -68,14 +68,39 @@ export async function GET(
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
 
-    // Доступ: клиент-владелец, кондитер, стафф
+    // Доступ: владелец заказа, назначенный кондитер, администратор.
+    // SUPPORT/COURIER — только при конкретном назначении на этот заказ.
     const isParty =
-      user.id === media.customer_id || (media.confectioner_id !== null && user.id === media.confectioner_id);
-    if (!isParty) {
-      const staff = await hasAnyRole(user.id, ["ADMIN", "SUPER_ADMIN", "SUPPORT", "COURIER"]);
-      if (!staff) {
-        return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-      }
+      user.id === media.customer_id ||
+      (media.confectioner_id !== null && user.id === media.confectioner_id);
+    let authorized = isParty;
+
+    if (!authorized) {
+      authorized = await hasAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
+    }
+
+    if (!authorized && await hasAnyRole(user.id, ["SUPPORT"])) {
+      const assigned = await pool.query(
+        `SELECT 1 FROM public.support_tickets
+         WHERE order_id = $1::uuid AND assigned_to = $2::uuid
+         LIMIT 1`,
+        [media.order_id, user.id]
+      );
+      authorized = assigned.rowCount > 0;
+    }
+
+    if (!authorized && await hasAnyRole(user.id, ["COURIER"])) {
+      const assigned = await pool.query(
+        `SELECT 1 FROM public.deliveries
+         WHERE order_id = $1::uuid AND courier_id = $2::uuid
+         LIMIT 1`,
+        [media.order_id, user.id]
+      );
+      authorized = assigned.rowCount > 0;
+    }
+
+    if (!authorized) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
 
     let absPath: string;
