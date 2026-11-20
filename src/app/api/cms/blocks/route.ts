@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { isSafeCmsUrl } from "@/lib/cms-validation";
 import type { user_role } from "@/lib/supabase/types";
 
 export const runtime = "nodejs";
@@ -40,7 +41,8 @@ export async function POST(request: NextRequest) {
     const auth = await authorize(request);
     if (auth.response) return auth.response;
     const body = await request.json();
-    if (!SECTIONS.has(body.section) || typeof body.title !== "string" || body.title.length > 180) {
+    if (!SECTIONS.has(body.section) || typeof body.title !== "string" || body.title.length > 180 ||
+        (body.image && !isSafeCmsUrl(body.image)) || (body.link && !isSafeCmsUrl(body.link))) {
       return NextResponse.json({ error: "Некорректные данные блока" }, { status: 400 });
     }
     const { data, error } = await supabaseAdmin.from("cms_home_blocks").insert({
