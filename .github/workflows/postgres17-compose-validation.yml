@@ -254,7 +254,8 @@ jobs:
           docker compose -p conditera-pg15-ci -f docker-compose.supabase.yml --profile legacy-supabase up -d supabase-db
           READY=0
           for attempt in $(seq 1 60); do
-            if docker exec conditera-supabase-db pg_isready -U supabase -d supabase >/dev/null 2>&1; then
+            if docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" conditera-supabase-db \
+              psql -h 127.0.0.1 -X -v ON_ERROR_STOP=1 -U supabase -d supabase -Atc "SELECT 1" >/dev/null 2>&1; then
               READY=1
               break
             fi
