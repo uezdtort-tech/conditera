@@ -172,14 +172,30 @@ jobs:
           test "$(docker ps -q --filter label=conditera.runtime=single-container-poc | wc -l)" -eq 1
           docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status
           ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
-          curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/auth/v1/health
-          curl --fail --silent --show-error -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" http://127.0.0.1:18000/realtime/v1/api/tenants/realtime-dev/health
+          request() {
+            local name="$1"
+            local url="$2"
+            shift 2
+            local status
+            status="$(curl --silent --show-error --output "/tmp/${name}.body" --write-out '%{http_code}' "$@" "$url")" || {
+              echo "Gateway request failed at transport layer: $name"
+              cat "/tmp/${name}.body" 2>/dev/null || true
+              docker exec conditera-supabase-runtime-poc sh -c 'cat /tmp/kong-error.log; echo "--- proxy access ---"; cat /tmp/kong-proxy-access.log' || true
+              return 1
+            }
+            echo "$name HTTP $status"
+            if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+              cat "/tmp/${name}.body"
+              docker exec conditera-supabase-runtime-poc sh -c 'cat /tmp/kong-error.log; echo "--- proxy access ---"; cat /tmp/kong-proxy-access.log' || true
+              return 1
+            fi
+          }
+          request auth-health http://127.0.0.1:18000/auth/v1/health -H "apikey: $ANON_KEY"
+          request realtime-health http://127.0.0.1:18000/realtime/v1/api/tenants/realtime-dev/health -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY"
           node scripts/supabase-runtime-poc/edge-function-smoke.mjs
-          curl --fail --silent --show-error -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" http://127.0.0.1:18000/storage/v1/status
-          curl --fail --silent --show-error \
-            -H "apikey: $ANON_KEY" \
-            -H "Authorization: Bearer $ANON_KEY" \
-            http://127.0.0.1:18000/rest/v1/ > /tmp/rest-openapi.json
+          request storage-status http://127.0.0.1:18000/storage/v1/status -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY"
+          request rest-openapi http://127.0.0.1:18000/rest/v1/ -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY"
+          cp /tmp/rest-openapi.body /tmp/rest-openapi.json
           grep -q '"swagger"' /tmp/rest-openapi.json
 
       - name: Verify Auth signup, Storage upload/download and PostgreSQL schemas
