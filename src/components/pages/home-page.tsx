@@ -44,6 +44,129 @@ import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
 
+type PublicCmsBanner = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  link_url: string | null;
+  text: string | null;
+  cta_text: string | null;
+  sort_order: number;
+};
+
+function CmsHomepageBanners() {
+  const [banners, setBanners] = useState<PublicCmsBanner[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/banners?position=home_hero", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Banners unavailable")))
+      .then((payload: { banners?: PublicCmsBanner[] }) => {
+        if (!controller.signal.aborted) setBanners(Array.isArray(payload.banners) ? payload.banners : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBanners([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (banners.length === 0) return null;
+  return (
+    <section className="container mx-auto px-4 py-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {banners.map((banner) => (
+          <Card key={banner.id} className="overflow-hidden p-0">
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-h-44">
+              {banner.image_url && <img src={banner.image_url} alt={banner.title} className="w-full h-full min-h-44 object-cover" loading="lazy" decoding="async" />}
+              <div className="p-5 flex flex-col items-start justify-center gap-2">
+                <h2 className="font-display text-xl font-semibold">{banner.title}</h2>
+                {banner.text && <p className="text-sm text-muted-foreground">{banner.text}</p>}
+                {banner.link_url && banner.cta_text && (
+                  <a href={banner.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+                    {banner.cta_text}<ArrowRight className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+type PublicCmsHomeBlock = {
+  id: string;
+  section: string;
+  title: string;
+  subtitle: string;
+  content: string;
+  image_url: string | null;
+  link_url: string | null;
+  link_text: string;
+  sort_order: number;
+};
+
+const CMS_SECTION_TITLES: Record<string, string> = {
+  hero: "От редакции",
+  stats: "О платформе",
+  cta_confectioner: "Для кондитеров",
+  advantages: "Наши преимущества",
+  steps: "Как это работает",
+  testimonials: "Истории клиентов",
+};
+
+function CmsHomepageBlocks() {
+  const [blocks, setBlocks] = useState<PublicCmsHomeBlock[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/blocks?public=true", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS unavailable")))
+      .then((payload: { blocks?: PublicCmsHomeBlock[] }) => {
+        if (!controller.signal.aborted) setBlocks(Array.isArray(payload.blocks) ? payload.blocks : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBlocks([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const groups = Object.entries(CMS_SECTION_TITLES)
+    .map(([section, title]) => ({ section, title, items: blocks.filter((block) => block.section === section) }))
+    .filter((group) => group.items.length > 0);
+
+  if (groups.length === 0) return null;
+  return (
+    <div className="space-y-12">
+      {groups.map((group) => (
+        <section key={group.section} className="container mx-auto px-4">
+          <div className="text-center mb-6">
+            <h2 className="font-display text-2xl sm:text-3xl font-bold">{group.title}</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {group.items.map((block) => (
+              <Card key={block.id} className="overflow-hidden p-0">
+                {block.image_url && (
+                  <img src={block.image_url} alt={block.title} className="w-full aspect-[16/9] object-cover" loading="lazy" />
+                )}
+                <div className="p-5 space-y-2">
+                  {block.title && <h3 className="font-semibold text-lg">{block.title}</h3>}
+                  {block.subtitle && <p className="text-sm text-muted-foreground">{block.subtitle}</p>}
+                  {block.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.content}</p>}
+                  {block.link_url && block.link_text && (
+                    <a href={block.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+                      {block.link_text} <ArrowRight className="h-4 w-4" />
+                    </a>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
 interface ApiReview {
   id: string;
@@ -280,6 +403,9 @@ export function HomePage() {
           </div>
         </div>
       </section>
+
+      <CmsHomepageBanners />
+      <CmsHomepageBlocks />
 
       {/* ===== БЕГУЩАЯ СТРОКА РЕАЛЬНЫХ КОНДИТЕРОВ ===== */}
       <ConfectionersMarquee />
