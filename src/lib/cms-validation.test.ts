@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { areValidCmsNavigationRoles, getSafeCmsMediaExtension, hasValidCmsMediaSignature, isSafeCmsNavigationTarget, isSafeCmsUrl, isValidCmsDateTime, isValidCmsSchedule, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
+import { areValidCmsNavigationRoles, getSafeCmsMediaExtension, hasValidCmsMediaSignature, isSafeCmsContentLink, isSafeCmsNavigationTarget, isSafeCmsUrl, isValidCmsDateTime, isValidCmsSchedule, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
 
 describe("CMS validation", () => {
   it("allows HTTPS and same-origin paths only for CMS URLs", () => {
     expect(isSafeCmsUrl("https://cdn.example.com/banner.webp")).toBe(true);
     expect(isSafeCmsUrl("/images/banner.webp")).toBe(true);
+    expect(isSafeCmsUrl("/\\\\evil.example/path")).toBe(false);
+    expect(isSafeCmsContentLink("mailto:support@conditera.ru")).toBe(true);
+    expect(isSafeCmsContentLink("javascript:alert(1)")).toBe(false);
+    expect(isSafeCmsContentLink("/\\\\evil.example")).toBe(false);
     expect(isSafeCmsUrl("javascript:alert(1)")).toBe(false);
     expect(isSafeCmsUrl("//evil.example/path")).toBe(false);
     expect(isSafeCmsUrl("/\\\\evil.example/path")).toBe(false);
