@@ -205,10 +205,43 @@ export async function GET(
     const isOwner = order.user_id === user.id;
     const isConfectioner = order.confectioner_id === user.id;
     const isAdmin = user.roles.some((r: string) =>
-      ["ADMIN", "SUPER_ADMIN", "SUPPORT", "COURIER"].includes(r)
+      ["ADMIN", "SUPER_ADMIN"].includes(r)
     );
 
-    if (!isOwner && !isConfectioner && !isAdmin) {
+    // SUPPORT и COURIER не получают глобальный доступ ко всем заказам.
+    // Поддержка видит заказ только при назначенном тикете по этому заказу;
+    // курьер — только при существующем назначении доставки.
+    let isAssignedSupport = false;
+    if (!isAdmin && !isOwner && !isConfectioner && user.roles.includes("SUPPORT")) {
+      const { data: ticket, error: ticketError } = await supabaseAdmin
+        .from("support_tickets")
+        .select("id")
+        .eq("order_id", orderId)
+        .eq("assigned_to", user.id)
+        .limit(1)
+        .maybeSingle();
+      if (ticketError) {
+        console.error("[orders/[id]] Support scope check failed:", ticketError.message);
+      }
+      isAssignedSupport = Boolean(ticket);
+    }
+
+    let isAssignedCourier = false;
+    if (!isAdmin && !isOwner && !isConfectioner && !isAssignedSupport && user.roles.includes("COURIER")) {
+      const { data: assignment, error: assignmentError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id")
+        .eq("order_id", orderId)
+        .eq("courier_id", user.id)
+        .limit(1)
+        .maybeSingle();
+      if (assignmentError) {
+        console.error("[orders/[id]] Courier scope check failed:", assignmentError.message);
+      }
+      isAssignedCourier = Boolean(assignment);
+    }
+
+    if (!isOwner && !isConfectioner && !isAdmin && !isAssignedSupport && !isAssignedCourier) {
       return forbiddenResponse("Нет доступа к этому заказу");
     }
 
