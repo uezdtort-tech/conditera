@@ -29,7 +29,9 @@ if (userArgs.length === 0) {
   fail("Укажите команду Compose, например: node scripts/compose-single-runtime.mjs up -d");
 }
 
-if (userArgs.some((arg) => arg === "-f" || arg === "--file" || arg === "--env-file")) {
+if (userArgs.some((arg) => arg === "-f" || arg === "--file" || arg === "--env-file" ||
+    arg.startsWith("--file=") || arg.startsWith("--env-file=") || /^-f.+/.test(arg) ||
+    arg === "--project-directory" || arg.startsWith("--project-directory="))) {
   fail("Нельзя переопределять Compose-файлы или env-файлы: это нарушит единый PostgreSQL 17.");
 }
 if (userArgs.some((arg) => arg === "legacy-app-db" || arg === "legacy-supabase" ||
@@ -39,8 +41,12 @@ if (userArgs.some((arg) => arg === "legacy-app-db" || arg === "legacy-supabase" 
 if (userArgs[0] === "down" && userArgs.some((arg) => arg === "-v" || arg === "--volumes")) {
   fail("Удаление volumes запрещено. Для остановки используйте down без -v/--volumes.");
 }
-if (userArgs[0] === "volume" && userArgs[1] === "rm") {
-  fail("Удаление Docker volumes запрещено через production launcher.");
+if ((userArgs[0] === "volume" && userArgs[1] === "rm") ||
+    (userArgs[0] === "rm" && userArgs.some((arg) => arg === "-v" || arg === "--volumes"))) {
+  fail("Удаление Docker volumes запрещено через runtime launcher.");
+}
+if (userArgs.includes("--remove-orphans")) {
+  fail("Не используйте --remove-orphans: legacy-контейнеры должны сохраняться для rollback до отдельного решения.");
 }
 
 const startsRuntime = ["up", "start", "restart", "run", "scale"].includes(userArgs[0]);
