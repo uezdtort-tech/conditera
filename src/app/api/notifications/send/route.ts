@@ -120,8 +120,42 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
     }
 
-    // n8n channels → single channel
-    const finalChannel = body.channel || (body.channels?.[0] as SendRequestBody["channel"]) || "in_app";
+    // This endpoint currently delivers one channel only. Do not silently
+    // report success for email/SMS/Telegram or multi-channel requests.
+    const requestedChannels = Array.isArray(body.channels) && body.channels.length > 0
+      ? body.channels
+      : [body.channel || "in_app"];
+    if (
+      requestedChannels.length !== 1 ||
+      requestedChannels.some((channel) => channel !== "in_app" && channel !== "push")
+    ) {
+      return NextResponse.json(
+        { error: "Unsupported notification channel; this endpoint supports one channel: in_app or push" },
+        { status: 501 }
+      );
+    }
+    const finalChannel = requestedChannels[0] as "in_app" | "push";
+    const shouldSendPush = finalChannel === "push";
+    const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+    if (shouldSendPush && (!vapidPublicKey || !vapidPrivateKey)) {
+      return NextResponse.json({ error: "Web Push VAPID keys are not configured" }, { status: 503 });
+    }
+
+    let webpushClient: (typeof import("web-push"))["default"] | null = null;
+    if (shouldSendPush) {
+      try {
+        webpushClient = (await import("web-push")).default;
+        webpushClient.setVapidDetails(
+          `mailto:${process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "noreply@conditera.ru"}`,
+          vapidPublicKey!,
+          vapidPrivateKey!,
+        );
+      } catch (error) {
+        console.error("[notifications/send] Web Push initialization failed:", error);
+        return NextResponse.json({ error: "Web Push provider is unavailable" }, { status: 503 });
+      }
+    }
 
     const { userId, data } = body;
 
@@ -168,56 +202,52 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    // Отправить Web Push через подписки (non-blocking)
-    try {
-      const webpush = (await import("web-push")).default;
-      const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
-      const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+    let pushSent = 0;
+    let pushFailed = 0;
+    if (webpushClient) {
+      const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
+        .from("push_subscriptions")
+        .select("endpoint, keys")
+        .eq("user_id", userId);
 
-      if (vapidPublicKey && vapidPrivateKey) {
-        webpush.setVapidDetails(
-          `mailto:${process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "noreply@example.com"}`,
-          vapidPublicKey,
-          vapidPrivateKey
-        );
+      if (subscriptionsError) {
+        console.error("[notifications/send] subscription lookup failed:", subscriptionsError.message);
+        await supabaseAdmin.from("notifications").update({ status: "failed" }).eq("id", notif.id);
+        return NextResponse.json({ error: "Could not load push subscriptions" }, { status: 502 });
+      }
 
-        // Получить подписки пользователя
-        const { data: subscriptions } = await supabaseAdmin
-          .from("push_subscriptions")
-          .select("endpoint, keys")
-          .eq("user_id", userId);
-
-        for (const sub of subscriptions || []) {
-          if (!isAllowedPushEndpoint(sub.endpoint)) {
-            console.warn("[notifications/send] skipped invalid push endpoint:", String(sub.endpoint).slice(0, 80));
-            continue;
-          }
-          // Реальная схема: keys jsonb вида { p256dh, auth }
-          const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
-          if (!keys.p256dh || !keys.auth) continue;
-          try {
-            await webpush.sendNotification(
-              {
-                endpoint: sub.endpoint,
-                keys: {
-                  p256dh: keys.p256dh,
-                  auth: keys.auth,
-                },
-              },
-              JSON.stringify({ title: finalTitle, body: finalBody, data })
-            );
-          } catch (pushErr: any) {
-            console.warn("[notifications/send] push failed for endpoint:", sub.endpoint.slice(0, 50), pushErr?.message);
-          }
+      for (const sub of subscriptions || []) {
+        if (!isAllowedPushEndpoint(sub.endpoint)) {
+          console.warn("[notifications/send] skipped invalid push endpoint:", String(sub.endpoint).slice(0, 80));
+          continue;
+        }
+        const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
+        if (!keys.p256dh || !keys.auth) continue;
+        try {
+          await webpushClient.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: { p256dh: keys.p256dh, auth: keys.auth },
+            },
+            JSON.stringify({ title: finalTitle, body: finalBody, data })
+          );
+          pushSent += 1;
+        } catch (pushError) {
+          pushFailed += 1;
+          console.warn("[notifications/send] push failed for endpoint:", sub.endpoint.slice(0, 50), pushError);
         }
       }
-    } catch (importErr: any) {
-      console.warn("[notifications/send] web-push not available (non-blocking):", importErr?.message);
+
+      if (pushFailed > 0 && pushSent === 0) {
+        await supabaseAdmin.from("notifications").update({ status: "failed" }).eq("id", notif.id);
+        return NextResponse.json({ error: "Web Push delivery failed", pushSent, pushFailed }, { status: 502 });
+      }
     }
 
     return NextResponse.json({
       success: true,
       notificationId: notif?.id,
+      ...(shouldSendPush ? { pushSent, pushFailed } : {}),
     });
   } catch (e: any) {
     console.error("POST /api/notifications/send error:", e?.message);
