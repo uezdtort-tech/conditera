@@ -476,100 +476,202 @@ export function AdminBannersTab() {
 }
 
 // ==================== CMS: СТРАНИЦЫ (FAQ, О нас, Условия) ====================
+type CmsPageRecord = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  content: string;
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_keywords: string[] | null;
+  status: string;
+  is_in_menu: boolean;
+  menu_order: number;
+  updated_at: string;
+};
+
+type CmsPageEditor = {
+  slug: string;
+  title: string;
+  description: string;
+  content: string;
+  seoTitle: string;
+  seoDescription: string;
+  isPublished: boolean;
+  isInMenu: boolean;
+  menuOrder: number;
+};
+
+const EMPTY_CMS_PAGE: CmsPageEditor = {
+  slug: "", title: "", description: "", content: "", seoTitle: "",
+  seoDescription: "", isPublished: false, isInMenu: false, menuOrder: 0,
+};
+
+function toCmsPageEditor(page: CmsPageRecord): CmsPageEditor {
+  return {
+    slug: page.slug,
+    title: page.title,
+    description: page.description || "",
+    content: page.content || "",
+    seoTitle: page.seo_title || "",
+    seoDescription: page.seo_description || "",
+    isPublished: page.status === "published",
+    isInMenu: page.is_in_menu,
+    menuOrder: page.menu_order || 0,
+  };
+}
+
 export function AdminCmsPagesTab() {
-  const cmsPages = useAppStore((s) => s.cmsPages);
-  const updateCmsPage = useAppStore((s) => s.updateCmsPage);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<any>({});
+  const [pages, setPages] = useState<CmsPageRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editValues, setEditValues] = useState<CmsPageEditor>(EMPTY_CMS_PAGE);
+
+  const loadPages = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/pages?include_drafts=true", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить страницы");
+    setPages(Array.isArray(payload.pages) ? payload.pages : []);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadPages(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки страниц", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const savePage = async () => {
+    if (saving) return;
+    if (!editValues.slug.trim() || !editValues.title.trim() || !editValues.content.trim()) {
+      toast.error("Заполните URL, заголовок и содержимое страницы");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        title: editValues.title.trim(),
+        description: editValues.description,
+        content: editValues.content,
+        seoTitle: editValues.seoTitle,
+        seoDescription: editValues.seoDescription,
+        isInMenu: editValues.isInMenu,
+        menuOrder: editValues.menuOrder,
+        status: editValues.isPublished ? "published" : "draft",
+      };
+      const response = creating
+        ? await csrfFetch("/api/cms/pages", { method: "POST", body: JSON.stringify({ ...payload, slug: editValues.slug.trim().toLowerCase() }) })
+        : await csrfFetch(`/api/cms/pages/${encodeURIComponent(editingSlug || editValues.slug)}`, { method: "PATCH", body: JSON.stringify(payload) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Не удалось сохранить страницу");
+      const saved = result.page as CmsPageRecord;
+      setPages((current) => creating ? [saved, ...current] : current.map((page) => page.slug === editingSlug ? saved : page));
+      setEditingSlug(null);
+      setCreating(false);
+      setEditValues(EMPTY_CMS_PAGE);
+      toast.success("Страница сохранена в PostgreSQL");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const removePage = async (page: CmsPageRecord) => {
+    if (saving || !window.confirm(`Удалить страницу «${page.title}»? Она будет перемещена в архив.`)) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/pages/${encodeURIComponent(page.slug)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить страницу");
+      setPages((current) => current.filter((item) => item.id !== page.id));
+      toast.success("Страница перемещена в архив");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const beginCreate = () => {
+    setCreating(true);
+    setEditingSlug(null);
+    setEditValues(EMPTY_CMS_PAGE);
+  };
+
+  const beginEdit = (page: CmsPageRecord) => {
+    setCreating(false);
+    setEditingSlug(page.slug);
+    setEditValues(toCmsPageEditor(page));
+  };
+
+  const cancelEdit = () => {
+    setCreating(false);
+    setEditingSlug(null);
+    setEditValues(EMPTY_CMS_PAGE);
+  };
+
+  const isEditing = creating || editingSlug !== null;
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-          <Edit className="h-6 w-6 text-primary" />
-          Страницы сайта
-        </h1>
-        <p className="text-sm text-muted-foreground">Редактируйте тексты страниц: О нас, FAQ, Условия, Конфиденциальность</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Edit className="h-6 w-6 text-primary" />Страницы сайта</h1>
+          <p className="text-sm text-muted-foreground">FAQ, О нас, Условия и другие страницы. Черновики и публикации хранятся в PostgreSQL.</p>
+        </div>
+        {!isEditing && <Button onClick={beginCreate}><Plus className="h-4 w-4 mr-1" /> Новая страница</Button>}
       </div>
 
-      <div className="space-y-3">
-        {cmsPages.map((page) => (
-          <Card key={page.id} className="p-4">
-            {editingId === page.id ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">/{page.slug}</Badge>
-                  <div className="flex gap-1">
-                    <Button size="sm" onClick={() => {
-                      updateCmsPage(editingId!, editValues);
-                      toast.success("Страница сохранена!");
-                      setEditingId(null);
-                    }}><Save className="h-3 w-3 mr-1" /> Сохранить</Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Отмена</Button>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Заголовок</Label>
-                  <Input value={editValues.title || ""} onChange={(e) => setEditValues({ ...editValues, title: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">SEO Title</Label>
-                  <Input value={editValues.seoTitle || ""} onChange={(e) => setEditValues({ ...editValues, seoTitle: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">SEO Description</Label>
-                  <Input value={editValues.seoDescription || ""} onChange={(e) => setEditValues({ ...editValues, seoDescription: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Контент (Markdown с WYSIWYG-редактором)</Label>
-                  <MarkdownEditor
-                    value={editValues.content || ""}
-                    onChange={(markdown) => setEditValues({ ...editValues, content: markdown })}
-                    minHeight={400}
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={editValues.isPublished}
-                    onCheckedChange={(v) => setEditValues({ ...editValues, isPublished: !!v })}
-                  />
-                  Опубликовано
-                </label>
-              </div>
-            ) : (
+      {isEditing ? (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold">{creating ? "Новая страница" : `Редактирование / ${editingSlug}`}</h2>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={saving} onClick={cancelEdit}>Отмена</Button>
+              <Button size="sm" disabled={saving} onClick={savePage}>{saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}Сохранить</Button>
+            </div>
+          </div>
+          {creating && <div><Label className="text-xs">URL (slug)</Label><Input value={editValues.slug} onChange={(event) => setEditValues({ ...editValues, slug: event.target.value.replace(/[^a-zA-Z0-9а-яА-Я_-]/g, "-") })} placeholder="about-us" maxLength={120} /></div>}
+          <div><Label className="text-xs">Заголовок</Label><Input value={editValues.title} onChange={(event) => setEditValues({ ...editValues, title: event.target.value })} maxLength={180} /></div>
+          <div><Label className="text-xs">Краткое описание</Label><Textarea value={editValues.description} onChange={(event) => setEditValues({ ...editValues, description: event.target.value })} rows={2} maxLength={500} /></div>
+          <div><Label className="text-xs">SEO Title</Label><Input value={editValues.seoTitle} onChange={(event) => setEditValues({ ...editValues, seoTitle: event.target.value })} maxLength={180} /></div>
+          <div><Label className="text-xs">SEO Description</Label><Textarea value={editValues.seoDescription} onChange={(event) => setEditValues({ ...editValues, seoDescription: event.target.value })} rows={2} maxLength={500} /></div>
+          <div><Label className="text-xs">Содержимое (Markdown)</Label><MarkdownEditor value={editValues.content} onChange={(content) => setEditValues({ ...editValues, content })} minHeight={360} /></div>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox checked={editValues.isPublished} onCheckedChange={(value) => setEditValues({ ...editValues, isPublished: !!value })} />Опубликована</label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox checked={editValues.isInMenu} onCheckedChange={(value) => setEditValues({ ...editValues, isInMenu: !!value })} />Показывать в меню</label>
+          </div>
+        </Card>
+      ) : loading ? (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка страниц…</div>
+      ) : (
+        <div className="space-y-3">
+          {pages.map((page) => (
+            <Card key={page.id} className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm flex items-center gap-2">
-                    {page.title}
-                    <Badge variant="outline" className="text-[10px]">/{page.slug}</Badge>
-                    {page.isPublished ? (
-                      <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Опубликована</Badge>
-                    ) : (
-                      <Badge className="bg-slate-100 text-slate-800 text-[10px]">Черновик</Badge>
-                    )}
+                  <div className="font-semibold text-sm flex flex-wrap items-center gap-2">
+                    {page.title}<Badge variant="outline" className="text-[10px]">/{page.slug}</Badge>
+                    <Badge className={page.status === "published" ? "bg-emerald-100 text-emerald-800 text-[10px]" : "bg-slate-100 text-slate-800 text-[10px]"}>{page.status === "published" ? "Опубликована" : "Черновик"}</Badge>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                    {page.content?.slice(0, 150)}...
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-1">
-                    Обновлено: {formatDate(page.updatedAt)} • {page.updatedBy}
-                  </div>
+                  {page.description && <div className="text-xs text-muted-foreground mt-1">{page.description}</div>}
+                  <div className="text-xs text-muted-foreground mt-2 line-clamp-2">{page.content?.slice(0, 180)}</div>
+                  <div className="text-[10px] text-muted-foreground mt-1">Обновлено: {formatDate(page.updated_at)}</div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setEditingId(page.id);
-                    setEditValues({ ...page });
-                  }}
-                >
-                  <Edit className="h-3 w-3 mr-1" /> Редактировать
-                </Button>
+                <div className="flex gap-1 shrink-0">
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => beginEdit(page)}><Edit className="h-3 w-3 mr-1" />Редактировать</Button>
+                  <Button size="icon" variant="ghost" disabled={saving} className="text-destructive" onClick={() => removePage(page)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
               </div>
-            )}
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+          {pages.length === 0 && <Card className="p-10 text-center text-sm text-muted-foreground">Страниц пока нет. Создайте первую.</Card>}
+        </div>
+      )}
     </div>
   );
 }
