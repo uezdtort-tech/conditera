@@ -76,7 +76,9 @@ Deno.serve(async (req: Request) => {
 
   try {
     const payload = await req.json() as NotificationPayload;
-    if (!payload || typeof payload !== "object" || !Object.hasOwn(payload, "type")) {
+    const supportedTypes = ["order_created", "lead_new", "ticket_created", "payout_request", "fraud_alert"];
+    if (!payload || typeof payload !== "object" ||
+        typeof payload.type !== "string" || !supportedTypes.includes(payload.type)) {
       return Response.json({ error: "Invalid notification payload" }, { status: 400, headers: corsHeaders });
     }
     const message = formatMessage(payload);
