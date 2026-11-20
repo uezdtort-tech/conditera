@@ -55,8 +55,11 @@ jobs:
               config = json.load(stream)
           services = config["services"]
           assert "supabase-runtime" in services
-          assert "legacy-supabase" in services["supabase-db"].get("profiles", [])
-          assert "legacy-supabase" in services["supabase-kong"].get("profiles", [])
+          # Compose config without --profile must exclude every legacy Supabase service.
+          assert "supabase-db" not in services
+          assert "supabase-kong" not in services
+          assert "supabase-auth" not in services
+          assert "supabase-storage" not in services
           assert "profiles" not in services["supabase-runtime"]
           aliases = services["supabase-runtime"]["networks"]["conditera-net"].get("aliases", [])
           assert "supabase-kong" in aliases
