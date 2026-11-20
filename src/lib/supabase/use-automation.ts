@@ -186,9 +186,9 @@ export function useRunJobNow() {
       }
       return payload?.result ?? null;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-      toast.success("Задача запущена");
+      if (result !== null) toast.success("Задача запущена");
     },
     onError: (error: Error) => {
       toast.error("Ошибка запуска", { description: error.message });
