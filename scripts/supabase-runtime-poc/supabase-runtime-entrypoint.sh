@@ -28,6 +28,8 @@ export API_EXTERNAL_URL="${API_EXTERNAL_URL:-http://localhost:8000}"
 export SUPABASE_PUBLIC_URL="${SUPABASE_PUBLIC_URL:-$API_EXTERNAL_URL}"
 export SITE_URL="${SITE_URL:-http://localhost:3000}"
 export GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}?search_path=auth"
+export GOTRUE_DB_DRIVER=postgres
+export GOTRUE_API_HOST=127.0.0.1
 export GOTRUE_JWT_SECRET="$JWT_SECRET"
 export PGRST_DB_URI="postgres://authenticator:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
 export PGRST_JWT_SECRET="$JWT_SECRET"
@@ -80,6 +82,7 @@ export PGRST_DB_USE_LEGACY_GUCS=false
 export PGRST_DB_MAX_ROWS="${PGRST_DB_MAX_ROWS:-1000}"
 
 export PG_META_DB_HOST=127.0.0.1
+export PG_META_HOST=127.0.0.1
 export PG_META_DB_PORT="$POSTGRES_PORT"
 export PG_META_DB_NAME="$POSTGRES_DB"
 export PG_META_DB_USER="$POSTGRES_USER"
@@ -102,6 +105,7 @@ export REQUEST_ALLOW_X_FORWARDED_PATH=true
 export FILE_SIZE_LIMIT="${FILE_SIZE_LIMIT:-52428800}"
 
 # Imgproxy may read only the shared Storage mount, never the service rootfs.
+export IMGPROXY_BIND=127.0.0.1:5001
 export IMGPROXY_LOCAL_FILESYSTEM_ROOT=/var/lib/storage
 export IMGPROXY_USE_ETAG=true
 export IMGPROXY_AUTO_WEBP="${IMGPROXY_AUTO_WEBP:-true}"
