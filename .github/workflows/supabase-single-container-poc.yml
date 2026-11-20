@@ -256,4 +256,4 @@ jobs:
         if: always()
         run: |
           docker rm -fv conditera-supabase-runtime-poc || true
-          docker volume rm supabase-runtime-pgdata-ci supabase-runtime-storage-ci || true
+          docker volume rm supabase-runtime-pgdata-ci supabase-runtime-storage-ci supabase-runtime-deno-cache-ci || true
