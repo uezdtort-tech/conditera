@@ -1,14 +1,4 @@
-/**
- * PATCH /api/orders/[id] — обновление статуса заказа.
- *
- * Доступ:
- *   - CUSTOMER: только CANCELLED (отмена своего заказа)
- *   - CONFECTIONER: CONFIRMED, PREPARING, READY (статусы приготовления)
- *   - COURIER: IN_DELIVERY, DELIVERED
- *   - ADMIN: любой статус
- *
- * Body: { status: 'PENDING'|'CONFIRMED'|..., comment?: string }
- */
+/** PATCH /api/orders/[id] — совместимый API, делегирующий переходы lifecycle engine. */
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -17,26 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 // (auth/v1 — 501-стаб) и отдавал 401 всем Bearer-клиентам.
 import { getUserFromRequest } from "@/lib/auth";
 import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
-import { emitEvent } from "@/lib/n8n";
-import { recordEvent } from "@/lib/ops/events";
 import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
-
-interface OrderStatusTransition {
-  from: string;
-  to: string;
-  roles: string[]; // роли которым разрешён переход
-}
-
-const STATUS_TRANSITIONS: OrderStatusTransition[] = [
-  { from: "PENDING", to: "CONFIRMED", roles: ["CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "PENDING", to: "CANCELLED", roles: ["CUSTOMER", "CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "CONFIRMED", to: "PREPARING", roles: ["CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "PREPARING", to: "READY", roles: ["CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "READY", to: "IN_DELIVERY", roles: ["COURIER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "IN_DELIVERY", to: "DELIVERED", roles: ["COURIER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "DELIVERED", to: "COMPLETED", roles: ["CUSTOMER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "DELIVERED", to: "REFUNDED", roles: ["ADMIN", "SUPER_ADMIN", "INSPECTOR"] },
-];
 
 export async function PATCH(
   request: NextRequest,
@@ -79,24 +50,26 @@ export async function PATCH(
     const isOwner = order.user_id === user.id;
     const isAssignedConfectioner = order.confectioner_id === user.id && roles.includes("CONFECTIONER");
 
-    // Проверка субъектного доступа до вызова движка: CUSTOMER+CONFECTIONER
-    // не получает право действовать как клиент в чужом заказе.
-    if (!isAdmin && !isOwner && !isAssignedConfectioner) {
-      if (roles.includes("COURIER") && (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")) {
-        const { data: assignment, error: assignmentError } = await supabaseAdmin
-          .from("deliveries")
-          .select("id")
-          .eq("order_id", orderId)
-          .eq("courier_id", user.id)
-          .maybeSingle();
-        if (assignmentError) {
-          console.error("[orders/[id]] Courier assignment check failed:", assignmentError.message);
-          return NextResponse.json({ error: "Не удалось проверить назначение доставки" }, { status: 503 });
-        }
-        if (!assignment) return forbiddenResponse("Можно менять только назначенные вам доставки");
-      } else {
-        return forbiddenResponse("Нет доступа к этому заказу");
+    // Проверка субъектного доступа до вызова движка.
+    if (!isAdmin && !isOwner && !isAssignedConfectioner &&
+        !(roles.includes("COURIER") && (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED"))) {
+      return forbiddenResponse("Нет доступа к этому заказу");
+    }
+
+    // Роль COURIER требует назначения независимо от дополнительных ролей.
+    if (!isAdmin && roles.includes("COURIER") &&
+        (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")) {
+      const { data: assignment, error: assignmentError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id")
+        .eq("order_id", orderId)
+        .eq("courier_id", user.id)
+        .maybeSingle();
+      if (assignmentError) {
+        console.error("[orders/[id]] Courier assignment check failed:", assignmentError.message);
+        return NextResponse.json({ error: "Не удалось проверить назначение доставки" }, { status: 503 });
       }
+      if (!assignment) return forbiddenResponse("Можно менять только назначенные вам доставки");
     }
 
     try {
