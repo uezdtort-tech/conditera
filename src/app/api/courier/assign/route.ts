@@ -61,7 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const courierId = user.id;
 
-    // Атомарное обновление: только заказ без курьера в статусе READY/IN_DELIVERY.
+    // Атомарное назначение: заказ уже должен быть передан кондитером (IN_DELIVERY).
     // Используем update + eq().is() для optimistic lock.
     // Возвращаем обновлённую запись для проверки count.
     const { data: updated, error: updateErr } = await supabaseAdmin
