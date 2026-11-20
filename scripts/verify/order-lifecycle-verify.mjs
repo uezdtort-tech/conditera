@@ -235,9 +235,22 @@ async function main() {
 
   const completeBeforeStart = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
   assert("production/complete до старта → 409", completeBeforeStart.status === 409 && completeBeforeStart.json?.error === "INVALID_PRODUCTION_STATE", JSON.stringify(completeBeforeStart.json).slice(0, 160));
+  const stageBeforeStart = await api("POST", `/api/orders/${o1.orderId}/production/stage`, { token: owner, body: { stageKey: "baking", done: true } });
+  assert("production/stage до старта → 409", stageBeforeStart.status === 409 && stageBeforeStart.json?.error === "INVALID_PRODUCTION_STATE", JSON.stringify(stageBeforeStart.json).slice(0, 160));
 
   const start = await api("POST", `/api/orders/${o1.orderId}/production/start`, { token: owner });
   assert("production/start → 200 (PREPARING)", start.status === 200, JSON.stringify(start.json).slice(0, 160));
+
+  const checklistView = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: owner });
+  const workStages = (checklistView.json?.production?.checklist || []).filter((stage) => !["ready_photo", "handoff"].includes(stage.stage_key));
+  assert("чеклист содержит производственные этапы", workStages.length > 0);
+  for (const stage of workStages) {
+    const marked = await api("POST", `/api/orders/${o1.orderId}/production/stage`, { token: owner, body: { stageKey: stage.stage_key, done: true } });
+    assert(`этап ${stage.stage_key} отмечается отдельно → 200`, marked.status === 200 && marked.json?.stage?.is_done === true, JSON.stringify(marked.json).slice(0, 120));
+  }
+
+  const prematureComplete = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
+  assert("production/complete при незагруженном фото → 200, но фото остаётся обязательным", prematureComplete.status === 200 && (prematureComplete.json?.remainingBeforeReady || []).includes("Фото готовности"), JSON.stringify(prematureComplete.json).slice(0, 160));
 
   const complete = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
   assert("production/complete → 200", complete.status === 200);
