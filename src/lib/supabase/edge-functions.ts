@@ -4,6 +4,7 @@ import { isAdminConfigured, supabaseAdmin } from "@/lib/supabase/admin";
 
 export const ADMIN_RUNNABLE_EDGE_FUNCTIONS = new Set([
   "send-notification",
+  "auto-close-tenders",
 ]);
 
 /**
