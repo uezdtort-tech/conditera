@@ -249,7 +249,7 @@ jobs:
             "SELECT count(*) FROM public.migration_smoke WHERE payload IN ('PG18-to-PG17','logical-restore-ok');")
           test "$ROWS" = "2"
           echo "OK: PostgreSQL 18 custom dump restored into an isolated PostgreSQL 17 database."
-      - name: Проверить логический перенос реального Supabase PG15 dump в отдельную БД PostgreSQL 17
+      - name: Проверить логический перенос дампа чистого CI-кластера Supabase PG15 в отдельную БД PostgreSQL 17
         run: |
           docker compose -p conditera-pg15-ci -f docker-compose.supabase.yml --profile legacy-supabase up -d supabase-db
           READY=0
@@ -298,7 +298,7 @@ jobs:
             psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera_supabase_shadow -Atc \
             "SELECT count(*) FROM public.pg15_to_pg17_migration_smoke WHERE source_cluster='supabase/postgres:15.6.1.141' AND payload='logical-restore-verified';")
           test "$ROWS" = "1"
-          echo "OK: actual Supabase PostgreSQL 15 database dump restored into an isolated PostgreSQL 17 database."
+          echo "OK: clean CI Supabase PostgreSQL 15 fixture dump restored into an isolated PostgreSQL 17 database."
       - name: Проверить RLS разрезов на отдельном PostgreSQL 17
         run: |
           docker run -d --name product-slices-rls-pg \
