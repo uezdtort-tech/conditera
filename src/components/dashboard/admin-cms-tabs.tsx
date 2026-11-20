@@ -1123,7 +1123,9 @@ export function AdminCmsMediaTab() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Не удалось загрузить файл");
       const uploaded = payload.media as CmsMediaItem;
-      setMedia((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)].slice(0, 100));
+      if (filter === "all" || uploaded.type === filter) {
+        setMedia((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)].slice(0, 100));
+      }
       toast.success("Файл загружен в медиатеку");
     } catch (error) {
       toast.error("Ошибка загрузки", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
@@ -1205,7 +1207,7 @@ export function AdminCmsMediaTab() {
                 </div>
                 <div className="flex gap-2">
                   <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => copyUrl(item.url)}><Copy className="mr-1 h-3.5 w-3.5" />Скопировать URL</Button>
-                  <Button type="button" size="sm" variant="ghost" asChild><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a></Button>
+                  <Button type="button" size="sm" variant="ghost" asChild aria-label="Открыть файл"><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a></Button>
                 </div>
               </div>
             </Card>
