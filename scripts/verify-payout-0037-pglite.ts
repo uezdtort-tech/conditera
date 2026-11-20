@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SQL = readFileSync(join(here, "../supabase/migrations/0037_payout_linkage.sql"), "utf8");
+const ESCROW_GUARD_SQL = readFileSync(join(here, "../supabase/migrations/0074_escrow_release_cancel_guard.sql"), "utf8");
 
 let failed = 0;
 function ok(label: string, detail = "") {
@@ -56,6 +57,7 @@ async function main() {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       confectioner_id TEXT,
       payment_status TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDING',
       escrow_released_at TIMESTAMPTZ,
       payout_reserved_at TIMESTAMPTZ,
       payout_transferred_at TIMESTAMPTZ
@@ -85,9 +87,11 @@ async function main() {
       (ARRAY['hash_a', 'hash_b']);
   `);
 
-  // Применяем 0037 целиком
+  // Применяем исходную финансовую миграцию и production guard 0074.
   await db.exec(SQL);
   ok("миграция 0037 применена без ошибок");
+  await db.exec(ESCROW_GUARD_SQL);
+  ok("миграция 0074: защита отменённых/завершённых заказов применена");
 
   // 1. Колонка + индекс
   const col = await db.query<{ column_name: string }>(
@@ -191,6 +195,32 @@ async function main() {
     ? ok("атомарность: RAISE при неизвестном кондитере откатил claim (заказ остался escrow)")
     : fail(`атомарность нарушена: r4=${r4}, статус ${ord2StatusBefore}→${ord2StatusAfter}`);
 
+  // 4b. Отменённый заказ не должен быть клеймен или начислен в эскроу.
+  const cancelledOrder = await db.query<{ id: string }>(
+    `INSERT INTO public.orders (confectioner_id, payment_status, status)
+     VALUES ('u1', 'escrow', 'CANCELLED') RETURNING id::text`
+  );
+  const balanceBeforeCancelled = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  const cancelledRelease = await db.query<{ release_escrow_order: number }>(
+    `SELECT release_escrow_order($1::uuid, 'conf_test', 500)`,
+    [cancelledOrder.rows[0].id]
+  );
+  const cancelledAfter = await db.query<{ payment_status: string; escrow_released_at: Date | null }>(
+    `SELECT payment_status, escrow_released_at FROM public.orders WHERE id=$1::uuid`,
+    [cancelledOrder.rows[0].id]
+  );
+  const balanceAfterCancelled = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  cancelledRelease.rows[0].release_escrow_order === 0 &&
+    cancelledAfter.rows[0].payment_status === "escrow" &&
+    cancelledAfter.rows[0].escrow_released_at === null &&
+    balanceAfterCancelled === balanceBeforeCancelled
+    ? ok("отменённый заказ: release → 0, эскроу и баланс не изменены")
+    : fail("отменённый заказ ошибочно релизован/начислен");
+
   // 5. Гранты: только service_role
   for (const fn of ["release_escrow_order", "consume_tfa_backup_code"]) {
     const acl = await db.query<{ proacl: string[] | null }>(
@@ -207,9 +237,10 @@ async function main() {
     svcOnly ? ok(`${fn}: EXECUTE только service_role`) : fail(`${fn}: ACL не только service_role — ${a}`);
   }
 
-  // 6. Идемпотентность: повторное применение
+  // 6. Идемпотентность: повторное применение обеих миграций
   await db.exec(SQL);
-  ok("повторное применение 0037 — идемпотентно");
+  await db.exec(ESCROW_GUARD_SQL);
+  ok("повторное применение 0037 + 0074 — идемпотентно");
 
   console.log(`\n${failed === 0 ? "✅ ИТОГ: 0037 валидна" : `❌ ИТОГ: проваленных проверок — ${failed}`}`);
   await db.close();
