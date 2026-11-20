@@ -376,7 +376,8 @@ export async function applyOrderTransition(
               o.payment_method, o.delivery_type
        FROM public.orders o
        WHERE o.id = $1::uuid
-       LIMIT 1`,
+       LIMIT 1
+       FOR UPDATE`,
       [input.orderId]
     );
     const row = res.rows[0];
@@ -424,6 +425,24 @@ export async function applyOrderTransition(
     }
 
     // --- 3. Условия ---
+    if (def.condition === "assignment_required" && !order.confectioner_id) {
+      throw new LifecycleError(
+        "ASSIGNMENT_REQUIRED",
+        "Нельзя начать производство без назначенного кондитера"
+      );
+    }
+
+    // COMPLETED от CUSTOMER — только владелец заказа. Это отдельная
+    // проверка субъекта: роль CUSTOMER сама по себе не доказывает владение.
+    const isAdminActor = input.actorRoles.includes("ADMIN") || input.actorRoles.includes("SUPER_ADMIN");
+    if (input.to === "COMPLETED" && input.actorRoles.includes("CUSTOMER") &&
+        !isAdminActor && order.user_id !== input.actorId) {
+      throw new LifecycleError(
+        "FORBIDDEN_ROLE",
+        "Подтвердить получение может только покупатель — владелец заказа"
+      );
+    }
+
     if (def.condition === "payment_confirmed_or_cash") {
       const paid = PAID_PAYMENT_STATUSES.has(order.payment_status);
       const cash = order.payment_method === "cash";
