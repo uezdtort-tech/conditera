@@ -69,7 +69,7 @@ jobs:
           web = services["web"]
           assert "supabase-runtime" in web["depends_on"]
           assert "redis" in web["depends_on"] and "meilisearch" in web["depends_on"]
-          assert "conditera_app@" in web["environment"]["DATABASE_URL"]
+          assert "postgresql://conditera_app:" in web["environment"]["DATABASE_URL"] and "@supabase-runtime:5432/supabase" in web["environment"]["DATABASE_URL"]
           assert "supabase-runtime:5432/supabase" in web["environment"]["DIRECT_DATABASE_URL"]
           assert web["environment"]["SUPABASE_INTERNAL_URL"] == "http://supabase-kong:8000"
           aliases = services["supabase-runtime"]["networks"]["conditera-net"].get("aliases", [])
