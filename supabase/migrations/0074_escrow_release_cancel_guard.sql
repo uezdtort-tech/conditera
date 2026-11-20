@@ -29,7 +29,7 @@ BEGIN
    WHERE id = p_order_id
      AND payment_status = 'escrow'
      AND escrow_released_at IS NULL
-     AND status NOT IN ('CANCELLED', 'REFUNDED', 'COMPLETED')
+     AND status NOT IN ('CANCELLED', 'REFUNDED')
    RETURNING 1 INTO v_claimed;
 
   IF v_claimed IS NULL THEN
