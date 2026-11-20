@@ -26,13 +26,14 @@ const corsHeaders = {
 };
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
+  const replacements: Record<string, string> = {
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     '"': "&quot;",
     "'": "&#39;",
-  })[character] ?? character);
+  };
+  return value.replace(/[&<>"']/g, (character) => replacements[character] ?? character);
 }
 
 function formatMessage(payload: NotificationPayload): string {
