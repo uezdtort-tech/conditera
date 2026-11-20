@@ -83,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const type = formFile.type.startsWith("image/") ? "image"
       : formFile.type.startsWith("video/") ? "video"
       : formFile.type.startsWith("audio/") ? "audio" : "document";
-    const safeDisplayName = formFile.name.replaceAll("/", "_").replaceAll("\\", "_").replace(/[\u0000-\u001f\u007f]/g, "_").slice(0, 180) || \`upload.\${extension}\`;
+    const safeDisplayName = formFile.name.replaceAll("/", "_").replaceAll("\\", "_").replace(/[\u0000-\u001f\u007f]/g, "_").slice(0, 180) ||  "upload." + extension;
     const { data, error } = await supabaseAdmin.from("cms_media").insert({
       name: safeDisplayName,
       url: publicData.publicUrl,
