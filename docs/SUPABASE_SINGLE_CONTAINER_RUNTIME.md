@@ -13,7 +13,7 @@ Overlay: `docker-compose.supabase-single-container.yml`.
 Запускать только совместно с основными Compose-файлами и production env:
 
 ```bash
-docker compose --env-file .env.production \
+docker compose --env-file .env.production --env-file .env.supabase-runtime \
   -f docker-compose.yml \
   -f docker-compose.supabase.yml \
   -f docker-compose.supabase-single-container.yml \
@@ -23,7 +23,7 @@ docker compose --env-file .env.production \
 После проверки конфигурации и отдельного плана переноса данных:
 
 ```bash
-docker compose --env-file .env.production \
+docker compose --env-file .env.production --env-file .env.supabase-runtime \
   -f docker-compose.yml \
   -f docker-compose.supabase.yml \
   -f docker-compose.supabase-single-container.yml \
@@ -57,7 +57,7 @@ Runtime использует отдельные именованные volumes:
 - `REALTIME_DB_ENC_KEY` — ровно 16 characters;
 - `REALTIME_DB_ENC_KEY_GCM` — ровно 32 characters.
 
-Команды генерации приведены в `.env.production.example`. Не использовать dev placeholders. Если меняется `JWT_SECRET`, необходимо согласованно перевыпустить ANON/SERVICE_ROLE JWT keys и обновить секреты всех клиентов.
+Команды генерации приведены в `.env.supabase-runtime.example`. Не добавлять эти секреты в общий `.env.production`: он передаётся также другим контейнерам через `env_file`. Не использовать dev placeholders. Если меняется `JWT_SECRET`, необходимо согласованно перевыпустить ANON/SERVICE_ROLE JWT keys и обновить секреты всех клиентов.
 
 Для внешнего URL использовать `API_EXTERNAL_URL=https://conditera.ru/api`, `SUPABASE_PUBLIC_URL=https://conditera.ru/api`, `SITE_URL=https://conditera.ru`. OAuth-провайдеры включать только после сверки credentials и redirect URLs.
 
