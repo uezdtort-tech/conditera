@@ -32,8 +32,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (position) query = query.eq("position", position);
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: "Не удалось загрузить баннеры" }, { status: 500 });
-    return NextResponse.json({ banners: data || [] }, {
-      headers: { "Cache-Control": includeInactive ? "private, no-store" : "public, s-maxage=60, stale-while-revalidate=300" },
+
+    let visibleBanners = data || [];
+    if (!includeInactive) {
+      const user = await getUserFromRequest(request);
+      let roles: string[] = [];
+      if (user) {
+        const { data: roleRows } = await supabaseAdmin
+          .from("user_roles").select("role").eq("user_id", user.id).eq("is_active", true);
+        roles = (roleRows || []).map((row) => String(row.role));
+      }
+      visibleBanners = visibleBanners.filter((banner) =>
+        !Array.isArray(banner.target_audience) || banner.target_audience.length === 0 ||
+        banner.target_audience.some((role: string) => roles.includes(role))
+      );
+    }
+    return NextResponse.json({ banners: visibleBanners }, {
+      headers: { "Cache-Control": includeInactive ? "private, no-store" : "private, max-age=30, stale-while-revalidate=60" },
     });
   } catch {
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
