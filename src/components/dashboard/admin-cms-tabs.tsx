@@ -127,6 +127,7 @@ export function AdminCmsHomeTab() {
         body: JSON.stringify({
           title: editValues.title,
           subtitle: editValues.subtitle,
+          content: editValues.content,
           image: editValues.image,
           link: editValues.link,
           linkText: editValues.linkText,
@@ -253,6 +254,10 @@ export function AdminCmsHomeTab() {
                       <div>
                         <Label className="text-xs">Подзаголовок</Label>
                         <Textarea value={editValues.subtitle || ""} onChange={(e) => setEditValues({ ...editValues, subtitle: e.target.value })} rows={2} className="text-sm" maxLength={500} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Содержание блока</Label>
+                        <Textarea value={editValues.content || ""} onChange={(e) => setEditValues({ ...editValues, content: e.target.value })} rows={4} className="text-sm" maxLength={20000} />
                       </div>
                       <div>
                         <Label className="text-xs">Изображение (URL)</Label>
