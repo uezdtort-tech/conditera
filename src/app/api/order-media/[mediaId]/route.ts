@@ -91,8 +91,8 @@ export async function GET(
 
     if (!authorized && await hasAnyRole(user.id, ["COURIER"])) {
       const assigned = await pool.query(
-        `SELECT 1 FROM public.deliveries
-         WHERE order_id = $1::uuid AND courier_id = $2::uuid
+        `SELECT 1 FROM public.orders
+         WHERE id = $1::uuid AND courier_id = $2::uuid
          LIMIT 1`,
         [media.order_id, user.id]
       );
