@@ -157,6 +157,6 @@ export function isValidCmsSchedule(start: unknown, end: unknown): boolean {
 
 export function isSafeCmsContentLink(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
-  if (/^mailto:[^\\s<>\\u0000-\\u001f\\u007f]+$/i.test(value)) return true;
+  if (/^mailto:[^\s<>\u0000-\u001f\u007f]+$/i.test(value)) return true;
   return isSafeCmsUrl(value);
 }
