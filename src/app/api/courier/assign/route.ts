@@ -73,7 +73,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       })
       .eq("id", orderId)
       .is("courier_id", null)
-      .in("status", ["READY", "IN_DELIVERY"])
+      .eq("status", "IN_DELIVERY")
       .select("id, number")
       .maybeSingle();
 
