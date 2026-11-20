@@ -43,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // Найти заказы в статусе READY или IN_DELIVERY без курьера
+    // Найти переданные курьеру заказы IN_DELIVERY без назначения
     const { data: orders, error } = await supabaseAdmin
       .from("orders")
       .select(
