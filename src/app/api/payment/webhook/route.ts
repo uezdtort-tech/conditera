@@ -245,8 +245,23 @@ export async function POST(request: NextRequest) {
 
     // Обрабатываем события YooKassa
     switch (event) {
-      case "payment.succeeded":
       case "payment.waiting_for_capture": {
+        // Авторизация карты ещё не означает подтверждённое списание.
+        // Не переводим заказ в escrow до payment.succeeded.
+        if (payment && payment.status !== "waiting_for_capture") {
+          const { error: waitingUpdateError } = await supabaseAdmin
+            .from("payments")
+            .update({ status: "waiting_for_capture", updated_at: new Date().toISOString() })
+            .eq("id", payment.id);
+          if (waitingUpdateError) {
+            console.error("[webhook] waiting_for_capture payment update failed:", waitingUpdateError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+        }
+        return NextResponse.json({ success: true, waitingForCapture: true });
+      }
+
+      case "payment.succeeded": {
         // === СВЕРКА СУММЫ (P0) ===
         // payments.amount и orders.total — в рублях; провайдер присылает
         // строку в рублях. Не совпало → платёж НЕ зачисляем.
@@ -271,11 +286,16 @@ export async function POST(request: NextRequest) {
         }
 
         // Статус платежа — только после проверки суммы
-        if (payment && payment.status !== dbStatus) {
-          await supabaseAdmin
+        if (payment && payment.status !== "succeeded") {
+          const { error: paymentUpdateError } = await supabaseAdmin
             .from("payments")
-            .update({ status: dbStatus, updated_at: new Date().toISOString() })
-            .eq("id", payment.id);
+            .update({ status: "succeeded", updated_at: new Date().toISOString() })
+            .eq("id", payment.id)
+            .in("status", ["pending", "waiting_for_capture", "succeeded"]);
+          if (paymentUpdateError) {
+            console.error("[webhook] succeeded payment update failed:", paymentUpdateError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
         }
 
         // PAY-1 CAS: атомарный переход заказа в escrow. Два одинаковых
@@ -286,6 +306,8 @@ export async function POST(request: NextRequest) {
           .update({ payment_status: "escrow" })
           .eq("id", orderId)
           .neq("payment_status", "escrow")
+          .neq("status", "CANCELLED")
+          .neq("status", "REFUNDED")
           .select("id");
         if (casErr) {
           console.error("[webhook] escrow CAS failed:", casErr.message);
