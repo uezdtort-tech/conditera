@@ -100,8 +100,9 @@ supabase/
 ├── seed.sql                # 28 categories
 └── seed_cms_crm.sql        # CMS + CRM + automation seed
 
-docker-compose.supabase.yml  # 10 services
-docker-compose.yml           # Production (Next.js + Caddy)
+docker-compose.supabase.yml  # Legacy PG15 stack (rollback/inventory only)
+docker-compose.supabase-single-container.yml # Unified Supabase Runtime / PG17 overlay
+docker-compose.yml           # Legacy app PG18 stack; launch via guarded PG17 wrapper
 Caddyfile                    # Reverse proxy + health-check
 .github/workflows/deploy.yml # CI/CD
 scripts/deploy.sh            # Production deploy
