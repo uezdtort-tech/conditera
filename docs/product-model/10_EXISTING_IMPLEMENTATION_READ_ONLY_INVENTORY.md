@@ -516,7 +516,7 @@ Webhook обрабатывает `payment.waiting_for_capture` в том же б
 - переводит PREPARING → READY без чеклиста и ready-photo gate;
 - допускает IN_DELIVERY → DELIVERED без отдельного handoff proof;
 - допускает DELIVERED → REFUNDED по роли ADMIN/SUPER_ADMIN/INSPECTOR, но не вызывает платёжный refund use case, не меняет `payment_status`, не создаёт refund record и не проверяет фактическое поступление денег;
-- не пишет `order_status_history`;
+- сам PATCH не пишет `order_status_history`, но миграция `0006_products_extended.sql` устанавливает DB-trigger `orders_log_status`, который добавляет запись при любом UPDATE status. Trigger записывает `changed_by=auth.uid()`; поскольку этот маршрут обновляет через `supabaseAdmin` (service role), корректная атрибуция реального пользователя не подтверждена и требует runtime-проверки;
 - не использует CAS по исходному статусу: конкурентный запрос может перезаписать состояние, прочитанное ранее;
 - публикует только общий `order.status_changed`, не обеспечивая согласованность с полным набором событий и side effects lifecycle engine.
 
