@@ -1,4 +1,5 @@
 name: PostgreSQL 17 migration Compose validation
+# Keep migration integration coverage current through CMS migration 0073.
 
 on:
   push:
