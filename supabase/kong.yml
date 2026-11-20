@@ -36,6 +36,10 @@ services:
           methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
           headers: [Accept, Authorization, Content-Type, apikey, X-Client-Info]
           credentials: true
+      - name: key-auth
+        config:
+          key_names: [apikey]
+          hide_credentials: false
 
   # ===== Realtime =====
   - name: realtime-v1
@@ -52,6 +56,10 @@ services:
           methods: [GET, POST, OPTIONS]
           headers: [Accept, Authorization, Content-Type, apikey, X-Client-Info]
           credentials: true
+      - name: key-auth
+        config:
+          key_names: [apikey]
+          hide_credentials: false
 
   # ===== Storage =====
   - name: storage-v1
@@ -96,12 +104,6 @@ consumers:
 plugins:
   - name: acl
     service: rest-v1
-    config:
-      allow: [anon, service_role]
-      hide_groups_header: true
-
-  - name: acl
-    service: storage-v1
     config:
       allow: [anon, service_role]
       hide_groups_header: true
