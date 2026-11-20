@@ -73,6 +73,13 @@ if (!response.ok || payload.ok !== true) {
 // legacy provider webhook stubs cannot be mistaken for the live application routes.
 for (const [slug, expectedStatus] of [
   ["send-notification", 503],
+  ["auto-close-tenders", 501],
+  ["abandoned-cart", 501],
+  ["bonus-expiry", 501],
+  ["daily-digest", 501],
+  ["send-email", 501],
+  ["send-push", 501],
+  ["tasting-reminder", 501],
   ["telegram-webhook", 410],
   ["yookassa-webhook", 410],
 ]) {
