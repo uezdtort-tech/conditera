@@ -119,6 +119,8 @@ function mapCmsHomeBlock(row: Record<string, unknown>): CmsHomeBlock {
 export function AdminCmsHomeTab() {
   const [cmsBlocks, setCmsBlocks] = useState<CmsHomeBlock[]>([]);
   const [cmsSections, setCmsSections] = useState<CmsHomeSection[]>(DEFAULT_CMS_HOME_SECTIONS);
+  const [editingSectionKey, setEditingSectionKey] = useState<string | null>(null);
+  const [sectionTitleDraft, setSectionTitleDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -195,6 +197,20 @@ export function AdminCmsHomeTab() {
       ? { ...section, isEnabled: !section.isEnabled }
       : section);
     void persistHomeSections(next);
+  };
+
+  const saveHomeSectionTitle = async (sectionKey: string) => {
+    const title = sectionTitleDraft.trim();
+    if (!title || title.length > 100) {
+      toast.error("Название должно содержать от 1 до 100 символов");
+      return;
+    }
+    const next = [...cmsSections]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((section) => section.key === sectionKey ? { ...section, label: title } : section);
+    await persistHomeSections(next);
+    setEditingSectionKey(null);
+    setSectionTitleDraft("");
   };
 
   useEffect(() => {
@@ -361,12 +377,40 @@ export function AdminCmsHomeTab() {
         return (
           <Card key={section.key} className={section.isEnabled ? "p-4" : "p-4 opacity-70"}>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <h3 className="font-semibold text-sm flex items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span>{section.icon}</span>
-                {section.label}
+                {editingSectionKey === section.key ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-1">
+                    <Input
+                      value={sectionTitleDraft}
+                      onChange={(event) => setSectionTitleDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void saveHomeSectionTitle(section.key);
+                        if (event.key === "Escape") { setEditingSectionKey(null); setSectionTitleDraft(""); }
+                      }}
+                      maxLength={100}
+                      aria-label="Название секции главной страницы"
+                      className="h-8 max-w-xs text-sm"
+                      autoFocus
+                    />
+                    <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Сохранить название секции" disabled={saving} onClick={() => void saveHomeSectionTitle(section.key)}>
+                      <Save className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Отменить изменение названия" disabled={saving} onClick={() => { setEditingSectionKey(null); setSectionTitleDraft(""); }}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <h3 className="font-semibold text-sm">{section.label}</h3>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" aria-label="Изменить название секции" title="Изменить название секции" disabled={saving} onClick={() => { setEditingSectionKey(section.key); setSectionTitleDraft(section.label); }}>
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                  </>
+                )}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
                 {!section.isEnabled && <Badge variant="outline" className="text-[10px]">Секция скрыта</Badge>}
-              </h3>
+              </div>
               <div className="flex items-center gap-1">
                 <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию выше" title="Переместить секцию выше" disabled={saving || sectionIndex === 0} onClick={() => moveHomeSection(section.key, -1)}>
                   <ChevronUp className="h-4 w-4" />
