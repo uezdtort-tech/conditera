@@ -141,3 +141,16 @@ export function areValidCmsNavigationRoles(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 30 &&
     value.every((role) => typeof role === "string" && CMS_NAV_ROLES.has(role));
 }
+
+export function isValidCmsDateTime(value: unknown): boolean {
+  return value === null || value === undefined ||
+    (typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value)));
+}
+
+export function isValidCmsSchedule(start: unknown, end: unknown): boolean {
+  if (!isValidCmsDateTime(start) || !isValidCmsDateTime(end)) return false;
+  if (typeof start === "string" && typeof end === "string") {
+    return Date.parse(start) <= Date.parse(end);
+  }
+  return true;
+}
