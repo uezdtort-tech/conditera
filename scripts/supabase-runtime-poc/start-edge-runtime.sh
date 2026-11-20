@@ -12,6 +12,13 @@ if [ ! -d "$root/home/deno/functions/main" ]; then
 fi
 
 mkdir -p "$root/root/.cache/deno"
+# Deno's Rust runtime resolves its own executable through /proc/self/exe.
+# The service root is intentionally isolated with chroot and does not receive
+# a host /proc mount (mounting proc would require CAP_SYS_ADMIN). Provide the
+# stable executable path expected by this single-purpose chroot process.
+mkdir -p "$root/proc/self"
+ln -sfn /usr/local/bin/edge-runtime "$root/proc/self/exe"
+
 # chroot has its own /etc tree; copy Docker's runtime DNS configuration so
 # Deno can resolve JSR/ESM dependencies on first worker start.
 mkdir -p "$root/etc"
