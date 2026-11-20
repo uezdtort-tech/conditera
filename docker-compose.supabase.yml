@@ -1,7 +1,8 @@
 # ====================================================================
 # docker-compose.supabase.yml — Self-hosted Supabase для «Уездный кондитер»
 # ====================================================================
-# Запуск: docker-compose -f docker-compose.supabase.yml up -d
+# LEGACY: файл содержит отдельный PostgreSQL 15 и не должен запускаться самостоятельно.
+# Для единого Supabase PostgreSQL 17 используйте: node scripts/compose-single-runtime.mjs up -d
 #
 # Включает 10 сервисов Supabase (mini-stack):
 #   - supabase-db (PostgreSQL 15 с расширениями: pgsodium, pg_cron, pg_trgm)
