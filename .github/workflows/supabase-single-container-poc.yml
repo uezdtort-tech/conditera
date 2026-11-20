@@ -5,6 +5,10 @@ on:
     paths:
       - "Dockerfile.supabase-runtime-poc"
       - "docker-compose.supabase-runtime-poc.yml"
+      - "docker-compose.supabase-single-container.yml"
+      - "docker-compose.supabase.yml"
+      - "docker-compose.yml"
+      - "Caddyfile"
       - "scripts/supabase-runtime-poc/**"
       - "supabase/kong.yml"
       - "supabase/init-scripts/**"
@@ -21,6 +25,43 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
+
+      - name: Validate production single-container Compose overlay
+        env:
+          POSTGRES_PASSWORD: ci-only-postgres-password
+          JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
+          ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
+          SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
+          ANON_KEY: ci-only-anon-key
+          SERVICE_ROLE_KEY: ci-only-service-role-key
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key
+          SUPABASE_SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
+          PG_META_CRYPTO_KEY: ci-only-pg-meta-crypto-key-32
+          REALTIME_DB_ENC_KEY: ci-only-key-16
+          REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
+          MEILI_MASTER_KEY: ci-only-meili-master-key
+          CRON_SECRET: ci-only-cron-secret
+          N8N_ADMIN_PASSWORD: ci-only-n8n-password
+          SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
+        run: |
+          set -Eeuo pipefail
+          docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
+          python3 - <<'PY'
+          import json
+          with open("/tmp/conditera-compose.json", encoding="utf-8") as stream:
+              config = json.load(stream)
+          services = config["services"]
+          assert "supabase-runtime" in services
+          assert "legacy-supabase" in services["supabase-db"].get("profiles", [])
+          assert "legacy-supabase" in services["supabase-kong"].get("profiles", [])
+          assert "profiles" not in services["supabase-runtime"]
+          aliases = services["supabase-runtime"]["networks"]["conditera-net"].get("aliases", [])
+          assert "supabase-kong" in aliases
+          assert "supabase_runtime_pg17_data" in config["volumes"]
+          assert "supabase_runtime_storage_data" in config["volumes"]
+          print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
+          PY
 
       - name: Build one-container Supabase runtime
         run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
