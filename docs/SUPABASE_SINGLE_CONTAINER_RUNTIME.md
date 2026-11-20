@@ -14,7 +14,15 @@ Overlay: `docker-compose.supabase-single-container.yml`.
 
 ```bash
 node scripts/compose-single-runtime.mjs config
-node scripts/compose-single-runtime.mjs up -d
+
+# Только после подтверждённого backup/restore, сверки данных и rollback rehearsal:
+# PowerShell:
+$env:CONDITERA_PG17_CUTOVER_APPROVED = "1"
+npm run compose:single-runtime -- up -d
+Remove-Item Env:CONDITERA_PG17_CUTOVER_APPROVED
+
+# Linux/macOS:
+# CONDITERA_PG17_CUTOVER_APPROVED=1 node scripts/compose-single-runtime.mjs up -d
 ```
 
 В PowerShell используется та же команда через `node`. Требуются `.env.production` и `.env.supabase-runtime`. Не запускайте `docker compose up` только с `docker-compose.yml` или `docker-compose.supabase.yml`: это исторические конфигурации с раздельными базами. Launcher не выполняет перенос данных и не заменяет backup/restore rehearsal.
