@@ -352,6 +352,32 @@ export function OrderWorkspaceDialog({
     },
   });
 
+  /** Отдельная фиксация каждого фактически выполненного этапа производства. */
+  const stageMutation = useMutation({
+    mutationFn: async (input: { stageKey: string; done: boolean }) => {
+      const res = await csrfFetch(`/api/orders/${orderId}/production/stage`, {
+        method: "POST",
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        throw new Error(parseApiError(await readErrorBody(res), `HTTP ${res.status}`));
+      }
+      return (await res.json()) as { ok: boolean; stage: { label: string; is_done: boolean } };
+    },
+    onSuccess: (data) => {
+      toast.success(data.stage.is_done ? "Этап отмечен выполненным" : "Отметка этапа снята", {
+        description: data.stage.label,
+      });
+      void queryClient.invalidateQueries({ queryKey: ["order-lifecycle", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["ops-orders-today"] });
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось обновить этап", { description: error.message });
+    },
+  });
+
   /** Черновик закупки из дефицита (422 NO_SHORTAGES → toast.info). */
   const createDraftMutation = useMutation({
     mutationFn: async (): Promise<PurchaseDraftResponse> => {
@@ -391,6 +417,10 @@ export function OrderWorkspaceDialog({
   const ds = derived?.deliveryStatus;
   const isActionBusy = (kind: OrderActionKind) =>
     actionMutation.isPending && actionMutation.variables === kind;
+  const workStages = lc?.production.checklist.filter(
+    (stage) => stage.stage_key !== "ready_photo" && stage.stage_key !== "handoff"
+  ) ?? [];
+  const workStagesComplete = workStages.length > 0 && workStages.every((stage) => stage.is_done);
 
   interface ActionDef {
     kind: OrderActionKind;
@@ -412,15 +442,15 @@ export function OrderWorkspaceDialog({
       kind: "production-complete",
       label: "Завершить этапы",
       icon: ListChecks,
-      enabled: bs === "in_production",
-      hint: "Доступно в статусе «В производстве» (PREPARING)",
+      enabled: bs === "in_production" && workStagesComplete,
+      hint: "Доступно после ручного подтверждения всех производственных этапов",
     },
     {
       kind: "ready",
       label: "Отметить готов",
       icon: PackageCheck,
-      enabled: bs === "in_production",
-      hint: "Требует завершённого чеклиста и фото готовности (если категория требует)",
+      enabled: bs === "in_production" && Boolean(lc?.production.checklistComplete),
+      hint: "Требует завершённого чеклиста и фото готовности, если оно обязательно",
     },
     {
       kind: "handoff",
@@ -676,10 +706,28 @@ export function OrderWorkspaceDialog({
                     <ul className="divide-y divide-border">
                       {lc.production.checklist.map((stage) => (
                         <li key={stage.id} className="flex items-center gap-2.5 px-3 py-2.5">
-                          {stage.is_done ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                          {stage.stage_key === "ready_photo" || stage.stage_key === "handoff" ? (
+                            stage.is_done ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            )
                           ) : (
-                            <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0"
+                              disabled={bs !== "in_production" || stageMutation.isPending}
+                              aria-label={stage.is_done ? `Снять отметку: ${stage.label}` : `Отметить выполненным: ${stage.label}`}
+                              onClick={() => stageMutation.mutate({ stageKey: stage.stage_key, done: !stage.is_done })}
+                            >
+                              {stage.is_done ? (
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-muted-foreground/50" />
+                              )}
+                            </Button>
                           )}
                           <span className={`text-sm min-w-0 truncate ${stage.is_done ? "text-muted-foreground line-through" : ""}`}>
                             {stage.label}
