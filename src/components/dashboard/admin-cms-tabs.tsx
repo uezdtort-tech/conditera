@@ -667,6 +667,7 @@ export function AdminCmsPagesTab() {
                   {page.description && <div className="text-xs text-muted-foreground mt-1">{page.description}</div>}
                   <div className="text-xs text-muted-foreground mt-2 line-clamp-2">{page.content?.slice(0, 180)}</div>
                   <div className="text-[10px] text-muted-foreground mt-1">Обновлено: {formatDate(page.updated_at)}</div>
+                  {page.status === "published" && <a href={`/pages/${encodeURIComponent(page.slug)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-2">Открыть страницу <ExternalLink className="h-3 w-3" /></a>}
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button size="sm" variant="outline" disabled={saving} onClick={() => beginEdit(page)}><Edit className="h-3 w-3 mr-1" />Редактировать</Button>
