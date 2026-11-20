@@ -393,17 +393,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // в каждом update в заголовке X-Telegram-Bot-Api-Secret-Token. Без проверки
     // любой может подделать update (спуфинг команд, вплоть до admin /broadcast).
     const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret && process.env.NODE_ENV === "production" ||
+        (process.env.NODE_ENV === "production" && /^(CHANGE_ME|dev_)/i.test(webhookSecret))) {
+      console.error(
+        "[telegram/webhook] TELEGRAM_WEBHOOK_SECRET отсутствует или является placeholder — update отклонён (fail-closed)"
+      );
+      return NextResponse.json({ ok: false }, { status: 503 });
+    }
     if (webhookSecret) {
       const got = request.headers.get("X-Telegram-Bot-Api-Secret-Token")?.trim();
       if (!got || !timingSafeEqualStr(got, webhookSecret)) {
         console.warn("[telegram/webhook] rejected: missing/invalid X-Telegram-Bot-Api-Secret-Token");
         return NextResponse.json({ ok: false }, { status: 401 });
       }
-    } else if (process.env.NODE_ENV === "production") {
-      console.error(
-        "[telegram/webhook] TELEGRAM_WEBHOOK_SECRET не задан в production — update отклонён (fail-closed)"
-      );
-      return NextResponse.json({ ok: false }, { status: 503 });
     } else {
       console.warn(
         "[telegram/webhook] TELEGRAM_WEBHOOK_SECRET не задан — update принимается без проверки (только dev)"
