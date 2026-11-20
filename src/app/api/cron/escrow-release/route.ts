@@ -134,7 +134,6 @@ async function releaseEscrowLegacy(
     .is("escrow_released_at", null)
     .neq("status", "CANCELLED")
     .neq("status", "REFUNDED")
-    .neq("status", "COMPLETED")
     .select("id");
 
   if (orderUpdateErr) {
