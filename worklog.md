@@ -9678,3 +9678,45 @@ timingSafeEqual, SafeHtml, safe-fetch, rate-limit auth/admin, rewrite-
 - Гейты: lint 0 / tsc 0 (повторно независимо — подтверждено); curl-матрица 55/55 (субагент) + НЕЗАВИСИМАЯ спот-верификация: health ok; home/catalog/product/confectioners 200; products 20/стр + page=2; category=torty→6; by-title→0; q=шоколад→6; sort=price_asc монотонный; 400×3; дерево; карточка (ingredients/allergens/reviewStats 4.7|6); reviews sub-endpoint 5/стр approved; CSRF 403 → токен 64hex → anon+token 401 → login 200 → authed 201 pending; ротация одноразового CSRF (reuse→403); burst со свежими токенами → 429 + retry-after:25; XSS-отзыв одобрен через БД (верификация) → в DOM рендерится экранированным текстом, window.__xss undefined, 0 живых script; agent-browser: фильтр→URL+сетка, поиск мержится в URL, пагинация, /confectioners→?confectioner= (12 товаров), mobile 390 scrollW=390/1 колонка/Sheet/footer mt-auto.
 - Наблюдение (не дефект): pending-отзыв виден автору сразу после отправки («на модерации», клиентское состояние); в списке после перезагрузки — только approved (публичная семантика sub-endpoint). Модерация pending→approved — S5B3.
 - Следующий блок по карте: S3B3 (SEO/OG/метрика: generateMetadata поверх getAppUrl, canonical/OG, веб-метрика).
+
+## 2026-11-20 — recreate-3: S3B3 SEO/Метрика/PWA (первое исполнение, R3)
+- Рецикл песочницы (5-й) снёс conditera-v2/ → восстановление из бандла
+  S3B2-778f323; .env.local пересоздан (урок: embedded PG = postgres@127.0.0.1:54330
+  без пароля); bun install; baseline зелёный (шим :3040, dev :3100, health ok).
+- Блок S3B3 выполнен в репозитории v2: коммиты 110f094 ([S3B3] код+worklog) +
+  docs-pin; bundle backups/conditera-v2-S3B3-110f094.bundle (950 703 B, verify
+  OK, git-tracked).
+- SEO: lib/seo.ts buildMetadata (canonical из NEXT_PUBLIC_APP_URL + openGraph);
+  canonical/OG на 8 витринных маршрутах + карточке товара (первое изображение →
+  og:image); sitemap 12 статических + 23 товара из Prisma (fail-open); профиль
+  кондитера в карту НЕ включён (маршрута нет — ноль 404-URL, решение
+  задокументировано); robots: dev (не conditera.ru) → Disallow: /, prod —
+  витрина открыта + sitemap.
+- Метрика: клиентский lib + metrika-server.ts (ОТДЕЛЬНО — safe-fetch в
+  клиентском чанке ронял Turbopack паникой node:net; главный урок блока);
+  YandexMetrika-компонент: инжект ТОЛЬКО при NEXT_PUBLIC_YANDEX_METRIKA_ID
+  (afterInteractive) + SPA-хиты trackPageView по usePathname; цели
+  add_to_cart/order_completed/user_registered/lead_submitted/ticket_created/
+  search_performed/confectioner_profile_view; ecommerce dataLayer; server-цель
+  user_registered в register-роуте (fail-open, токен не логируется);
+  payment_succeeded/refund_processed — за S4B2.
+- PWA: ЕДИНСТВЕННЫЙ manifest.webmanifest (Next metadataRoute; 192/512+maskable,
+  theme #a4433d — точный OKLCH→sRGB пересчёт --primary), иконки/og-cover
+  сгенерированы scripts/generate-pwa-icons.mjs (sharp); service-worker не
+  подключается (MVP). Stylegate §13 — диагностический гейт (статус/ID/режим
+  robots, без токена). env-ключи Метрики добавлены в .env.local.example
+  (пустые, запрет локального включения).
+- Гейты: lint 0/tsc 0; curl-матрица 20/20 (sitemap 35 URL, robots dev-disallow,
+  canonical+OG на home/catalog/product, mc.yandex=0 без env, манифест+иконки
+  200, sw-ссылок 0, stylegate выключена, register 405); env-гейт позитив
+  (test ID 12345678 через CLI env: script в DOM, window.ym=function,
+  stylegate «включена»); негатив (без ID): нет скрипта/ym, консоль чистая,
+  3-страничная навигация без ошибок; mobile 390 scrollW=390. Скриншоты
+  agent-ctx/s3b3-r3-{home-1280,mobile-390,styleguide-metrika}.png.
+- Уроки: (1) клиентский чанк не должен импортировать node-модули —
+  server-часть аналитики в отдельный файл; (2) скриншоты/eval только в одном
+  батче с boot; (3) stale .next/dev/lock после kill блокирует boot («Another
+  next dev server…») — удалять перед стартом; (4) embedded PG dev-URL —
+  postgres@…:54330.
+- Следующий блок по карте: S4B1 (корзина + checkout, платежи STUB — решение
+  №1; цели Метрики add_to_cart/trackPurchase подключаются там же).
