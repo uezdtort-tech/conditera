@@ -20,6 +20,16 @@ docker compose --env-file .env.production --env-file .env.supabase-runtime \
   config
 ```
 
+Перед запуском после backup/restore и проверки данных нужно остановить старые контейнеры, не удаляя их volumes. Иначе старый контейнер `supabase-kong` может продолжить владеть DNS alias и конфликтовать с новым runtime:
+
+```bash
+docker compose --env-file .env.production \
+  -f docker-compose.yml -f docker-compose.supabase.yml \
+  stop db pgbouncer migrator supabase-db supabase-kong supabase-auth \
+    supabase-rest supabase-realtime supabase-storage supabase-app-migrator \
+    supabase-imgproxy supabase-meta supabase-analytics supabase-vector
+```
+
 После проверки конфигурации и отдельного плана переноса данных:
 
 ```bash
@@ -29,6 +39,8 @@ docker compose --env-file .env.production --env-file .env.supabase-runtime \
   -f docker-compose.supabase-single-container.yml \
   up -d --build
 ```
+
+Не выполнять `down -v`, `volume rm` или очистку старых volumes. Для rollback остановить `supabase-runtime` и запустить прежний стек без `docker-compose.supabase-single-container.yml`; старые контейнеры и volumes должны быть сохранены до завершения cutover.
 
 Сервисы старого многоконтейнерного Supabase помещены в профиль `legacy-supabase`; без явного включения профиля они не запускаются. Runtime получает сетевой alias `supabase-kong`, поэтому существующий Caddyfile продолжает проксировать `/api/auth/v1`, `/api/rest/v1`, `/api/realtime/v1` и `/api/storage/v1` в Kong единого контейнера.
 
