@@ -218,11 +218,15 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       for (const sub of subscriptions || []) {
         if (!isAllowedPushEndpoint(sub.endpoint)) {
+          pushFailed += 1;
           console.warn("[notifications/send] skipped invalid push endpoint:", String(sub.endpoint).slice(0, 80));
           continue;
         }
         const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
-        if (!keys.p256dh || !keys.auth) continue;
+        if (!keys.p256dh || !keys.auth) {
+          pushFailed += 1;
+          continue;
+        }
         try {
           await webpushClient.sendNotification(
             {
