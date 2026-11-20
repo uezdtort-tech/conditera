@@ -174,8 +174,18 @@ mkdir -p "$kong_root/tmp/kong/logs"
 # actual kong account from the pinned image, rather than assuming a UID.
 touch "$kong_root/tmp/kong/logs/error.log"
 chown -R "$kong_user_spec" "$kong_root/tmp/kong"
-chmod 0755 "$kong_root/tmp/kong" "$kong_root/tmp/kong/logs"
-chmod 0644 "$kong_root/tmp/kong/logs/error.log"
+chmod 0755 "$kong_root/tmp/kong"
+chmod 0770 "$kong_root/tmp/kong/logs"
+chmod 0660 "$kong_root/tmp/kong/logs/error.log"
+# Validate write access through the exact numeric identity and chroot used by
+# start-kong.sh. This catches ownership/mode drift before supervisord retries.
+if ! chroot --userspec="$kong_user_spec" "$kong_root" /bin/sh -ec \
+  'test -w /tmp/kong/logs && test -w /tmp/kong/logs/error.log'; then
+  echo "Kong runtime user $kong_user_spec cannot write its chroot prefix logs" >&2
+  ls -ld "$kong_root/tmp" "$kong_root/tmp/kong" "$kong_root/tmp/kong/logs" >&2
+  ls -l "$kong_root/tmp/kong/logs/error.log" >&2
+  exit 1
+fi
 mkdir -p "$kong_root/tmp"
 touch "$kong_root/tmp/kong-error.log"
 touch "$kong_root/tmp/kong-proxy-access.log"
