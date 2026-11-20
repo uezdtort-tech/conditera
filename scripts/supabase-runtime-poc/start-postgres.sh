@@ -65,4 +65,5 @@ fi
 exec chroot --userspec="$postgres_entry" "$root" \
   /usr/local/bin/docker-entrypoint.sh postgres -D "$pgdata" \
   -c config_file=/etc/postgresql/postgresql.conf \
+  -c "cron.database_name=$POSTGRES_DB" \
   -c dynamic_shared_memory_type=mmap
