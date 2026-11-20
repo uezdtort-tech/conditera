@@ -254,6 +254,8 @@ async function main() {
 
   const prematureComplete = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
   assert("production/complete при незагруженном фото → 200, но фото остаётся обязательным", prematureComplete.status === 200 && (prematureComplete.json?.remainingBeforeReady || []).includes("Фото готовности"), JSON.stringify(prematureComplete.json).slice(0, 160));
+  const editAfterProductionComplete = await api("POST", `/api/orders/${o1.orderId}/production/stage`, { token: owner, body: { stageKey: workStages[0].stage_key, done: false } });
+  assert("после фиксации завершения нельзя менять этапы → 409", editAfterProductionComplete.status === 409 && editAfterProductionComplete.json?.error === "PRODUCTION_ALREADY_COMPLETED", JSON.stringify(editAfterProductionComplete.json).slice(0, 160));
 
   const complete = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
   assert("production/complete → 200", complete.status === 200);
