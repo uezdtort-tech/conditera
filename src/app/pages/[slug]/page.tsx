@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isSafeCmsContentLink, isSafeCmsUrl } from "@/lib/cms-validation";
 
 export const dynamic = "force-dynamic";
 
@@ -67,12 +68,12 @@ export default async function CmsPublicPage(
           <div className="prose prose-neutral dark:prose-invert max-w-none prose-headings:font-display prose-a:text-primary prose-img:rounded-xl">
             <ReactMarkdown
               components={{
-                a: ({ href, children }) => {
-                  const safeHref = href && (href.startsWith("/") && !href.startsWith("//") || href.startsWith("https://") || href.startsWith("mailto:"));
-                  return safeHref
-                    ? <a href={href} className="text-primary underline underline-offset-4">{children}</a>
-                    : <span>{children}</span>;
-                },
+                a: ({ href, children }) => isSafeCmsContentLink(href)
+                  ? <a href={href} className="text-primary underline underline-offset-4" rel={href.startsWith("https://") ? "noopener noreferrer" : undefined}>{children}</a>
+                  : <span>{children}</span>,
+                img: ({ src, alt }) => isSafeCmsUrl(src)
+                  ? <img src={src} alt={alt || ""} className="rounded-xl max-w-full h-auto" loading="lazy" decoding="async" />
+                  : null,
               }}
             >
               {page.content}
