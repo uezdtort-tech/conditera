@@ -308,25 +308,8 @@ async function isValidHybridJWT(jwt: string): Promise<AuthFailure | null> {
   }
 }
 
-// Only third-party webhooks with their own request authentication bypass JWT.
-// Kong exposes these two routes separately; all other functions remain protected
-// by Kong key-auth/ACL and this runtime-level JWT verification.
-const JWT_EXEMPT_WEBHOOKS = new Set(['telegram-webhook', 'yookassa-webhook'])
-
 Deno.serve({ onError }, async (req: Request) => {
-  const url = new URL(req.url)
-  const path_parts = url.pathname.split('/').filter(Boolean)
-  const service_name = path_parts[0] ?? ''
-
-  if (!/^[a-z0-9-]{1,80}$/.test(service_name)) {
-    return getFunctionErrorResponse({
-      code: RequestErrors.NotFound,
-      message: 'Requested function was not found',
-      status: 404,
-    })
-  }
-
-  if (req.method !== 'OPTIONS' && VERIFY_JWT && !JWT_EXEMPT_WEBHOOKS.has(service_name)) {
+  if (req.method !== 'OPTIONS' && VERIFY_JWT) {
     const token = getAuthToken(req)
     if (typeof token !== 'string') {
       return getAuthErrorResponse(token)
@@ -337,7 +320,12 @@ Deno.serve({ onError }, async (req: Request) => {
     }
   }
 
+  const url = new URL(req.url)
   const { pathname } = url
+  const path_parts = pathname.split('/')
+  const service_name = path_parts[1]
+
+  if (!service_name || service_name === '') {
     return getFunctionErrorResponse({
       code: RequestErrors.NotFound,
       message: 'Requested function was not found',
