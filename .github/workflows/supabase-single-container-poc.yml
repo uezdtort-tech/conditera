@@ -148,7 +148,7 @@ jobs:
           docker exec conditera-supabase-runtime-poc \
             /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
             /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase \
-            -Atqc "SELECT to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL" \
+            -Atqc "SELECT to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0" \
             | grep -qx t
 
       - name: Collect runtime diagnostics on failure
