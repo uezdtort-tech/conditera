@@ -207,6 +207,24 @@ jobs:
           cp /tmp/rest-openapi.body /tmp/rest-openapi.json
           grep -q '"swagger"' /tmp/rest-openapi.json
 
+          assert_denied() {
+            local name="$1"
+            local url="$2"
+            shift 2
+            local status
+            status="$(curl --silent --show-error --output "/tmp/${name}.body" --write-out '%{http_code}' "$@" "$url")"
+            case "$status" in
+              401|403) echo "$name correctly denied HTTP $status" ;;
+              *)
+                echo "$name expected 401/403, got HTTP $status"
+                cat "/tmp/${name}.body"
+                return 1
+                ;;
+            esac
+          }
+          assert_denied rest-missing-api-key http://127.0.0.1:18000/rest/v1/
+          assert_denied rest-invalid-api-key http://127.0.0.1:18000/rest/v1/ -H "apikey: invalid-ci-api-key"
+
       - name: Verify Auth signup, Storage upload/download and PostgreSQL schemas
         shell: bash
         run: |
