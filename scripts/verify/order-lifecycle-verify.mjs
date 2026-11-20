@@ -227,6 +227,9 @@ async function main() {
   const custView = await api("GET", `/api/orders/${o1.orderId}/capacity`, { token: customer });
   assert("клиент видит capacity своего заказа", custView.status === 200);
 
+  const completeBeforeStart = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
+  assert("production/complete до старта → 409", completeBeforeStart.status === 409 && completeBeforeStart.json?.error === "INVALID_PRODUCTION_STATE", JSON.stringify(completeBeforeStart.json).slice(0, 160));
+
   const start = await api("POST", `/api/orders/${o1.orderId}/production/start`, { token: owner });
   assert("production/start → 200 (PREPARING)", start.status === 200, JSON.stringify(start.json).slice(0, 160));
 
