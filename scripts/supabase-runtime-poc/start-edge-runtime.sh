@@ -12,6 +12,17 @@ if [ ! -d "$root/home/deno/functions/main" ]; then
 fi
 
 mkdir -p "$root/root/.cache/deno"
+# chroot has its own /etc tree; copy Docker's runtime DNS configuration so
+# Deno can resolve JSR/ESM dependencies on first worker start.
+mkdir -p "$root/etc"
+if [ -f /etc/resolv.conf ]; then
+  rm -f "$root/etc/resolv.conf"
+  cp /etc/resolv.conf "$root/etc/resolv.conf"
+fi
+if [ -f /etc/hosts ]; then
+  rm -f "$root/etc/hosts"
+  cp /etc/hosts "$root/etc/hosts"
+fi
 
 # Pass only Edge Runtime/function secrets. In particular, never expose the
 # PostgreSQL superuser or Conditera DB password to user function workers.
