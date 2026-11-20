@@ -1,84 +1,94 @@
 "use client";
 
 /**
- * usePushNotifications — client-side hook for Web Push.
- *
- * - Requests notification permission
- * - Subscribes to push via VAPID
- * - Sends subscription to backend
- * - Listens for incoming push events (via Service Worker)
- *
- * Usage:
- *   const { isSupported, permission, subscribe, unsubscribe } = usePushNotifications();
- *   if (isSupported && permission === "default") subscribe();
+ * Web Push lifecycle for the authenticated browser user.
+ * The subscription is persisted server-side; local permission alone is not
+ * treated as a successful subscription.
  */
 import { useState, useEffect, useCallback } from "react";
 import { csrfFetch } from "@/lib/api-client";
 
-export function usePushNotifications() {
+export function usePushNotifications(enabled = true) {
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window) {
-      setIsSupported(true);
-      setPermission(Notification.permission);
+    if (!enabled || typeof window === "undefined") return;
+    const supported =
+      "Notification" in window &&
+      "serviceWorker" in navigator &&
+      "PushManager" in window;
+    setIsSupported(supported);
+    if (!supported) return;
 
-      // Check if already subscribed
-      navigator.serviceWorker.ready
-        .then((reg) => reg.pushManager.getSubscription())
-        .then((sub) => setIsSubscribed(!!sub))
-        .catch(() => {});
-    }
-  }, []);
+    setPermission(Notification.permission);
+    let cancelled = false;
 
-  const subscribe = useCallback(async () => {
-    if (!isSupported) return;
+    navigator.serviceWorker.ready
+      .then(async (registration) => {
+        const subscription = await registration.pushManager.getSubscription();
+        if (cancelled) return;
+        setIsSubscribed(!!subscription);
+        if (subscription) {
+          const saved = await csrfFetch("/api/notifications/push-subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(subscription.toJSON()),
+          });
+          if (!saved.ok) {
+            throw new Error("Не удалось синхронизировать push-подписку с аккаунтом");
+          }
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) console.warn("[push] subscription sync failed:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+
+  const subscribe = useCallback(async (): Promise<boolean> => {
+    if (!isSupported) throw new Error("Push-уведомления не поддерживаются браузером");
 
     setLoading(true);
     try {
-      // Request permission
-      const perm = await Notification.requestPermission();
-      setPermission(perm);
-      if (perm !== "granted") {
-        return;
+      const nextPermission = await Notification.requestPermission();
+      setPermission(nextPermission);
+      if (nextPermission !== "granted") return false;
+
+      const keyResponse = await csrfFetch("/api/notifications/vapid-key");
+      if (!keyResponse.ok) {
+        throw new Error("VAPID-ключи Web Push не настроены на сервере");
       }
+      const { publicKey } = await keyResponse.json() as { publicKey?: string };
+      if (!publicKey) throw new Error("Сервер не вернул публичный VAPID-ключ");
 
-      // Get VAPID public key from backend
-      const resp = await csrfFetch("/api/notifications/vapid-key");
-      if (!resp.ok) {
-        console.warn("[push] VAPID key not configured");
-        return;
-      }
-      const { publicKey } = await resp.json();
-
-      // Convert VAPID key to Uint8Array
-      const applicationServerKey = urlBase64ToUint8Array(publicKey);
-
-      // Subscribe via Service Worker
-      const reg = await navigator.serviceWorker.ready;
-      const subscription = await reg.pushManager.subscribe({
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing ?? await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: applicationServerKey as BufferSource,
+        applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
       });
 
-      // Send subscription to backend
-      const sub = subscription.toJSON();
-      await csrfFetch("/api/notifications/push-subscribe", {
+      const saveResponse = await csrfFetch("/api/notifications/push-subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          endpoint: sub.endpoint,
-          keys: sub.keys,
-        }),
+        body: JSON.stringify(subscription.toJSON()),
       });
+      if (!saveResponse.ok) {
+        const payload = await saveResponse.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || "Не удалось сохранить push-подписку");
+      }
 
       setIsSubscribed(true);
-      console.info("[push] subscribed successfully");
-    } catch (err) {
-      console.error("[push] subscribe error:", err);
+      return true;
+    } catch (error) {
+      console.error("[push] subscribe error:", error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -87,18 +97,22 @@ export function usePushNotifications() {
   const unsubscribe = useCallback(async () => {
     setLoading(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await sub.unsubscribe();
-        await csrfFetch(`/api/notifications/push-subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, {
-          method: "DELETE",
-        });
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        const response = await csrfFetch(
+          `/api/notifications/push-subscribe?endpoint=${encodeURIComponent(subscription.endpoint)}`,
+          { method: "DELETE" },
+        );
+        if (!response.ok) {
+          throw new Error("Не удалось удалить push-подписку с сервера");
+        }
+        await subscription.unsubscribe();
       }
       setIsSubscribed(false);
-      console.info("[push] unsubscribed");
-    } catch (err) {
-      console.error("[push] unsubscribe error:", err);
+    } catch (error) {
+      console.error("[push] unsubscribe error:", error);
+      throw error;
     } finally {
       setLoading(false);
     }
