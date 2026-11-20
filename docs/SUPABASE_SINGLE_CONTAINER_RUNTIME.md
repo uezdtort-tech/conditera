@@ -1,0 +1,68 @@
+# Единый Supabase runtime на PostgreSQL 17
+
+## Состояние
+
+Реализован единый runtime image: PostgreSQL 17, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy и Kong запускаются под Supervisor внутри **одного контейнера**. Отдельных sibling-контейнеров Supabase для этих сервисов нет.
+
+CI smoke уже проверяет один контейнер, health всех процессов, Kong endpoints, Auth signup, Storage upload/download и наличие схем/миграций Realtime. Дополнительно runtime image включает прикладные миграции Conditera и запускает их после готовности PostgreSQL и Storage; эта новая часть проходит отдельный CI smoke.
+
+## Compose overlay
+
+Overlay: `docker-compose.supabase-single-container.yml`.
+
+Запускать только совместно с основными Compose-файлами и production env:
+
+```bash
+docker compose --env-file .env.production \
+  -f docker-compose.yml \
+  -f docker-compose.supabase.yml \
+  -f docker-compose.supabase-single-container.yml \
+  config
+```
+
+После проверки конфигурации и отдельного плана переноса данных:
+
+```bash
+docker compose --env-file .env.production \
+  -f docker-compose.yml \
+  -f docker-compose.supabase.yml \
+  -f docker-compose.supabase-single-container.yml \
+  up -d --build
+```
+
+Сервисы старого многоконтейнерного Supabase помещены в профиль `legacy-supabase`; без явного включения профиля они не запускаются. Runtime получает сетевой alias `supabase-kong`, поэтому существующий Caddyfile продолжает проксировать `/api/auth/v1`, `/api/rest/v1`, `/api/realtime/v1` и `/api/storage/v1` в Kong единого контейнера.
+
+## Данные и volumes
+
+Runtime использует отдельные именованные volumes:
+
+- `supabase_runtime_pg17_data` — PostgreSQL 17;
+- `supabase_runtime_storage_data` — Storage и read-only mount для Imgproxy.
+
+**Не подключать к PostgreSQL 17 volume от старого PostgreSQL 15.** Формат data directory несовместим. Нельзя считать запуск overlay способом автоматического переноса production-данных. До переключения необходимы согласованные backup, логический dump/restore в PG17, проверка владельцев/ролей/extensions/RLS и контрольные суммы критичных таблиц. Текущий CI использует пустые disposable volumes и не доказывает перенос существующих данных.
+
+Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. На восстановленной БД ledger должен быть предварительно согласован с фактическим состоянием схемы; запускать полный replay поверх существующей схемы без этого нельзя.
+
+Не удалять volumes при обычном обновлении. Не использовать `down -v` на сервере с данными.
+
+## Новые секреты runtime
+
+Помимо существующих `POSTGRES_PASSWORD`, `JWT_SECRET`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` и `SUPABASE_SERVICE_ROLE_KEY`, production env должен содержать:
+
+- `SUPABASE_SECRET_KEY_BASE` — 64 hex characters;
+- `PG_META_CRYPTO_KEY` — 32 hex characters;
+- `REALTIME_DB_ENC_KEY` — ровно 16 characters;
+- `REALTIME_DB_ENC_KEY_GCM` — ровно 32 characters.
+
+Команды генерации приведены в `.env.production.example`. Не использовать dev placeholders. Если меняется `JWT_SECRET`, необходимо согласованно перевыпустить ANON/SERVICE_ROLE JWT keys и обновить секреты всех клиентов.
+
+Для внешнего URL использовать `API_EXTERNAL_URL=https://conditera.ru/api`, `SUPABASE_PUBLIC_URL=https://conditera.ru/api`, `SITE_URL=https://conditera.ru`. OAuth-провайдеры включать только после сверки credentials и redirect URLs.
+
+## Ограничения до production cutover
+
+- Edge Runtime / Supabase Functions ещё не включены в единый runtime.
+- Не выполнен backup/restore production data и не проверен PG15 → PG17 перенос на копии реального объёма.
+- Не проведены нагрузочные, отказоустойчивые и восстановительные испытания.
+- Не проверена полная совместимость всех внутренних клиентов Conditera с новым runtime и его секретами.
+
+До закрытия этих пунктов overlay — подготовленная интеграция и путь к переключению, но не разрешение на production cutover. Старый runtime и volumes должны оставаться доступными до завершения приёмки и согласованного rollback-плана.
