@@ -294,7 +294,10 @@ export function AdminCmsHomeTab() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Не удалось создать блок");
-      setCmsBlocks((current) => [...current, mapCmsHomeBlock(payload.block)]);
+      const createdBlock = mapCmsHomeBlock(payload.block);
+      setCmsBlocks((current) => [...current, createdBlock]);
+      setEditingId(createdBlock.id);
+      setEditValues(createdBlock);
       toast.success("Блок создан и сохранён");
     } catch (error) {
       toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
