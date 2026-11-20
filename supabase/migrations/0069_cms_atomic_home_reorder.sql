@@ -11,6 +11,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_count INTEGER;
+  v_total INTEGER;
   v_distinct INTEGER;
 BEGIN
   IF p_section NOT IN ('hero','stats','cta_confectioner','advantages','steps','testimonials')
@@ -35,12 +36,17 @@ BEGIN
    FOR UPDATE;
 
   SELECT count(*)::INTEGER
+    INTO v_total
+    FROM public.cms_home_blocks
+   WHERE section = p_section;
+
+  SELECT count(*)::INTEGER
     INTO v_count
     FROM public.cms_home_blocks
    WHERE section = p_section
      AND id = ANY(p_block_ids);
 
-  IF v_count <> cardinality(p_block_ids) THEN
+  IF v_count <> cardinality(p_block_ids) OR v_total <> cardinality(p_block_ids) THEN
     RAISE EXCEPTION 'block set changed; reload and retry' USING ERRCODE = '40001';
   END IF;
 
