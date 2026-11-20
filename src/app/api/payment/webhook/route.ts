@@ -27,6 +27,7 @@ import {
   getPaymentStatus,
   getRefund,
   isYookassaConfigured,
+  refundPayment,
 } from "@/lib/yookassa";
 
 export const runtime = "nodejs";
@@ -288,6 +289,44 @@ export async function POST(request: NextRequest) {
             `[webhook] AMOUNT_MISMATCH order=${orderId} expected_kop=${expectedKop} order_kop=${orderKop} got_kop=${wireKop} — платёж НЕ зачислен`
           );
           return NextResponse.json({ success: true, skipped: "amount_mismatch" });
+        }
+
+        // Если подтверждение оплаты пришло ПОСЛЕ отмены заказа, деньги
+        // нельзя помещать в escrow или оставлять без возврата. Отправляем
+        // полный остаток назад провайдеру. Ключ совпадает с cancel-route
+        // (refundPayment default), поэтому параллельные/повторные webhook
+        // не создадут второй возврат.
+        if (order.status === "CANCELLED") {
+          if (payment?.status === "refunded") {
+            return NextResponse.json({ success: true, skipped: "already_refunded" });
+          }
+          const refundAmount = Math.max(
+            0,
+            Number(payment?.amount ?? order.total) - Number(payment?.refund_amount ?? 0)
+          );
+          if (refundAmount > 0) {
+            const lateRefund = await refundPayment(
+              providerPaymentId,
+              refundAmount,
+              `Автоматический возврат по отменённому заказу ${order.number || orderId}`
+            );
+            if (!lateRefund.success) {
+              console.error("[webhook] late-cancel refund failed; YooKassa retry required:", lateRefund.error);
+              return NextResponse.json({ error: "Late cancellation refund failed" }, { status: 500 });
+            }
+          }
+          if (payment) {
+            const { error: latePaymentUpdateError } = await supabaseAdmin
+              .from("payments")
+              .update({ status: "succeeded", updated_at: new Date().toISOString() })
+              .eq("id", payment.id)
+              .in("status", ["pending", "waiting_for_capture", "succeeded", "cancelled"]);
+            if (latePaymentUpdateError) {
+              console.error("[webhook] late-cancel payment update failed:", latePaymentUpdateError.message);
+              return NextResponse.json({ error: "DB error" }, { status: 500 });
+            }
+          }
+          return NextResponse.json({ success: true, refundInitiated: refundAmount > 0 });
         }
 
         // Статус платежа — только после проверки суммы
