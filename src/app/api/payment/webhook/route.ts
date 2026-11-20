@@ -95,8 +95,10 @@ async function verifyEventWithProvider(
   }
 
   if (event === "refund.succeeded") {
+    if (object.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
     const res = await getRefund(object.id);
     if (!res.success || !res.refund) return { ok: false };
+    if (res.refund.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
     if (res.refund.status !== "succeeded") return { ok: true, skip: "provider_mismatch" };
     if (object.payment_id && res.refund.payment_id && res.refund.payment_id !== object.payment_id) {
       return { ok: true, skip: "provider_mismatch" };
@@ -363,7 +365,7 @@ export async function POST(request: NextRequest) {
         // полный остаток назад провайдеру. Ключ совпадает с cancel-route
         // (refundPayment default), поэтому параллельные/повторные webhook
         // не создадут второй возврат.
-        if (order.status === "CANCELLED" || order.status === "REFUNDED") {
+        if (order.status === "CANCELLED" || order.status === "REFUNDED" || order.status === "COMPLETED") {
           if (payment?.status === "refunded") {
             return NextResponse.json({ success: true, skipped: "already_refunded" });
           }
@@ -424,6 +426,7 @@ export async function POST(request: NextRequest) {
           .neq("payment_status", "escrow")
           .neq("status", "CANCELLED")
           .neq("status", "REFUNDED")
+          .neq("status", "COMPLETED")
           .select("id");
         if (casErr) {
           console.error("[webhook] escrow CAS failed:", casErr.message);
