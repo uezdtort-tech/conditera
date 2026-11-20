@@ -160,11 +160,15 @@ export async function POST(request: NextRequest) {
     // === 1. Матчинг платежа по provider id (точный) ===
     // Для refund.* объект — возврат, платёж ищем по object.payment_id.
     const providerPaymentId = object.payment_id || object.id;
-    const { data: byProvider } = await supabaseAdmin
+    const { data: byProvider, error: byProviderError } = await supabaseAdmin
       .from("payments")
       .select("id, order_id, amount, status, refund_amount")
       .eq("yookassa_payment_id", providerPaymentId)
       .maybeSingle();
+    if (byProviderError) {
+      console.error("[webhook] exact provider payment lookup failed:", byProviderError.message);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
     let payment = (byProvider as PaymentRow | null) ?? null;
 
     // === 2. Legacy fallback ===
