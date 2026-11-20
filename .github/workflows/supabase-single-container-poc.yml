@@ -84,6 +84,7 @@ jobs:
           PY
           node scripts/compose-single-runtime.mjs config
           if node scripts/compose-single-runtime.mjs up -d; then echo "Launcher must require explicit PG17 cutover approval" >&2; exit 1; fi
+          if node scripts/compose-single-runtime.mjs --profile simplex up -d; then echo "Launcher must not bypass approval when options precede up" >&2; exit 1; fi
           if node scripts/compose-single-runtime.mjs --profile legacy-supabase config; then echo "Launcher must reject legacy profiles" >&2; exit 1; fi
           if node scripts/compose-single-runtime.mjs down --volumes; then echo "Launcher must protect named volumes" >&2; exit 1; fi
 
