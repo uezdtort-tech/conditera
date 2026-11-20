@@ -47,6 +47,18 @@ export async function POST(
       );
     }
 
+    // Нельзя закрыть производственные этапы до фактического запуска
+    // производства или повторно после READY/передачи.
+    if (order.status !== "PREPARING") {
+      return NextResponse.json(
+        {
+          error: "INVALID_PRODUCTION_STATE",
+          message: `Завершение производства возможно только в статусе PREPARING (сейчас ${order.status})`,
+        },
+        { status: 409 }
+      );
+    }
+
     // Чеклист
     const data = await loadOrderItemsData(id);
     const categorySlug = data?.items.find((i) => i.categorySlug)?.categorySlug ?? null;
