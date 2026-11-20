@@ -212,7 +212,13 @@ async function main() {
   const lc1 = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: admin });
   assert("после assign: assigned", lc1.json?.derived?.assignmentStatus === "assigned", JSON.stringify(lc1.json?.derived));
 
-  // Кондитер принимает заказ (PENDING → CONFIRMED) — фикс ошибки accept-роута
+  // P0: прямой accept не должен обходить платёжный gate.
+  const unpaidOrder = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: tomorrowStr, escrow: false });
+  testOrders.push(unpaidOrder.orderId);
+  const unpaidAccept = await api("POST", `/api/orders/${unpaidOrder.orderId}/accept`, { token: owner });
+  assert("accept неоплаченного card-заказа → 422 PAYMENT_NOT_CONFIRMED", unpaidAccept.status === 422 && unpaidAccept.json?.error === "PAYMENT_NOT_CONFIRMED", JSON.stringify(unpaidAccept.json).slice(0, 160));
+
+  // Кондитер принимает оплаченный заказ (PENDING → CONFIRMED) — lifecycle engine
   const accept = await api("POST", `/api/orders/${o1.orderId}/accept`, { token: owner });
   assert("accept (PENDING → CONFIRMED) → 200", accept.status === 200, JSON.stringify(accept.json).slice(0, 160));
 
