@@ -187,9 +187,8 @@ touch "$kong_root/tmp/kong-error.log"
 touch "$kong_root/tmp/kong-proxy-access.log"
 touch "$kong_root/tmp/kong-admin-access.log"
 chmod 1777 "$kong_root/tmp"
-chown "$kong_user_spec" "$kong_root/tmp/kong-error.log"
-chown "$kong_user_spec" "$kong_root/tmp/kong-proxy-access.log"
-chown "$kong_user_spec" "$kong_root/tmp/kong-admin-access.log"
+# Root Kong master opens these log files before Nginx workers drop to kong.
+chmod 0644 "$kong_root/tmp/kong-error.log" "$kong_root/tmp/kong-proxy-access.log" "$kong_root/tmp/kong-admin-access.log"
 sed \
   -e "s|http://supabase-auth:9999|http://127.0.0.1:9999|g" \
   -e "s|http://supabase-rest:3000|http://127.0.0.1:3000|g" \
