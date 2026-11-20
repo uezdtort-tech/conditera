@@ -34,6 +34,23 @@ conditera.ru, www.conditera.ru {
                 header Pragma "no-cache"
         }
 
+        # Third-party Edge Function webhooks are routed through Kong. The
+        # client address is overwritten here (not trusted from caller input)
+        # and forwarded to the webhook worker for YooKassa IP validation.
+        @supabase_functions path /api/functions/v1/*
+        handle @supabase_functions {
+                uri strip_prefix /api
+                reverse_proxy supabase-kong:8000 {
+                        header_up X-Real-IP {remote_host}
+                        transport http {
+                                read_timeout 60s
+                                write_timeout 60s
+                                dial_timeout 5s
+                        }
+                }
+                header Cache-Control "no-store, no-cache, must-revalidate, private"
+        }
+
         @supabase_api path /api/rest/v1/* /api/realtime/v1/* /api/storage/v1/*
         handle @supabase_api {
                 uri strip_prefix /api
