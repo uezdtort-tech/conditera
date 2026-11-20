@@ -182,7 +182,8 @@ async function main() {
   const admin = await login("admin@demo.ru");
   const owner = await login("confectioner@demo.ru");
   const customer = await login("customer@demo.ru");
-  assert("логины admin/confectioner/customer", Boolean(admin && owner && customer));
+  const courier = await login("courier@demo.ru");
+  assert("логины admin/confectioner/customer/courier", Boolean(admin && owner && customer && courier));
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const tomorrowStr = isoDate(tomorrow);
@@ -279,11 +280,23 @@ async function main() {
   const ready = await api("POST", `/api/orders/${o1.orderId}/ready`, { token: owner });
   assert("ready после фото → 200 (READY)", ready.status === 200, JSON.stringify(ready.json).slice(0, 160));
 
-  const handoff = await api("POST", `/api/orders/${o1.orderId}/handoff`, { token: owner, body: { executor: "Курьер Иван" } });
+  const handoff = await api("POST", `/api/orders/${o1.orderId}/handoff`, { token: owner, body: { executor: "Курьер Демо" } });
   assert("handoff (delivery) → IN_DELIVERY", handoff.status === 200 && handoff.json?.status === "IN_DELIVERY", JSON.stringify(handoff.json).slice(0, 160));
 
-  const patchDelivered = await api("PATCH", `/api/orders/${o1.orderId}`, { token: admin, body: { status: "DELIVERED" } });
-  assert("PATCH DELIVERED (курьерский переход) → 200", patchDelivered.status === 200, JSON.stringify(patchDelivered.json).slice(0, 120));
+  const courierAvailable = await api("GET", "/api/courier/available-orders", { token: courier });
+  assert("заказ появляется у курьера только после handoff", courierAvailable.status === 200 && (courierAvailable.json?.orders || []).some((o) => o.id === o1.orderId), JSON.stringify(courierAvailable.json).slice(0, 160));
+
+  const courierAssign = await api("POST", "/api/courier/assign", { token: courier, body: { orderId: o1.orderId } });
+  assert("курьер принимает переданный ему заказ → 200", courierAssign.status === 200 && courierAssign.json?.courierId === "11111111-1111-4111-8111-111111111113", JSON.stringify(courierAssign.json).slice(0, 160));
+
+  const courierOrder = await api("GET", `/api/orders/${o1.orderId}`, { token: courier });
+  assert("назначенный курьер открывает карточку заказа → 200", courierOrder.status === 200, JSON.stringify(courierOrder.json).slice(0, 120));
+
+  const courierMedia = await api("GET", mediaUrl, { token: courier });
+  assert("назначенный курьер открывает фото готового изделия → 200", courierMedia.status === 200);
+
+  const patchDelivered = await api("PATCH", `/api/orders/${o1.orderId}`, { token: courier, body: { status: "DELIVERED" } });
+  assert("PATCH DELIVERED назначенным курьером → 200", patchDelivered.status === 200, JSON.stringify(patchDelivered.json).slice(0, 120));
 
   const done = await api("POST", `/api/orders/${o1.orderId}/complete`, { token: customer });
   assert("complete (клиент) → COMPLETED", done.status === 200 && done.json?.status === "COMPLETED", JSON.stringify(done.json).slice(0, 160));
