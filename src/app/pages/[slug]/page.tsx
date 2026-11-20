@@ -17,7 +17,7 @@ type CmsPage = {
 };
 
 async function getPublishedPage(slug: string): Promise<CmsPage | null> {
-  if (!/^[a-zA-Z0-9а-яА-Я_-]{1,120}$/.test(slug)) return null;
+  if (!/^[a-zA-Z0-9а-яА-ЯёЁ-]{1,120}$/.test(slug)) return null;
   const { data, error } = await supabaseAdmin
     .from("cms_pages")
     .select("slug,title,description,content,seo_title,seo_description")
