@@ -259,7 +259,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // нескольких кондитеров не должна целиком назначаться владельцу первой
       // позиции: это приводит к неверной себестоимости, рецептурам и выплатам.
       const sellerIds = new Set(products.map((p) => p.confectioner_id).filter((id): id is string => Boolean(id)));
-      if (sellerIds.size > 1) {
+      const hasUnassignedProduct = products.some((p) => !p.confectioner_id);
+      if (sellerIds.size > 1 || (sellerIds.size === 1 && hasUnassignedProduct)) {
         return NextResponse.json(
           {
             error: "В одной оплате могут быть товары только одного кондитера. Разделите корзину на отдельные заказы.",
