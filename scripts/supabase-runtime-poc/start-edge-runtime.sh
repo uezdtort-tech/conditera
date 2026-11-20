@@ -27,7 +27,7 @@ fi
 # Pass only Edge Runtime/function secrets. In particular, never expose the
 # PostgreSQL superuser or Conditera DB password to user function workers.
 exec env -i \
-  PATH=/usr/local/bin:/usr/bin:/bin \
+  PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin \
   DENO_DIR=/root/.cache/deno \
   JWT_SECRET="$JWT_SECRET" \
   VERIFY_JWT=true \
