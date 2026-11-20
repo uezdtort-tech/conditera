@@ -170,7 +170,16 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$(docker ps -q --filter label=conditera.runtime=single-container-poc | wc -l)" -eq 1
-          docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status
+          supervisor_status="$(docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status || true)"
+          printf '%s\\n' "$supervisor_status"
+          printf '%s\\n' "$supervisor_status" | awk '
+            $1 == "app-migrations" {
+              if ($2 != "EXITED") bad=1
+              next
+            }
+            $2 != "RUNNING" { bad=1 }
+            END { exit bad }
+          '
           ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
           request() {
             local name="$1"
