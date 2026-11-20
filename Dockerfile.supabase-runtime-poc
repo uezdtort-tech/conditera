@@ -47,6 +47,11 @@ COPY supabase/init-scripts/02-realtime-schema.sql \
 # image. The image release bundles this versioned dump under the app priv dir.
 COPY --from=realtime /app/lib/realtime-2.148.3/priv/repo/tenant_db_dump_17.sql \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-tenant-db-dump.sql
+# Application migrations run once, inside this same runtime container, after
+# PostgreSQL and the Storage API have initialized their managed schemas.
+COPY supabase/migrations/ /opt/supabase/services/postgres/opt/conditera/migrations/
+COPY supabase/init-scripts/01-apply-migrations.sh \
+  /opt/supabase/services/postgres/opt/conditera/apply-migrations.sh
 
 COPY scripts/supabase-runtime-poc/ /usr/local/lib/supabase-runtime-poc/
 COPY scripts/supabase-runtime-poc/supervisord.conf /etc/supervisord.conf
