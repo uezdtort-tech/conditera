@@ -22,6 +22,7 @@ x-default-restart: &default-restart
 services:
   # ===== Migrator (init-контейнер — применяет миграции БД один раз) =====
   migrator:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -53,6 +54,7 @@ services:
 
   # ===== Веб-приложение (Next.js) =====
   web:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -147,6 +149,7 @@ services:
   # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
   # с резервной копией и контрольной сверкой данных.
   db:
+    profiles: ["legacy-app-db"]
     image: postgres:18-alpine
     container_name: conditera-db
     <<: *default-restart
@@ -184,6 +187,7 @@ services:
   # session-level features (temp tables, SET без транзакции, LISTEN/NOTIFY).
   # Для Prisma этого достаточно — все запросы в явных транзакциях.
   pgbouncer:
+    profiles: ["legacy-app-db"]
     image: pgbouncer/pgbouncer:latest
     container_name: conditera-pgbouncer
     <<: *default-restart
@@ -244,6 +248,7 @@ services:
   # Индексация через API endpoint /api/search/reindex.
   # Заменяет медленный ILIKE '%...%' в PostgreSQL.
   meilisearch:
+    profiles: ["legacy-app-db"]
     image: getmeili/meilisearch:v1.12
     container_name: conditera-meilisearch
     <<: *default-restart
@@ -284,6 +289,7 @@ services:
 
   # ===== Redis (кэш, сессии, Socket.IO adapter, rate-limiting) =====
   redis:
+    profiles: ["legacy-app-db"]
     image: redis:7-alpine
     container_name: conditera-redis
     <<: *default-restart
@@ -311,6 +317,7 @@ services:
 
   # ===== Сервис чата (Socket.IO) =====
   chat-service:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile.chat
@@ -349,6 +356,7 @@ services:
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, сгорание бонусов) =====
   n8n:
+    profiles: ["legacy-app-db"]
     image: n8nio/n8n:1.95.0
     container_name: conditera-n8n
     <<: *default-restart
@@ -389,6 +397,7 @@ services:
 
   # ===== Caddy (обратный прокси + HTTPS) =====
   caddy:
+    profiles: ["legacy-app-db"]
     image: caddy:2.8-alpine
     container_name: conditera-caddy
     <<: *default-restart
