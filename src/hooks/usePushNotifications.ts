@@ -38,6 +38,7 @@ export function usePushNotifications(enabled = true) {
             body: JSON.stringify(subscription.toJSON()),
           });
           if (!saved.ok) {
+            setIsSubscribed(false);
             throw new Error("Не удалось синхронизировать push-подписку с аккаунтом");
           }
         }
@@ -68,17 +69,35 @@ export function usePushNotifications(enabled = true) {
       if (!publicKey) throw new Error("Сервер не вернул публичный VAPID-ключ");
 
       const registration = await navigator.serviceWorker.ready;
+      const applicationServerKey = urlBase64ToUint8Array(publicKey) as BufferSource;
       const existing = await registration.pushManager.getSubscription();
-      const subscription = existing ?? await registration.pushManager.subscribe({
+      let subscription = existing ?? await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+        applicationServerKey,
       });
 
-      const saveResponse = await csrfFetch("/api/notifications/push-subscribe", {
+      let saveResponse = await csrfFetch("/api/notifications/push-subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(subscription.toJSON()),
       });
+
+      // A browser may retain a subscription created while another account was
+      // active. On an ownership conflict, rotate the browser endpoint in the
+      // current user gesture and register the new subscription.
+      if (saveResponse.status === 409 && existing) {
+        await existing.unsubscribe();
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+        saveResponse = await csrfFetch("/api/notifications/push-subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(subscription.toJSON()),
+        });
+      }
+
       if (!saveResponse.ok) {
         const payload = await saveResponse.json().catch(() => null) as { error?: string } | null;
         throw new Error(payload?.error || "Не удалось сохранить push-подписку");
