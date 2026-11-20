@@ -52,6 +52,8 @@ import {
   FileText,
   Video,
   Music2,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -197,6 +199,57 @@ export function AdminCmsHomeTab() {
     }
   };
 
+  const moveBlock = async (block: CmsHomeBlock, direction: -1 | 1) => {
+    if (saving) return;
+    const siblings = cmsBlocks
+      .filter((item) => item.section === block.section)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    const currentIndex = siblings.findIndex((item) => item.id === block.id);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
+
+    const reordered = [...siblings];
+    const [moving] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moving);
+    const previousOrders = new Map(siblings.map((item) => [item.id, item.sortOrder]));
+    setSaving(true);
+    try {
+      const saved: CmsHomeBlock[] = [];
+      for (const [index, item] of reordered.entries()) {
+        const sortOrder = (index + 1) * 10;
+        if (item.sortOrder === sortOrder) continue;
+        const response = await csrfFetch(`/api/cms/blocks/${item.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sortOrder }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Не удалось изменить порядок блоков");
+        saved.push(mapCmsHomeBlock(payload.block));
+      }
+      setCmsBlocks((current) => current.map((item) => {
+        const updated = saved.find((candidate) => candidate.id === item.id);
+        return updated || item;
+      }));
+      toast.success("Порядок блоков сохранён");
+    } catch (error) {
+      // Best-effort rollback prevents a partially reordered section after a failed request.
+      for (const item of siblings) {
+        const previousOrder = previousOrders.get(item.id);
+        if (previousOrder === undefined) continue;
+        await csrfFetch(`/api/cms/blocks/${item.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ sortOrder: previousOrder }),
+        }).catch(() => undefined);
+      }
+      await loadBlocks().catch(() => undefined);
+      toast.error("Не удалось изменить порядок", {
+        description: error instanceof Error ? error.message : "Неизвестная ошибка",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const removeBlock = async (block: CmsHomeBlock) => {
     if (saving) return;
     setSaving(true);
@@ -295,6 +348,30 @@ export function AdminCmsHomeTab() {
                         {block.linkText && <Badge variant="secondary" className="text-[9px] mt-1">{block.linkText} → {block.link}</Badge>}
                       </div>
                       <div className="flex gap-1 shrink-0">
+                        <div className="flex flex-col">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-7"
+                            aria-label="Переместить блок выше"
+                            title="Переместить выше"
+                            disabled={saving || blocks[0]?.id === block.id}
+                            onClick={() => moveBlock(block, -1)}
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-7"
+                            aria-label="Переместить блок ниже"
+                            title="Переместить ниже"
+                            disabled={saving || blocks[blocks.length - 1]?.id === block.id}
+                            onClick={() => moveBlock(block, 1)}
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                         <Button size="icon" variant="ghost" className="h-7 w-7" disabled={saving} onClick={() => { setEditingId(block.id); setEditValues({ ...block }); }}>
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
