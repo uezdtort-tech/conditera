@@ -46,6 +46,7 @@ import {
   AlertTriangle,
   Gift,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
