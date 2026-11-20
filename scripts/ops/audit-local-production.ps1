@@ -49,7 +49,8 @@ function Get-DockerRuntimeInventory {
           }
         }
       }
-      $health = if ($null -ne $item.State.Health) { $item.State.Health.Status } else { "no-healthcheck" }
+      $healthProperty = $item.State.PSObject.Properties["Health"]
+      $health = if ($null -ne $healthProperty -and $null -ne $healthProperty.Value) { $healthProperty.Value.Status } else { "no-healthcheck" }
       $exposedPorts = @()
       if ($null -ne $item.Config.ExposedPorts) {
         $exposedPorts = @($item.Config.ExposedPorts.PSObject.Properties.Name)
@@ -155,7 +156,8 @@ function Get-ContainerInventory {
   $inspectArray = ConvertFrom-Json -InputObject $inspectText
   $inspect = @($inspectArray)[0]
   $state = $inspect.State.Status
-  $health = if ($null -ne $inspect.State.Health) { $inspect.State.Health.Status } else { "no-healthcheck" }
+  $healthProperty = $inspect.State.PSObject.Properties["Health"]
+  $health = if ($null -ne $healthProperty -and $null -ne $healthProperty.Value) { $healthProperty.Value.Status } else { "no-healthcheck" }
 
   $base = [ordered]@{
     container = $Name
@@ -355,15 +357,15 @@ if ($app.databaseAuditStatus -ne "success" -or $supabase.databaseAuditStatus -ne
   exit 3
 }
 if (-not $sameCluster) {
-  Write-Error "SPLIT_POSTGRES_CLUSTERS: приложение и Supabase подключены к разным PostgreSQL-кластерам. Production cutover запрещён."
+  Write-Warning "SPLIT_POSTGRES_CLUSTERS: приложение и Supabase подключены к разным PostgreSQL-кластерам. Production cutover запрещён."
   exit 4
 }
 if (-not $sameDatabase) {
-  Write-Error "SPLIT_POSTGRES_DATABASES: подключения ведут в разные базы одного кластера. Единый источник данных не подтверждён."
+  Write-Warning "SPLIT_POSTGRES_DATABASES: подключения ведут в разные базы одного кластера. Единый источник данных не подтверждён."
   exit 5
 }
 if (-not $samePostgresProcess) {
-  Write-Error "SPLIT_POSTGRES_ENDPOINTS: подключения завершаются в разных процессах PostgreSQL или один endpoint является standby. Единая рабочая точка записи не подтверждена."
+  Write-Warning "SPLIT_POSTGRES_ENDPOINTS: подключения завершаются в разных процессах PostgreSQL или один endpoint является standby. Единая рабочая точка записи не подтверждена."
   exit 6
 }
 Write-Host "OK: оба подключения ведут в одну базу и один процесс PostgreSQL вне recovery."
