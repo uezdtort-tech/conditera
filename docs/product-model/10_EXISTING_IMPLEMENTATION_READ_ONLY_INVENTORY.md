@@ -490,3 +490,91 @@ Webhook обрабатывает `payment.waiting_for_capture` в том же б
 7. Отзыв роли/блокировка/soft-delete сразу после выдачи JWT; все маршруты должны применить изменение без ожидания истечения JWT.
 8. DaData timeout/5xx/unknown: аккаунт остаётся в явно ограниченном состоянии до успешной проверки/ручного решения.
 
+
+
+### 7.9. Заказ: параллельные машины статусов и обход обязательных гейтов
+
+Проверены:
+- `src/app/api/orders/[id]/route.ts` (PATCH и GET);
+- `src/lib/ops/lifecycle.ts`;
+- `src/lib/ops/order-access.ts`;
+- `src/app/api/orders/[id]/ready/route.ts`;
+- `src/app/api/orders/[id]/production/start/route.ts`;
+- `src/app/api/orders/[id]/handoff/route.ts`;
+- `src/app/api/orders/[id]/complete/route.ts`;
+- `src/app/api/orders/[id]/assign/route.ts`;
+- `supabase/migrations/0001_init.sql`;
+- `scripts/db/setup.mjs`;
+- клиенты `src/lib/use-dashboard-data.ts`, `src/lib/use-real-orders.ts` и E2E `scripts/verify/order-lifecycle-verify.mjs`.
+
+#### P0 — старый PATCH остаётся активным и обходит lifecycle engine
+
+`PATCH /api/orders/[id]` продолжает использоваться в dashboard-клиентах и проверяется E2E. Он реализует собственную таблицу `STATUS_TRANSITIONS`, самостоятельно читает заказ через `supabaseAdmin`, проверяет роли и затем без CAS обновляет `orders.status` только по `id`.
+
+В отличие от `applyOrderTransition`, этот PATCH:
+- не проверяет `payment_status` перед PENDING → CONFIRMED;
+- переводит PREPARING → READY без чеклиста и ready-photo gate;
+- допускает IN_DELIVERY → DELIVERED без отдельного handoff proof;
+- допускает DELIVERED → REFUNDED по роли ADMIN/SUPER_ADMIN/INSPECTOR, но не вызывает платёжный refund use case, не меняет `payment_status`, не создаёт refund record и не проверяет фактическое поступление денег;
+- не пишет `order_status_history`;
+- не использует CAS по исходному статусу: конкурентный запрос может перезаписать состояние, прочитанное ранее;
+- публикует только общий `order.status_changed`, не обеспечивая согласованность с полным набором событий и side effects lifecycle engine.
+
+Новые endpoint'ы `/ready`, `/production/start`, `/handoff`, `/complete` используют `applyOrderTransition` и отдельные проверки. Но наличие этих endpoint'ов не защищает от обхода, пока старый PATCH доступен клиентам и API.
+
+**P0 — особенно опасно:** `PATCH {status:"REFUNDED"}` является только изменением бизнес-статуса. Это может показать заказ «возвращённым» без реального возврата денег; `payment_status` останется прежним.
+
+**Статус:** CODE VERIFIED. Нужен один публичный переходный API/доменный use case; старые клиенты должны быть переведены на него, а PATCH либо стать тонкой обёрткой над engine с теми же гейтами, либо запретить опасные переходы. REFUNDED должен быть результатом подтверждённой финансовой операции, а не самостоятельным статусным PATCH.
+
+#### P0 — прямой PATCH может подтвердить неоплаченный заказ и обойти фото/QC
+
+В старом PATCH нет условия `payment_confirmed_or_cash`, которое есть в lifecycle engine для PENDING → CONFIRMED. Также PREPARING → READY не вызывает `checkReadyGate`; обязательность чеклиста и фото проверяется только в отдельном POST `/ready`.
+
+Следовательно, вызов PATCH напрямую может:
+- подтвердить заказ, для которого платёж не подтверждён и способ оплаты не cash;
+- поставить READY без завершения производственного чеклиста;
+- поставить READY без фото готовности для категории, где `readyPhotoRequiredForCategory` требует фото.
+
+Это не гипотетическая разница UI: серверный PATCH сам принимает эти переходы и не вызывает соответствующие проверки.
+
+**Статус:** CODE VERIFIED, P0. Обязательные негативные тесты — прямой PATCH для unpaid order, незавершённого checklist и категории с обязательным фото; все должны быть отклонены.
+
+#### P1 — бизнес-статус и история могут расходиться между двумя БД и двумя реализациями
+
+`PATCH /api/orders/[id]` читает/пишет `orders` через `supabaseAdmin`; lifecycle engine, `loadOrderLite`, производство и связанные операции читают/пишут `orders` через `getPool()`. Согласно уже зафиксированной карте подключений, это потенциально PG15 и PG18 соответственно.
+
+Даже если каждая реализация локально использует свои проверки, CAS/транзакция на PG18 не сериализует конкурентную запись, пришедшую через PG15. Фактическая синхронизация строк между этими кластерами не доказана.
+
+**Статус:** CODE VERIFIED для двух разных writer paths; NEEDS RUNTIME VERIFICATION для реального расположения данных и репликации. До подтверждения единого источника истины нельзя считать lifecycle engine единственной машиной состояний.
+
+#### P1 — регистрация не деактивирует CUSTOMER, автоматически добавленный триггером
+
+`supabase/migrations/0001_init.sql` содержит `on_auth_user_created`, который вставляет активную роль CUSTOMER. `POST /api/auth/register` затем делает UPSERT выбранной роли, но не деактивирует CUSTOMER для ролей CONFECTIONER/COURIER/SUPPLIER и других. В отличие от этого, `scripts/db/setup.mjs` явно деактивирует CUSTOMER у пользователей с ролью не CUSTOMER.
+
+В `POST /api/orders/[id]/complete`:
+- клиент-владелец определяется отдельно;
+- не-владелец может пройти предварительную проверку как назначенный кондитер через `canOperateOrder`;
+- затем `actorRoles` передаются целиком в lifecycle engine;
+- переход DELIVERED → COMPLETED разрешён роли CUSTOMER или ADMIN/SUPER_ADMIN.
+
+Если зарегистрированный кондитер сохранил активную CUSTOMER из auth trigger, он может пройти роль-гейт как CUSTOMER на заказе, который ему назначен, хотя не является владельцем заказа. В самом `applyOrderTransition` проверка ownership для CUSTOMER отсутствует.
+
+**Статус:** CODE VERIFIED для несовпадающей обработки ролей в register vs setup и для логики complete; наличие активных CUSTOMER у реальных кондитеров — NEEDS RUNTIME VERIFICATION. Нужен тест с пользователем CUSTOMER+CONFECTIONER, назначенным на чужой заказ: он не должен иметь право подтверждать получение/завершение от имени покупателя. Роль должна интерпретироваться как контекст конкретного действия, а не как простое наличие любой роли.
+
+#### P1 — lifecycle engine заявляет SELECT FOR UPDATE, но фактический SELECT не блокирует строку
+
+Комментарий `applyOrderTransition` утверждает `FOR UPDATE + CAS`, но фактический SQL `SELECT ... FROM public.orders WHERE id=$1 LIMIT 1` не содержит `FOR UPDATE`. CAS UPDATE по `status=from` защищает от двух конкурентных переходов внутри одной и той же БД и одной машины, но не от независимых writers на другом кластере/через другой API. Чеклист/QC читается до CAS и без блокировки заказа.
+
+**Статус:** CODE VERIFIED для отсутствия FOR UPDATE. Само по себе отсутствие блокировки не доказывает двойной переход в рамках одного writer path из-за CAS; риск становится существенным при параллельном старом PATCH и PG15/PG18 split. Необходимо либо реально блокировать агрегат, либо доказать достаточность единой атомарной RPC и убрать конкурирующих писателей.
+
+#### Приоритетные сценарии приёмки order lifecycle
+
+1. PENDING + payment_status=pending + payment_method=card → PATCH CONFIRMED должен быть отклонён.
+2. PREPARING + неполный checklist → любой API-путь в READY должен быть отклонён.
+3. Категория с обязательным фото, но без approved ready_photo → READY должен быть отклонён через все API-пути.
+4. DELIVERED → PATCH REFUNDED не должен менять статус без успешного refund workflow.
+5. Два конкурентных перехода из одного статуса через разные API/подключения PG15 и PG18.
+6. Клиент, назначенный кондитером на чужой заказ и имеющий роли CUSTOMER+CONFECTIONER, не может завершить заказ как покупатель.
+7. Любой courier может менять только назначенные ему deliveries; прямые PATCH и handoff не должны обходить назначение/доказательство передачи.
+8. Каждый успешный переход имеет одну запись истории, один доменный event ID и восстанавливаемые side effects.
+
