@@ -254,6 +254,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
       for (const p of products) productsMap.set(p.id, p);
+
+      // Один заказ — один производственный исполнитель. Смешанная корзина
+      // нескольких кондитеров не должна целиком назначаться владельцу первой
+      // позиции: это приводит к неверной себестоимости, рецептурам и выплатам.
+      const sellerIds = new Set(products.map((p) => p.confectioner_id).filter((id): id is string => Boolean(id)));
+      if (sellerIds.size > 1) {
+        return NextResponse.json(
+          {
+            error: "В одной оплате могут быть товары только одного кондитера. Разделите корзину на отдельные заказы.",
+            code: "MULTIPLE_CONFECTIONERS",
+          },
+          { status: 422 }
+        );
+      }
     }
 
     // 3a. Начинки конструктора: DB (APPROVED) + mock — единый справочник с клиентом
@@ -439,12 +453,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           );
         }
       } catch (accErr) {
-        // Движок недоступен/ошибка — НЕ блокируем checkout (fail-open,
-        // документировано): заказ создаётся, риск пересчитается при назначении.
-        console.warn(
-          "[checkout] acceptance check failed (fail-open):",
+        // В production нельзя принимать оплату и обещать срок, если движок
+        // не смог проверить рецептуру/склад/мощность. Fail-closed защищает
+        // покупателя и кондитера от заведомо невыполнимого заказа.
+        console.error(
+          "[checkout] acceptance check failed:",
           accErr instanceof Error ? accErr.message : accErr
         );
+        if (process.env.NODE_ENV === "production") {
+          return NextResponse.json(
+            { error: "Не удалось проверить возможность изготовления заказа. Повторите попытку позже.", code: "ACCEPTANCE_UNAVAILABLE" },
+            { status: 503 }
+          );
+        }
       }
     }
 
