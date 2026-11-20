@@ -119,7 +119,7 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     const { searchParams } = new URL(req.url);
     const endpoint = searchParams.get("endpoint");
 
-    if (!endpoint) {
+    if (!endpoint || endpoint.length > 4096 || !isAllowedPushEndpoint(endpoint)) {
       return NextResponse.json(
         { error: "Missing endpoint query parameter" },
         { status: 400 }
