@@ -133,11 +133,11 @@ const runtimeMounts = runtime.volumes || [];
 const pg17Mount = runtimeMounts.find((mount) =>
   mount.target === "/opt/supabase/services/postgres/var/lib/postgresql/data"
 );
-if (!pg17Mount || pg17Mount.source !== "supabase_runtime_pg17_data") {
+if (!pg17Mount || !String(pg17Mount.source || "").includes("supabase_runtime_pg17_data")) {
   fail("Не найден отдельный именованный volume PostgreSQL 17.");
 }
 if (runtimeMounts.some((mount) =>
-  ["postgres_data_v18", "supabase_db_data", "supabase_pg17_migration_data"].includes(mount.source)
+  ["postgres_data_v18", "supabase_db_data", "supabase_pg17_migration_data"].some((legacy) => String(mount.source || "").includes(legacy))
 )) {
   fail("В PG17 Runtime подключён legacy/migration volume; запуск остановлен.");
 }
