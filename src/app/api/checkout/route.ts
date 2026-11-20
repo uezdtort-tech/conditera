@@ -26,6 +26,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { invokeInternalEdgeFunction } from "@/lib/supabase/edge-functions";
 // Единый auth-контракт (Bearer + cookie cd_session): getSession() требовал
 // GoTrue (/auth/v1 — 501-стаб в локальном runtime) и всегда отдавал 401.
 import { getUserFromRequest } from "@/lib/auth";
@@ -707,21 +708,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // 9. Уведомление через Edge Function
+    // 9. Уведомление через внутренний Edge Function route (service_role через Kong).
     try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      if (supabaseUrl) {
-        await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "order_created",
-            orderId: order.number,
-            amount: total, // рубли
-            customer: user.email,
-          }),
-        });
-      }
+      await invokeInternalEdgeFunction("send-notification", {
+        type: "order_created",
+        orderId: order.number,
+        amount: total, // рубли
+        customer: user.email,
+      });
     } catch (e) {
       console.warn("[checkout] Notification send error:", (e as Error).message);
     }
