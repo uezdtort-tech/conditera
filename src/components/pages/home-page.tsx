@@ -129,7 +129,7 @@ function useCmsHomepageSections() {
     fetch("/api/cms/sections?public=true", { signal: controller.signal, cache: "no-store" })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS sections unavailable")))
       .then((payload: { sections?: PublicCmsHomeSection[] }) => {
-        if (!controller.signal.aborted && Array.isArray(payload.sections)) setSections(payload.sections);
+        if (!controller.signal.aborted && Array.isArray(payload.sections) && payload.sections.length === DEFAULT_CMS_HOME_SECTIONS.length) setSections(payload.sections);
       })
       .catch(() => {
         // Preserve built-in defaults when CMS is temporarily unavailable.
