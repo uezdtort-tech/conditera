@@ -11,7 +11,7 @@ import { toast } from "sonner";
  */
 export function PushNotificationManager() {
   const user = useAppStore((s) => s.user);
-  const { isSupported, permission, isSubscribed, subscribe } = usePushNotifications(!!user);
+  const { isSupported, permission, isSubscribed, subscribe } = usePushNotifications(!!user, user?.id);
 
   const requestPermission = useCallback(async () => {
     try {
