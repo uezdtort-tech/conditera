@@ -120,6 +120,13 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-Conditera}
+      # Secrets for the Edge Function workers. start-edge-runtime.sh passes
+      # only these allowlisted values into the isolated function workers.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHANNEL_ID: ${TELEGRAM_CHANNEL_ID:-@conditera}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:-}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:-}
       EXTERNAL_GOOGLE_ENABLED: ${EXTERNAL_GOOGLE_ENABLED:-false}
       EXTERNAL_GOOGLE_CLIENT_ID: ${EXTERNAL_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID:-}}
       EXTERNAL_GOOGLE_SECRET: ${EXTERNAL_GOOGLE_SECRET:-${GOOGLE_CLIENT_SECRET:-}}
