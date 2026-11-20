@@ -25,7 +25,7 @@ function fail(message) {
 }
 
 const userArgs = process.argv.slice(2);
-const composeCommands = new Set(["up", "start", "restart", "run", "scale", "down", "stop", "ps", "logs", "config", "build", "pull", "exec", "rm", "create", "kill", "pause", "unpause", "top", "events", "images", "port", "wait", "cp", "push", "watch", "version"]);
+const composeCommands = new Set(["up", "start", "restart", "run", "scale", "down", "stop", "ps", "logs", "config", "build", "pull", "exec", "rm", "volume", "create", "kill", "pause", "unpause", "top", "events", "images", "port", "wait", "cp", "push", "watch", "version"]);
 const commandIndex = userArgs.findIndex((arg) => composeCommands.has(arg));
 const composeCommand = commandIndex >= 0 ? userArgs[commandIndex] : userArgs[0];
 if (userArgs.length === 0) {
