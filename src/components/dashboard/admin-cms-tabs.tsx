@@ -1054,3 +1054,130 @@ export function AdminNavMenuTab() {
     </div>
   );
 }
+
+
+export function AdminDesignTab() {
+  type DesignSettings = {
+    id: string;
+    theme: string;
+    primary_color: string;
+    accent_color: string;
+    background_color: string;
+    text_color: string;
+    font_heading: string;
+    font_body: string;
+    layout_style: string;
+    max_width: number;
+    animations_enabled: boolean;
+  };
+  const defaults: Omit<DesignSettings, "id"> = {
+    theme: "default", primary_color: "#8B2942", accent_color: "#D97706",
+    background_color: "#FFFFFF", text_color: "#1F2937",
+    font_heading: "Brokgauz_amp_Efron-Italic", font_body: "Geist",
+    layout_style: "classic", max_width: 1280, animations_enabled: true,
+  };
+  const [design, setDesign] = useState<DesignSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/design", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Не удалось загрузить дизайн")))
+      .then((payload: { design: DesignSettings | null }) => {
+        if (!controller.signal.aborted) setDesign(payload.design || { id: "", ...defaults });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) toast.error("Ошибка загрузки дизайна", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const update = (patch: Partial<DesignSettings>) => setDesign((current) => current ? { ...current, ...patch } : current);
+  const save = async () => {
+    if (!design || saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/design", {
+        method: "PUT",
+        body: JSON.stringify({
+          theme: design.theme,
+          primaryColor: design.primary_color,
+          accentColor: design.accent_color,
+          backgroundColor: design.background_color,
+          textColor: design.text_color,
+          fontHeading: design.font_heading,
+          fontBody: design.font_body,
+          layoutStyle: design.layout_style,
+          maxWidth: design.max_width,
+          animationsEnabled: design.animations_enabled,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить дизайн");
+      setDesign(payload.design);
+      toast.success("Настройки дизайна сохранены");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка дизайн-системы…</div>;
+  if (!design) return <Card className="p-6 text-sm text-muted-foreground">Не удалось загрузить дизайн-систему. Обновите страницу после проверки подключения.</Card>;
+
+  const colorFields = [
+    { key: "primary_color" as const, label: "Основной цвет" },
+    { key: "accent_color" as const, label: "Акцентный цвет" },
+    { key: "background_color" as const, label: "Фон" },
+    { key: "text_color" as const, label: "Текст" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Palette className="h-6 w-6 text-primary" />Визуальный стиль сайта</h1>
+          <p className="text-sm text-muted-foreground">Управление безопасными дизайн-токенами. Произвольный JavaScript и CSS через CMS не исполняются.</p>
+        </div>
+        <Button onClick={save} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Сохранить</Button>
+      </div>
+
+      <Card className="p-4 space-y-4">
+        <h3 className="font-semibold text-sm">Цветовая палитра</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {colorFields.map((field) => (
+            <div key={field.key} className="flex items-center gap-3 border border-border rounded-lg p-3">
+              <Input type="color" value={design[field.key]} onChange={(event) => update({ [field.key]: event.target.value })} className="h-10 w-14 p-1" />
+              <div className="flex-1 min-w-0"><div className="text-sm font-medium">{field.label}</div><div className="text-xs font-mono text-muted-foreground">{design[field.key]}</div></div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Типографика и компоновка</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><Label>Шрифт заголовков</Label><Input value={design.font_heading} maxLength={80} onChange={(event) => update({ font_heading: event.target.value })} /></div>
+          <div><Label>Шрифт основного текста</Label><Input value={design.font_body} maxLength={80} onChange={(event) => update({ font_body: event.target.value })} /></div>
+          <div><Label>Стиль макета</Label><Select value={design.layout_style} onValueChange={(value) => update({ layout_style: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="classic">Классический</SelectItem><SelectItem value="modern">Современный</SelectItem><SelectItem value="minimal">Минималистичный</SelectItem></SelectContent></Select></div>
+          <div><Label>Максимальная ширина: {design.max_width} px</Label><Input type="number" min={960} max={1600} step={40} value={design.max_width} onChange={(event) => update({ max_width: Math.max(960, Math.min(1600, Number(event.target.value) || 1280)) })} /></div>
+        </div>
+        <label className="flex items-center gap-2 text-sm"><Checkbox checked={design.animations_enabled} onCheckedChange={(value) => update({ animations_enabled: !!value })} />Разрешить анимации интерфейса</label>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Предварительный просмотр</h3>
+        <div className="rounded-xl border p-5 space-y-3" style={{ backgroundColor: design.background_color, color: design.text_color, maxWidth: design.max_width, marginInline: "auto" }}>
+          <div className="text-xs uppercase tracking-wider opacity-70">Conditera · preview</div>
+          <div className="text-2xl font-semibold" style={{ fontFamily: design.font_heading }}>Вкус начинается с идеи</div>
+          <p className="text-sm opacity-80" style={{ fontFamily: design.font_body }}>Так будут сочетаться заголовки, основной текст и акцентные элементы.</p>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-md px-4 py-2 text-sm text-white" style={{ backgroundColor: design.primary_color }}>Основное действие</span>
+            <span className="rounded-md px-4 py-2 text-sm text-white" style={{ backgroundColor: design.accent_color }}>Акцент</span>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
