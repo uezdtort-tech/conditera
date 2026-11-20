@@ -125,6 +125,10 @@ export function AdminCmsHomeTab() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Partial<CmsHomeBlock>>({});
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [mediaPickerLoading, setMediaPickerLoading] = useState(false);
+  const [mediaItems, setMediaItems] = useState<Array<{ id: string; name: string; url: string }>>([]);
+
 
   const loadBlocks = async (signal?: AbortSignal) => {
     const [blocksResponse, sectionsResponse] = await Promise.all([
@@ -229,6 +233,23 @@ export function AdminCmsHomeTab() {
       });
     return () => controller.abort();
   }, []);
+
+  const openMediaPicker = async () => {
+    setMediaPickerOpen(true);
+    setMediaPickerLoading(true);
+    try {
+      const response = await fetch("/api/cms/media?type=image", { credentials: "include", cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось загрузить медиатеку");
+      setMediaItems(Array.isArray(payload.media) ? payload.media : []);
+    } catch (error) {
+      toast.error("Медиатека недоступна", {
+        description: error instanceof Error ? error.message : "Неизвестная ошибка",
+      });
+    } finally {
+      setMediaPickerLoading(false);
+    }
+  };
 
   const saveEdit = async () => {
     if (!editingId || saving) return;
@@ -455,7 +476,12 @@ export function AdminCmsHomeTab() {
                       </div>
                       <div>
                         <Label className="text-xs">Изображение (URL)</Label>
-                        <Input value={editValues.image || ""} onChange={(e) => setEditValues({ ...editValues, image: e.target.value })} className="h-8 text-sm" />
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Input value={editValues.image || ""} onChange={(e) => setEditValues({ ...editValues, image: e.target.value })} className="h-8 text-sm" placeholder="URL изображения или выберите из медиатеки" />
+                          <Button type="button" size="sm" variant="outline" className="shrink-0" disabled={saving} onClick={() => void openMediaPicker()}>
+                            <ImageIcon className="h-3.5 w-3.5 mr-1" />Медиатека
+                          </Button>
+                        </div>
                       </div>
                       <div>
                         <Label className="text-xs">Текст кнопки</Label>
@@ -525,6 +551,40 @@ export function AdminCmsHomeTab() {
           </Card>
         );
       })}
+      <Dialog open={mediaPickerOpen} onOpenChange={setMediaPickerOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Выбор изображения из медиатеки</DialogTitle>
+            <DialogDescription>Выберите ранее загруженное изображение для блока главной страницы.</DialogDescription>
+          </DialogHeader>
+          {mediaPickerLoading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />Загрузка изображений…
+            </div>
+          ) : mediaItems.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              В медиатеке пока нет изображений. Сначала загрузите файл во вкладке «Медиатека».
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {mediaItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="group overflow-hidden rounded-lg border border-border text-left hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={() => {
+                    setEditValues((current) => ({ ...current, image: item.url }));
+                    setMediaPickerOpen(false);
+                  }}
+                >
+                  <img src={item.url} alt={item.name} className="aspect-[4/3] w-full object-cover" loading="lazy" decoding="async" />
+                  <span className="block truncate px-2 py-2 text-xs">{item.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
