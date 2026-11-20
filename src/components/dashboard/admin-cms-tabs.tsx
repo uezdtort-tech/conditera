@@ -137,16 +137,16 @@ export function AdminCmsHomeTab() {
     if (!sectionsResponse.ok) throw new Error(sectionsPayload.error || "Не удалось загрузить композицию главной");
     setCmsBlocks(Array.isArray(blocksPayload.blocks) ? blocksPayload.blocks.map(mapCmsHomeBlock) : []);
     if (Array.isArray(sectionsPayload.sections) && sectionsPayload.sections.length === CMS_HOME_SECTIONS.length) {
-      const mapped = sectionsPayload.sections.map((item: { section: string; title: string; sort_order: number; is_enabled: boolean }) => {
+      const mapped: CmsHomeSection[] = sectionsPayload.sections.flatMap((item: { section: string; title: string; sort_order: number; is_enabled: boolean }) => {
         const definition = CMS_HOME_SECTIONS.find((section) => section.key === item.section);
-        return definition ? {
+        return definition ? [{
           key: definition.key,
           label: item.title,
           icon: definition.icon,
           sortOrder: item.sort_order,
           isEnabled: item.is_enabled,
-        } : null;
-      }).filter((item: CmsHomeSection | null): item is CmsHomeSection => item !== null);
+        }] : [];
+      });
       if (mapped.length === CMS_HOME_SECTIONS.length) setCmsSections(mapped);
     }
   };
