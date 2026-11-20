@@ -74,17 +74,17 @@ Workflow PostgreSQL 17 выполняет два раздельных теста
 
 Доступа к фактическим production volumes и возможности выполнить SSH-команды на сервере в рамках этого изменения нет. Поэтому количество строк, уникальность данных и корректность резервных копий пока не подтверждены. Read-only preflight и репозиторные проверки — подготовка к реальному переносу, а не доказательство того, что production уже объединён.
 
-## Фактическая маршрутизация запросов приложения (проверка исходников main)
+## Маршрутизация по исходникам и конфигурации Compose (без проверки live production)
 
 Раздел добавлен после проверки не только Compose, но и всех 43 результатов поиска по `getPool` в текущем коде.
 
 ### Два независимых пути к данным
 
-| Путь | Код | Фактическое назначение в production |
+| Путь | Код | Назначение, заданное исходниками и production Compose |
 |---|---|---|
 | Supabase JS admin | `src/lib/supabase/admin.ts` → `resolveSupabaseServerUrl()` | `SUPABASE_INTERNAL_URL` (если задан) или Supabase URL → Kong → GoTrue/PostgREST/Storage на кластере PG15, БД `supabase` |
 | Supabase browser/SSR | `src/lib/supabase/browser.ts`, `server.ts` | Публичный Supabase URL → Kong → тот же кластер PG15; в локальном режиме URL может быть same-origin |
-| Прямой PostgreSQL | `src/lib/postgrest/pool.ts` → `DATABASE_URL` | В production Compose: PgBouncer → `conditera-db`, PG18, БД `conditera` |
+| Прямой PostgreSQL | `src/lib/postgrest/pool.ts` → `DATABASE_URL` | В production Compose-конфигурации: PgBouncer → `conditera-db`, PG18, БД `conditera` |
 | Локальный REST shim | `src/app/rest/v1/[...path]/route.ts` | Прямой `getPool()` → PG18; это не тот же сервер, что внешний Kong/PostgREST |
 | Локальный Storage shim | `src/app/storage/v1/[...path]/route.ts` | Файлы в `upload/storage`, метаданные `storage.objects` через PG18; production Supabase Storage использует отдельный Storage volume и PG15 |
 
