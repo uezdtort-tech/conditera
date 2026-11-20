@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { isSafeCmsUrl } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
 const ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
@@ -30,8 +31,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (!POSITIONS.has(body.position)) return NextResponse.json({ error: "Некорректная позиция" }, { status: 400 });
       updates.position = body.position;
     }
-    if (body.imageUrl !== undefined) updates.image_url = typeof body.imageUrl === "string" ? body.imageUrl.slice(0, 2048) : null;
-    if (body.linkUrl !== undefined) updates.link_url = typeof body.linkUrl === "string" ? body.linkUrl.slice(0, 2048) : null;
+    if (body.imageUrl !== undefined) {
+      if (body.imageUrl && !isSafeCmsUrl(body.imageUrl)) return NextResponse.json({ error: "Некорректный URL изображения" }, { status: 400 });
+      updates.image_url = typeof body.imageUrl === "string" && body.imageUrl ? body.imageUrl.slice(0, 2048) : null;
+    }
+    if (body.linkUrl !== undefined) {
+      if (body.linkUrl && !isSafeCmsUrl(body.linkUrl)) return NextResponse.json({ error: "Некорректная ссылка" }, { status: 400 });
+      updates.link_url = typeof body.linkUrl === "string" && body.linkUrl ? body.linkUrl.slice(0, 2048) : null;
+    }
     if (body.text !== undefined) updates.text = typeof body.text === "string" ? body.text.slice(0, 1000) : null;
     if (body.ctaText !== undefined) updates.cta_text = typeof body.ctaText === "string" ? body.ctaText.slice(0, 100) : null;
     if (body.startsAt !== undefined) updates.starts_at = body.startsAt || null;
