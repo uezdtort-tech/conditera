@@ -119,6 +119,10 @@ export KONG_DECLARATIVE_CONFIG=/var/lib/kong/kong.yml
 export KONG_DNS_ORDER=LAST
 export KONG_PLUGINS=bundled
 export KONG_LOG_LEVEL="${KONG_LOG_LEVEL:-info}"
+# Keep Kong/Nginx logs on container streams instead of image-layer files.
+export KONG_NGINX_MAIN_ERROR_LOG=/dev/stderr
+export KONG_NGINX_PROXY_ACCESS_LOG=/dev/stdout
+export KONG_NGINX_ADMIN_ACCESS_LOG=/dev/stdout
 export KONG_NGINX_PROXY_PROXY_BUFFER_SIZE=160k
 export KONG_NGINX_PROXY_PROXY_BUFFERS="64 160k"
 export KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE=320k
