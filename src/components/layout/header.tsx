@@ -41,6 +41,14 @@ import { GlobalSearch } from "@/components/ui/enhanced-components";
 import { VisualSearchButton } from "@/components/visual-search/visual-search-button";
 import type { ViewKey, Role } from "@/lib/types";
 
+type PublicCmsNavItem = {
+  id: string;
+  location: "header" | "footer" | "mobile";
+  label: string;
+  url: string;
+  sort_order: number;
+};
+
 // ===== Навигация: основные разделы =====
 const NAV_MAIN: { label: string; view: ViewKey; icon: typeof Cake }[] = [
   { label: "Каталог", view: "catalog", icon: Cake },
@@ -206,6 +214,27 @@ export function Header() {
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [cmsNavItems, setCmsNavItems] = useState<PublicCmsNavItem[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/nav-menu", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Navigation unavailable")))
+      .then((payload: { items?: PublicCmsNavItem[] }) => {
+        if (!controller.signal.aborted) setCmsNavItems(Array.isArray(payload.items) ? payload.items : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCmsNavItems([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const openCmsNavItem = (item: PublicCmsNavItem) => {
+    if (item.url.startsWith("/") && !item.url.startsWith("//")) router.push(item.url);
+    else if (/^[a-z][a-z0-9-]*$/i.test(item.url)) navigate(item.url as ViewKey);
+    else return;
+    setMobileMenuOpen(false);
+  };
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const currentView = nav.view;
@@ -481,6 +510,11 @@ export function Header() {
                               <link.icon className="h-4 w-4 text-muted-foreground" /><span>{link.label}</span>
                             </button>
                           ))}
+                          {cmsNavItems.filter((item) => item.location === "mobile" || item.location === "header").map((item) => (
+                            <button key={item.id} onClick={() => openCmsNavItem(item)} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md text-left">
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" /><span>{item.label}</span>
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -630,6 +664,12 @@ export function Header() {
                       <button key={link.view} onClick={() => navigate(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
                         <link.icon className="h-4 w-4 text-muted-foreground group-hover:text-primary mt-0.5 shrink-0" />
                         <div className="flex-1 min-w-0"><div className="text-sm font-medium group-hover:text-primary">{link.label}</div><div className="text-[11px] text-muted-foreground line-clamp-1">{link.desc}</div></div>
+                      </button>
+                    ))}
+                    {cmsNavItems.filter((item) => item.location === "header").map((item) => (
+                      <button key={item.id} onClick={() => openCmsNavItem(item)} className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+                        <span className="text-sm font-medium group-hover:text-primary">{item.label}</span>
                       </button>
                     ))}
                   </div>
