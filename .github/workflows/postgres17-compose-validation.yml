@@ -52,7 +52,7 @@ jobs:
           docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
-            --profile pg17-migration config --format json > /tmp/conditera-compose.json
+            --profile legacy-supabase --profile pg17-migration config --format json > /tmp/conditera-compose.json
           python3 - <<'PY'
           import json
           from pathlib import Path
