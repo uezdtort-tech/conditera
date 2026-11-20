@@ -49,7 +49,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
     return NextResponse.json({ banners: visibleBanners }, {
-      headers: { "Cache-Control": includeInactive ? "private, no-store" : "private, max-age=30, stale-while-revalidate=60" },
+      headers: { "Cache-Control": "private, no-store" },
     });
   } catch {
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
