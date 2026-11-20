@@ -160,28 +160,24 @@ chown 1000:1000 /opt/supabase/services/storage/var/lib/storage
 chown -R 65534:65534 /opt/supabase/services/realtime/app
 kong_root=/opt/supabase/services/kong
 kong_passwd_file="$kong_root/etc/passwd"
-kong_user_spec="$(awk -F: '$1 == "kong" { print $3 ":" $4; exit }' "$kong_passwd_file")"
-if [ -z "$kong_user_spec" ]; then
+if ! grep -q '^kong:' "$kong_passwd_file"; then
   echo "Kong account is missing from $kong_passwd_file" >&2
   exit 1
 fi
 mkdir -p "$kong_root/usr/local/kong"
-chown -R "$kong_user_spec" "$kong_root/usr/local/kong"
 mkdir -p "$kong_root/var/lib/kong"
+# Kong must start with a root master inside its isolated chroot. Nginx's
+# configured "user kong" directive then drops worker privileges as intended.
+# Starting the master as kong makes Nginx ignore that directive and prevents
+# reliable creation/opening of prefix-relative logs during Kong bootstrap.
 mkdir -p "$kong_root/tmp/kong/logs"
-# Nginx opens the prefix-relative error log before Kong can finish booting.
-# Pre-create the file and make the complete prefix path writable by the
-# actual kong account from the pinned image, rather than assuming a UID.
 touch "$kong_root/tmp/kong/logs/error.log"
-chown -R "$kong_user_spec" "$kong_root/tmp/kong"
-chmod 0755 "$kong_root/tmp/kong"
-chmod 0770 "$kong_root/tmp/kong/logs"
-chmod 0660 "$kong_root/tmp/kong/logs/error.log"
-# Validate write access through the exact numeric identity and chroot used by
-# start-kong.sh. This catches ownership/mode drift before supervisord retries.
-if ! chroot --userspec="$kong_user_spec" "$kong_root" /bin/sh -ec \
+chown -R 0:0 "$kong_root/tmp/kong"
+chmod 0755 "$kong_root/tmp/kong" "$kong_root/tmp/kong/logs"
+chmod 0644 "$kong_root/tmp/kong/logs/error.log"
+if ! chroot --userspec=0:0 "$kong_root" /bin/sh -ec \
   'test -w /tmp/kong/logs && test -w /tmp/kong/logs/error.log'; then
-  echo "Kong runtime user $kong_user_spec cannot write its chroot prefix logs" >&2
+  echo "Kong root master cannot write its chroot prefix logs" >&2
   ls -ld "$kong_root/tmp" "$kong_root/tmp/kong" "$kong_root/tmp/kong/logs" >&2
   ls -l "$kong_root/tmp/kong/logs/error.log" >&2
   exit 1
