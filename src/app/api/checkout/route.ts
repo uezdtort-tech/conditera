@@ -776,7 +776,11 @@ async function buildReplayResponse(existing: {
   const paymentRow = payments?.[0] || null;
   const storedUrl = (paymentRow?.metadata as { confirmation_url?: string } | null)
     ?.confirmation_url;
-  const isStub = !paymentRow?.yookassa_payment_id;
+  // Отсутствующая строка payments НЕ означает demo-оплату: платёж мог
+  // быть создан у YooKassa, а запись в БД — временно не сохраниться.
+  // В этом случае возвращаем обычную success-страницу: она покажет pending
+  // и позволит повторить /api/payment/create с тем же orderId/idempotency.
+  const isStub = Boolean(paymentRow) && !paymentRow?.yookassa_payment_id;
 
   return {
     orderId: existing.id,
