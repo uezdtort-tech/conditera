@@ -77,11 +77,11 @@ type CmsHomeBlock = {
 
 const CMS_HOME_SECTIONS = [
   { key: "hero", label: "Hero (главный баннер)", icon: "🎯" },
-  { key: "stats", label: "Статистика", icon: "📊" },
-  { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
   { key: "advantages", label: "Преимущества", icon: "⭐" },
   { key: "steps", label: "Шаги заказа", icon: "📋" },
+  { key: "stats", label: "Статистика", icon: "📊" },
   { key: "testimonials", label: "Отзывы", icon: "💬" },
+  { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
 ] as const;
 
 type CmsHomeSection = {
@@ -206,7 +206,7 @@ export function AdminCmsHomeTab() {
   };
 
   const toggleHomeSection = (sectionKey: string) => {
-    const ordered = [...cmsSections].sort((a, b) => a.sortOrder - b.sortOrder);
+    const ordered = sortCmsHomeSections(cmsSections);
     const next = ordered.map((section) => section.key === sectionKey
       ? { ...section, isEnabled: !section.isEnabled }
       : section);
