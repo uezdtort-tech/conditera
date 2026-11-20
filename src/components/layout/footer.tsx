@@ -1,6 +1,8 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { siteConfig, getCopyrightYears } from "@/lib/site-config";
 import { Cake, Mail, Phone, MapPin, Sparkles } from "lucide-react";
 import type { ViewKey } from "@/lib/types";
@@ -55,13 +57,35 @@ const FOOTER_COLUMNS: {
   },
 ];
 
+type PublicFooterLink = { id: string; label: string; url: string; location: string };
+
 export function Footer() {
   const navigate = useAppStore((s) => s.navigate);
+  const router = useRouter();
+  const [cmsLinks, setCmsLinks] = useState<PublicFooterLink[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/nav-menu?location=footer", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Footer navigation unavailable")))
+      .then((payload: { items?: PublicFooterLink[] }) => {
+        if (!controller.signal.aborted) setCmsLinks(Array.isArray(payload.items) ? payload.items : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCmsLinks([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const openCmsLink = (link: PublicFooterLink) => {
+    if (link.url.startsWith("/") && !link.url.startsWith("//")) router.push(link.url);
+    else if (/^[a-z][a-z0-9-]*$/i.test(link.url)) navigate(link.url as ViewKey);
+  };
 
   return (
     <footer className="mt-auto border-t border-border bg-secondary/40">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
+        <div className={`grid grid-cols-2 md:grid-cols-3 ${cmsLinks.length > 0 ? "lg:grid-cols-7" : "lg:grid-cols-6"} gap-8`}>
           {/* Brand */}
           <div className="col-span-2 lg:col-span-2">
             <button
@@ -120,6 +144,23 @@ export function Footer() {
               </ul>
             </div>
           ))}
+          {cmsLinks.length > 0 && (
+            <div>
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Дополнительно</h3>
+              <ul className="space-y-2">
+                {cmsLinks.map((link) => (
+                  <li key={link.id}>
+                    <button
+                      onClick={() => openCmsLink(link)}
+                      className="text-sm text-muted-foreground hover:text-primary transition-colors text-left"
+                    >
+                      {link.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* Payment & social */}
