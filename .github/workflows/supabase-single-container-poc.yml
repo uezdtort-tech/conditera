@@ -144,6 +144,7 @@ jobs:
             -v supabase-runtime-pgdata-ci:/opt/supabase/services/postgres/var/lib/postgresql/data \
             -v supabase-runtime-storage-ci:/opt/supabase/services/storage/var/lib/storage \
             -v supabase-runtime-storage-ci:/opt/supabase/services/imgproxy/var/lib/storage:ro \
+            -v supabase-runtime-deno-cache-ci:/opt/supabase/services/edge-runtime/root/.cache/deno \
             conditera/supabase-runtime-poc:ci
 
       - name: Wait for all supervised services
