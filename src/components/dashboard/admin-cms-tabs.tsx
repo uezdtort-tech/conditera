@@ -575,142 +575,125 @@ export function AdminCmsPagesTab() {
 }
 
 // ==================== CMS: НАСТРОЙКИ САЙТА ====================
+type CmsSiteSetting = {
+  key: string;
+  value: string;
+  value_type: string;
+  description: string | null;
+  category: string;
+  is_public: boolean;
+};
+
 export function AdminSettingsTab() {
-  const siteSettings = useAppStore((s) => s.siteSettings);
-  const updateSiteSetting = useAppStore((s) => s.updateSiteSetting);
+  const [siteSettings, setSiteSettings] = useState<CmsSiteSetting[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("general");
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
 
-  // Загружаем статус промо-попапа
+  const loadSettings = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/settings", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить настройки");
+    setSiteSettings(Array.isArray(payload.settings) ? payload.settings : []);
+  };
+
   useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadSettings(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки настроек", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     csrfFetch("/api/admin/promo-popup")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setPromoEnabled(data.enabled); })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (data) setPromoEnabled(Boolean(data.enabled)); })
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   const handleTogglePromo = async () => {
     setPromoLoading(true);
     try {
-      const res = await csrfFetch("/api/admin/promo-popup", {
+      const response = await csrfFetch("/api/admin/promo-popup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !promoEnabled }),
       });
-      if (res.ok) {
-        setPromoEnabled(!promoEnabled);
-        toast.success(`Промо-попап ${!promoEnabled ? "включён" : "выключен"}`);
-      }
-    } catch {
-      toast.error("Ошибка");
-    } finally {
-      setPromoLoading(false);
-    }
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось изменить промо-попап");
+      setPromoEnabled(!promoEnabled);
+      toast.success(`Промо-попап ${!promoEnabled ? "включён" : "выключен"}`);
+    } catch (error) {
+      toast.error("Ошибка", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setPromoLoading(false); }
   };
 
-  const filtered = siteSettings.filter((s) => s.category === activeCategory);
-
-  const handleSave = (key: string) => {
-    if (editValues[key] !== undefined) {
-      updateSiteSetting(key, editValues[key]);
-      toast.success(`Настройка «${key}» обновлена!`);
-      const newValues = { ...editValues };
-      delete newValues[key];
-      setEditValues(newValues);
-    }
+  const handleSave = async (key: string) => {
+    if (editValues[key] === undefined || savingKey) return;
+    setSavingKey(key);
+    try {
+      const response = await csrfFetch("/api/cms/settings", {
+        method: "PUT",
+        body: JSON.stringify({ key, value: editValues[key] }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить настройку");
+      setSiteSettings((current) => current.map((setting) => setting.key === key ? payload.setting : setting));
+      setEditValues((current) => { const next = { ...current }; delete next[key]; return next; });
+      toast.success(`Настройка «${key}» сохранена в PostgreSQL`);
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSavingKey(null); }
   };
+
+  const filtered = siteSettings.filter((setting) => setting.category === activeCategory);
 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-          <Settings className="h-6 w-6 text-primary" />
-          Настройки сайта
-        </h1>
-        <p className="text-sm text-muted-foreground">Комиссии, тарифы, доставка, SEO, контакты — всё в одном месте</p>
+        <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Settings className="h-6 w-6 text-primary" />Настройки сайта</h1>
+        <p className="text-sm text-muted-foreground">Настройки загружаются из PostgreSQL; сохранение выполняется через защищённый API.</p>
       </div>
 
-      {/* Управление промо-попапом */}
       <Card className={`p-4 ${promoEnabled ? "border-emerald-300 bg-emerald-50/30" : "border-muted"}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${promoEnabled ? "bg-emerald-100" : "bg-muted"}`}>
-              <Gift className={`h-5 w-5 ${promoEnabled ? "text-emerald-600" : "text-muted-foreground"}`} />
-            </div>
-            <div>
-              <div className="font-semibold text-sm">Промо-попап на главной</div>
-              <div className="text-xs text-muted-foreground">
-                {promoEnabled
-                  ? "Включён — показывается пользователям через 5 сек после загрузки"
-                  : "Выключен — попап не показывается"}
-              </div>
-            </div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${promoEnabled ? "bg-emerald-100" : "bg-muted"}`}><Gift className={`h-5 w-5 ${promoEnabled ? "text-emerald-600" : "text-muted-foreground"}`} /></div>
+            <div><div className="font-semibold text-sm">Промо-попап на главной</div><div className="text-xs text-muted-foreground">{promoEnabled ? "Включён" : "Выключен"}</div></div>
           </div>
-          <Button
-            onClick={handleTogglePromo}
-            disabled={promoLoading}
-            variant={promoEnabled ? "destructive" : "default"}
-            size="sm"
-            className="gap-2"
-          >
-            {promoLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : promoEnabled ? (
-              <X className="h-3.5 w-3.5" />
-            ) : (
-              <Check className="h-3.5 w-3.5" />
-            )}
+          <Button onClick={handleTogglePromo} disabled={promoLoading} variant={promoEnabled ? "destructive" : "default"} size="sm" className="gap-2">
+            {promoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : promoEnabled ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
             {promoEnabled ? "Выключить" : "Включить"}
           </Button>
         </div>
       </Card>
 
-      {/* Категории */}
       <div className="flex flex-wrap gap-2">
-        {SETTING_CATEGORIES.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => setActiveCategory(cat.id)}
-            className={`px-3 py-1.5 text-xs rounded-full border flex items-center gap-1 ${
-              activeCategory === cat.id
-                ? "bg-primary text-primary-foreground border-primary"
-                : "border-border hover:border-primary/40"
-            }`}
-          >
-            <span>{cat.icon}</span>
-            {cat.label}
+        {SETTING_CATEGORIES.map((category) => (
+          <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-3 py-1.5 text-xs rounded-full border flex items-center gap-1 ${activeCategory === category.id ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+            <span>{category.icon}</span>{category.label}
           </button>
         ))}
       </div>
 
-      {/* Настройки */}
       <Card className="p-4">
-        <div className="space-y-2">
-          {filtered.map((setting) => (
-            <div key={setting.id} className="flex items-center gap-3 p-2 border border-border rounded">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{setting.description}</div>
-                <div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div>
+        {loading ? <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка настроек…</div> : (
+          <div className="space-y-2">
+            {filtered.map((setting) => (
+              <div key={setting.key} className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 border border-border rounded">
+                <div className="flex-1 min-w-0"><div className="text-sm font-medium">{setting.description || setting.key}</div><div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div></div>
+                <Input value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value} onChange={(event) => setEditValues((current) => ({ ...current, [setting.key]: event.target.value }))} className="sm:w-64 h-8 text-sm" />
+                <Button size="sm" variant="outline" className="h-8" disabled={editValues[setting.key] === undefined || savingKey !== null} onClick={() => handleSave(setting.key)}>
+                  {savingKey === setting.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                </Button>
               </div>
-              <Input
-                value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value}
-                onChange={(e) => setEditValues({ ...editValues, [setting.key]: e.target.value })}
-                className="w-40 h-8 text-sm"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={() => handleSave(setting.key)}
-                disabled={editValues[setting.key] === undefined}
-              >
-                <Save className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
+            ))}
+            {filtered.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">В этой категории нет доступных настроек.</div>}
+          </div>
+        )}
       </Card>
     </div>
   );
