@@ -261,7 +261,7 @@ jobs:
             sleep 3
           done
           test "$READY" = "1"
-          docker exec -i conditera-supabase-db psql -X -v ON_ERROR_STOP=1 -U supabase -d supabase <<'SQL'
+          docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i conditera-supabase-db psql -h 127.0.0.1 -X -v ON_ERROR_STOP=1 -U supabase -d supabase <<'SQL'
           CREATE TABLE public.pg15_to_pg17_migration_smoke (
             id integer PRIMARY KEY,
             source_cluster text NOT NULL,
@@ -270,9 +270,9 @@ jobs:
           INSERT INTO public.pg15_to_pg17_migration_smoke
             VALUES (1, 'supabase/postgres:15.6.1.141', 'logical-restore-verified');
           SQL
-          docker exec conditera-supabase-db pg_dump -Fc -U supabase -d supabase > /tmp/conditera-pg15-supabase.dump
+          docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" conditera-supabase-db pg_dump -h 127.0.0.1 -Fc -U supabase -d supabase > /tmp/conditera-pg15-supabase.dump
           test -s /tmp/conditera-pg15-supabase.dump
-          docker exec conditera-supabase-db pg_dump --schema-only -U supabase -d supabase > /tmp/conditera-pg15-supabase-schema.sql
+          docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" conditera-supabase-db pg_dump -h 127.0.0.1 --schema-only -U supabase -d supabase > /tmp/conditera-pg15-supabase-schema.sql
           test -s /tmp/conditera-pg15-supabase-schema.sql
           docker exec conditera-supabase-db-pg17-migration createdb -U supabase_admin -T template0 conditera_supabase_shadow
           docker run --rm \
