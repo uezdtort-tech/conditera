@@ -86,7 +86,7 @@ export async function GET(
          LIMIT 1`,
         [media.order_id, user.id]
       );
-      authorized = assigned.rowCount > 0;
+      authorized = assigned.rows.length > 0;
     }
 
     if (!authorized && await hasAnyRole(user.id, ["COURIER"])) {
@@ -96,7 +96,7 @@ export async function GET(
          LIMIT 1`,
         [media.order_id, user.id]
       );
-      authorized = assigned.rowCount > 0;
+      authorized = assigned.rows.length > 0;
     }
 
     if (!authorized) {
