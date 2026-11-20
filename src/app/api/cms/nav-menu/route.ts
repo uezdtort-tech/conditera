@@ -24,6 +24,11 @@ export async function GET(request: NextRequest) {
       if (auth.response) return auth.response;
     }
     let query = supabaseAdmin.from("cms_nav_menu").select("*").order("location").order("sort_order");
+    const location = request.nextUrl.searchParams.get("location");
+    if (location && !LOCATIONS.has(location)) {
+      return NextResponse.json({ error: "Некорректное расположение меню" }, { status: 400 });
+    }
+    if (location) query = query.eq("location", location);
     if (!includeInactive) query = query.eq("is_active", true);
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: "Не удалось загрузить меню" }, { status: 500 });
