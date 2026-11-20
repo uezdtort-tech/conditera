@@ -77,12 +77,36 @@ type CmsHomeBlock = {
 
 const CMS_HOME_SECTIONS = [
   { key: "hero", label: "Hero (главный баннер)", icon: "🎯" },
-  { key: "stats", label: "Статистика", icon: "📊" },
-  { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
   { key: "advantages", label: "Преимущества", icon: "⭐" },
   { key: "steps", label: "Шаги заказа", icon: "📋" },
+  { key: "stats", label: "Статистика", icon: "📊" },
   { key: "testimonials", label: "Отзывы", icon: "💬" },
+  { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
 ] as const;
+
+type CmsHomeSection = {
+  key: string;
+  label: string;
+  icon: string;
+  sortOrder: number;
+  isEnabled: boolean;
+};
+
+function sortCmsHomeSections(sections: CmsHomeSection[]) {
+  return [...sections].sort((a, b) => {
+    if (a.key === "hero") return b.key === "hero" ? 0 : -1;
+    if (b.key === "hero") return 1;
+    return a.sortOrder - b.sortOrder || a.key.localeCompare(b.key);
+  });
+}
+
+const DEFAULT_CMS_HOME_SECTIONS: CmsHomeSection[] = CMS_HOME_SECTIONS.map((section, index) => ({
+  key: section.key,
+  label: section.label,
+  icon: section.icon,
+  sortOrder: (index + 1) * 10,
+  isEnabled: true,
+}));
 
 function mapCmsHomeBlock(row: Record<string, unknown>): CmsHomeBlock {
   return {
@@ -102,16 +126,106 @@ function mapCmsHomeBlock(row: Record<string, unknown>): CmsHomeBlock {
 
 export function AdminCmsHomeTab() {
   const [cmsBlocks, setCmsBlocks] = useState<CmsHomeBlock[]>([]);
+  const [cmsSections, setCmsSections] = useState<CmsHomeSection[]>(DEFAULT_CMS_HOME_SECTIONS);
+  const [editingSectionKey, setEditingSectionKey] = useState<string | null>(null);
+  const [sectionTitleDraft, setSectionTitleDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Partial<CmsHomeBlock>>({});
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [mediaPickerLoading, setMediaPickerLoading] = useState(false);
+  const [mediaItems, setMediaItems] = useState<Array<{ id: string; name: string; url: string }>>([]);
+
 
   const loadBlocks = async (signal?: AbortSignal) => {
-    const response = await fetch("/api/cms/blocks", { credentials: "include", signal });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить блоки");
-    setCmsBlocks(Array.isArray(payload.blocks) ? payload.blocks.map(mapCmsHomeBlock) : []);
+    const [blocksResponse, sectionsResponse] = await Promise.all([
+      fetch("/api/cms/blocks", { credentials: "include", signal }),
+      fetch("/api/cms/sections", { credentials: "include", signal }),
+    ]);
+    const [blocksPayload, sectionsPayload] = await Promise.all([
+      blocksResponse.json().catch(() => ({})),
+      sectionsResponse.json().catch(() => ({})),
+    ]);
+    if (!blocksResponse.ok) throw new Error(blocksPayload.error || "Не удалось загрузить блоки");
+    setCmsBlocks(Array.isArray(blocksPayload.blocks) ? blocksPayload.blocks.map(mapCmsHomeBlock) : []);
+    if (sectionsResponse.ok && Array.isArray(sectionsPayload.sections) && sectionsPayload.sections.length === CMS_HOME_SECTIONS.length) {
+      const mapped: CmsHomeSection[] = sectionsPayload.sections.flatMap((item: { section: string; title: string; sort_order: number; is_enabled: boolean }) => {
+        const definition = CMS_HOME_SECTIONS.find((section) => section.key === item.section);
+        return definition ? [{
+          key: definition.key,
+          label: item.title,
+          icon: definition.icon,
+          sortOrder: item.sort_order,
+          isEnabled: item.is_enabled,
+        }] : [];
+      });
+      if (mapped.length === CMS_HOME_SECTIONS.length) setCmsSections(mapped);
+    }
+  };
+
+  const persistHomeSections = async (nextSections: CmsHomeSection[]): Promise<boolean> => {
+    if (saving) return false;
+    setSaving(true);
+    try {
+      const ordered = nextSections.map((section, index) => ({ ...section, sortOrder: (index + 1) * 10 }));
+      const response = await csrfFetch("/api/cms/sections", {
+        method: "PUT",
+        body: JSON.stringify({
+          sections: ordered.map((section) => ({
+            section: section.key,
+            title: section.label,
+            sort_order: section.sortOrder,
+            is_enabled: section.isEnabled,
+          })),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить композицию");
+      setCmsSections(ordered);
+      toast.success("Композиция главной сохранена");
+      return true;
+    } catch (error) {
+      toast.error("Ошибка сохранения композиции", {
+        description: error instanceof Error ? error.message : "Неизвестная ошибка",
+      });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const moveHomeSection = (sectionKey: string, direction: -1 | 1) => {
+    const ordered = sortCmsHomeSections(cmsSections);
+    const index = ordered.findIndex((section) => section.key === sectionKey);
+    const target = index + direction;
+    if (sectionKey === "hero" || index < 0 || target < 1 || target >= ordered.length) return;
+    const [moving] = ordered.splice(index, 1);
+    ordered.splice(target, 0, moving);
+    void persistHomeSections(ordered);
+  };
+
+  const toggleHomeSection = (sectionKey: string) => {
+    const ordered = sortCmsHomeSections(cmsSections);
+    const next = ordered.map((section) => section.key === sectionKey
+      ? { ...section, isEnabled: !section.isEnabled }
+      : section);
+    void persistHomeSections(next);
+  };
+
+  const saveHomeSectionTitle = async (sectionKey: string) => {
+    const title = sectionTitleDraft.trim();
+    if (!title || title.length > 100) {
+      toast.error("Название должно содержать от 1 до 100 символов");
+      return;
+    }
+    const next = sortCmsHomeSections(cmsSections)
+      .map((section) => section.key === sectionKey ? { ...section, label: title } : section);
+    const saved = await persistHomeSections(next);
+    if (saved) {
+      setEditingSectionKey(null);
+      setSectionTitleDraft("");
+    }
   };
 
   useEffect(() => {
@@ -126,6 +240,23 @@ export function AdminCmsHomeTab() {
       });
     return () => controller.abort();
   }, []);
+
+  const openMediaPicker = async () => {
+    setMediaPickerOpen(true);
+    setMediaPickerLoading(true);
+    try {
+      const response = await fetch("/api/cms/media?type=image", { credentials: "include", cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось загрузить медиатеку");
+      setMediaItems(Array.isArray(payload.media) ? payload.media : []);
+    } catch (error) {
+      toast.error("Медиатека недоступна", {
+        description: error instanceof Error ? error.message : "Неизвестная ошибка",
+      });
+    } finally {
+      setMediaPickerLoading(false);
+    }
+  };
 
   const saveEdit = async () => {
     if (!editingId || saving) return;
@@ -170,7 +301,10 @@ export function AdminCmsHomeTab() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Не удалось создать блок");
-      setCmsBlocks((current) => [...current, mapCmsHomeBlock(payload.block)]);
+      const createdBlock = mapCmsHomeBlock(payload.block);
+      setCmsBlocks((current) => [...current, createdBlock]);
+      setEditingId(createdBlock.id);
+      setEditValues(createdBlock);
       toast.success("Блок создан и сохранён");
     } catch (error) {
       toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
@@ -273,19 +407,60 @@ export function AdminCmsHomeTab() {
         <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков CMS…
         </div>
-      ) : CMS_HOME_SECTIONS.map((section) => {
+      ) : sortCmsHomeSections(cmsSections).map((section, sectionIndex, orderedSections) => {
         const blocks = cmsBlocks.filter((block) => block.section === section.key).sort((a, b) => a.sortOrder - b.sortOrder);
         return (
-          <Card key={section.key} className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-sm flex items-center gap-2">
+          <Card key={section.key} className={section.isEnabled ? "p-4" : "p-4 opacity-70"}>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span>{section.icon}</span>
-                {section.label}
+                {editingSectionKey === section.key ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-1">
+                    <Input
+                      value={sectionTitleDraft}
+                      onChange={(event) => setSectionTitleDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void saveHomeSectionTitle(section.key);
+                        if (event.key === "Escape") { setEditingSectionKey(null); setSectionTitleDraft(""); }
+                      }}
+                      maxLength={100}
+                      aria-label="Название секции главной страницы"
+                      className="h-8 max-w-xs text-sm"
+                      autoFocus
+                    />
+                    <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Сохранить название секции" disabled={saving} onClick={() => void saveHomeSectionTitle(section.key)}>
+                      <Save className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Отменить изменение названия" disabled={saving} onClick={() => { setEditingSectionKey(null); setSectionTitleDraft(""); }}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <h3 className="font-semibold text-sm">{section.label}</h3>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" aria-label="Изменить название секции" title="Изменить название секции" disabled={saving} onClick={() => { setEditingSectionKey(section.key); setSectionTitleDraft(section.label); }}>
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                  </>
+                )}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
-              </h3>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, (blocks.at(-1)?.sortOrder ?? 0) + 10)}>
-                <Plus className="h-3 w-3 mr-1" /> Добавить
-              </Button>
+                {section.key === "hero" && <Badge variant="outline" className="text-[10px]">Первый экран</Badge>}
+                {!section.isEnabled && <Badge variant="outline" className="text-[10px]">Секция скрыта</Badge>}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию выше" title="Переместить секцию выше" disabled={saving || section.key === "hero" || sectionIndex <= 1} onClick={() => moveHomeSection(section.key, -1)}>
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию ниже" title="Переместить секцию ниже" disabled={saving || section.key === "hero" || sectionIndex === orderedSections.length - 1} onClick={() => moveHomeSection(section.key, 1)}>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={section.isEnabled ? "Скрыть секцию" : "Показать секцию"} title={section.isEnabled ? "Скрыть секцию" : "Показать секцию"} disabled={saving} onClick={() => toggleHomeSection(section.key)}>
+                  {section.isEnabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                </Button>
+                <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, (blocks.at(-1)?.sortOrder ?? 0) + 10)}>
+                  <Plus className="h-3 w-3 mr-1" /> Добавить
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               {blocks.map((block) => (
@@ -312,7 +487,12 @@ export function AdminCmsHomeTab() {
                       </div>
                       <div>
                         <Label className="text-xs">Изображение (URL)</Label>
-                        <Input value={editValues.image || ""} onChange={(e) => setEditValues({ ...editValues, image: e.target.value })} className="h-8 text-sm" />
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Input value={editValues.image || ""} onChange={(e) => setEditValues({ ...editValues, image: e.target.value })} className="h-8 text-sm" placeholder="URL изображения или выберите из медиатеки" />
+                          <Button type="button" size="sm" variant="outline" className="shrink-0" disabled={saving} onClick={() => void openMediaPicker()}>
+                            <ImageIcon className="h-3.5 w-3.5 mr-1" />Медиатека
+                          </Button>
+                        </div>
                       </div>
                       <div>
                         <Label className="text-xs">Текст кнопки</Label>
@@ -382,6 +562,40 @@ export function AdminCmsHomeTab() {
           </Card>
         );
       })}
+      <Dialog open={mediaPickerOpen} onOpenChange={setMediaPickerOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Выбор изображения из медиатеки</DialogTitle>
+            <DialogDescription>Выберите ранее загруженное изображение для блока главной страницы.</DialogDescription>
+          </DialogHeader>
+          {mediaPickerLoading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />Загрузка изображений…
+            </div>
+          ) : mediaItems.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              В медиатеке пока нет изображений. Сначала загрузите файл во вкладке «Медиатека».
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {mediaItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="group overflow-hidden rounded-lg border border-border text-left hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={() => {
+                    setEditValues((current) => ({ ...current, image: item.url }));
+                    setMediaPickerOpen(false);
+                  }}
+                >
+                  <img src={item.url} alt={item.name} className="aspect-[4/3] w-full object-cover" loading="lazy" decoding="async" />
+                  <span className="block truncate px-2 py-2 text-xs">{item.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -419,6 +633,26 @@ export function AdminBannersTab() {
     title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "",
     position: "home_hero", isActive: true, sortOrder: 0, startsAt: "", endsAt: "",
   });
+  const [bannerMediaPickerOpen, setBannerMediaPickerOpen] = useState(false);
+  const [bannerMediaLoading, setBannerMediaLoading] = useState(false);
+  const [bannerMediaItems, setBannerMediaItems] = useState<Array<{ id: string; name: string; url: string }>>([]);
+
+
+  const openBannerMediaPicker = async () => {
+    setBannerMediaPickerOpen((open) => !open);
+    if (bannerMediaItems.length > 0) return;
+    setBannerMediaLoading(true);
+    try {
+      const response = await fetch("/api/cms/media?type=image", { credentials: "include", cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось загрузить медиатеку");
+      setBannerMediaItems(Array.isArray(payload.media) ? payload.media : []);
+    } catch (error) {
+      toast.error("Медиатека недоступна", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setBannerMediaLoading(false);
+    }
+  };
 
   const loadBanners = async (signal?: AbortSignal) => {
     const response = await csrfFetch("/api/cms/banners?include_inactive=true", { signal });
@@ -578,7 +812,33 @@ export function AdminBannersTab() {
             <div className="space-y-2">
               <div><Label>Заголовок *</Label><Input value={newBanner.title} maxLength={180} onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })} /></div>
               <div><Label>Текст</Label><Textarea value={newBanner.text} maxLength={1000} onChange={(e) => setNewBanner({ ...newBanner, text: e.target.value })} rows={2} /></div>
-              <div><Label>URL изображения</Label><Input value={newBanner.imageUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, imageUrl: e.target.value })} placeholder="https://…" /></div>
+              <div className="space-y-2">
+                <Label>Изображение баннера</Label>
+                <div className="flex gap-2">
+                  <Input value={newBanner.imageUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, imageUrl: e.target.value })} placeholder="URL изображения или выберите из медиатеки" />
+                  <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={() => void openBannerMediaPicker()}>
+                    <ImageIcon className="h-3.5 w-3.5 mr-1" />Медиатека
+                  </Button>
+                </div>
+                {bannerMediaPickerOpen && (
+                  <div className="rounded-lg border border-border p-2 space-y-2">
+                    {bannerMediaLoading ? (
+                      <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка изображений…</div>
+                    ) : bannerMediaItems.length === 0 ? (
+                      <p className="py-4 text-center text-xs text-muted-foreground">Нет изображений. Загрузите файлы во вкладке «Медиатека».</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                        {bannerMediaItems.map((item) => (
+                          <button key={item.id} type="button" className="overflow-hidden rounded border border-border text-left hover:border-primary" onClick={() => { setNewBanner((current) => ({ ...current, imageUrl: item.url })); setBannerMediaPickerOpen(false); }}>
+                            <img src={item.url} alt={item.name} className="aspect-video w-full object-cover" loading="lazy" decoding="async" />
+                            <span className="block truncate px-1 py-1 text-[10px]">{item.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <div><Label>Ссылка</Label><Input value={newBanner.linkUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, linkUrl: e.target.value })} placeholder="/catalog" /></div>
               <div><Label>Текст кнопки</Label><Input value={newBanner.ctaText} maxLength={100} onChange={(e) => setNewBanner({ ...newBanner, ctaText: e.target.value })} /></div>
               <div>
