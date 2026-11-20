@@ -5,7 +5,7 @@ export function isSafeCmsUrl(value: unknown): value is string {
   const candidate = value.trim();
   if (!candidate) return false;
   if (candidate.startsWith("/")) {
-    if (candidate.startsWith("//") || candidate.includes("\\\\") || /[\\u0000-\\u001f\\u007f]/.test(candidate)) return false;
+    if (candidate.startsWith("//") || candidate.includes("\\") || /[\u0000-\u001f\u007f]/.test(candidate)) return false;
     try {
       return new URL(candidate, "https://conditera.invalid").origin === "https://conditera.invalid";
     } catch {
