@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { siteConfig, getCopyrightYears } from "@/lib/site-config";
 import { Cake, Mail, Phone, MapPin, Sparkles } from "lucide-react";
@@ -62,6 +62,11 @@ type PublicFooterLink = { id: string; label: string; url: string; location: stri
 export function Footer() {
   const navigate = useAppStore((s) => s.navigate);
   const router = useRouter();
+  const pathname = usePathname();
+  const navigateToView = (...args: Parameters<typeof navigate>) => {
+    navigate(...args);
+    if (pathname.startsWith("/pages/")) router.push("/");
+  };
   const [cmsLinks, setCmsLinks] = useState<PublicFooterLink[]>([]);
 
   useEffect(() => {
@@ -79,7 +84,7 @@ export function Footer() {
 
   const openCmsLink = (link: PublicFooterLink) => {
     if (link.url.startsWith("/") && !link.url.startsWith("//")) router.push(link.url);
-    else if (/^[a-z][a-z0-9-]*$/i.test(link.url)) navigate(link.url as ViewKey);
+    else if (/^[a-z][a-z0-9-]*$/i.test(link.url)) navigateToView(link.url as ViewKey);
   };
 
   return (
@@ -89,7 +94,7 @@ export function Footer() {
           {/* Brand */}
           <div className="col-span-2 lg:col-span-2">
             <button
-              onClick={() => navigate("home")}
+              onClick={() => navigateToView("home")}
               className="flex items-center gap-2 mb-4"
             >
               <img src="/logo.png" alt={siteConfig.name} className="h-12 w-12 rounded-full object-cover shadow-md" />
@@ -134,7 +139,7 @@ export function Footer() {
                 {col.links.map((link) => (
                   <li key={link.label}>
                     <button
-                      onClick={() => link.view && navigate(link.view)}
+                      onClick={() => link.view && navigateToView(link.view)}
                       className="text-sm text-muted-foreground hover:text-primary transition-colors text-left"
                     >
                       {link.label}
@@ -181,11 +186,11 @@ export function Footer() {
             {siteConfig.inn && ` ИНН ${siteConfig.inn}.`}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            <button onClick={() => navigate("legal", { legal: "privacy" })} className="text-muted-foreground hover:text-primary transition">Политика конфиденциальности</button>
-            <button onClick={() => navigate("legal", { legal: "terms" })} className="text-muted-foreground hover:text-primary transition">Пользовательское соглашение</button>
-            <button onClick={() => navigate("legal", { legal: "offer" })} className="text-muted-foreground hover:text-primary transition">Договор-оферта</button>
-            <button onClick={() => navigate("legal", { legal: "consent" })} className="text-muted-foreground hover:text-primary transition">Согласие на обработку ПД</button>
-            <button onClick={() => navigate("legal", { legal: "cookies" })} className="text-muted-foreground hover:text-primary transition">Cookies</button>
+            <button onClick={() => navigateToView("legal", { legal: "privacy" })} className="text-muted-foreground hover:text-primary transition">Политика конфиденциальности</button>
+            <button onClick={() => navigateToView("legal", { legal: "terms" })} className="text-muted-foreground hover:text-primary transition">Пользовательское соглашение</button>
+            <button onClick={() => navigateToView("legal", { legal: "offer" })} className="text-muted-foreground hover:text-primary transition">Договор-оферта</button>
+            <button onClick={() => navigateToView("legal", { legal: "consent" })} className="text-muted-foreground hover:text-primary transition">Согласие на обработку ПД</button>
+            <button onClick={() => navigateToView("legal", { legal: "cookies" })} className="text-muted-foreground hover:text-primary transition">Cookies</button>
           </div>
         </div>
       </div>
