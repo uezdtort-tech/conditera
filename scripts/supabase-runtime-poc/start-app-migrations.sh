@@ -26,7 +26,7 @@ mkdir -p /opt/supabase/services/postgres/opt/conditera/seeds
 /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
   /bin/bash -c 'psql -X -v ON_ERROR_STOP=1 --username "$PGUSER" --dbname "$PGDATABASE" --set=app_password="$APP_DATABASE_PASSWORD"' <<'SQL'
 SELECT 'CREATE ROLE conditera_app LOGIN' 
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_app') \\gexec
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_app') \gexec
 ALTER ROLE conditera_app WITH LOGIN PASSWORD :'app_password' BYPASSRLS;
 GRANT CONNECT ON DATABASE supabase TO conditera_app;
 GRANT USAGE ON SCHEMA public TO conditera_app;
