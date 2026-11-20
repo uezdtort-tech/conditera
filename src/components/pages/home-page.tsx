@@ -122,9 +122,25 @@ const DEFAULT_CMS_HOME_SECTIONS: PublicCmsHomeSection[] = [
   { section: "testimonials", title: "Истории клиентов", sort_order: 60, is_enabled: true },
 ];
 
-function CmsHomepageBlocks() {
-  const [blocks, setBlocks] = useState<PublicCmsHomeBlock[]>([]);
+function useCmsHomepageSections() {
   const [sections, setSections] = useState<PublicCmsHomeSection[]>(DEFAULT_CMS_HOME_SECTIONS);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/sections?public=true", { signal: controller.signal, cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS sections unavailable")))
+      .then((payload: { sections?: PublicCmsHomeSection[] }) => {
+        if (!controller.signal.aborted && Array.isArray(payload.sections)) setSections(payload.sections);
+      })
+      .catch(() => {
+        // Preserve built-in defaults when CMS is temporarily unavailable.
+      });
+    return () => controller.abort();
+  }, []);
+  return sections;
+}
+
+function CmsHomepageBlocks({ sections }: { sections: PublicCmsHomeSection[] }) {
+  const [blocks, setBlocks] = useState<PublicCmsHomeBlock[]>([]);
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/cms/blocks?public=true", { signal: controller.signal })
@@ -134,21 +150,6 @@ function CmsHomepageBlocks() {
       })
       .catch(() => {
         if (!controller.signal.aborted) setBlocks([]);
-      });
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/cms/sections?public=true", { signal: controller.signal })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS sections unavailable")))
-      .then((payload: { sections?: PublicCmsHomeSection[] }) => {
-        if (!controller.signal.aborted && Array.isArray(payload.sections)) {
-          setSections(payload.sections);
-        }
-      })
-      .catch(() => {
-        // Keep the safe built-in composition when CMS settings are unavailable.
       });
     return () => controller.abort();
   }, []);
@@ -229,6 +230,9 @@ export function HomePage() {
   const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
   const products = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
+  const cmsSections = useCmsHomepageSections();
+  const cmsSectionEnabled = (key: string) => cmsSections.find((section) => section.section === key)?.is_enabled ?? true;
+  const cmsSectionTitle = (key: string, fallback: string) => cmsSections.find((section) => section.section === key)?.title || fallback;
 
   // Реальные данные платформы для честных счётчиков (не выдуманные цифры):
   // кондитеры — из публичного API, товары — hydrated store (live-источник).
@@ -264,6 +268,7 @@ export function HomePage() {
   return (
     <div className="space-y-20 pb-12">
       {/* ===== HERO ===== */}
+      {cmsSectionEnabled("hero") && (
       <section
         className="relative overflow-hidden"
       >
@@ -428,9 +433,10 @@ export function HomePage() {
           </div>
         </div>
       </section>
+      )}
 
       <CmsHomepageBanners />
-      <CmsHomepageBlocks />
+      <CmsHomepageBlocks sections={cmsSections} />
 
       {/* ===== БЕГУЩАЯ СТРОКА РЕАЛЬНЫХ КОНДИТЕРОВ ===== */}
       <ConfectionersMarquee />
@@ -788,6 +794,7 @@ export function HomePage() {
       )}
 
       {/* ===== ADVANTAGES ===== */}
+      {cmsSectionEnabled("advantages") && (
       <section className="relative overflow-hidden py-12">
         <Image
           src="/section-bg.png"
@@ -801,7 +808,7 @@ export function HomePage() {
         <div className="container mx-auto px-4 relative">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
-            Почему выбирают нас
+{cmsSectionTitle("advantages", "Почему выбирают нас")}
           </h2>
           <p className="text-muted-foreground mt-2 max-w-2xl mx-auto">
             Уездный кондитер — это не просто маркетплейс. Это экосистема для
@@ -876,14 +883,16 @@ export function HomePage() {
         </div>
         </div>
       </section>
+      )}
 
       {/* ===== STEPS ===== */}
+      {cmsSectionEnabled("steps") && (
       <section className="relative overflow-hidden py-12">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
         <div className="container mx-auto px-4 relative">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
-            Как сделать заказ
+{cmsSectionTitle("steps", "Как сделать заказ")}
           </h2>
           <p className="text-muted-foreground mt-2">
             Четыре простых шага от выбора до получения
@@ -947,9 +956,14 @@ export function HomePage() {
         </div>
         </div>
       </section>
+      )}
 
       {/* ===== STATS ===== */}
+      {cmsSectionEnabled("stats") && (
       <section className="container mx-auto px-4">
+        <div className="text-center mb-5">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold">{cmsSectionTitle("stats", "О платформе")}</h2>
+        </div>
         <div className="rounded-2xl bg-primary text-primary-foreground border-0 overflow-hidden relative mesh-gradient" style={{ background: "none", backgroundColor: "oklch(0.42 0.18 25)" }}>
           <div className="absolute inset-0 bg-pattern opacity-10" />
           <div className="relative p-8 lg:p-12 grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
@@ -978,12 +992,14 @@ export function HomePage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
+      {cmsSectionEnabled("testimonials") && (
       <section className="container mx-auto px-4">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
-            Отзывы покупателей
+{cmsSectionTitle("testimonials", "Отзывы покупателей")}
           </h2>
           <p className="text-muted-foreground mt-2">
             Проверенные отзывы о заказах на платформе
@@ -1066,6 +1082,7 @@ export function HomePage() {
               ))}
         </div>
       </section>
+      )}
 
       {/* ===== RECENTLY VIEWED ===== */}
       <section className="container mx-auto px-4">
@@ -1073,6 +1090,7 @@ export function HomePage() {
       </section>
 
       {/* ===== CTA BECOME CONFECTIONER ===== */}
+      {cmsSectionEnabled("cta_confectioner") && (
       <section className="relative overflow-hidden py-12">
         <Image
           src="/section-bg.png"
@@ -1089,7 +1107,7 @@ export function HomePage() {
             <div className="space-y-4">
               <Badge className="bg-primary text-primary-foreground">
                 <Sparkles className="h-3 w-3 mr-1" />
-                Для кондитеров
+                {cmsSectionTitle("cta_confectioner", "Для кондитеров")}
               </Badge>
               <h2 className="font-display text-3xl lg:text-4xl font-bold">
                 Продавайте свои торты
@@ -1144,6 +1162,7 @@ export function HomePage() {
         </Card>
         </div>
       </section>
+      )}
 
       {/* P2.2: анкета «Помочь выбрать» — короткий вопросник, подбор детерминированный */}
       <HelpChooseDialog
