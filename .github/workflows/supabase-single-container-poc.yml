@@ -32,7 +32,8 @@ jobs:
           export POSTGRES_PASSWORD="ci-only-postgres-password"
           export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
-          export REALTIME_DB_ENC_KEY="0123456789abcdef0123456789abcdef"
+          export REALTIME_DB_ENC_KEY="0123456789abcdef"
+          export REALTIME_DB_ENC_KEY_GCM="0123456789abcdef0123456789abcdef"
           python3 - <<'PY' > /tmp/runtime.env
           import base64, hashlib, hmac, json, os, time
           secret = os.environ["JWT_SECRET"].encode()
@@ -58,6 +59,7 @@ jobs:
               "SECRET_KEY_BASE":os.environ["SECRET_KEY_BASE"],
               "PG_META_CRYPTO_KEY":os.environ["PG_META_CRYPTO_KEY"],
               "REALTIME_DB_ENC_KEY":os.environ["REALTIME_DB_ENC_KEY"],
+              "REALTIME_DB_ENC_KEY_GCM":os.environ["REALTIME_DB_ENC_KEY_GCM"],
               "GOTRUE_MAILER_AUTOCONFIRM":"true",
               "API_EXTERNAL_URL":"http://127.0.0.1:18000",
               "SUPABASE_PUBLIC_URL":"http://127.0.0.1:18000",
