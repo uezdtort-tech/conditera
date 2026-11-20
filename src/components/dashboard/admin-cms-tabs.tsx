@@ -622,6 +622,26 @@ export function AdminBannersTab() {
     title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "",
     position: "home_hero", isActive: true, sortOrder: 0, startsAt: "", endsAt: "",
   });
+  const [bannerMediaPickerOpen, setBannerMediaPickerOpen] = useState(false);
+  const [bannerMediaLoading, setBannerMediaLoading] = useState(false);
+  const [bannerMediaItems, setBannerMediaItems] = useState<Array<{ id: string; name: string; url: string }>>([]);
+
+
+  const openBannerMediaPicker = async () => {
+    setBannerMediaPickerOpen((open) => !open);
+    if (bannerMediaItems.length > 0) return;
+    setBannerMediaLoading(true);
+    try {
+      const response = await fetch("/api/cms/media?type=image", { credentials: "include", cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось загрузить медиатеку");
+      setBannerMediaItems(Array.isArray(payload.media) ? payload.media : []);
+    } catch (error) {
+      toast.error("Медиатека недоступна", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setBannerMediaLoading(false);
+    }
+  };
 
   const loadBanners = async (signal?: AbortSignal) => {
     const response = await csrfFetch("/api/cms/banners?include_inactive=true", { signal });
@@ -781,7 +801,33 @@ export function AdminBannersTab() {
             <div className="space-y-2">
               <div><Label>Заголовок *</Label><Input value={newBanner.title} maxLength={180} onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })} /></div>
               <div><Label>Текст</Label><Textarea value={newBanner.text} maxLength={1000} onChange={(e) => setNewBanner({ ...newBanner, text: e.target.value })} rows={2} /></div>
-              <div><Label>URL изображения</Label><Input value={newBanner.imageUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, imageUrl: e.target.value })} placeholder="https://…" /></div>
+              <div className="space-y-2">
+                <Label>Изображение баннера</Label>
+                <div className="flex gap-2">
+                  <Input value={newBanner.imageUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, imageUrl: e.target.value })} placeholder="URL изображения или выберите из медиатеки" />
+                  <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={() => void openBannerMediaPicker()}>
+                    <ImageIcon className="h-3.5 w-3.5 mr-1" />Медиатека
+                  </Button>
+                </div>
+                {bannerMediaPickerOpen && (
+                  <div className="rounded-lg border border-border p-2 space-y-2">
+                    {bannerMediaLoading ? (
+                      <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка изображений…</div>
+                    ) : bannerMediaItems.length === 0 ? (
+                      <p className="py-4 text-center text-xs text-muted-foreground">Нет изображений. Загрузите файлы во вкладке «Медиатека».</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                        {bannerMediaItems.map((item) => (
+                          <button key={item.id} type="button" className="overflow-hidden rounded border border-border text-left hover:border-primary" onClick={() => { setNewBanner((current) => ({ ...current, imageUrl: item.url })); setBannerMediaPickerOpen(false); }}>
+                            <img src={item.url} alt={item.name} className="aspect-video w-full object-cover" loading="lazy" decoding="async" />
+                            <span className="block truncate px-1 py-1 text-[10px]">{item.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <div><Label>Ссылка</Label><Input value={newBanner.linkUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, linkUrl: e.target.value })} placeholder="/catalog" /></div>
               <div><Label>Текст кнопки</Label><Input value={newBanner.ctaText} maxLength={100} onChange={(e) => setNewBanner({ ...newBanner, ctaText: e.target.value })} /></div>
               <div>
