@@ -1,6 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
+import { resolveCmsNavigationView } from "@/lib/cms-navigation";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { siteConfig, getCopyrightYears } from "@/lib/site-config";
@@ -83,8 +84,9 @@ export function Footer() {
   }, []);
 
   const openCmsLink = (link: PublicFooterLink) => {
-    if (link.url.startsWith("/") && !link.url.startsWith("//")) router.push(link.url);
-    else if (/^[a-z][a-z0-9-]*$/i.test(link.url)) navigateToView(link.url as ViewKey);
+    const appView = resolveCmsNavigationView(link.url);
+    if (appView) navigateToView(appView);
+    else if (link.url.startsWith("/") && !link.url.startsWith("//")) router.push(link.url);
   };
 
   return (
