@@ -1283,7 +1283,7 @@ export function AdminDesignTab() {
   };
   const defaults: Omit<DesignSettings, "id"> = {
     theme: "default", primary_color: "#8B2942", accent_color: "#D97706",
-    background_color: "#FFFFFF", text_color: "#1F2937",
+    background_color: "#F7F2E8", text_color: "#1F2937",
     font_heading: "Brokgauz_amp_Efron-Italic", font_body: "Geist",
     layout_style: "classic", max_width: 1280, animations_enabled: true,
   };
