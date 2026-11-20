@@ -9,7 +9,7 @@
  *   - Background sync для отправки заказов в офлайне
  *   - Offline-fallback страница с заглушкой
  */
-const CACHE_VERSION = "v4.1";
+const CACHE_VERSION = "v4.2";
 const STATIC_CACHE = `uk-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `uk-runtime-${CACHE_VERSION}`;
 const IMAGE_CACHE = `uk-images-${CACHE_VERSION}`;
