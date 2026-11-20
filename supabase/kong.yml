@@ -100,6 +100,12 @@ consumers:
     keyauth_credentials:
       - key: ${SERVICE_ROLE_KEY}
 
+acls:
+  - consumer: anon
+    group: anon
+  - consumer: service_role
+    group: service_role
+
 # ===== ACL плагины =====
 plugins:
   - name: acl
