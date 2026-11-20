@@ -9,8 +9,13 @@ set -Eeuo pipefail
 : "${SECRET_KEY_BASE:?SECRET_KEY_BASE is required}"
 : "${PG_META_CRYPTO_KEY:?PG_META_CRYPTO_KEY is required}"
 : "${REALTIME_DB_ENC_KEY:?REALTIME_DB_ENC_KEY is required}"
-if [ "${#REALTIME_DB_ENC_KEY}" -ne 32 ]; then
-  echo "REALTIME_DB_ENC_KEY must contain exactly 32 ASCII characters" >&2
+: "${REALTIME_DB_ENC_KEY_GCM:?REALTIME_DB_ENC_KEY_GCM is required}"
+if [ "${#REALTIME_DB_ENC_KEY}" -ne 16 ]; then
+  echo "REALTIME_DB_ENC_KEY must contain exactly 16 characters (AES-128 legacy key)" >&2
+  exit 1
+fi
+if [ "${#REALTIME_DB_ENC_KEY_GCM}" -ne 32 ]; then
+  echo "REALTIME_DB_ENC_KEY_GCM must contain exactly 32 characters (AES-256-GCM key)" >&2
   exit 1
 fi
 
@@ -36,6 +41,9 @@ export DB_AFTER_CONNECT_QUERY="SET search_path TO _realtime"
 export API_JWT_SECRET="$JWT_SECRET"
 export METRICS_JWT_SECRET="$JWT_SECRET"
 export DB_ENC_KEY="$REALTIME_DB_ENC_KEY"
+export DB_ENC_KEY_GCM="$REALTIME_DB_ENC_KEY_GCM"
+export DB_ENC_WRITE_GCM=true
+export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:-+fnu}"
 export GOTRUE_JWT_ISSUER="$API_EXTERNAL_URL/auth/v1"
 export GOTRUE_SITE_URL="$SITE_URL"
 export GOTRUE_JWT_EXP="${JWT_EXPIRY:-3600}"
