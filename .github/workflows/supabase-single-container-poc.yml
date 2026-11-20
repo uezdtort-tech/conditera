@@ -83,6 +83,9 @@ jobs:
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
           node scripts/compose-single-runtime.mjs config
+          if node scripts/compose-single-runtime.mjs up -d; then echo "Launcher must require explicit PG17 cutover approval" >&2; exit 1; fi
+          if node scripts/compose-single-runtime.mjs --profile legacy-supabase config; then echo "Launcher must reject legacy profiles" >&2; exit 1; fi
+          if node scripts/compose-single-runtime.mjs down --volumes; then echo "Launcher must protect named volumes" >&2; exit 1; fi
 
       - name: Build one-container Supabase runtime
         run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
