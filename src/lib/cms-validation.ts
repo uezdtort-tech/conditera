@@ -1,4 +1,4 @@
-const CMS_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CMS_SLUG_PATTERN = /^[a-z0-9а-яё]+(?:-[a-z0-9а-яё]+)*$/u;
 
 export function isSafeCmsUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
@@ -44,7 +44,7 @@ export function validateCmsPageInput(
   const has = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
 
   if (!partial || has("slug")) {
-    if (!isValidCmsSlug(body.slug)) return "Slug должен содержать только строчные латинские буквы, цифры и дефисы";
+    if (!isValidCmsSlug(body.slug)) return "Slug должен содержать строчные латинские или русские буквы, цифры и дефисы";
   }
   if (!partial || has("title")) {
     if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 180) {
