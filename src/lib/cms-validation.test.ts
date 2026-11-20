@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSafeCmsMediaExtension, hasValidCmsMediaSignature, isSafeCmsUrl, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
+import { areValidCmsNavigationRoles, getSafeCmsMediaExtension, hasValidCmsMediaSignature, isSafeCmsNavigationTarget, isSafeCmsUrl, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
 
 describe("CMS validation", () => {
   it("allows HTTPS and same-origin paths only for CMS URLs", () => {
@@ -12,6 +12,17 @@ describe("CMS validation", () => {
     expect(isSafeCmsUrl("http://example.com")).toBe(false);
     expect(isSafeCmsUrl("data:text/html,hello")).toBe(false);
     expect(isSafeCmsUrl("x".repeat(2049))).toBe(false);
+  });
+
+  it("validates internal navigation targets and known role names", () => {
+    expect(isSafeCmsNavigationTarget("/catalog")).toBe(true);
+    expect(isSafeCmsNavigationTarget("catalog")).toBe(true);
+    expect(isSafeCmsNavigationTarget("//evil.example")).toBe(false);
+    expect(isSafeCmsNavigationTarget("/\\\\evil.example")).toBe(false);
+    expect(isSafeCmsNavigationTarget("https://external.example")).toBe(false);
+    expect(areValidCmsNavigationRoles(["CUSTOMER", "CONFECTIONER"])).toBe(true);
+    expect(areValidCmsNavigationRoles(["ROOT"])).toBe(false);
+    expect(areValidCmsNavigationRoles(Array(31).fill("CUSTOMER"))).toBe(false);
   });
 
   it("allows only supported CMS media types and checks file signatures", () => {
