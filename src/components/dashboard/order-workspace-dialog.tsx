@@ -443,7 +443,7 @@ export function OrderWorkspaceDialog({
       kind: "production-complete",
       label: "Завершить этапы",
       icon: ListChecks,
-      enabled: bs === "in_production" && workStagesComplete,
+      enabled: bs === "in_production" && workStagesComplete && !lc?.production.completedAt,
       hint: "Доступно после ручного подтверждения всех производственных этапов",
     },
     {
@@ -719,7 +719,7 @@ export function OrderWorkspaceDialog({
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 shrink-0"
-                              disabled={bs !== "in_production" || stageMutation.isPending}
+                              disabled={bs !== "in_production" || Boolean(lc?.production.completedAt) || stageMutation.isPending}
                               aria-label={stage.is_done ? `Снять отметку: ${stage.label}` : `Отметить выполненным: ${stage.label}`}
                               onClick={() => stageMutation.mutate({ stageKey: stage.stage_key, done: !stage.is_done })}
                             >
