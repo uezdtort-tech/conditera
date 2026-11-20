@@ -121,3 +121,23 @@ export function hasValidCmsMediaSignature(mimeType: string, bytes: Uint8Array): 
     default: return false;
   }
 }
+
+const CMS_NAV_ROLES = new Set([
+  "CUSTOMER", "CONFECTIONER", "ADMIN", "SUPER_ADMIN", "COURIER", "SUPPLIER",
+  "VENUE_OWNER", "ANIMATOR_AGENCY", "RECREATION_CENTER", "KIDS_CLUB", "GUEST",
+  "MODERATOR", "SUPPORT", "STUDIO", "BLOGGER", "TASTER", "FRANCHISEE",
+  "NUTRITIONIST", "CORPORATE_CLIENT", "QUALITY_INSPECTOR", "CERTIFICATION_AGENT",
+  "COPYWRITER", "FOOD_SERVICE", "EVENT_ORGANIZER", "PICKUP_POINT", "WHOLESALER",
+  "INSPECTOR", "RECIPE_DEVELOPER", "LOYALTY_PARTNER", "AI_ASSISTANT",
+]);
+
+export function isSafeCmsNavigationTarget(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2048 || !value.trim()) return false;
+  if (/^[a-z][a-z0-9-]*$/i.test(value)) return true;
+  return value.startsWith("/") && isSafeCmsUrl(value);
+}
+
+export function areValidCmsNavigationRoles(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= 30 &&
+    value.every((role) => typeof role === "string" && CMS_NAV_ROLES.has(role));
+}
