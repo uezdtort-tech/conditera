@@ -113,6 +113,9 @@ export IMGPROXY_AUTO_WEBP="${IMGPROXY_AUTO_WEBP:-true}"
 export IMGPROXY_MAX_SRC_RESOLUTION=16.8
 
 export KONG_DATABASE=off
+# Keep Kong runtime state and its prefix logs in the writable chroot /tmp.
+# The image default /usr/local/kong/logs is not writable in the extracted rootfs.
+export KONG_PREFIX=/tmp/kong
 export KONG_PROXY_LISTEN=0.0.0.0:8000
 export KONG_ADMIN_LISTEN=127.0.0.1:8001
 export KONG_DECLARATIVE_CONFIG=/var/lib/kong/kong.yml
@@ -158,6 +161,8 @@ chown -R 65534:65534 /opt/supabase/services/realtime/app
 mkdir -p /opt/supabase/services/kong/usr/local/kong
 chown -R 1001:1001 /opt/supabase/services/kong/usr/local/kong
 mkdir -p /opt/supabase/services/kong/var/lib/kong
+mkdir -p /opt/supabase/services/kong/tmp/kong
+chown -R 1001:1001 /opt/supabase/services/kong/tmp/kong
 mkdir -p /opt/supabase/services/kong/tmp
 touch /opt/supabase/services/kong/tmp/kong-error.log
 touch /opt/supabase/services/kong/tmp/kong-proxy-access.log
