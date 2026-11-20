@@ -283,7 +283,7 @@ export function AdminCmsHomeTab() {
           <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков CMS…
         </div>
       ) : CMS_HOME_SECTIONS.map((section) => {
-        const blocks = cmsBlocks.filter((block) => block.section === section.key);
+        const blocks = cmsBlocks.filter((block) => block.section === section.key).sort((a, b) => a.sortOrder - b.sortOrder);
         return (
           <Card key={section.key} className="p-4">
             <div className="flex items-center justify-between mb-3">
