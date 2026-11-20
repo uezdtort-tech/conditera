@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { isAllowedPushEndpoint } from "@/lib/push-subscriptions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -187,6 +188,10 @@ export async function POST(req: Request): Promise<NextResponse> {
           .eq("user_id", userId);
 
         for (const sub of subscriptions || []) {
+          if (!isAllowedPushEndpoint(sub.endpoint)) {
+            console.warn("[notifications/send] skipped invalid push endpoint:", String(sub.endpoint).slice(0, 80));
+            continue;
+          }
           // Реальная схема: keys jsonb вида { p256dh, auth }
           const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
           if (!keys.p256dh || !keys.auth) continue;
