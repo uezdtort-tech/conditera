@@ -280,6 +280,9 @@ async function main() {
   const ready = await api("POST", `/api/orders/${o1.orderId}/ready`, { token: owner });
   assert("ready после фото → 200 (READY)", ready.status === 200, JSON.stringify(ready.json).slice(0, 160));
 
+  const courierBeforeHandoff = await api("GET", "/api/courier/available-orders", { token: courier });
+  assert("курьер не может забрать заказ до подтверждённой передачи", courierBeforeHandoff.status === 200 && !(courierBeforeHandoff.json?.orders || []).some((o) => o.id === o1.orderId));
+
   const handoff = await api("POST", `/api/orders/${o1.orderId}/handoff`, { token: owner, body: { executor: "Курьер Демо" } });
   assert("handoff (delivery) → IN_DELIVERY", handoff.status === 200 && handoff.json?.status === "IN_DELIVERY", JSON.stringify(handoff.json).slice(0, 160));
 
