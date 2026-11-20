@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
+import { resolveCmsNavigationView } from "@/lib/cms-navigation";
 import { serverLogout } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -235,8 +236,9 @@ export function Header() {
   }, []);
 
   const openCmsNavItem = (item: PublicCmsNavItem) => {
-    if (item.url.startsWith("/") && !item.url.startsWith("//")) router.push(item.url);
-    else if (/^[a-z][a-z0-9-]*$/i.test(item.url)) navigateToView(item.url as ViewKey);
+    const appView = resolveCmsNavigationView(item.url);
+    if (appView) navigateToView(appView);
+    else if (item.url.startsWith("/") && !item.url.startsWith("//")) router.push(item.url);
     else return;
     setMobileMenuOpen(false);
   };
