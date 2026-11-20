@@ -242,6 +242,13 @@ async function main() {
   const mediaUrl = upload.json?.media?.url;
   assert("media URL формата /api/order-media/<id>", typeof mediaUrl === "string" && mediaUrl.startsWith("/api/order-media/"));
 
+  // Покупатель должен видеть фото собственного готового изделия, но не иметь
+  // возможности загружать производственные доказательства вместо кондитера.
+  const customerMediaList = await api("GET", `/api/orders/${o1.orderId}/media`, { token: customer });
+  assert("покупатель получает список фото своего заказа → 200", customerMediaList.status === 200 && customerMediaList.json?.media?.length === 1, JSON.stringify(customerMediaList.json).slice(0, 160));
+  const customerMediaFile = await api("GET", mediaUrl, { token: customer });
+  assert("покупатель открывает фото своего заказа → 200", customerMediaFile.status === 200);
+
   const ready = await api("POST", `/api/orders/${o1.orderId}/ready`, { token: owner });
   assert("ready после фото → 200 (READY)", ready.status === 200, JSON.stringify(ready.json).slice(0, 160));
 
