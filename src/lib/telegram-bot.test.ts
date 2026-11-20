@@ -10,7 +10,7 @@
  * и логируют предупреждение.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { notifyNewConfectionerPending } from "./telegram-bot";
 
 describe("notifyNewConfectionerPending", () => {
@@ -134,5 +134,42 @@ describe("telegram-bot module exports", () => {
     };
     expect(notif.type).toBe("confectioner");
     expect(typeof mod.notifyChannel).toBe("function");
+  });
+});
+
+
+describe("setWebhook security", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("refuses to register a webhook without a secret token", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-bot-token");
+    vi.stubEnv("TELEGRAM_WEBHOOK_SECRET", "");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+
+    const telegram = await import("./telegram-bot");
+    await expect(telegram.setWebhook("https://conditera.ru/api/telegram/webhook")).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the configured secret_token to Telegram", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-bot-token");
+    vi.stubEnv("TELEGRAM_WEBHOOK_SECRET", "valid_test-secret_123");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+
+    const telegram = await import("./telegram-bot");
+    await expect(telegram.setWebhook("https://conditera.ru/api/telegram/webhook")).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(requestBody.secret_token).toBe("valid_test-secret_123");
   });
 });
