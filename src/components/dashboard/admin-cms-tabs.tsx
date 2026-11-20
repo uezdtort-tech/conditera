@@ -47,6 +47,11 @@ import {
   Gift,
   Loader2,
   ExternalLink,
+  Upload,
+  Copy,
+  FileText,
+  Video,
+  Music2,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -1058,6 +1063,158 @@ export function AdminNavMenuTab() {
   );
 }
 
+
+
+type CmsMediaItem = {
+  id: string;
+  name: string;
+  url: string;
+  type: "image" | "video" | "audio" | "document";
+  size_bytes: number;
+  mime_type: string;
+  created_at: string;
+};
+
+function formatMediaSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+export function AdminCmsMediaTab() {
+  const [media, setMedia] = useState<CmsMediaItem[]>([]);
+  const [filter, setFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    const query = filter === "all" ? "" : `?type=${encodeURIComponent(filter)}`;
+    fetch(`/api/cms/media${query}`, { credentials: "include", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Не удалось загрузить медиатеку");
+        if (!controller.signal.aborted) setMedia(Array.isArray(payload.media) ? payload.media : []);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Медиатека недоступна", { description: error.message });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [filter]);
+
+  const uploadFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || uploading) return;
+    if (file.size <= 0 || file.size > 50 * 1024 * 1024) {
+      toast.error("Недопустимый размер файла", { description: "Максимальный размер — 50 МБ" });
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    setUploading(true);
+    try {
+      const response = await csrfFetch("/api/cms/media", { method: "POST", body: formData });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось загрузить файл");
+      const uploaded = payload.media as CmsMediaItem;
+      setMedia((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)].slice(0, 100));
+      toast.success("Файл загружен в медиатеку");
+    } catch (error) {
+      toast.error("Ошибка загрузки", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const copyUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Ссылка скопирована");
+    } catch {
+      toast.error("Не удалось скопировать ссылку");
+    }
+  };
+
+  const typeIcon = (type: CmsMediaItem["type"]) => {
+    if (type === "video") return <Video className="h-8 w-8" />;
+    if (type === "audio") return <Music2 className="h-8 w-8" />;
+    if (type === "document") return <FileText className="h-8 w-8" />;
+    return <ImageIcon className="h-8 w-8" />;
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-2xl font-bold flex items-center gap-2"><ImageIcon className="h-6 w-6 text-primary" />Медиатека CMS</h2>
+          <p className="text-sm text-muted-foreground">Изображения, видео, аудио и документы для страниц и баннеров. Максимальный размер файла — 50 МБ.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-36"><SelectValue placeholder="Все файлы" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все файлы</SelectItem>
+              <SelectItem value="image">Изображения</SelectItem>
+              <SelectItem value="video">Видео</SelectItem>
+              <SelectItem value="audio">Аудио</SelectItem>
+              <SelectItem value="document">Документы</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className="inline-flex cursor-pointer">
+            <Input
+              type="file"
+              className="sr-only"
+              accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,audio/mpeg,audio/wav,application/pdf"
+              disabled={uploading}
+              onChange={uploadFile}
+            />
+            <span className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              {uploading ? "Загрузка…" : "Загрузить"}
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка медиатеки…</div>
+      ) : media.length === 0 ? (
+        <Card className="p-10 text-center text-sm text-muted-foreground">Файлов пока нет. Загрузите первый материал для баннера или страницы.</Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {media.map((item) => (
+            <Card key={item.id} className="overflow-hidden">
+              <div className="flex h-40 items-center justify-center bg-muted/40">
+                {item.type === "image" ? (
+                  <img src={item.url} alt={item.name} className="h-full w-full object-contain" loading="lazy" decoding="async" />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground">{typeIcon(item.type)}<Badge variant="secondary">{item.type}</Badge></div>
+                )}
+              </div>
+              <div className="space-y-2 p-3">
+                <div className="truncate text-sm font-medium" title={item.name}>{item.name}</div>
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>{formatMediaSize(item.size_bytes)} · {item.mime_type}</span>
+                  <span>{formatDate(item.created_at)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => copyUrl(item.url)}><Copy className="mr-1 h-3.5 w-3.5" />Скопировать URL</Button>
+                  <Button type="button" size="sm" variant="ghost" asChild><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a></Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AdminDesignTab() {
   type DesignSettings = {
