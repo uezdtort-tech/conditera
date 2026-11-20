@@ -60,9 +60,9 @@ export async function PATCH(
     if (!isAdmin && roles.includes("COURIER") &&
         (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")) {
       const { data: assignment, error: assignmentError } = await supabaseAdmin
-        .from("deliveries")
+        .from("orders")
         .select("id")
-        .eq("order_id", orderId)
+        .eq("id", orderId)
         .eq("courier_id", user.id)
         .maybeSingle();
       if (assignmentError) {
