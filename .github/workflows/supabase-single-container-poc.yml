@@ -182,7 +182,7 @@ jobs:
           values = {}
           with open("/tmp/runtime.env", encoding="utf-8") as stream:
               for line in stream:
-                  key, separator, value = line.rstrip("\\n").partition("=")
+                  key, separator, value = line.rstrip("\n").partition("=")
                   if separator:
                       values[key] = value
 
