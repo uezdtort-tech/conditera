@@ -143,6 +143,7 @@ services:
       - supabase_runtime_pg17_data:/opt/supabase/services/postgres/var/lib/postgresql/data
       - supabase_runtime_storage_data:/opt/supabase/services/storage/var/lib/storage
       - supabase_runtime_storage_data:/opt/supabase/services/imgproxy/var/lib/storage:ro
+      - supabase_runtime_deno_cache:/opt/supabase/services/edge-runtime/root/.cache/deno
     networks:
       conditera-net:
         aliases:
@@ -158,3 +159,4 @@ services:
 volumes:
   supabase_runtime_pg17_data:
   supabase_runtime_storage_data:
+  supabase_runtime_deno_cache:
