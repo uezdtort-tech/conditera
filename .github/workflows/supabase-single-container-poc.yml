@@ -52,6 +52,9 @@ jobs:
           set -Eeuo pipefail
           touch .env.production .env.supabase-runtime
           trap 'rm -f .env.production .env.supabase-runtime' EXIT
+          # Старые Compose-файлы без overlay больше не должны запускать ни PG18, ни PG15.
+          test -z "$(docker compose -f docker-compose.yml config --services)"
+          test -z "$(docker compose -f docker-compose.supabase.yml config --services)"
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
           python3 - <<'PY'
           import json
