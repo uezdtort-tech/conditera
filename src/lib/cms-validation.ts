@@ -83,3 +83,41 @@ export function validateCmsPageInput(
   }
   return null;
 }
+
+const CMS_MEDIA_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "application/pdf": "pdf",
+};
+
+export function getSafeCmsMediaExtension(mimeType: unknown): string | null {
+  return typeof mimeType === "string" ? CMS_MEDIA_EXTENSIONS[mimeType] ?? null : null;
+}
+
+export function hasValidCmsMediaSignature(mimeType: string, bytes: Uint8Array): boolean {
+  const starts = (...signature: number[]) => signature.every((byte, index) => bytes[index] === byte);
+  switch (mimeType) {
+    case "image/jpeg": return starts(0xff, 0xd8, 0xff);
+    case "image/png": return starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+    case "image/gif": return starts(0x47, 0x49, 0x46, 0x38, 0x37, 0x61) || starts(0x47, 0x49, 0x46, 0x38, 0x39, 0x61);
+    case "image/webp":
+      return starts(0x52, 0x49, 0x46, 0x46) &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+    case "video/mp4":
+      return bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+    case "video/webm": return starts(0x1a, 0x45, 0xdf, 0xa3);
+    case "audio/mpeg":
+      return starts(0x49, 0x44, 0x33) || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
+    case "audio/wav":
+      return starts(0x52, 0x49, 0x46, 0x46) &&
+        bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45;
+    case "application/pdf": return starts(0x25, 0x50, 0x44, 0x46, 0x2d);
+    default: return false;
+  }
+}
