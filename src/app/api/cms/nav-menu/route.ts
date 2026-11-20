@@ -29,8 +29,26 @@ export async function GET(request: NextRequest) {
     if (!includeInactive) query = query.eq("is_active", true);
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: "Не удалось загрузить меню" }, { status: 500 });
-    return NextResponse.json({ items: data || [] }, {
-      headers: { "Cache-Control": includeInactive ? "private, no-store" : "public, s-maxage=60, stale-while-revalidate=300" },
+
+    let visibleItems = data || [];
+    if (!includeInactive) {
+      const user = await getUserFromRequest(request);
+      let roles: string[] = [];
+      if (user) {
+        const { data: roleRows } = await supabaseAdmin
+          .from("user_roles").select("role").eq("user_id", user.id).eq("is_active", true);
+        roles = (roleRows || []).map((row) => String(row.role));
+      }
+      visibleItems = visibleItems.filter((item) => {
+        if (item.show_for_authenticated === true && !user) return false;
+        if (item.show_for_authenticated === false && user) return false;
+        if (Array.isArray(item.show_for_roles) && item.show_for_roles.length > 0 &&
+            !item.show_for_roles.some((role: string) => roles.includes(role))) return false;
+        return true;
+      });
+    }
+    return NextResponse.json({ items: visibleItems }, {
+      headers: { "Cache-Control": includeInactive ? "private, no-store" : "private, max-age=30, stale-while-revalidate=60" },
     });
   } catch {
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
