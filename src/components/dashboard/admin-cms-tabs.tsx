@@ -42,6 +42,7 @@ import {
   Eye,
   EyeOff,
   GripVertical,
+  Palette,
   AlertTriangle,
   Gift,
   Loader2,
