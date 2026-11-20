@@ -52,6 +52,8 @@ import {
   FileText,
   Video,
   Music2,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -197,6 +199,48 @@ export function AdminCmsHomeTab() {
     }
   };
 
+  const moveBlock = async (block: CmsHomeBlock, direction: -1 | 1) => {
+    if (saving) return;
+    const siblings = cmsBlocks
+      .filter((item) => item.section === block.section)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+    const currentIndex = siblings.findIndex((item) => item.id === block.id);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblings.length) return;
+
+    const reordered = [...siblings];
+    const [moving] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moving);
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/blocks/reorder", {
+        method: "POST",
+        body: JSON.stringify({
+          section: block.section,
+          blockIds: reordered.map((item) => item.id),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось изменить порядок блоков");
+
+      const orderById = new Map(reordered.map((item, index) => [item.id, (index + 1) * 10]));
+      setCmsBlocks((current) => current.map((item) => {
+        const sortOrder = orderById.get(item.id);
+        return sortOrder === undefined ? item : { ...item, sortOrder };
+      }));
+      toast.success("Порядок блоков сохранён");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Состав секции изменился")) {
+        await loadBlocks().catch(() => undefined);
+      }
+      toast.error("Не удалось изменить порядок", {
+        description: error instanceof Error ? error.message : "Неизвестная ошибка",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const removeBlock = async (block: CmsHomeBlock) => {
     if (saving) return;
     setSaving(true);
@@ -230,7 +274,7 @@ export function AdminCmsHomeTab() {
           <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков CMS…
         </div>
       ) : CMS_HOME_SECTIONS.map((section) => {
-        const blocks = cmsBlocks.filter((block) => block.section === section.key);
+        const blocks = cmsBlocks.filter((block) => block.section === section.key).sort((a, b) => a.sortOrder - b.sortOrder);
         return (
           <Card key={section.key} className="p-4">
             <div className="flex items-center justify-between mb-3">
@@ -239,7 +283,7 @@ export function AdminCmsHomeTab() {
                 {section.label}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
               </h3>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, blocks.length)}>
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, (blocks.at(-1)?.sortOrder ?? 0) + 10)}>
                 <Plus className="h-3 w-3 mr-1" /> Добавить
               </Button>
             </div>
@@ -295,6 +339,30 @@ export function AdminCmsHomeTab() {
                         {block.linkText && <Badge variant="secondary" className="text-[9px] mt-1">{block.linkText} → {block.link}</Badge>}
                       </div>
                       <div className="flex gap-1 shrink-0">
+                        <div className="flex flex-col">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-7"
+                            aria-label="Переместить блок выше"
+                            title="Переместить выше"
+                            disabled={saving || blocks[0]?.id === block.id}
+                            onClick={() => moveBlock(block, -1)}
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-7"
+                            aria-label="Переместить блок ниже"
+                            title="Переместить ниже"
+                            disabled={saving || blocks[blocks.length - 1]?.id === block.id}
+                            onClick={() => moveBlock(block, 1)}
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                         <Button size="icon" variant="ghost" className="h-7 w-7" disabled={saving} onClick={() => { setEditingId(block.id); setEditValues({ ...block }); }}>
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
