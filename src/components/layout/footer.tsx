@@ -85,7 +85,7 @@ export function Footer() {
   return (
     <footer className="mt-auto border-t border-border bg-secondary/40">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
+        <div className={`grid grid-cols-2 md:grid-cols-3 ${cmsLinks.length > 0 ? "lg:grid-cols-7" : "lg:grid-cols-6"} gap-8`}>
           {/* Brand */}
           <div className="col-span-2 lg:col-span-2">
             <button
