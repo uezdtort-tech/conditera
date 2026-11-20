@@ -307,122 +307,166 @@ export function AdminCmsHomeTab() {
 }
 
 // ==================== CMS: БАННЕРЫ ====================
+type CmsBannerRecord = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  link_url: string | null;
+  position: string;
+  text: string | null;
+  cta_text: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  is_active: boolean;
+  sort_order: number;
+};
+
+const BANNER_POSITIONS = [
+  { value: "home_hero", label: "Главная — Hero" },
+  { value: "catalog_top", label: "Верх каталога" },
+  { value: "sidebar", label: "Сайдбар" },
+  { value: "footer", label: "Подвал" },
+  { value: "mobile", label: "Мобильная версия" },
+];
+
 export function AdminBannersTab() {
-  const banners = useAppStore((s) => s.banners);
-  const updateBanner = useAppStore((s) => s.updateBanner);
-  const addBanner = useAppStore((s) => s.addBanner);
-  const deleteBanner = useAppStore((s) => s.deleteBanner);
+  const [banners, setBanners] = useState<CmsBannerRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [newBanner, setNewBanner] = useState({
-    title: "",
-    subtitle: "",
-    image: "",
-    link: "",
-    buttonText: "",
-    position: "hero",
-    isActive: true,
-    sortOrder: 0,
+    title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "",
+    position: "home_hero", isActive: true, sortOrder: 0,
   });
+
+  const loadBanners = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/banners?include_inactive=true", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить баннеры");
+    setBanners(Array.isArray(payload.banners) ? payload.banners : []);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadBanners(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки баннеров", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const createBanner = async () => {
+    if (saving || !newBanner.title.trim()) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/banners", {
+        method: "POST",
+        body: JSON.stringify(newBanner),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось создать баннер");
+      setBanners((current) => [...current, payload.banner as CmsBannerRecord]);
+      setShowAdd(false);
+      setNewBanner({ title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "", position: "home_hero", isActive: true, sortOrder: banners.length });
+      toast.success("Баннер сохранён в базе данных");
+    } catch (error) {
+      toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const toggleBanner = async (banner: CmsBannerRecord) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/banners/${banner.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: !banner.is_active }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось изменить баннер");
+      setBanners((current) => current.map((item) => item.id === banner.id ? payload.banner : item));
+      toast.success(!banner.is_active ? "Баннер активирован" : "Баннер скрыт");
+    } catch (error) {
+      toast.error("Ошибка обновления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const removeBanner = async (banner: CmsBannerRecord) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/banners/${banner.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить баннер");
+      setBanners((current) => current.filter((item) => item.id !== banner.id));
+      toast.success("Баннер удалён");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-            <ImageIcon className="h-6 w-6 text-primary" />
-            Баннеры
-          </h1>
-          <p className="text-sm text-muted-foreground">Управление баннерами на главной и в каталоге</p>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2"><ImageIcon className="h-6 w-6 text-primary" />Баннеры</h1>
+          <p className="text-sm text-muted-foreground">Баннеры хранятся в PostgreSQL и публикуются с учётом расписания.</p>
         </div>
         <Button onClick={() => setShowAdd(true)}><Plus className="h-4 w-4 mr-1" /> Добавить</Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {banners.map((banner) => (
-          <Card key={banner.id} className={`overflow-hidden p-0 ${!banner.isActive ? "opacity-50" : ""}`}>
-            <div className="relative aspect-video bg-muted">
-              {banner.image && <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-              <div className="absolute bottom-2 left-3 right-3">
-                <div className="font-semibold text-white text-sm line-clamp-1">{banner.title}</div>
-                <div className="text-xs text-white/80 line-clamp-1">{banner.subtitle}</div>
+      {loading ? <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка баннеров…</div> : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {banners.map((banner) => (
+            <Card key={banner.id} className={`overflow-hidden p-0 ${!banner.is_active ? "opacity-60" : ""}`}>
+              <div className="relative aspect-video bg-muted">
+                {banner.image_url && <img src={banner.image_url} alt={banner.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <div className="absolute bottom-2 left-3 right-3 font-semibold text-white text-sm line-clamp-2">{banner.title}</div>
+                <Badge className={`absolute top-2 right-2 ${banner.is_active ? "bg-emerald-600" : "bg-slate-600"} text-white text-[9px]`}>{banner.is_active ? "Активен" : "Скрыт"}</Badge>
               </div>
-              <Badge className={`absolute top-2 right-2 ${banner.isActive ? "bg-emerald-500" : "bg-slate-500"} text-white text-[9px]`}>
-                {banner.isActive ? "Активен" : "Скрыт"}
-              </Badge>
-            </div>
-            <div className="p-3">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                <Badge variant="outline" className="text-[10px]">{banner.position}</Badge>
-                {banner.startDate && <span>с {formatDate(banner.startDate)}</span>}
-                {banner.endDate && <span>до {formatDate(banner.endDate)}</span>}
+              <div className="p-3 space-y-2">
+                <div className="text-xs text-muted-foreground">
+                  <Badge variant="outline" className="text-[10px]">{BANNER_POSITIONS.find((item) => item.value === banner.position)?.label || banner.position}</Badge>
+                  {banner.starts_at && <span className="ml-2">с {formatDate(banner.starts_at)}</span>}
+                  {banner.ends_at && <span className="ml-2">до {formatDate(banner.ends_at)}</span>}
+                </div>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="outline" className="flex-1 text-xs" disabled={saving} onClick={() => toggleBanner(banner)}>
+                    {banner.is_active ? <><EyeOff className="h-3 w-3 mr-1" /> Скрыть</> : <><Eye className="h-3 w-3 mr-1" /> Показать</>}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-destructive text-xs" disabled={saving} onClick={() => removeBanner(banner)}><Trash2 className="h-3 w-3" /></Button>
+                </div>
               </div>
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 text-xs"
-                  onClick={() => {
-                    updateBanner(banner.id, { isActive: !banner.isActive });
-                    toast.success(banner.isActive ? "Скрыт" : "Показан");
-                  }}
-                >
-                  {banner.isActive ? <><EyeOff className="h-3 w-3 mr-1" /> Скрыть</> : <><Eye className="h-3 w-3 mr-1" /> Показать</>}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive text-xs"
-                  onClick={() => { deleteBanner(banner.id); toast.success("Удалён"); }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+          {banners.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground md:col-span-2 lg:col-span-3">Баннеры ещё не созданы.</Card>}
+        </div>
+      )}
 
       {showAdd && (
         <Dialog open onOpenChange={setShowAdd}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Новый баннер</DialogTitle>
-              <DialogDescription>Баннер появится на главной или в каталоге</DialogDescription>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Новый баннер</DialogTitle><DialogDescription>Баннер будет сохранён в PostgreSQL.</DialogDescription></DialogHeader>
             <div className="space-y-2">
-              <div><Label>Заголовок *</Label><Input value={newBanner.title} onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })} /></div>
-              <div><Label>Подзаголовок</Label><Input value={newBanner.subtitle} onChange={(e) => setNewBanner({ ...newBanner, subtitle: e.target.value })} /></div>
-              <div><Label>URL изображения *</Label><Input value={newBanner.image} onChange={(e) => setNewBanner({ ...newBanner, image: e.target.value })} placeholder="https://..." /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label>Ссылка (view)</Label><Input value={newBanner.link} onChange={(e) => setNewBanner({ ...newBanner, link: e.target.value })} placeholder="catalog" /></div>
-                <div><Label>Текст кнопки</Label><Input value={newBanner.buttonText} onChange={(e) => setNewBanner({ ...newBanner, buttonText: e.target.value })} /></div>
-              </div>
+              <div><Label>Заголовок *</Label><Input value={newBanner.title} maxLength={180} onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })} /></div>
+              <div><Label>Текст</Label><Textarea value={newBanner.text} maxLength={1000} onChange={(e) => setNewBanner({ ...newBanner, text: e.target.value })} rows={2} /></div>
+              <div><Label>URL изображения</Label><Input value={newBanner.imageUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, imageUrl: e.target.value })} placeholder="https://…" /></div>
+              <div><Label>Ссылка</Label><Input value={newBanner.linkUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, linkUrl: e.target.value })} placeholder="/catalog" /></div>
+              <div><Label>Текст кнопки</Label><Input value={newBanner.ctaText} maxLength={100} onChange={(e) => setNewBanner({ ...newBanner, ctaText: e.target.value })} /></div>
               <div>
                 <Label>Позиция</Label>
-                <Select value={newBanner.position} onValueChange={(v) => setNewBanner({ ...newBanner, position: v })}>
+                <Select value={newBanner.position} onValueChange={(value) => setNewBanner({ ...newBanner, position: value })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hero">Hero (главная)</SelectItem>
-                    <SelectItem value="top">Верхний баннер</SelectItem>
-                    <SelectItem value="category">В каталоге</SelectItem>
-                    <SelectItem value="sidebar">Сайдбар</SelectItem>
-                    <SelectItem value="footer">Подвал</SelectItem>
-                  </SelectContent>
+                  <SelectContent>{BANNER_POSITIONS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAdd(false)}>Отмена</Button>
-              <Button
-                disabled={!newBanner.title || !newBanner.image}
-                onClick={() => {
-                  addBanner(newBanner);
-                  toast.success("Баннер добавлен!");
-                  setShowAdd(false);
-                  setNewBanner({ title: "", subtitle: "", image: "", link: "", buttonText: "", position: "hero", isActive: true, sortOrder: 0 });
-                }}
-              >Добавить</Button>
+              <Button variant="outline" disabled={saving} onClick={() => setShowAdd(false)}>Отмена</Button>
+              <Button disabled={saving || !newBanner.title.trim()} onClick={createBanner}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Создать баннер"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
