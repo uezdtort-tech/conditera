@@ -119,10 +119,12 @@ export KONG_DECLARATIVE_CONFIG=/var/lib/kong/kong.yml
 export KONG_DNS_ORDER=LAST
 export KONG_PLUGINS=bundled
 export KONG_LOG_LEVEL="${KONG_LOG_LEVEL:-info}"
-# Keep Kong/Nginx logs on container streams instead of image-layer files.
-export KONG_NGINX_MAIN_ERROR_LOG=/dev/stderr
-export KONG_NGINX_PROXY_ACCESS_LOG=/dev/stdout
-export KONG_NGINX_ADMIN_ACCESS_LOG=/dev/stdout
+# Nginx runs inside chroot without a mounted /proc, so /dev/stdout and
+# /dev/stderr are not reliable there. Use writable files and tail them into
+# the container streams through supervisord.
+export KONG_NGINX_MAIN_ERROR_LOG=/tmp/kong-error.log
+export KONG_NGINX_PROXY_ACCESS_LOG=/tmp/kong-proxy-access.log
+export KONG_NGINX_ADMIN_ACCESS_LOG=/tmp/kong-admin-access.log
 export KONG_NGINX_PROXY_PROXY_BUFFER_SIZE=160k
 export KONG_NGINX_PROXY_PROXY_BUFFERS="64 160k"
 export KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE=320k
@@ -156,6 +158,14 @@ chown -R 65534:65534 /opt/supabase/services/realtime/app
 mkdir -p /opt/supabase/services/kong/usr/local/kong
 chown -R 1001:1001 /opt/supabase/services/kong/usr/local/kong
 mkdir -p /opt/supabase/services/kong/var/lib/kong
+mkdir -p /opt/supabase/services/kong/tmp
+touch /opt/supabase/services/kong/tmp/kong-error.log
+touch /opt/supabase/services/kong/tmp/kong-proxy-access.log
+touch /opt/supabase/services/kong/tmp/kong-admin-access.log
+chmod 1777 /opt/supabase/services/kong/tmp
+chown 1001:1001 /opt/supabase/services/kong/tmp/kong-error.log
+chown 1001:1001 /opt/supabase/services/kong/tmp/kong-proxy-access.log
+chown 1001:1001 /opt/supabase/services/kong/tmp/kong-admin-access.log
 sed \
   -e "s|http://supabase-auth:9999|http://127.0.0.1:9999|g" \
   -e "s|http://supabase-rest:3000|http://127.0.0.1:3000|g" \
