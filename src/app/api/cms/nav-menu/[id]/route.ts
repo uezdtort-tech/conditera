@@ -2,13 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { areValidCmsNavigationRoles, isSafeCmsNavigationTarget } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
 const ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
 const LOCATIONS = new Set(["header", "footer", "mobile"]);
-const isSafeNavUrl = (value: unknown): value is string =>
-  typeof value === "string" && value.length <= 2048 &&
-  ((value.startsWith("/") && !value.startsWith("//")) || /^[a-z][a-z0-9-]*$/i.test(value));
 
 async function authorize(request: NextRequest) {
   const user = await getUserFromRequest(request);
@@ -30,7 +28,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       updates.label = body.label.trim();
     }
     if (body.url !== undefined) {
-      if (!isSafeNavUrl(body.url) || !body.url.trim()) return NextResponse.json({ error: "Некорректная ссылка" }, { status: 400 });
+      if (!isSafeCmsNavigationTarget(body.url) || !body.url.trim()) return NextResponse.json({ error: "Некорректная ссылка" }, { status: 400 });
       updates.url = body.url.trim();
     }
     if (body.location !== undefined) {
@@ -44,6 +42,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (body.isActive !== undefined) {
       if (typeof body.isActive !== "boolean") return NextResponse.json({ error: "Некорректный статус" }, { status: 400 });
       updates.is_active = body.isActive;
+    }
+    if (body.showForRoles !== undefined) {
+      if (body.showForRoles !== null && !areValidCmsNavigationRoles(body.showForRoles)) return NextResponse.json({ error: "Некорректные роли показа" }, { status: 400 });
+      updates.show_for_roles = body.showForRoles;
+    }
+    if (body.showForAuthenticated !== undefined) {
+      if (body.showForAuthenticated !== null && typeof body.showForAuthenticated !== "boolean") return NextResponse.json({ error: "Некорректное условие авторизации" }, { status: 400 });
+      updates.show_for_authenticated = body.showForAuthenticated;
     }
     if (body.icon !== undefined) updates.icon = typeof body.icon === "string" ? body.icon.slice(0, 80) : null;
     const { data, error } = await supabaseAdmin.from("cms_nav_menu").update(updates).eq("id", id).select("*").maybeSingle();
