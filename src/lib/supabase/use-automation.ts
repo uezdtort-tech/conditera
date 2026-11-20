@@ -154,38 +154,37 @@ export function useDeleteScheduledJob() {
   });
 }
 
-/** Запустить задачу вручную (через Edge Function) */
+/** Запустить задачу вручную через защищённый Next.js endpoint. */
 export function useRunJobNow() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (job: ScheduledJob) => {
-      if (job.type === "edge_function" && job.function_name) {
-        // Вызвать Edge Function
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        if (!supabaseUrl) throw new Error("Supabase URL not configured");
-
-        const response = await fetch(`${supabaseUrl}/functions/v1/${job.function_name}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ manual: true }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        return response.json();
-      } else if (job.type === "sql" && job.sql_query) {
-        // Выполнить SQL через RPC (нужна специальная функция)
-        // Для безопасности — только через admin client
+      if (job.type === "sql" && job.sql_query) {
         toast.info("SQL задачи запускаются только через pg_cron автоматически");
         return null;
-      } else {
+      }
+      if (job.type !== "edge_function" || !job.function_name) {
         throw new Error("Неизвестный тип задачи");
       }
+
+      const { data: sessionData, error: sessionError } = await supabaseBrowser.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) {
+        throw new Error("Необходимо войти в систему");
+      }
+
+      const response = await fetch("/api/admin/automation/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      const payload = await response.json().catch(() => null) as { error?: string; result?: unknown } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || `HTTP ${response.status}`);
+      }
+      return payload?.result ?? null;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["scheduled-jobs"] });
