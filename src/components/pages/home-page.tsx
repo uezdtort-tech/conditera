@@ -106,17 +106,25 @@ type PublicCmsHomeBlock = {
   sort_order: number;
 };
 
-const CMS_SECTION_TITLES: Record<string, string> = {
-  hero: "От редакции",
-  stats: "О платформе",
-  cta_confectioner: "Для кондитеров",
-  advantages: "Наши преимущества",
-  steps: "Как это работает",
-  testimonials: "Истории клиентов",
+type PublicCmsHomeSection = {
+  section: string;
+  title: string;
+  sort_order: number;
+  is_enabled: boolean;
 };
+
+const DEFAULT_CMS_HOME_SECTIONS: PublicCmsHomeSection[] = [
+  { section: "hero", title: "От редакции", sort_order: 10, is_enabled: true },
+  { section: "stats", title: "О платформе", sort_order: 20, is_enabled: true },
+  { section: "cta_confectioner", title: "Для кондитеров", sort_order: 30, is_enabled: true },
+  { section: "advantages", title: "Наши преимущества", sort_order: 40, is_enabled: true },
+  { section: "steps", title: "Как это работает", sort_order: 50, is_enabled: true },
+  { section: "testimonials", title: "Истории клиентов", sort_order: 60, is_enabled: true },
+];
 
 function CmsHomepageBlocks() {
   const [blocks, setBlocks] = useState<PublicCmsHomeBlock[]>([]);
+  const [sections, setSections] = useState<PublicCmsHomeSection[]>(DEFAULT_CMS_HOME_SECTIONS);
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/cms/blocks?public=true", { signal: controller.signal })
@@ -130,8 +138,25 @@ function CmsHomepageBlocks() {
     return () => controller.abort();
   }, []);
 
-  const groups = Object.entries(CMS_SECTION_TITLES)
-    .map(([section, title]) => ({ section, title, items: blocks.filter((block) => block.section === section) }))
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/sections?public=true", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS sections unavailable")))
+      .then((payload: { sections?: PublicCmsHomeSection[] }) => {
+        if (!controller.signal.aborted && Array.isArray(payload.sections) && payload.sections.length > 0) {
+          setSections(payload.sections);
+        }
+      })
+      .catch(() => {
+        // Keep the safe built-in composition when CMS settings are unavailable.
+      });
+    return () => controller.abort();
+  }, []);
+
+  const groups = [...sections]
+    .filter((section) => section.is_enabled)
+    .sort((a, b) => a.sort_order - b.sort_order || a.section.localeCompare(b.section))
+    .map(({ section, title }) => ({ section, title, items: blocks.filter((block) => block.section === section) }))
     .filter((group) => group.items.length > 0);
 
   if (groups.length === 0) return null;
