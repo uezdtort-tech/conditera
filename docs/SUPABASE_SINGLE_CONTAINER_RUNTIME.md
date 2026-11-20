@@ -4,7 +4,7 @@
 
 Реализован единый runtime image: PostgreSQL 17, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy и Kong запускаются под Supervisor внутри **одного контейнера**. Отдельных sibling-контейнеров Supabase для этих сервисов нет.
 
-CI smoke уже проверяет один контейнер, health всех процессов, Kong endpoints, Auth signup, Storage upload/download и наличие схем/миграций Realtime. Дополнительно runtime image включает прикладные миграции Conditera и запускает их после готовности PostgreSQL и Storage; эта новая часть проходит отдельный CI smoke.
+CI smoke уже проверяет один контейнер, health всех процессов, Kong endpoints, Auth signup, Storage upload/download и наличие схем/миграций Realtime. Дополнительно runtime image включает прикладные миграции Conditera и запускает их после готовности PostgreSQL и Storage; эту новую часть проверяет отдельный CI smoke.
 
 ## Compose overlay
 
