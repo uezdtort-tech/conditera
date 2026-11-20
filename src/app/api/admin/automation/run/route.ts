@@ -3,7 +3,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
-  ADMIN_RUNNABLE_EDGE_FUNCTIONS,
+  ADMIN_MANUAL_RUNNABLE_EDGE_FUNCTIONS,
   invokeInternalEdgeFunction,
 } from "@/lib/supabase/edge-functions";
 
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (job.type !== "edge_function" || !job.function_name) {
     return NextResponse.json({ error: "Ручной запуск доступен только для Edge Function задач" }, { status: 422 });
   }
-  if (!ADMIN_RUNNABLE_EDGE_FUNCTIONS.has(job.function_name)) {
+  if (!ADMIN_MANUAL_RUNNABLE_EDGE_FUNCTIONS.has(job.function_name)) {
     return NextResponse.json({ error: "Эта Edge Function пока не допущена к ручному запуску" }, { status: 422 });
   }
 
