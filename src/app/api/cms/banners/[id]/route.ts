@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
-import { isSafeCmsUrl } from "@/lib/cms-validation";
+import { areValidCmsNavigationRoles, isValidCmsSchedule, isSafeCmsUrl } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
 const ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
@@ -41,8 +41,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     if (body.text !== undefined) updates.text = typeof body.text === "string" ? body.text.slice(0, 1000) : null;
     if (body.ctaText !== undefined) updates.cta_text = typeof body.ctaText === "string" ? body.ctaText.slice(0, 100) : null;
-    if (body.startsAt !== undefined) updates.starts_at = body.startsAt || null;
-    if (body.endsAt !== undefined) updates.ends_at = body.endsAt || null;
     if (body.sortOrder !== undefined) {
       if (!Number.isInteger(body.sortOrder) || body.sortOrder < 0 || body.sortOrder > 10000) return NextResponse.json({ error: "Некорректный порядок" }, { status: 400 });
       updates.sort_order = body.sortOrder;
@@ -52,8 +50,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       updates.is_active = body.isActive;
     }
     if (body.targetAudience !== undefined) {
-      if (!Array.isArray(body.targetAudience) || body.targetAudience.some((x: unknown) => typeof x !== "string")) return NextResponse.json({ error: "Некорректная аудитория" }, { status: 400 });
-      updates.target_audience = body.targetAudience.slice(0, 20);
+      if (body.targetAudience !== null && !areValidCmsNavigationRoles(body.targetAudience)) return NextResponse.json({ error: "Некорректная аудитория" }, { status: 400 });
+      updates.target_audience = body.targetAudience;
+    }
+    if (body.startsAt !== undefined || body.endsAt !== undefined) {
+      const { data: current, error: lookupError } = await supabaseAdmin
+        .from("cms_banners").select("starts_at,ends_at").eq("id", id).maybeSingle();
+      if (lookupError) return NextResponse.json({ error: "Не удалось проверить расписание баннера" }, { status: 500 });
+      if (!current) return NextResponse.json({ error: "Баннер не найден" }, { status: 404 });
+      const start = body.startsAt !== undefined ? body.startsAt : current.starts_at;
+      const end = body.endsAt !== undefined ? body.endsAt : current.ends_at;
+      if (!isValidCmsSchedule(start, end)) return NextResponse.json({ error: "Некорректный период показа баннера" }, { status: 400 });
+      if (body.startsAt !== undefined) updates.starts_at = body.startsAt || null;
+      if (body.endsAt !== undefined) updates.ends_at = body.endsAt || null;
     }
     const { data, error } = await supabaseAdmin.from("cms_banners").update(updates).eq("id", id).select("*").maybeSingle();
     if (error) return NextResponse.json({ error: "Не удалось обновить баннер" }, { status: 500 });
