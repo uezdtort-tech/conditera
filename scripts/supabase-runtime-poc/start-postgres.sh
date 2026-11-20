@@ -18,23 +18,34 @@ fi
 # never recursively rewrite ownership of an existing database directory.
 chown "$postgres_entry" "$root$pgdata"
 
+# The pinned Alpine image does not provide en_US.UTF-8. Keep the database
+# locale aligned with initdb's explicit C locale and avoid an invalid config.
+config_file="$root/etc/postgresql/postgresql.conf"
+if grep -q 'en_US.UTF-8' "$config_file"; then
+  sed -i 's/en_US.UTF-8/C/g' "$config_file"
+fi
+if grep -q 'en_US.UTF-8' "$config_file"; then
+  echo "Unsupported en_US.UTF-8 locale remains in $config_file" >&2
+  exit 1
+fi
+
 # The upstream entrypoint uses Bash process substitution for initdb's
 # --pwfile. A chroot without a mounted /proc cannot resolve /dev/fd/N.
 # Patch only that exact upstream construct to use a short-lived file in the
 # container's writable rootfs (not in the persistent PGDATA volume).
 if [ ! -s "$root$pgdata/PG_VERSION" ]; then
   if grep -q -- '--pwfile=<(printf' "$entrypoint"; then
-    sed -i 's|--pwfile=<(printf .*"$POSTGRES_PASSWORD")|--pwfile=/run/initdb-password|' "$entrypoint"
-    sed -i '/^[[:space:]]*docker_init_database_dir$/a\    rm -f /run/initdb-password' "$entrypoint"
+    sed -i 's|--pwfile=<(printf .*"$POSTGRES_PASSWORD")|--pwfile=/tmp/initdb-password|' "$entrypoint"
+    sed -i '/^[[:space:]]*docker_init_database_dir$/a\    rm -f /tmp/initdb-password' "$entrypoint"
   fi
 
-  if ! grep -q -- '--pwfile=/run/initdb-password' "$entrypoint" ||
-     ! grep -q 'rm -f /run/initdb-password' "$entrypoint"; then
+  if ! grep -q -- '--pwfile=/tmp/initdb-password' "$entrypoint" ||
+     ! grep -q 'rm -f /tmp/initdb-password' "$entrypoint"; then
     echo "PostgreSQL entrypoint does not match the supported initdb pwfile contract" >&2
     exit 1
   fi
 
-  password_file="$root/run/initdb-password"
+  password_file="$root/tmp/initdb-password"
   umask 077
   printf '%s\n' "$POSTGRES_PASSWORD" > "$password_file"
   chown "$postgres_entry" "$password_file"
