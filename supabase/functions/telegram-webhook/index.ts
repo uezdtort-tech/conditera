@@ -1,7 +1,8 @@
 /**
- * Telegram Bot API webhook.
- * Kong exposes this route without key-auth; every request is authenticated
- * with the secret_token configured through Telegram setWebhook.
+ * Legacy internal Telegram handler.
+ * The public provider webhook is /api/telegram/webhook (Next.js), protected by
+ * the Telegram secret-token header. This Edge Function remains behind the
+ * service_role-only Kong route and requires the same secret as defense-in-depth.
  */
 
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
