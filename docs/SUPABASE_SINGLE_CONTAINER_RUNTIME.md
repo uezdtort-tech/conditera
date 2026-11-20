@@ -2,7 +2,7 @@
 
 ## Состояние
 
-Реализован единый runtime image: PostgreSQL 17, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy и Kong запускаются под Supervisor внутри **одного контейнера**. Отдельных sibling-контейнеров Supabase для этих сервисов нет.
+Реализован единый runtime image: PostgreSQL 17, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy и Kong запускаются под Supervisor внутри **одного контейнера**. Overlay также переводит Next.js на этот же PostgreSQL 17: отдельные app PostgreSQL 18, PgBouncer и внешний migrator выключены профилем `legacy-app-db`; старые Supabase контейнеры выключены профилем `legacy-supabase`.
 
 CI smoke уже проверяет один контейнер, health всех процессов, Kong endpoints, Auth signup, Storage upload/download и наличие схем/миграций Realtime. Дополнительно runtime image включает прикладные миграции Conditera и запускает их после готовности PostgreSQL и Storage; эту новую часть проверяет отдельный CI smoke.
 
@@ -41,7 +41,9 @@ Runtime использует отдельные именованные volumes:
 
 **Не подключать к PostgreSQL 17 volume от старого PostgreSQL 15.** Формат data directory несовместим. Нельзя считать запуск overlay способом автоматического переноса production-данных. До переключения необходимы согласованные backup, логический dump/restore в PG17, проверка владельцев/ролей/extensions/RLS и контрольные суммы критичных таблиц. Текущий CI использует пустые disposable volumes и не доказывает перенос существующих данных.
 
-Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. На восстановленной БД ledger должен быть предварительно согласован с фактическим состоянием схемы; запускать полный replay поверх существующей схемы без этого нельзя.
+Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. После этого создаёт отдельную роль `conditera_app` с ограниченными правами на `public` (не superuser) для `DATABASE_URL`/`DIRECT_DATABASE_URL` Next.js. Серверные Supabase-клиенты используют внутренний `SUPABASE_INTERNAL_URL=http://supabase-kong:8000`.
+
+На восстановленной БД ledger должен быть предварительно согласован с фактическим состоянием схемы; запускать полный replay поверх существующей схемы без этого нельзя.
 
 Не удалять volumes при обычном обновлении. Не использовать `down -v` на сервере с данными.
 
@@ -49,6 +51,7 @@ Runtime использует отдельные именованные volumes:
 
 Помимо существующих `POSTGRES_PASSWORD`, `JWT_SECRET`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` и `SUPABASE_SERVICE_ROLE_KEY`, production env должен содержать:
 
+- `APP_DATABASE_PASSWORD` — отдельный случайный пароль для роли `conditera_app`;
 - `SUPABASE_SECRET_KEY_BASE` — 64 hex characters;
 - `PG_META_CRYPTO_KEY` — 32 hex characters;
 - `REALTIME_DB_ENC_KEY` — ровно 16 characters;
@@ -61,7 +64,7 @@ Runtime использует отдельные именованные volumes:
 ## Ограничения до production cutover
 
 - Edge Runtime / Supabase Functions ещё не включены в единый runtime.
-- Не выполнен backup/restore production data и не проверен PG15 → PG17 перенос на копии реального объёма.
+- Не выполнен backup/restore production data и не проверен перенос данных из двух прежних источников (Supabase PG15 и отдельный app PG18) на копии реального объёма. Перед переключением требуется установить фактический источник истины и сверить данные; overlay не сливает две базы автоматически.
 - Не проведены нагрузочные, отказоустойчивые и восстановительные испытания.
 - Не проверена полная совместимость всех внутренних клиентов Conditera с новым runtime и его секретами.
 
