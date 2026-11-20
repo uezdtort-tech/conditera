@@ -112,11 +112,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       "CUSTOMER", "CONFECTIONER", "STUDIO", "SUPPLIER", "WHOLESALER",
       "COURIER", "VENUE_OWNER", "ANIMATOR_AGENCY", "RECREATION_CENTER",
       "KIDS_CLUB", "FOOD_SERVICE", "EVENT_ORGANIZER", "PICKUP_POINT",
-      "BLOGGER", "TASTER", "NUTRITIONIST", "COPYWRITER",
+      "BLOGGER", "TASTER", "NUTRITIONIST",
       "CORPORATE_CLIENT", "FRANCHISEE",
     ] as const;
     // Роли, доступные только по приглашению администратора
-    const ADMIN_ASSIGNED_ROLES = ["ADMIN", "SUPER_ADMIN", "MODERATOR", "SUPPORT", "QUALITY_INSPECTOR", "CERTIFICATION_AGENT", "GUEST"];
+    const ADMIN_ASSIGNED_ROLES = ["ADMIN", "SUPER_ADMIN", "MODERATOR", "SUPPORT", "QUALITY_INSPECTOR", "CERTIFICATION_AGENT", "COPYWRITER", "GUEST"];
     const roleInput = String(role ?? "CUSTOMER").trim().toUpperCase();
     if (!(ALLOWED_SELF_REGISTER_ROLES as readonly string[]).includes(roleInput)) {
       if (ADMIN_ASSIGNED_ROLES.includes(roleInput)) {
