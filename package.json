@@ -30,7 +30,8 @@
     "db:setup": "node scripts/db/setup.mjs",
     "db:start": "node scripts/db/runtime.mjs start",
     "db:stop": "node scripts/db/runtime.mjs stop",
-    "db:status": "node scripts/db/runtime.mjs status"
+    "db:status": "node scripts/db/runtime.mjs status",
+    "compose:single-runtime": "node scripts/compose-single-runtime.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
