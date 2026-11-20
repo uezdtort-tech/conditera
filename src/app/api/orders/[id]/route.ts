@@ -19,6 +19,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
 import { emitEvent } from "@/lib/n8n";
 import { recordEvent } from "@/lib/ops/events";
+import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
 
 interface OrderStatusTransition {
   from: string;
@@ -44,132 +45,88 @@ export async function PATCH(
   try {
     const { id: orderId } = await params;
     const user = await getUserFromRequest(request);
+    if (!user) return unauthorizedResponse();
 
-    if (!user) {
-      return unauthorizedResponse();
-    }
-
-    const body = await request.json();
-    const { status: newStatus, comment } = body as {
-      status: string;
-      comment?: string;
-    };
-
-    if (!newStatus) {
+    const body = await request.json().catch(() => null) as { status?: unknown; comment?: unknown } | null;
+    if (!body || typeof body.status !== "string") {
       return NextResponse.json({ error: "Status is required" }, { status: 400 });
     }
+    const newStatus = body.status;
+    const comment = typeof body.comment === "string" ? body.comment.slice(0, 2000) : null;
 
-    // Загружаем текущий заказ
+    // CANCELLED имеет отдельный финансовый сценарий: возврат, проверка эскроу
+    // и резерва выплаты. Не позволяем обходить его старым PATCH.
+    if (newStatus === "CANCELLED") {
+      return NextResponse.json(
+        { error: "Используйте POST /api/orders/[id]/cancel для безопасной отмены и возврата" },
+        { status: 409 }
+      );
+    }
+
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .select("id, user_id, confectioner_id, status, number")
       .eq("id", orderId)
-      .single();
-
-    if (orderError || !order) {
-      return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+      .maybeSingle();
+    if (orderError) {
+      console.error("[orders/[id]] Load error:", orderError.message);
+      return NextResponse.json({ error: "Не удалось загрузить заказ" }, { status: 500 });
     }
+    if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
 
-    // Проверяем права на переход
-    const transition = STATUS_TRANSITIONS.find(
-      (t) => t.from === order.status && t.to === newStatus
-    );
+    const roles = user.roles ?? [];
+    const isAdmin = roles.includes("ADMIN") || roles.includes("SUPER_ADMIN");
+    const isOwner = order.user_id === user.id;
+    const isAssignedConfectioner = order.confectioner_id === user.id && roles.includes("CONFECTIONER");
 
-    if (!transition) {
-      return NextResponse.json(
-        { error: `Запрещённый переход: ${order.status} → ${newStatus}` },
-        { status: 400 }
-      );
-    }
-
-    // Проверяем роль пользователя
-    const userRoles = user.roles;
-    const hasRole = transition.roles.some((r) => userRoles.includes(r));
-    if (!hasRole) {
-      return forbiddenResponse(`Роль ${userRoles.join(", ")} не может менять статус ${order.status} → ${newStatus}`);
-    }
-
-    // Дополнительная проверка: CUSTOMER может менять только свой заказ
-    if (userRoles.includes("CUSTOMER") && !userRoles.includes("ADMIN")) {
-      if (order.user_id !== user.id) {
-        return forbiddenResponse("Можно менять только свои заказы");
+    // Проверка субъектного доступа до вызова движка: CUSTOMER+CONFECTIONER
+    // не получает право действовать как клиент в чужом заказе.
+    if (!isAdmin && !isOwner && !isAssignedConfectioner) {
+      if (roles.includes("COURIER") && (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")) {
+        const { data: assignment, error: assignmentError } = await supabaseAdmin
+          .from("deliveries")
+          .select("id")
+          .eq("order_id", orderId)
+          .eq("courier_id", user.id)
+          .maybeSingle();
+        if (assignmentError) {
+          console.error("[orders/[id]] Courier assignment check failed:", assignmentError.message);
+          return NextResponse.json({ error: "Не удалось проверить назначение доставки" }, { status: 503 });
+        }
+        if (!assignment) return forbiddenResponse("Можно менять только назначенные вам доставки");
+      } else {
+        return forbiddenResponse("Нет доступа к этому заказу");
       }
     }
 
-    // Дополнительная проверка: CONFECTIONER может менять только свои заказы
-    if (userRoles.includes("CONFECTIONER") && !userRoles.includes("ADMIN")) {
-      if (order.confectioner_id !== user.id) {
-        return forbiddenResponse("Можно менять только заказы, назначенные вам");
+    try {
+      const result = await applyOrderTransition({
+        orderId,
+        to: newStatus,
+        actorId: user.id,
+        actorRoles: roles,
+        comment,
+      });
+      return NextResponse.json({
+        order: { id: result.orderId, number: result.orderNumber, status: result.to },
+        transition: { from: result.from, to: result.to },
+      });
+    } catch (err) {
+      if (err instanceof LifecycleError) {
+        const status =
+          err.code === "ORDER_NOT_FOUND" ? 404 :
+          err.code === "FORBIDDEN_ROLE" ? 403 :
+          err.code === "PAYMENT_NOT_CONFIRMED" || err.code === "QC_GATE_FAILED" || err.code === "READY_PHOTO_REQUIRED" ? 422 : 409;
+        return NextResponse.json(
+          { error: err.code, message: err.message, detail: err.detail },
+          { status }
+        );
       }
+      throw err;
     }
-
-    // P1.1 §15: COURIER меняет только назначенные ему доставки. Раньше любой
-    // курьер мог перевести ЛЮБОЙ заказ READY → IN_DELIVERY → DELIVERED.
-    if (
-      userRoles.includes("COURIER") &&
-      !userRoles.includes("ADMIN") &&
-      !userRoles.includes("SUPER_ADMIN") &&
-      (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")
-    ) {
-      const { data: assignment } = await supabaseAdmin
-        .from("deliveries")
-        .select("id")
-        .eq("order_id", orderId)
-        .eq("courier_id", user.id)
-        .maybeSingle();
-      if (!assignment) {
-        return forbiddenResponse("Можно менять только назначенные вам доставки");
-      }
-    }
-
-    // Обновляем заказ
-    const updateData: Record<string, string> = { status: newStatus };
-    if (comment) updateData.notes = comment;
-
-    // Timestamps для конкретных статусов
-    if (newStatus === "CONFIRMED") updateData.confirmed_at = new Date().toISOString();
-    if (newStatus === "IN_DELIVERY") updateData.shipped_at = new Date().toISOString();
-    if (newStatus === "DELIVERED") updateData.delivered_at = new Date().toISOString();
-    if (newStatus === "COMPLETED") updateData.completed_at = new Date().toISOString();
-    if (newStatus === "CANCELLED") updateData.cancelled_at = new Date().toISOString();
-
-    const { data: updatedOrder, error: updateError } = await supabaseAdmin
-      .from("orders")
-      .update(updateData)
-      .eq("id", orderId)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error("[orders/[id]] Update error:", updateError.message);
-      return NextResponse.json({ error: "Ошибка обновления" }, { status: 500 });
-    }
-
-    // n8n: order.status_changed (fail-safe, после успешного обновления)
-    void emitEvent("order.status_changed", {
-      orderId,
-      from: order.status,
-      to: newStatus,
-    }).catch(() => {});
-
-    // ops: event log (append-only, fail-safe)
-    void recordEvent("order.status_changed", {
-      entityType: "order",
-      entityId: orderId,
-      actorId: user.id,
-      payload: { from: order.status, to: newStatus },
-    });
-
-    return NextResponse.json({
-      order: updatedOrder,
-      transition: { from: order.status, to: newStatus },
-    });
   } catch (error) {
-    console.error("[orders/[id]] Unexpected:", (error as Error).message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка", detail: (error as Error).message },
-      { status: 500 }
-    );
+    console.error("[orders/[id]] PATCH failed:", (error as Error).message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 }
 
