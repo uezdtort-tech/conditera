@@ -120,6 +120,12 @@ plugins:
       allow: [anon, service_role]
       hide_groups_header: true
 
+  - name: acl
+    service: meta
+    config:
+      allow: [service_role]
+      hide_groups_header: true
+
   # Rate limiting для auth — защита от brute force
   - name: rate-limiting
     service: auth-v1
