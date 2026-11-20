@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Единственная безопасная точка запуска production Compose Conditera.
+ * Единая проверяемая точка запуска Compose-кандидата Supabase Runtime Conditera.
  *
  * Всегда собирает стек из трёх Compose-файлов и до любой команды проверяет,
  * что web, Auth, REST, Realtime и Storage используют один Supabase Runtime
@@ -41,6 +41,11 @@ if (userArgs[0] === "down" && userArgs.some((arg) => arg === "-v" || arg === "--
 }
 if (userArgs[0] === "volume" && userArgs[1] === "rm") {
   fail("Удаление Docker volumes запрещено через production launcher.");
+}
+
+const startsRuntime = ["up", "start", "restart", "run", "scale"].includes(userArgs[0]);
+if (startsRuntime && process.env.CONDITERA_PG17_CUTOVER_APPROVED !== "1") {
+  fail("Запуск/переключение приложения на новый PG17 запрещён без отдельного подтверждения после backup/restore и проверки обеих исходных БД. Для осознанного запуска задайте CONDITERA_PG17_CUTOVER_APPROVED=1 в текущем процессе.");
 }
 
 for (const file of envFiles) {
