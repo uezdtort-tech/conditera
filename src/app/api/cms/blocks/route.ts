@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import type { user_role } from "@/lib/supabase/types";
 
 export const runtime = "nodejs";
-const ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"];
+const ROLES: user_role[] = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"];
 const SECTIONS = new Set(["hero", "stats", "cta_confectioner", "advantages", "steps", "testimonials"]);
 
 async function authorize(request: NextRequest) {
