@@ -1,0 +1,180 @@
+name: Supabase single-container runtime POC
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile.supabase-runtime-poc"
+      - "docker-compose.supabase-runtime-poc.yml"
+      - "scripts/supabase-runtime-poc/**"
+      - "supabase/kong.yml"
+      - "supabase/init-scripts/**"
+      - ".github/workflows/supabase-single-container-poc.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build one-container Supabase runtime
+        run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
+
+      - name: Generate isolated test JWT keys
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
+          export POSTGRES_PASSWORD="ci-only-postgres-password"
+          export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
+          export REALTIME_DB_ENC_KEY="0123456789abcdef"
+          export REALTIME_DB_ENC_KEY_GCM="0123456789abcdef0123456789abcdef"
+          python3 - <<'PY' > /tmp/runtime.env
+          import base64, hashlib, hmac, json, os, time
+          secret = os.environ["JWT_SECRET"].encode()
+          def b64(data):
+              return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+          def jwt(role):
+              header = b64(json.dumps({"alg":"HS256","typ":"JWT"}, separators=(",",":")).encode())
+              payload = b64(json.dumps({
+                  "iss":"supabase",
+                  "role":role,
+                  "aud":"authenticated",
+                  "iat":int(time.time()),
+                  "exp":int(time.time())+3600
+              }, separators=(",",":")).encode())
+              body = header + "." + payload
+              signature = b64(hmac.new(secret, body.encode(), hashlib.sha256).digest())
+              return body + "." + signature
+          values = {
+              "POSTGRES_PASSWORD":os.environ["POSTGRES_PASSWORD"],
+              "JWT_SECRET":os.environ["JWT_SECRET"],
+              "ANON_KEY":jwt("anon"),
+              "SERVICE_ROLE_KEY":jwt("service_role"),
+              "SECRET_KEY_BASE":os.environ["SECRET_KEY_BASE"],
+              "PG_META_CRYPTO_KEY":os.environ["PG_META_CRYPTO_KEY"],
+              "REALTIME_DB_ENC_KEY":os.environ["REALTIME_DB_ENC_KEY"],
+              "REALTIME_DB_ENC_KEY_GCM":os.environ["REALTIME_DB_ENC_KEY_GCM"],
+              "GOTRUE_MAILER_AUTOCONFIRM":"true",
+              "API_EXTERNAL_URL":"http://127.0.0.1:18000",
+              "SUPABASE_PUBLIC_URL":"http://127.0.0.1:18000",
+              "SITE_URL":"http://127.0.0.1:3000"
+          }
+          for key,value in values.items():
+              print(f"{key}={value}")
+          PY
+
+      - name: Start exactly one Supabase runtime container
+        run: |
+          set -Eeuo pipefail
+          docker volume create supabase-runtime-pgdata-ci >/dev/null
+          docker volume create supabase-runtime-storage-ci >/dev/null
+          docker run -d \
+            --name conditera-supabase-runtime-poc \
+            --label conditera.runtime=single-container-poc \
+            --env-file /tmp/runtime.env \
+            -p 127.0.0.1:18000:8000 \
+            -v supabase-runtime-pgdata-ci:/opt/supabase/services/postgres/var/lib/postgresql/data \
+            -v supabase-runtime-storage-ci:/opt/supabase/services/storage/var/lib/storage \
+            -v supabase-runtime-storage-ci:/opt/supabase/services/imgproxy/var/lib/storage:ro \
+            conditera/supabase-runtime-poc:ci
+
+      - name: Wait for all supervised services
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 120); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' conditera-supabase-runtime-poc 2>/dev/null || true)"
+            if [ "$status" = healthy ]; then exit 0; fi
+            if [ "$status" = unhealthy ]; then
+              docker logs conditera-supabase-runtime-poc
+              docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status || true
+              exit 1
+            fi
+            sleep 3
+          done
+          docker logs conditera-supabase-runtime-poc
+          docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status || true
+          exit 1
+
+      - name: Verify runtime processes and gateway endpoints
+        run: |
+          set -Eeuo pipefail
+          test "$(docker ps -q --filter label=conditera.runtime=single-container-poc | wc -l)" -eq 1
+          docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status
+          ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
+          curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/auth/v1/health
+          curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/storage/v1/status
+
+      - name: Verify Auth signup, Storage upload/download and PostgreSQL schemas
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
+          SERVICE_ROLE_KEY="$(grep '^SERVICE_ROLE_KEY=' /tmp/runtime.env | cut -d= -f2-)"
+          curl --fail --silent --show-error \
+            -H "apikey: $ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"runtime-poc@example.test","password":"StrongTestPassword123!"}' \
+            http://127.0.0.1:18000/auth/v1/signup > /tmp/signup.json
+          grep -q '"user"' /tmp/signup.json
+
+          curl --fail --silent --show-error -X POST \
+            -H "apikey: $SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"id":"runtime-poc","name":"runtime-poc","public":true}' \
+            http://127.0.0.1:18000/storage/v1/bucket
+
+          printf 'single-container-storage-check' > /tmp/runtime-poc.txt
+          curl --fail --silent --show-error -X POST \
+            -H "apikey: $SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: text/plain" \
+            -H "x-upsert: true" \
+            --data-binary @/tmp/runtime-poc.txt \
+            http://127.0.0.1:18000/storage/v1/object/runtime-poc/health.txt
+          curl --fail --silent --show-error \
+            -H "apikey: $ANON_KEY" \
+            http://127.0.0.1:18000/storage/v1/object/public/runtime-poc/health.txt \
+            -o /tmp/runtime-poc-downloaded.txt
+          cmp /tmp/runtime-poc.txt /tmp/runtime-poc-downloaded.txt
+
+          docker exec conditera-supabase-runtime-poc \
+            /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
+            /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase \
+            -Atqc "SELECT to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL" \
+            | grep -qx t
+
+      - name: Collect runtime diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/supabase-runtime-diagnostics
+          docker inspect conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container-inspect.json 2>&1
+          docker logs --timestamps conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container.log 2>&1
+          docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status > /tmp/supabase-runtime-diagnostics/supervisor-status.txt 2>&1
+          docker exec conditera-supabase-runtime-poc sh -c 'ps auxww; echo "--- mounts ---"; cat /proc/mounts; echo "--- processes ---"; for p in postgres gotrue postgrest realtime storage kong; do echo "### $p"; done' > /tmp/supabase-runtime-diagnostics/processes-mounts.txt 2>&1
+          docker exec conditera-supabase-runtime-poc sh -c 'for p in postgres gotrue postgrest realtime storage meta imgproxy kong; do echo "### $p"; ls -la "/opt/supabase/services/$p"; done' > /tmp/supabase-runtime-diagnostics/service-roots.txt 2>&1
+          docker inspect --format '{{json .State.Health}}' conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/health.json 2>&1
+
+      - name: Upload runtime diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-runtime-poc-diagnostics
+          path: /tmp/supabase-runtime-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Cleanup disposable POC runtime
+        if: always()
+        run: |
+          docker rm -fv conditera-supabase-runtime-poc || true
+          docker volume rm supabase-runtime-pgdata-ci supabase-runtime-storage-ci || true
