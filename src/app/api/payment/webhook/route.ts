@@ -249,13 +249,18 @@ export async function POST(request: NextRequest) {
         // Авторизация карты ещё не означает подтверждённое списание.
         // Не переводим заказ в escrow до payment.succeeded.
         if (payment && payment.status !== "waiting_for_capture") {
-          const { error: waitingUpdateError } = await supabaseAdmin
+          const { data: waitingUpdated, error: waitingUpdateError } = await supabaseAdmin
             .from("payments")
             .update({ status: "waiting_for_capture", updated_at: new Date().toISOString() })
-            .eq("id", payment.id);
+            .eq("id", payment.id)
+            .in("status", ["pending", "waiting_for_capture"])
+            .select("id");
           if (waitingUpdateError) {
             console.error("[webhook] waiting_for_capture payment update failed:", waitingUpdateError.message);
             return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!waitingUpdated || waitingUpdated.length === 0) {
+            return NextResponse.json({ success: true, skipped: "payment_terminal" });
           }
         }
         return NextResponse.json({ success: true, waitingForCapture: true });
