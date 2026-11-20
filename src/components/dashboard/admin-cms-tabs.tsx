@@ -292,7 +292,7 @@ export function AdminCmsHomeTab() {
                 {section.label}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
               </h3>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, blocks.length)}>
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, (blocks.at(-1)?.sortOrder ?? 0) + 10)}>
                 <Plus className="h-3 w-3 mr-1" /> Добавить
               </Button>
             </div>
