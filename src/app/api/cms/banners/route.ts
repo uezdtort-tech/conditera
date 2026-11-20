@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { isSafeCmsUrl } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
 const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
@@ -61,12 +62,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (auth.response) return auth.response;
     const body = await request.json();
     if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 180 ||
-        (body.position !== undefined && !POSITIONS.has(body.position))) {
+        (body.position !== undefined && !POSITIONS.has(body.position)) ||
+        (body.imageUrl && !isSafeCmsUrl(body.imageUrl)) || (body.linkUrl && !isSafeCmsUrl(body.linkUrl))) {
       return NextResponse.json({ error: "Некорректные данные баннера" }, { status: 400 });
     }
     const { data, error } = await supabaseAdmin.from("cms_banners").insert({
       title: body.title.trim(),
-      image_url: typeof body.imageUrl === "string" ? body.imageUrl.slice(0, 2048) : null,
+      image_url: typeof body.imageUrl === "string" && body.imageUrl ? body.imageUrl.slice(0, 2048) : null,
       link_url: typeof body.linkUrl === "string" ? body.linkUrl.slice(0, 2048) : null,
       position: body.position || "home_hero",
       text: typeof body.text === "string" ? body.text.slice(0, 1000) : null,
