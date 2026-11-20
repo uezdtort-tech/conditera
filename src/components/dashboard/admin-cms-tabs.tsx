@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,9 +42,16 @@ import {
   Eye,
   EyeOff,
   GripVertical,
+  Palette,
   AlertTriangle,
   Gift,
   Loader2,
+  ExternalLink,
+  Upload,
+  Copy,
+  FileText,
+  Video,
+  Music2,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -52,33 +59,158 @@ import { toast } from "sonner";
 import { csrfFetch } from "@/lib/api-client";
 
 // ==================== CMS: РЕДАКТОР ГЛАВНОЙ СТРАНИЦЫ ====================
+type CmsHomeBlock = {
+  id: string;
+  section: string;
+  title: string;
+  subtitle: string;
+  content: string;
+  image: string;
+  link: string;
+  linkText: string;
+  sortOrder: number;
+  isActive: boolean;
+  metadata: Record<string, unknown>;
+};
+
+const CMS_HOME_SECTIONS = [
+  { key: "hero", label: "Hero (главный баннер)", icon: "🎯" },
+  { key: "stats", label: "Статистика", icon: "📊" },
+  { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
+  { key: "advantages", label: "Преимущества", icon: "⭐" },
+  { key: "steps", label: "Шаги заказа", icon: "📋" },
+  { key: "testimonials", label: "Отзывы", icon: "💬" },
+] as const;
+
+function mapCmsHomeBlock(row: Record<string, unknown>): CmsHomeBlock {
+  return {
+    id: String(row.id),
+    section: String(row.section),
+    title: String(row.title || ""),
+    subtitle: String(row.subtitle || ""),
+    content: String(row.content || ""),
+    image: String(row.image_url || ""),
+    link: String(row.link_url || ""),
+    linkText: String(row.link_text || ""),
+    sortOrder: Number(row.sort_order || 0),
+    isActive: row.is_active !== false,
+    metadata: (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, unknown>,
+  };
+}
+
 export function AdminCmsHomeTab() {
-  const cmsBlocks = useAppStore((s) => s.cmsBlocks);
-  const updateCmsBlock = useAppStore((s) => s.updateCmsBlock);
-  const addCmsBlock = useAppStore((s) => s.addCmsBlock);
-  const deleteCmsBlock = useAppStore((s) => s.deleteCmsBlock);
+  const [cmsBlocks, setCmsBlocks] = useState<CmsHomeBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<any>({});
+  const [editValues, setEditValues] = useState<Partial<CmsHomeBlock>>({});
 
-  const sections = [
-    { key: "hero", label: "Hero (главный баннер)", icon: "🎯" },
-    { key: "stats", label: "Статистика", icon: "📊" },
-    { key: "cta_confectioner", label: "CTA для кондитеров", icon: "📢" },
-    { key: "advantages", label: "Преимущества", icon: "⭐" },
-    { key: "steps", label: "Шаги заказа", icon: "📋" },
-    { key: "testimonials", label: "Отзывы", icon: "💬" },
-  ];
-
-  const startEdit = (block: any) => {
-    setEditingId(block.id);
-    setEditValues({ ...block });
+  const loadBlocks = async (signal?: AbortSignal) => {
+    const response = await fetch("/api/cms/blocks", { credentials: "include", signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить блоки");
+    setCmsBlocks(Array.isArray(payload.blocks) ? payload.blocks.map(mapCmsHomeBlock) : []);
   };
 
-  const saveEdit = () => {
-    updateCmsBlock(editingId!, editValues);
-    toast.success("Блок обновлён!");
-    setEditingId(null);
-    setEditValues({});
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadBlocks(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка CMS", { description: error.message });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const saveEdit = async () => {
+    if (!editingId || saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/blocks/${editingId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: editValues.title,
+          subtitle: editValues.subtitle,
+          content: editValues.content,
+          image: editValues.image,
+          link: editValues.link,
+          linkText: editValues.linkText,
+          isActive: editValues.isActive,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить блок");
+      const saved = mapCmsHomeBlock(payload.block);
+      setCmsBlocks((current) => current.map((block) => block.id === saved.id ? saved : block));
+      setEditingId(null);
+      setEditValues({});
+      toast.success("Блок сохранён в базе данных");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addBlock = async (section: string, sortOrder: number) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/blocks", {
+        method: "POST",
+        body: JSON.stringify({
+          section, title: "Новый блок", subtitle: "", content: "",
+          image: "", link: "", linkText: "", sortOrder, isActive: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось создать блок");
+      setCmsBlocks((current) => [...current, mapCmsHomeBlock(payload.block)]);
+      toast.success("Блок создан и сохранён");
+    } catch (error) {
+      toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateBlock = async (block: CmsHomeBlock, updates: Partial<CmsHomeBlock>) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/blocks/${block.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: updates.isActive }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось обновить блок");
+      const saved = mapCmsHomeBlock(payload.block);
+      setCmsBlocks((current) => current.map((item) => item.id === saved.id ? saved : item));
+      toast.success(saved.isActive ? "Блок опубликован" : "Блок скрыт");
+    } catch (error) {
+      toast.error("Ошибка обновления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeBlock = async (block: CmsHomeBlock) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/blocks/${block.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить блок");
+      setCmsBlocks((current) => current.filter((item) => item.id !== block.id));
+      toast.success("Блок удалён");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -89,13 +221,16 @@ export function AdminCmsHomeTab() {
           Главная страница — CMS
         </h1>
         <p className="text-sm text-muted-foreground">
-          Редактируйте секции главной страницы без кода. Изменения применяются мгновенно.
+          Управление содержимым главной страницы. Изменения сохраняются в PostgreSQL и не теряются после перезагрузки.
         </p>
       </div>
 
-      {/* Блоки по секциям */}
-      {sections.map((section) => {
-        const blocks = cmsBlocks.filter((b) => b.section === section.key);
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков CMS…
+        </div>
+      ) : CMS_HOME_SECTIONS.map((section) => {
+        const blocks = cmsBlocks.filter((block) => block.section === section.key);
         return (
           <Card key={section.key} className="p-4">
             <div className="flex items-center justify-between mb-3">
@@ -104,135 +239,69 @@ export function AdminCmsHomeTab() {
                 {section.label}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
               </h3>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  addCmsBlock({
-                    pageId: null,
-                    section: section.key,
-                    title: "Новый блок",
-                    subtitle: "",
-                    content: "",
-                    image: "",
-                    link: "",
-                    linkText: "",
-                    sortOrder: blocks.length,
-                    isActive: true,
-                    metadata: "{}",
-                    updatedBy: "admin@demo.ru",
-                  });
-                  toast.success("Блок добавлен!");
-                }}
-              >
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, blocks.length)}>
                 <Plus className="h-3 w-3 mr-1" /> Добавить
               </Button>
             </div>
-
             <div className="space-y-2">
               {blocks.map((block) => (
                 <div key={block.id} className="border border-border rounded-lg p-3">
                   {editingId === block.id ? (
-                    /* Режим редактирования */
                     <div className="space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs">Заголовок</Label>
-                          <Input
-                            value={editValues.title || ""}
-                            onChange={(e) => setEditValues({ ...editValues, title: e.target.value })}
-                            className="h-8 text-sm"
-                          />
+                          <Input value={editValues.title || ""} onChange={(e) => setEditValues({ ...editValues, title: e.target.value })} className="h-8 text-sm" maxLength={180} />
                         </div>
                         <div>
-                          <Label className="text-xs">Ссылка (view)</Label>
-                          <Input
-                            value={editValues.link || ""}
-                            onChange={(e) => setEditValues({ ...editValues, link: e.target.value })}
-                            className="h-8 text-sm"
-                            placeholder="catalog, promotions..."
-                          />
+                          <Label className="text-xs">Ссылка</Label>
+                          <Input value={editValues.link || ""} onChange={(e) => setEditValues({ ...editValues, link: e.target.value })} className="h-8 text-sm" placeholder="/catalog" />
                         </div>
                       </div>
                       <div>
                         <Label className="text-xs">Подзаголовок</Label>
-                        <Textarea
-                          value={editValues.subtitle || ""}
-                          onChange={(e) => setEditValues({ ...editValues, subtitle: e.target.value })}
-                          rows={2}
-                          className="text-sm"
-                        />
+                        <Textarea value={editValues.subtitle || ""} onChange={(e) => setEditValues({ ...editValues, subtitle: e.target.value })} rows={2} className="text-sm" maxLength={500} />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Содержание блока</Label>
+                        <Textarea value={editValues.content || ""} onChange={(e) => setEditValues({ ...editValues, content: e.target.value })} rows={4} className="text-sm" maxLength={20000} />
                       </div>
                       <div>
                         <Label className="text-xs">Изображение (URL)</Label>
-                        <Input
-                          value={editValues.image || ""}
-                          onChange={(e) => setEditValues({ ...editValues, image: e.target.value })}
-                          className="h-8 text-sm"
-                        />
+                        <Input value={editValues.image || ""} onChange={(e) => setEditValues({ ...editValues, image: e.target.value })} className="h-8 text-sm" />
                       </div>
                       <div>
                         <Label className="text-xs">Текст кнопки</Label>
-                        <Input
-                          value={editValues.linkText || ""}
-                          onChange={(e) => setEditValues({ ...editValues, linkText: e.target.value })}
-                          className="h-8 text-sm"
-                        />
+                        <Input value={editValues.linkText || ""} onChange={(e) => setEditValues({ ...editValues, linkText: e.target.value })} className="h-8 text-sm" maxLength={100} />
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={saveEdit}><Save className="h-3 w-3 mr-1" /> Сохранить</Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Отмена</Button>
+                      <div className="flex gap-2 items-center">
+                        <Button size="sm" disabled={saving} onClick={saveEdit}><Save className="h-3 w-3 mr-1" /> Сохранить</Button>
+                        <Button size="sm" variant="outline" disabled={saving} onClick={() => { setEditingId(null); setEditValues({}); }}>Отмена</Button>
                         <label className="flex items-center gap-1 text-xs cursor-pointer ml-auto">
-                          <Checkbox
-                            checked={editValues.isActive}
-                            onCheckedChange={(v) => setEditValues({ ...editValues, isActive: !!v })}
-                          />
+                          <Checkbox checked={!!editValues.isActive} onCheckedChange={(value) => setEditValues({ ...editValues, isActive: !!value })} />
                           Активен
                         </label>
                       </div>
                     </div>
                   ) : (
-                    /* Режим просмотра */
                     <div className="flex items-start gap-3">
-                      {block.image && (
-                        <img src={block.image} alt="" className="h-12 w-12 rounded object-cover shrink-0" loading="lazy" decoding="async" />
-                      )}
+                      {block.image && <img src={block.image} alt="" className="h-12 w-12 rounded object-cover shrink-0" loading="lazy" decoding="async" />}
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm flex items-center gap-2">
                           {block.title || "(без заголовка)"}
                           {!block.isActive && <Badge variant="outline" className="text-[9px]">Скрыт</Badge>}
                         </div>
-                        {block.subtitle && (
-                          <div className="text-xs text-muted-foreground line-clamp-1">{block.subtitle}</div>
-                        )}
-                        {block.linkText && (
-                          <Badge variant="secondary" className="text-[9px] mt-1">{block.linkText} → {block.link}</Badge>
-                        )}
+                        {block.subtitle && <div className="text-xs text-muted-foreground line-clamp-1">{block.subtitle}</div>}
+                        {block.linkText && <Badge variant="secondary" className="text-[9px] mt-1">{block.linkText} → {block.link}</Badge>}
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => startEdit(block)}>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={saving} onClick={() => { setEditingId(block.id); setEditValues({ ...block }); }}>
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => {
-                            updateCmsBlock(block.id, { isActive: !block.isActive });
-                            toast.success(block.isActive ? "Скрыт" : "Показан");
-                          }}
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={saving} onClick={() => updateBlock(block, { isActive: !block.isActive })}>
                           {block.isActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => {
-                            deleteCmsBlock(block.id);
-                            toast.success("Удалён");
-                          }}
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" disabled={saving} onClick={() => removeBlock(block)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -240,9 +309,7 @@ export function AdminCmsHomeTab() {
                   )}
                 </div>
               ))}
-              {blocks.length === 0 && (
-                <div className="text-xs text-muted-foreground text-center py-2">Нет блоков в этой секции</div>
-              )}
+              {blocks.length === 0 && <div className="text-xs text-muted-foreground text-center py-2">Нет блоков в этой секции</div>}
             </div>
           </Card>
         );
@@ -252,122 +319,215 @@ export function AdminCmsHomeTab() {
 }
 
 // ==================== CMS: БАННЕРЫ ====================
+type CmsBannerRecord = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  link_url: string | null;
+  position: string;
+  text: string | null;
+  cta_text: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  is_active: boolean;
+  sort_order: number;
+};
+
+const BANNER_POSITIONS = [
+  { value: "home_hero", label: "Главная — Hero" },
+  { value: "catalog_top", label: "Верх каталога" },
+  { value: "sidebar", label: "Сайдбар" },
+  { value: "footer", label: "Подвал" },
+  { value: "mobile", label: "Мобильная версия" },
+];
+
 export function AdminBannersTab() {
-  const banners = useAppStore((s) => s.banners);
-  const updateBanner = useAppStore((s) => s.updateBanner);
-  const addBanner = useAppStore((s) => s.addBanner);
-  const deleteBanner = useAppStore((s) => s.deleteBanner);
+  const [banners, setBanners] = useState<CmsBannerRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
   const [newBanner, setNewBanner] = useState({
-    title: "",
-    subtitle: "",
-    image: "",
-    link: "",
-    buttonText: "",
-    position: "hero",
-    isActive: true,
-    sortOrder: 0,
+    title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "",
+    position: "home_hero", isActive: true, sortOrder: 0, startsAt: "", endsAt: "",
   });
+
+  const loadBanners = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/banners?include_inactive=true", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить баннеры");
+    setBanners(Array.isArray(payload.banners) ? payload.banners : []);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadBanners(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки баннеров", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const openNewBanner = () => {
+    setEditingBannerId(null);
+    setNewBanner({
+      title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "",
+      position: "home_hero", isActive: true, sortOrder: banners.length, startsAt: "", endsAt: "",
+    });
+    setShowAdd(true);
+  };
+
+  const openEditBanner = (banner: CmsBannerRecord) => {
+    const toLocalInput = (value: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    };
+    setEditingBannerId(banner.id);
+    setNewBanner({
+      title: banner.title,
+      text: banner.text || "",
+      imageUrl: banner.image_url || "",
+      linkUrl: banner.link_url || "",
+      ctaText: banner.cta_text || "",
+      position: banner.position,
+      isActive: banner.is_active,
+      sortOrder: banner.sort_order,
+      startsAt: toLocalInput(banner.starts_at),
+      endsAt: toLocalInput(banner.ends_at),
+    });
+    setShowAdd(true);
+  };
+
+  const saveBanner = async () => {
+    if (saving || !newBanner.title.trim()) return;
+    setSaving(true);
+    try {
+      const body = {
+        ...newBanner,
+        startsAt: newBanner.startsAt ? new Date(newBanner.startsAt).toISOString() : null,
+        endsAt: newBanner.endsAt ? new Date(newBanner.endsAt).toISOString() : null,
+      };
+      const response = await csrfFetch(
+        editingBannerId ? `/api/cms/banners/${editingBannerId}` : "/api/cms/banners",
+        { method: editingBannerId ? "PATCH" : "POST", body: JSON.stringify(body) },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить баннер");
+      if (editingBannerId) {
+        setBanners((current) => current.map((item) => item.id === editingBannerId ? payload.banner as CmsBannerRecord : item));
+      } else {
+        setBanners((current) => [...current, payload.banner as CmsBannerRecord]);
+      }
+      setShowAdd(false);
+      setEditingBannerId(null);
+      toast.success(editingBannerId ? "Изменения баннера сохранены" : "Баннер создан");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const toggleBanner = async (banner: CmsBannerRecord) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/banners/${banner.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: !banner.is_active }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось изменить баннер");
+      setBanners((current) => current.map((item) => item.id === banner.id ? payload.banner : item));
+      toast.success(!banner.is_active ? "Баннер активирован" : "Баннер скрыт");
+    } catch (error) {
+      toast.error("Ошибка обновления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const removeBanner = async (banner: CmsBannerRecord) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/banners/${banner.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить баннер");
+      setBanners((current) => current.filter((item) => item.id !== banner.id));
+      toast.success("Баннер удалён");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-            <ImageIcon className="h-6 w-6 text-primary" />
-            Баннеры
-          </h1>
-          <p className="text-sm text-muted-foreground">Управление баннерами на главной и в каталоге</p>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2"><ImageIcon className="h-6 w-6 text-primary" />Баннеры</h1>
+          <p className="text-sm text-muted-foreground">Баннеры хранятся в PostgreSQL и публикуются с учётом расписания.</p>
         </div>
-        <Button onClick={() => setShowAdd(true)}><Plus className="h-4 w-4 mr-1" /> Добавить</Button>
+        <Button onClick={openNewBanner}><Plus className="h-4 w-4 mr-1" /> Добавить</Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {banners.map((banner) => (
-          <Card key={banner.id} className={`overflow-hidden p-0 ${!banner.isActive ? "opacity-50" : ""}`}>
-            <div className="relative aspect-video bg-muted">
-              {banner.image && <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-              <div className="absolute bottom-2 left-3 right-3">
-                <div className="font-semibold text-white text-sm line-clamp-1">{banner.title}</div>
-                <div className="text-xs text-white/80 line-clamp-1">{banner.subtitle}</div>
+      {loading ? <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка баннеров…</div> : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {banners.map((banner) => (
+            <Card key={banner.id} className={`overflow-hidden p-0 ${!banner.is_active ? "opacity-60" : ""}`}>
+              <div className="relative aspect-video bg-muted">
+                {banner.image_url && <img src={banner.image_url} alt={banner.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <div className="absolute bottom-2 left-3 right-3 font-semibold text-white text-sm line-clamp-2">{banner.title}</div>
+                <Badge className={`absolute top-2 right-2 ${banner.is_active ? "bg-emerald-600" : "bg-slate-600"} text-white text-[9px]`}>{banner.is_active ? "Активен" : "Скрыт"}</Badge>
               </div>
-              <Badge className={`absolute top-2 right-2 ${banner.isActive ? "bg-emerald-500" : "bg-slate-500"} text-white text-[9px]`}>
-                {banner.isActive ? "Активен" : "Скрыт"}
-              </Badge>
-            </div>
-            <div className="p-3">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-                <Badge variant="outline" className="text-[10px]">{banner.position}</Badge>
-                {banner.startDate && <span>с {formatDate(banner.startDate)}</span>}
-                {banner.endDate && <span>до {formatDate(banner.endDate)}</span>}
+              <div className="p-3 space-y-2">
+                <div className="text-xs text-muted-foreground">
+                  <Badge variant="outline" className="text-[10px]">{BANNER_POSITIONS.find((item) => item.value === banner.position)?.label || banner.position}</Badge>
+                  {banner.starts_at && <span className="ml-2">с {formatDate(banner.starts_at)}</span>}
+                  {banner.ends_at && <span className="ml-2">до {formatDate(banner.ends_at)}</span>}
+                </div>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="outline" className="flex-1 text-xs" disabled={saving} onClick={() => openEditBanner(banner)}>
+                    <Edit className="h-3 w-3 mr-1" /> Изменить
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs" disabled={saving} onClick={() => toggleBanner(banner)}>
+                    {banner.is_active ? <><EyeOff className="h-3 w-3 mr-1" /> Скрыть</> : <><Eye className="h-3 w-3 mr-1" /> Показать</>}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-destructive text-xs" disabled={saving} onClick={() => removeBanner(banner)}><Trash2 className="h-3 w-3" /></Button>
+                </div>
               </div>
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 text-xs"
-                  onClick={() => {
-                    updateBanner(banner.id, { isActive: !banner.isActive });
-                    toast.success(banner.isActive ? "Скрыт" : "Показан");
-                  }}
-                >
-                  {banner.isActive ? <><EyeOff className="h-3 w-3 mr-1" /> Скрыть</> : <><Eye className="h-3 w-3 mr-1" /> Показать</>}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive text-xs"
-                  onClick={() => { deleteBanner(banner.id); toast.success("Удалён"); }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+          {banners.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground md:col-span-2 lg:col-span-3">Баннеры ещё не созданы.</Card>}
+        </div>
+      )}
 
       {showAdd && (
         <Dialog open onOpenChange={setShowAdd}>
           <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Новый баннер</DialogTitle>
-              <DialogDescription>Баннер появится на главной или в каталоге</DialogDescription>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>{editingBannerId ? "Редактировать баннер" : "Новый баннер"}</DialogTitle><DialogDescription>Изменения сохраняются в PostgreSQL и учитываются при публикации.</DialogDescription></DialogHeader>
             <div className="space-y-2">
-              <div><Label>Заголовок *</Label><Input value={newBanner.title} onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })} /></div>
-              <div><Label>Подзаголовок</Label><Input value={newBanner.subtitle} onChange={(e) => setNewBanner({ ...newBanner, subtitle: e.target.value })} /></div>
-              <div><Label>URL изображения *</Label><Input value={newBanner.image} onChange={(e) => setNewBanner({ ...newBanner, image: e.target.value })} placeholder="https://..." /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label>Ссылка (view)</Label><Input value={newBanner.link} onChange={(e) => setNewBanner({ ...newBanner, link: e.target.value })} placeholder="catalog" /></div>
-                <div><Label>Текст кнопки</Label><Input value={newBanner.buttonText} onChange={(e) => setNewBanner({ ...newBanner, buttonText: e.target.value })} /></div>
-              </div>
+              <div><Label>Заголовок *</Label><Input value={newBanner.title} maxLength={180} onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })} /></div>
+              <div><Label>Текст</Label><Textarea value={newBanner.text} maxLength={1000} onChange={(e) => setNewBanner({ ...newBanner, text: e.target.value })} rows={2} /></div>
+              <div><Label>URL изображения</Label><Input value={newBanner.imageUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, imageUrl: e.target.value })} placeholder="https://…" /></div>
+              <div><Label>Ссылка</Label><Input value={newBanner.linkUrl} maxLength={2048} onChange={(e) => setNewBanner({ ...newBanner, linkUrl: e.target.value })} placeholder="/catalog" /></div>
+              <div><Label>Текст кнопки</Label><Input value={newBanner.ctaText} maxLength={100} onChange={(e) => setNewBanner({ ...newBanner, ctaText: e.target.value })} /></div>
               <div>
                 <Label>Позиция</Label>
-                <Select value={newBanner.position} onValueChange={(v) => setNewBanner({ ...newBanner, position: v })}>
+                <Select value={newBanner.position} onValueChange={(value) => setNewBanner({ ...newBanner, position: value })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hero">Hero (главная)</SelectItem>
-                    <SelectItem value="top">Верхний баннер</SelectItem>
-                    <SelectItem value="category">В каталоге</SelectItem>
-                    <SelectItem value="sidebar">Сайдбар</SelectItem>
-                    <SelectItem value="footer">Подвал</SelectItem>
-                  </SelectContent>
+                  <SelectContent>{BANNER_POSITIONS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                 </Select>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div><Label>Начало показа</Label><Input type="datetime-local" value={newBanner.startsAt} onChange={(e) => setNewBanner({ ...newBanner, startsAt: e.target.value })} /></div>
+                <div><Label>Окончание показа</Label><Input type="datetime-local" value={newBanner.endsAt} min={newBanner.startsAt || undefined} onChange={(e) => setNewBanner({ ...newBanner, endsAt: e.target.value })} /></div>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowAdd(false)}>Отмена</Button>
-              <Button
-                disabled={!newBanner.title || !newBanner.image}
-                onClick={() => {
-                  addBanner(newBanner);
-                  toast.success("Баннер добавлен!");
-                  setShowAdd(false);
-                  setNewBanner({ title: "", subtitle: "", image: "", link: "", buttonText: "", position: "hero", isActive: true, sortOrder: 0 });
-                }}
-              >Добавить</Button>
+              <Button variant="outline" disabled={saving} onClick={() => setShowAdd(false)}>Отмена</Button>
+              <Button disabled={saving || !newBanner.title.trim()} onClick={saveBanner}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingBannerId ? "Сохранить изменения" : "Создать баннер"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -377,241 +537,327 @@ export function AdminBannersTab() {
 }
 
 // ==================== CMS: СТРАНИЦЫ (FAQ, О нас, Условия) ====================
+type CmsPageRecord = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  content: string;
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_keywords: string[] | null;
+  status: string;
+  is_in_menu: boolean;
+  menu_order: number;
+  updated_at: string;
+};
+
+type CmsPageEditor = {
+  slug: string;
+  title: string;
+  description: string;
+  content: string;
+  seoTitle: string;
+  seoDescription: string;
+  isPublished: boolean;
+  isInMenu: boolean;
+  menuOrder: number;
+};
+
+const EMPTY_CMS_PAGE: CmsPageEditor = {
+  slug: "", title: "", description: "", content: "", seoTitle: "",
+  seoDescription: "", isPublished: false, isInMenu: false, menuOrder: 0,
+};
+
+function toCmsPageEditor(page: CmsPageRecord): CmsPageEditor {
+  return {
+    slug: page.slug,
+    title: page.title,
+    description: page.description || "",
+    content: page.content || "",
+    seoTitle: page.seo_title || "",
+    seoDescription: page.seo_description || "",
+    isPublished: page.status === "published",
+    isInMenu: page.is_in_menu,
+    menuOrder: page.menu_order || 0,
+  };
+}
+
 export function AdminCmsPagesTab() {
-  const cmsPages = useAppStore((s) => s.cmsPages);
-  const updateCmsPage = useAppStore((s) => s.updateCmsPage);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<any>({});
+  const [pages, setPages] = useState<CmsPageRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editValues, setEditValues] = useState<CmsPageEditor>(EMPTY_CMS_PAGE);
+
+  const loadPages = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/pages?include_drafts=true", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить страницы");
+    setPages(Array.isArray(payload.pages) ? payload.pages : []);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadPages(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки страниц", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const savePage = async () => {
+    if (saving) return;
+    if (!editValues.slug.trim() || !editValues.title.trim() || !editValues.content.trim()) {
+      toast.error("Заполните URL, заголовок и содержимое страницы");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        title: editValues.title.trim(),
+        description: editValues.description,
+        content: editValues.content,
+        seoTitle: editValues.seoTitle,
+        seoDescription: editValues.seoDescription,
+        isInMenu: editValues.isInMenu,
+        menuOrder: editValues.menuOrder,
+        status: editValues.isPublished ? "published" : "draft",
+      };
+      const response = creating
+        ? await csrfFetch("/api/cms/pages", { method: "POST", body: JSON.stringify({ ...payload, slug: editValues.slug.trim().toLowerCase() }) })
+        : await csrfFetch(`/api/cms/pages/${encodeURIComponent(editingSlug || editValues.slug)}`, { method: "PATCH", body: JSON.stringify(payload) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Не удалось сохранить страницу");
+      const saved = result.page as CmsPageRecord;
+      setPages((current) => creating ? [saved, ...current] : current.map((page) => page.slug === editingSlug ? saved : page));
+      setEditingSlug(null);
+      setCreating(false);
+      setEditValues(EMPTY_CMS_PAGE);
+      toast.success("Страница сохранена в PostgreSQL");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const removePage = async (page: CmsPageRecord) => {
+    if (saving || !window.confirm(`Удалить страницу «${page.title}»? Она будет перемещена в архив.`)) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/pages/${encodeURIComponent(page.slug)}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить страницу");
+      setPages((current) => current.filter((item) => item.id !== page.id));
+      toast.success("Страница перемещена в архив");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const beginCreate = () => {
+    setCreating(true);
+    setEditingSlug(null);
+    setEditValues(EMPTY_CMS_PAGE);
+  };
+
+  const beginEdit = (page: CmsPageRecord) => {
+    setCreating(false);
+    setEditingSlug(page.slug);
+    setEditValues(toCmsPageEditor(page));
+  };
+
+  const cancelEdit = () => {
+    setCreating(false);
+    setEditingSlug(null);
+    setEditValues(EMPTY_CMS_PAGE);
+  };
+
+  const isEditing = creating || editingSlug !== null;
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-          <Edit className="h-6 w-6 text-primary" />
-          Страницы сайта
-        </h1>
-        <p className="text-sm text-muted-foreground">Редактируйте тексты страниц: О нас, FAQ, Условия, Конфиденциальность</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Edit className="h-6 w-6 text-primary" />Страницы сайта</h1>
+          <p className="text-sm text-muted-foreground">FAQ, О нас, Условия и другие страницы. Черновики и публикации хранятся в PostgreSQL.</p>
+        </div>
+        {!isEditing && <Button onClick={beginCreate}><Plus className="h-4 w-4 mr-1" /> Новая страница</Button>}
       </div>
 
-      <div className="space-y-3">
-        {cmsPages.map((page) => (
-          <Card key={page.id} className="p-4">
-            {editingId === page.id ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">/{page.slug}</Badge>
-                  <div className="flex gap-1">
-                    <Button size="sm" onClick={() => {
-                      updateCmsPage(editingId!, editValues);
-                      toast.success("Страница сохранена!");
-                      setEditingId(null);
-                    }}><Save className="h-3 w-3 mr-1" /> Сохранить</Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Отмена</Button>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Заголовок</Label>
-                  <Input value={editValues.title || ""} onChange={(e) => setEditValues({ ...editValues, title: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">SEO Title</Label>
-                  <Input value={editValues.seoTitle || ""} onChange={(e) => setEditValues({ ...editValues, seoTitle: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">SEO Description</Label>
-                  <Input value={editValues.seoDescription || ""} onChange={(e) => setEditValues({ ...editValues, seoDescription: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Контент (Markdown с WYSIWYG-редактором)</Label>
-                  <MarkdownEditor
-                    value={editValues.content || ""}
-                    onChange={(markdown) => setEditValues({ ...editValues, content: markdown })}
-                    minHeight={400}
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={editValues.isPublished}
-                    onCheckedChange={(v) => setEditValues({ ...editValues, isPublished: !!v })}
-                  />
-                  Опубликовано
-                </label>
-              </div>
-            ) : (
+      {isEditing ? (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold">{creating ? "Новая страница" : `Редактирование / ${editingSlug}`}</h2>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={saving} onClick={cancelEdit}>Отмена</Button>
+              <Button size="sm" disabled={saving} onClick={savePage}>{saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}Сохранить</Button>
+            </div>
+          </div>
+          {creating && <div><Label className="text-xs">URL (slug)</Label><Input value={editValues.slug} onChange={(event) => setEditValues({ ...editValues, slug: event.target.value.replace(/[^a-zA-Z0-9а-яА-Я_-]/g, "-") })} placeholder="about-us" maxLength={120} /></div>}
+          <div><Label className="text-xs">Заголовок</Label><Input value={editValues.title} onChange={(event) => setEditValues({ ...editValues, title: event.target.value })} maxLength={180} /></div>
+          <div><Label className="text-xs">Краткое описание</Label><Textarea value={editValues.description} onChange={(event) => setEditValues({ ...editValues, description: event.target.value })} rows={2} maxLength={500} /></div>
+          <div><Label className="text-xs">SEO Title</Label><Input value={editValues.seoTitle} onChange={(event) => setEditValues({ ...editValues, seoTitle: event.target.value })} maxLength={180} /></div>
+          <div><Label className="text-xs">SEO Description</Label><Textarea value={editValues.seoDescription} onChange={(event) => setEditValues({ ...editValues, seoDescription: event.target.value })} rows={2} maxLength={500} /></div>
+          <div><Label className="text-xs">Содержимое (Markdown)</Label><MarkdownEditor value={editValues.content} onChange={(content) => setEditValues({ ...editValues, content })} minHeight={360} /></div>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox checked={editValues.isPublished} onCheckedChange={(value) => setEditValues({ ...editValues, isPublished: !!value })} />Опубликована</label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox checked={editValues.isInMenu} onCheckedChange={(value) => setEditValues({ ...editValues, isInMenu: !!value })} />Показывать в меню</label>
+          </div>
+        </Card>
+      ) : loading ? (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка страниц…</div>
+      ) : (
+        <div className="space-y-3">
+          {pages.map((page) => (
+            <Card key={page.id} className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm flex items-center gap-2">
-                    {page.title}
-                    <Badge variant="outline" className="text-[10px]">/{page.slug}</Badge>
-                    {page.isPublished ? (
-                      <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Опубликована</Badge>
-                    ) : (
-                      <Badge className="bg-slate-100 text-slate-800 text-[10px]">Черновик</Badge>
-                    )}
+                  <div className="font-semibold text-sm flex flex-wrap items-center gap-2">
+                    {page.title}<Badge variant="outline" className="text-[10px]">/{page.slug}</Badge>
+                    <Badge className={page.status === "published" ? "bg-emerald-100 text-emerald-800 text-[10px]" : "bg-slate-100 text-slate-800 text-[10px]"}>{page.status === "published" ? "Опубликована" : "Черновик"}</Badge>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                    {page.content?.slice(0, 150)}...
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-1">
-                    Обновлено: {formatDate(page.updatedAt)} • {page.updatedBy}
-                  </div>
+                  {page.description && <div className="text-xs text-muted-foreground mt-1">{page.description}</div>}
+                  <div className="text-xs text-muted-foreground mt-2 line-clamp-2">{page.content?.slice(0, 180)}</div>
+                  <div className="text-[10px] text-muted-foreground mt-1">Обновлено: {formatDate(page.updated_at)}</div>
+                  {page.status === "published" && <a href={`/pages/${encodeURIComponent(page.slug)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-2">Открыть страницу <ExternalLink className="h-3 w-3" /></a>}
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setEditingId(page.id);
-                    setEditValues({ ...page });
-                  }}
-                >
-                  <Edit className="h-3 w-3 mr-1" /> Редактировать
-                </Button>
+                <div className="flex gap-1 shrink-0">
+                  <Button size="sm" variant="outline" disabled={saving} onClick={() => beginEdit(page)}><Edit className="h-3 w-3 mr-1" />Редактировать</Button>
+                  <Button size="icon" variant="ghost" disabled={saving} className="text-destructive" onClick={() => removePage(page)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
               </div>
-            )}
-          </Card>
-        ))}
-      </div>
+            </Card>
+          ))}
+          {pages.length === 0 && <Card className="p-10 text-center text-sm text-muted-foreground">Страниц пока нет. Создайте первую.</Card>}
+        </div>
+      )}
     </div>
   );
 }
 
 // ==================== CMS: НАСТРОЙКИ САЙТА ====================
+type CmsSiteSetting = {
+  key: string;
+  value: string;
+  value_type: string;
+  description: string | null;
+  category: string;
+  is_public: boolean;
+};
+
 export function AdminSettingsTab() {
-  const siteSettings = useAppStore((s) => s.siteSettings);
-  const updateSiteSetting = useAppStore((s) => s.updateSiteSetting);
+  const [siteSettings, setSiteSettings] = useState<CmsSiteSetting[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("general");
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
 
-  // Загружаем статус промо-попапа
+  const loadSettings = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/settings", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить настройки");
+    setSiteSettings(Array.isArray(payload.settings) ? payload.settings : []);
+  };
+
   useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadSettings(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки настроек", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     csrfFetch("/api/admin/promo-popup")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setPromoEnabled(data.enabled); })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (data) setPromoEnabled(Boolean(data.enabled)); })
       .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   const handleTogglePromo = async () => {
     setPromoLoading(true);
     try {
-      const res = await csrfFetch("/api/admin/promo-popup", {
+      const response = await csrfFetch("/api/admin/promo-popup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !promoEnabled }),
       });
-      if (res.ok) {
-        setPromoEnabled(!promoEnabled);
-        toast.success(`Промо-попап ${!promoEnabled ? "включён" : "выключен"}`);
-      }
-    } catch {
-      toast.error("Ошибка");
-    } finally {
-      setPromoLoading(false);
-    }
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось изменить промо-попап");
+      setPromoEnabled(!promoEnabled);
+      toast.success(`Промо-попап ${!promoEnabled ? "включён" : "выключен"}`);
+    } catch (error) {
+      toast.error("Ошибка", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setPromoLoading(false); }
   };
 
-  const filtered = siteSettings.filter((s) => s.category === activeCategory);
-
-  const handleSave = (key: string) => {
-    if (editValues[key] !== undefined) {
-      updateSiteSetting(key, editValues[key]);
-      toast.success(`Настройка «${key}» обновлена!`);
-      const newValues = { ...editValues };
-      delete newValues[key];
-      setEditValues(newValues);
-    }
+  const handleSave = async (key: string) => {
+    if (editValues[key] === undefined || savingKey) return;
+    setSavingKey(key);
+    try {
+      const response = await csrfFetch("/api/cms/settings", {
+        method: "PUT",
+        body: JSON.stringify({ key, value: editValues[key] }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить настройку");
+      setSiteSettings((current) => current.map((setting) => setting.key === key ? payload.setting : setting));
+      setEditValues((current) => { const next = { ...current }; delete next[key]; return next; });
+      toast.success(`Настройка «${key}» сохранена в PostgreSQL`);
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSavingKey(null); }
   };
+
+  const filtered = siteSettings.filter((setting) => setting.category === activeCategory);
 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-          <Settings className="h-6 w-6 text-primary" />
-          Настройки сайта
-        </h1>
-        <p className="text-sm text-muted-foreground">Комиссии, тарифы, доставка, SEO, контакты — всё в одном месте</p>
+        <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Settings className="h-6 w-6 text-primary" />Настройки сайта</h1>
+        <p className="text-sm text-muted-foreground">Настройки загружаются из PostgreSQL; сохранение выполняется через защищённый API.</p>
       </div>
 
-      {/* Управление промо-попапом */}
       <Card className={`p-4 ${promoEnabled ? "border-emerald-300 bg-emerald-50/30" : "border-muted"}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${promoEnabled ? "bg-emerald-100" : "bg-muted"}`}>
-              <Gift className={`h-5 w-5 ${promoEnabled ? "text-emerald-600" : "text-muted-foreground"}`} />
-            </div>
-            <div>
-              <div className="font-semibold text-sm">Промо-попап на главной</div>
-              <div className="text-xs text-muted-foreground">
-                {promoEnabled
-                  ? "Включён — показывается пользователям через 5 сек после загрузки"
-                  : "Выключен — попап не показывается"}
-              </div>
-            </div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${promoEnabled ? "bg-emerald-100" : "bg-muted"}`}><Gift className={`h-5 w-5 ${promoEnabled ? "text-emerald-600" : "text-muted-foreground"}`} /></div>
+            <div><div className="font-semibold text-sm">Промо-попап на главной</div><div className="text-xs text-muted-foreground">{promoEnabled ? "Включён" : "Выключен"}</div></div>
           </div>
-          <Button
-            onClick={handleTogglePromo}
-            disabled={promoLoading}
-            variant={promoEnabled ? "destructive" : "default"}
-            size="sm"
-            className="gap-2"
-          >
-            {promoLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : promoEnabled ? (
-              <X className="h-3.5 w-3.5" />
-            ) : (
-              <Check className="h-3.5 w-3.5" />
-            )}
+          <Button onClick={handleTogglePromo} disabled={promoLoading} variant={promoEnabled ? "destructive" : "default"} size="sm" className="gap-2">
+            {promoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : promoEnabled ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
             {promoEnabled ? "Выключить" : "Включить"}
           </Button>
         </div>
       </Card>
 
-      {/* Категории */}
       <div className="flex flex-wrap gap-2">
-        {SETTING_CATEGORIES.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => setActiveCategory(cat.id)}
-            className={`px-3 py-1.5 text-xs rounded-full border flex items-center gap-1 ${
-              activeCategory === cat.id
-                ? "bg-primary text-primary-foreground border-primary"
-                : "border-border hover:border-primary/40"
-            }`}
-          >
-            <span>{cat.icon}</span>
-            {cat.label}
+        {SETTING_CATEGORIES.map((category) => (
+          <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-3 py-1.5 text-xs rounded-full border flex items-center gap-1 ${activeCategory === category.id ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+            <span>{category.icon}</span>{category.label}
           </button>
         ))}
       </div>
 
-      {/* Настройки */}
       <Card className="p-4">
-        <div className="space-y-2">
-          {filtered.map((setting) => (
-            <div key={setting.id} className="flex items-center gap-3 p-2 border border-border rounded">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{setting.description}</div>
-                <div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div>
+        {loading ? <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка настроек…</div> : (
+          <div className="space-y-2">
+            {filtered.map((setting) => (
+              <div key={setting.key} className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 border border-border rounded">
+                <div className="flex-1 min-w-0"><div className="text-sm font-medium">{setting.description || setting.key}</div><div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div></div>
+                <Input value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value} onChange={(event) => setEditValues((current) => ({ ...current, [setting.key]: event.target.value }))} className="sm:w-64 h-8 text-sm" />
+                <Button size="sm" variant="outline" className="h-8" disabled={editValues[setting.key] === undefined || savingKey !== null} onClick={() => handleSave(setting.key)}>
+                  {savingKey === setting.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                </Button>
               </div>
-              <Input
-                value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value}
-                onChange={(e) => setEditValues({ ...editValues, [setting.key]: e.target.value })}
-                className="w-40 h-8 text-sm"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={() => handleSave(setting.key)}
-                disabled={editValues[setting.key] === undefined}
-              >
-                <Save className="h-3 w-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
+            ))}
+            {filtered.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">В этой категории нет доступных настроек.</div>}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -733,66 +979,415 @@ export function AdminReviewsModerationTab() {
 }
 
 // ==================== CMS: НАВИГАЦИЯ ====================
+type CmsNavItem = {
+  id: string;
+  location: string;
+  label: string;
+  url: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
 export function AdminNavMenuTab() {
-  const navMenu = useAppStore((s) => s.navMenu);
-  const updateNavMenu = useAppStore((s) => s.updateNavMenu);
-  const [items, setItems] = useState(navMenu);
+  const [items, setItems] = useState<CmsNavItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newItem, setNewItem] = useState({ label: "", url: "", location: "header" });
 
-  const toggleActive = (id: string) => {
-    const updated = items.map((i) => i.id === id ? { ...i, isActive: !i.isActive } : i);
-    setItems(updated);
-    updateNavMenu(updated);
-    toast.success("Обновлено");
+  const loadItems = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/nav-menu?include_inactive=true", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить меню");
+    setItems(Array.isArray(payload.items) ? payload.items : []);
   };
 
-  const updateLabel = (id: string, label: string) => {
-    const updated = items.map((i) => i.id === id ? { ...i, label } : i);
-    setItems(updated);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadItems(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки меню", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const patchItem = async (item: CmsNavItem, updates: Partial<CmsNavItem>) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/nav-menu/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          label: updates.label ?? item.label,
+          url: updates.url ?? item.url,
+          location: updates.location ?? item.location,
+          sortOrder: updates.sort_order ?? item.sort_order,
+          isActive: updates.is_active ?? item.is_active,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить пункт меню");
+      setItems((current) => current.map((entry) => entry.id === item.id ? payload.item : entry));
+      toast.success("Пункт меню сохранён");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
   };
 
-  const saveAll = () => {
-    updateNavMenu(items);
-    toast.success("Меню навигации сохранено!");
+  const createItem = async () => {
+    if (saving || !newItem.label.trim() || !newItem.url.trim()) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/nav-menu", {
+        method: "POST",
+        body: JSON.stringify({ ...newItem, sortOrder: items.filter((item) => item.location === newItem.location).length, isActive: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось создать пункт меню");
+      setItems((current) => [...current, payload.item]);
+      setNewItem({ label: "", url: "", location: "header" });
+      toast.success("Пункт меню создан");
+    } catch (error) {
+      toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const removeItem = async (item: CmsNavItem) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/nav-menu/${item.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить пункт меню");
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      toast.success("Пункт меню удалён");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-            <LayoutDashboard className="h-6 w-6 text-primary" />
-            Навигация
-          </h1>
-          <p className="text-sm text-muted-foreground">Управление пунктами меню в шапке сайта</p>
-        </div>
-        <Button onClick={saveAll}><Save className="h-4 w-4 mr-1" /> Сохранить</Button>
+      <div>
+        <h1 className="font-display text-2xl font-bold flex items-center gap-2"><LayoutDashboard className="h-6 w-6 text-primary" />Навигация</h1>
+        <p className="text-sm text-muted-foreground">Управление пунктами меню шапки, подвала и мобильной версии. Изменения сохраняются в PostgreSQL.</p>
       </div>
+      <Card className="p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Добавить пункт меню</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <Input value={newItem.label} onChange={(event) => setNewItem({ ...newItem, label: event.target.value })} placeholder="Название" maxLength={100} />
+          <Input value={newItem.url} onChange={(event) => setNewItem({ ...newItem, url: event.target.value })} placeholder="/catalog" maxLength={2048} />
+          <Select value={newItem.location} onValueChange={(value) => setNewItem({ ...newItem, location: value })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="header">Шапка</SelectItem><SelectItem value="footer">Подвал</SelectItem><SelectItem value="mobile">Мобильное</SelectItem></SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" disabled={saving || !newItem.label.trim() || !newItem.url.trim()} onClick={createItem}><Plus className="h-3 w-3 mr-1" />Добавить</Button>
+      </Card>
 
       <Card className="p-4">
-        <div className="space-y-2">
-          {items.map((item, i) => (
-            <div key={item.id} className="flex items-center gap-3 p-2 border border-border rounded">
-              <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-[10px] text-muted-foreground w-4">{i + 1}</span>
-              <Input
-                value={item.label}
-                onChange={(e) => updateLabel(item.id, e.target.value)}
-                className="w-40 h-8 text-sm"
-              />
-              <Badge variant="outline" className="text-[10px]">{item.link}</Badge>
-              <label className="flex items-center gap-1 text-xs cursor-pointer ml-auto">
-                <Checkbox
-                  checked={item.isActive}
-                  onCheckedChange={() => toggleActive(item.id)}
-                />
-                {item.isActive ? "Показан" : "Скрыт"}
-              </label>
+        {loading ? <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка меню…</div> : (
+          <div className="space-y-2">
+            {items.map((item) => (
+              <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_140px_90px_auto] items-center gap-2 p-2 border border-border rounded">
+                <Input defaultValue={item.label} key={`${item.id}-label-${item.label}`} maxLength={100} className="h-8 text-sm" onBlur={(event) => { if (event.target.value !== item.label) patchItem(item, { label: event.target.value }); }} />
+                <Input defaultValue={item.url} key={`${item.id}-url-${item.url}`} maxLength={2048} className="h-8 text-sm" onBlur={(event) => { if (event.target.value !== item.url) patchItem(item, { url: event.target.value }); }} />
+                <Select value={item.location} onValueChange={(value) => patchItem(item, { location: value })}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="header">Шапка</SelectItem><SelectItem value="footer">Подвал</SelectItem><SelectItem value="mobile">Мобильное</SelectItem></SelectContent>
+                </Select>
+                <Input type="number" min={0} max={10000} defaultValue={item.sort_order} key={`${item.id}-order-${item.sort_order}`} className="h-8 text-sm" onBlur={(event) => { const value = Number(event.target.value); if (Number.isInteger(value) && value !== item.sort_order) patchItem(item, { sort_order: value }); }} />
+                <div className="flex items-center gap-1">
+                  <Button size="icon" variant="ghost" disabled={saving} onClick={() => patchItem(item, { is_active: !item.is_active })}>{item.is_active ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</Button>
+                  <Button size="icon" variant="ghost" disabled={saving} className="text-destructive" onClick={() => removeItem(item)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              </div>
+            ))}
+            {items.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">Пункты меню не созданы.</div>}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+
+
+type CmsMediaItem = {
+  id: string;
+  name: string;
+  url: string;
+  type: "image" | "video" | "audio" | "document";
+  size_bytes: number;
+  mime_type: string;
+  created_at: string;
+};
+
+function formatMediaSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+export function AdminCmsMediaTab() {
+  const [media, setMedia] = useState<CmsMediaItem[]>([]);
+  const [filter, setFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    const query = filter === "all" ? "" : `?type=${encodeURIComponent(filter)}`;
+    fetch(`/api/cms/media${query}`, { credentials: "include", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || "Не удалось загрузить медиатеку");
+        if (!controller.signal.aborted) setMedia(Array.isArray(payload.media) ? payload.media : []);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Медиатека недоступна", { description: error.message });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [filter]);
+
+  const uploadFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || uploading) return;
+    if (file.size <= 0 || file.size > 50 * 1024 * 1024) {
+      toast.error("Недопустимый размер файла", { description: "Максимальный размер — 50 МБ" });
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    setUploading(true);
+    try {
+      const response = await csrfFetch("/api/cms/media", { method: "POST", body: formData });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось загрузить файл");
+      const uploaded = payload.media as CmsMediaItem;
+      if (filter === "all" || uploaded.type === filter) {
+        setMedia((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)].slice(0, 100));
+      }
+      toast.success("Файл загружен в медиатеку");
+    } catch (error) {
+      toast.error("Ошибка загрузки", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const copyUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Ссылка скопирована");
+    } catch {
+      toast.error("Не удалось скопировать ссылку");
+    }
+  };
+
+  const typeIcon = (type: CmsMediaItem["type"]) => {
+    if (type === "video") return <Video className="h-8 w-8" />;
+    if (type === "audio") return <Music2 className="h-8 w-8" />;
+    if (type === "document") return <FileText className="h-8 w-8" />;
+    return <ImageIcon className="h-8 w-8" />;
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-2xl font-bold flex items-center gap-2"><ImageIcon className="h-6 w-6 text-primary" />Медиатека CMS</h2>
+          <p className="text-sm text-muted-foreground">Изображения, видео, аудио и документы для страниц и баннеров. Максимальный размер файла — 50 МБ.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-36"><SelectValue placeholder="Все файлы" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все файлы</SelectItem>
+              <SelectItem value="image">Изображения</SelectItem>
+              <SelectItem value="video">Видео</SelectItem>
+              <SelectItem value="audio">Аудио</SelectItem>
+              <SelectItem value="document">Документы</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className="inline-flex cursor-pointer">
+            <Input
+              type="file"
+              className="sr-only"
+              accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,audio/mpeg,audio/wav,application/pdf"
+              disabled={uploading}
+              onChange={uploadFile}
+            />
+            <span className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              {uploading ? "Загрузка…" : "Загрузить"}
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка медиатеки…</div>
+      ) : media.length === 0 ? (
+        <Card className="p-10 text-center text-sm text-muted-foreground">Файлов пока нет. Загрузите первый материал для баннера или страницы.</Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {media.map((item) => (
+            <Card key={item.id} className="overflow-hidden">
+              <div className="flex h-40 items-center justify-center bg-muted/40">
+                {item.type === "image" ? (
+                  <img src={item.url} alt={item.name} className="h-full w-full object-contain" loading="lazy" decoding="async" />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground">{typeIcon(item.type)}<Badge variant="secondary">{item.type}</Badge></div>
+                )}
+              </div>
+              <div className="space-y-2 p-3">
+                <div className="truncate text-sm font-medium" title={item.name}>{item.name}</div>
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>{formatMediaSize(item.size_bytes)} · {item.mime_type}</span>
+                  <span>{formatDate(item.created_at)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="outline" className="flex-1" onClick={() => copyUrl(item.url)}><Copy className="mr-1 h-3.5 w-3.5" />Скопировать URL</Button>
+                  <Button type="button" size="sm" variant="ghost" asChild aria-label="Открыть файл"><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink className="h-4 w-4" /></a></Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AdminDesignTab() {
+  type DesignSettings = {
+    id: string;
+    theme: string;
+    primary_color: string;
+    accent_color: string;
+    background_color: string;
+    text_color: string;
+    font_heading: string;
+    font_body: string;
+    layout_style: string;
+    max_width: number;
+    animations_enabled: boolean;
+  };
+  const defaults: Omit<DesignSettings, "id"> = {
+    theme: "default", primary_color: "#8B2942", accent_color: "#D97706",
+    background_color: "#F7F2E8", text_color: "#1F2937",
+    font_heading: "Brokgauz_amp_Efron-Italic", font_body: "Geist",
+    layout_style: "classic", max_width: 1280, animations_enabled: true,
+  };
+  const [design, setDesign] = useState<DesignSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/design", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Не удалось загрузить дизайн")))
+      .then((payload: { design: DesignSettings | null }) => {
+        if (!controller.signal.aborted) setDesign(payload.design || { id: "", ...defaults });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) toast.error("Ошибка загрузки дизайна", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const update = (patch: Partial<DesignSettings>) => setDesign((current) => current ? { ...current, ...patch } : current);
+  const save = async () => {
+    if (!design || saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/design", {
+        method: "PUT",
+        body: JSON.stringify({
+          theme: design.theme,
+          primaryColor: design.primary_color,
+          accentColor: design.accent_color,
+          backgroundColor: design.background_color,
+          textColor: design.text_color,
+          fontHeading: design.font_heading,
+          fontBody: design.font_body,
+          layoutStyle: design.layout_style,
+          maxWidth: design.max_width,
+          animationsEnabled: design.animations_enabled,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить дизайн");
+      setDesign(payload.design);
+      toast.success("Настройки дизайна сохранены");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка дизайн-системы…</div>;
+  if (!design) return <Card className="p-6 text-sm text-muted-foreground">Не удалось загрузить дизайн-систему. Обновите страницу после проверки подключения.</Card>;
+
+  const colorFields = [
+    { key: "primary_color" as const, label: "Основной цвет" },
+    { key: "accent_color" as const, label: "Акцентный цвет" },
+    { key: "background_color" as const, label: "Фон" },
+    { key: "text_color" as const, label: "Текст" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Palette className="h-6 w-6 text-primary" />Визуальный стиль сайта</h1>
+          <p className="text-sm text-muted-foreground">Управление безопасными дизайн-токенами. Произвольный JavaScript и CSS через CMS не исполняются.</p>
+        </div>
+        <Button onClick={save} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Сохранить</Button>
+      </div>
+
+      <Card className="p-4 space-y-4">
+        <h3 className="font-semibold text-sm">Цветовая палитра</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {colorFields.map((field) => (
+            <div key={field.key} className="flex items-center gap-3 border border-border rounded-lg p-3">
+              <Input type="color" value={design[field.key]} onChange={(event) => update({ [field.key]: event.target.value })} className="h-10 w-14 p-1" />
+              <div className="flex-1 min-w-0"><div className="text-sm font-medium">{field.label}</div><div className="text-xs font-mono text-muted-foreground">{design[field.key]}</div></div>
             </div>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground mt-3">
-          Перетаскивание для изменения порядка — в разработке. Используйте sortOrder для ручной сортировки.
-        </p>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Типографика и компоновка</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div><Label>Шрифт заголовков</Label><Input value={design.font_heading} maxLength={80} onChange={(event) => update({ font_heading: event.target.value })} /></div>
+          <div><Label>Шрифт основного текста</Label><Input value={design.font_body} maxLength={80} onChange={(event) => update({ font_body: event.target.value })} /></div>
+          <div><Label>Стиль макета</Label><Select value={design.layout_style} onValueChange={(value) => update({ layout_style: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="classic">Классический</SelectItem><SelectItem value="modern">Современный</SelectItem><SelectItem value="minimal">Минималистичный</SelectItem></SelectContent></Select></div>
+          <div><Label>Максимальная ширина: {design.max_width} px</Label><Input type="number" min={960} max={1600} step={40} value={design.max_width} onChange={(event) => update({ max_width: Math.max(960, Math.min(1600, Number(event.target.value) || 1280)) })} /></div>
+        </div>
+        <label className="flex items-center gap-2 text-sm"><Checkbox checked={design.animations_enabled} onCheckedChange={(value) => update({ animations_enabled: !!value })} />Разрешить анимации интерфейса</label>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Предварительный просмотр</h3>
+        <div className="rounded-xl border p-5 space-y-3" style={{ backgroundColor: design.background_color, color: design.text_color, maxWidth: design.max_width, marginInline: "auto" }}>
+          <div className="text-xs uppercase tracking-wider opacity-70">Conditera · preview</div>
+          <div className="text-2xl font-semibold" style={{ fontFamily: design.font_heading }}>Вкус начинается с идеи</div>
+          <p className="text-sm opacity-80" style={{ fontFamily: design.font_body }}>Так будут сочетаться заголовки, основной текст и акцентные элементы.</p>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-md px-4 py-2 text-sm text-white" style={{ backgroundColor: design.primary_color }}>Основное действие</span>
+            <span className="rounded-md px-4 py-2 text-sm text-white" style={{ backgroundColor: design.accent_color }}>Акцент</span>
+          </div>
+        </div>
       </Card>
     </div>
   );
