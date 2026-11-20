@@ -16,6 +16,28 @@ if (!serviceRoleKey || serviceRoleKey.split(".").length !== 3) {
 }
 
 const endpoint = "http://127.0.0.1:18000/functions/v1/abandoned-cart";
+const anonKey = runtimeEnv.ANON_KEY;
+if (!anonKey || anonKey.split(".").length !== 3) {
+  throw new Error("Generated anon JWT is malformed");
+}
+
+// A valid anon JWT must pass key-auth but be denied by the functions ACL.
+const anonResponse = await fetch(endpoint, {
+  method: "POST",
+  headers: {
+    apikey: anonKey,
+    Authorization: "Bearer " + anonKey,
+    "Content-Type": "application/json",
+  },
+  body: "{}",
+  signal: AbortSignal.timeout(10_000),
+});
+const anonBody = await anonResponse.text();
+console.log("Edge Function anon ACL HTTP " + anonResponse.status + ": " + anonBody.slice(0, 300));
+if (anonResponse.status !== 403) {
+  throw new Error("Edge Functions must deny anon consumer through Kong ACL (expected 403)");
+}
+
 let response;
 try {
   response = await fetch(endpoint, {
