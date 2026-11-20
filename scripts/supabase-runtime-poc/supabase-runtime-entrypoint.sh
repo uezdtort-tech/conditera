@@ -29,6 +29,7 @@ export SUPABASE_PUBLIC_URL="${SUPABASE_PUBLIC_URL:-$API_EXTERNAL_URL}"
 export SITE_URL="${SITE_URL:-http://localhost:3000}"
 export GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}?search_path=auth"
 export GOTRUE_DB_DRIVER=postgres
+export GOTRUE_DB_MIGRATIONS_PATH=/usr/local/etc/auth/migrations
 export GOTRUE_API_HOST=127.0.0.1
 export GOTRUE_JWT_SECRET="$JWT_SECRET"
 export PGRST_DB_URI="postgres://authenticator:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
