@@ -68,8 +68,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Содержимое файла не соответствует заявленному формату" }, { status: 415 });
     }
 
+    const storage = supabaseAdmin.storage;
+    const { data: mediaBucket, error: bucketLookupError } = await storage.getBucket("media");
+    if (!mediaBucket) {
+      const { error: createBucketError } = await storage.createBucket("media", {
+        public: true,
+        fileSizeLimit: MAX_FILE_SIZE,
+        allowedMimeTypes: [
+          "image/jpeg", "image/png", "image/webp", "image/gif",
+          "video/mp4", "video/webm", "audio/mpeg", "audio/wav", "application/pdf",
+        ],
+      });
+      if (createBucketError) {
+        const { data: bucketAfterCreate } = await storage.getBucket("media");
+        if (!bucketAfterCreate) {
+          console.error("[cms/media] bucket provisioning failed:", createBucketError.message, bucketLookupError?.message);
+          return NextResponse.json({ error: "Медиахранилище пока недоступно" }, { status: 503 });
+        }
+      }
+    }
+
     const objectPath = `media/${randomUUID()}.${extension}`;
-    const { error: uploadError } = await supabaseAdmin.storage.from("media").upload(objectPath, fileBytes, {
+    const { error: uploadError } = await storage.from("media").upload(objectPath, fileBytes, {
       contentType: formFile.type,
       cacheControl: "3600",
       upsert: false,
@@ -95,7 +115,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }).select("id,name,url,type,size_bytes,mime_type,uploaded_by,is_public,created_at").single();
 
     if (error) {
-      await supabaseAdmin.storage.from("media").remove([objectPath]);
+      await storage.from("media").remove([objectPath]);
       console.error("[cms/media] metadata insert failed:", error.message);
       return NextResponse.json({ error: "Не удалось сохранить запись медиатеки" }, { status: 500 });
     }
