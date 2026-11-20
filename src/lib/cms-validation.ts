@@ -4,10 +4,17 @@ export function isSafeCmsUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
   const candidate = value.trim();
   if (!candidate) return false;
-  if (candidate.startsWith("/") && !candidate.startsWith("//")) return true;
+  if (candidate.startsWith("/")) {
+    if (candidate.startsWith("//") || candidate.includes("\\\\") || /[\\u0000-\\u001f\\u007f]/.test(candidate)) return false;
+    try {
+      return new URL(candidate, "https://conditera.invalid").origin === "https://conditera.invalid";
+    } catch {
+      return false;
+    }
+  }
   try {
     const parsed = new URL(candidate);
-    return parsed.protocol === "https:" && Boolean(parsed.hostname);
+    return parsed.protocol === "https:" && Boolean(parsed.hostname) && !parsed.username && !parsed.password;
   } catch {
     return false;
   }
