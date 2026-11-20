@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+export POSTGRES_INITDB_ARGS="${POSTGRES_INITDB_ARGS:---encoding=UTF8 --lc-collate=C --lc-ctype=C}"
 : "${JWT_SECRET:?JWT_SECRET is required}"
 : "${ANON_KEY:?ANON_KEY is required}"
 : "${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}"
