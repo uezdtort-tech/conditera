@@ -1,6 +1,10 @@
 # ===== Docker Compose для "Уездного кондитера" (production) =====
-# Запуск: docker-compose up -d
-# Требует .env.production со всеми секретами (см. .env.example)
+# ВАЖНО: этот файл содержит только legacy app PostgreSQL 18 и НЕ является самостоятельной production-конфигурацией.
+# Канонический запуск единого Supabase PostgreSQL 17:
+#   node scripts/compose-single-runtime.mjs up -d
+# Launcher подключает docker-compose.supabase.yml + docker-compose.supabase-single-container.yml,
+# проверяет отсутствие активных PG18/PG15 и не допускает удаления volumes.
+# Требует .env.production и .env.supabase-runtime; см. docs/SUPABASE_SINGLE_CONTAINER_RUNTIME.md
 # ====================================================================
 
 # Общие настройки логирования (ротация логов)
