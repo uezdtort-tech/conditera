@@ -91,7 +91,7 @@ async function main() {
   await db.exec(SQL);
   ok("миграция 0037 применена без ошибок");
   await db.exec(ESCROW_GUARD_SQL);
-  ok("миграция 0074: защита отменённых/завершённых заказов применена");
+  ok("миграция 0074: отменённые/возвращённые заказы защищены, завершённые остаются выплачиваемыми");
 
   // 1. Колонка + индекс
   const col = await db.query<{ column_name: string }>(
@@ -220,6 +220,51 @@ async function main() {
     balanceAfterCancelled === balanceBeforeCancelled
     ? ok("отменённый заказ: release → 0, эскроу и баланс не изменены")
     : fail("отменённый заказ ошибочно релизован/начислен");
+
+  // Успешно завершённый заказ должен оставаться eligible для выплаты.
+  const completedOrder = await db.query<{ id: string }>(
+    `INSERT INTO public.orders (confectioner_id, payment_status, status)
+     VALUES ('u1', 'escrow', 'COMPLETED') RETURNING id::text`
+  );
+  const balanceBeforeCompleted = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  const completedRelease = await db.query<{ release_escrow_order: number }>(
+    `SELECT release_escrow_order($1::uuid, 'conf_test', 200)`,
+    [completedOrder.rows[0].id]
+  );
+  const completedAfter = await db.query<{ payment_status: string; escrow_released_at: Date | null }>(
+    `SELECT payment_status, escrow_released_at FROM public.orders WHERE id=$1::uuid`,
+    [completedOrder.rows[0].id]
+  );
+  const balanceAfterCompleted = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  completedRelease.rows[0].release_escrow_order === 1 &&
+    completedAfter.rows[0].payment_status === "released" &&
+    completedAfter.rows[0].escrow_released_at !== null &&
+    balanceAfterCompleted === balanceBeforeCompleted + 200
+    ? ok("завершённый заказ: release → 1, кондитер получает выплату")
+    : fail("завершённый заказ ошибочно исключён из выплаты");
+
+  // Возвращённый заказ, как и отменённый, не должен выплачиваться.
+  const refundedOrder = await db.query<{ id: string }>(
+    `INSERT INTO public.orders (confectioner_id, payment_status, status)
+     VALUES ('u1', 'escrow', 'REFUNDED') RETURNING id::text`
+  );
+  const balanceBeforeRefunded = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  const refundedRelease = await db.query<{ release_escrow_order: number }>(
+    `SELECT release_escrow_order($1::uuid, 'conf_test', 500)`,
+    [refundedOrder.rows[0].id]
+  );
+  const balanceAfterRefunded = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  refundedRelease.rows[0].release_escrow_order === 0 && balanceAfterRefunded === balanceBeforeRefunded
+    ? ok("возвращённый заказ: release → 0, баланс не изменён")
+    : fail("возвращённый заказ ошибочно релизован");
 
   // 5. Гранты: только service_role
   for (const fn of ["release_escrow_order", "consume_tfa_backup_code"]) {
