@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
+import { isSafeCmsUrl } from "@/lib/cms-validation";
 import type { user_role } from "@/lib/supabase/types";
 
 export const runtime = "nodejs";
@@ -33,8 +34,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     if (body.subtitle !== undefined) updates.subtitle = typeof body.subtitle === "string" ? body.subtitle.slice(0, 500) : "";
     if (body.content !== undefined) updates.content = typeof body.content === "string" ? body.content.slice(0, 20000) : "";
-    if (body.image !== undefined) updates.image_url = typeof body.image === "string" && body.image ? body.image.slice(0, 2048) : null;
-    if (body.link !== undefined) updates.link_url = typeof body.link === "string" && body.link ? body.link.slice(0, 2048) : null;
+    if (body.image !== undefined) {
+      if (body.image && !isSafeCmsUrl(body.image)) return NextResponse.json({ error: "Некорректный URL изображения" }, { status: 400 });
+      updates.image_url = typeof body.image === "string" && body.image ? body.image.slice(0, 2048) : null;
+    }
+    if (body.link !== undefined) {
+      if (body.link && !isSafeCmsUrl(body.link)) return NextResponse.json({ error: "Некорректная ссылка" }, { status: 400 });
+      updates.link_url = typeof body.link === "string" && body.link ? body.link.slice(0, 2048) : null;
+    }
     if (body.linkText !== undefined) updates.link_text = typeof body.linkText === "string" ? body.linkText.slice(0, 100) : "";
     if (body.sortOrder !== undefined) {
       if (!Number.isInteger(body.sortOrder) || body.sortOrder < 0 || body.sortOrder > 10000) return NextResponse.json({ error: "Некорректный порядок" }, { status: 400 });
