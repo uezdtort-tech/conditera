@@ -302,7 +302,7 @@ export function HomePage() {
             >
               <Badge className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/15">
                 <Sparkles className="h-3 w-3 mr-1" />
-                Маркетплейс от частных кондитеров России
+                {cmsSectionTitle("hero", "Маркетплейс от частных кондитеров России")}
               </Badge>
 
               <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
