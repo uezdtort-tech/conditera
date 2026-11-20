@@ -251,7 +251,7 @@ jobs:
           echo "OK: PostgreSQL 18 custom dump restored into an isolated PostgreSQL 17 database."
       - name: Проверить логический перенос реального Supabase PG15 dump в отдельную БД PostgreSQL 17
         run: |
-          docker compose -f docker-compose.supabase.yml --profile legacy-supabase up -d supabase-db
+          docker compose -p conditera-pg15-ci -f docker-compose.supabase.yml --profile legacy-supabase up -d supabase-db
           READY=0
           for attempt in $(seq 1 60); do
             if docker exec conditera-supabase-db pg_isready -U supabase -d supabase >/dev/null 2>&1; then
@@ -309,7 +309,7 @@ jobs:
         if: always()
         run: |
           docker rm -fv product-slices-rls-pg >/dev/null 2>&1 || true
-          docker compose -f docker-compose.supabase.yml --profile legacy-supabase down --volumes --remove-orphans || true
+          docker compose -p conditera-pg15-ci -f docker-compose.supabase.yml --profile legacy-supabase down --volumes --remove-orphans || true
           docker rm -fv conditera-pg18-source >/dev/null 2>&1 || true
           docker compose \
             -f docker-compose.supabase.yml \
