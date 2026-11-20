@@ -204,12 +204,15 @@ jobs:
         run: |
           set +e
           mkdir -p /tmp/supabase-runtime-diagnostics
-          docker inspect conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container-inspect.json 2>&1
-          docker logs --timestamps conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container.log 2>&1
-          docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status > /tmp/supabase-runtime-diagnostics/supervisor-status.txt 2>&1
-          docker exec conditera-supabase-runtime-poc sh -c 'ps auxww; echo "--- mounts ---"; cat /proc/mounts; echo "--- processes ---"; for p in postgres gotrue postgrest realtime storage kong; do echo "### $p"; done' > /tmp/supabase-runtime-diagnostics/processes-mounts.txt 2>&1
-          docker exec conditera-supabase-runtime-poc sh -c 'for p in postgres gotrue postgrest realtime storage meta imgproxy kong; do echo "### $p"; ls -la "/opt/supabase/services/$p"; done' > /tmp/supabase-runtime-diagnostics/service-roots.txt 2>&1
-          docker inspect --format '{{json .State.Health}}' conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/health.json 2>&1
+          if docker inspect conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container-inspect.json 2>&1; then
+            docker logs --timestamps conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container.log 2>&1 || true
+            docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status > /tmp/supabase-runtime-diagnostics/supervisor-status.txt 2>&1 || true
+            docker exec conditera-supabase-runtime-poc sh -c 'ps auxww; echo "--- mounts ---"; cat /proc/mounts; echo "--- processes ---"; for p in postgres gotrue postgrest realtime storage kong; do echo "### $p"; done' > /tmp/supabase-runtime-diagnostics/processes-mounts.txt 2>&1 || true
+            docker exec conditera-supabase-runtime-poc sh -c 'for p in postgres gotrue postgrest realtime storage meta imgproxy kong; do echo "### $p"; ls -la "/opt/supabase/services/$p"; done' > /tmp/supabase-runtime-diagnostics/service-roots.txt 2>&1 || true
+            docker inspect --format '{{json .State.Health}}' conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/health.json 2>&1 || true
+          else
+            echo "Runtime container was not created; failure occurred before startup." > /tmp/supabase-runtime-diagnostics/container.log
+          fi
 
       - name: Upload runtime diagnostics
         if: failure()
