@@ -108,7 +108,9 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
     // локальные статусы НЕ переводим в refunded по факту принятия запроса.
     // Единственный писатель финального статуса/суммы — refund.succeeded webhook.
     let refundPending = false;
-    if (order.payment_status === "paid" || order.payment_status === "escrow" || order.payment_status === "succeeded") {
+    {
+      // Сверяем и order.payment_status, и реальный статус последней попытки:
+      // webhook мог успеть подтвердить payment, но не успеть обновить order.
       const { data: payment, error: paymentLookupError } = await supabaseAdmin
         .from("payments")
         .select("id, yookassa_payment_id, amount, status")
@@ -118,10 +120,11 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
         .limit(1)
         .maybeSingle();
 
+      const orderWasPaid = ["paid", "escrow", "succeeded"].includes(order.payment_status);
       if (paymentLookupError) {
         refundPending = true;
         console.error("[orders/:id/cancel] payment lookup failed; manual refund reconciliation required:", paymentLookupError.message);
-      } else if (payment?.yookassa_payment_id) {
+      } else if (payment && (orderWasPaid || payment.status === "succeeded") && payment.yookassa_payment_id) {
         try {
           const { refundPayment } = await import("@/lib/yookassa");
           // amount в рублях — как хранится payments.amount
@@ -141,10 +144,10 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
           refundPending = true;
           console.warn("[orders/:id/cancel] refund failed:", (e as Error)?.message);
         }
-      } else {
+      } else if (orderWasPaid || payment?.status === "succeeded") {
         refundPending = true;
         console.warn(
-          `[orders/:id/cancel] order ${orderId}: нет платежа с yookassa_payment_id — возврат требует ручной сверки`
+          `[orders/:id/cancel] order ${orderId}: подтверждённая оплата без provider payment ID — возврат требует ручной сверки`
         );
       }
     }
