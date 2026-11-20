@@ -41,7 +41,7 @@ Runtime использует отдельные именованные volumes:
 
 **Не подключать к PostgreSQL 17 volume от старого PostgreSQL 15.** Формат data directory несовместим. Нельзя считать запуск overlay способом автоматического переноса production-данных. До переключения необходимы согласованные backup, логический dump/restore в PG17, проверка владельцев/ролей/extensions/RLS и контрольные суммы критичных таблиц. Текущий CI использует пустые disposable volumes и не доказывает перенос существующих данных.
 
-Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. После этого создаёт отдельную роль `conditera_app` с ограниченными правами на `public` (не superuser) для `DATABASE_URL`/`DIRECT_DATABASE_URL` Next.js. Серверные Supabase-клиенты используют внутренний `SUPABASE_INTERNAL_URL=http://supabase-kong:8000`.
+Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. После этого создаёт отдельную роль `conditera_app` (не superuser, но с `BYPASSRLS` и CRUD/EXECUTE на `public`) для доверенного серверного Next.js-контейнера. Её пароль не передаётся chat-service/n8n: он берётся из отдельного `.env.supabase-runtime` и попадает в `web` только внутри `DATABASE_URL`/`DIRECT_DATABASE_URL`. Серверные Supabase-клиенты используют внутренний `SUPABASE_INTERNAL_URL=http://supabase-kong:8000`.
 
 На восстановленной БД ledger должен быть предварительно согласован с фактическим состоянием схемы; запускать полный replay поверх существующей схемы без этого нельзя.
 
@@ -49,7 +49,7 @@ Runtime использует отдельные именованные volumes:
 
 ## Новые секреты runtime
 
-Помимо существующих `POSTGRES_PASSWORD`, `JWT_SECRET`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` и `SUPABASE_SERVICE_ROLE_KEY`, production env должен содержать:
+Помимо существующих `POSTGRES_PASSWORD`, `JWT_SECRET`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` и `SUPABASE_SERVICE_ROLE_KEY` из `.env.production`, файл `.env.supabase-runtime` должен содержать:
 
 - `APP_DATABASE_PASSWORD` — отдельный случайный пароль для роли `conditera_app`;
 - `SUPABASE_SECRET_KEY_BASE` — 64 hex characters;
