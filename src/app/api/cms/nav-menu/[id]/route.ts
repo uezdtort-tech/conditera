@@ -6,6 +6,9 @@ import { requireAnyRole } from "@/lib/role-guards";
 export const runtime = "nodejs";
 const ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
 const LOCATIONS = new Set(["header", "footer", "mobile"]);
+const isSafeNavUrl = (value: unknown): value is string =>
+  typeof value === "string" && value.length <= 2048 &&
+  ((value.startsWith("/") && !value.startsWith("//")) || /^[a-z][a-z0-9-]*$/i.test(value));
 
 async function authorize(request: NextRequest) {
   const user = await getUserFromRequest(request);
@@ -27,7 +30,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       updates.label = body.label.trim();
     }
     if (body.url !== undefined) {
-      if (typeof body.url !== "string" || !body.url.trim() || body.url.length > 2048) return NextResponse.json({ error: "Некорректная ссылка" }, { status: 400 });
+      if (!isSafeNavUrl(body.url) || !body.url.trim()) return NextResponse.json({ error: "Некорректная ссылка" }, { status: 400 });
       updates.url = body.url.trim();
     }
     if (body.location !== undefined) {
