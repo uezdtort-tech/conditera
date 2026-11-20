@@ -173,6 +173,7 @@ jobs:
           docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status
           ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
           curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/auth/v1/health
+          curl --fail --silent --show-error -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" http://127.0.0.1:18000/realtime/v1/api/tenants/realtime-dev/health
           node scripts/supabase-runtime-poc/edge-function-smoke.mjs
           curl --fail --silent --show-error -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" http://127.0.0.1:18000/storage/v1/status
           curl --fail --silent --show-error \
