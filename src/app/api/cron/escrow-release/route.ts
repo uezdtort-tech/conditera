@@ -195,7 +195,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .is("escrow_released_at", null)
       .neq("status", "CANCELLED")
       .neq("status", "REFUNDED")
-      .neq("status", "COMPLETED")
       .lt("created_at", cutoff.toISOString())
       .limit(BATCH_SIZE);
 
