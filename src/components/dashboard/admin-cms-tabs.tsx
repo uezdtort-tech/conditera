@@ -346,9 +346,10 @@ export function AdminBannersTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
   const [newBanner, setNewBanner] = useState({
     title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "",
-    position: "home_hero", isActive: true, sortOrder: 0,
+    position: "home_hero", isActive: true, sortOrder: 0, startsAt: "", endsAt: "",
   });
 
   const loadBanners = async (signal?: AbortSignal) => {
@@ -369,22 +370,63 @@ export function AdminBannersTab() {
     return () => controller.abort();
   }, []);
 
-  const createBanner = async () => {
+  const openNewBanner = () => {
+    setEditingBannerId(null);
+    setNewBanner({
+      title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "",
+      position: "home_hero", isActive: true, sortOrder: banners.length, startsAt: "", endsAt: "",
+    });
+    setShowAdd(true);
+  };
+
+  const openEditBanner = (banner: CmsBannerRecord) => {
+    const toLocalInput = (value: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+    };
+    setEditingBannerId(banner.id);
+    setNewBanner({
+      title: banner.title,
+      text: banner.text || "",
+      imageUrl: banner.image_url || "",
+      linkUrl: banner.link_url || "",
+      ctaText: banner.cta_text || "",
+      position: banner.position,
+      isActive: banner.is_active,
+      sortOrder: banner.sort_order,
+      startsAt: toLocalInput(banner.starts_at),
+      endsAt: toLocalInput(banner.ends_at),
+    });
+    setShowAdd(true);
+  };
+
+  const saveBanner = async () => {
     if (saving || !newBanner.title.trim()) return;
     setSaving(true);
     try {
-      const response = await csrfFetch("/api/cms/banners", {
-        method: "POST",
-        body: JSON.stringify(newBanner),
-      });
+      const body = {
+        ...newBanner,
+        startsAt: newBanner.startsAt ? new Date(newBanner.startsAt).toISOString() : null,
+        endsAt: newBanner.endsAt ? new Date(newBanner.endsAt).toISOString() : null,
+      };
+      const response = await csrfFetch(
+        editingBannerId ? `/api/cms/banners/${editingBannerId}` : "/api/cms/banners",
+        { method: editingBannerId ? "PATCH" : "POST", body: JSON.stringify(body) },
+      );
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Не удалось создать баннер");
-      setBanners((current) => [...current, payload.banner as CmsBannerRecord]);
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить баннер");
+      if (editingBannerId) {
+        setBanners((current) => current.map((item) => item.id === editingBannerId ? payload.banner as CmsBannerRecord : item));
+      } else {
+        setBanners((current) => [...current, payload.banner as CmsBannerRecord]);
+      }
       setShowAdd(false);
-      setNewBanner({ title: "", text: "", imageUrl: "", linkUrl: "", ctaText: "", position: "home_hero", isActive: true, sortOrder: banners.length });
-      toast.success("Баннер сохранён в базе данных");
+      setEditingBannerId(null);
+      toast.success(editingBannerId ? "Изменения баннера сохранены" : "Баннер создан");
     } catch (error) {
-      toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
     } finally { setSaving(false); }
   };
 
@@ -426,7 +468,7 @@ export function AdminBannersTab() {
           <h1 className="font-display text-2xl font-bold flex items-center gap-2"><ImageIcon className="h-6 w-6 text-primary" />Баннеры</h1>
           <p className="text-sm text-muted-foreground">Баннеры хранятся в PostgreSQL и публикуются с учётом расписания.</p>
         </div>
-        <Button onClick={() => setShowAdd(true)}><Plus className="h-4 w-4 mr-1" /> Добавить</Button>
+        <Button onClick={openNewBanner}><Plus className="h-4 w-4 mr-1" /> Добавить</Button>
       </div>
 
       {loading ? <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка баннеров…</div> : (
@@ -446,7 +488,10 @@ export function AdminBannersTab() {
                   {banner.ends_at && <span className="ml-2">до {formatDate(banner.ends_at)}</span>}
                 </div>
                 <div className="flex gap-1">
-                  <Button size="sm" variant="outline" className="flex-1 text-xs" disabled={saving} onClick={() => toggleBanner(banner)}>
+                  <Button size="sm" variant="outline" className="flex-1 text-xs" disabled={saving} onClick={() => openEditBanner(banner)}>
+                    <Edit className="h-3 w-3 mr-1" /> Изменить
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs" disabled={saving} onClick={() => toggleBanner(banner)}>
                     {banner.is_active ? <><EyeOff className="h-3 w-3 mr-1" /> Скрыть</> : <><Eye className="h-3 w-3 mr-1" /> Показать</>}
                   </Button>
                   <Button size="sm" variant="ghost" className="text-destructive text-xs" disabled={saving} onClick={() => removeBanner(banner)}><Trash2 className="h-3 w-3" /></Button>
@@ -461,7 +506,7 @@ export function AdminBannersTab() {
       {showAdd && (
         <Dialog open onOpenChange={setShowAdd}>
           <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Новый баннер</DialogTitle><DialogDescription>Баннер будет сохранён в PostgreSQL.</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>{editingBannerId ? "Редактировать баннер" : "Новый баннер"}</DialogTitle><DialogDescription>Изменения сохраняются в PostgreSQL и учитываются при публикации.</DialogDescription></DialogHeader>
             <div className="space-y-2">
               <div><Label>Заголовок *</Label><Input value={newBanner.title} maxLength={180} onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })} /></div>
               <div><Label>Текст</Label><Textarea value={newBanner.text} maxLength={1000} onChange={(e) => setNewBanner({ ...newBanner, text: e.target.value })} rows={2} /></div>
@@ -475,10 +520,14 @@ export function AdminBannersTab() {
                   <SelectContent>{BANNER_POSITIONS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div><Label>Начало показа</Label><Input type="datetime-local" value={newBanner.startsAt} onChange={(e) => setNewBanner({ ...newBanner, startsAt: e.target.value })} /></div>
+                <div><Label>Окончание показа</Label><Input type="datetime-local" value={newBanner.endsAt} min={newBanner.startsAt || undefined} onChange={(e) => setNewBanner({ ...newBanner, endsAt: e.target.value })} /></div>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" disabled={saving} onClick={() => setShowAdd(false)}>Отмена</Button>
-              <Button disabled={saving || !newBanner.title.trim()} onClick={createBanner}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Создать баннер"}</Button>
+              <Button disabled={saving || !newBanner.title.trim()} onClick={saveBanner}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : editingBannerId ? "Сохранить изменения" : "Создать баннер"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
