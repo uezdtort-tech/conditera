@@ -241,6 +241,9 @@ async function main() {
   const start = await api("POST", `/api/orders/${o1.orderId}/production/start`, { token: owner });
   assert("production/start → 200 (PREPARING)", start.status === 200, JSON.stringify(start.json).slice(0, 160));
 
+  const incompleteProduction = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
+  assert("production/complete с незакрытым чеклистом → 422", incompleteProduction.status === 422 && incompleteProduction.json?.error === "PRODUCTION_CHECKLIST_INCOMPLETE", JSON.stringify(incompleteProduction.json).slice(0, 160));
+
   const checklistView = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: owner });
   const workStages = (checklistView.json?.production?.checklist || []).filter((stage) => !["ready_photo", "handoff"].includes(stage.stage_key));
   assert("чеклист содержит производственные этапы", workStages.length > 0);
