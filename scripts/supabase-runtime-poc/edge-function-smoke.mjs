@@ -69,6 +69,23 @@ if (!response.ok || payload.ok !== true) {
   throw new Error("Edge Function returned an unexpected response");
 }
 
+// auto-close-tenders is implemented and must execute its PostgreSQL RPC.
+const tenderResponse = await fetch("http://127.0.0.1:18000/functions/v1/auto-close-tenders", {
+  method: "POST",
+  headers: {
+    apikey: serviceRoleKey,
+    Authorization: "Bearer " + serviceRoleKey,
+    "Content-Type": "application/json",
+  },
+  body: "{}",
+  signal: AbortSignal.timeout(30_000),
+});
+const tenderBody = await tenderResponse.text();
+console.log("auto-close-tenders HTTP " + tenderResponse.status + ": " + tenderBody.slice(0, 300));
+if (!tenderResponse.ok || JSON.parse(tenderBody).ok !== true) {
+  throw new Error("auto-close-tenders did not complete its database operation");
+}
+
 // Exercise notification delivery without real credentials, and prove the two
 // legacy provider webhook stubs cannot be mistaken for the live application routes.
 for (const [slug, expectedStatus] of [
