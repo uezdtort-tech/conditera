@@ -281,6 +281,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Явное приведение типов после safeJsonBody — все поля unknown.
     const deliveryDateStr = typeof deliveryDate === "string" ? deliveryDate : undefined;
 
+    // Legacy endpoint не создаёт платёж YooKassa. Не создаём через него
+    // карточные заказы, которые останутся без payment ledger и ссылки оплаты.
+    // Карточный checkout выполняется только через POST /api/checkout.
+    const normalizedPaymentMethod =
+      typeof paymentMethod === "string" ? paymentMethod.trim().toLowerCase() : "card";
+    if (normalizedPaymentMethod !== "cash") {
+      return NextResponse.json(
+        {
+          error: "Для оплаты картой используйте оформление через платёжный checkout.",
+          code: "CHECKOUT_REQUIRED",
+        },
+        { status: 409 }
+      );
+    }
+
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
         { error: "Корзина пуста" },
@@ -445,7 +460,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         delivery_date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : null,
         delivery_time: typeof deliveryTime === "string" ? deliveryTime : null,
         delivery_cost: safeDeliveryCost,
-        payment_method: typeof paymentMethod === "string" ? paymentMethod : "card",
+        payment_method: "cash",
         payment_status: "pending",
         comment: typeof comment === "string" ? comment : null,
         tariff_snapshot: tariffSnapshot,
@@ -502,7 +517,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (itemsErr) {
       console.error("[orders] items insert error:", itemsErr.message);
-      // Заказ создан, но без items — не откатываем
+      // Не оставляем живой заказ без позиций: он не может быть изготовлен.
+      const { error: cancelError } = await supabaseAdmin
+        .from("orders")
+        .update({
+          status: "CANCELLED",
+          payment_status: "failed",
+          comment: "Автоматическая отмена: не удалось сохранить состав заказа",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order.id);
+      if (cancelError) {
+        console.error("[orders] failed to cancel order after items insert error:", cancelError.message);
+      }
+      return NextResponse.json(
+        { error: "Не удалось сохранить состав заказа. Заказ не принят.", code: "ORDER_ITEMS_SAVE_FAILED" },
+        { status: 500 }
+      );
     }
 
     // 8.5. Реальное списание бонусов через redeemPoints (с реальным orderId)
