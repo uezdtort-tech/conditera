@@ -159,9 +159,9 @@ export async function GET(
     let isAssignedCourier = false;
     if (!isAdmin && !isOwner && !isConfectioner && !isAssignedSupport && user.roles.includes("COURIER")) {
       const { data: assignment, error: assignmentError } = await supabaseAdmin
-        .from("deliveries")
+        .from("orders")
         .select("id")
-        .eq("order_id", orderId)
+        .eq("id", orderId)
         .eq("courier_id", user.id)
         .limit(1)
         .maybeSingle();
