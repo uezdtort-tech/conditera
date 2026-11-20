@@ -43,6 +43,10 @@ COPY supabase/init-scripts/00-service-role-passwords.sh \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-00-role-passwords.sh
 COPY supabase/init-scripts/02-realtime-schema.sql \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-schema.sql
+# Seed the exact tenant schema/migration state shipped with the pinned Realtime
+# image. The image release bundles this versioned dump under the app priv dir.
+COPY --from=realtime /app/lib/realtime-2.148.3/priv/repo/tenant_db_dump_17.sql \
+  /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-tenant-db-dump.sql
 
 COPY scripts/supabase-runtime-poc/ /usr/local/lib/supabase-runtime-poc/
 COPY scripts/supabase-runtime-poc/supervisord.conf /etc/supervisord.conf
