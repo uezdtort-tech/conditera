@@ -271,6 +271,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Конструкторская позиция не несёт идентификатор продавца.
+    // Не смешиваем её с товарами конкретного кондитера в одном заказе:
+    // иначе назначение и производственная ответственность будут выдуманы.
+    if (productItems.length > 0 && customItems.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Заказ из конструктора оформляется отдельно от товаров витрины.",
+          code: "MIXED_CUSTOM_AND_MARKETPLACE_ITEMS",
+        },
+        { status: 422 }
+      );
+    }
+
     // 3a. Начинки конструктора: DB (APPROVED) + mock — единый справочник с клиентом
     let builderFillings = mergeBuilderFillings(null);
     if (customItems.length > 0) {
