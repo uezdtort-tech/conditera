@@ -152,8 +152,8 @@ export function AdminCmsHomeTab() {
     }
   };
 
-  const persistHomeSections = async (nextSections: CmsHomeSection[]) => {
-    if (saving) return;
+  const persistHomeSections = async (nextSections: CmsHomeSection[]): Promise<boolean> => {
+    if (saving) return false;
     setSaving(true);
     try {
       const ordered = nextSections.map((section, index) => ({ ...section, sortOrder: (index + 1) * 10 }));
@@ -172,10 +172,12 @@ export function AdminCmsHomeTab() {
       if (!response.ok) throw new Error(payload.error || "Не удалось сохранить композицию");
       setCmsSections(ordered);
       toast.success("Композиция главной сохранена");
+      return true;
     } catch (error) {
       toast.error("Ошибка сохранения композиции", {
         description: error instanceof Error ? error.message : "Неизвестная ошибка",
       });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -208,9 +210,11 @@ export function AdminCmsHomeTab() {
     const next = [...cmsSections]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((section) => section.key === sectionKey ? { ...section, label: title } : section);
-    await persistHomeSections(next);
-    setEditingSectionKey(null);
-    setSectionTitleDraft("");
+    const saved = await persistHomeSections(next);
+    if (saved) {
+      setEditingSectionKey(null);
+      setSectionTitleDraft("");
+    }
   };
 
   useEffect(() => {
