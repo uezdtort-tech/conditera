@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areValidCmsNavigationRoles, getSafeCmsMediaExtension, hasValidCmsMediaSignature, isSafeCmsNavigationTarget, isSafeCmsUrl, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
+import { areValidCmsNavigationRoles, getSafeCmsMediaExtension, hasValidCmsMediaSignature, isSafeCmsNavigationTarget, isSafeCmsUrl, isValidCmsDateTime, isValidCmsSchedule, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
 
 describe("CMS validation", () => {
   it("allows HTTPS and same-origin paths only for CMS URLs", () => {
@@ -12,6 +12,13 @@ describe("CMS validation", () => {
     expect(isSafeCmsUrl("http://example.com")).toBe(false);
     expect(isSafeCmsUrl("data:text/html,hello")).toBe(false);
     expect(isSafeCmsUrl("x".repeat(2049))).toBe(false);
+  });
+
+  it("validates banner dates and chronological order", () => {
+    expect(isValidCmsDateTime(null)).toBe(true);
+    expect(isValidCmsDateTime("not-a-date")).toBe(false);
+    expect(isValidCmsSchedule("2026-01-01T10:00:00Z", "2026-01-01T11:00:00Z")).toBe(true);
+    expect(isValidCmsSchedule("2026-01-01T12:00:00Z", "2026-01-01T11:00:00Z")).toBe(false);
   });
 
   it("validates internal navigation targets and known role names", () => {
