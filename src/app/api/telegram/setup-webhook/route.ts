@@ -36,7 +36,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-    if (!webhookSecret || !/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+    if (!webhookSecret || !/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret) ||
+        (process.env.NODE_ENV === "production" && /^(CHANGE_ME|dev_)/i.test(webhookSecret))) {
       throw new HttpError(503, "TELEGRAM_WEBHOOK_SECRET не задан или имеет недопустимый формат");
     }
 
