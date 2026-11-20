@@ -249,6 +249,44 @@ jobs:
             "SELECT count(*) FROM public.migration_smoke WHERE payload IN ('PG18-to-PG17','logical-restore-ok');")
           test "$ROWS" = "2"
           echo "OK: PostgreSQL 18 custom dump restored into an isolated PostgreSQL 17 database."
+      - name: Проверить логический перенос реального Supabase PG15 dump в отдельную БД PostgreSQL 17
+        run: |
+          docker compose -f docker-compose.supabase.yml --profile legacy-supabase up -d supabase-db
+          READY=0
+          for attempt in $(seq 1 60); do
+            if docker exec conditera-supabase-db pg_isready -U supabase -d supabase >/dev/null 2>&1; then
+              READY=1
+              break
+            fi
+            sleep 3
+          done
+          test "$READY" = "1"
+          docker exec -i conditera-supabase-db psql -X -v ON_ERROR_STOP=1 -U supabase -d supabase <<'SQL'
+          CREATE TABLE public.pg15_to_pg17_migration_smoke (
+            id integer PRIMARY KEY,
+            source_cluster text NOT NULL,
+            payload text NOT NULL
+          );
+          INSERT INTO public.pg15_to_pg17_migration_smoke
+            VALUES (1, 'supabase/postgres:15.6.1.141', 'logical-restore-verified');
+          SQL
+          docker exec conditera-supabase-db pg_dump -Fc -U supabase -d supabase > /tmp/conditera-pg15-supabase.dump
+          test -s /tmp/conditera-pg15-supabase.dump
+          docker exec conditera-supabase-db pg_dump --schema-only -U supabase -d supabase > /tmp/conditera-pg15-supabase-schema.sql
+          test -s /tmp/conditera-pg15-supabase-schema.sql
+          docker exec conditera-supabase-db-pg17-migration createdb -U supabase_admin -T template0 conditera_supabase_shadow
+          docker run --rm \
+            --network container:conditera-supabase-db-pg17-migration \
+            -e PGPASSWORD="$POSTGRES_PASSWORD" \
+            -v /tmp/conditera-pg15-supabase.dump:/backup/supabase.dump:ro \
+            postgres:17-alpine \
+            pg_restore --verbose --no-owner --no-acl --exit-on-error \
+              -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera_supabase_shadow /backup/supabase.dump
+          ROWS=$(docker exec conditera-supabase-db-pg17-migration \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera_supabase_shadow -Atc \
+            "SELECT count(*) FROM public.pg15_to_pg17_migration_smoke WHERE source_cluster='supabase/postgres:15.6.1.141' AND payload='logical-restore-verified';")
+          test "$ROWS" = "1"
+          echo "OK: actual Supabase PostgreSQL 15 database dump restored into an isolated PostgreSQL 17 database."
       - name: Проверить RLS разрезов на отдельном PostgreSQL 17
         run: |
           docker run -d --name product-slices-rls-pg \
@@ -271,6 +309,7 @@ jobs:
         if: always()
         run: |
           docker rm -fv product-slices-rls-pg >/dev/null 2>&1 || true
+          docker compose -f docker-compose.supabase.yml --profile legacy-supabase down --volumes --remove-orphans || true
           docker rm -fv conditera-pg18-source >/dev/null 2>&1 || true
           docker compose \
             -f docker-compose.supabase.yml \
