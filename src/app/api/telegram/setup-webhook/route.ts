@@ -35,6 +35,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret || !/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+      throw new HttpError(503, "TELEGRAM_WEBHOOK_SECRET не задан или имеет недопустимый формат");
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://conditera.ru";
     const webhookUrl = `${appUrl}/api/telegram/webhook`;
 
@@ -44,6 +49,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       setWebhook(webhookUrl) as Promise<boolean>,
       setBotCommands() as Promise<boolean>,
     ]);
+
+    if (!webhookResult) {
+      throw new HttpError(502, "Telegram не подтвердил регистрацию webhook");
+    }
 
     // Тестовое сообщение в канал
     let channelTest = false;
