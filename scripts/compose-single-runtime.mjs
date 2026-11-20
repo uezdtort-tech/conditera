@@ -25,6 +25,9 @@ function fail(message) {
 }
 
 const userArgs = process.argv.slice(2);
+const composeCommands = new Set(["up", "start", "restart", "run", "scale", "down", "stop", "ps", "logs", "config", "build", "pull", "exec", "rm", "create", "kill", "pause", "unpause", "top", "events", "images", "port", "wait", "cp", "push", "watch", "version"]);
+const commandIndex = userArgs.findIndex((arg) => composeCommands.has(arg));
+const composeCommand = commandIndex >= 0 ? userArgs[commandIndex] : userArgs[0];
 if (userArgs.length === 0) {
   fail("Укажите команду Compose, например: node scripts/compose-single-runtime.mjs up -d");
 }
@@ -38,18 +41,18 @@ if (userArgs.some((arg) => arg === "legacy-app-db" || arg === "legacy-supabase" 
     arg === "--profile=legacy-app-db" || arg === "--profile=legacy-supabase")) {
   fail("Запуск legacy-профилей PostgreSQL 18/15 запрещён через production launcher.");
 }
-if (userArgs[0] === "down" && userArgs.some((arg) => arg === "-v" || arg === "--volumes")) {
+if (composeCommand === "down" && userArgs.some((arg) => arg === "-v" || arg === "--volumes")) {
   fail("Удаление volumes запрещено. Для остановки используйте down без -v/--volumes.");
 }
-if ((userArgs[0] === "volume" && userArgs[1] === "rm") ||
-    (userArgs[0] === "rm" && userArgs.some((arg) => arg === "-v" || arg === "--volumes"))) {
+if ((composeCommand === "volume" && userArgs[commandIndex + 1] === "rm") ||
+    (composeCommand === "rm" && userArgs.some((arg) => arg === "-v" || arg === "--volumes"))) {
   fail("Удаление Docker volumes запрещено через runtime launcher.");
 }
 if (userArgs.includes("--remove-orphans")) {
   fail("Не используйте --remove-orphans: legacy-контейнеры должны сохраняться для rollback до отдельного решения.");
 }
 
-const startsRuntime = ["up", "start", "restart", "run", "scale"].includes(userArgs[0]);
+const startsRuntime = ["up", "start", "restart", "run", "scale"].includes(composeCommand);
 if (startsRuntime && process.env.CONDITERA_PG17_CUTOVER_APPROVED !== "1") {
   fail("Запуск/переключение приложения на новый PG17 запрещён без отдельного подтверждения после backup/restore и проверки обеих исходных БД. Для осознанного запуска задайте CONDITERA_PG17_CUTOVER_APPROVED=1 в текущем процессе.");
 }
@@ -168,7 +171,7 @@ if (!/^FROM supabase\/postgres:17\.[^ ]+ AS postgres$/m.test(dockerfile)) {
 }
 
 console.log("[conditera-compose] Проверка пройдена: единый Supabase Runtime / PostgreSQL 17; legacy PG18/15 исключены.");
-if (userArgs[0] === "config") {
+if (composeCommand === "config") {
   console.log("[conditera-compose] Итоговая Compose-конфигурация валидна. Секреты не выводятся.");
   process.exit(0);
 }
