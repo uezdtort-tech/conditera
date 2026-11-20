@@ -2,8 +2,12 @@ import "server-only";
 
 import { isAdminConfigured, supabaseAdmin } from "@/lib/supabase/admin";
 
-export const ADMIN_RUNNABLE_EDGE_FUNCTIONS = new Set([
+export const INTERNAL_EDGE_FUNCTIONS = new Set([
   "send-notification",
+  "auto-close-tenders",
+]);
+
+export const ADMIN_MANUAL_RUNNABLE_EDGE_FUNCTIONS = new Set([
   "auto-close-tenders",
 ]);
 
@@ -17,7 +21,7 @@ export async function invokeInternalEdgeFunction<T = unknown>(
   functionName: string,
   body: Record<string, unknown>,
 ): Promise<T> {
-  if (!ADMIN_RUNNABLE_EDGE_FUNCTIONS.has(functionName)) {
+  if (!INTERNAL_EDGE_FUNCTIONS.has(functionName)) {
     throw new Error(`Edge Function is not enabled for application invocation: ${functionName}`);
   }
   if (!isAdminConfigured()) {
