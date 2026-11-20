@@ -254,25 +254,30 @@ jobs:
           docker compose -p conditera-pg15-ci -f docker-compose.supabase.yml --profile legacy-supabase up -d supabase-db
           READY=0
           LAST_PSQL_ERROR=/tmp/conditera-pg15-readiness-error.log
+          # Проверяем доступность самого PostgreSQL через гарантированную системную БД.
+          # В образе Supabase init-скрипты могут не создать POSTGRES_DB из env,
+          # поэтому наличие целевой БД проверяем и создаём явно в одноразовом CI-кластере.
           for attempt in $(seq 1 90); do
-            if ! docker exec conditera-supabase-db pg_isready -h 127.0.0.1 -p 5432 -U supabase -d supabase >/dev/null 2>&1; then
-              sleep 5
-              continue
-            fi
             if docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" conditera-supabase-db \
-              psql -h 127.0.0.1 -X -v ON_ERROR_STOP=1 -U supabase -d supabase -Atc "SELECT 1" >/tmp/conditera-pg15-readiness-result.log 2>"$LAST_PSQL_ERROR"; then
+              psql -h 127.0.0.1 -X -v ON_ERROR_STOP=1 -U supabase -d postgres -Atc "SELECT 1" >/tmp/conditera-pg15-readiness-result.log 2>"$LAST_PSQL_ERROR"; then
               READY=1
               break
             fi
             sleep 5
           done
           if [ "$READY" != "1" ]; then
-            echo "Supabase PG15 did not accept an authenticated SQL connection within 450 seconds."
+            echo "Supabase PG15 did not accept an authenticated SQL connection to the system database within 450 seconds."
             cat "$LAST_PSQL_ERROR" || true
             docker inspect -f 'STATE={{json .State}}' conditera-supabase-db || true
             docker logs --tail 250 conditera-supabase-db || true
             exit 1
           fi
+          docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" conditera-supabase-db \
+            psql -h 127.0.0.1 -X -v ON_ERROR_STOP=1 -U supabase -d postgres <<'SQL'
+          SELECT 'connected to PG15 system database';
+          SELECT format('CREATE DATABASE %I OWNER %I', 'supabase', 'supabase')
+          WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'supabase')\gexec
+          SQL
           docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" -i conditera-supabase-db psql -h 127.0.0.1 -X -v ON_ERROR_STOP=1 -U supabase -d supabase <<'SQL'
           CREATE TABLE public.pg15_to_pg17_migration_smoke (
             id integer PRIMARY KEY,
