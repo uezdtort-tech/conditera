@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeCmsUrl, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
+import { getSafeCmsMediaExtension, hasValidCmsMediaSignature, isSafeCmsUrl, isValidCmsSlug, validateCmsPageInput } from "./cms-validation";
 
 describe("CMS validation", () => {
   it("allows HTTPS and same-origin paths only for CMS URLs", () => {
@@ -12,6 +12,15 @@ describe("CMS validation", () => {
     expect(isSafeCmsUrl("http://example.com")).toBe(false);
     expect(isSafeCmsUrl("data:text/html,hello")).toBe(false);
     expect(isSafeCmsUrl("x".repeat(2049))).toBe(false);
+  });
+
+  it("allows only supported CMS media types and checks file signatures", () => {
+    expect(getSafeCmsMediaExtension("image/png")).toBe("png");
+    expect(getSafeCmsMediaExtension("image/svg+xml")).toBeNull();
+    expect(hasValidCmsMediaSignature("image/png", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe(true);
+    expect(hasValidCmsMediaSignature("image/png", new Uint8Array([0x25, 0x50, 0x44, 0x46]))).toBe(false);
+    expect(hasValidCmsMediaSignature("application/pdf", new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]))).toBe(true);
+    expect(hasValidCmsMediaSignature("video/webm", new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]))).toBe(true);
   });
 
   it("accepts safe latin and Cyrillic slugs and rejects path tricks", () => {
