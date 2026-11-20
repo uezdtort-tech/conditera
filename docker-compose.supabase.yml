@@ -405,8 +405,9 @@ services:
   # ===== Supabase Studio (web UI — админка для БД/Auth/Storage) =====
   # ВАЖНО: порт 8100 (не 3000 — конфликтует с Next.js)
   supabase-studio:
-    image: supabase/studio:2025.06.23-sha-2cd0383
+    image: supabase/studio:2026.11.02-sha-a05e7ec
     container_name: conditera-supabase-studio
+    profiles: ["studio"]
     restart: unless-stopped
     environment:
       STUDIO_PG_META_URL: http://supabase-meta:8080
