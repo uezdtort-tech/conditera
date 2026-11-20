@@ -84,6 +84,22 @@ const CMS_HOME_SECTIONS = [
   { key: "testimonials", label: "Отзывы", icon: "💬" },
 ] as const;
 
+type CmsHomeSection = {
+  key: string;
+  label: string;
+  icon: string;
+  sortOrder: number;
+  isEnabled: boolean;
+};
+
+const DEFAULT_CMS_HOME_SECTIONS: CmsHomeSection[] = CMS_HOME_SECTIONS.map((section, index) => ({
+  key: section.key,
+  label: section.label,
+  icon: section.icon,
+  sortOrder: (index + 1) * 10,
+  isEnabled: true,
+}));
+
 function mapCmsHomeBlock(row: Record<string, unknown>): CmsHomeBlock {
   return {
     id: String(row.id),
@@ -102,16 +118,84 @@ function mapCmsHomeBlock(row: Record<string, unknown>): CmsHomeBlock {
 
 export function AdminCmsHomeTab() {
   const [cmsBlocks, setCmsBlocks] = useState<CmsHomeBlock[]>([]);
+  const [cmsSections, setCmsSections] = useState<CmsHomeSection[]>(DEFAULT_CMS_HOME_SECTIONS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Partial<CmsHomeBlock>>({});
 
   const loadBlocks = async (signal?: AbortSignal) => {
-    const response = await fetch("/api/cms/blocks", { credentials: "include", signal });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить блоки");
-    setCmsBlocks(Array.isArray(payload.blocks) ? payload.blocks.map(mapCmsHomeBlock) : []);
+    const [blocksResponse, sectionsResponse] = await Promise.all([
+      fetch("/api/cms/blocks", { credentials: "include", signal }),
+      fetch("/api/cms/sections", { credentials: "include", signal }),
+    ]);
+    const [blocksPayload, sectionsPayload] = await Promise.all([
+      blocksResponse.json().catch(() => ({})),
+      sectionsResponse.json().catch(() => ({})),
+    ]);
+    if (!blocksResponse.ok) throw new Error(blocksPayload.error || "Не удалось загрузить блоки");
+    if (!sectionsResponse.ok) throw new Error(sectionsPayload.error || "Не удалось загрузить композицию главной");
+    setCmsBlocks(Array.isArray(blocksPayload.blocks) ? blocksPayload.blocks.map(mapCmsHomeBlock) : []);
+    if (Array.isArray(sectionsPayload.sections) && sectionsPayload.sections.length === CMS_HOME_SECTIONS.length) {
+      const mapped = sectionsPayload.sections.map((item: { section: string; title: string; sort_order: number; is_enabled: boolean }) => {
+        const definition = CMS_HOME_SECTIONS.find((section) => section.key === item.section);
+        return definition ? {
+          key: definition.key,
+          label: item.title,
+          icon: definition.icon,
+          sortOrder: item.sort_order,
+          isEnabled: item.is_enabled,
+        } : null;
+      }).filter((item: CmsHomeSection | null): item is CmsHomeSection => item !== null);
+      if (mapped.length === CMS_HOME_SECTIONS.length) setCmsSections(mapped);
+    }
+  };
+
+  const persistHomeSections = async (nextSections: CmsHomeSection[]) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const ordered = nextSections.map((section, index) => ({ ...section, sortOrder: (index + 1) * 10 }));
+      const response = await csrfFetch("/api/cms/sections", {
+        method: "PUT",
+        body: JSON.stringify({
+          sections: ordered.map((section) => ({
+            section: section.key,
+            title: section.label,
+            sort_order: section.sortOrder,
+            is_enabled: section.isEnabled,
+          })),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить композицию");
+      setCmsSections(ordered);
+      toast.success("Композиция главной сохранена");
+    } catch (error) {
+      toast.error("Ошибка сохранения композиции", {
+        description: error instanceof Error ? error.message : "Неизвестная ошибка",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const moveHomeSection = (sectionKey: string, direction: -1 | 1) => {
+    const ordered = [...cmsSections].sort((a, b) => a.sortOrder - b.sortOrder);
+    const index = ordered.findIndex((section) => section.key === sectionKey);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= ordered.length) return;
+    const [moving] = ordered.splice(index, 1);
+    ordered.splice(target, 0, moving);
+    void persistHomeSections(ordered);
+  };
+
+  const toggleHomeSection = (sectionKey: string) => {
+    const ordered = [...cmsSections].sort((a, b) => a.sortOrder - b.sortOrder);
+    const next = ordered.map((section) => section.key === sectionKey
+      ? { ...section, isEnabled: !section.isEnabled }
+      : section);
+    void persistHomeSections(next);
   };
 
   useEffect(() => {
@@ -273,19 +357,31 @@ export function AdminCmsHomeTab() {
         <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков CMS…
         </div>
-      ) : CMS_HOME_SECTIONS.map((section) => {
+      ) : [...cmsSections].sort((a, b) => a.sortOrder - b.sortOrder).map((section, sectionIndex, orderedSections) => {
         const blocks = cmsBlocks.filter((block) => block.section === section.key).sort((a, b) => a.sortOrder - b.sortOrder);
         return (
-          <Card key={section.key} className="p-4">
-            <div className="flex items-center justify-between mb-3">
+          <Card key={section.key} className={section.isEnabled ? "p-4" : "p-4 opacity-70"}>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <h3 className="font-semibold text-sm flex items-center gap-2">
                 <span>{section.icon}</span>
                 {section.label}
                 <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
+                {!section.isEnabled && <Badge variant="outline" className="text-[10px]">Секция скрыта</Badge>}
               </h3>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, (blocks.at(-1)?.sortOrder ?? 0) + 10)}>
-                <Plus className="h-3 w-3 mr-1" /> Добавить
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию выше" title="Переместить секцию выше" disabled={saving || sectionIndex === 0} onClick={() => moveHomeSection(section.key, -1)}>
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Переместить секцию ниже" title="Переместить секцию ниже" disabled={saving || sectionIndex === orderedSections.length - 1} onClick={() => moveHomeSection(section.key, 1)}>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={section.isEnabled ? "Скрыть секцию" : "Показать секцию"} title={section.isEnabled ? "Скрыть секцию" : "Показать секцию"} disabled={saving} onClick={() => toggleHomeSection(section.key)}>
+                  {section.isEnabled ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                </Button>
+                <Button size="sm" variant="outline" disabled={saving} onClick={() => addBlock(section.key, (blocks.at(-1)?.sortOrder ?? 0) + 10)}>
+                  <Plus className="h-3 w-3 mr-1" /> Добавить
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               {blocks.map((block) => (
