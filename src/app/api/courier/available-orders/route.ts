@@ -53,7 +53,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         comment, created_at, user_id, confectioner_id
       `
       )
-      .in("status", ["READY", "IN_DELIVERY"])
+      .eq("status", "IN_DELIVERY")
       .is("courier_id", null)
       .order("delivery_date", { ascending: true })
       .limit(MAX_ORDERS_RETURN);
