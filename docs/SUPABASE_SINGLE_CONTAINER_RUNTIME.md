@@ -4,7 +4,7 @@
 
 Реализован единый runtime image: PostgreSQL 17, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy и Kong запускаются под Supervisor внутри **одного контейнера**. Overlay также переводит Next.js на этот же PostgreSQL 17: отдельные app PostgreSQL 18, PgBouncer и внешний migrator выключены профилем `legacy-app-db`; старые Supabase контейнеры выключены профилем `legacy-supabase`.
 
-CI smoke уже проверяет один контейнер, health всех процессов, Kong endpoints, Auth signup, Storage upload/download и наличие схем/миграций Realtime. Дополнительно runtime image включает прикладные миграции Conditera и запускает их после готовности PostgreSQL и Storage; эту новую часть проверяет отдельный CI smoke.
+CI smoke проверяет один контейнер, health всех процессов, Kong endpoints, Auth signup, Storage upload/download и наличие схем/миграций Realtime. Runtime image также включает прикладные миграции Conditera, которые запускаются после готовности PostgreSQL и Storage, и Edge Runtime с service-role-only маршрутом через Kong; полная проверка этих новых частей выполняется актуальным CI.
 
 ## Compose overlay
 
@@ -63,7 +63,7 @@ Runtime использует отдельные именованные volumes:
 
 ## Ограничения до production cutover
 
-- Edge Runtime / Supabase Functions ещё не включены в единый runtime.
+- Edge Runtime включён в единый runtime, но функции Conditera содержат незавершённые реализации/stub-обработчики; до включения бизнес-сценариев требуется отдельная проверка каждой функции и её авторизации. Публичные webhooks YooKassa/Telegram должны оставаться на защищённых Next.js API routes, а не на Edge Functions.
 - Не выполнен backup/restore production data и не проверен перенос данных из двух прежних источников (Supabase PG15 и отдельный app PG18) на копии реального объёма. Перед переключением требуется установить фактический источник истины и сверить данные; overlay не сливает две базы автоматически.
 - Не проведены нагрузочные, отказоустойчивые и восстановительные испытания.
 - Не проверена полная совместимость всех внутренних клиентов Conditera с новым runtime и его секретами.
