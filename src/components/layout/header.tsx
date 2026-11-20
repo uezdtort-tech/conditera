@@ -230,8 +230,9 @@ export function Header() {
   }, []);
 
   const openCmsNavItem = (item: PublicCmsNavItem) => {
-    if (item.url.startsWith("/")) router.push(item.url);
-    else navigate(item.url as ViewKey);
+    if (item.url.startsWith("/") && !item.url.startsWith("//")) router.push(item.url);
+    else if (/^[a-z][a-z0-9-]*$/i.test(item.url)) navigate(item.url as ViewKey);
+    else return;
     setMobileMenuOpen(false);
   };
 
