@@ -34,7 +34,7 @@ import { formatCurrency, ORDER_STATUS_LABELS } from "@/lib/finance";
 import { BlacklistTab } from "@/components/dashboard/blacklist-tab";
 import {
   AdminCmsHomeTab, AdminBannersTab, AdminCmsPagesTab,
-  AdminReviewsModerationTab, AdminSettingsTab, AdminNavMenuTab,
+  AdminReviewsModerationTab, AdminSettingsTab, AdminNavMenuTab, AdminDesignTab,
 } from "@/components/dashboard/admin-cms-tabs";
 import {
   AdminTastingLocationsTab, AdminVenuesTab, AdminPrintingServicesTab,
@@ -92,6 +92,7 @@ const TAB_GROUPS = [
       { id: "cms-pages", label: "Страницы", icon: Edit },
       { id: "reviews", label: "Отзывы", icon: MessageSquare },
       { id: "nav-menu", label: "Навигация", icon: Navigation },
+      { id: "cms-design", label: "Дизайн сайта", icon: Palette },
     ],
   },
   {
@@ -324,6 +325,7 @@ export function AdminDashboard() {
       case "cms-pages": return <AdminCmsPagesTab />;
       case "reviews": return <AdminReviewsModerationTab />;
       case "nav-menu": return <AdminNavMenuTab />;
+      case "cms-design": return <AdminDesignTab />;
       case "settings": return <AdminSettingsTab />;
       case "profile": return <ProfileSettings />;
       case "crm-tickets": return <AdminTicketsTab />;
