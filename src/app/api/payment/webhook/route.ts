@@ -287,14 +287,19 @@ export async function POST(request: NextRequest) {
 
         // Статус платежа — только после проверки суммы
         if (payment && payment.status !== "succeeded") {
-          const { error: paymentUpdateError } = await supabaseAdmin
+          const { data: paymentUpdated, error: paymentUpdateError } = await supabaseAdmin
             .from("payments")
             .update({ status: "succeeded", updated_at: new Date().toISOString() })
             .eq("id", payment.id)
-            .in("status", ["pending", "waiting_for_capture", "succeeded"]);
+            .in("status", ["pending", "waiting_for_capture", "succeeded"])
+            .select("id");
           if (paymentUpdateError) {
             console.error("[webhook] succeeded payment update failed:", paymentUpdateError.message);
             return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!paymentUpdated || paymentUpdated.length === 0) {
+            console.warn("[webhook] payment is already terminal; escrow transition skipped:", payment.id);
+            return NextResponse.json({ success: true, skipped: "payment_terminal" });
           }
         }
 
