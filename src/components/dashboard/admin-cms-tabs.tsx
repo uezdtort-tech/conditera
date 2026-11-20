@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1107,7 +1107,7 @@ export function AdminCmsMediaTab() {
     return () => controller.abort();
   }, [filter]);
 
-  const uploadFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || uploading) return;
