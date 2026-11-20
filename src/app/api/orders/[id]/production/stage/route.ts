@@ -7,7 +7,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
-import { getOrderChecklist, loadOrderItemsData, ensureChecklist, setStageDone } from "@/lib/ops/production";
+import { getOrderChecklist, ensureChecklist, setStageDone } from "@/lib/ops/production";
+import { loadOrderItemsData } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
 
 export const runtime = "nodejs";
