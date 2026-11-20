@@ -9589,3 +9589,59 @@ oauth off → 403 / demo → 200; 2fa → 503 {mfaDisabled:true}; kill шима 
 
 **Следующий блок по карте:** S2B2 (RBAC и роли) — guards, ROLE_LABELS_RU и
 self-healing claims уже готовы как фундамент.
+
+---
+
+## Task ID: recreate-3-S2B2 (2026-11-20, UTC, сессия web-dd1ef6d6)
+**Запрос владельца:** «переходи к реализации следующего блока S2B2».
+
+**S2B2 в /home/z/my-project/conditera-v2 (коммиты 3d4a04a [S2B2] + 82310c7
+docs, bundle conditera-v2-S2B2-3d4a04a.bundle 658 055 B git-tracked в
+my-project — da4a1e3):**
+- permissions.ts — ЕДИНСТВЕННЫЙ источник политики: 13 прав (products.write,
+  products.moderate, orders.read.own, orders.read.all, payments.manage,
+  payouts.approve, users.ban, roles.assign, tickets.reply, content.moderate,
+  ai.use, automation.view, ledger.read) × 27 ролей; fail-fast самотест при
+  импорте; незнакомая роль = 0 прав (fail-closed); PERMISSION_LABELS_RU.
+- roles.ts расширен (ALL_ROLES/STAFF_ROLES/SUPPLIER_GROUP/SERVICE_GROUP/
+  VENDOR_GROUP/isKnownRole), экспорты S2B1 не тронуты.
+- guard.ts — withRole/withPermission/withAdmin + requireAccess/
+  requirePermission; БД-истина profiles.role; расхождение claims →
+  healClaimsToDbTruth с ПЕРЕЗАПИСЬЮ ровно на [profileRole] (снятая роль
+  умирает немедленно); fail-closed 401/403 (+isBlocked).
+- admin-rbac.ts — canActOnTarget (иерархия), isLastActiveAdmin (активные
+  ADMIN/SUPER_ADMIN ≤1, фильтр ghost-профилей через существование userId в
+  GoTrue — НАЙДЕН И ЗАКРЫТ дефект: ghost demo.admin@conditera.local ломал
+  подсчёт), resolveRestoredRole (previousRole из аудита), writeAdminAction.
+- Admin API: GET /api/admin/users (пагинация/поиск/фильтр, 503 при сбое БД);
+  POST/DELETE /api/admin/roles (403 super_admin_manual, 403
+  insufficient_hierarchy, 400 already_assigned/role_not_assigned/unknown_role,
+  409 last_admin; снятие = восстановление previousRole); GET
+  /api/admin/roles/[userId] (divergent-диагностика); POST block/unblock
+  (users.ban: ADMIN/SUPER_ADMIN/MODERATOR; 400 self_block/…, 409 last_admin,
+  syncGoTrueBan best-effort).
+- Миграция 20261119234605_add_admin_actions (append-only аудит, индексы
+  targetId+createdAt, actorId+createdAt); все admin-мутации пишут meta.
+- UI /admin/roles (Tabs/Table/Dialog/DropdownMenu/Select/Badge + sonner;
+  поиск debounce 350мс, фильтр, пагинация, вкладка «Матрица прав» max-h-96
+  overflow-y-auto; серверный гвард → redirect) + ссылка «Роли» в header
+  (hidden sm:inline-block — фикс overflow 390px); /register-roles (19 ролей
+  группами, кнопка → auth-modal с initialRole); docs/ROLE_MATRIX.md v2.
+- Шим: добавлен GET /auth/v1/admin/users/:id (GoTrue-верный).
+
+**Верификация:** curl-matrix 28/28 субагентом + НЕЗАВИСИМАЯ проверка: health
+ok; anon users 401; admin login 200 → users 200; customer → 403; last_admin
+probe → 409 {"error":"last_admin"}; assign MODERATOR → 200 {previousRole,
+claimsSynced, auditLogged} → DELETE → restoredRole; /register-roles 200;
+styleguide/home 200. agent-browser: redirect анонима, вход admin, поиск,
+смена/снятие роли с Dialog+тостами, матрица 13/13, mobile 390 no-overflow.
+lint 0 / tsc 0.
+
+**Уроки блока:** endpoint-контракт — admin-роуты принимают auth userId (НЕ
+Profile.id); isLastActiveAdmin обязан фильтровать профили без живой
+auth-учётки; Radix Select в Dialog в agent-browser — typeahead/стрелки;
+процессы песочницы умирают между вызовами всегда → гейты одним батчем.
+
+**Следующий блок по карте:** S2B3 (security-фундамент: CSRF
+timingSafeEqual, SafeHtml, safe-fetch, rate-limit auth/admin, rewrite-
+семантика healing в session/login).
