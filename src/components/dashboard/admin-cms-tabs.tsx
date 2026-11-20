@@ -917,66 +917,134 @@ export function AdminReviewsModerationTab() {
 }
 
 // ==================== CMS: НАВИГАЦИЯ ====================
+type CmsNavItem = {
+  id: string;
+  location: string;
+  label: string;
+  url: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
 export function AdminNavMenuTab() {
-  const navMenu = useAppStore((s) => s.navMenu);
-  const updateNavMenu = useAppStore((s) => s.updateNavMenu);
-  const [items, setItems] = useState(navMenu);
+  const [items, setItems] = useState<CmsNavItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newItem, setNewItem] = useState({ label: "", url: "", location: "header" });
 
-  const toggleActive = (id: string) => {
-    const updated = items.map((i) => i.id === id ? { ...i, isActive: !i.isActive } : i);
-    setItems(updated);
-    updateNavMenu(updated);
-    toast.success("Обновлено");
+  const loadItems = async (signal?: AbortSignal) => {
+    const response = await csrfFetch("/api/cms/nav-menu?include_inactive=true", { signal });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить меню");
+    setItems(Array.isArray(payload.items) ? payload.items : []);
   };
 
-  const updateLabel = (id: string, label: string) => {
-    const updated = items.map((i) => i.id === id ? { ...i, label } : i);
-    setItems(updated);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    loadItems(controller.signal)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки меню", { description: error.message });
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  const patchItem = async (item: CmsNavItem, updates: Partial<CmsNavItem>) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/nav-menu/${item.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          label: updates.label ?? item.label,
+          url: updates.url ?? item.url,
+          location: updates.location ?? item.location,
+          sortOrder: updates.sort_order ?? item.sort_order,
+          isActive: updates.is_active ?? item.is_active,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить пункт меню");
+      setItems((current) => current.map((entry) => entry.id === item.id ? payload.item : entry));
+      toast.success("Пункт меню сохранён");
+    } catch (error) {
+      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
   };
 
-  const saveAll = () => {
-    updateNavMenu(items);
-    toast.success("Меню навигации сохранено!");
+  const createItem = async () => {
+    if (saving || !newItem.label.trim() || !newItem.url.trim()) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch("/api/cms/nav-menu", {
+        method: "POST",
+        body: JSON.stringify({ ...newItem, sortOrder: items.filter((item) => item.location === newItem.location).length, isActive: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось создать пункт меню");
+      setItems((current) => [...current, payload.item]);
+      setNewItem({ label: "", url: "", location: "header" });
+      toast.success("Пункт меню создан");
+    } catch (error) {
+      toast.error("Ошибка создания", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
+  };
+
+  const removeItem = async (item: CmsNavItem) => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const response = await csrfFetch(`/api/cms/nav-menu/${item.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Не удалось удалить пункт меню");
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      toast.success("Пункт меню удалён");
+    } catch (error) {
+      toast.error("Ошибка удаления", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
+    } finally { setSaving(false); }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
-            <LayoutDashboard className="h-6 w-6 text-primary" />
-            Навигация
-          </h1>
-          <p className="text-sm text-muted-foreground">Управление пунктами меню в шапке сайта</p>
-        </div>
-        <Button onClick={saveAll}><Save className="h-4 w-4 mr-1" /> Сохранить</Button>
+      <div>
+        <h1 className="font-display text-2xl font-bold flex items-center gap-2"><LayoutDashboard className="h-6 w-6 text-primary" />Навигация</h1>
+        <p className="text-sm text-muted-foreground">Управление пунктами меню шапки, подвала и мобильной версии. Изменения сохраняются в PostgreSQL.</p>
       </div>
+      <Card className="p-4 space-y-3">
+        <h3 className="font-semibold text-sm">Добавить пункт меню</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <Input value={newItem.label} onChange={(event) => setNewItem({ ...newItem, label: event.target.value })} placeholder="Название" maxLength={100} />
+          <Input value={newItem.url} onChange={(event) => setNewItem({ ...newItem, url: event.target.value })} placeholder="/catalog" maxLength={2048} />
+          <Select value={newItem.location} onValueChange={(value) => setNewItem({ ...newItem, location: value })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="header">Шапка</SelectItem><SelectItem value="footer">Подвал</SelectItem><SelectItem value="mobile">Мобильное</SelectItem></SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" disabled={saving || !newItem.label.trim() || !newItem.url.trim()} onClick={createItem}><Plus className="h-3 w-3 mr-1" />Добавить</Button>
+      </Card>
 
       <Card className="p-4">
-        <div className="space-y-2">
-          {items.map((item, i) => (
-            <div key={item.id} className="flex items-center gap-3 p-2 border border-border rounded">
-              <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-[10px] text-muted-foreground w-4">{i + 1}</span>
-              <Input
-                value={item.label}
-                onChange={(e) => updateLabel(item.id, e.target.value)}
-                className="w-40 h-8 text-sm"
-              />
-              <Badge variant="outline" className="text-[10px]">{item.link}</Badge>
-              <label className="flex items-center gap-1 text-xs cursor-pointer ml-auto">
-                <Checkbox
-                  checked={item.isActive}
-                  onCheckedChange={() => toggleActive(item.id)}
-                />
-                {item.isActive ? "Показан" : "Скрыт"}
-              </label>
-            </div>
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground mt-3">
-          Перетаскивание для изменения порядка — в разработке. Используйте sortOrder для ручной сортировки.
-        </p>
+        {loading ? <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка меню…</div> : (
+          <div className="space-y-2">
+            {items.map((item) => (
+              <div key={item.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_140px_90px_auto] items-center gap-2 p-2 border border-border rounded">
+                <Input defaultValue={item.label} key={`${item.id}-label-${item.label}`} maxLength={100} className="h-8 text-sm" onBlur={(event) => { if (event.target.value !== item.label) patchItem(item, { label: event.target.value }); }} />
+                <Input defaultValue={item.url} key={`${item.id}-url-${item.url}`} maxLength={2048} className="h-8 text-sm" onBlur={(event) => { if (event.target.value !== item.url) patchItem(item, { url: event.target.value }); }} />
+                <Select value={item.location} onValueChange={(value) => patchItem(item, { location: value })}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="header">Шапка</SelectItem><SelectItem value="footer">Подвал</SelectItem><SelectItem value="mobile">Мобильное</SelectItem></SelectContent>
+                </Select>
+                <Input type="number" min={0} max={10000} defaultValue={item.sort_order} key={`${item.id}-order-${item.sort_order}`} className="h-8 text-sm" onBlur={(event) => { const value = Number(event.target.value); if (Number.isInteger(value) && value !== item.sort_order) patchItem(item, { sort_order: value }); }} />
+                <div className="flex items-center gap-1">
+                  <Button size="icon" variant="ghost" disabled={saving} onClick={() => patchItem(item, { is_active: !item.is_active })}>{item.is_active ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</Button>
+                  <Button size="icon" variant="ghost" disabled={saving} className="text-destructive" onClick={() => removeItem(item)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              </div>
+            ))}
+            {items.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">Пункты меню не созданы.</div>}
+          </div>
+        )}
       </Card>
     </div>
   );
