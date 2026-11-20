@@ -19,8 +19,6 @@ const OFFLINE_PAGE = "/offline.html";
 // Прекеш ключевых страниц при установке
 const PRECACHE_URLS = [
   "/",
-  "/catalog",
-  "/cart",
   "/manifest.webmanifest",
   "/offline.html",
   "/logo.png",
@@ -49,6 +47,26 @@ const NEVER_CACHE_API_PATTERNS = [
   /\/api\/simplex\//,
   /\/api\/live-streams\/[^/]+\/(chat|join|like)/,
 ];
+
+// Personalized pages and signed/private images must never enter a shared
+// service-worker cache; otherwise a later user on the same browser could see
+// stale account data while offline.
+const NEVER_CACHE_PAGE_PATTERNS = [
+  /^\/(auth|login|register|profile|dashboard|orders|cart|checkout|admin|support|chat|account|reset-password|verify|oauth)(\/|$)/,
+];
+
+function isPublicPage(pathname) {
+  return pathname === "/" || pathname === "/offline.html" || pathname.startsWith("/pages/");
+}
+
+function isPrivateImage(pathname) {
+  return (
+    pathname.includes("/storage/v1/object/sign/") ||
+    pathname.startsWith("/api/uploads/") ||
+    pathname.startsWith("/api/private/") ||
+    pathname.startsWith("/uploads/private/")
+  );
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -79,13 +97,17 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
 
-  // Чат-сервер — не кэшируем
+  // Чат-сервер и внешние origin не кэшируем.
   if (url.port === "3030" || url.pathname.includes(":3030")) return;
 
-  // === Изображения: CacheFirst ===
+  // Подписанные Storage URL и приватные uploads всегда идут напрямую в сеть.
+  if (isPrivateImage(url.pathname)) return;
+
+  // === Изображения: CacheFirst только для same-origin публичных ресурсов ===
   if (
-    request.destination === "image" ||
-    url.pathname.match(/\.(jpg|jpeg|png|webp|gif|svg|avif)$/i)
+    url.origin === self.location.origin &&
+    (request.destination === "image" ||
+      url.pathname.match(/\.(jpg|jpeg|png|webp|gif|svg|avif)$/i))
   ) {
     event.respondWith(handleImage(request));
     return;
@@ -110,14 +132,27 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // === Навигация (страницы): NetworkFirst с offline-fallback ===
+  // === Навигация: NetworkFirst, кэшируем только публичные страницы ===
   if (request.mode === "navigate") {
+    if (
+      url.origin !== self.location.origin ||
+      !isPublicPage(url.pathname) ||
+      NEVER_CACHE_PAGE_PATTERNS.some((pattern) => pattern.test(url.pathname))
+    ) {
+      return;
+    }
     event.respondWith(handlePage(request));
     return;
   }
 
-  // === Прочее: StaleWhileRevalidate ===
-  event.respondWith(handleOther(request));
+  // === Прочее: кэшируем только same-origin статические ресурсы ===
+  if (
+    url.origin === self.location.origin &&
+    (["font", "script", "style", "manifest"].includes(request.destination) ||
+      /\.(woff2?|ttf|css|js|webmanifest)$/i.test(url.pathname))
+  ) {
+    event.respondWith(handleOther(request));
+  }
 });
 
 // === Стратегии ===
@@ -183,19 +218,21 @@ async function handleApiCacheable(request) {
 async function handlePage(request) {
   try {
     const r = await fetch(request);
-    // Кэшируем только успешные basic-ответы (не редиректы/opaquе/ошибки),
-    // чтобы устаревший HTML не вытеснял свежий при повторных визитах
-    if (r.ok && r.type === "basic") {
+    const cacheControl = r.headers.get("cache-control") || "";
+    if (
+      r.ok &&
+      r.type === "basic" &&
+      !/private|no-store/i.test(cacheControl)
+    ) {
       const cache = await caches.open(RUNTIME_CACHE);
-      cache.put(request, r.clone());
+      await cache.put(request, r.clone());
     }
     return r;
   } catch {
-    // Offline — пытаемся кэш, затем /offline.html
     const cached = await caches.match(request);
     if (cached) return cached;
     const offlinePage = await caches.match(OFFLINE_PAGE);
-    return offlinePage || caches.match("/") || new Response(
+    return offlinePage || new Response(
       '<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h1>Офлайн</h1><p>Проверьте подключение к интернету</p></body></html>',
       { status: 503, headers: { "Content-Type": "text/html" } }
     );
