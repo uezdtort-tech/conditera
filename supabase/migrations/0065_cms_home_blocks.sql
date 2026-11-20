@@ -42,3 +42,4 @@ CREATE POLICY cms_home_blocks_admin_manage ON public.cms_home_blocks
   );
 GRANT SELECT ON public.cms_home_blocks TO anon, authenticated;
 GRANT INSERT, UPDATE, DELETE ON public.cms_home_blocks TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.cms_home_blocks TO service_role;
