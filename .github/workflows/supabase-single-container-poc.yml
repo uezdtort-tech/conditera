@@ -8,6 +8,7 @@ on:
       - "scripts/supabase-runtime-poc/**"
       - "supabase/kong.yml"
       - "supabase/init-scripts/**"
+      - "supabase/migrations/**"
       - ".github/workflows/supabase-single-container-poc.yml"
   workflow_dispatch:
 
