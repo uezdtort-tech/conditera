@@ -173,29 +173,7 @@ jobs:
           docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status
           ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
           curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/auth/v1/health
-          node -e '
-          const fs = require("node:fs");
-          const entries = fs.readFileSync("/tmp/runtime.env", "utf8").split(/\r?\n/).filter(Boolean);
-          const values = Object.fromEntries(entries.map((line) => {
-            const separator = line.indexOf("=");
-            return [line.slice(0, separator), line.slice(separator + 1)];
-          }));
-          const key = values.SERVICE_ROLE_KEY;
-          if (!key || key.split(".").length !== 3) throw new Error("Generated service-role JWT is malformed");
-          fetch("http://127.0.0.1:18000/functions/v1/abandoned-cart", {
-            method: "POST",
-            headers: { apikey: key, Authorization: "Bearer " + key, "Content-Type": "application/json" },
-            body: "{}"
-          }).then(async (response) => {
-            const body = await response.text();
-            console.log("Edge Function HTTP " + response.status + ": " + body.slice(0, 500));
-            const payload = JSON.parse(body);
-            if (!response.ok || payload.ok !== true) process.exitCode = 1;
-          }).catch((error) => {
-            console.error("Edge Function request failed: " + error.message);
-            process.exitCode = 1;
-          });
-          '
+          node scripts/supabase-runtime-poc/edge-function-smoke.mjs
           curl --fail --silent --show-error -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" http://127.0.0.1:18000/storage/v1/status
           curl --fail --silent --show-error \
             -H "apikey: $ANON_KEY" \
