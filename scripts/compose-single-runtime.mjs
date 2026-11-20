@@ -90,7 +90,8 @@ for (const name of requiredServices) {
 const forbiddenServices = [
   "db", "migrator", "pgbouncer", "supabase-db", "supabase-kong",
   "supabase-auth", "supabase-rest", "supabase-realtime", "supabase-storage",
-  "supabase-app-migrator",
+  "supabase-app-migrator", "supabase-meta", "supabase-imgproxy",
+  "supabase-analytics", "supabase-vector", "supabase-studio",
 ];
 for (const name of forbiddenServices) {
   if (services[name]) fail("В итоговый стек попал отдельный legacy-сервис: " + name);
@@ -125,8 +126,11 @@ for (const key of ["DATABASE_URL", "DIRECT_DATABASE_URL"]) {
 if (webEnv.SUPABASE_INTERNAL_URL !== "http://supabase-kong:8000") {
   fail("Supabase JS должен обращаться к Kong внутри единого runtime.");
 }
-if (!services.web.depends_on?.["supabase-runtime"]) {
-  fail("web должен ожидать healthcheck единого Supabase Runtime.");
+if (services.web.depends_on?.["supabase-runtime"]?.condition !== "service_healthy") {
+  fail("web должен ожидать успешный healthcheck единого Supabase Runtime.");
+}
+if (runtimeEnvValues.POSTGRES_DB !== "supabase" || runtimeEnvValues.POSTGRES_USER !== "supabase_admin") {
+  fail("Supabase Runtime должен использовать каноническую БД supabase и административную роль supabase_admin.");
 }
 
 const runtimeMounts = runtime.volumes || [];
