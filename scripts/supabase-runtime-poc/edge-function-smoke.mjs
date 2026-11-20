@@ -69,11 +69,12 @@ if (!response.ok || payload.ok !== true) {
   throw new Error("Edge Function returned an unexpected response");
 }
 
-// Exercise the Telegram workers even when CI has no real bot credentials.
-// They must fail closed with 503, not claim a notification/webhook succeeded.
+// Exercise notification delivery without real credentials, and prove the two
+// legacy provider webhook stubs cannot be mistaken for the live application routes.
 for (const [slug, expectedStatus] of [
   ["send-notification", 503],
-  ["telegram-webhook", 503],
+  ["telegram-webhook", 410],
+  ["yookassa-webhook", 410],
 ]) {
   const workerResponse = await fetch(`http://127.0.0.1:18000/functions/v1/${slug}`, {
     method: "POST",
@@ -88,6 +89,6 @@ for (const [slug, expectedStatus] of [
   const workerBody = await workerResponse.text();
   console.log(`${slug} HTTP ${workerResponse.status}: ${workerBody.slice(0, 300)}`);
   if (workerResponse.status !== expectedStatus) {
-    throw new Error(`${slug} must fail closed with HTTP ${expectedStatus} when secrets are absent`);
+    throw new Error(`${slug} returned an unexpected status; expected fail-closed HTTP ${expectedStatus}`);
   }
 }
