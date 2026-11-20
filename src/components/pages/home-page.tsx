@@ -44,6 +44,56 @@ import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
 
+type PublicCmsBanner = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  link_url: string | null;
+  text: string | null;
+  cta_text: string | null;
+  sort_order: number;
+};
+
+function CmsHomepageBanners() {
+  const [banners, setBanners] = useState<PublicCmsBanner[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/banners?position=home_hero", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Banners unavailable")))
+      .then((payload: { banners?: PublicCmsBanner[] }) => {
+        if (!controller.signal.aborted) setBanners(Array.isArray(payload.banners) ? payload.banners : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBanners([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (banners.length === 0) return null;
+  return (
+    <section className="container mx-auto px-4 py-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {banners.map((banner) => (
+          <Card key={banner.id} className="overflow-hidden p-0">
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-h-44">
+              {banner.image_url && <img src={banner.image_url} alt={banner.title} className="w-full h-full min-h-44 object-cover" loading="lazy" decoding="async" />}
+              <div className="p-5 flex flex-col items-start justify-center gap-2">
+                <h2 className="font-display text-xl font-semibold">{banner.title}</h2>
+                {banner.text && <p className="text-sm text-muted-foreground">{banner.text}</p>}
+                {banner.link_url && banner.cta_text && (
+                  <a href={banner.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">
+                    {banner.cta_text}<ArrowRight className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 type PublicCmsHomeBlock = {
   id: string;
   section: string;
@@ -354,6 +404,7 @@ export function HomePage() {
         </div>
       </section>
 
+      <CmsHomepageBanners />
       <CmsHomepageBlocks />
 
       {/* ===== БЕГУЩАЯ СТРОКА РЕАЛЬНЫХ КОНДИТЕРОВ ===== */}
