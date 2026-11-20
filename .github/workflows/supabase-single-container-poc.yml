@@ -46,6 +46,8 @@ jobs:
           SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
         run: |
           set -Eeuo pipefail
+          touch .env.production
+          trap 'rm -f .env.production' EXIT
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
           python3 - <<'PY'
           import json
