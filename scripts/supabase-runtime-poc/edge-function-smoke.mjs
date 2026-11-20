@@ -1,0 +1,48 @@
+import fs from "node:fs";
+
+const runtimeEnv = Object.fromEntries(
+  fs.readFileSync("/tmp/runtime.env", "utf8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    }),
+);
+
+const serviceRoleKey = runtimeEnv.SERVICE_ROLE_KEY;
+if (!serviceRoleKey || serviceRoleKey.split(".").length !== 3) {
+  throw new Error("Generated service-role JWT is malformed");
+}
+
+const endpoint = "http://127.0.0.1:18000/functions/v1/abandoned-cart";
+let response;
+try {
+  response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: "Bearer " + serviceRoleKey,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+    signal: AbortSignal.timeout(30_000),
+  });
+} catch (error) {
+  console.error("Edge Function connection failed:", error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
+
+const body = await response.text();
+console.log("Edge Function HTTP " + response.status + ": " + body.slice(0, 500));
+
+let payload;
+try {
+  payload = JSON.parse(body);
+} catch {
+  throw new Error("Edge Function response is not valid JSON");
+}
+
+if (!response.ok || payload.ok !== true) {
+  throw new Error("Edge Function returned an unexpected response");
+}
