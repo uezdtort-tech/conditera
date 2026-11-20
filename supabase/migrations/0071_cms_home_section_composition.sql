@@ -11,11 +11,11 @@ CREATE TABLE IF NOT EXISTS public.cms_home_sections (
 INSERT INTO public.cms_home_sections (section, title, sort_order, is_enabled)
 VALUES
   ('hero', 'От редакции', 10, TRUE),
-  ('stats', 'О платформе', 20, TRUE),
-  ('cta_confectioner', 'Для кондитеров', 30, TRUE),
-  ('advantages', 'Наши преимущества', 40, TRUE),
-  ('steps', 'Как это работает', 50, TRUE),
-  ('testimonials', 'Истории клиентов', 60, TRUE)
+  ('advantages', 'Наши преимущества', 20, TRUE),
+  ('steps', 'Как это работает', 30, TRUE),
+  ('stats', 'О платформе', 40, TRUE),
+  ('testimonials', 'Истории клиентов', 50, TRUE),
+  ('cta_confectioner', 'Для кондитеров', 60, TRUE)
 ON CONFLICT (section) DO NOTHING;
 
 CREATE INDEX IF NOT EXISTS idx_cms_home_sections_order
