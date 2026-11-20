@@ -157,6 +157,19 @@ describe("setWebhook security", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refuses a placeholder secret in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-bot-token");
+    vi.stubEnv("TELEGRAM_WEBHOOK_SECRET", "CHANGE_ME_24CHARS");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+
+    const telegram = await import("./telegram-bot");
+    await expect(telegram.setWebhook("https://conditera.ru/api/telegram/webhook")).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("sends the configured secret_token to Telegram", async () => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "test-bot-token");
     vi.stubEnv("TELEGRAM_WEBHOOK_SECRET", "valid_test-secret_123");
