@@ -13,6 +13,7 @@ on:
       - "supabase/kong.yml"
       - "supabase/init-scripts/**"
       - "supabase/migrations/**"
+      - "supabase/functions/**"
       - ".github/workflows/supabase-single-container-poc.yml"
   workflow_dispatch:
 
@@ -134,6 +135,7 @@ jobs:
           set -Eeuo pipefail
           docker volume create supabase-runtime-pgdata-ci >/dev/null
           docker volume create supabase-runtime-storage-ci >/dev/null
+          docker volume create supabase-runtime-deno-cache-ci >/dev/null
           docker run -d \
             --name conditera-supabase-runtime-poc \
             --label conditera.runtime=single-container-poc \
@@ -169,6 +171,14 @@ jobs:
           docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status
           ANON_KEY="$(grep '^ANON_KEY=' /tmp/runtime.env | cut -d= -f2-)"
           curl --fail --silent --show-error -H "apikey: $ANON_KEY" http://127.0.0.1:18000/auth/v1/health
+          SERVICE_ROLE_KEY="$(grep '^SERVICE_ROLE_KEY=' /tmp/runtime.env | cut -d= -f2-)"
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "apikey: $SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{}' \
+            http://127.0.0.1:18000/functions/v1/abandoned-cart
           curl --fail --silent --show-error -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" http://127.0.0.1:18000/storage/v1/status
           curl --fail --silent --show-error \
             -H "apikey: $ANON_KEY" \
@@ -225,8 +235,8 @@ jobs:
           if docker inspect conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container-inspect.json 2>&1; then
             docker logs --timestamps conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container.log 2>&1 || true
             docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status > /tmp/supabase-runtime-diagnostics/supervisor-status.txt 2>&1 || true
-            docker exec conditera-supabase-runtime-poc sh -c 'ps auxww; echo "--- mounts ---"; cat /proc/mounts; echo "--- processes ---"; for p in postgres gotrue postgrest realtime storage kong; do echo "### $p"; done' > /tmp/supabase-runtime-diagnostics/processes-mounts.txt 2>&1 || true
-            docker exec conditera-supabase-runtime-poc sh -c 'for p in postgres gotrue postgrest realtime storage meta imgproxy kong; do echo "### $p"; ls -la "/opt/supabase/services/$p"; done' > /tmp/supabase-runtime-diagnostics/service-roots.txt 2>&1 || true
+            docker exec conditera-supabase-runtime-poc sh -c 'ps auxww; echo "--- mounts ---"; cat /proc/mounts; echo "--- processes ---"; for p in postgres gotrue postgrest realtime storage edge-runtime kong; do echo "### $p"; done' > /tmp/supabase-runtime-diagnostics/processes-mounts.txt 2>&1 || true
+            docker exec conditera-supabase-runtime-poc sh -c 'for p in postgres gotrue postgrest realtime storage meta imgproxy edge-runtime kong; do echo "### $p"; ls -la "/opt/supabase/services/$p"; done' > /tmp/supabase-runtime-diagnostics/service-roots.txt 2>&1 || true
             docker inspect --format '{{json .State.Health}}' conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/health.json 2>&1 || true
           else
             echo "Runtime container was not created; failure occurred before startup." > /tmp/supabase-runtime-diagnostics/container.log
