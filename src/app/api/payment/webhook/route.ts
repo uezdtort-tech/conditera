@@ -703,7 +703,10 @@ export async function POST(request: NextRequest) {
               .from("orders")
               .update({ payment_status: "refunded" })
               .eq("id", orderId);
-            if (ordUpdErr) console.error("[webhook] refund order update failed:", ordUpdErr.message);
+            if (ordUpdErr) {
+              console.error("[webhook] refund order update failed; provider retry required:", ordUpdErr.message);
+              return NextResponse.json({ error: "Refund order status update failed" }, { status: 500 });
+            }
           }
         }
 
