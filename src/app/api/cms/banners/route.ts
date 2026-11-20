@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
-import { isSafeCmsUrl } from "@/lib/cms-validation";
+import { areValidCmsNavigationRoles, isValidCmsSchedule, isSafeCmsUrl } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
 const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
@@ -66,6 +66,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         (body.imageUrl && !isSafeCmsUrl(body.imageUrl)) || (body.linkUrl && !isSafeCmsUrl(body.linkUrl))) {
       return NextResponse.json({ error: "Некорректные данные баннера" }, { status: 400 });
     }
+    if (body.targetAudience !== undefined && body.targetAudience !== null && !areValidCmsNavigationRoles(body.targetAudience)) {
+      return NextResponse.json({ error: "Некорректная целевая аудитория" }, { status: 400 });
+    }
+    if (!isValidCmsSchedule(body.startsAt, body.endsAt)) {
+      return NextResponse.json({ error: "Некорректный период показа баннера" }, { status: 400 });
+    }
     const { data, error } = await supabaseAdmin.from("cms_banners").insert({
       title: body.title.trim(),
       image_url: typeof body.imageUrl === "string" && body.imageUrl ? body.imageUrl.slice(0, 2048) : null,
@@ -77,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       is_active: body.isActive !== false,
       starts_at: body.startsAt || null,
       ends_at: body.endsAt || null,
-      target_audience: Array.isArray(body.targetAudience) ? body.targetAudience.filter((x: unknown) => typeof x === "string").slice(0, 20) : null,
+      target_audience: body.targetAudience ?? null,
     }).select("*").single();
     if (error) return NextResponse.json({ error: "Не удалось создать баннер" }, { status: 500 });
     return NextResponse.json({ banner: data }, { status: 201 });
