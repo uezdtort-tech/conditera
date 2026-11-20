@@ -113,16 +113,21 @@ export IMGPROXY_AUTO_WEBP="${IMGPROXY_AUTO_WEBP:-true}"
 export IMGPROXY_MAX_SRC_RESOLUTION=16.8
 
 export KONG_DATABASE=off
+# Keep Kong runtime state and its prefix logs in the writable chroot /tmp.
+# The image default /usr/local/kong/logs is not writable in the extracted rootfs.
+export KONG_PREFIX=/tmp/kong
 export KONG_PROXY_LISTEN=0.0.0.0:8000
 export KONG_ADMIN_LISTEN=127.0.0.1:8001
 export KONG_DECLARATIVE_CONFIG=/var/lib/kong/kong.yml
 export KONG_DNS_ORDER=LAST
 export KONG_PLUGINS=bundled
 export KONG_LOG_LEVEL="${KONG_LOG_LEVEL:-info}"
-# Keep Kong/Nginx logs on container streams instead of image-layer files.
-export KONG_NGINX_MAIN_ERROR_LOG=/dev/stderr
-export KONG_NGINX_PROXY_ACCESS_LOG=/dev/stdout
-export KONG_NGINX_ADMIN_ACCESS_LOG=/dev/stdout
+# Nginx runs inside chroot without a mounted /proc, so /dev/stdout and
+# /dev/stderr are not reliable there. Use writable files and tail them into
+# the container streams through supervisord.
+export KONG_NGINX_MAIN_ERROR_LOG=/tmp/kong-error.log
+export KONG_NGINX_PROXY_ACCESS_LOG=/tmp/kong-proxy-access.log
+export KONG_NGINX_ADMIN_ACCESS_LOG=/tmp/kong-admin-access.log
 export KONG_NGINX_PROXY_PROXY_BUFFER_SIZE=160k
 export KONG_NGINX_PROXY_PROXY_BUFFERS="64 160k"
 export KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE=320k
@@ -153,9 +158,37 @@ done
 mkdir -p /opt/supabase/services/storage/var/lib/storage
 chown 1000:1000 /opt/supabase/services/storage/var/lib/storage
 chown -R 65534:65534 /opt/supabase/services/realtime/app
-mkdir -p /opt/supabase/services/kong/usr/local/kong
-chown -R 1001:1001 /opt/supabase/services/kong/usr/local/kong
-mkdir -p /opt/supabase/services/kong/var/lib/kong
+kong_root=/opt/supabase/services/kong
+kong_passwd_file="$kong_root/etc/passwd"
+if ! grep -q '^kong:' "$kong_passwd_file"; then
+  echo "Kong account is missing from $kong_passwd_file" >&2
+  exit 1
+fi
+mkdir -p "$kong_root/usr/local/kong"
+mkdir -p "$kong_root/var/lib/kong"
+# Kong must start with a root master inside its isolated chroot. Nginx's
+# configured "user kong" directive then drops worker privileges as intended.
+# Starting the master as kong makes Nginx ignore that directive and prevents
+# reliable creation/opening of prefix-relative logs during Kong bootstrap.
+mkdir -p "$kong_root/tmp/kong/logs"
+touch "$kong_root/tmp/kong/logs/error.log"
+chown -R 0:0 "$kong_root/tmp/kong"
+chmod 0755 "$kong_root/tmp/kong" "$kong_root/tmp/kong/logs"
+chmod 0644 "$kong_root/tmp/kong/logs/error.log"
+if ! chroot --userspec=0:0 "$kong_root" /bin/sh -ec \
+  'test -w /tmp/kong/logs && test -w /tmp/kong/logs/error.log'; then
+  echo "Kong root master cannot write its chroot prefix logs" >&2
+  ls -ld "$kong_root/tmp" "$kong_root/tmp/kong" "$kong_root/tmp/kong/logs" >&2
+  ls -l "$kong_root/tmp/kong/logs/error.log" >&2
+  exit 1
+fi
+mkdir -p "$kong_root/tmp"
+touch "$kong_root/tmp/kong-error.log"
+touch "$kong_root/tmp/kong-proxy-access.log"
+touch "$kong_root/tmp/kong-admin-access.log"
+chmod 1777 "$kong_root/tmp"
+# Root Kong master opens these log files before Nginx workers drop to kong.
+chmod 0644 "$kong_root/tmp/kong-error.log" "$kong_root/tmp/kong-proxy-access.log" "$kong_root/tmp/kong-admin-access.log"
 sed \
   -e "s|http://supabase-auth:9999|http://127.0.0.1:9999|g" \
   -e "s|http://supabase-rest:3000|http://127.0.0.1:3000|g" \

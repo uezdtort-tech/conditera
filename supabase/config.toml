@@ -85,12 +85,16 @@ import_map = "./functions/daily-digest/deno.json"
 verify_jwt = true
 import_map = "./functions/bonus-expiry/deno.json"
 
+# External provider callbacks are handled by the protected Next.js API routes:
+# /api/telegram/webhook and /api/payment/webhook. These legacy Edge Function
+# handlers are internal-only and must never be deployed as public unauthenticated
+# webhook endpoints.
 [functions.telegram-webhook]
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/telegram-webhook/deno.json"
 
 [functions.yookassa-webhook]
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/yookassa-webhook/deno.json"
 
 # ===== Analytics =====

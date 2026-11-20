@@ -1,0 +1,172 @@
+# Single-container Supabase runtime overlay.
+# Use together with docker-compose.yml and docker-compose.supabase.yml.
+# The legacy multi-container Supabase services are disabled unless the
+# explicit "legacy-supabase" profile is selected.
+services:
+  # Disable the duplicate application PostgreSQL 18/PgBouncer path. The only
+  # application/Supabase database is PostgreSQL 17 inside supabase-runtime.
+  migrator:
+    profiles: ["legacy-app-db"]
+  db:
+    profiles: ["legacy-app-db"]
+  pgbouncer:
+    profiles: ["legacy-app-db"]
+
+  # Override web's DB target and dependencies without dropping its other env.
+  web:
+    environment: !override
+      - APP_VERSION=${WEB_TAG:-dev}
+      - DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
+      - DIRECT_DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
+      - REDIS_URL=redis://redis:6379
+      - MEILISearch_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
+      - SUPABASE_INTERNAL_URL=http://supabase-kong:8000
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}}
+      - SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}}
+      - NODE_ENV=production
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHANNEL_ID=${TELEGRAM_CHANNEL_ID:-}
+      - TELEGRAM_ADMIN_CHAT_IDS=${TELEGRAM_ADMIN_CHAT_IDS:-}
+      - NEXT_PUBLIC_YANDEX_METRIKA_ID=${NEXT_PUBLIC_YANDEX_METRIKA_ID:-111432662}
+      - YANDEX_METRIKA_OAUTH_TOKEN=${YANDEX_METRIKA_OAUTH_TOKEN:-}
+      - SMTP_HOST=${SMTP_HOST:-mailu}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-noreply@conditera.ru}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-Кондитера <noreply@conditera.ru>}
+      - SMTP_REPLY_TO=${SMTP_REPLY_TO:-support@conditera.ru}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-false}
+      - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
+      - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
+      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-Кондитера}
+      - NEXT_PUBLIC_APP_DESCRIPTION=${NEXT_PUBLIC_APP_DESCRIPTION:-Маркетплейс кондитерских изделий}
+      - NEXT_PUBLIC_SUPPORT_EMAIL=${NEXT_PUBLIC_SUPPORT_EMAIL:-support@conditera.ru}
+      - NEXT_PUBLIC_INFO_EMAIL=${NEXT_PUBLIC_INFO_EMAIL:-info@conditera.ru}
+      - NEXT_PUBLIC_PRIVACY_EMAIL=${NEXT_PUBLIC_PRIVACY_EMAIL:-privacy@conditera.ru}
+      - NEXT_PUBLIC_SUPPORT_PHONE=${NEXT_PUBLIC_SUPPORT_PHONE:-8 (800) 000-00-00}
+      - NEXT_PUBLIC_SUPPORT_PHONE_HREF=${NEXT_PUBLIC_SUPPORT_PHONE_HREF:-+78000000000}
+      - NEXT_PUBLIC_COMPANY_ADDRESS=${NEXT_PUBLIC_COMPANY_ADDRESS:-}
+      - NEXT_PUBLIC_COMPANY_INN=${NEXT_PUBLIC_COMPANY_INN:-}
+      - NEXT_PUBLIC_COMPANY_OGRN=${NEXT_PUBLIC_COMPANY_OGRN:-}
+      - NEXT_PUBLIC_TELEGRAM_CHANNEL=${NEXT_PUBLIC_TELEGRAM_CHANNEL:-@conditera}
+      - NEXT_PUBLIC_TELEGRAM_URL=${NEXT_PUBLIC_TELEGRAM_URL:-https://t.me/conditera}
+      - NEXT_PUBLIC_VK_URL=${NEXT_PUBLIC_VK_URL:-}
+      - NEXT_PUBLIC_INSTAGRAM_URL=${NEXT_PUBLIC_INSTAGRAM_URL:-}
+      - NEXT_PUBLIC_LEGAL_NAME=${NEXT_PUBLIC_LEGAL_NAME:-}
+      - NEXT_PUBLIC_LEGAL_ADDRESS=${NEXT_PUBLIC_LEGAL_ADDRESS:-}
+      - NEXT_PUBLIC_FOUNDED_YEAR=${NEXT_PUBLIC_FOUNDED_YEAR:-2024}
+    depends_on: !override
+      supabase-runtime:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+
+  supabase-db:
+    profiles: ["legacy-supabase"]
+  supabase-kong:
+    profiles: ["legacy-supabase"]
+  supabase-auth:
+    profiles: ["legacy-supabase"]
+  supabase-rest:
+    profiles: ["legacy-supabase"]
+  supabase-realtime:
+    profiles: ["legacy-supabase"]
+  supabase-storage:
+    profiles: ["legacy-supabase"]
+  supabase-app-migrator:
+    profiles: ["legacy-supabase"]
+  supabase-imgproxy:
+    profiles: ["legacy-supabase"]
+  supabase-meta:
+    profiles: ["legacy-supabase"]
+  supabase-analytics:
+    profiles: ["legacy-supabase"]
+  supabase-vector:
+    profiles: ["legacy-supabase"]
+
+  supabase-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.supabase-runtime-poc
+    image: conditera/supabase-runtime:pg17
+    container_name: conditera-supabase-runtime
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: supabase_admin
+      POSTGRES_DB: supabase
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      ANON_KEY: ${ANON_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}}
+      SECRET_KEY_BASE: ${SUPABASE_SECRET_KEY_BASE:?SUPABASE_SECRET_KEY_BASE required}
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY:?PG_META_CRYPTO_KEY required}
+      REALTIME_DB_ENC_KEY: ${REALTIME_DB_ENC_KEY:?REALTIME_DB_ENC_KEY must be 16 characters}
+      REALTIME_DB_ENC_KEY_GCM: ${REALTIME_DB_ENC_KEY_GCM:?REALTIME_DB_ENC_KEY_GCM must be 32 characters}
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-https://conditera.ru/api}
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:-https://conditera.ru/api}
+      SITE_URL: ${SITE_URL:-https://conditera.ru}
+      JWT_EXPIRY: ${JWT_EXPIRY:-3600}
+      ADDITIONAL_REDIRECT_URLS: ${ADDITIONAL_REDIRECT_URLS:-}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${GOTRUE_EXTERNAL_EMAIL_ENABLED:-true}
+      GOTRUE_MAILER_AUTOCONFIRM: ${GOTRUE_MAILER_AUTOCONFIRM:-false}
+      GOTRUE_DISABLE_SIGNUP: ${GOTRUE_DISABLE_SIGNUP:-false}
+      SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-${SMTP_FROM:-noreply@conditera.ru}}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-Conditera}
+      # Secrets for the Edge Function workers. start-edge-runtime.sh passes
+      # only these allowlisted values into the isolated function workers.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHANNEL_ID: ${TELEGRAM_CHANNEL_ID:-@conditera}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:-}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:-}
+      EXTERNAL_GOOGLE_ENABLED: ${EXTERNAL_GOOGLE_ENABLED:-false}
+      EXTERNAL_GOOGLE_CLIENT_ID: ${EXTERNAL_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID:-}}
+      EXTERNAL_GOOGLE_SECRET: ${EXTERNAL_GOOGLE_SECRET:-${GOOGLE_CLIENT_SECRET:-}}
+      EXTERNAL_YANDEX_ENABLED: ${EXTERNAL_YANDEX_ENABLED:-false}
+      EXTERNAL_YANDEX_CLIENT_ID: ${EXTERNAL_YANDEX_CLIENT_ID:-${YANDEX_CLIENT_ID:-}}
+      EXTERNAL_YANDEX_SECRET: ${EXTERNAL_YANDEX_SECRET:-${YANDEX_CLIENT_SECRET:-}}
+      EXTERNAL_VK_ENABLED: ${EXTERNAL_VK_ENABLED:-false}
+      EXTERNAL_VK_CLIENT_ID: ${EXTERNAL_VK_CLIENT_ID:-${VK_CLIENT_ID:-}}
+      EXTERNAL_VK_SECRET: ${EXTERNAL_VK_SECRET:-${VK_CLIENT_SECRET:-}}
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS:-public,storage,graphql_public}
+      PGRST_DB_MAX_ROWS: ${PGRST_DB_MAX_ROWS:-1000}
+      FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-52428800}
+      STORAGE_TENANT_ID: ${STORAGE_TENANT_ID:-conditera}
+      REGION: ${REGION:-eu-central-1}
+      GLOBAL_S3_BUCKET: ${GLOBAL_S3_BUCKET:-conditera-storage}
+      IMGPROXY_AUTO_WEBP: ${IMGPROXY_AUTO_WEBP:-true}
+    expose:
+      - "8000"
+      - "5432"
+    volumes:
+      - supabase_runtime_pg17_data:/opt/supabase/services/postgres/var/lib/postgresql/data
+      - supabase_runtime_storage_data:/opt/supabase/services/storage/var/lib/storage
+      - supabase_runtime_storage_data:/opt/supabase/services/imgproxy/var/lib/storage:ro
+      - supabase_runtime_deno_cache:/opt/supabase/services/edge-runtime/root/.cache/deno
+    networks:
+      conditera-net:
+        aliases:
+          # Existing Caddyfile and internal app clients already target this
+          # stable service DNS name; no split Supabase service is introduced.
+          - supabase-kong
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  supabase_runtime_pg17_data:
+  supabase_runtime_storage_data:
+  supabase_runtime_deno_cache:

@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
+import { isAllowedPushEndpoint } from "@/lib/push-subscriptions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,35 +37,50 @@ interface UnsubscribeRequestBody {
  */
 export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const authUser = await getUserFromRequest(req as any);
+    const authUser = await getUserFromRequest(req);
+    if (!authUser) {
+      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    }
 
     const body = (await req.json()) as SubscribeRequestBody;
     const { endpoint, keys, userId: bodyUserId } = body;
 
     // Валидация
-    if (!endpoint || typeof endpoint !== "string" || endpoint.length < 10) {
+    if (!endpoint || typeof endpoint !== "string" || endpoint.length > 4096 || !isAllowedPushEndpoint(endpoint)) {
       return NextResponse.json(
         { error: "endpoint обязателен и должен быть строкой ≥10 символов" },
         { status: 400 }
       );
     }
-    if (!keys?.p256dh || !keys?.auth) {
+    if (
+      typeof keys?.p256dh !== "string" || !/^[A-Za-z0-9_-]{16,512}$/.test(keys.p256dh) ||
+      typeof keys?.auth !== "string" || !/^[A-Za-z0-9_-]{8,256}$/.test(keys.auth)
+    ) {
       return NextResponse.json(
         { error: "Неполные данные подписки: keys.p256dh и keys.auth обязательны" },
         { status: 400 }
       );
     }
 
-    // Определить userId — приоритет у авторизованного, fallback на body
-    const userId = authUser?.id || bodyUserId;
-    if (!userId) {
-      return NextResponse.json(
-        { error: "userId обязателен (либо авторизуйтесь, либо передайте в body)" },
-        { status: 400 }
-      );
+    if (bodyUserId && bodyUserId !== authUser.id) {
+      return NextResponse.json({ error: "Нельзя подписывать другой аккаунт" }, { status: 403 });
+    }
+    const userId = authUser.id;
+
+    const { data: existing, error: lookupError } = await supabaseAdmin
+      .from("push_subscriptions")
+      .select("user_id")
+      .eq("endpoint", endpoint)
+      .maybeSingle();
+    if (lookupError) {
+      console.error("[notifications/subscribe] ownership lookup failed:", lookupError.message);
+      return NextResponse.json({ error: "Database lookup failed" }, { status: 500 });
+    }
+    if (existing && existing.user_id !== userId) {
+      return NextResponse.json({ error: "Push endpoint already belongs to another account" }, { status: 409 });
     }
 
-    // Upsert подписки в БД
+    // Upsert подписки только после проверки владельца.
     const { error } = await supabaseAdmin
       .from("push_subscriptions")
       .upsert(
@@ -79,11 +95,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     if (error) {
       console.error("[notifications/subscribe] upsert error:", error.message);
-      // Не fail-ить — в dev без БД возвращаем success (старое поведение)
-      console.log("[Push] Новая подписка (fallback, no DB):", {
-        userId,
-        endpoint: endpoint.slice(0, 50) + "...",
-      });
+      return NextResponse.json({ error: "Database upsert failed" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
@@ -101,23 +113,25 @@ export async function POST(req: Request): Promise<NextResponse> {
  */
 export async function DELETE(req: Request): Promise<NextResponse> {
   try {
+    const authUser = await getUserFromRequest(req);
+    if (!authUser) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+
     const body = (await req.json()) as UnsubscribeRequestBody;
     const { endpoint } = body;
 
-    if (!endpoint || typeof endpoint !== "string") {
-      return NextResponse.json(
-        { error: "endpoint обязателен" },
-        { status: 400 }
-      );
+    if (!endpoint || typeof endpoint !== "string" || !isAllowedPushEndpoint(endpoint)) {
+      return NextResponse.json({ error: "Некорректный endpoint" }, { status: 400 });
     }
 
     const { error } = await supabaseAdmin
       .from("push_subscriptions")
       .delete()
-      .eq("endpoint", endpoint);
+      .eq("endpoint", endpoint)
+      .eq("user_id", authUser.id);
 
     if (error) {
       console.error("[notifications/subscribe] delete error:", error.message);
+      return NextResponse.json({ error: "Database delete failed" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });

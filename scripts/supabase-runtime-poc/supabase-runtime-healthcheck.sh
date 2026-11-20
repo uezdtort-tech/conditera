@@ -13,4 +13,15 @@ curl -fsS --max-time 3 http://127.0.0.1:5000/status >/dev/null
 curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:8080/health
 curl -fsS --max-time 3 -H "apikey: $ANON_KEY" http://127.0.0.1:8000/auth/v1/health >/dev/null
 curl -fsS --max-time 3 http://127.0.0.1:5001/health >/dev/null
-supervisorctl -c /etc/supervisord.conf status | awk '$2 != "RUNNING" { bad=1 } END { exit bad }'
+test -f /run/supabase-app-migrations.done
+supervisorctl -c /etc/supervisord.conf status | awk '
+  $1 == "app-migrations" {
+    # supervisorctl status reports EXITED + timestamp, not the process exit
+    # code. The completion marker is created only after migrations and role
+    # provisioning both succeed, so it is the authoritative success signal.
+    if ($2 != "EXITED") bad=1
+    next
+  }
+  $2 != "RUNNING" { bad=1 }
+  END { exit bad }
+'

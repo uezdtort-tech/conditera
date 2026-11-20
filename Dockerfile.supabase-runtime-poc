@@ -8,6 +8,7 @@ FROM supabase/storage-api:v1.89.12 AS storage
 FROM supabase/postgres-meta:v0.100.0 AS meta
 FROM darthsim/imgproxy:v4.0.21 AS imgproxy
 FROM kong:3.9.3 AS kong
+FROM supabase/edge-runtime:v1.77.9 AS edge-runtime
 
 FROM alpine:3.20 AS runtime
 
@@ -37,12 +38,23 @@ COPY --from=storage / /opt/supabase/services/storage/
 COPY --from=meta / /opt/supabase/services/meta/
 COPY --from=imgproxy / /opt/supabase/services/imgproxy/
 COPY --from=kong / /opt/supabase/services/kong/
+COPY --from=edge-runtime / /opt/supabase/services/edge-runtime/
+COPY supabase/functions/ /opt/supabase/services/edge-runtime/home/deno/functions/
 
 COPY supabase/kong.yml /opt/supabase/kong.yml.template
 COPY supabase/init-scripts/00-service-role-passwords.sh \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-00-role-passwords.sh
 COPY supabase/init-scripts/02-realtime-schema.sql \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-schema.sql
+# Seed the exact tenant schema/migration state shipped with the pinned Realtime
+# image. The image release bundles this versioned dump under the app priv dir.
+COPY --from=realtime /app/lib/realtime-2.148.3/priv/repo/tenant_db_dump_17.sql \
+  /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-tenant-db-dump.sql
+# Application migrations run once, inside this same runtime container, after
+# PostgreSQL and the Storage API have initialized their managed schemas.
+COPY supabase/migrations/ /opt/supabase/services/postgres/opt/conditera/migrations/
+COPY supabase/init-scripts/01-apply-migrations.sh \
+  /opt/supabase/services/postgres/opt/conditera/apply-migrations.sh
 
 COPY scripts/supabase-runtime-poc/ /usr/local/lib/supabase-runtime-poc/
 COPY scripts/supabase-runtime-poc/supervisord.conf /etc/supervisord.conf
