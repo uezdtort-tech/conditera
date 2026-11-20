@@ -98,19 +98,19 @@ plugins:
     service: rest-v1
     config:
       allow: [anon, service_role]
-      hide_groups: true
+      hide_groups_header: true
 
   - name: acl
     service: storage-v1
     config:
       allow: [anon, service_role]
-      hide_groups: true
+      hide_groups_header: true
 
   - name: acl
     service: realtime-v1
     config:
       allow: [anon, service_role]
-      hide_groups: true
+      hide_groups_header: true
 
   # Rate limiting для auth — защита от brute force
   - name: rate-limiting
