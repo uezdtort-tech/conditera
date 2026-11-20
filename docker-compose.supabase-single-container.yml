@@ -3,6 +3,66 @@
 # The legacy multi-container Supabase services are disabled unless the
 # explicit "legacy-supabase" profile is selected.
 services:
+  # Disable the duplicate application PostgreSQL 18/PgBouncer path. The only
+  # application/Supabase database is PostgreSQL 17 inside supabase-runtime.
+  migrator:
+    profiles: ["legacy-app-db"]
+  db:
+    profiles: ["legacy-app-db"]
+  pgbouncer:
+    profiles: ["legacy-app-db"]
+
+  # Override web's DB target and dependencies without dropping its other env.
+  web:
+    environment: !override
+      - APP_VERSION=${WEB_TAG:-dev}
+      - DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
+      - DIRECT_DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
+      - REDIS_URL=redis://redis:6379
+      - MEILISearch_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
+      - SUPABASE_INTERNAL_URL=http://supabase-kong:8000
+      - NODE_ENV=production
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHANNEL_ID=${TELEGRAM_CHANNEL_ID:-}
+      - TELEGRAM_ADMIN_CHAT_IDS=${TELEGRAM_ADMIN_CHAT_IDS:-}
+      - NEXT_PUBLIC_YANDEX_METRIKA_ID=${NEXT_PUBLIC_YANDEX_METRIKA_ID:-111432662}
+      - YANDEX_METRIKA_OAUTH_TOKEN=${YANDEX_METRIKA_OAUTH_TOKEN:-}
+      - SMTP_HOST=${SMTP_HOST:-mailu}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-noreply@conditera.ru}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-Кондитера <noreply@conditera.ru>}
+      - SMTP_REPLY_TO=${SMTP_REPLY_TO:-support@conditera.ru}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-false}
+      - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
+      - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
+      - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-Кондитера}
+      - NEXT_PUBLIC_APP_DESCRIPTION=${NEXT_PUBLIC_APP_DESCRIPTION:-Маркетплейс кондитерских изделий}
+      - NEXT_PUBLIC_SUPPORT_EMAIL=${NEXT_PUBLIC_SUPPORT_EMAIL:-support@conditera.ru}
+      - NEXT_PUBLIC_INFO_EMAIL=${NEXT_PUBLIC_INFO_EMAIL:-info@conditera.ru}
+      - NEXT_PUBLIC_PRIVACY_EMAIL=${NEXT_PUBLIC_PRIVACY_EMAIL:-privacy@conditera.ru}
+      - NEXT_PUBLIC_SUPPORT_PHONE=${NEXT_PUBLIC_SUPPORT_PHONE:-8 (800) 000-00-00}
+      - NEXT_PUBLIC_SUPPORT_PHONE_HREF=${NEXT_PUBLIC_SUPPORT_PHONE_HREF:-+78000000000}
+      - NEXT_PUBLIC_COMPANY_ADDRESS=${NEXT_PUBLIC_COMPANY_ADDRESS:-}
+      - NEXT_PUBLIC_COMPANY_INN=${NEXT_PUBLIC_COMPANY_INN:-}
+      - NEXT_PUBLIC_COMPANY_OGRN=${NEXT_PUBLIC_COMPANY_OGRN:-}
+      - NEXT_PUBLIC_TELEGRAM_CHANNEL=${NEXT_PUBLIC_TELEGRAM_CHANNEL:-@conditera}
+      - NEXT_PUBLIC_TELEGRAM_URL=${NEXT_PUBLIC_TELEGRAM_URL:-https://t.me/conditera}
+      - NEXT_PUBLIC_VK_URL=${NEXT_PUBLIC_VK_URL:-}
+      - NEXT_PUBLIC_INSTAGRAM_URL=${NEXT_PUBLIC_INSTAGRAM_URL:-}
+      - NEXT_PUBLIC_LEGAL_NAME=${NEXT_PUBLIC_LEGAL_NAME:-}
+      - NEXT_PUBLIC_LEGAL_ADDRESS=${NEXT_PUBLIC_LEGAL_ADDRESS:-}
+      - NEXT_PUBLIC_FOUNDED_YEAR=${NEXT_PUBLIC_FOUNDED_YEAR:-2024}
+    depends_on: !override
+      supabase-runtime:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+
   supabase-db:
     profiles: ["legacy-supabase"]
   supabase-kong:
@@ -38,6 +98,7 @@ services:
       POSTGRES_USER: supabase_admin
       POSTGRES_DB: supabase
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       ANON_KEY: ${ANON_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}}
