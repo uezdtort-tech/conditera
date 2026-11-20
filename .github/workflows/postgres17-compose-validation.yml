@@ -196,7 +196,7 @@ jobs:
             psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
             "SELECT count(*) FROM storage.buckets WHERE id IN ('avatars','covers','portfolio','product_images','documents','messages');")
           test "$BUCKETS" = "6"
-          for table in profiles user_roles products orders inventory_items chat_channels oauth_identity_links user_consent_events cms_home_blocks; do
+          for table in profiles user_roles products orders inventory_items chat_channels oauth_identity_links user_consent_events cms_home_blocks cms_media; do
             docker compose \
               -f docker-compose.supabase.yml \
               -f docker-compose.pg17-migration.yml \
@@ -209,7 +209,7 @@ jobs:
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration exec -T supabase-db-pg17-migration \
             psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
-            "SELECT has_table_privilege('service_role','public.cms_home_blocks','SELECT') AND has_table_privilege('service_role','public.cms_home_blocks','INSERT');")
+            "SELECT has_table_privilege('service_role','public.cms_home_blocks','SELECT') AND has_table_privilege('service_role','public.cms_home_blocks','INSERT') AND has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT');")
           test "$SERVICE_ROLE_CMS_ACCESS" = "t"
           echo "PG17 schema migrations: $MIGRATIONS; Storage migration: $STORAGE_MIGRATION; buckets: $BUCKETS"
       - name: Проверить логический перенос дампа PostgreSQL 18 в теневую БД PostgreSQL 17
