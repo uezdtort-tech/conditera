@@ -24,7 +24,7 @@ import {
 import {
   Package, Coins, TrendingUp, Settings, LogOut,
   ShoppingCart, Users, ShieldAlert, ScrollText, Flag,
-  LayoutDashboard, MessageSquare, Edit, Image as ImageIcon,
+  LayoutDashboard, MessageSquare, Edit, Image as ImageIcon, Palette,
   Mail, ShieldCheck, FileText, CalendarDays, Tags, Globe,
   Zap, Database, Cake, Building2, Navigation,
   Utensils, MapPin, Star, Store, UserX,
