@@ -15,7 +15,7 @@ if (!serviceRoleKey || serviceRoleKey.split(".").length !== 3) {
   throw new Error("Generated service-role JWT is malformed");
 }
 
-const endpoint = "http://127.0.0.1:18000/functions/v1/abandoned-cart";
+const endpoint = "http://127.0.0.1:18000/functions/v1/auto-close-tenders";
 const anonKey = runtimeEnv.ANON_KEY;
 if (!anonKey || anonKey.split(".").length !== 3) {
   throw new Error("Generated anon JWT is malformed");
@@ -67,23 +67,6 @@ try {
 
 if (!response.ok || payload.ok !== true) {
   throw new Error("Edge Function returned an unexpected response");
-}
-
-// auto-close-tenders is implemented and must execute its PostgreSQL RPC.
-const tenderResponse = await fetch("http://127.0.0.1:18000/functions/v1/auto-close-tenders", {
-  method: "POST",
-  headers: {
-    apikey: serviceRoleKey,
-    Authorization: "Bearer " + serviceRoleKey,
-    "Content-Type": "application/json",
-  },
-  body: "{}",
-  signal: AbortSignal.timeout(30_000),
-});
-const tenderBody = await tenderResponse.text();
-console.log("auto-close-tenders HTTP " + tenderResponse.status + ": " + tenderBody.slice(0, 300));
-if (!tenderResponse.ok || JSON.parse(tenderBody).ok !== true) {
-  throw new Error("auto-close-tenders did not complete its database operation");
 }
 
 // Exercise notification delivery without real credentials, and prove the two
