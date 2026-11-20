@@ -10,7 +10,8 @@
  *
  * Действия (таб «Производство»):
  *   • POST /api/orders/{id}/production/start    — CONFIRMED → PREPARING;
- *   • POST /api/orders/{id}/production/complete — этапы отмечаются выполненными;
+ *   • POST /api/orders/{id}/production/stage — отдельное подтверждение этапа;
+ *   • POST /api/orders/{id}/production/complete — фиксация завершения всех этапов;
  *   • POST /api/orders/{id}/ready               — PREPARING → READY (QC/фото-гейт;
  *     422 → тост с message + detail из ответа);
  *   • POST /api/orders/{id}/handoff             — READY → IN_DELIVERY/DELIVERED
