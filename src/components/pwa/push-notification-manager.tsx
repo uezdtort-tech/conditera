@@ -33,21 +33,24 @@ export function PushNotificationManager() {
   }, [subscribe]);
 
   useEffect(() => {
-    if (!user || !isSupported || isSubscribed || permission !== "default") return;
+    if (!user || !isSupported || isSubscribed || permission === "denied") return;
     const promptKey = `uk_push_asked_${user.id}`;
     if (localStorage.getItem(promptKey) === "true") return;
 
+    const permissionAlreadyGranted = permission === "granted";
     const timer = window.setTimeout(() => {
       localStorage.setItem(promptKey, "true");
-      toast("Включить push-уведомления?", {
-        description: "Будем сообщать о заказах и сообщениях",
+      toast(permissionAlreadyGranted ? "Подключить доставку push-уведомлений?" : "Включить push-уведомления?", {
+        description: permissionAlreadyGranted
+          ? "Разрешение браузера уже есть — осталось сохранить подписку для этого аккаунта"
+          : "Будем сообщать о заказах и сообщениях",
         action: {
-          label: "Включить",
+          label: permissionAlreadyGranted ? "Подключить" : "Включить",
           onClick: requestPermission,
         },
         duration: 10000,
       });
-    }, 30000);
+    }, permissionAlreadyGranted ? 3000 : 30000);
 
     return () => window.clearTimeout(timer);
   }, [user, isSupported, isSubscribed, permission, requestPermission]);
