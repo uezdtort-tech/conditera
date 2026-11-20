@@ -80,11 +80,14 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       })
       .eq("id", orderId)
       .eq("status", order.status)
+      // Эскроу-release меняет payment_status независимо от status.
+      // Сравниваем оба значения, чтобы cancel не перетёр уже выплаченное состояние.
+      .eq("payment_status", order.payment_status)
       .select("id");
 
     if (updateErr || !updatedRows || updatedRows.length === 0) {
       return NextResponse.json(
-        { error: "Статус заказа изменился, обновите страницу и повторите" },
+        { error: "Статус заказа или платёж изменился параллельно. Обновите заказ и обратитесь в поддержку, если выплата уже началась." },
         { status: 409 }
       );
     }
