@@ -17,11 +17,18 @@ async function authorize(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await authorize(request);
-    if (auth.response) return auth.response;
-    const { data, error } = await supabaseAdmin.from("cms_home_blocks").select("*").order("section").order("sort_order").order("created_at");
+    const publicOnly = request.nextUrl.searchParams.get("public") === "true";
+    if (!publicOnly) {
+      const auth = await authorize(request);
+      if (auth.response) return auth.response;
+    }
+    let query = supabaseAdmin.from("cms_home_blocks").select("*");
+    if (publicOnly) query = query.eq("is_active", true);
+    const { data, error } = await query.order("section").order("sort_order").order("created_at");
     if (error) return NextResponse.json({ error: "Не удалось загрузить блоки CMS" }, { status: 500 });
-    return NextResponse.json({ blocks: data || [] });
+    return NextResponse.json({ blocks: data || [] }, {
+      headers: { "Cache-Control": publicOnly ? "public, s-maxage=60, stale-while-revalidate=300" : "private, no-store" },
+    });
   } catch {
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
