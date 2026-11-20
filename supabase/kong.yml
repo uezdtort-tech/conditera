@@ -77,42 +77,6 @@ services:
           headers: [Accept, Authorization, Content-Type, apikey, X-Client-Info]
           credentials: true
 
-  # ===== Telegram webhook (authenticated by Telegram secret-token header) =====
-  # The service path preserves the function slug after Kong strips the public prefix.
-  - name: telegram-webhook
-    url: http://127.0.0.1:9000/telegram-webhook
-    routes:
-      - name: telegram-webhook-public
-        strip_path: true
-        paths:
-          - /functions/v1/telegram-webhook
-        methods: [POST]
-    plugins:
-      - name: rate-limiting
-        config:
-          minute: 60
-          hour: 1000
-          policy: local
-          fault_tolerant: true
-
-  # ===== YooKassa webhook (secret URL suffix + source IP validation) =====
-  # URL: /functions/v1/yookassa-webhook/<configured-secret>
-  - name: yookassa-webhook
-    url: http://127.0.0.1:9000/yookassa-webhook
-    routes:
-      - name: yookassa-webhook-public
-        strip_path: true
-        paths:
-          - /functions/v1/yookassa-webhook/
-        methods: [POST]
-    plugins:
-      - name: rate-limiting
-        config:
-          minute: 60
-          hour: 1000
-          policy: local
-          fault_tolerant: true
-
   # ===== Edge Functions (internal service-role only) =====
   - name: functions-v1
     url: http://127.0.0.1:9000/
