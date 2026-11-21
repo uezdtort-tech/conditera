@@ -376,10 +376,29 @@ export async function POST(request: NextRequest) {
 
         // Если подтверждение оплаты пришло ПОСЛЕ отмены заказа, деньги
         // нельзя помещать в escrow или оставлять без возврата. Отправляем
-        // полный остаток назад провайдеру. Ключ совпадает с cancel-route
-        // (refundPayment default), поэтому параллельные/повторные webhook
-        // не создадут второй возврат.
-        if (order.status === "CANCELLED" || order.status === "REFUNDED" || order.status === "COMPLETED") {
+        // полный остаток назад провайдеру. Учитываем и случай, когда payment.canceled
+        // уже пометил payment row, но не успел отменить order (race/DB failure).
+        // Детерминированный отдельный ключ делает повторный webhook безопасным.
+        const orderTerminal = ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status);
+        if (orderTerminal || payment?.status === "cancelled") {
+          if (!orderTerminal && payment?.status === "cancelled") {
+            const { data: cancelledOrder, error: cancelOrderError } = await supabaseAdmin
+              .from("orders")
+              .update({ status: "CANCELLED", payment_status: "cancelled" })
+              .eq("id", orderId)
+              .eq("status", order.status)
+              .eq("payment_status", order.payment_status)
+              .in("payment_status", ["pending", "waiting_for_capture", "cancelled"])
+              .select("id");
+            if (cancelOrderError) {
+              console.error("[webhook] cancelled payment order reconciliation failed:", cancelOrderError.message);
+              return NextResponse.json({ error: "DB error" }, { status: 500 });
+            }
+            if (!cancelledOrder?.length) {
+              console.error("[webhook] cancelled payment could not atomically cancel current order state");
+              return NextResponse.json({ error: "Order cancellation reconciliation required" }, { status: 500 });
+            }
+          }
           if (payment?.status === "refunded") {
             return NextResponse.json({ success: true, skipped: "already_refunded" });
           }
