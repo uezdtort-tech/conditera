@@ -410,6 +410,11 @@ async function main() {
     [OWNER_ID]
   );
   const quoteConfectionerId = confectionerRow.rows[0]?.id;
+  const competingConfectionerRow = await client.query(
+    `SELECT id FROM public.confectioners WHERE id <> $1::text ORDER BY id LIMIT 1`,
+    [quoteConfectionerId]
+  );
+  const competingConfectionerId = competingConfectionerRow.rows[0]?.id ?? null;
   const quoteProduct = await client.query(
     `SELECT id::text, confectioner_id::text FROM public.products WHERE id = $1::uuid`,
     [PRODUCT_ID]
@@ -442,7 +447,7 @@ async function main() {
         address: "ул. Тестовая, 1",
         estimated_price: 330000,
         estimated_delivery_cost: 0,
-        confectioner_ids: [quoteConfectionerId],
+        confectioner_ids: [quoteConfectionerId, ...(competingConfectionerId ? [competingConfectionerId] : [])],
         project_spec: {
           productType: "cake", base: "sponge", filling: "chocolate_ganache",
           coating: "ganache_dark", decorations: ["berries", "macarons", "gold_leaf", "flowers", "pearls"], servings: 8,
@@ -513,6 +518,26 @@ async function main() {
       assert("кондитер отправляет предложение с проверенным рецептом → 200",
         quoteResponse.status === 200 && Boolean(quoteResponse.json?.quote?.id),
         JSON.stringify(quoteResponse.json).slice(0, 240));
+
+      if (quoteResponse.status === 200 && quoteResponse.json?.quote?.id && competingConfectionerId) {
+        // Имитация второго приглашённого кондитера: его цена не должна попасть
+        // в embedded my_quotes первого кондитера.
+        await client.query(
+          `INSERT INTO public.confectioner_quotes
+             (quote_request_id, confectioner_id, base_cost, subtotal, total_price, status)
+           VALUES ($1::uuid, $2::text, 77777, 77777, 77777, 'pending')`,
+          [quoteRequestId, competingConfectionerId]
+        );
+        const confectionerInbox = await api("GET", "/api/quotes?mode=confectioner", { token: owner });
+        const ownRequest = (confectionerInbox.json?.quotes || []).find(item => item.id === quoteRequestId);
+        const ownOffers = Array.isArray(ownRequest?.my_quotes)
+          ? ownRequest.my_quotes
+          : ownRequest?.my_quotes ? [ownRequest.my_quotes] : [];
+        assert("кондитер получает только собственное предложение, без цены конкурента",
+          confectionerInbox.status === 200 && ownOffers.length === 1 &&
+          ownOffers[0].confectioner_id === quoteConfectionerId,
+          JSON.stringify(ownOffers).slice(0, 220));
+      }
 
       if (quoteResponse.status === 200 && quoteResponse.json?.quote?.id) {
         const quoteId = quoteResponse.json.quote.id;
