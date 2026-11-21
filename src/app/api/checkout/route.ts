@@ -208,15 +208,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // гарантированно исполнимый оплаченный заказ.
     const unsupportedProductionItems = cartItems.filter((item) =>
       Boolean(item.custom) ||
-      ["filling", "coating", "decoration"].some((key) =>
-        Boolean(item.selected_attributes?.[key]?.trim())
+      Object.entries(item.selected_attributes ?? {}).some(
+        ([key, value]) => key !== "inscription" && Boolean(value?.trim())
       )
     );
     if (unsupportedProductionItems.length > 0) {
       return NextResponse.json(
         {
           error: "Некоторые позиции требуют производственной спецификации",
-          message: "Оплачиваемый заказ пока доступен для товаров с настроенным рецептом без индивидуальных изменений начинки, покрытия и декора. Для индивидуального торта отправьте запрос на согласование с кондитером.",
+          message: "Оплачиваемый заказ пока доступен для товаров с настроенным рецептом без изменений состава, размера, начинки, покрытия и декора. Для индивидуального торта отправьте запрос на согласование с кондитером.",
           code: "PRODUCTION_SPEC_REQUIRED",
         },
         { status: 422 }
