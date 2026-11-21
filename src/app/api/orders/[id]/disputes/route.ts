@@ -240,9 +240,10 @@ export async function PATCH(
       under_review: ["awaiting_customer", "resolved", "rejected"],
       awaiting_customer: ["under_review", "resolved", "rejected"],
     };
-    if (!transitions[current.status]?.includes(nextStatus)) {
+    const currentStatus = String(current.status);
+    if (!transitions[currentStatus]?.includes(nextStatus)) {
       await client.query("ROLLBACK");
-      return NextResponse.json({ error: "INVALID_DISPUTE_TRANSITION", currentStatus: current.status }, { status: 409 });
+      return NextResponse.json({ error: "INVALID_DISPUTE_TRANSITION", currentStatus }, { status: 409 });
     }
 
     const updated = await client.query(
