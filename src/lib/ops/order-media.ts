@@ -6,7 +6,7 @@
  * Доступ к объектам выдаётся только через авторизованный API, который
  * проверяет владельца/назначенного участника заказа.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getPool } from "@/lib/postgrest/pool";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -50,6 +50,7 @@ export interface OrderMediaRow {
   height: number | null;
   uploadedBy: string | null;
   uploadedAt: string;
+  contentSha256: string;
 }
 
 /** Проверка ключа объекта: не допускаем произвольные storage paths. */
@@ -98,6 +99,7 @@ export async function saveOrderReadyPhoto(params: {
   }
 
   const meta = await parseImageMeta(buffer, sniffed.mime);
+  const contentSha256 = createHash("sha256").update(buffer).digest("hex");
   const ext = EXT_BY_MIME[sniffed.mime] ?? "jpg";
   const storagePath = `orders/${params.orderId}/published/photos/${randomUUID()}.${ext}`;
   assertOrderMediaPath(storagePath);
@@ -129,10 +131,10 @@ export async function saveOrderReadyPhoto(params: {
     }>(
       `INSERT INTO public.order_media
          (order_id, kind, media_type, storage_path, original_filename,
-          mime_type, file_size, width, height, uploaded_by, status)
-       VALUES ($1::uuid, $2, 'photo', $3, $4, $5, $6, $7, $8, $9::uuid, 'approved')
+          mime_type, file_size, width, height, uploaded_by, content_sha256, status)
+       VALUES ($1::uuid, $2, 'photo', $3, $4, $5, $6, $7, $8, $9::uuid, $10, 'approved')
        RETURNING id::text, order_id::text, kind, storage_path, mime_type,
-                 file_size, width, height, uploaded_by::text, uploaded_at`,
+                 file_size, width, height, uploaded_by::text, uploaded_at, content_sha256`,
       [
         params.orderId,
         params.kind ?? "ready_photo",
@@ -143,6 +145,7 @@ export async function saveOrderReadyPhoto(params: {
         meta.width,
         meta.height,
         params.uploadedBy,
+        contentSha256,
       ]
     );
     const row = res.rows[0];
@@ -157,6 +160,7 @@ export async function saveOrderReadyPhoto(params: {
       height: row.height,
       uploadedBy: row.uploaded_by,
       uploadedAt: new Date(row.uploaded_at).toISOString(),
+      contentSha256: row.content_sha256,
     };
   } catch (err) {
     const { error: cleanupError } = await supabaseAdmin.storage
