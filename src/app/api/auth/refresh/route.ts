@@ -16,6 +16,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyRefreshToken, createAccessToken } from "@/lib/auth";
+import { isUserSessionActive } from "@/lib/session-registry";
+import { setSessionCookies } from "@/lib/session-cookies";
 import { REFRESH_COOKIE } from "@/lib/session-cookies";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
@@ -56,6 +58,13 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (!payload) {
       return NextResponse.json(
         { error: "Недействительный refresh token" },
+        { status: 401 }
+      );
+    }
+
+    if (!payload.sid || !(await isUserSessionActive(payload.sid, payload.userId))) {
+      return NextResponse.json(
+        { error: "Сессия завершена или отозвана. Войдите снова." },
         { status: 401 }
       );
     }
@@ -104,9 +113,11 @@ export async function POST(request: NextRequest): Promise<Response> {
       name: user.name || user.email?.split("@")[0] || "Пользователь",
       roles,
       accountType: user.account_type,
+      sid: payload.sid,
     });
 
-    return NextResponse.json({ accessToken: newAccessToken });
+    const response = NextResponse.json({ accessToken: newAccessToken });
+    return setSessionCookies(response, { accessToken: newAccessToken, refreshToken });
   } catch (error: any) {
     console.error("Refresh error:", error?.message);
     return NextResponse.json(
