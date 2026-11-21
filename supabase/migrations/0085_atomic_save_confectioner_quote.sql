@@ -31,7 +31,6 @@ AS $$
 DECLARE
   v_request public.quote_requests%ROWTYPE;
   v_quote public.confectioner_quotes%ROWTYPE;
-  v_product public.products%ROWTYPE;
   v_subtotal BIGINT;
   v_discount BIGINT;
   v_total BIGINT;
@@ -80,18 +79,9 @@ BEGIN
     RAISE EXCEPTION 'QUOTE_ALREADY_ACCEPTED';
   END IF;
 
-  SELECT * INTO v_product
-    FROM public.products
-   WHERE id = p_production_product_id
-     AND confectioner_id = p_confectioner_id
-     AND status = 'published';
-  IF NOT FOUND OR v_product.recipe_id IS NULL THEN
-    RAISE EXCEPTION 'PRODUCTION_RECIPE_UNAVAILABLE';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.recipe_ingredients WHERE recipe_id = v_product.recipe_id) THEN
-    RAISE EXCEPTION 'PRODUCTION_RECIPE_EMPTY';
-  END IF;
-
+  -- Каталог и recipe_ingredients обслуживаются основным PG18 в текущей
+  -- двухкластерной конфигурации. Проверка товара/рецепта выполняется API
+  -- через getPool(); эта RPC хранит только ссылку в Supabase PG15.
   v_subtotal := p_base_cost + p_filling_cost + p_coating_cost +
     p_decoration_cost + p_packaging_cost + p_printing_cost +
     p_storage_cost + p_delivery_cost + p_service_cost + p_custom_design_cost;
