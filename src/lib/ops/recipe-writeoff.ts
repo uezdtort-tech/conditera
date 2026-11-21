@@ -60,7 +60,7 @@ export async function writeOffOrderRecipe(
     };
   }
 
-  const items: Array<{ item_id: string; quantity: number }> = [];
+  let items: Array<{ item_id: string; quantity: number }> = [];
   for (const ingredient of breakdown.ingredients) {
     if (!ingredient.inventory_item_id || !ingredient.warehouse_unit) {
       return {
@@ -81,6 +81,7 @@ export async function writeOffOrderRecipe(
   }
 
   const signature = signatureFor(items);
+  let previouslyApplied: AppliedItem[] = [];
   const { error: claimError } = await supabaseAdmin.from("inventory_write_offs").insert({
     owner_id: actor.id,
     order_id: orderId,
@@ -115,10 +116,10 @@ export async function writeOffOrderRecipe(
     // неуспешные позиции, не трогая уже списанные (защита от двойного расхода).
     const failedIds = new Set(saved.failed.map((item) => item.item_id));
     items = items.filter((item) => failedIds.has(item.item_id));
-    var previouslyApplied: AppliedItem[] = saved.applied;
+    previouslyApplied = saved.applied;
   }
 
-  const applied: AppliedItem[] = typeof previouslyApplied !== "undefined" ? [...previouslyApplied] : [];
+  const applied: AppliedItem[] = [...previouslyApplied];
   const failed: FailedItem[] = [];
   let firstFailure: { status: number; message: string } | null = null;
 
@@ -158,7 +159,7 @@ export async function writeOffOrderRecipe(
     failed.push({ item_id: item.item_id, error: message });
   }
 
-  if (applied.length === 0 && firstFailure && typeof previouslyApplied === "undefined") {
+  if (applied.length === 0 && firstFailure && previouslyApplied.length === 0) {
     await supabaseAdmin.from("inventory_write_offs").delete()
       .eq("owner_id", actor.id).eq("order_id", orderId).eq("signature", signature);
     return { ok: false, status: firstFailure.status, error: firstFailure.message, details: failed };
