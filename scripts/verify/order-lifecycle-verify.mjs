@@ -1033,8 +1033,12 @@ async function main() {
       WHERE type = 'ORDER_DISPUTE_OPENED' AND entity_id = $1`,
     [disputeId],
   );
+  const adminIdentity = await client.query(
+    `SELECT id::text FROM public.profiles WHERE email = 'admin@demo.ru' LIMIT 1`,
+  );
   assert("открытие спора создаёт задачу администратору, а решение закрывает её",
-    disputeOpsTask.rows[0]?.status === "resolved" && disputeOpsTask.rows[0]?.resolved_by === ADMIN_ID,
+    disputeOpsTask.rows[0]?.status === "resolved" &&
+    disputeOpsTask.rows[0]?.resolved_by === adminIdentity.rows[0]?.id,
     JSON.stringify(disputeOpsTask.rows[0]));
 
   const mediaServe = await fetch(`${BASE}${mediaUrl}`, { headers: { Authorization: `Bearer ${admin}` } });
