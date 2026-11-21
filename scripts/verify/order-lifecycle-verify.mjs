@@ -206,7 +206,7 @@ async function prepareRecipeInventoryFixture() {
     [OWNER_ID]
   );
   const existing = await client.query(
-    `SELECT id::text, quantity FROM public.inventory_items
+    `SELECT id::text, quantity, unit FROM public.inventory_items
      WHERE owner_id = $1::uuid AND name = 'Ягоды' AND is_active = true LIMIT 1`,
     [OWNER_ID]
   );
