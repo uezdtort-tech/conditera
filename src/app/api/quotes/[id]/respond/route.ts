@@ -105,7 +105,7 @@ export async function POST(
     // Проверить, что запрос относится к этому кондитеру
     const { data: quoteRequest, error: qrError } = await supabaseAdmin
       .from("quote_requests")
-      .select("id, confectioner_ids, city")
+      .select("id, confectioner_ids, city, status, expires_at")
       .eq("id", quoteRequestId)
       .maybeSingle();
 
@@ -113,8 +113,12 @@ export async function POST(
       throw new HttpError(404, "Запрос не найден");
     }
 
-    if (!quoteRequest.confectioner_ids.includes(confectioner.id)) {
+    if (!(quoteRequest.confectioner_ids ?? []).includes(confectioner.id)) {
       throw new HttpError(403, "Этот запрос не направлен вам");
+    }
+    if (new Date(quoteRequest.expires_at).getTime() <= Date.now() ||
+        ["approved", "rejected", "cancelled", "expired"].includes(quoteRequest.status)) {
+      throw new HttpError(409, "Запрос уже закрыт или срок ответа истёк");
     }
 
     const { data: body, error: parseError } = await safeJsonBody<RespondBody>(req);
@@ -198,10 +202,14 @@ export async function POST(
     // Создать или обновить ценовое предложение
     const { data: existing } = await supabaseAdmin
       .from("confectioner_quotes")
-      .select("id")
+      .select("id, status")
       .eq("quote_request_id", quoteRequestId)
       .eq("confectioner_id", confectioner.id)
       .maybeSingle();
+
+    if (existing?.status === "accepted") {
+      throw new HttpError(409, "Покупатель уже принял это предложение и заказ создан");
+    }
 
     const quoteData = {
       quote_request_id: quoteRequestId,
@@ -248,6 +256,11 @@ export async function POST(
       if (error) throw new HttpError(500, "DB error", error.message);
       quote = created;
     }
+
+    await supabaseAdmin.from("quote_requests")
+      .update({ status: "quoted", updated_at: new Date().toISOString() })
+      .eq("id", quoteRequestId)
+      .eq("status", "sent");
 
     return NextResponse.json({
       quote,
