@@ -201,6 +201,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       customerPhone,
     } = parsed.data;
 
+    // В первый оплачиваемый production-путь допускаются только позиции,
+    // для которых складской расход полностью описан recipe_ingredients.
+    // Конструктор и модификаторы начинки/покрытия/декора пока не имеют
+    // производственной спецификации, поэтому их нельзя принимать как
+    // гарантированно исполнимый оплаченный заказ.
+    const unsupportedProductionItems = cartItems.filter((item) =>
+      Boolean(item.custom) ||
+      ["filling", "coating", "decoration"].some((key) =>
+        Boolean(item.selected_attributes?.[key]?.trim())
+      )
+    );
+    if (unsupportedProductionItems.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Некоторые позиции требуют производственной спецификации",
+          message: "Оплачиваемый заказ пока доступен для товаров с настроенным рецептом без индивидуальных изменений начинки, покрытия и декора. Для индивидуального торта отправьте запрос на согласование с кондитером.",
+          code: "PRODUCTION_SPEC_REQUIRED",
+        },
+        { status: 422 }
+      );
+    }
+
     // Контакт получателя — серверная валидация (P1-A7)
     const name = customerName.trim();
     const phone = customerPhone.trim();
