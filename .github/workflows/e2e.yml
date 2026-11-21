@@ -44,6 +44,7 @@ on:
     branches:
       - main
       - develop
+      - release/first-production-hardening
     paths:
       # Запускать только при изменениях в коде, который тестируется e2e
       - "src/app/api/**"
