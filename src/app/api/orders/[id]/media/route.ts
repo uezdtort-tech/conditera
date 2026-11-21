@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import {
   saveOrderReadyPhoto,
