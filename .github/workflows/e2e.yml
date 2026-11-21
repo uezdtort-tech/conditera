@@ -45,8 +45,12 @@ on:
       - main
       - develop
       - release/first-production-hardening
+      - fix/webhook-verify-before-ledger
     paths:
-      # Запускать только при изменениях в коде, который тестируется e2e
+      # Запускать при изменениях API, миграций, сценария полного заказа или самого workflow.
+      - ".github/workflows/e2e.yml"
+      - "supabase/migrations/**"
+      - "scripts/verify/order-lifecycle-verify.mjs"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
