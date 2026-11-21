@@ -20,7 +20,7 @@ DROP POLICY IF EXISTS "orders_select_own" ON public.orders;
 CREATE POLICY "orders_select_own" ON public.orders
   FOR SELECT USING (
     auth.uid() = user_id
-    OR auth.uid() = confectioner_id
+    OR auth.uid()::text = confectioner_id::text
     OR EXISTS (
       SELECT 1 FROM public.user_roles ur
       WHERE ur.user_id = auth.uid()
