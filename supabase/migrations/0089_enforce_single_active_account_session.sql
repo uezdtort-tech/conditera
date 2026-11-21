@@ -68,4 +68,26 @@ GRANT EXECUTE ON FUNCTION public.enforce_single_active_user_session(UUID, UUID)
 COMMENT ON FUNCTION public.enforce_single_active_user_session(UUID, UUID) IS
   'Enforces one active personal account session; a new login revokes prior device sessions atomically.';
 
+-- Миграционный backfill: оставляем на каждом аккаунте только наиболее недавно
+-- использованный активный сеанс. Старые токены перестают проходить allowlist.
+WITH ranked AS (
+  SELECT id, user_id,
+         row_number() OVER (
+           PARTITION BY user_id
+           ORDER BY last_seen_at DESC NULLS LAST, created_at DESC, id DESC
+         ) AS position
+  FROM public.user_sessions
+  WHERE revoked_at IS NULL AND expires_at > now()
+), revoked AS (
+  UPDATE public.user_sessions s
+  SET revoked_at = now(), revoked_reason = 'single_session_policy_migration'
+  FROM ranked r
+  WHERE s.id = r.id AND r.position > 1
+  RETURNING s.user_id, s.id
+)
+INSERT INTO public.user_security_events (user_id, session_id, event_type, severity, details)
+SELECT user_id, id, 'session_revoked', 'warning',
+       jsonb_build_object('reason', 'single_session_policy_migration')
+FROM revoked;
+
 NOTIFY pgrst, 'reload schema';
