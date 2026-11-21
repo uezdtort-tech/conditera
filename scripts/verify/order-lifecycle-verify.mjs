@@ -539,7 +539,15 @@ async function main() {
             const confectionerReference = await api("GET", inheritedReferences[0].url, { token: owner });
             assert("назначенный кондитер открывает исходный референс индивидуального заказа → 200",
               confectionerReference.status === 200);
+            const anonymousReference = await api("GET", inheritedReferences[0].url);
+            assert("аноним не может открыть исходный референс → 401",
+              anonymousReference.status === 401);
           }
+          const courierReferenceList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/reference-media`, {
+            token: courier,
+          });
+          assert("не назначенный курьер не видит вложения индивидуального заказа → 403",
+            courierReferenceList.status === 403);
 
           const acceptedOrderPayment = await client.query(
             `SELECT yookassa_payment_id, amount FROM public.payments
