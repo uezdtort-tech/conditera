@@ -26,6 +26,7 @@ const SQL = readFileSync(join(here, "../supabase/migrations/0037_payout_linkage.
 const ESCROW_GUARD_SQL = readFileSync(join(here, "../supabase/migrations/0074_escrow_release_cancel_guard.sql"), "utf8");
 const ORDER_ACCESS_SQL = readFileSync(join(here, "../supabase/migrations/0075_order_access_rls.sql"), "utf8");
 const COURIER_ASSIGNMENT_SQL = readFileSync(join(here, "../supabase/migrations/0076_atomic_courier_assignment.sql"), "utf8");
+const COURIER_ASSIGNMENT_FIX_SQL = readFileSync(join(here, "../supabase/migrations/0081_fix_assign_order_delivery_ambiguity.sql"), "utf8");
 
 let failed = 0;
 function ok(label: string, detail = "") {
@@ -139,6 +140,8 @@ async function main() {
   ok("миграция 0075: ограничен доступ к заказам и запрещены прямые записи клиентов");
   await db.exec(COURIER_ASSIGNMENT_SQL);
   ok("миграция 0076: атомарное назначение курьера через deliveries");
+  await db.exec(COURIER_ASSIGNMENT_FIX_SQL);
+  ok("миграция 0081: устранена неоднозначность courier_id/order_id в RPC");
 
   // 1. Колонка + индекс
   const col = await db.query<{ column_name: string }>(
