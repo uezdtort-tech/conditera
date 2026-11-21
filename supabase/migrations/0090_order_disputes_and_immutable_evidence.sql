@@ -83,6 +83,15 @@ CREATE TRIGGER order_dispute_events_no_update
   BEFORE UPDATE OR DELETE ON public.order_dispute_events
   FOR EACH ROW EXECUTE FUNCTION public.reject_order_dispute_evidence_mutation();
 
+DROP TRIGGER IF EXISTS order_dispute_evidence_no_truncate ON public.order_dispute_evidence;
+CREATE TRIGGER order_dispute_evidence_no_truncate
+  BEFORE TRUNCATE ON public.order_dispute_evidence
+  FOR EACH STATEMENT EXECUTE FUNCTION public.reject_order_dispute_evidence_mutation();
+DROP TRIGGER IF EXISTS order_dispute_events_no_truncate ON public.order_dispute_events;
+CREATE TRIGGER order_dispute_events_no_truncate
+  BEFORE TRUNCATE ON public.order_dispute_events
+  FOR EACH STATEMENT EXECUTE FUNCTION public.reject_order_dispute_evidence_mutation();
+
 CREATE OR REPLACE FUNCTION public.protect_dispute_order_media()
 RETURNS TRIGGER
 LANGUAGE plpgsql
