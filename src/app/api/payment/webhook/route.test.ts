@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
     providerConfigured: false,
     providerResult: { success: true, payment: { status: "succeeded", amount: { value: "100.00", currency: "RUB" }, metadata: { orderId: "11111111-1111-4111-8111-111111111111" } } },
     getPaymentStatus: vi.fn(),
+    getRefund: mocks.state.getRefund,
   };
   const from = vi.fn((table: string) => {
     state.fromCalls.push(table);
@@ -51,6 +52,23 @@ import { POST } from "@/app/api/payment/webhook/route";
 
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const PAYMENT_ID = "provider-payment-1";
+const REFUND_ID = "provider-refund-1";
+
+function refundRequest(amount: string | undefined = "25.00") {
+  return new NextRequest("http://localhost/api/payment/webhook", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      event: "refund.succeeded",
+      object: {
+        id: REFUND_ID,
+        status: "succeeded",
+        payment_id: PAYMENT_ID,
+        amount: amount === undefined ? { currency: "RUB" } : { value: amount, currency: "RUB" },
+      },
+    }),
+  });
+}
 
 function request() {
   return new NextRequest("http://localhost/api/payment/webhook", {
@@ -99,6 +117,7 @@ describe("payment webhook POST — cancellation race", () => {
     mocks.state.fromCalls = [];
     mocks.state.providerConfigured = false;
     mocks.state.getPaymentStatus.mockReset().mockImplementation(async () => mocks.state.providerResult);
+    mocks.state.getRefund.mockReset();
     mocks.state.refundPayment.mockReset().mockResolvedValue({ success: true, refund: { id: "refund-1" } });
   });
 
@@ -140,6 +159,48 @@ describe("payment webhook POST — cancellation race", () => {
       expect.stringContaining("C-100"),
       `uezd_konditer:refund:late:${ORDER_ID}`,
     );
+  });
+
+
+  it("не принимает refund.succeeded, если YooKassa не вернула сумму возврата", async () => {
+    mocks.state.providerConfigured = true;
+    mocks.state.getRefund.mockResolvedValue({
+      success: true,
+      refund: {
+        id: REFUND_ID,
+        payment_id: PAYMENT_ID,
+        status: "succeeded",
+        amount: { currency: "RUB" },
+      },
+    });
+
+    const response = await POST(refundRequest(undefined));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({ error: "Provider verification failed" });
+    expect(mocks.state.getRefund).toHaveBeenCalledWith(REFUND_ID);
+    expect(mocks.state.fromCalls).toEqual([]);
+  });
+
+  it("отклоняет refund.succeeded, если сумма webhook не совпадает с API YooKassa", async () => {
+    mocks.state.providerConfigured = true;
+    mocks.state.getRefund.mockResolvedValue({
+      success: true,
+      refund: {
+        id: REFUND_ID,
+        payment_id: PAYMENT_ID,
+        status: "succeeded",
+        amount: { value: "24.99", currency: "RUB" },
+      },
+    });
+
+    const response = await POST(refundRequest("25.00"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ success: true, skipped: "provider_mismatch" });
+    expect(mocks.state.fromCalls).toEqual([]);
   });
 
   it("не пропускает повторный payment.succeeded до проверки terminal-заказа", async () => {
