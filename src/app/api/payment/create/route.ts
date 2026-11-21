@@ -72,10 +72,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // P1.1 §2: отменённый/возвращённый заказ не оплачивается повторно —
     // webhook перевёл бы его в escrow при статусе CANCELLED и деньги «зависли» бы
     // вне выплаты (escrow-release пропускает CANCELLED).
-    if (order.status === "CANCELLED" || order.payment_status === "refunded") {
+    if (
+      ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status) ||
+      order.payment_status === "refunded"
+    ) {
       return NextResponse.json(
-        { error: "Заказ отменён — оплата невозможна" },
-        { status: 400 }
+        { error: "Заказ отменён или завершён — оплата невозможна" },
+        { status: 409 }
       );
     }
 
@@ -157,9 +160,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
 
       if (insertErr) {
-        // Платёж у провайдера уже создан; webhook найдёт заказ по
-        // metadata.orderId (fallback) — не отдаём 500, но фиксируем.
+        // Не отдаём confirmation_url, пока локальный финансовый ledger
+        // не подтверждён. Иначе webhook сможет перевести заказ в escrow,
+        // не имея локальной payment-записи для возврата/сверки.
         console.error("[payment/create] payments insert failed:", insertErr.message);
+        return NextResponse.json(
+          { error: "Не удалось зафиксировать платёж. Повторите попытку." },
+          { status: 503 }
+        );
       }
     }
 
@@ -170,6 +178,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .eq("id", orderId);
     if (orderUpdErr) {
       console.error("[payment/create] orders payment_status update failed:", orderUpdErr.message);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать состояние заказа перед оплатой" },
+        { status: 503 }
+      );
     }
 
     return NextResponse.json({
