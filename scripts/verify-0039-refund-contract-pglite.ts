@@ -193,22 +193,44 @@ async function main() {
   (h1dup.already_processed && h1dup.total_refunded_kopecks === 30000)
     ? ok("0088: повтор идентичного refund_id идемпотентен") : fail("0088: identical duplicate", JSON.stringify(h1dup));
 
-  async function expectSqlError(label: string, sql: string) {
-    try { await db.query(sql); fail(label, "ожидалось исключение"); }
-    catch (e) { if (String(e).includes("ожидалось исключение")) throw e; ok(label, String(e).split("\n")[0]); }
+  function sqlState(error: unknown): string | undefined {
+    if (typeof error === "object" && error !== null && "code" in error) {
+      const code = (error as { code?: unknown }).code;
+      return typeof code === "string" ? code : undefined;
+    }
+    return undefined;
+  }
+
+  async function expectSqlError(label: string, sql: string, expectedState: string) {
+    let caught: unknown;
+    try {
+      await db.query(sql);
+    } catch (error) {
+      caught = error;
+    }
+
+    if (!caught) {
+      fail(label, `ожидался SQLSTATE ${expectedState}, запрос завершился успешно`);
+      return;
+    }
+
+    const actualState = sqlState(caught);
+    actualState === expectedState
+      ? ok(label, `SQLSTATE ${actualState}`)
+      : fail(label, `ожидался SQLSTATE ${expectedState}, получен ${actualState ?? "неизвестный"}: ${String(caught).split("\\n")[0]}`);
   }
 
   await expectSqlError("0088: тот же refund_id с другой суммой отклонён",
-    `SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_1', 20000)`);
+    `SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_1', 20000)`, "23505");
   await expectSqlError("0088: тот же refund_id с другим payment_id отклонён",
-    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_1', 30000)`);
+    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_1', 30000)`, "23505");
 
   const h2 = (await q(`SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_2', 70000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number; fully_refunded: boolean };
   (!h2.already_processed && h2.total_refunded_kopecks === 100000 && h2.fully_refunded)
     ? ok("0088: два разных возврата суммируются ровно до 100%") : fail("0088: cumulative exact limit", JSON.stringify(h2));
 
   await expectSqlError("0088: превышение общей суммы возвратов отклонено",
-    `SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_over', 1)`);
+    `SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_over', 1)`, "23514");
   const overState = (await q(`SELECT refund_amount, status FROM payments WHERE id='${hardenedA.id}'`))[0] as { refund_amount: string; status: string };
   const overEvents = (await q(`SELECT count(*)::int AS n FROM yookassa_refund_events WHERE refund_id='hard_ref_over'`))[0] as { n: number };
   (Number(overState.refund_amount) === 1000 && overState.status === "refunded" && overEvents.n === 0)
@@ -216,17 +238,17 @@ async function main() {
     : fail("0088: rollback over-limit", JSON.stringify({ overState, overEvents }));
 
   await expectSqlError("0088: NULL payment_id отклонён",
-    `SELECT * FROM apply_yookassa_refund(NULL::uuid, 'hard_ref_null_payment', 100)`);
+    `SELECT * FROM apply_yookassa_refund(NULL::uuid, 'hard_ref_null_payment', 100)`, "22023");
   await expectSqlError("0088: NULL refund_id отклонён",
-    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, NULL::text, 100)`);
+    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, NULL::text, 100)`, "22023");
   await expectSqlError("0088: NULL amount отклонён",
-    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_null_amount', NULL::integer)`);
+    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_null_amount', NULL::integer)`, "22023");
   await expectSqlError("0088: нулевая сумма отклонена",
-    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_zero', 0)`);
+    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_zero', 0)`, "22023");
   await expectSqlError("0088: пустой refund_id отклонён",
-    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, '   ', 100)`);
+    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, '   ', 100)`, "22023");
   await expectSqlError("0088: отсутствующий платёж отклонён",
-    `SELECT * FROM apply_yookassa_refund('99999999-9999-9999-9999-999999999999'::uuid, 'hard_ref_missing', 100)`);
+    `SELECT * FROM apply_yookassa_refund('99999999-9999-9999-9999-999999999999'::uuid, 'hard_ref_missing', 100)`, "P0002");
 
   const hPerm = (await q(`
     SELECT
