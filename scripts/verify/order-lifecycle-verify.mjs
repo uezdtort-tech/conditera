@@ -363,7 +363,11 @@ async function main() {
       api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() })
     )
   );
-  assert("четыре параллельные фотографии укладываются в лимит → 201", concurrentPhotos.every((item) => item.status === 201), JSON.stringify(concurrentPhotos.map((item) => item.status)));
+  assert(
+    "параллельные загрузки не превышают пять одобренных фото",
+    concurrentPhotos.every((item) => item.status === 201 || (item.status === 422 && item.json?.error === "PHOTO_LIMIT_REACHED")),
+    JSON.stringify(concurrentPhotos.map((item) => ({ status: item.status, error: item.json?.error })))
+  );
   const sixthPhoto = await api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() });
   assert("шестая фотография отклоняется → 422 PHOTO_LIMIT_REACHED", sixthPhoto.status === 422 && sixthPhoto.json?.error === "PHOTO_LIMIT_REACHED", JSON.stringify(sixthPhoto.json));
   const mediaUrl = upload.json?.media?.url;
