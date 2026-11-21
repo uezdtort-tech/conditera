@@ -144,6 +144,8 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
 }
 
 async function deleteOrder(orderId) {
+  await client.query(`DELETE FROM public.inventory_movements WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
+  await client.query(`DELETE FROM public.inventory_write_offs WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   // escrow_accounts создаётся триггером/эккаунтингом при payment_status='escrow'
   await client.query(`DELETE FROM public.escrow_accounts WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.payments WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
@@ -174,6 +176,63 @@ function photoForm() {
 
 const testOrders = [];
 const testDraftIds = [];
+let recipeInventoryFixture = null;
+
+/** Demo recipe intentionally omits berries from seed stock. */
+async function prepareRecipeInventoryFixture() {
+  const recipeResult = await client.query(
+    `SELECT p.recipe_id, ri.id AS ingredient_id, ri.inventory_item_id
+     FROM public.products p
+     JOIN public.recipe_ingredients ri ON ri.recipe_id = p.recipe_id
+     WHERE p.id = $1::uuid AND ri.name = 'Ягоды'
+     LIMIT 1`,
+    [PRODUCT_ID]
+  );
+  if (!recipeResult.rows.length) throw new Error("demo product recipe/Ягоды ingredient not found");
+  const { ingredient_id: ingredientId, inventory_item_id: previousItemId } = recipeResult.rows[0];
+
+  const snapshot = await client.query(
+    `SELECT id::text, quantity FROM public.inventory_items WHERE owner_id = $1::uuid`,
+    [OWNER_ID]
+  );
+  const existing = await client.query(
+    `SELECT id::text, quantity FROM public.inventory_items
+     WHERE owner_id = $1::uuid AND name = 'Ягоды' AND is_active = true LIMIT 1`,
+    [OWNER_ID]
+  );
+
+  let berryId;
+  let created = false;
+  let originalBerryQuantity = null;
+  if (existing.rows[0]) {
+    berryId = existing.rows[0].id;
+    originalBerryQuantity = Number(existing.rows[0].quantity);
+    await client.query(`UPDATE public.inventory_items SET quantity = 10 WHERE id = $1::uuid`, [berryId]);
+  } else {
+    const inserted = await client.query(
+      `INSERT INTO public.inventory_items
+         (owner_id, name, category, quantity, unit, min_quantity, cost_per_unit, supplier)
+       VALUES ($1::uuid, 'Ягоды', 'Ягоды', 10, 'кг', 1, 500, 'P05V test fixture')
+       RETURNING id::text`,
+      [OWNER_ID]
+    );
+    berryId = inserted.rows[0].id;
+    created = true;
+  }
+
+  await client.query(
+    `UPDATE public.recipe_ingredients SET inventory_item_id = $2::uuid WHERE id = $1::uuid`,
+    [ingredientId, berryId]
+  );
+  return {
+    ingredientId,
+    previousItemId,
+    berryId,
+    created,
+    originalBerryQuantity,
+    inventorySnapshot: snapshot.rows.map((row) => ({ id: row.id, quantity: Number(row.quantity) })),
+  };
+}
 
 async function main() {
   await client.connect();
@@ -184,6 +243,8 @@ async function main() {
   const customer = await login("customer@demo.ru");
   const courier = await login("courier@demo.ru");
   assert("логины admin/confectioner/customer/courier", Boolean(admin && owner && customer && courier));
+  recipeInventoryFixture = await prepareRecipeInventoryFixture();
+  assert("временная складская позиция ягод привязана к рецепту", Boolean(recipeInventoryFixture.berryId));
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const tomorrowStr = isoDate(tomorrow);
@@ -329,6 +390,8 @@ async function main() {
 
   // =========================================================================
   section("E2E №2 — нехватка ингредиента → закупка → ETA (ТЗ §47, §20)");
+  // Сценарий №1 списал рецепт; обнуляем ягоды для гарантированного shortage.
+  await client.query(`UPDATE public.inventory_items SET quantity = 0 WHERE id = $1::uuid`, [recipeInventoryFixture.berryId]);
   const o2 = await createTestOrder({ deliveryDate: tomorrowStr });
   testOrders.push(o2.orderId);
   const a2 = await api("POST", `/api/orders/${o2.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
@@ -527,6 +590,23 @@ main()
     try {
       for (const id of testOrders) {
         await deleteOrder(id).catch(() => {});
+      }
+      if (recipeInventoryFixture) {
+        await client.query(
+          `UPDATE public.recipe_ingredients SET inventory_item_id = $2::uuid WHERE id = $1::uuid`,
+          [recipeInventoryFixture.ingredientId, recipeInventoryFixture.previousItemId]
+        );
+        for (const row of recipeInventoryFixture.inventorySnapshot) {
+          await client.query(`UPDATE public.inventory_items SET quantity = $2 WHERE id = $1::uuid`, [row.id, row.quantity]);
+        }
+        if (recipeInventoryFixture.created) {
+          await client.query(`DELETE FROM public.inventory_items WHERE id = $1::uuid`, [recipeInventoryFixture.berryId]);
+        } else if (recipeInventoryFixture.originalBerryQuantity !== null) {
+          await client.query(
+            `UPDATE public.inventory_items SET quantity = $2 WHERE id = $1::uuid`,
+            [recipeInventoryFixture.berryId, recipeInventoryFixture.originalBerryQuantity]
+          );
+        }
       }
       for (const d of testDraftIds) {
         await client.query(`DELETE FROM public.purchase_draft_items WHERE draft_id = $1::uuid`, [d]);
