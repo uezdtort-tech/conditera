@@ -96,7 +96,7 @@ export interface JwtPayload extends JWTPayload {
   name?: string;
   roles?: string[];
   accountType?: string;
-  sid?: string;
+  sid?: string;\n  jti?: string;
 }
 
 export interface AuthenticatedUser {
