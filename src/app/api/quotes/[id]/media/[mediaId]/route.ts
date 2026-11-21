@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { downloadQuoteMedia } from "@/lib/ops/quote-media";
 import { resolveQuoteMediaAccess } from "@/lib/ops/quote-media-access";
 
