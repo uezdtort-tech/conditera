@@ -156,12 +156,18 @@ export function useRealUpdateOrderStatus(options?: { onSuccess?: () => void }) {
   return useMutation({
     mutationFn: async (input: { orderId: string; status: string; comment?: string }) => {
       const headers = await getSessionAuthHeaders(await getCsrfToken());
-      const res = await fetch(`/api/orders/${input.orderId}`, {
-        method: "PATCH",
-        headers,
-        credentials: "include",
-        body: JSON.stringify({ status: input.status, comment: input.comment }),
-      });
+      const isCancellation = input.status === "CANCELLED";
+      const res = await fetch(
+        isCancellation ? `/api/orders/${input.orderId}/cancel` : `/api/orders/${input.orderId}`,
+        {
+          method: isCancellation ? "POST" : "PATCH",
+          headers,
+          credentials: "include",
+          body: JSON.stringify(isCancellation
+            ? { reason: input.comment }
+            : { status: input.status, comment: input.comment }),
+        }
+      );
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error || `HTTP ${res.status}`);

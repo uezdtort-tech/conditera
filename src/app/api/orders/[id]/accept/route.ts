@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
+import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
 
 export const runtime = "nodejs";
 
@@ -54,32 +55,34 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       return NextResponse.json({ error: `Заказ уже ${order.status}` }, { status: 400 });
     }
 
-    // Update status
-    await supabaseAdmin
-      .from("orders")
-      .update({ status: "CONFIRMED", updated_at: new Date().toISOString() })
-      .eq("id", orderId);
-
-    // Status history
-    await supabaseAdmin.from("order_status_history").insert({
-      order_id: orderId,
-      status: "CONFIRMED",
-      changed_by: user.id,
-      created_at: new Date().toISOString(),
-    });
-
-    // Notify customer (non-blocking)
+    // Единый lifecycle engine атомарно проверяет оплату/наличные,
+    // принадлежность заказа кондитеру, статус и конкурентные переходы.
+    // Прямой UPDATE здесь запрещён: он позволял принимать неоплаченные заказы.
     try {
-      const { sendNotification } = await import("@/lib/notifications");
-      await sendNotification({
-        userId: order.user_id,
-        template: "ORDER_CONFIRMED",
-        vars: { orderNumber: order.number || orderId },
-        data: { type: "order_confirmed", orderId },
+      const transition = await applyOrderTransition({
+        orderId,
+        to: "CONFIRMED",
+        actorId: user.id,
+        actorRoles: user.roles,
       });
-    } catch {}
-
-    return NextResponse.json({ success: true, orderId, status: "CONFIRMED" });
+      return NextResponse.json({
+        success: true,
+        orderId,
+        status: transition.to,
+      });
+    } catch (err) {
+      if (err instanceof LifecycleError) {
+        const status =
+          err.code === "ORDER_NOT_FOUND" ? 404 :
+          err.code === "FORBIDDEN_ROLE" ? 403 :
+          err.code === "PAYMENT_NOT_CONFIRMED" ? 422 : 409;
+        return NextResponse.json(
+          { error: err.code, message: err.message, detail: err.detail },
+          { status }
+        );
+      }
+      throw err;
+    }
   } catch (error: any) {
     return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
   }

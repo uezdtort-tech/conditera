@@ -64,21 +64,13 @@ export class ReadyPhotoNeededError extends Error {
 async function runOrderAction(orderId: string, code: string): Promise<void> {
   const call = () => csrfFetch(TODO_ENDPOINTS[code](orderId), { method: "POST" });
   let res = await call();
-  let body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
-
-  // Сложность внутри системы (ТЗ-корректировка): чеклист производства —
-  // внутренняя механика. Если движок требует завершённых этапов (QC-гейт),
-  // отмечаем их автоматически и повторяем попытку.
-  if (!res.ok && body?.error === "QC_GATE_FAILED") {
-    const done = await csrfFetch(`/api/orders/${orderId}/production/complete`, { method: "POST" });
-    if (done.ok) {
-      res = await call();
-      body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
-    }
-  }
+  const body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
 
   if (!res.ok && res.status !== 409) {
     if (body?.error === "READY_PHOTO_REQUIRED") throw new ReadyPhotoNeededError();
+    if (body?.error === "QC_GATE_FAILED") {
+      throw new Error("Отметьте каждый фактически выполненный этап в рабочей области заказа перед подтверждением готовности.");
+    }
     throw new Error(body?.message || `Не получилось (HTTP ${res.status})`);
   }
 }

@@ -20,6 +20,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 // ==================== Types ====================
 export interface CustomerDashboardData {
@@ -465,61 +466,37 @@ export function useCourierDashboard() {
   return useQuery<CourierDashboardData>({
     queryKey: ["courier-dashboard-v2"],
     queryFn: async () => {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
-      if (!user) throw new Error("Не авторизован");
-
-      const today = new Date(new Date().setHours(0, 0, 0, 0));
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-
-      const [activeRes, todayRes, monthRes] = await Promise.all([
-        // Активные доставки (assigned или on_the_way)
-        supabaseBrowser
-          .from("deliveries")
-          .select(`
-            id, order_id, address, status, estimated_time, cost, courier_earnings
-          `)
-          .eq("courier_id", user.id)
-          .in("status", ["assigned", "picked_up", "on_the_way"])
-          .order("created_at", { ascending: false }),
-
-        // Сегодня завершённые
-        supabaseBrowser
-          .from("deliveries")
-          .select("id, order_id, address, delivered_at, courier_earnings")
-          .eq("courier_id", user.id)
-          .eq("status", "delivered")
-          .gte("delivered_at", today.toISOString())
-          .order("delivered_at", { ascending: false }),
-
-        // За месяц завершённые (для подсчёта earnings)
-        supabaseBrowser
-          .from("deliveries")
-          .select("courier_earnings")
-          .eq("courier_id", user.id)
-          .eq("status", "delivered")
-          .gte("delivered_at", monthStart.toISOString()),
-      ]);
-
-      const earningsToday = (todayRes.data || []).reduce(
-        (sum: number, d: { courier_earnings: number }) => sum + (d.courier_earnings || 0),
-        0
-      );
-      const earningsMonth = (monthRes.data || []).reduce(
-        (sum: number, d: { courier_earnings: number }) => sum + (d.courier_earnings || 0),
-        0
-      );
+      // Единый app-session API: не читаем deliveries напрямую из браузера,
+      // потому что фактическое назначение хранится в orders.courier_id.
+      const response = await fetch("/api/courier/dashboard", {
+        headers: await getSessionAuthHeaders(),
+        credentials: "include",
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || `Не удалось загрузить кабинет курьера (HTTP ${response.status})`);
+      }
 
       return {
-        stats: {
-          activeDeliveries: activeRes.data?.length || 0,
-          completedToday: todayRes.data?.length || 0,
-          earningsToday,
-          earningsMonth,
-          rating: 0, // TODO: считать из reviews
-        },
-        activeDeliveries: (activeRes.data || []) as unknown as CourierDashboardData["activeDeliveries"],
-        recentCompleted: (todayRes.data || []) as unknown as CourierDashboardData["recentCompleted"],
-      };
+        stats: payload.stats,
+        activeDeliveries: (payload.activeDeliveries || []).map((delivery: any) => ({
+          id: delivery.id,
+          order_id: delivery.orderId,
+          address: delivery.address || "—",
+          status: delivery.status,
+          estimated_time: delivery.deliveryTime || null,
+          cost: Number(delivery.cost || 0),
+          courier_earnings: 0,
+        })),
+        recentCompleted: (payload.history || []).map((delivery: any) => ({
+          id: delivery.id,
+          order_id: delivery.orderId,
+          address: delivery.address || "—",
+          delivered_at: delivery.completedAt,
+          courier_earnings: Number(delivery.earnings || 0),
+        })),
+      } as CourierDashboardData;
     },
     staleTime: 30 * 1000,
   });

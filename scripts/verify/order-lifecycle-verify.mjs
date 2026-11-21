@@ -35,7 +35,7 @@ const CONF_102 = "11111111-1111-4111-8111-111111111102"; // Сладкая уе�
 const CONF_103 = "11111111-1111-4111-8111-111111111103"; // Кондитерская Купец
 const CONF_111 = "11111111-1111-4111-8111-111111111111"; // Татьяна-Кондитер
 const CONF_112 = "11111111-1111-4111-8111-111111111112"; // Сахарный Лебедь
-const CUSTOMER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
+let CUSTOMER_ID = "11111111-1111-4111-8111-111111111106"; // заменяется ID свежезарегистрированного E2E-покупателя
 const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000001"; // Свадебный торт «Ягодный бархат» (cakes, recipe)
 
 let passed = 0;
@@ -144,8 +144,21 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
 }
 
 async function deleteOrder(orderId) {
+  const mediaRows = await client.query(
+    `SELECT storage_path FROM public.order_media WHERE order_id = $1::uuid`,
+    [orderId]
+  ).catch(() => ({ rows: [] }));
+  for (const media of mediaRows.rows || []) {
+    await client.query(
+      `DELETE FROM storage.objects WHERE bucket_id = 'order_media' AND name = $1`,
+      [media.storage_path]
+    ).catch(() => {});
+  }
+  await client.query(`DELETE FROM public.inventory_movements WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
+  await client.query(`DELETE FROM public.inventory_write_offs WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   // escrow_accounts создаётся триггером/эккаунтингом при payment_status='escrow'
   await client.query(`DELETE FROM public.escrow_accounts WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
+  await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.payments WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.deliveries WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.order_media WHERE order_id = $1::uuid`, [orderId]);
@@ -170,10 +183,130 @@ function photoForm() {
   return fd;
 }
 
+function quotePhotoForm(kind) {
+  const fd = new FormData();
+  fd.append("file", new Blob([PNG_1PX], { type: "image/png" }), `${kind}.png`);
+  fd.append("kind", kind);
+  return fd;
+}
+
 // ===========================================================================
 
 const testOrders = [];
 const testDraftIds = [];
+const testQuoteRequestIds = [];
+let recipeInventoryFixture = null;
+let registeredCustomerId = null;
+let acceptedQuoteOrder = null;
+
+/** Demo recipe intentionally omits berries from seed stock. */
+async function prepareRecipeInventoryFixture() {
+  const recipeResult = await client.query(
+    `SELECT p.recipe_id, ri.id::text AS ingredient_id,
+            ri.inventory_item_id::text AS previous_item_id,
+            ri.name, ri.qty, ri.unit
+       FROM public.products p
+       JOIN public.recipe_ingredients ri ON ri.recipe_id = p.recipe_id
+      WHERE p.id = $1::uuid
+      ORDER BY ri.name`,
+    [PRODUCT_ID]
+  );
+  if (!recipeResult.rows.length) throw new Error("demo product recipe has no ingredients");
+  if (!recipeResult.rows.some(row => row.name === "Ягоды")) {
+    throw new Error("demo product recipe/Ягоды ingredient not found");
+  }
+
+  const snapshot = await client.query(
+    `SELECT id::text, quantity, unit, is_active
+       FROM public.inventory_items
+      WHERE owner_id = $1::uuid`,
+    [OWNER_ID]
+  );
+  const ingredientLinks = [];
+  const createdInventoryIds = [];
+  let berryId = null;
+
+  // Для acceptance gate нужен полный складской комплект рецепта, а не только
+  // одна демонстрационная позиция. Сохраняем исходные остатки и связи, чтобы
+  // тест не оставлял изменений после завершения.
+  for (const ingredient of recipeResult.rows) {
+    const required = Math.max(Number(ingredient.qty) || 0, 0.001);
+    const targetQuantity = required * 100;
+    let inventoryItem = null;
+
+    if (ingredient.previous_item_id) {
+      const linked = await client.query(
+        `SELECT id::text, quantity, unit
+           FROM public.inventory_items
+          WHERE id = $1::uuid AND owner_id = $2::uuid`,
+        [ingredient.previous_item_id, OWNER_ID]
+      );
+      inventoryItem = linked.rows[0] ?? null;
+    }
+
+    if (!inventoryItem) {
+      const byName = await client.query(
+        `SELECT id::text, quantity, unit
+           FROM public.inventory_items
+          WHERE owner_id = $1::uuid AND lower(trim(name)) = lower(trim($2))
+            AND is_active = true
+          ORDER BY created_at ASC
+          LIMIT 1`,
+        [OWNER_ID, ingredient.name]
+      );
+      inventoryItem = byName.rows[0] ?? null;
+    }
+
+    if (!inventoryItem) {
+      const inserted = await client.query(
+        `INSERT INTO public.inventory_items
+           (owner_id, name, category, quantity, unit, min_quantity, cost_per_unit, supplier, is_active)
+         VALUES ($1::uuid, $2, $2, $3, $4, 0, 0, 'P05V E2E fixture', true)
+         RETURNING id::text`,
+        [OWNER_ID, ingredient.name, targetQuantity, ingredient.unit || "шт"]
+      );
+      inventoryItem = {
+        id: inserted.rows[0].id,
+        quantity: targetQuantity,
+        unit: ingredient.unit || "шт",
+      };
+      createdInventoryIds.push(inventoryItem.id);
+    } else {
+      await client.query(
+        `UPDATE public.inventory_items
+            SET quantity = GREATEST(quantity, $2), unit = $3, is_active = true
+          WHERE id = $1::uuid`,
+        [inventoryItem.id, targetQuantity, ingredient.unit || "шт"]
+      );
+    }
+
+    if (inventoryItem.id !== ingredient.previous_item_id) {
+      await client.query(
+        `UPDATE public.recipe_ingredients
+            SET inventory_item_id = $2::uuid
+          WHERE id = $1::uuid`,
+        [ingredient.ingredient_id, inventoryItem.id]
+      );
+    }
+    ingredientLinks.push({
+      ingredientId: ingredient.ingredient_id,
+      previousItemId: ingredient.previous_item_id,
+    });
+    if (ingredient.name === "Ягоды") berryId = inventoryItem.id;
+  }
+
+  return {
+    berryId,
+    ingredientLinks,
+    inventorySnapshot: snapshot.rows.map(row => ({
+      id: row.id,
+      quantity: Number(row.quantity),
+      unit: row.unit,
+      isActive: row.is_active,
+    })),
+    createdInventoryIds,
+  };
+}
 
 async function main() {
   await client.connect();
@@ -181,29 +314,415 @@ async function main() {
   section("Подготовка");
   const admin = await login("admin@demo.ru");
   const owner = await login("confectioner@demo.ru");
-  const customer = await login("customer@demo.ru");
-  assert("логины admin/confectioner/customer", Boolean(admin && owner && customer));
+  const courier = await login("courier@demo.ru");
+  assert("логины admin/confectioner/courier", Boolean(admin && owner && courier));
+  recipeInventoryFixture = await prepareRecipeInventoryFixture();
+  assert("временная складская позиция ягод привязана к рецепту", Boolean(recipeInventoryFixture.berryId));
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const tomorrowStr = isoDate(tomorrow);
+
+  // Новый покупатель проходит реальную саморегистрацию, а не использует demo-аккаунт.
+  const uniqueSuffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const customerPhone = `+7999${uniqueSuffix.slice(-7)}`;
+  const customerEmail = `e2e-buyer-${uniqueSuffix}@example.test`;
+  const registration = await api("POST", "/api/auth/register", {
+    body: {
+      email: customerEmail,
+      password: PASSWORD,
+      name: "E2E Покупатель",
+      phone: customerPhone,
+      role: "CUSTOMER",
+      accountType: "individual",
+      consentPd: true,
+      consentTerms: true,
+      consentOffer: true,
+      consentMarketing: false,
+    },
+  });
+  assert("новый покупатель зарегистрирован через /api/auth/register → 200", registration.status === 200 && Boolean(registration.json?.accessToken && registration.json?.user?.id), JSON.stringify(registration.json).slice(0, 180));
+  if (registration.status !== 200 || !registration.json?.accessToken || !registration.json?.user?.id) {
+    throw new Error("Регистрация нового E2E-покупателя не завершилась успешно");
+  }
+  let customer = registration.json.accessToken;
+  CUSTOMER_ID = registration.json.user.id;
+  registeredCustomerId = CUSTOMER_ID;
+  const registeredSession = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+     WHERE user_id = $1::uuid AND revoked_at IS NULL AND refresh_jti IS NOT NULL`,
+    [CUSTOMER_ID]
+  );
+  assert("после регистрации создана серверная сессия с refresh JTI", registeredSession.rows[0]?.count === 1);
+
+  // Проверяем одноразовую ротацию refresh-токена и обнаружение replay.
+  const firstRefresh = await api("POST", "/api/auth/refresh", {
+    body: { refreshToken: registration.json.refreshToken },
+  });
+  assert("первый refresh успешно ротирует токен → 200", firstRefresh.status === 200 && Boolean(firstRefresh.json?.refreshToken && firstRefresh.json?.accessToken), JSON.stringify(firstRefresh.json).slice(0, 160));
+  if (firstRefresh.status !== 200 || !firstRefresh.json?.refreshToken) {
+    throw new Error("Первичная ротация refresh-токена не прошла");
+  }
+  const replayRefresh = await api("POST", "/api/auth/refresh", {
+    body: { refreshToken: registration.json.refreshToken },
+  });
+  assert("повтор старого refresh-токена отклонён → 401", replayRefresh.status === 401, JSON.stringify(replayRefresh.json));
+  const nextRefresh = await api("POST", "/api/auth/refresh", {
+    body: { refreshToken: firstRefresh.json.refreshToken },
+  });
+  assert("новый refresh-токен остаётся рабочим после обнаружения replay → 200", nextRefresh.status === 200 && Boolean(nextRefresh.json?.refreshToken), JSON.stringify(nextRefresh.json).slice(0, 160));
+  if (nextRefresh.status !== 200 || !nextRefresh.json?.accessToken) {
+    throw new Error("Ротация нового refresh-токена не прошла");
+  }
+  customer = nextRefresh.json.accessToken;
+  const replayAudit = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+     WHERE user_id = $1::uuid AND event_type = 'refresh_replay_detected'`,
+    [CUSTOMER_ID]
+  );
+  assert("обнаруженный replay записан в журнал безопасности", replayAudit.rows[0]?.count === 1);
+
+  const initialSessions = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("покупатель видит собственный текущий сеанс",
+    initialSessions.status === 200 && initialSessions.json?.sessions?.length === 1 &&
+    initialSessions.json.sessions[0]?.isCurrent === true);
+  const secondCustomerLogin = await api("POST", "/api/auth/login", {
+    body: { email: customerEmail, password: PASSWORD },
+  });
+  assert("повторный вход создаёт отдельный серверный сеанс",
+    secondCustomerLogin.status === 200 && Boolean(secondCustomerLogin.json?.accessToken));
+  const revokeOtherSessions = await api("DELETE", "/api/auth/sessions", { token: customer });
+  assert("покупатель может завершить все остальные сеансы",
+    revokeOtherSessions.status === 200 && Number(revokeOtherSessions.json?.revoked) >= 1);
+  const revokedSessionCheck = await api("GET", "/api/auth/sessions", {
+    token: secondCustomerLogin.json?.accessToken,
+  });
+  assert("отозванный сеанс больше не проходит аутентификацию → 401",
+    revokedSessionCheck.status === 401);
+  const ownSecurityEvents = await api("GET", "/api/auth/security-events", { token: customer });
+  assert("журнал безопасности показывает создание и отзыв сеансов",
+    ownSecurityEvents.status === 200 &&
+    ownSecurityEvents.json?.events?.some(event => event.event_type === "session_created") &&
+    ownSecurityEvents.json?.events?.some(event => event.event_type === "session_revoked"));
+
+  // Индивидуальный RFQ: проект → предложение с рецептом → заказ → платёж.
+  const confectionerRow = await client.query(
+    `SELECT id FROM public.confectioners WHERE "userId" = $1::text LIMIT 1`,
+    [OWNER_ID]
+  );
+  const quoteConfectionerId = confectionerRow.rows[0]?.id;
+  const competingConfectionerRow = await client.query(
+    `SELECT id FROM public.confectioners WHERE id <> $1::text ORDER BY id LIMIT 1`,
+    [quoteConfectionerId]
+  );
+  const competingConfectionerId = competingConfectionerRow.rows[0]?.id ?? null;
+  const quoteProduct = await client.query(
+    `SELECT id::text, confectioner_id::text FROM public.products WHERE id = $1::uuid`,
+    [PRODUCT_ID]
+  );
+  // confectioners.id is an internal text key (e.g. c0); products.confectioner_id
+  // stores the auth user UUID. These identities must be joined, not compared.
+  assert("RFQ fixture: catalog product belongs to signed-in confectioner account",
+    Boolean(quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === OWNER_ID),
+    JSON.stringify({ quoteConfectionerId, ownerUserId: OWNER_ID, product: quoteProduct.rows[0] }));
+
+  if (quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === OWNER_ID) {
+    const quoteCreate = await api("POST", "/api/quotes", {
+      token: customer,
+      body: {
+        product_type: "cake",
+        product_type_label: "Индивидуальный торт E2E",
+        event_type: "birthday",
+        base: "sponge",
+        filling: "chocolate_ganache",
+        coating: "ganache_dark",
+        decorations: ["berries", "macarons", "gold_leaf", "flowers", "pearls"],
+        dietary: [],
+        servings: 8,
+        quantity: 1,
+        tiers: 1,
+        shape: "round",
+        city: "Москва",
+        delivery_date: tomorrowStr,
+        delivery_type: "delivery",
+        address: "ул. Тестовая, 1",
+        estimated_price: 330000,
+        estimated_delivery_cost: 0,
+        confectioner_ids: [quoteConfectionerId, ...(competingConfectionerId ? [competingConfectionerId] : [])],
+        project_spec: {
+          productType: "cake", base: "sponge", filling: "chocolate_ganache",
+          coating: "ganache_dark", decorations: ["berries", "macarons", "gold_leaf", "flowers", "pearls"], servings: 8,
+          city: "Москва", deliveryDate: tomorrowStr, deliveryType: "delivery",
+        },
+      },
+    });
+    assert("покупатель создаёт RFQ с project_spec → 201",
+      quoteCreate.status === 201 && Boolean(quoteCreate.json?.quoteRequest?.id),
+      JSON.stringify(quoteCreate.json).slice(0, 240));
+    const tooManyDecorations = await api("POST", "/api/quotes", {
+      token: customer,
+      body: {
+        city: "Москва",
+        confectioner_ids: [quoteConfectionerId],
+        decorations: ["a", "b", "c", "d", "e", "f"],
+        project_spec: { decorations: ["a", "b", "c", "d", "e", "f"] },
+      },
+    });
+    assert("шестой элемент декора отклоняется на сервере → 400",
+      tooManyDecorations.status === 400,
+      JSON.stringify(tooManyDecorations.json).slice(0, 180));
+
+    if (quoteCreate.status === 201 && quoteCreate.json?.quoteRequest?.id) {
+      const quoteRequestId = quoteCreate.json.quoteRequest.id;
+      testQuoteRequestIds.push(quoteRequestId);
+
+      const referenceUpload = await api("POST", `/api/quotes/${quoteRequestId}/media`, {
+        token: customer, raw: quotePhotoForm("customer_reference"),
+      });
+      assert("покупатель прикрепляет фото-пожелание к RFQ → 201",
+        referenceUpload.status === 201 && referenceUpload.json?.media?.kind === "customer_reference",
+        JSON.stringify(referenceUpload.json).slice(0, 200));
+      const builderPreviewUpload = await api("POST", `/api/quotes/${quoteRequestId}/media`, {
+        token: customer, raw: quotePhotoForm("builder_preview"),
+      });
+      assert("покупатель прикрепляет превью конструктора к RFQ → 201",
+        builderPreviewUpload.status === 201 && builderPreviewUpload.json?.media?.kind === "builder_preview",
+        JSON.stringify(builderPreviewUpload.json).slice(0, 200));
+
+      const savedProject = await client.query(
+        `SELECT project_spec->>'productType' AS product_type,
+                jsonb_array_length(project_spec->'decorations') AS decor_count
+         FROM public.quote_requests WHERE id = $1::uuid`,
+        [quoteRequestId]
+      );
+      assert("RFQ project snapshot сохранён в PostgreSQL",
+        savedProject.rows[0]?.product_type === "cake" && Number(savedProject.rows[0]?.decor_count) === 5);
+
+      const eligibleProducts = await api("GET", `/api/quotes/${quoteRequestId}/respond`, {
+        token: owner,
+      });
+      assert("кондитер видит свой товар с действующим рецептом в списке для RFQ",
+        eligibleProducts.status === 200 &&
+        eligibleProducts.json?.products?.some(item => item.id === PRODUCT_ID),
+        JSON.stringify(eligibleProducts.json).slice(0, 220));
+
+      const quoteResponse = await api("POST", `/api/quotes/${quoteRequestId}/respond`, {
+        token: owner,
+        body: {
+          base_cost: 330000,
+          delivery_cost: 0,
+          comment: "Индивидуальное предложение E2E",
+          prep_days: 2,
+          production_product_id: PRODUCT_ID,
+        },
+      });
+      assert("кондитер отправляет предложение с проверенным рецептом → 200",
+        quoteResponse.status === 200 && Boolean(quoteResponse.json?.quote?.id),
+        JSON.stringify(quoteResponse.json).slice(0, 240));
+
+      if (quoteResponse.status === 200 && quoteResponse.json?.quote?.id && competingConfectionerId) {
+        // Имитация второго приглашённого кондитера: его цена не должна попасть
+        // в embedded my_quotes первого кондитера.
+        await client.query(
+          `INSERT INTO public.confectioner_quotes
+             (quote_request_id, confectioner_id, base_cost, subtotal, total_price, status)
+           VALUES ($1::uuid, $2::text, 77777, 77777, 77777, 'pending')`,
+          [quoteRequestId, competingConfectionerId]
+        );
+        const confectionerInbox = await api("GET", "/api/quotes?mode=confectioner", { token: owner });
+        const ownRequest = (confectionerInbox.json?.quotes || []).find(item => item.id === quoteRequestId);
+        const ownOffers = Array.isArray(ownRequest?.my_quotes)
+          ? ownRequest.my_quotes
+          : ownRequest?.my_quotes ? [ownRequest.my_quotes] : [];
+        assert("кондитер получает только собственное предложение, без цены конкурента",
+          confectionerInbox.status === 200 && ownOffers.length === 1 &&
+          ownOffers[0].confectioner_id === quoteConfectionerId,
+          JSON.stringify(ownOffers).slice(0, 220));
+      }
+
+      if (quoteResponse.status === 200 && quoteResponse.json?.quote?.id) {
+        const quoteId = quoteResponse.json.quote.id;
+        const acceptQuote = await api("POST", `/api/quotes/${quoteId}/accept`, { token: customer });
+        assert("покупатель принимает предложение: заказ и payment URL созданы",
+          acceptQuote.status === 201 && Boolean(acceptQuote.json?.orderId && acceptQuote.json?.paymentUrl),
+          JSON.stringify(acceptQuote.json).slice(0, 260));
+        if (acceptQuote.status === 201 && acceptQuote.json?.orderId) {
+          testOrders.push(acceptQuote.json.orderId);
+          acceptedQuoteOrder = {
+            orderId: acceptQuote.json.orderId,
+            number: acceptQuote.json.orderNumber,
+          };
+          const acceptedOrderSpec = await client.query(
+            `SELECT o.confectioner_id, o.source_quote_id,
+                    o.metadata->'project_spec' AS order_spec,
+                    oi.selected_attributes->'project_spec' AS item_spec
+               FROM public.orders o
+               JOIN public.order_items oi ON oi.order_id = o.id
+              WHERE o.id = $1::uuid LIMIT 1`,
+            [acceptQuote.json.orderId]
+          );
+          const acceptedSpecRow = acceptedOrderSpec.rows[0];
+          assert("заказ сохраняет UUID кондитера, исходный RFQ и снимок проекта",
+            acceptedSpecRow?.confectioner_id === OWNER_ID &&
+            acceptedSpecRow?.source_quote_id === quoteId &&
+            acceptedSpecRow?.order_spec?.productType === "cake" &&
+            acceptedSpecRow?.item_spec?.decorations?.length === 5,
+            JSON.stringify(acceptedSpecRow).slice(0, 260));
+
+          const repeatedQuoteAccept = await api("POST", `/api/quotes/${quoteId}/accept`, { token: customer });
+          assert("повторное принятие RFQ возвращает тот же заказ и платёжную ссылку",
+            repeatedQuoteAccept.status === 200 &&
+            repeatedQuoteAccept.json?.orderId === acceptQuote.json.orderId &&
+            repeatedQuoteAccept.json?.paymentUrl === acceptQuote.json.paymentUrl,
+            JSON.stringify(repeatedQuoteAccept.json).slice(0, 220));
+
+          const acceptedMediaList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/reference-media`, {
+            token: customer,
+          });
+          const inheritedReferences = acceptedMediaList.json?.media || [];
+          assert("после принятия RFQ фото-пожелание и превью доступны в материалах заказа",
+            acceptedMediaList.status === 200 && inheritedReferences.length === 2 &&
+            inheritedReferences.some(item => item.kind === "customer_reference") &&
+            inheritedReferences.some(item => item.kind === "builder_preview"),
+            JSON.stringify(acceptedMediaList.json).slice(0, 280));
+          if (inheritedReferences[0]?.url) {
+            const confectionerReference = await api("GET", inheritedReferences[0].url, { token: owner });
+            assert("назначенный кондитер открывает исходный референс индивидуального заказа → 200",
+              confectionerReference.status === 200);
+            const anonymousReference = await api("GET", inheritedReferences[0].url);
+            assert("аноним не может открыть исходный референс → 401",
+              anonymousReference.status === 401);
+          }
+          const courierReferenceList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/reference-media`, {
+            token: courier,
+          });
+          assert("не назначенный курьер не видит вложения индивидуального заказа → 403",
+            courierReferenceList.status === 403);
+
+          const acceptedOrderPayment = await client.query(
+            `SELECT yookassa_payment_id, amount FROM public.payments
+             WHERE order_id = $1::uuid ORDER BY created_at DESC LIMIT 1`,
+            [acceptQuote.json.orderId]
+          );
+          const acceptedPaymentId = acceptedOrderPayment.rows[0]?.yookassa_payment_id;
+          assert("принятый RFQ создаёт запись платежа в ledger",
+            Boolean(acceptedPaymentId && Number(acceptedOrderPayment.rows[0]?.amount) === Number(acceptQuote.json.total)));
+          if (acceptedPaymentId) {
+            const acceptedWebhook = await api("POST", "/api/payment/webhook", {
+              body: {
+                event: "payment.succeeded",
+                object: {
+                  id: acceptedPaymentId,
+                  status: "succeeded",
+                  amount: { value: Number(acceptQuote.json.total).toFixed(2), currency: "RUB" },
+                  metadata: { orderId: acceptQuote.json.orderId },
+                },
+              },
+            });
+            assert("оплата принятого RFQ проходит через webhook → 200",
+              acceptedWebhook.status === 200, JSON.stringify(acceptedWebhook.json).slice(0, 200));
+            const acceptedStatus = await client.query(
+              `SELECT status::text AS status, payment_status::text AS payment_status
+                 FROM public.orders WHERE id = $1::uuid`,
+              [acceptQuote.json.orderId]
+            );
+            assert("оплаченный индивидуальный заказ удерживает деньги в escrow без преждевременного старта производства",
+              acceptedStatus.rows[0]?.payment_status === "escrow" &&
+              acceptedStatus.rows[0]?.status === "PENDING",
+              JSON.stringify(acceptedStatus.rows[0]));
+          }
+        }
+      }
+    }
+  }
+
+  // Оформляем первый заказ через настоящий checkout и подтверждаем mock-webhook.
+  // В CI нет секретов YooKassa: mock-платёж проверяет тот же ledger/webhook-переход,
+  // но не заменяет отдельную проверку реального провайдера в production.
+  const checkout = await api("POST", "/api/checkout", {
+    token: customer,
+    body: {
+      cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
+      deliveryAddress: "ул. Тестовая, 1",
+      deliveryCity: "Москва",
+      deliveryDate: tomorrowStr,
+      deliveryType: "delivery",
+      customerName: "E2E Покупатель",
+      customerPhone,
+      paymentMethod: "yookassa",
+    },
+  });
+  assert("покупатель оформляет заказ через /api/checkout → 200", checkout.status === 200 && Boolean(checkout.json?.orderId && checkout.json?.paymentUrl), JSON.stringify(checkout.json));
+  if (checkout.status !== 200 || !checkout.json?.orderId) {
+    throw new Error(`Checkout нового покупателя не создал заказ: ${JSON.stringify(checkout.json)}`);
+  }
+  const checkoutOrder = { orderId: checkout.json.orderId, number: checkout.json.orderNumber };
+  testOrders.push(checkoutOrder.orderId);
+  assert("обычный checkout сохраняет исполнителя товара", Boolean((await client.query(
+    `SELECT confectioner_id FROM public.orders WHERE id = $1::uuid`, [checkoutOrder.orderId]
+  )).rows[0]?.confectioner_id));
+
+  const paymentRow = await client.query(
+    `SELECT yookassa_payment_id, amount FROM public.payments
+     WHERE order_id = $1::uuid ORDER BY created_at DESC LIMIT 1`,
+    [checkoutOrder.orderId]
+  );
+  const paymentId = paymentRow.rows[0]?.yookassa_payment_id;
+  assert("checkout создаёт локальную запись платежа", Boolean(paymentId && Number(paymentRow.rows[0]?.amount) === Number(checkout.json.total)));
+  if (!paymentId) throw new Error("После checkout отсутствует локальная запись платежа");
+  const webhook = await api("POST", "/api/payment/webhook", {
+    body: {
+      event: "payment.succeeded",
+      object: {
+        id: paymentId,
+        status: "succeeded",
+        amount: { value: Number(checkout.json.total).toFixed(2), currency: "RUB" },
+        metadata: { orderId: checkoutOrder.orderId },
+      },
+    },
+  });
+  assert("payment.succeeded обычного checkout переводит заказ в escrow → 200", webhook.status === 200, JSON.stringify(webhook.json));
+  const paidState = await client.query(
+    `SELECT o.payment_status, p.status AS provider_status
+     FROM public.orders o JOIN public.payments p ON p.order_id = o.id
+     WHERE o.id = $1::uuid ORDER BY p.created_at DESC LIMIT 1`,
+    [checkoutOrder.orderId]
+  );
+  assert("оплата обычного checkout зафиксирована в orders и payments", paidState.rows[0]?.payment_status === "escrow" && paidState.rows[0]?.provider_status === "succeeded", JSON.stringify(paidState.rows[0]));
+  const duplicateWebhook = await api("POST", "/api/payment/webhook", {
+    body: {
+      event: "payment.succeeded",
+      object: {
+        id: paymentId,
+        status: "succeeded",
+        amount: { value: Number(checkout.json.total).toFixed(2), currency: "RUB" },
+        metadata: { orderId: checkoutOrder.orderId },
+      },
+    },
+  });
+  assert("повтор webhook обычного checkout идемпотентен", duplicateWebhook.status === 200 && duplicateWebhook.json?.idempotent === true, JSON.stringify(duplicateWebhook.json));
+
+  // Полный производственный путь запускаем для индивидуального заказа, если
+  // RFQ прошёл согласование и оплату. Обычный checkout отдельно проверен выше.
+  const o1 = acceptedQuoteOrder ?? checkoutOrder;
+  assert(acceptedQuoteOrder
+    ? "полный lifecycle выбран для оплаченного индивидуального RFQ-заказа"
+    : "полный lifecycle использует оплаченный checkout-заказ как fallback", true);
+  const dayAfterTomorrow = new Date(tomorrow.getTime() + 86_400_000);
+  const dayAfterTomorrowStr = isoDate(dayAfterTomorrow);
   const todayStr = isoDate(new Date());
 
   // =========================================================================
   section("E2E №1 — нормальный заказ (ТЗ §46)");
-  const o1 = await createTestOrder({ deliveryDate: tomorrowStr });
-  testOrders.push(o1.orderId);
-
   const lc0 = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: customer });
-  assert("GET lifecycle → 200 (владелец-клиент)", lc0.status === 200, `got ${lc0.status}`);
-  assert("заказ создан: business=created, unassigned", lc0.json?.derived?.businessStatus === "created" && lc0.json?.derived?.assignmentStatus === "unassigned");
-  assert("nextAction: назначить кондитера", lc0.json?.nextAction?.code === "ASSIGN", JSON.stringify(lc0.json?.nextAction));
+  assert("GET lifecycle → 200 (покупатель после регистрации)", lc0.status === 200, `got ${lc0.status}`);
+  assert("заказ ожидает производства и уже связан с кондитером", lc0.json?.derived?.businessStatus === "created" && lc0.json?.derived?.assignmentStatus === "assigned", JSON.stringify(lc0.json?.derived));
 
   const assignForbidden = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: owner, body: { confectionerId: OWNER_ID } });
   assert("кондитер не может назначать → 403", assignForbidden.status === 403, `got ${assignForbidden.status}`);
 
   const assign = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("POST assign → 200", assign.status === 200, JSON.stringify(assign.json).slice(0, 200));
-  assert("оценка времени: cakes → 240 мин (category, approximate)", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "category", JSON.stringify(assign.json?.estimate));
+  assert("оценка времени: 240 мин по настройке товара", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "product" && assign.json?.estimate?.approximate === false, JSON.stringify(assign.json?.estimate));
   assert("резерв создан на дату доставки", assign.json?.reservation?.date === tomorrowStr, JSON.stringify(assign.json?.reservation));
   assert("latestSafeStartAt рассчитан", Boolean(assign.json?.deadline?.latestSafeStartAt));
   // 18:00 − 65м буферов − 240м производства = 12:55
@@ -212,7 +731,13 @@ async function main() {
   const lc1 = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: admin });
   assert("после assign: assigned", lc1.json?.derived?.assignmentStatus === "assigned", JSON.stringify(lc1.json?.derived));
 
-  // Кондитер принимает заказ (PENDING → CONFIRMED) — фикс ошибки accept-роута
+  // P0: прямой accept не должен обходить платёжный gate.
+  const unpaidOrder = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: tomorrowStr, escrow: false });
+  testOrders.push(unpaidOrder.orderId);
+  const unpaidAccept = await api("POST", `/api/orders/${unpaidOrder.orderId}/accept`, { token: owner });
+  assert("accept неоплаченного card-заказа → 422 PAYMENT_NOT_CONFIRMED", unpaidAccept.status === 422 && unpaidAccept.json?.error === "PAYMENT_NOT_CONFIRMED", JSON.stringify(unpaidAccept.json).slice(0, 160));
+
+  // Кондитер принимает оплаченный заказ (PENDING → CONFIRMED) — lifecycle engine
   const accept = await api("POST", `/api/orders/${o1.orderId}/accept`, { token: owner });
   assert("accept (PENDING → CONFIRMED) → 200", accept.status === 200, JSON.stringify(accept.json).slice(0, 160));
 
@@ -227,8 +752,47 @@ async function main() {
   const custView = await api("GET", `/api/orders/${o1.orderId}/capacity`, { token: customer });
   assert("клиент видит capacity своего заказа", custView.status === 200);
 
+  const completeBeforeStart = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
+  assert("production/complete до старта → 409", completeBeforeStart.status === 409 && completeBeforeStart.json?.error === "INVALID_PRODUCTION_STATE", JSON.stringify(completeBeforeStart.json).slice(0, 160));
+  const stageBeforeStart = await api("POST", `/api/orders/${o1.orderId}/production/stage`, { token: owner, body: { stageKey: "baking", done: true } });
+  assert("production/stage до старта → 409", stageBeforeStart.status === 409 && stageBeforeStart.json?.error === "INVALID_PRODUCTION_STATE", JSON.stringify(stageBeforeStart.json).slice(0, 160));
+
   const start = await api("POST", `/api/orders/${o1.orderId}/production/start`, { token: owner });
   assert("production/start → 200 (PREPARING)", start.status === 200, JSON.stringify(start.json).slice(0, 160));
+
+  const incompleteProduction = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
+  assert("production/complete с незакрытым чеклистом → 422", incompleteProduction.status === 422 && incompleteProduction.json?.error === "PRODUCTION_CHECKLIST_INCOMPLETE", JSON.stringify(incompleteProduction.json).slice(0, 160));
+
+  const checklistView = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: owner });
+  const workStages = (checklistView.json?.production?.checklist || []).filter((stage) => !["ready_photo", "handoff"].includes(stage.stage_key));
+  assert("чеклист содержит производственные этапы", workStages.length > 0);
+  for (const stage of workStages) {
+    const marked = await api("POST", `/api/orders/${o1.orderId}/production/stage`, { token: owner, body: { stageKey: stage.stage_key, done: true } });
+    assert(`этап ${stage.stage_key} отмечается отдельно → 200`, marked.status === 200 && marked.json?.stage?.is_done === true, JSON.stringify(marked.json).slice(0, 120));
+  }
+
+  const recipeOutCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.inventory_movements WHERE order_id = $1::uuid AND type = 'OUT'`,
+    [o1.orderId]
+  );
+  assert("подтверждение ingredients_prepared автоматически списало рецепт со склада", recipeOutCount.rows[0].count > 0);
+  const repeatIngredientsStage = await api("POST", `/api/orders/${o1.orderId}/production/stage`, {
+    token: owner,
+    body: { stageKey: "ingredients_prepared", done: true },
+  });
+  const recipeOutCountAfterRetry = await client.query(
+    `SELECT count(*)::int AS count FROM public.inventory_movements WHERE order_id = $1::uuid AND type = 'OUT'`,
+    [o1.orderId]
+  );
+  assert(
+    "повтор ingredients_prepared не создаёт повторных списаний",
+    repeatIngredientsStage.status === 200 && recipeOutCountAfterRetry.rows[0].count === recipeOutCount.rows[0].count
+  );
+
+  const prematureComplete = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
+  assert("production/complete при незагруженном фото → 200, но фото остаётся обязательным", prematureComplete.status === 200 && (prematureComplete.json?.remainingBeforeReady || []).includes("Фото готовности"), JSON.stringify(prematureComplete.json).slice(0, 160));
+  const editAfterProductionComplete = await api("POST", `/api/orders/${o1.orderId}/production/stage`, { token: owner, body: { stageKey: workStages[0].stage_key, done: false } });
+  assert("после фиксации завершения нельзя менять этапы → 409", editAfterProductionComplete.status === 409 && editAfterProductionComplete.json?.error === "PRODUCTION_ALREADY_COMPLETED", JSON.stringify(editAfterProductionComplete.json).slice(0, 160));
 
   const complete = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
   assert("production/complete → 200", complete.status === 200);
@@ -239,17 +803,73 @@ async function main() {
 
   const upload = await api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() });
   assert("загрузка фото готовности → 201", upload.status === 201, JSON.stringify(upload.json).slice(0, 160));
+  // Четыре конкурентные загрузки заполняют лимит до пяти; шестая обязана
+  // отклоняться DB-trigger даже если все запросы прошли предварительный count.
+  const concurrentPhotos = await Promise.all(
+    Array.from({ length: 4 }, () =>
+      api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() })
+    )
+  );
+  assert(
+    "параллельные загрузки не превышают пять одобренных фото",
+    concurrentPhotos.every((item) => item.status === 201 || (item.status === 422 && item.json?.error === "PHOTO_LIMIT_REACHED")),
+    JSON.stringify(concurrentPhotos.map((item) => ({ status: item.status, error: item.json?.error })))
+  );
+  const sixthPhoto = await api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() });
+  assert("шестая фотография отклоняется → 422 PHOTO_LIMIT_REACHED", sixthPhoto.status === 422 && sixthPhoto.json?.error === "PHOTO_LIMIT_REACHED", JSON.stringify(sixthPhoto.json));
   const mediaUrl = upload.json?.media?.url;
   assert("media URL формата /api/order-media/<id>", typeof mediaUrl === "string" && mediaUrl.startsWith("/api/order-media/"));
+  const mediaObject = await client.query(
+    `SELECT storage_path FROM public.order_media WHERE id = $1::uuid`,
+    [upload.json?.media?.id]
+  );
+  const storageObject = await client.query(
+    `SELECT id FROM storage.objects WHERE bucket_id = 'order_media' AND name = $1`,
+    [mediaObject.rows[0]?.storage_path]
+  );
+  assert("фото готового изделия физически сохранено в приватном Supabase Storage", storageObject.rowCount === 1);
+
+  // Покупатель должен видеть фото собственного готового изделия, но не иметь
+  // возможности загружать производственные доказательства вместо кондитера.
+  const customerMediaList = await api("GET", `/api/orders/${o1.orderId}/media`, { token: customer });
+  const readyPhotos = (customerMediaList.json?.media || []).filter((item) => item.kind === "ready_photo");
+  assert("покупатель получает все пять фото готового изделия → 200",
+    customerMediaList.status === 200 && readyPhotos.length === 5,
+    JSON.stringify(customerMediaList.json).slice(0, 240));
+  const customerMediaFile = await api("GET", mediaUrl, { token: customer });
+  assert("покупатель открывает фото своего заказа → 200", customerMediaFile.status === 200);
 
   const ready = await api("POST", `/api/orders/${o1.orderId}/ready`, { token: owner });
   assert("ready после фото → 200 (READY)", ready.status === 200, JSON.stringify(ready.json).slice(0, 160));
 
-  const handoff = await api("POST", `/api/orders/${o1.orderId}/handoff`, { token: owner, body: { executor: "Курьер Иван" } });
+  const courierBeforeHandoff = await api("GET", "/api/courier/available-orders", { token: courier });
+  assert("курьер не может забрать заказ до подтверждённой передачи", courierBeforeHandoff.status === 200 && !(courierBeforeHandoff.json?.orders || []).some((o) => o.id === o1.orderId));
+
+  const handoff = await api("POST", `/api/orders/${o1.orderId}/handoff`, { token: owner, body: { executor: "Курьер Демо" } });
   assert("handoff (delivery) → IN_DELIVERY", handoff.status === 200 && handoff.json?.status === "IN_DELIVERY", JSON.stringify(handoff.json).slice(0, 160));
 
-  const patchDelivered = await api("PATCH", `/api/orders/${o1.orderId}`, { token: admin, body: { status: "DELIVERED" } });
-  assert("PATCH DELIVERED (курьерский переход) → 200", patchDelivered.status === 200, JSON.stringify(patchDelivered.json).slice(0, 120));
+  const courierAvailable = await api("GET", "/api/courier/available-orders", { token: courier });
+  assert("заказ появляется у курьера только после handoff", courierAvailable.status === 200 && (courierAvailable.json?.orders || []).some((o) => o.id === o1.orderId), JSON.stringify(courierAvailable.json).slice(0, 160));
+
+  const courierAssign = await api("POST", "/api/courier/assign", { token: courier, body: { orderId: o1.orderId } });
+  assert("курьер принимает переданный ему заказ → 200", courierAssign.status === 200 && courierAssign.json?.courierId === "11111111-1111-4111-8111-111111111113", JSON.stringify(courierAssign.json).slice(0, 160));
+
+  const courierOrder = await api("GET", `/api/orders/${o1.orderId}`, { token: courier });
+  assert("назначенный курьер открывает карточку заказа → 200", courierOrder.status === 200, JSON.stringify(courierOrder.json).slice(0, 120));
+
+  const courierDashboard = await api("GET", "/api/courier/dashboard", { token: courier });
+  assert("кабинет курьера показывает назначенную доставку", courierDashboard.status === 200 && (courierDashboard.json?.activeDeliveries || []).some((d) => d.orderId === o1.number), JSON.stringify(courierDashboard.json).slice(0, 160));
+
+  const courierMedia = await api("GET", mediaUrl, { token: courier });
+  assert("назначенный курьер открывает фото готового изделия → 200", courierMedia.status === 200);
+
+  const patchDelivered = await api("PATCH", `/api/orders/${o1.orderId}`, { token: courier, body: { status: "DELIVERED" } });
+  assert("PATCH DELIVERED назначенным курьером → 200", patchDelivered.status === 200, JSON.stringify(patchDelivered.json).slice(0, 120));
+  const deliveryState = await client.query(
+    `SELECT status, delivered_at FROM public.deliveries WHERE order_id = $1::uuid AND courier_id = $2::uuid`,
+    [o1.orderId, "11111111-1111-4111-8111-111111111113"]
+  );
+  assert("доставка и заказ закрыты одним переходом", deliveryState.rows[0]?.status === "delivered" && Boolean(deliveryState.rows[0]?.delivered_at));
 
   const done = await api("POST", `/api/orders/${o1.orderId}/complete`, { token: customer });
   assert("complete (клиент) → COMPLETED", done.status === 200 && done.json?.status === "COMPLETED", JSON.stringify(done.json).slice(0, 160));
@@ -276,7 +896,10 @@ async function main() {
 
   // =========================================================================
   section("E2E №2 — нехватка ингредиента → закупка → ETA (ТЗ §47, §20)");
-  const o2 = await createTestOrder({ deliveryDate: tomorrowStr });
+  // Сценарий №1 списал рецепт; обнуляем ягоды для гарантированного shortage.
+  await client.query(`UPDATE public.inventory_items SET quantity = 0 WHERE id = $1::uuid`, [recipeInventoryFixture.berryId]);
+  // Отдельный день: заказ №1 уже занял слот владельца на tomorrowStr.
+  const o2 = await createTestOrder({ deliveryDate: dayAfterTomorrowStr });
   testOrders.push(o2.orderId);
   const a2 = await api("POST", `/api/orders/${o2.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("o2 assign → 200", a2.status === 200, JSON.stringify(a2.json).slice(0, 120));
@@ -294,15 +917,15 @@ async function main() {
   const accNoEta = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("acceptance-check без ETA: canAccept=false (PURCHASE_ETA_MISSING)", accNoEta.status === 200 && accNoEta.json?.canAccept === false && (accNoEta.json?.reasons || []).some((r) => r.code === "PURCHASE_ETA_MISSING"), JSON.stringify((accNoEta.json?.reasons || []).map((r) => r.code)));
 
-  // ETA до безопасного старта (завтра 09:00 < 11:55) → CAN_ACCEPT_WITH_PURCHASE
-  const etaOk = new Date(`${tomorrowStr}T09:00:00`);
+  // ETA до безопасного старта (09:00 < 11:55 в день доставки) → CAN_ACCEPT_WITH_PURCHASE
+  const etaOk = new Date(`${dayAfterTomorrowStr}T09:00:00`);
   const setEta = await api("PATCH", `/api/purchase-drafts/${draftId}`, { token: owner, body: { expectedEta: etaOk.toISOString() } });
   assert("PATCH purchase-draft ETA → 200", setEta.status === 200, JSON.stringify(setEta.json).slice(0, 120));
   const accOk = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("ETA до старта → canAccept=true (CAN_ACCEPT_WITH_PURCHASE)", accOk.status === 200 && accOk.json?.canAccept === true && accOk.json?.availability === "available_with_warning", JSON.stringify({ canAccept: accOk.json?.canAccept, av: accOk.json?.availability }));
 
   // ETA после безопасного старта → CANNOT_ACCEPT
-  const etaLate = new Date(`${tomorrowStr}T20:00:00`);
+  const etaLate = new Date(`${dayAfterTomorrowStr}T20:00:00`);
   await api("PATCH", `/api/purchase-drafts/${draftId}`, { token: owner, body: { expectedEta: etaLate.toISOString() } });
   const accLate = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("ETA после старта → canAccept=false (PURCHASE_ETA_AFTER_DEADLINE)", accLate.json?.canAccept === false && (accLate.json?.reasons || []).some((r) => r.code === "PURCHASE_ETA_AFTER_DEADLINE"), JSON.stringify((accLate.json?.reasons || []).map((r) => r.code)));
@@ -432,10 +1055,9 @@ async function main() {
   const winners = await client.query(`SELECT count(*)::int AS c FROM public.capacity_reservations WHERE order_id = $1::uuid AND status IN ('reserved','confirmed')`, [o6.orderId]);
   assert("ровно один активный резерв после гонки", winners.rows[0].c === 1, `got ${winners.rows[0].c}`);
 
-  // SQL-уровень: параллельные пересекающиеся резервы → EXCLUDE (23P01)
   // SQL-уровень: параллельные пересекающиеся резервы → EXCLUDE (23P01).
-  // Дата +2 дня — чтобы не пересекаться с резервами E2E №1 на завтра.
-  const dayPlus2 = isoDate(new Date(Date.now() + 2 * 86_400_000));
+  // Изолированная дата исключает конфликт с demo/fixture reservations.
+  const dayPlus2 = "2099-01-01";
   const o7 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   const o8 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   testOrders.push(o7.orderId, o8.orderId);
@@ -475,6 +1097,38 @@ main()
       for (const id of testOrders) {
         await deleteOrder(id).catch(() => {});
       }
+      if (recipeInventoryFixture) {
+        for (const link of recipeInventoryFixture.ingredientLinks) {
+          await client.query(
+            `UPDATE public.recipe_ingredients SET inventory_item_id = $2::uuid WHERE id = $1::uuid`,
+            [link.ingredientId, link.previousItemId]
+          );
+        }
+        for (const row of recipeInventoryFixture.inventorySnapshot) {
+          await client.query(
+            `UPDATE public.inventory_items
+                SET quantity = $2, unit = $3, is_active = $4
+              WHERE id = $1::uuid`,
+            [row.id, row.quantity, row.unit, row.isActive]
+          );
+        }
+        for (const id of recipeInventoryFixture.createdInventoryIds) {
+          await client.query(`DELETE FROM public.inventory_items WHERE id = $1::uuid`, [id]);
+        }
+      }
+      for (const quoteRequestId of testQuoteRequestIds) {
+        const quoteFiles = await client.query(
+          `SELECT storage_path FROM public.quote_request_media WHERE quote_request_id = $1::uuid`,
+          [quoteRequestId]
+        ).catch(() => ({ rows: [] }));
+        for (const file of quoteFiles.rows) {
+          await client.query(
+            `DELETE FROM storage.objects WHERE bucket_id = 'quote_media' AND name = $1`,
+            [file.storage_path]
+          ).catch(() => {});
+        }
+        await client.query(`DELETE FROM public.quote_requests WHERE id = $1::uuid`, [quoteRequestId]);
+      }
       for (const d of testDraftIds) {
         await client.query(`DELETE FROM public.purchase_draft_items WHERE draft_id = $1::uuid`, [d]);
         await client.query(`DELETE FROM public.purchase_drafts WHERE id = $1::uuid`, [d]);
@@ -484,6 +1138,12 @@ main()
         `DELETE FROM public.ops_tasks WHERE entity_type='order' AND entity_id = ANY($1::text[])`,
         [testOrders]
       );
+      if (registeredCustomerId) {
+        // Удаляем все оставшиеся тестовые заказы этого покупателя, включая
+        // возможные записи, не попавшие в testOrders из вспомогательных сценариев.
+        await client.query(`DELETE FROM public.orders WHERE user_id = $1::uuid`, [registeredCustomerId]);
+        await client.query(`DELETE FROM auth.users WHERE id = $1::uuid`, [registeredCustomerId]);
+      }
       const left = await client.query(`SELECT count(*)::int AS c FROM public.orders WHERE number LIKE 'P05V-%'`);
       console.log(`cleanup: заказов удалено ${testOrders.length}, осталось P05V: ${left.rows[0].c}`);
     } catch (e) {

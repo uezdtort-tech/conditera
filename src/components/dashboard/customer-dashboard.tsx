@@ -191,14 +191,16 @@ export function CustomerDashboard() {
         credentials: "include",
         body: JSON.stringify({}),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const body = (await res.json().catch(() => null)) as { error?: string; refundPending?: boolean } | null;
       if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
       return body;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["orders-real"] });
       toast.success("Заказ отменён", {
-        description: "Если заказ был оплачен — деньги вернутся автоматически",
+        description: data?.refundPending
+          ? "Возврат ожидает подтверждения платёжной системы. Статус обновится после подтверждения YooKassa."
+          : "Если заказ был оплачен, возврат отправлен; окончательный статус появится после подтверждения платёжной системы.",
       });
     },
     onError: (error: Error) => {

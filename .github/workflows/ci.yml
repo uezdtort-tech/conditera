@@ -16,7 +16,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, release/first-production-hardening]
   pull_request:
     branches: [main, develop]
 
@@ -76,6 +76,9 @@ jobs:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
+
+      - name: Verify escrow and order-access RLS migrations with PGlite
+        run: bun scripts/verify-payout-0037-pglite.ts
 
       - name: Run tests with coverage
         run: bun run test:coverage

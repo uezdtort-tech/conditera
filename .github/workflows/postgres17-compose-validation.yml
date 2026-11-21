@@ -194,8 +194,15 @@ jobs:
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration exec -T supabase-db-pg17-migration \
             psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
-            "SELECT count(*) FROM storage.buckets WHERE id IN ('avatars','covers','portfolio','product_images','documents','messages');")
-          test "$BUCKETS" = "6"
+            "SELECT count(*) FROM storage.buckets WHERE id IN ('avatars','covers','portfolio','product_images','documents','messages','order_media');")
+          test "$BUCKETS" = "7"
+          ORDER_MEDIA_PRIVATE=$(docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration exec -T supabase-db-pg17-migration \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            "SELECT count(*) FROM storage.buckets WHERE id='order_media' AND public=FALSE AND allowed_mime_types @> ARRAY['image/jpeg','image/png','image/webp']::text[];")
+          test "$ORDER_MEDIA_PRIVATE" = "1"
           for table in profiles user_roles products orders inventory_items chat_channels oauth_identity_links user_consent_events; do
             docker compose \
               -f docker-compose.supabase.yml \
@@ -204,7 +211,7 @@ jobs:
               psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
               "SELECT to_regclass('public.$table') IS NOT NULL;" | grep -qx t
           done
-          echo "PG17 schema migrations: $MIGRATIONS; Storage migration: $STORAGE_MIGRATION; buckets: $BUCKETS"
+          echo "PG17 schema migrations: $MIGRATIONS; Storage migration: $STORAGE_MIGRATION; buckets: $BUCKETS; private order media: $ORDER_MEDIA_PRIVATE"
       - name: Проверить логический перенос дампа PostgreSQL 18 в теневую БД PostgreSQL 17
         run: |
           docker run -d --name conditera-pg18-source \

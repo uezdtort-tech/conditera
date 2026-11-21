@@ -10,7 +10,8 @@
  *
  * Действия (таб «Производство»):
  *   • POST /api/orders/{id}/production/start    — CONFIRMED → PREPARING;
- *   • POST /api/orders/{id}/production/complete — этапы отмечаются выполненными;
+ *   • POST /api/orders/{id}/production/stage — отдельное подтверждение этапа;
+ *   • POST /api/orders/{id}/production/complete — фиксация завершения всех этапов;
  *   • POST /api/orders/{id}/ready               — PREPARING → READY (QC/фото-гейт;
  *     422 → тост с message + detail из ответа);
  *   • POST /api/orders/{id}/handoff             — READY → IN_DELIVERY/DELIVERED
@@ -26,6 +27,7 @@
  */
 
 import { useState } from "react";
+import Image from "next/image";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -79,6 +81,18 @@ type BusinessStatus = LifecycleResponse["derived"]["businessStatus"];
 type ProductionStatus = LifecycleResponse["derived"]["productionStatus"];
 type AssignmentStatus = LifecycleResponse["derived"]["assignmentStatus"];
 type DeliveryStatus = LifecycleResponse["derived"]["deliveryStatus"];
+
+interface OrderMediaItem {
+  id: string;
+  kind: string;
+  source?: "order" | "customer_reference";
+  mimeType: string;
+  fileSize: number;
+  width: number | null;
+  height: number | null;
+  uploadedAt: string;
+  url: string;
+}
 
 /** Палитра уровня риска (без синего). */
 export const RISK_LEVEL_UI: Record<RiskLevel, { label: string; badge: string }> = {
@@ -327,6 +341,27 @@ export function OrderWorkspaceDialog({
     },
   });
 
+  const mediaQuery = useQuery({
+    queryKey: ["order-media", orderId],
+    enabled: open && !!orderId,
+    queryFn: async (): Promise<{ media: OrderMediaItem[] }> => {
+      const [orderRes, referenceRes] = await Promise.all([
+        csrfFetch(`/api/orders/${orderId}/media`),
+        csrfFetch(`/api/orders/${orderId}/reference-media`),
+      ]);
+      if (!orderRes.ok) throw new Error(`Не удалось загрузить фото заказа (HTTP ${orderRes.status})`);
+      if (!referenceRes.ok) throw new Error(`Не удалось загрузить исходные материалы (HTTP ${referenceRes.status})`);
+      const orderPayload = await orderRes.json() as { media: OrderMediaItem[] };
+      const referencePayload = await referenceRes.json() as { media: OrderMediaItem[] };
+      return {
+        media: [
+          ...referencePayload.media,
+          ...orderPayload.media.map((item) => ({ ...item, source: "order" as const })),
+        ],
+      };
+    },
+  });
+
   /** Общая мутация производственных действий; после успеха — инвалидация контуров. */
   const actionMutation = useMutation({
     mutationFn: async (kind: OrderActionKind) => {
@@ -349,6 +384,32 @@ export function OrderWorkspaceDialog({
     },
     onError: (error: Error) => {
       toast.error("Действие не выполнено", { description: error.message });
+    },
+  });
+
+  /** Отдельная фиксация каждого фактически выполненного этапа производства. */
+  const stageMutation = useMutation({
+    mutationFn: async (input: { stageKey: string; done: boolean }) => {
+      const res = await csrfFetch(`/api/orders/${orderId}/production/stage`, {
+        method: "POST",
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        throw new Error(parseApiError(await readErrorBody(res), `HTTP ${res.status}`));
+      }
+      return (await res.json()) as { ok: boolean; stage: { label: string; is_done: boolean } };
+    },
+    onSuccess: (data) => {
+      toast.success(data.stage.is_done ? "Этап отмечен выполненным" : "Отметка этапа снята", {
+        description: data.stage.label,
+      });
+      void queryClient.invalidateQueries({ queryKey: ["order-lifecycle", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["ops-orders-today"] });
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось обновить этап", { description: error.message });
     },
   });
 
@@ -391,6 +452,10 @@ export function OrderWorkspaceDialog({
   const ds = derived?.deliveryStatus;
   const isActionBusy = (kind: OrderActionKind) =>
     actionMutation.isPending && actionMutation.variables === kind;
+  const workStages = lc?.production.checklist.filter(
+    (stage) => stage.stage_key !== "ready_photo" && stage.stage_key !== "handoff"
+  ) ?? [];
+  const workStagesComplete = workStages.length > 0 && workStages.every((stage) => stage.is_done);
 
   interface ActionDef {
     kind: OrderActionKind;
@@ -412,15 +477,15 @@ export function OrderWorkspaceDialog({
       kind: "production-complete",
       label: "Завершить этапы",
       icon: ListChecks,
-      enabled: bs === "in_production",
-      hint: "Доступно в статусе «В производстве» (PREPARING)",
+      enabled: bs === "in_production" && workStagesComplete && !lc?.production.completedAt,
+      hint: "Доступно после ручного подтверждения всех производственных этапов",
     },
     {
       kind: "ready",
       label: "Отметить готов",
       icon: PackageCheck,
-      enabled: bs === "in_production",
-      hint: "Требует завершённого чеклиста и фото готовности (если категория требует)",
+      enabled: bs === "in_production" && Boolean(lc?.production.checklistComplete),
+      hint: "Требует завершённого чеклиста и фото готовности, если оно обязательно",
     },
     {
       kind: "handoff",
@@ -456,6 +521,7 @@ export function OrderWorkspaceDialog({
         <Tabs defaultValue="overview" className="gap-3">
           <TabsList className="w-full max-w-full overflow-x-auto sm:w-auto">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">Обзор</TabsTrigger>
+            <TabsTrigger value="materials" className="text-xs sm:text-sm">Материалы</TabsTrigger>
             <TabsTrigger value="production" className="text-xs sm:text-sm">Производство</TabsTrigger>
             <TabsTrigger value="ingredients" className="text-xs sm:text-sm">Ингредиенты</TabsTrigger>
             <TabsTrigger value="events" className="text-xs sm:text-sm">События</TabsTrigger>
@@ -633,6 +699,54 @@ export function OrderWorkspaceDialog({
             ) : null}
           </TabsContent>
 
+          {/* ==================== МАТЕРИАЛЫ ЗАКАЗА ==================== */}
+          <TabsContent value="materials" className="space-y-3 mt-1">
+            {mediaQuery.isLoading ? (
+              <div className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Загружаем материалы заказа...
+              </div>
+            ) : mediaQuery.error ? (
+              <QueryErrorBlock
+                message={(mediaQuery.error as Error).message}
+                onRetry={() => void mediaQuery.refetch()}
+              />
+            ) : (mediaQuery.data?.media?.length ?? 0) === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                К заказу пока не прикреплены фотографии или макеты.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {(mediaQuery.data?.media ?? []).map((media) => {
+                  const label = media.kind === "customer_reference" ? "Фото-пожелание покупателя"
+                    : media.kind === "builder_preview" ? "Макет из конструктора"
+                    : media.kind === "handoff_photo" ? "Фото передачи"
+                    : "Фото готового изделия";
+                  return (
+                    <a
+                      key={`${media.source ?? "order"}-${media.id}`}
+                      href={media.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group rounded-lg border border-border overflow-hidden bg-card"
+                    >
+                      <div className="relative aspect-square bg-muted">
+                        <Image
+                          src={media.url}
+                          alt={label}
+                          fill
+                          unoptimized
+                          sizes="(max-width: 640px) 50vw, 33vw"
+                          className="object-cover transition-transform group-hover:scale-[1.02]"
+                        />
+                      </div>
+                      <div className="p-2 text-xs font-medium">{label}</div>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
           {/* ==================== ПРОИЗВОДСТВО ==================== */}
           <TabsContent value="production" className="space-y-3 mt-1">
             {lifecycleQuery.isLoading || lifecycleQuery.error ? (
@@ -676,10 +790,28 @@ export function OrderWorkspaceDialog({
                     <ul className="divide-y divide-border">
                       {lc.production.checklist.map((stage) => (
                         <li key={stage.id} className="flex items-center gap-2.5 px-3 py-2.5">
-                          {stage.is_done ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                          {stage.stage_key === "ready_photo" || stage.stage_key === "handoff" ? (
+                            stage.is_done ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            )
                           ) : (
-                            <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0"
+                              disabled={bs !== "in_production" || Boolean(lc?.production.completedAt) || stageMutation.isPending}
+                              aria-label={stage.is_done ? `Снять отметку: ${stage.label}` : `Отметить выполненным: ${stage.label}`}
+                              onClick={() => stageMutation.mutate({ stageKey: stage.stage_key, done: !stage.is_done })}
+                            >
+                              {stage.is_done ? (
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-muted-foreground/50" />
+                              )}
+                            </Button>
                           )}
                           <span className={`text-sm min-w-0 truncate ${stage.is_done ? "text-muted-foreground line-through" : ""}`}>
                             {stage.label}
