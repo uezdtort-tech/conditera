@@ -58,8 +58,8 @@ function section(title) {
 
 const RUN_IP = `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
 
-async function api(method, path, { token, body, raw } = {}) {
-  const headers = { "x-real-ip": RUN_IP };
+async function api(method, path, { token, body, raw, extraHeaders } = {}) {
+  const headers = { "x-real-ip": RUN_IP, ...(extraHeaders || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (raw) {
     // raw: FormData — не ставим Content-Type (boundary проставит fetch)
@@ -404,6 +404,31 @@ async function main() {
     ownSecurityEvents.status === 200 &&
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_created") &&
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_revoked"));
+
+  // Контроль нового устройства: вход должен оставить security event и задачу администратору.
+  const newDeviceLogin = await api("POST", "/api/auth/login", {
+    body: { email: customerEmail, password: PASSWORD },
+    extraHeaders: {
+      "x-real-ip": "10.241.242.243",
+      "user-agent": "Conditera-E2E-New-Device/1.0",
+    },
+  });
+  assert("вход с нового устройства проходит аутентификацию",
+    newDeviceLogin.status === 200 && Boolean(newDeviceLogin.json?.accessToken));
+  const newDeviceSecurityEvent = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+      WHERE user_id = $1::uuid AND event_type = 'new_device_session'`,
+    [CUSTOMER_ID]
+  );
+  assert("новое устройство фиксируется как security warning",
+    newDeviceSecurityEvent.rows[0]?.count >= 1);
+  const newDeviceAdminTask = await client.query(
+    `SELECT count(*)::int AS count FROM public.ops_tasks
+      WHERE type = 'ACCOUNT_NEW_DEVICE' AND entity_id = $1 AND status = 'open'`,
+    [CUSTOMER_ID]
+  );
+  assert("для нового устройства создаётся задача контроля аккаунта",
+    newDeviceAdminTask.rows[0]?.count >= 1);
 
   // Индивидуальный RFQ: проект → предложение с рецептом → заказ → платёж.
   const confectionerRow = await client.query(
