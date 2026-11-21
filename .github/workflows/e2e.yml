@@ -130,7 +130,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run acceptance and production-time unit tests
-        run: bun run test -- src/lib/ops/risk.test.ts
+        run: bunx vitest run src/lib/ops/risk.test.ts
 
       - name: Cache Next.js build
         uses: actions/cache@v6
