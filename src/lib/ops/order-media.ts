@@ -72,7 +72,7 @@ export async function saveOrderReadyPhoto(params: {
   orderId: string;
   file: File;
   uploadedBy: string;
-  kind?: "ready_photo" | "handoff_photo";
+  kind?: "ready_photo" | "handoff_photo" | "dispute_evidence";
 }): Promise<OrderMediaRow> {
   const buffer = Buffer.from(await params.file.arrayBuffer());
 
