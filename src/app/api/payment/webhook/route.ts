@@ -239,7 +239,10 @@ export async function POST(request: NextRequest) {
     // pay4: refund.succeeded НЕ гейтится этим чеком — gейт с dbStatus="succeeded"
     // проглатывал ВСЕ refund-события по оплаченному платежу (payment.status
     // "succeeded" === dbStatus). Дедуп возвратов — по refund id в RPC 0039.
-    if (event !== "refund.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
+    // payment.succeeded нельзя завершать ранним idempotency-skip:
+    // после предыдущей попытки order CAS мог проиграть гонку отмене, и
+    // повторный webhook обязан повторно проверить заказ/инициировать возврат.
+    if (event !== "refund.succeeded" && event !== "payment.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
       const alreadyDone =
         payment.status === dbStatus ||
         (event === "refund.succeeded" && payment.status === "refunded");
@@ -474,7 +477,41 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "DB error" }, { status: 500 });
         }
         if (!escrowWinner || escrowWinner.length === 0) {
-          console.info(`[webhook] Order ${orderId} already in escrow (CAS), skipping side-effects.`);
+          // CAS мог проиграть не повторному webhook, а конкурентной отмене.
+          // Не считать это безопасной идемпотентностью: перечитываем заказ и,
+          // если он стал terminal, компенсируем уже подтверждённое списание.
+          const { data: latestOrder, error: latestOrderError } = await supabaseAdmin
+            .from("orders")
+            .select("id, number, status")
+            .eq("id", orderId)
+            .maybeSingle();
+          if (latestOrderError) {
+            console.error("[webhook] order re-read after escrow CAS failed:", latestOrderError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!latestOrder) {
+            return NextResponse.json({ error: "Order not found after escrow CAS" }, { status: 500 });
+          }
+          if (["CANCELLED", "REFUNDED", "COMPLETED"].includes(latestOrder.status)) {
+            const refundAmount = Math.max(
+              0,
+              Number(payment.amount) - Number(payment.refund_amount ?? 0)
+            );
+            if (refundAmount > 0) {
+              const lateRefund = await refundPayment(
+                providerPaymentId,
+                refundAmount,
+                `Автоматический возврат по отменённому заказу ${latestOrder.number || orderId}`,
+                `uezd_konditer:refund:late:${orderId}`
+              );
+              if (!lateRefund.success) {
+                console.error("[webhook] concurrent-cancel refund failed; YooKassa retry required:", lateRefund.error);
+                return NextResponse.json({ error: "Late cancellation refund failed" }, { status: 500 });
+              }
+            }
+            return NextResponse.json({ success: true, refundInitiated: refundAmount > 0 });
+          }
+          console.info(`[webhook] Order ${orderId} already transitioned (CAS), skipping side-effects.`);
           return NextResponse.json({ success: true, idempotent: true });
         }
 
