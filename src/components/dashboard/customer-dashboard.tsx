@@ -1609,7 +1609,13 @@ function OrderDisputeStatus({ orderId }: { orderId: string }) {
       const res = await fetch(`/api/orders/${orderId}/disputes`, { headers, credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json() as {
-        dispute: { status: string; resolution?: string | null } | null;
+        dispute: {
+          id: string;
+          status: string;
+          resolution?: string | null;
+          messages?: { id: string; sender_id: string; message: string; created_at: string }[];
+          evidence?: { id: string; url: string }[];
+        } | null;
       };
     },
     staleTime: 30_000,
@@ -1627,6 +1633,75 @@ function OrderDisputeStatus({ orderId }: { orderId: string }) {
     <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs">
       <span className="font-medium">Спор по качеству: {labels[dispute.status] || dispute.status}</span>
       {dispute.resolution && <p className="mt-1 text-muted-foreground">{dispute.resolution}</p>}
+      {!!dispute.messages?.length && (
+        <div className="mt-2 space-y-1 border-t border-amber-200 pt-2">
+          {dispute.messages.slice(-3).map((item) => (
+            <p key={item.id} className="text-muted-foreground">{item.message}</p>
+          ))}
+        </div>
+      )}
+      {!!dispute.evidence?.length && (
+        <p className="mt-1 text-muted-foreground">Доказательств сохранено: {dispute.evidence.length}</p>
+      )}
+      {dispute.status === "awaiting_customer" && (
+        <DisputeReplyForm orderId={orderId} disputeId={dispute.id} />
+      )}
+    </div>
+  );
+}
+
+function DisputeReplyForm({ orderId, disputeId }: { orderId: string; disputeId: string }) {
+  const queryClient = useQueryClient();
+  const [message, setMessage] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const form = new FormData();
+      form.append("message", message.trim());
+      for (const file of files) form.append("evidence", file, file.name);
+      const headers = await getSessionAuthHeaders(await getCsrfToken(), { json: false });
+      const res = await fetch(`/api/orders/${orderId}/disputes/${disputeId}/reply`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: form,
+      });
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      return body;
+    },
+    onSuccess: () => {
+      toast.success("Ответ отправлен");
+      setMessage("");
+      setFiles([]);
+      void queryClient.invalidateQueries({ queryKey: ["order-dispute", orderId] });
+    },
+    onError: (error: Error) => toast.error("Не удалось отправить ответ", { description: error.message }),
+  });
+  return (
+    <div className="mt-3 space-y-2 border-t border-amber-200 pt-3">
+      <Label htmlFor={`dispute-reply-${disputeId}`}>Ответ поддержке</Label>
+      <Textarea
+        id={`dispute-reply-${disputeId}`}
+        rows={3}
+        maxLength={5000}
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Добавьте пояснение (минимум 10 символов)"
+      />
+      <Input
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 5))}
+      />
+      <Button
+        size="sm"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending || message.trim().length < 10 || files.length > 5}
+      >
+        {mutation.isPending ? "Отправляем…" : "Отправить ответ"}
+      </Button>
     </div>
   );
 }
