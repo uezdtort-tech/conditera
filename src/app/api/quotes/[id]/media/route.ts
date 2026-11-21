@@ -42,7 +42,13 @@ export async function POST(
   const user = await getUserFromRequest(request);
   if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   const { id } = await params;
-  const access = await resolveAccess(id, user.id, user.roles ?? []);
+  let access;
+  try {
+    access = await resolveQuoteMediaAccess(id, user.id, user.roles ?? []);
+  } catch (error) {
+    console.error("[quote-media] upload access check failed:", (error as Error).message);
+    return NextResponse.json({ error: "MEDIA_ACCESS_UNAVAILABLE" }, { status: 503 });
+  }
   if (!access.quote) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   // Только покупатель прикрепляет исходные пожелания и макет к своему запросу.
   if (!access.isOwner && !access.isAdmin) {
