@@ -217,7 +217,7 @@ async function main() {
     const actualState = sqlState(caught);
     actualState === expectedState
       ? ok(label, `SQLSTATE ${actualState}`)
-      : fail(label, `ожидался SQLSTATE ${expectedState}, получен ${actualState ?? "неизвестный"}: ${String(caught).split("\\n")[0]}`);
+      : fail(label, `ожидался SQLSTATE ${expectedState}, получен ${actualState ?? "неизвестный"}: ${String(caught).split("\n")[0]}`);
   }
 
   await expectSqlError("0088: тот же refund_id с другой суммой отклонён",
