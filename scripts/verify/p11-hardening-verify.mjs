@@ -254,7 +254,7 @@ async function main() {
 
   // === 2. CHECKOUT IDEMPOTENCY (§8) ===
   section("Checkout: параллельные POST с одним Idempotency-Key");
-  const today = new Date(Date.now() + 2 * 86400_000);
+  const today = new Date(Date.now() + 14 * 86400_000);
   const deliveryDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const idemKey = `p11-verify-${rand()}`;
   const checkoutBody = {
@@ -270,8 +270,8 @@ async function main() {
     api("POST", "/api/checkout", { token: customer, body: checkoutBody, headers: { "Idempotency-Key": idemKey } }),
     api("POST", "/api/checkout", { token: customer, body: checkoutBody, headers: { "Idempotency-Key": idemKey } }),
   ]);
-  assert("checkout #1 → 200/201", [200, 201].includes(c1.status), `got ${c1.status} ${JSON.stringify(c1.json).slice(0, 140)}`);
-  assert("checkout #2 → 200/201 (replay, не ошибка)", [200, 201].includes(c2.status), `got ${c2.status} ${JSON.stringify(c2.json).slice(0, 140)}`);
+  assert("checkout #1 → 200/201", [200, 201].includes(c1.status), `got ${c1.status} ${JSON.stringify(c1.json).slice(0, 600)}`);
+  assert("checkout #2 → 200/201 (replay, не ошибка)", [200, 201].includes(c2.status), `got ${c2.status} ${JSON.stringify(c2.json).slice(0, 600)}`);
   const sameOrder = c1.json?.orderId && c1.json.orderId === c2.json.orderId;
   assert("оба ответа вернули ОДИН orderId", Boolean(sameOrder), `${c1.json?.orderId} vs ${c2.json?.orderId}`);
   if (c1.json?.orderId) cleanup.orderIds.push(c1.json.orderId);
