@@ -19,6 +19,7 @@ import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createAccessToken, createRefreshToken } from "@/lib/auth";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession } from "@/lib/session-registry";
 
 type Provider = "google" | "yandex" | "vk";
 
@@ -555,8 +556,9 @@ async function handleOAuthCallback(
       throw new Error("GoTrue недоступен вне локальной разработки");
     }
 
-    const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
-    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
+    const sessionId = await createUserSession(userId, request, "oauth");
+    const accessToken = await createAccessToken({ userId, email, name, roles, accountType, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType, sid: sessionId });
     const finalResponse = setSessionCookies(response, { accessToken, refreshToken });
     createdUserForRollback = null;
     return finalResponse;
