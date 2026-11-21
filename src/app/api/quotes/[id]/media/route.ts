@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getPool } from "@/lib/postgrest/pool";
 import { listQuoteMedia, saveQuoteMedia, MediaValidationError } from "@/lib/ops/quote-media";
 
 export const runtime = "nodejs";
