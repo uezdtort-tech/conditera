@@ -27,8 +27,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { unauthorizedResponse } from "@/lib/supabase/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
-import { computeOrderBreakdown } from "@/lib/ops/breakdown";
-import { convertQty } from "@/lib/ops/units";
+import { writeOffOrderRecipe } from "@/lib/ops/recipe-writeoff";
 import {
   applyInventoryMovement,
   parseMovementQuantity,
@@ -133,38 +132,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Основной сценарий — автоматически получить нормы из рецептов заказа.
-    // Ручной items[] оставлен для корректировок/нестандартных списаний.
+    // Основной производственный сценарий — единый сервис автоматически
+    // рассчитывает и списывает рецепт. Он же используется этапом
+    // ingredients_prepared, поэтому оба входа разделяют один idempotency key.
     let rawItems = Array.isArray(body.items) ? body.items : null;
     if (orderId && (body.mode === "recipe" || !rawItems)) {
-      const breakdown = await computeOrderBreakdown(orderId);
-      if (!breakdown) return NextResponse.json({ error: "Не удалось рассчитать рецептуру заказа" }, { status: 404 });
-      if (!breakdown.ingredients.length) {
-        return NextResponse.json({ error: "У товаров заказа не настроены рецептуры с ингредиентами" }, { status: 422 });
+      const result = await writeOffOrderRecipe(
+        { id: user.id, roles: (user.roles as string[]) || [] },
+        orderId
+      );
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.error, details: result.details },
+          { status: result.status }
+        );
       }
-      if (!breakdown.can_produce) {
-        return NextResponse.json({
-          error: "Недостаточно ингредиентов или несовместимые единицы измерения",
-          shortages: breakdown.shortages,
-          ingredients: breakdown.ingredients,
-        }, { status: 409 });
-      }
-      const derived: WriteOffRequestItem[] = [];
-      for (const ingredient of breakdown.ingredients) {
-        if (!ingredient.inventory_item_id || !ingredient.warehouse_unit) {
-          return NextResponse.json({
-            error: `Для ингредиента «${ingredient.name}» не настроена привязка к позиции склада`,
-          }, { status: 409 });
-        }
-        const quantity = convertQty(ingredient.required, ingredient.unit, ingredient.warehouse_unit);
-        if (quantity === null || !Number.isFinite(quantity) || quantity <= 0) {
-          return NextResponse.json({
-            error: `Невозможно преобразовать единицу ингредиента «${ingredient.name}» в единицу склада`,
-          }, { status: 409 });
-        }
-        derived.push({ item_id: ingredient.inventory_item_id, quantity });
-      }
-      rawItems = derived;
+      return NextResponse.json(
+        {
+          applied: result.applied,
+          failed: result.failed,
+          order_id: orderId,
+          idempotent: result.idempotent,
+        },
+        { status: result.idempotent ? 200 : 201 }
+      );
     }
 
     if (!rawItems || rawItems.length === 0) {
