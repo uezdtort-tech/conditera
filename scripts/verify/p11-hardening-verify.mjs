@@ -497,8 +497,10 @@ async function cleanupAll() {
     }
     if (cleanup.orderIds.length > 0) {
       await client.query(`DELETE FROM public.order_items WHERE order_id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
-      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[]) AND metadata->>'test' = 'p11-verify'`, [cleanup.orderIds]).catch(() => {});
+      // ops_tasks использует payload, не metadata; entity_id ограничен только тестовыми order IDs.
+      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanup.orderIds]).catch(() => {});
       await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanup.orderIds]).catch(() => {});
+      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
       await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
     }
     if (cleanup.eventDedupKeys.length > 0) {
