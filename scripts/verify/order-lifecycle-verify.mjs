@@ -186,6 +186,12 @@ function disputeForm() {
   return fd;
 }
 
+function disputeReplyForm() {
+  const fd = new FormData();
+  fd.append("message", "Прикладываю дополнительные сведения: повреждение заметно сразу после распаковки, упаковка была целой.");
+  return fd;
+}
+
 function photoForm() {
   const fd = new FormData();
   fd.append("file", new Blob([PNG_1PX], { type: "image/png" }), "ready.png");
@@ -998,6 +1004,23 @@ async function main() {
   assert("администратор переводит спор в under_review",
     disputeReview.status === 200 && disputeReview.json?.dispute?.status === "under_review",
     JSON.stringify(disputeReview.json));
+  const disputeAskCustomer = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: admin,
+    body: { disputeId, status: "awaiting_customer", resolution: "Нужны дополнительные сведения об упаковке и моменте обнаружения дефекта." },
+  });
+  assert("администратор запрашивает уточнение у покупателя",
+    disputeAskCustomer.status === 200 && disputeAskCustomer.json?.dispute?.status === "awaiting_customer",
+    JSON.stringify(disputeAskCustomer.json));
+  const disputeReply = await api("POST", `/api/orders/${pickup.orderId}/disputes/${disputeId}/reply`, {
+    token: customer,
+    raw: disputeReplyForm(),
+  });
+  assert("покупатель отвечает на запрос поддержки → спор возвращается в under_review",
+    disputeReply.status === 201 && disputeReply.json?.status === "under_review",
+    JSON.stringify(disputeReply.json));
+  const disputeAfterReply = await api("GET", `/api/orders/${pickup.orderId}/disputes`, { token: customer });
+  assert("сообщение покупателя сохраняется в истории спора",
+    disputeAfterReply.status === 200 && disputeAfterReply.json?.dispute?.messages?.length === 1);
   const disputeResolve = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
     token: admin,
     body: { disputeId, status: "resolved", resolution: "Дефект подтверждён, покупателю согласован полный возврат." },
@@ -1026,7 +1049,7 @@ async function main() {
     [disputeId],
   );
   assert("журнал спора сохраняет открытие, рассмотрение и решение",
-    disputeEvents.rows[0]?.count === 3,
+    disputeEvents.rows[0]?.count === 5,
     `events=${disputeEvents.rows[0]?.count}`);
   const disputeOpsTask = await client.query(
     `SELECT status, resolved_by, action_url FROM public.ops_tasks
@@ -1355,6 +1378,13 @@ main()
         [testOrders],
       ).catch(() => {});
       await client.query("ALTER TABLE public.order_dispute_evidence ENABLE TRIGGER USER").catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_messages DISABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_dispute_messages
+          WHERE dispute_id IN (SELECT id FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_messages ENABLE TRIGGER USER").catch(() => {});
       await client.query("ALTER TABLE public.order_dispute_events DISABLE TRIGGER USER").catch(() => {});
       await client.query(
         `DELETE FROM public.order_dispute_events
