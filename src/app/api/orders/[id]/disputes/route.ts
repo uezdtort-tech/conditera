@@ -298,6 +298,15 @@ export async function PATCH(
          jsonb_build_object('resolution', NULLIF($5::text, ''), 'assigned_to', $6::text))`,
       [disputeId, user.id, current.status, nextStatus, resolution, hasAssignmentChange ? assignedTo : current.assigned_to],
     );
+    if (["resolved", "rejected"].includes(nextStatus)) {
+      await client.query(
+        `UPDATE public.ops_tasks
+         SET status = 'resolved', resolved_by = $2::uuid, resolved_at = now(),
+             resolve_comment = $3, updated_at = now()
+         WHERE dedup_key = $1 AND status = 'open'`,
+        [`ORDER_DISPUTE:${disputeId}`, user.id, resolution],
+      );
+    }
     await client.query("COMMIT");
     return NextResponse.json({ dispute: updated.rows[0] });
   } catch (error) {
