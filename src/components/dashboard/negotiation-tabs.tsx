@@ -391,8 +391,14 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
                   <Button
                     onClick={() => {
                       if (confirm("Отозвать предложение? Покупатель получит уведомление.")) {
-                        withdrawNegotiation(neg.id);
-                        toast.success("Предложение отозвано");
+                        void csrfFetch(`/api/quotes/${neg.inquiryId || neg.id}/withdraw`, { method: "POST" })
+                          .then(async (response) => {
+                            const result = await response.json().catch(() => ({}));
+                            if (!response.ok) throw new Error(result.error || "Не удалось отозвать предложение");
+                            toast.success("Предложение отозвано");
+                            await loadServerNegotiations();
+                          })
+                          .catch((error) => toast.error((error as Error).message));
                       }
                     }}
                     variant="outline"
