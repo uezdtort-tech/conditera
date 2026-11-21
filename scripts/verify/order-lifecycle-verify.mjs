@@ -406,7 +406,7 @@ async function main() {
         base: "sponge",
         filling: "chocolate_ganache",
         coating: "ganache_dark",
-        decorations: ["berries"],
+        decorations: ["berries", "macarons", "gold_leaf", "flowers", "pearls"],
         dietary: [],
         servings: 8,
         quantity: 1,
@@ -421,14 +421,27 @@ async function main() {
         confectioner_ids: [quoteConfectionerId],
         project_spec: {
           productType: "cake", base: "sponge", filling: "chocolate_ganache",
-          coating: "ganache_dark", decorations: ["berries"], servings: 8,
-          city: "Москва", deliveryDate: tomorrowStr, deliveryType: "pickup",
+          coating: "ganache_dark", decorations: ["berries", "macarons", "gold_leaf", "flowers", "pearls"], servings: 8,
+          city: "Москва", deliveryDate: tomorrowStr, deliveryType: "delivery",
         },
       },
     });
     assert("покупатель создаёт RFQ с project_spec → 201",
       quoteCreate.status === 201 && Boolean(quoteCreate.json?.quoteRequest?.id),
       JSON.stringify(quoteCreate.json).slice(0, 240));
+    const tooManyDecorations = await api("POST", "/api/quotes", {
+      token: customer,
+      body: {
+        city: "Москва",
+        confectioner_ids: [quoteConfectionerId],
+        decorations: ["a", "b", "c", "d", "e", "f"],
+        project_spec: { decorations: ["a", "b", "c", "d", "e", "f"] },
+      },
+    });
+    assert("шестой элемент декора отклоняется на сервере → 400",
+      tooManyDecorations.status === 400,
+      JSON.stringify(tooManyDecorations.json).slice(0, 180));
+
     if (quoteCreate.status === 201 && quoteCreate.json?.quoteRequest?.id) {
       const quoteRequestId = quoteCreate.json.quoteRequest.id;
       testQuoteRequestIds.push(quoteRequestId);
@@ -453,7 +466,7 @@ async function main() {
         [quoteRequestId]
       );
       assert("RFQ project snapshot сохранён в PostgreSQL",
-        savedProject.rows[0]?.product_type === "cake" && Number(savedProject.rows[0]?.decor_count) === 1);
+        savedProject.rows[0]?.product_type === "cake" && Number(savedProject.rows[0]?.decor_count) === 5);
 
       const eligibleProducts = await api("GET", `/api/quotes/${quoteRequestId}/respond`, {
         token: owner,
@@ -503,7 +516,7 @@ async function main() {
             acceptedSpecRow?.confectioner_id === OWNER_ID &&
             acceptedSpecRow?.source_quote_id === quoteId &&
             acceptedSpecRow?.order_spec?.productType === "cake" &&
-            acceptedSpecRow?.item_spec?.decorations?.length === 1,
+            acceptedSpecRow?.item_spec?.decorations?.length === 5,
             JSON.stringify(acceptedSpecRow).slice(0, 260));
 
           const repeatedQuoteAccept = await api("POST", `/api/quotes/${quoteId}/accept`, { token: customer });
