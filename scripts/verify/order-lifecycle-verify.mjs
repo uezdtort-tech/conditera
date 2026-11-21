@@ -314,6 +314,24 @@ async function main() {
     assert(`этап ${stage.stage_key} отмечается отдельно → 200`, marked.status === 200 && marked.json?.stage?.is_done === true, JSON.stringify(marked.json).slice(0, 120));
   }
 
+  const recipeOutCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.inventory_movements WHERE order_id = $1::uuid AND type = 'OUT'`,
+    [o1.orderId]
+  );
+  assert("подтверждение ingredients_prepared автоматически списало рецепт со склада", recipeOutCount.rows[0].count > 0);
+  const repeatIngredientsStage = await api("POST", `/api/orders/${o1.orderId}/production/stage`, {
+    token: owner,
+    body: { stageKey: "ingredients_prepared", done: true },
+  });
+  const recipeOutCountAfterRetry = await client.query(
+    `SELECT count(*)::int AS count FROM public.inventory_movements WHERE order_id = $1::uuid AND type = 'OUT'`,
+    [o1.orderId]
+  );
+  assert(
+    "повтор ingredients_prepared не создаёт повторных списаний",
+    repeatIngredientsStage.status === 200 && recipeOutCountAfterRetry.rows[0].count === recipeOutCount.rows[0].count
+  );
+
   const prematureComplete = await api("POST", `/api/orders/${o1.orderId}/production/complete`, { token: owner });
   assert("production/complete при незагруженном фото → 200, но фото остаётся обязательным", prematureComplete.status === 200 && (prematureComplete.json?.remainingBeforeReady || []).includes("Фото готовности"), JSON.stringify(prematureComplete.json).slice(0, 160));
   const editAfterProductionComplete = await api("POST", `/api/orders/${o1.orderId}/production/stage`, { token: owner, body: { stageKey: workStages[0].stage_key, done: false } });
