@@ -51,6 +51,7 @@ on:
       - ".github/workflows/e2e.yml"
       - "supabase/migrations/**"
       - "scripts/verify/order-lifecycle-verify.mjs"
+      - "scripts/verify/refund-concurrency-pg.mjs"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
@@ -69,6 +70,9 @@ on:
       - release/first-production-hardening
     paths:
       - ".github/workflows/e2e.yml"
+      - "scripts/verify/refund-concurrency-pg.mjs"
+      - "scripts/verify/order-lifecycle-verify.mjs"
+      - "supabase/migrations/**"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
@@ -186,6 +190,11 @@ jobs:
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NODE_ENV: ${{ env.NODE_ENV }}
+
+      - name: Verify concurrent YooKassa refunds on independent PostgreSQL sessions
+        run: node scripts/verify/refund-concurrency-pg.mjs
+        env:
+          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
 
       - name: Export generated Supabase service-role key to CI runtime
         shell: bash
