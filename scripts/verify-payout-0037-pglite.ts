@@ -300,10 +300,10 @@ async function main() {
   const accessOrders = await db.query<{ id: string }>(
     `INSERT INTO public.orders (user_id, confectioner_id, courier_id, status, payment_status)
      VALUES
-       ($1::uuid, 'conf_test', $4::uuid, 'IN_DELIVERY', 'escrow'),
+       ($1::uuid, 'conf_test', $3::uuid, 'IN_DELIVERY', 'escrow'),
        ($2::uuid, 'conf_test', NULL, 'PENDING', 'pending')
      RETURNING id::text`,
-    [ids.buyer, ids.otherBuyer, ids.confectioner, ids.courier]
+    [ids.buyer, ids.otherBuyer, ids.courier]
   );
   const courierOrderId = accessOrders.rows[0].id;
   const supportOrderId = accessOrders.rows[1].id;
