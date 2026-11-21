@@ -116,12 +116,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0),
         0
       );
-      const earningsByOrder = new Map<string, number>(
-        (earningsMonthResult.data || []).map((delivery: any) => [
-          delivery.order_id,
-          Number(delivery.courier_earnings || 0),
-        ])
-      );
+      const earningsByOrder = new Map<string, number>();
+      for (const delivery of earningsMonthResult.data || []) {
+        earningsByOrder.set(delivery.order_id, Number(delivery.courier_earnings || 0));
+      }
 
       // Получить рейтинг курьера из courier_profiles
       let rating = 0;
