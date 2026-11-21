@@ -9,17 +9,22 @@
 import { randomUUID } from "node:crypto";
 import { getPool } from "@/lib/postgrest/pool";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { MediaStorageError } from "@/lib/product-media/storage";
 import {
   sniffMime,
   parseImageMeta,
   PHOTO_MIMES,
   MAX_PHOTO_BYTES,
-  MAX_IMAGE_DIM,
   MediaValidationError,
 } from "@/lib/product-media/validation";
 
-export { MediaValidationError, MediaStorageError, MAX_PHOTO_BYTES };
+export { MediaValidationError, MAX_PHOTO_BYTES };
+
+export class MediaStorageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MediaStorageError";
+  }
+}
 
 const ORDER_MEDIA_BUCKET = "order_media";
 
@@ -93,17 +98,6 @@ export async function saveOrderReadyPhoto(params: {
   }
 
   const meta = await parseImageMeta(buffer, sniffed.mime);
-  if (
-    meta.width > MAX_IMAGE_DIM ||
-    meta.height > MAX_IMAGE_DIM
-  ) {
-    throw new MediaValidationError(
-      422,
-      "IMAGE_DIMENSIONS_TOO_LARGE",
-      `Размер изображения не должен превышать ${MAX_IMAGE_DIM}px по каждой стороне`
-    );
-  }
-
   const ext = EXT_BY_MIME[sniffed.mime] ?? "jpg";
   const storagePath = `orders/${params.orderId}/published/photos/${randomUUID()}.${ext}`;
   assertOrderMediaPath(storagePath);
