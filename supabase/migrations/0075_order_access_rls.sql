@@ -12,6 +12,9 @@ DROP POLICY IF EXISTS "orders_update_own" ON public.orders;
 REVOKE INSERT, UPDATE, DELETE ON TABLE public.orders FROM anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON TABLE public.order_items FROM anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON TABLE public.payments FROM anon, authenticated;
+-- Courier assignment and delivery status/earnings are server-owned.
+DROP POLICY IF EXISTS "deliveries_update_courier" ON public.deliveries;
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.deliveries FROM anon, authenticated;
 
 -- A buyer sees own orders; a confectioner sees orders assigned to them;
 -- support sees only orders with a ticket assigned to their user; a courier
