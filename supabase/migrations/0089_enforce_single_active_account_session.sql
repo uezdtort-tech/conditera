@@ -30,8 +30,8 @@ BEGIN
     WHERE id = p_session_id AND user_id = p_user_id
       AND revoked_at IS NULL AND expires_at > v_now
   ) THEN
-    RAISE EXCEPTION 'new session is not active or does not belong to user'
-      USING ERRCODE = 'P0002';
+    -- Другой конкурентный login уже победил и отозвал эту сессию.
+    RETURN -1;
   END IF;
 
   WITH revoked AS (
