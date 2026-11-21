@@ -186,6 +186,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const actor: InventoryActor = { id: user.id, roles: (user.roles as string[]) || [] };
+    const writeOffOwnerId = orderId ? (order?.confectioner_id || user.id) : user.id;
 
     // Захватываем уникальный batch-key ДО изменения остатков. Старый порядок
     // (сперва движения, потом INSERT реестра) допускал двойное списание при
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const signature = orderId ? batchSignature(parsed) : null;
     if (orderId && signature) {
       const { error: claimError } = await supabaseAdmin.from("inventory_write_offs").insert({
-        owner_id: user.id,
+        owner_id: writeOffOwnerId,
         order_id: orderId,
         signature,
         items: parsed,
@@ -204,7 +205,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           console.error("[inventory/write-off] batch claim failed:", claimError.message);
           return NextResponse.json({ error: "Не удалось зарезервировать списание. Повторите позже." }, { status: 503 });
         }
-        const existing = await findExistingWriteOff(user.id, orderId, signature);
+        const existing = await findExistingWriteOff(writeOffOwnerId, orderId, signature);
         if (!existing) return NextResponse.json({ error: "Списание уже выполняется; повторите позже." }, { status: 409 });
         const saved = (existing.result ?? {}) as { state?: string; applied?: AppliedItem[]; failed?: unknown[] };
         if (!Array.isArray(saved.applied) || !Array.isArray(saved.failed)) {
@@ -266,7 +267,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (applied.length === 0 && firstError) {
       if (orderId && signature) {
         await supabaseAdmin.from("inventory_write_offs").delete()
-          .eq("owner_id", user.id).eq("order_id", orderId).eq("signature", signature);
+           .eq("owner_id", writeOffOwnerId).eq("order_id", orderId).eq("signature", signature);
       }
       const { status, message } = errorToResponse(firstError);
       return NextResponse.json({ error: message, failed }, { status });
@@ -278,7 +279,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const { error: resultError } = await supabaseAdmin
         .from("inventory_write_offs")
         .update({ result: { state: "completed", applied, failed } })
-        .eq("owner_id", user.id)
+        .eq("owner_id", writeOffOwnerId)
         .eq("order_id", orderId)
         .eq("signature", signature);
       if (resultError) {
