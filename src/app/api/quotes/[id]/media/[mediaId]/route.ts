@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { downloadQuoteMedia } from "@/lib/ops/quote-media";
+import { resolveQuoteMediaAccess } from "@/lib/ops/quote-media-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,22 +14,15 @@ export async function GET(
   const user = await getUserFromRequest(request);
   if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   const { id, mediaId } = await params;
-  const { data: quote, error } = await supabaseAdmin
-    .from("quote_requests")
-    .select("id, customer_id, confectioner_ids")
-    .eq("id", id)
-    .maybeSingle();
-  if (error || !quote) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-
-  const isOwner = quote.customer_id === user.id;
-  const isAdmin = (user.roles ?? []).some(role => role === "ADMIN" || role === "SUPER_ADMIN");
-  let isRecipient = false;
-  if (!isOwner && !isAdmin) {
-    const { data: confectioner } = await supabaseAdmin
-      .from("confectioners").select("id").eq("userId", user.id).maybeSingle();
-    isRecipient = Boolean(confectioner && (quote.confectioner_ids ?? []).includes(confectioner.id));
+  let access;
+  try {
+    access = await resolveQuoteMediaAccess(id, user.id, user.roles ?? []);
+  } catch (error) {
+    console.error("[quote-media] access check failed:", (error as Error).message);
+    return NextResponse.json({ error: "MEDIA_ACCESS_UNAVAILABLE" }, { status: 503 });
   }
-  if (!isOwner && !isRecipient && !isAdmin) {
+  if (!access.quote) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!access.isOwner && !access.isRecipient && !access.isAdmin) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
