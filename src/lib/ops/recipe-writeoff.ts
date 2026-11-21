@@ -108,10 +108,17 @@ export async function writeOffOrderRecipe(
     if (!Array.isArray(saved?.applied) || !Array.isArray(saved?.failed)) {
       return { ok: false, status: 409, error: "Списание уже выполняется; повторите позже" };
     }
-    return { ok: true, applied: saved.applied, failed: saved.failed, idempotent: true };
+    if (saved.failed.length === 0) {
+      return { ok: true, applied: saved.applied, failed: [], idempotent: true };
+    }
+    // Предыдущая попытка могла списать часть ингредиентов. Повторяем только
+    // неуспешные позиции, не трогая уже списанные (защита от двойного расхода).
+    const failedIds = new Set(saved.failed.map((item) => item.item_id));
+    items = items.filter((item) => failedIds.has(item.item_id));
+    var previouslyApplied: AppliedItem[] = saved.applied;
   }
 
-  const applied: AppliedItem[] = [];
+  const applied: AppliedItem[] = typeof previouslyApplied !== "undefined" ? [...previouslyApplied] : [];
   const failed: FailedItem[] = [];
   let firstFailure: { status: number; message: string } | null = null;
 
@@ -151,7 +158,7 @@ export async function writeOffOrderRecipe(
     failed.push({ item_id: item.item_id, error: message });
   }
 
-  if (applied.length === 0 && firstFailure) {
+  if (applied.length === 0 && firstFailure && typeof previouslyApplied === "undefined") {
     await supabaseAdmin.from("inventory_write_offs").delete()
       .eq("owner_id", actor.id).eq("order_id", orderId).eq("signature", signature);
     return { ok: false, status: firstFailure.status, error: firstFailure.message, details: failed };
@@ -168,5 +175,14 @@ export async function writeOffOrderRecipe(
     return { ok: false, status: 503, error: "Списание применено, но итог не сохранён. Обратитесь в поддержку." };
   }
 
-  return { ok: true, applied, failed, idempotent: false };
+  if (failed.length > 0) {
+    return {
+      ok: false,
+      status: firstFailure?.status ?? 409,
+      error: "Не все ингредиенты удалось списать. Пополните склад/исправьте привязки и повторите подтверждение этапа.",
+      details: { applied, failed },
+    };
+  }
+
+  return { ok: true, applied, failed: [], idempotent: false };
 }
