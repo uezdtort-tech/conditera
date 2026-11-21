@@ -361,7 +361,9 @@ export async function POST(request: NextRequest) {
           Number(payment ? payment.amount : order.total) * 100
         );
         const orderKop = Math.round(Number(order.total) * 100);
-        const terminalOrder = ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status);
+        const terminalOrder =
+          ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status) ||
+          payment.status === "cancelled";
         const amountMismatch =
           (wireKop !== null && wireKop !== expectedKop) ||
           (!terminalOrder && orderKop !== expectedKop);
