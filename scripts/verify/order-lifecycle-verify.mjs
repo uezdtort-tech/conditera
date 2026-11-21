@@ -489,6 +489,23 @@ async function main() {
             orderId: acceptQuote.json.orderId,
             number: acceptQuote.json.orderNumber,
           };
+          const acceptedOrderSpec = await client.query(
+            `SELECT o.confectioner_id, o.source_quote_id,
+                    o.metadata->'project_spec' AS order_spec,
+                    oi.selected_attributes->'project_spec' AS item_spec
+               FROM public.orders o
+               JOIN public.order_items oi ON oi.order_id = o.id
+              WHERE o.id = $1::uuid LIMIT 1`,
+            [acceptQuote.json.orderId]
+          );
+          const acceptedSpecRow = acceptedOrderSpec.rows[0];
+          assert("заказ сохраняет UUID кондитера, исходный RFQ и снимок проекта",
+            acceptedSpecRow?.confectioner_id === OWNER_ID &&
+            acceptedSpecRow?.source_quote_id === quoteId &&
+            acceptedSpecRow?.order_spec?.productType === "cake" &&
+            acceptedSpecRow?.item_spec?.decorations?.length === 1,
+            JSON.stringify(acceptedSpecRow).slice(0, 260));
+
           const repeatedQuoteAccept = await api("POST", `/api/quotes/${quoteId}/accept`, { token: customer });
           assert("повторное принятие RFQ возвращает тот же заказ и платёжную ссылку",
             repeatedQuoteAccept.status === 200 &&
