@@ -325,9 +325,10 @@ async function main() {
   // Новый покупатель проходит реальную саморегистрацию, а не использует demo-аккаунт.
   const uniqueSuffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
   const customerPhone = `+7999${uniqueSuffix.slice(-7)}`;
+  const customerEmail = `e2e-buyer-${uniqueSuffix}@example.test`;
   const registration = await api("POST", "/api/auth/register", {
     body: {
-      email: `e2e-buyer-${uniqueSuffix}@example.test`,
+      email: customerEmail,
       password: PASSWORD,
       name: "E2E Покупатель",
       phone: customerPhone,
@@ -379,6 +380,29 @@ async function main() {
     [CUSTOMER_ID]
   );
   assert("обнаруженный replay записан в журнал безопасности", replayAudit.rows[0]?.count === 1);
+
+  const initialSessions = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("покупатель видит собственный текущий сеанс",
+    initialSessions.status === 200 && initialSessions.json?.sessions?.length === 1 &&
+    initialSessions.json.sessions[0]?.isCurrent === true);
+  const secondCustomerLogin = await api("POST", "/api/auth/login", {
+    body: { email: customerEmail, password: PASSWORD },
+  });
+  assert("повторный вход создаёт отдельный серверный сеанс",
+    secondCustomerLogin.status === 200 && Boolean(secondCustomerLogin.json?.accessToken));
+  const revokeOtherSessions = await api("DELETE", "/api/auth/sessions", { token: customer });
+  assert("покупатель может завершить все остальные сеансы",
+    revokeOtherSessions.status === 200 && Number(revokeOtherSessions.json?.revoked) >= 1);
+  const revokedSessionCheck = await api("GET", "/api/auth/sessions", {
+    token: secondCustomerLogin.json?.accessToken,
+  });
+  assert("отозванный сеанс больше не проходит аутентификацию → 401",
+    revokedSessionCheck.status === 401);
+  const ownSecurityEvents = await api("GET", "/api/auth/security-events", { token: customer });
+  assert("журнал безопасности показывает создание и отзыв сеансов",
+    ownSecurityEvents.status === 200 &&
+    ownSecurityEvents.json?.events?.some(event => event.event_type === "session_created") &&
+    ownSecurityEvents.json?.events?.some(event => event.event_type === "session_revoked"));
 
   // Индивидуальный RFQ: проект → предложение с рецептом → заказ → платёж.
   const confectionerRow = await client.query(
