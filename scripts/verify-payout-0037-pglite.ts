@@ -127,7 +127,8 @@ async function main() {
     GRANT USAGE ON SCHEMA public, auth TO authenticated;
     GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
     GRANT SELECT, INSERT, UPDATE, DELETE ON public.orders, public.order_items, public.payments TO authenticated;
-    GRANT SELECT ON public.user_roles, public.support_tickets, public.deliveries TO authenticated;
+    GRANT SELECT ON public.user_roles, public.support_tickets TO authenticated;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON public.deliveries TO authenticated;
     ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
     ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
     ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
@@ -418,6 +419,15 @@ async function main() {
   ).then(() => false).catch((e: Error) => /permission denied/.test(e.message));
   await db.query("RESET ROLE");
   directOrderInsertBlocked ? ok("authenticated не может создавать заказ в обход checkout") : fail("прямое создание заказа не запрещено");
+
+  await db.query("SET ROLE authenticated");
+  await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [ids.courier]);
+  const directDeliveryWriteBlocked = await db.query(
+    `UPDATE public.deliveries SET courier_earnings = 999999 WHERE order_id=$1::uuid`,
+    [courierOrderId]
+  ).then(() => false).catch((e: Error) => /permission denied/.test(e.message));
+  await db.query("RESET ROLE");
+  directDeliveryWriteBlocked ? ok("курьер не может менять назначение/заработок доставки напрямую") : fail("прямая запись в deliveries не запрещена");
 
   // 5. Гранты: только service_role
   for (const fn of ["release_escrow_order", "consume_tfa_backup_code"]) {
