@@ -27,6 +27,7 @@
  */
 
 import { useState } from "react";
+import Image from "next/image";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -80,6 +81,18 @@ type BusinessStatus = LifecycleResponse["derived"]["businessStatus"];
 type ProductionStatus = LifecycleResponse["derived"]["productionStatus"];
 type AssignmentStatus = LifecycleResponse["derived"]["assignmentStatus"];
 type DeliveryStatus = LifecycleResponse["derived"]["deliveryStatus"];
+
+interface OrderMediaItem {
+  id: string;
+  kind: string;
+  source?: "order" | "customer_reference";
+  mimeType: string;
+  fileSize: number;
+  width: number | null;
+  height: number | null;
+  uploadedAt: string;
+  url: string;
+}
 
 /** Палитра уровня риска (без синего). */
 export const RISK_LEVEL_UI: Record<RiskLevel, { label: string; badge: string }> = {
@@ -328,6 +341,16 @@ export function OrderWorkspaceDialog({
     },
   });
 
+  const mediaQuery = useQuery({
+    queryKey: ["order-media", orderId],
+    enabled: open && !!orderId,
+    queryFn: async (): Promise<{ media: OrderMediaItem[] }> => {
+      const res = await csrfFetch(`/api/orders/${orderId}/media`);
+      if (!res.ok) throw new Error(`Не удалось загрузить материалы заказа (HTTP ${res.status})`);
+      return (await res.json()) as { media: OrderMediaItem[] };
+    },
+  });
+
   /** Общая мутация производственных действий; после успеха — инвалидация контуров. */
   const actionMutation = useMutation({
     mutationFn: async (kind: OrderActionKind) => {
@@ -487,6 +510,7 @@ export function OrderWorkspaceDialog({
         <Tabs defaultValue="overview" className="gap-3">
           <TabsList className="w-full max-w-full overflow-x-auto sm:w-auto">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">Обзор</TabsTrigger>
+            <TabsTrigger value="materials" className="text-xs sm:text-sm">Материалы</TabsTrigger>
             <TabsTrigger value="production" className="text-xs sm:text-sm">Производство</TabsTrigger>
             <TabsTrigger value="ingredients" className="text-xs sm:text-sm">Ингредиенты</TabsTrigger>
             <TabsTrigger value="events" className="text-xs sm:text-sm">События</TabsTrigger>
@@ -662,6 +686,54 @@ export function OrderWorkspaceDialog({
                 )}
               </div>
             ) : null}
+          </TabsContent>
+
+          {/* ==================== МАТЕРИАЛЫ ЗАКАЗА ==================== */}
+          <TabsContent value="materials" className="space-y-3 mt-1">
+            {mediaQuery.isLoading ? (
+              <div className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Загружаем материалы заказа...
+              </div>
+            ) : mediaQuery.error ? (
+              <QueryErrorBlock
+                message={(mediaQuery.error as Error).message}
+                onRetry={() => void mediaQuery.refetch()}
+              />
+            ) : (mediaQuery.data?.media?.length ?? 0) === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                К заказу пока не прикреплены фотографии или макеты.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {(mediaQuery.data?.media ?? []).map((media) => {
+                  const label = media.kind === "customer_reference" ? "Фото-пожелание покупателя"
+                    : media.kind === "builder_preview" ? "Макет из конструктора"
+                    : media.kind === "handoff_photo" ? "Фото передачи"
+                    : "Фото готового изделия";
+                  return (
+                    <a
+                      key={`${media.source ?? "order"}-${media.id}`}
+                      href={media.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group rounded-lg border border-border overflow-hidden bg-card"
+                    >
+                      <div className="relative aspect-square bg-muted">
+                        <Image
+                          src={media.url}
+                          alt={label}
+                          fill
+                          unoptimized
+                          sizes="(max-width: 640px) 50vw, 33vw"
+                          className="object-cover transition-transform group-hover:scale-[1.02]"
+                        />
+                      </div>
+                      <div className="p-2 text-xs font-medium">{label}</div>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
           </TabsContent>
 
           {/* ==================== ПРОИЗВОДСТВО ==================== */}
