@@ -61,17 +61,20 @@ export async function createUserSession(
 
   // Личный аккаунт не должен одновременно использоваться с нескольких устройств.
   // RPC сериализует параллельные логины и отзывает все прежние сессии атомарно.
-  const { error: exclusivityError } = await supabaseAdmin.rpc(
+  const { data: exclusivityResult, error: exclusivityError } = await supabaseAdmin.rpc(
     "enforce_single_active_user_session",
     { p_user_id: userId, p_session_id: sessionId },
   );
-  if (exclusivityError) {
-    console.error("[session-registry] exclusive-session enforcement failed:", exclusivityError.message);
+  if (exclusivityError || exclusivityResult === -1) {
+    console.error("[session-registry] exclusive-session enforcement failed:", exclusivityError?.message ?? "replaced by concurrent login");
     await supabaseAdmin.from("user_sessions")
       .update({ revoked_at: new Date().toISOString(), revoked_reason: "session_policy_enforcement_failed" })
       .eq("id", sessionId)
       .eq("user_id", userId)
       .is("revoked_at", null);
+    if (exclusivityResult === -1) {
+      throw new Error("ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN");
+    }
     throw new Error("Не удалось обеспечить защиту персонального аккаунта");
   }
 
