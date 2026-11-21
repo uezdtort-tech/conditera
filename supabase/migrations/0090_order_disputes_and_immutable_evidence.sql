@@ -114,6 +114,24 @@ CREATE TRIGGER order_media_dispute_evidence_immutable
   BEFORE UPDATE OR DELETE ON public.order_media
   FOR EACH ROW EXECUTE FUNCTION public.protect_dispute_order_media();
 
+CREATE OR REPLACE FUNCTION public.protect_dispute_order_media_truncate()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $fn$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.order_dispute_evidence) THEN
+    RAISE EXCEPTION 'ORDER_DISPUTE_EVIDENCE_IMMUTABLE'
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN NULL;
+END;
+$fn$;
+DROP TRIGGER IF EXISTS order_media_dispute_evidence_no_truncate ON public.order_media;
+CREATE TRIGGER order_media_dispute_evidence_no_truncate
+  BEFORE TRUNCATE ON public.order_media
+  FOR EACH STATEMENT EXECUTE FUNCTION public.protect_dispute_order_media_truncate();
+
 ALTER TABLE public.order_disputes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_dispute_evidence ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_dispute_events ENABLE ROW LEVEL SECURITY;
