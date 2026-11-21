@@ -65,8 +65,9 @@ export async function POST(
     }]);
     const acceptance = await checkAcceptance({
       items: productItems,
-      // Capacity and stock are keyed by auth user UUID, not by confectioners.id (e.g. "c0").
-      assignedConfectionerId: user.userId,
+      // This endpoint is called by the BUYER. Capacity and stock belong to
+      // the selected production product's confectioner, not to the accepting user.
+      assignedConfectionerId: productItems[0]?.ownerId ?? null,
       deliveryDate: quoteRequest.delivery_date ?? null,
       deliveryTimeWindow: null,
       deliveryTime: null,
