@@ -1230,6 +1230,12 @@ main()
         // Удаляем все оставшиеся тестовые заказы этого покупателя, включая
         // возможные записи, не попавшие в testOrders из вспомогательных сценариев.
         await client.query(`DELETE FROM public.orders WHERE user_id = $1::uuid`, [registeredCustomerId]);
+        // Удаляем созданные этим E2E сигналы нового устройства: они не должны
+        // оставлять тестовые security events, уведомления и admin-задачи.
+        await client.query(`DELETE FROM public.ops_tasks WHERE type = 'ACCOUNT_NEW_DEVICE' AND entity_id = $1`, [registeredCustomerId]).catch(() => {});
+        await client.query(`DELETE FROM public.notifications WHERE user_id = $1::uuid`, [registeredCustomerId]).catch(() => {});
+        await client.query(`DELETE FROM public.user_security_events WHERE user_id = $1::uuid`, [registeredCustomerId]).catch(() => {});
+        await client.query(`DELETE FROM public.user_sessions WHERE user_id = $1::uuid`, [registeredCustomerId]).catch(() => {});
         await client.query(`DELETE FROM auth.users WHERE id = $1::uuid`, [registeredCustomerId]);
       }
       const left = await client.query(`SELECT count(*)::int AS c FROM public.orders WHERE number LIKE 'P05V-%'`);
