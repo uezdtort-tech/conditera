@@ -1,159 +1,132 @@
-/**
- * Unit-тесты для логики идемпотентности payment/webhook route.
- *
- * Покрывает:
- *   1. FINAL_PAYMENT_STATUSES — все ожидаемые финальные статусы
- *   2. Идемпотентность при повторных запросах с тем же orderId и status
- *   3. Обработка разных event types (payment.succeeded, payment.canceled, refund.succeeded)
- *   4. Idempotency для новых статусов (не финальных)
- *
- * Эти тесты НЕ запускают route handler — они валидируют структуру
- * и поведение интерфейсов.
- */
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
-// Импортируем типы из route для проверки структуры
-import type { YooKassaPaymentObject, YooKassaWebhookBody } from "@/app/api/payment/webhook/route";
-
-describe("payment/webhook: типизация", () => {
-  it("YooKassaPaymentObject содержит обязательные поля", () => {
-    const obj: YooKassaPaymentObject = {
-      id: "pay-123",
-      status: "succeeded",
-      metadata: { orderId: "ord-456" },
-    };
-    expect(obj.id).toBe("pay-123");
-    expect(obj.status).toBe("succeeded");
-    expect(obj.metadata?.orderId).toBe("ord-456");
+const mocks = vi.hoisted(() => {
+  const state = {
+    singleResults: {} as Record<string, unknown[]>,
+    updateResults: {} as Record<string, unknown[]>,
+    fromCalls: [] as string[],
+    refundPayment: vi.fn(),
+  };
+  const from = vi.fn((table: string) => {
+    state.fromCalls.push(table);
+    let operation = "select";
+    const query: any = {};
+    query.select = vi.fn(() => query);
+    query.eq = vi.fn(() => query);
+    query.neq = vi.fn(() => query);
+    query.in = vi.fn(() => query);
+    query.is = vi.fn(() => query);
+    query.limit = vi.fn(() => query);
+    query.update = vi.fn(() => { operation = "update"; return query; });
+    query.upsert = vi.fn(() => { operation = "upsert"; return query; });
+    query.maybeSingle = vi.fn(async () => {
+      const queue = state.singleResults[table] ?? [];
+      return { data: queue.shift() ?? null, error: null };
+    });
+    query.single = vi.fn(async () => {
+      const queue = state.singleResults[table] ?? [];
+      return { data: queue.shift() ?? null, error: null };
+    });
+    query.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+      Promise.resolve({ data: (operation === "update" ? state.updateResults[table] : []), error: null }).then(resolve, reject);
+    return query;
   });
+  return { state, from };
+});
 
-  it("YooKassaPaymentObject.metadata — optional", () => {
-    const obj: YooKassaPaymentObject = {
-      id: "pay-123",
-      status: "succeeded",
-    };
-    expect(obj.metadata).toBeUndefined();
-  });
+vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: { from: mocks.from } }));
+vi.mock("@/lib/yookassa", () => ({
+  verifyWebhook: vi.fn(() => true),
+  isYookassaConfigured: vi.fn(() => false),
+  getPaymentStatus: vi.fn(),
+  getRefund: vi.fn(),
+  refundPayment: mocks.state.refundPayment,
+}));
 
-  it("YooKassaWebhookBody.event — optional", () => {
-    const body: YooKassaWebhookBody = {
-      object: {
-        id: "pay-123",
-        status: "succeeded",
-        metadata: { orderId: "ord-456" },
-      },
-    };
-    expect(body.event).toBeUndefined();
-  });
+import { POST } from "@/app/api/payment/webhook/route";
 
-  it("YooKassaWebhookBody может содержать все поля", () => {
-    const body: YooKassaWebhookBody = {
+const ORDER_ID = "11111111-1111-4111-8111-111111111111";
+const PAYMENT_ID = "provider-payment-1";
+
+function request() {
+  return new NextRequest("http://localhost/api/payment/webhook", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
       event: "payment.succeeded",
       object: {
-        id: "pay-123",
+        id: PAYMENT_ID,
         status: "succeeded",
-        metadata: { orderId: "ord-456" },
+        amount: { value: "100.00", currency: "RUB" },
+        metadata: { orderId: ORDER_ID },
       },
-    };
-    expect(body.event).toBe("payment.succeeded");
-    expect(body.object?.id).toBe("pay-123");
+    }),
   });
-});
+}
 
-describe("payment/webhook: идемпотентность по статусам", () => {
-  // Имитируем логику из route.ts: проверка финальных статусов.
-  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
+function payment(status = "pending") {
+  return {
+    id: "payment-row-1",
+    order_id: ORDER_ID,
+    amount: 100,
+    status,
+    refund_amount: 0,
+  };
+}
 
-  it("содержит succeeded", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("succeeded")).toBe(true);
-  });
+function order(status = "PENDING") {
+  return {
+    id: ORDER_ID,
+    number: "C-100",
+    total: 100,
+    payment_method: "yookassa",
+    payment_status: "pending",
+    status,
+    customer_id: null,
+    user_id: null,
+    confectioner_id: null,
+  };
+}
 
-  it("содержит cancelled", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("cancelled")).toBe(true);
-  });
-
-  it("содержит refunded", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("refunded")).toBe(true);
-  });
-
-  it("не содержит pending", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("pending")).toBe(false);
-  });
-
-  it("не содержит waiting_for_capture", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("waiting_for_capture")).toBe(false);
-  });
-
-  it("не содержит empty string", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("")).toBe(false);
-  });
-});
-
-describe("payment/webhook: идемпотентность — edge cases", () => {
-  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
-
-  it("повторный запрос с succeeded → idempotent", () => {
-    // Если payment.status === 'succeeded' и пришёл ещё раз с тем же status →
-    // route должен вернуть { success: true, idempotent: true }
-    const existing = { id: "pay-1", status: "succeeded" };
-    const incoming = { event: "payment.succeeded", status: "succeeded" };
-
-    const isIdempotent =
-      FINAL_PAYMENT_STATUSES.has(existing.status) &&
-      existing.status === incoming.status;
-
-    expect(isIdempotent).toBe(true);
+describe("payment webhook POST — cancellation race", () => {
+  beforeEach(() => {
+    mocks.state.singleResults = {};
+    mocks.state.updateResults = {};
+    mocks.state.fromCalls = [];
+    mocks.state.refundPayment.mockReset().mockResolvedValue({ success: true, refund: { id: "refund-1" } });
   });
 
-  it("разный status для уже обработанного платежа → НЕ idempotent", () => {
-    const existing = { id: "pay-1", status: "succeeded" };
-    const incoming = { event: "payment.canceled", status: "cancelled" };
+  it("возвращает уже списанный платёж, если отмена выигрывает гонку escrow CAS", async () => {
+    mocks.state.singleResults.payments = [payment("pending")];
+    mocks.state.singleResults.orders = [order("PENDING"), order("CANCELLED")];
+    mocks.state.updateResults.payments = [{ id: "payment-row-1" }];
+    mocks.state.updateResults.orders = [];
 
-    // Статус изменился — нужно обновить (не idempotent skip)
-    const isIdempotent =
-      FINAL_PAYMENT_STATUSES.has(existing.status) &&
-      existing.status === incoming.status;
+    const response = await POST(request());
+    const body = await response.json();
 
-    expect(isIdempotent).toBe(false);
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ success: true, refundInitiated: true });
+    expect(mocks.state.fromCalls).toEqual(["payments", "orders", "payments", "orders", "orders"]);
+    expect(mocks.state.refundPayment).toHaveBeenCalledWith(
+      PAYMENT_ID,
+      100,
+      expect.stringContaining("C-100"),
+      `uezd_konditer:refund:late:${ORDER_ID}`,
+    );
   });
 
-  it("succeeded → cancelled → refunded: последовательные переходы", () => {
-    // Сначала succeeded, потом canceled, потом refunded
-    const transitions = [
-      { from: null, to: "succeeded" },
-      { from: "succeeded", to: "cancelled" },
-      { from: "cancelled", to: "refunded" },
-    ];
+  it("не пропускает повторный payment.succeeded до проверки terminal-заказа", async () => {
+    mocks.state.singleResults.payments = [payment("succeeded")];
+    mocks.state.singleResults.orders = [order("CANCELLED")];
 
-    for (const t of transitions) {
-      const fromFinal = t.from !== null ? FINAL_PAYMENT_STATUSES.has(t.from) : false;
-      const isSameStatus = t.from === t.to;
-      const isIdempotent = fromFinal && isSameStatus;
+    const response = await POST(request());
+    const body = await response.json();
 
-      // Каждый переход должен быть НЕ idempotent (новый статус)
-      expect(isIdempotent).toBe(false);
-    }
-  });
-
-  it("повторный cancelled → idempotent", () => {
-    const existing = { id: "pay-1", status: "cancelled" };
-    const incoming = { event: "payment.canceled", status: "cancelled" };
-
-    const isIdempotent =
-      FINAL_PAYMENT_STATUSES.has(existing.status) &&
-      existing.status === incoming.status;
-
-    expect(isIdempotent).toBe(true);
-  });
-
-  it("повторный refunded → idempotent", () => {
-    const existing = { id: "pay-1", status: "refunded" };
-    const incoming = { event: "refund.succeeded", status: "refunded" };
-
-    const isIdempotent =
-      FINAL_PAYMENT_STATUSES.has(existing.status) &&
-      existing.status === incoming.status;
-
-    expect(isIdempotent).toBe(true);
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ success: true, refundInitiated: true });
+    expect(mocks.state.refundPayment).toHaveBeenCalledTimes(1);
+    expect(mocks.state.fromCalls).toEqual(["payments", "orders"]);
   });
 });
