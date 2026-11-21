@@ -120,6 +120,8 @@ export function CustomerDashboard() {
   );
   // Диалог возврата (реальная заявка через POST /api/payment/refund)
   const [refundOrder, setRefundOrder] = useState<(typeof orders)[number] | null>(null);
+  // Формальный спор о дефекте после передачи заказа.
+  const [disputeOrder, setDisputeOrder] = useState<Order | null>(null);
   // Реальные заявки на возврат по заказам (для бейджей статуса)
   const { data: refundsData } = useRefunds();
 
@@ -776,6 +778,16 @@ export function CustomerDashboard() {
                               )}
                               Сообщение кондитеру
                             </Button>
+                            {(order.status === "DELIVERED" || order.status === "COMPLETED") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setDisputeOrder(order)}
+                              >
+                                <AlertTriangle className="h-4 w-4 mr-1" aria-hidden />
+                                Сообщить о дефекте
+                              </Button>
+                            )}
                             {(order.status === "PENDING" || order.status === "CONFIRMED") && (
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
@@ -1069,6 +1081,8 @@ export function CustomerDashboard() {
         </div>
       </div>
 
+      {/* Формальный спор по качеству: оригиналы фото в приватном хранилище + SHA-256 */}
+      <DisputeOrderDialog order={disputeOrder} onClose={() => setDisputeOrder(null)} />
       {/* Диалог заявки на возврат (реальный POST /api/payment/refund) */}
       <RefundRequestDialog order={refundOrder} onClose={() => setRefundOrder(null)} />
       {/* Отзыв по заказу (POST /api/reviews, ТЗ §15) */}
@@ -1584,6 +1598,140 @@ function ReviewOrderDialog({
 }
 
 /** «Есть проблема» (ТЗ §16): причина → тикет поддержки по заказу */
+/** Формальный спор о дефекте: фотографии отправляются как файлы в приватный order_media bucket. */
+function DisputeOrderDialog({
+  order,
+  onClose,
+}: {
+  order: Order | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [category, setCategory] = useState("quality");
+  const [description, setDescription] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+
+  useEffect(() => {
+    if (order) {
+      setCategory("quality");
+      setDescription("");
+      setFiles([]);
+    }
+  }, [order]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!order) throw new Error("Заказ не выбран");
+      const form = new FormData();
+      form.append("category", category);
+      form.append("description", description.trim());
+      for (const file of files) form.append("evidence", file, file.name);
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await fetch(`/api/orders/${order.id}/disputes`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: form,
+      });
+      const body = await res.json().catch(() => null) as
+        | { dispute?: { id: string }; error?: string; message?: string }
+        | null;
+      if (!res.ok) {
+        const messages: Record<string, string> = {
+          ACTIVE_DISPUTE_ALREADY_EXISTS: "По этому заказу уже открыт спор",
+          ORDER_NOT_HANDED_OFF: "Спор можно открыть после передачи заказа",
+          EVIDENCE_REQUIRED_MAX_5_FILES: "Прикрепите от 1 до 5 фотографий",
+        };
+        throw new Error(messages[body?.error || ""] || body?.message || body?.error || `HTTP ${res.status}`);
+      }
+      return body;
+    },
+    onSuccess: () => {
+      toast.success("Спор зарегистрирован", {
+        description: "Фото сохранены как доказательства. Статус рассмотрения будет доступен в заказе.",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["orders-real"] });
+      void queryClient.invalidateQueries({ queryKey: ["order-dispute", order?.id] });
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось зарегистрировать спор", { description: error.message });
+    },
+  });
+
+  return (
+    <Dialog open={!!order} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Сообщить о дефекте · заказ {order?.number}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="order-dispute-category" className="mb-1.5 block">Тип проблемы</Label>
+            <select
+              id="order-dispute-category"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="quality">Качество изделия</option>
+              <option value="damage">Повреждение при доставке/передаче</option>
+              <option value="wrong_item">Передан другой товар</option>
+              <option value="missing_item">Не хватает части заказа</option>
+              <option value="other">Другое</option>
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="order-dispute-description" className="mb-1.5 block">Описание проблемы</Label>
+            <Textarea
+              id="order-dispute-description"
+              rows={4}
+              maxLength={5000}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Опишите обнаруженный дефект и обстоятельства. Минимум 20 символов."
+            />
+            <p className="text-xs text-muted-foreground mt-1">{description.trim().length}/5000</p>
+          </div>
+          <div>
+            <Label htmlFor="order-dispute-evidence" className="mb-1.5 block">Фотографии-доказательства</Label>
+            <Input
+              id="order-dispute-evidence"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 5))}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Прикрепите 1–5 оригинальных фото JPEG, PNG или WebP. Файлы будут сохранены в закрытом хранилище.
+            </p>
+            {files.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs">
+                {files.map((file, index) => (
+                  <li key={`${file.name}-${index}`} className="flex justify-between gap-2">
+                    <span className="truncate">{file.name}</span>
+                    <span className="text-muted-foreground shrink-0">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Отмена</Button>
+            <Button
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending || description.trim().length < 20 || files.length < 1 || files.length > 5}
+            >
+              {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Зарегистрировать спор
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProblemOrderDialog({
   order,
   onClose,
