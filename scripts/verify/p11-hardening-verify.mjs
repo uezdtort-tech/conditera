@@ -308,7 +308,7 @@ async function main() {
   const deliveryDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const idemKey = `p11-verify-${rand()}`;
   const checkoutBody = {
-    cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
+    cartItems: [{ product_id: PRODUCT_ID, quantity: 12 }],
     deliveryCity: "Москва",
     deliveryAddress: "ул. Тестовая, 5, кв 1",
     deliveryType: "delivery",
