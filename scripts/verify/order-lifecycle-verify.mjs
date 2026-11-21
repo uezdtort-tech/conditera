@@ -178,6 +178,14 @@ const PNG_1PX = Buffer.from(
   "base64"
 );
 
+function disputeForm() {
+  const fd = new FormData();
+  fd.append("category", "quality");
+  fd.append("description", "На изделии обнаружен дефект покрытия и повреждение декора после получения заказа.");
+  fd.append("evidence", new Blob([PNG_1PX], { type: "image/png" }), "defect-evidence.png");
+  return fd;
+}
+
 function photoForm() {
   const fd = new FormData();
   fd.append("file", new Blob([PNG_1PX], { type: "image/png" }), "ready.png");
@@ -943,6 +951,63 @@ async function main() {
   assert("БД сохраняет отдельный финальный статус COMPLETED",
     pickupDbState.rows[0]?.status === "COMPLETED");
 
+  // Спор о дефекте: отдельный процесс, приватные доказательства и неизменяемый журнал.
+  const disputeCreate = await api("POST", `/api/orders/${pickup.orderId}/disputes`, {
+    token: customer,
+    raw: disputeForm(),
+  });
+  assert("покупатель открывает спор с фото-доказательством → 201",
+    disputeCreate.status === 201 && Boolean(disputeCreate.json?.dispute?.id),
+    JSON.stringify(disputeCreate.json).slice(0, 240));
+  const disputeId = disputeCreate.json?.dispute?.id;
+  const disputeView = await api("GET", `/api/orders/${pickup.orderId}/disputes`, { token: customer });
+  assert("покупатель видит свой спор и вложенное доказательство",
+    disputeView.status === 200 && disputeView.json?.dispute?.evidence?.length === 1,
+    JSON.stringify(disputeView.json).slice(0, 240));
+  const evidenceUrl = disputeView.json?.dispute?.evidence?.[0]?.url;
+  const evidenceDownload = await fetch(`${BASE}${evidenceUrl}`, { headers: { Authorization: `Bearer ${customer}` } });
+  assert("оригинал доказательства доступен участнику заказа как image/png",
+    evidenceDownload.status === 200 && evidenceDownload.headers.get("content-type") === "image/png",
+    `${evidenceDownload.status} ${evidenceDownload.headers.get("content-type")}`);
+
+  const disputeReview = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: admin,
+    body: { disputeId, status: "under_review" },
+  });
+  assert("администратор переводит спор в under_review",
+    disputeReview.status === 200 && disputeReview.json?.dispute?.status === "under_review",
+    JSON.stringify(disputeReview.json));
+  const disputeResolve = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: admin,
+    body: { disputeId, status: "resolved", resolution: "Дефект подтверждён, покупателю согласован полный возврат." },
+  });
+  assert("администратор фиксирует решение спора",
+    disputeResolve.status === 200 && disputeResolve.json?.dispute?.status === "resolved",
+    JSON.stringify(disputeResolve.json));
+  const evidenceId = disputeView.json?.dispute?.evidence?.[0]?.id;
+  let evidenceMutationState = "";
+  try {
+    await client.query(`UPDATE public.order_dispute_evidence SET note = 'tampered' WHERE id = $1::uuid`, [evidenceId]);
+  } catch (error) {
+    evidenceMutationState = error.code;
+  }
+  assert("БД запрещает подмену доказательства (SQLSTATE 55000)", evidenceMutationState === "55000", evidenceMutationState);
+  const mediaId = disputeView.json?.dispute?.evidence?.[0]?.order_media_id;
+  let mediaMutationState = "";
+  try {
+    await client.query(`UPDATE public.order_media SET status = 'deleted' WHERE id = $1::uuid`, [mediaId]);
+  } catch (error) {
+    mediaMutationState = error.code;
+  }
+  assert("БД запрещает удалить файл, приложенный к спору (SQLSTATE 55000)", mediaMutationState === "55000", mediaMutationState);
+  const disputeEvents = await client.query(
+    `SELECT count(*)::int AS count FROM public.order_dispute_events WHERE dispute_id = $1::uuid`,
+    [disputeId],
+  );
+  assert("журнал спора сохраняет открытие, рассмотрение и решение",
+    disputeEvents.rows[0]?.count === 3,
+    `events=${disputeEvents.rows[0]?.count}`);
+
   const mediaServe = await fetch(`${BASE}${mediaUrl}`, { headers: { Authorization: `Bearer ${admin}` } });
   assert("фото раздаётся авторизованному (200, image/png)", mediaServe.status === 200 && mediaServe.headers.get("content-type") === "image/png", `${mediaServe.status} ${mediaServe.headers.get("content-type")}`);
   const mediaAnon = await fetch(`${BASE}${mediaUrl}`);
@@ -1202,6 +1267,36 @@ main()
   .finally(async () => {
     // ---- Очистка (ТЗ: тестовые данные не остаются) ----
     try {
+      // Тестовые доказательства очищаются только в disposable CI-БД после
+      // проверки immutability; production-процесс не имеет такого пути.
+      const disputeStorage = await client.query(
+        `SELECT m.storage_path FROM public.order_media m
+          WHERE m.order_id = ANY($1::uuid[])
+            AND m.id IN (SELECT e.order_media_id FROM public.order_dispute_evidence e)`,
+        [testOrders],
+      ).catch(() => ({ rows: [] }));
+      for (const row of disputeStorage.rows) {
+        await client.query(
+          `DELETE FROM storage.objects WHERE bucket_id = 'order_media' AND name = $1`,
+          [row.storage_path],
+        ).catch(() => {});
+      }
+      await client.query("ALTER TABLE public.order_dispute_evidence DISABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_dispute_evidence
+          WHERE dispute_id IN (SELECT id FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_evidence ENABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_dispute_events
+          WHERE dispute_id IN (SELECT id FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_disputes WHERE order_id = ANY($1::uuid[])`,
+        [testOrders],
+      ).catch(() => {});
       for (const id of testOrders) {
         await deleteOrder(id).catch(() => {});
       }
