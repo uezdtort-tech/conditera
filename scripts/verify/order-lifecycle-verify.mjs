@@ -1021,6 +1021,17 @@ async function main() {
   const disputeAfterReply = await api("GET", `/api/orders/${pickup.orderId}/disputes`, { token: customer });
   assert("сообщение покупателя сохраняется в истории спора",
     disputeAfterReply.status === 200 && disputeAfterReply.json?.dispute?.messages?.length === 1);
+  let disputeMessageMutationState = "";
+  try {
+    await client.query(
+      `UPDATE public.order_dispute_messages SET message = 'tampered' WHERE id = $1::uuid`,
+      [disputeAfterReply.json?.dispute?.messages?.[0]?.id],
+    );
+  } catch (error) {
+    disputeMessageMutationState = error.code;
+  }
+  assert("БД запрещает подмену сообщения в истории спора (SQLSTATE 55000)",
+    disputeMessageMutationState === "55000", disputeMessageMutationState);
   const disputeResolve = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
     token: admin,
     body: { disputeId, status: "resolved", resolution: "Дефект подтверждён, покупателю согласован полный возврат." },
