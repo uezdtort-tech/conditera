@@ -116,7 +116,7 @@ BEGIN
     status, type, delivery_address, delivery_city, delivery_date, delivery_type,
     notes, payment_method, metadata, source_quote_id
   ) VALUES (
-    v_order_number, p_customer_id, v_product.confectioner_id::text,
+    v_order_number, p_customer_id, v_product.confectioner_id,
     v_product_subtotal, v_delivery_cost, v_discount, v_total,
     'PENDING', 'product',
     CASE WHEN COALESCE(v_request.delivery_type, 'delivery') = 'delivery'
