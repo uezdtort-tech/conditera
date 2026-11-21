@@ -128,6 +128,7 @@ export async function saveOrderReadyPhoto(params: {
       height: number | null;
       uploaded_by: string | null;
       uploaded_at: Date;
+      content_sha256: string;
     }>(
       `INSERT INTO public.order_media
          (order_id, kind, media_type, storage_path, original_filename,
