@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
     providerConfigured: false,
     providerResult: { success: true, payment: { status: "succeeded", amount: { value: "100.00", currency: "RUB" }, metadata: { orderId: "11111111-1111-4111-8111-111111111111" } } },
     getPaymentStatus: vi.fn(),
-    getRefund: mocks.state.getRefund,
+    getRefund: vi.fn(),
   };
   const from = vi.fn((table: string) => {
     state.fromCalls.push(table);
@@ -44,7 +44,7 @@ vi.mock("@/lib/yookassa", () => ({
   verifyWebhook: vi.fn(() => true),
   isYookassaConfigured: vi.fn(() => mocks.state.providerConfigured),
   getPaymentStatus: mocks.state.getPaymentStatus,
-  getRefund: vi.fn(),
+  getRefund: mocks.state.getRefund,
   refundPayment: mocks.state.refundPayment,
 }));
 
@@ -54,7 +54,7 @@ const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const PAYMENT_ID = "provider-payment-1";
 const REFUND_ID = "provider-refund-1";
 
-function refundRequest(amount: string | undefined = "25.00") {
+function refundRequest(amount: string | null = "25.00") {
   return new NextRequest("http://localhost/api/payment/webhook", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -64,7 +64,7 @@ function refundRequest(amount: string | undefined = "25.00") {
         id: REFUND_ID,
         status: "succeeded",
         payment_id: PAYMENT_ID,
-        amount: amount === undefined ? { currency: "RUB" } : { value: amount, currency: "RUB" },
+        amount: amount === null ? { currency: "RUB" } : { value: amount, currency: "RUB" },
       },
     }),
   });
@@ -174,7 +174,7 @@ describe("payment webhook POST — cancellation race", () => {
       },
     });
 
-    const response = await POST(refundRequest(undefined));
+    const response = await POST(refundRequest(null));
     const body = await response.json();
 
     expect(response.status).toBe(500);
