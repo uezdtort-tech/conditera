@@ -15,7 +15,7 @@ REVOKE INSERT, UPDATE, DELETE ON TABLE public.payments FROM anon, authenticated;
 
 -- A buyer sees own orders; a confectioner sees orders assigned to them;
 -- support sees only orders with a ticket assigned to their user; a courier
--- sees only orders explicitly assigned through orders.courier_id.
+-- sees only orders explicitly assigned through deliveries.courier_id.
 DROP POLICY IF EXISTS "orders_select_own" ON public.orders;
 CREATE POLICY "orders_select_own" ON public.orders
   FOR SELECT USING (
@@ -41,7 +41,12 @@ CREATE POLICY "orders_select_own" ON public.orders
       )
     )
     OR (
-      orders.courier_id = auth.uid()
+      EXISTS (
+        SELECT 1 FROM public.deliveries d
+        WHERE d.order_id = orders.id
+          AND d.courier_id = auth.uid()
+          AND d.status IN ('assigned', 'picked_up', 'on_the_way', 'delivered')
+      )
       AND EXISTS (
         SELECT 1 FROM public.user_roles ur
         WHERE ur.user_id = auth.uid()
@@ -68,7 +73,12 @@ CREATE POLICY "order_items_select_own" ON public.order_items
               AND ur.is_active = TRUE
           )
           OR (
-            o.courier_id = auth.uid()
+            EXISTS (
+              SELECT 1 FROM public.deliveries d
+              WHERE d.order_id = o.id
+                AND d.courier_id = auth.uid()
+                AND d.status IN ('assigned', 'picked_up', 'on_the_way', 'delivered')
+            )
             AND EXISTS (
               SELECT 1 FROM public.user_roles ur
               WHERE ur.user_id = auth.uid()
