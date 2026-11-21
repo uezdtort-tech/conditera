@@ -3,52 +3,7 @@
 -- Новая авторизованная сессия атомарно отзывает предыдущие; JWT старых устройств
 -- перестают проходить getUserFromRequest через allowlist user_sessions.
 
-CREATE OR REPLACE FUNCTION public.enforce_single_active_user_session(
-  p_user_id UUID,
-  p_session_id UUID
-)
-RETURNS INTEGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-  v_revoked UUID[];
-  v_now TIMESTAMPTZ := now();
-BEGIN
-  IF p_user_id IS NULL OR p_session_id IS NULL THEN
-    RAISE EXCEPTION 'user_id and session_id are required'
-      USING ERRCODE = '22023';
-  END IF;
 
-  -- Сериализует конкурирующие входы одного аккаунта.
-  PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
-
-  IF NOT EXISTS (
-    SELECT 1 FROM public.user_sessions
-    WHERE id = p_session_id AND user_id = p_user_id
-      AND revoked_at IS NULL AND expires_at > v_now
-  ) THEN
-    RAISE EXCEPTION 'new session is not active or does not belong to user'
-      USING ERRCODE = 'P0002';
-  END IF;
-
-  UPDATE public.user_sessions
-  SET revoked_at = v_now, revoked_reason = 'replaced_by_new_login'
-  WHERE user_id = p_user_id
-    AND id <> p_session_id
-    AND revoked_at IS NULL
-    AND expires_at > v_now
-  RETURNING id INTO STRICT v_revoked[1];
-
-  RETURN 0;
-EXCEPTION
-  WHEN NO_DATA_FOUND THEN
-    RETURN 0;
-END;
-$$;
-
--- Recreate body without relying on single-row UPDATE RETURNING semantics.
 CREATE OR REPLACE FUNCTION public.enforce_single_active_user_session(
   p_user_id UUID,
   p_session_id UUID
