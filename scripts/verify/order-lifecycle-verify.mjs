@@ -405,31 +405,6 @@ async function main() {
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_created") &&
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_revoked"));
 
-  // Контроль нового устройства: вход должен оставить security event и задачу администратору.
-  const newDeviceLogin = await api("POST", "/api/auth/login", {
-    body: { email: customerEmail, password: PASSWORD },
-    extraHeaders: {
-      "x-real-ip": "10.241.242.243",
-      "user-agent": "Conditera-E2E-New-Device/1.0",
-    },
-  });
-  assert("вход с нового устройства проходит аутентификацию",
-    newDeviceLogin.status === 200 && Boolean(newDeviceLogin.json?.accessToken));
-  const newDeviceSecurityEvent = await client.query(
-    `SELECT count(*)::int AS count FROM public.user_security_events
-      WHERE user_id = $1::uuid AND event_type = 'new_device_session'`,
-    [CUSTOMER_ID]
-  );
-  assert("новое устройство фиксируется как security warning",
-    newDeviceSecurityEvent.rows[0]?.count >= 1);
-  const newDeviceAdminTask = await client.query(
-    `SELECT count(*)::int AS count FROM public.ops_tasks
-      WHERE type = 'ACCOUNT_NEW_DEVICE' AND entity_id = $1 AND status = 'open'`,
-    [CUSTOMER_ID]
-  );
-  assert("для нового устройства создаётся задача контроля аккаунта",
-    newDeviceAdminTask.rows[0]?.count >= 1);
-
   // Индивидуальный RFQ: проект → предложение с рецептом → заказ → платёж.
   const confectionerRow = await client.query(
     `SELECT id FROM public.confectioners WHERE "userId" = $1::text LIMIT 1`,
@@ -1171,6 +1146,51 @@ async function main() {
   const tower = await api("GET", "/api/ops/orders-today", { token: admin });
   assert("Control Tower → 200 c группами (ТЗ §21-22)", tower.status === 200 && tower.json?.groups && "atRisk" in tower.json.groups && "unassigned" in tower.json.groups);
   assert("Tower: группа atRisk содержит o4 (RED до старта был)", Array.isArray(tower.json?.groups?.atRisk));
+
+  // Контроль передачи аккаунта: второй вход с другого устройства заменяет старую сессию.
+  const newDeviceLogin = await api("POST", "/api/auth/login", {
+    body: { email: customerEmail, password: PASSWORD },
+    extraHeaders: {
+      "x-real-ip": "10.241.242.243",
+      "user-agent": "Conditera-E2E-New-Device/1.0",
+    },
+  });
+  assert("вход с нового устройства проходит аутентификацию",
+    newDeviceLogin.status === 200 && Boolean(newDeviceLogin.json?.accessToken));
+  const activeSessionsAfterReplacement = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()`,
+    [CUSTOMER_ID]
+  );
+  assert("после нового входа у аккаунта ровно одна активная сессия",
+    activeSessionsAfterReplacement.rows[0]?.count === 1,
+    `active=${activeSessionsAfterReplacement.rows[0]?.count}`);
+  const previousTokenCheck = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("JWT предыдущего устройства немедленно отозван → 401",
+    previousTokenCheck.status === 401,
+    JSON.stringify(previousTokenCheck.json));
+  const newDeviceSecurityEvent = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+      WHERE user_id = $1::uuid AND event_type = 'new_device_session'`,
+    [CUSTOMER_ID]
+  );
+  assert("новое устройство фиксируется как security warning",
+    newDeviceSecurityEvent.rows[0]?.count >= 1);
+  const replacementEvent = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+      WHERE user_id = $1::uuid AND event_type = 'session_revoked'
+        AND details->>'reason' = 'replaced_by_new_login'`,
+    [CUSTOMER_ID]
+  );
+  assert("отзыв старого устройства записан в security journal",
+    replacementEvent.rows[0]?.count >= 1);
+  const newDeviceAdminTask = await client.query(
+    `SELECT count(*)::int AS count FROM public.ops_tasks
+      WHERE type = 'ACCOUNT_NEW_DEVICE' AND entity_id = $1 AND status = 'open'`,
+    [CUSTOMER_ID]
+  );
+  assert("для нового устройства создаётся задача контроля аккаунта",
+    newDeviceAdminTask.rows[0]?.count >= 1);
 }
 
 main()
