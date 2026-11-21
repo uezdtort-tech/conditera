@@ -243,9 +243,11 @@ export async function POST(
         .from("confectioner_quotes")
         .update(quoteData)
         .eq("id", existing.id)
+        .in("status", ["pending", "rejected"])
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw new HttpError(500, "DB error", error.message);
+      if (!updated) throw new HttpError(409, "Предложение уже принято или обработано");
       quote = updated;
     } else {
       const { data: created, error } = await supabaseAdmin
