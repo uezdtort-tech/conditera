@@ -35,12 +35,19 @@ export async function POST(
   if (!quote.production_product_id) {
     return NextResponse.json({ error: "Кондитер не выбрал производственный рецепт", code: "PRODUCTION_RECIPE_NOT_SELECTED" }, { status: 422 });
   }
-  if (new Date(quoteRequest.expires_at).getTime() <= Date.now() ||
-      ["approved", "cancelled", "expired"].includes(quoteRequest.status)) {
-    return NextResponse.json({ error: "Запрос уже закрыт или истёк", code: "QUOTE_REQUEST_CLOSED" }, { status: 409 });
-  }
-  try {
-    const productItems = await loadProductItemsData([{
+  const { data: existingOrder } = await supabaseAdmin
+    .from("orders").select("id")
+    .eq("source_quote_id", quoteId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!existingOrder) {
+    if (new Date(quoteRequest.expires_at).getTime() <= Date.now() ||
+        ["approved", "cancelled", "expired"].includes(quoteRequest.status)) {
+      return NextResponse.json({ error: "Запрос уже закрыт или истёк", code: "QUOTE_REQUEST_CLOSED" }, { status: 409 });
+    }
+    try {
+      const productItems = await loadProductItemsData([{
       productId: quote.production_product_id,
       quantity: Math.max(1, Number(quoteRequest.quantity || 1)),
     }]);
@@ -65,7 +72,8 @@ export async function POST(
     return NextResponse.json({
       error: "Не удалось проверить рецепт, склад и производственную мощность",
       code: "ACCEPTANCE_UNAVAILABLE",
-    }, { status: 503 });
+      }, { status: 503 });
+    }
   }
 
   const { data: accepted, error: acceptError } = await supabaseAdmin.rpc(
