@@ -1,0 +1,75 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocked = vi.hoisted(() => ({
+  result: { data: { id: "session-1" }, error: null as { message: string } | null },
+  from: vi.fn(),
+  update: vi.fn(),
+  filters: [] as Array<[string, ...unknown[]]>,
+}));
+
+vi.mock("@/lib/supabase/admin", () => ({
+  supabaseAdmin: { from: mocked.from },
+}));
+
+const query = {
+  update: (value: unknown) => { mocked.update(value); return query; },
+  eq: (...args: unknown[]) => { mocked.filters.push(["eq", ...args]); return query; },
+  is: (...args: unknown[]) => { mocked.filters.push(["is", ...args]); return query; },
+  gt: (...args: unknown[]) => { mocked.filters.push(["gt", ...args]); return query; },
+  select: (...args: unknown[]) => { mocked.filters.push(["select", ...args]); return query; },
+  maybeSingle: () => Promise.resolve(mocked.result),
+};
+
+vi.mocked(mocked.from).mockImplementation(() => query as never);
+
+import { rotateSessionRefreshJti, setSessionRefreshJti } from "@/lib/session-registry";
+
+describe("session refresh-token rotation", () => {
+  beforeEach(() => {
+    mocked.result = { data: { id: "session-1" }, error: null };
+    mocked.from.mockClear();
+    mocked.update.mockClear();
+    mocked.filters = [];
+  });
+
+  it("stores the initial refresh JTI before a token is issued", async () => {
+    await setSessionRefreshJti("session-1", "user-1", "jti-first");
+
+    expect(mocked.from).toHaveBeenCalledWith("user_sessions");
+    expect(mocked.update).toHaveBeenCalledWith({ refresh_jti: "jti-first" });
+    expect(mocked.filters).toContainEqual(["eq", "id", "session-1"]);
+    expect(mocked.filters).toContainEqual(["eq", "user_id", "user-1"]);
+    expect(mocked.filters).toContainEqual(["is", "revoked_at", null]);
+  });
+
+  it("allows only the currently stored JTI to rotate", async () => {
+    await expect(
+      rotateSessionRefreshJti("session-1", "user-1", "jti-first", "jti-second"),
+    ).resolves.toBe(true);
+
+    expect(mocked.update).toHaveBeenCalledWith(
+      expect.objectContaining({ refresh_jti: "jti-second" }),
+    );
+    expect(mocked.filters).toContainEqual(["eq", "refresh_jti", "jti-first"]);
+    expect(mocked.filters).toContainEqual(["eq", "id", "session-1"]);
+    expect(mocked.filters).toContainEqual(["eq", "user_id", "user-1"]);
+    expect(mocked.filters).toContainEqual(["is", "revoked_at", null]);
+  });
+
+  it("rejects replay when the compare-and-swap updates no row", async () => {
+    mocked.result = { data: null, error: null };
+
+    await expect(
+      rotateSessionRefreshJti("session-1", "user-1", "already-used", "jti-next"),
+    ).resolves.toBe(false);
+  });
+
+  it("fails closed when the database rejects rotation", async () => {
+    mocked.result = { data: null, error: { message: "database unavailable" } };
+
+    await expect(
+      rotateSessionRefreshJti("session-1", "user-1", "jti-old", "jti-new"),
+    ).resolves.toBe(false);
+  });
+});
