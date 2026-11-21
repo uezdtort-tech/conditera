@@ -47,6 +47,7 @@ interface QuoteRequestBody {
   estimated_price?: number;
   estimated_delivery_cost?: number;
   confectioner_ids: string[];
+  project_spec?: Record<string, unknown>;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -70,6 +71,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new HttpError(400, "Укажите город");
     }
 
+    // Проект — неизменяемый снимок пожеланий покупателя. Декораций в одном
+    // проекте не более пяти; ограничение проверяется и на API, и в snapshot.
+    const projectSpec = body.project_spec && typeof body.project_spec === "object"
+      ? JSON.parse(JSON.stringify(body.project_spec)) as Record<string, unknown>
+      : {};
+    const specDecorations = projectSpec.decorations;
+    const decorations = Array.isArray(specDecorations)
+      ? specDecorations
+      : (body.decorations || []);
+    if (decorations.length > 5) {
+      throw new HttpError(400, "В одном проекте можно выбрать не более пяти элементов декора");
+    }
+    if (decorations.some((item) => typeof item !== "string" || item.length > 120)) {
+      throw new HttpError(400, "Некорректный элемент декора");
+    }
+    projectSpec.decorations = decorations;
+    if (JSON.stringify(projectSpec).length > 16000) {
+      throw new HttpError(400, "Снимок проекта слишком большой");
+    }
+
     // Создать запрос
     const { data: quoteRequest, error: insertError } = await supabaseAdmin
       .from("quote_requests")
@@ -83,7 +104,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         filling: body.filling,
         filling_id: body.filling_id,
         coating: body.coating,
-        decorations: body.decorations || [],
+        decorations,\n        project_spec: projectSpec,
         dietary: body.dietary || [],
         servings: body.servings,
         quantity: body.quantity,
