@@ -56,6 +56,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .eq("status", "IN_DELIVERY")
       .eq("delivery_type", "delivery")
       .not("delivery_address", "is", null)
+      .neq("delivery_address", "")
       .order("delivery_date", { ascending: true })
       .limit(MAX_ORDERS_RETURN);
 
