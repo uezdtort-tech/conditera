@@ -165,9 +165,9 @@ export async function POST(
       await client.query(
         `INSERT INTO public.ops_tasks
           (dedup_key, type, severity, title, description, entity_type, entity_id,
-           assignee_role, payload, action_label, status, source)
+           assignee_role, payload, action_label, action_url, status, source)
          VALUES ($1, 'ORDER_DISPUTE_OPENED', 'important', $2, $3, 'order_dispute',
-           $4, 'ADMIN', $5::jsonb, 'Рассмотреть спор', 'open', 'manual')
+           $4, 'ADMIN', $5::jsonb, 'Рассмотреть спор', '/dashboard?tab=orders', 'open', 'manual')
          ON CONFLICT (dedup_key) DO NOTHING`,
         [
           `ORDER_DISPUTE:${dispute.id}`,
