@@ -2,27 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { listQuoteMedia, saveQuoteMedia, MediaValidationError } from "@/lib/ops/quote-media";
+import { resolveQuoteMediaAccess } from "@/lib/ops/quote-media-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-async function resolveAccess(quoteId: string, userId: string, roles: string[]) {
-  const { data: quote, error } = await supabaseAdmin
-    .from("quote_requests")
-    .select("id, customer_id, confectioner_ids")
-    .eq("id", quoteId)
-    .maybeSingle();
-  if (error || !quote) return { quote: null, isOwner: false, isRecipient: false, isAdmin: false };
-  const isOwner = quote.customer_id === userId;
-  const isAdmin = roles.includes("ADMIN") || roles.includes("SUPER_ADMIN");
-  let isRecipient = false;
-  if (!isOwner && !isAdmin) {
-    const { data: confectioner } = await supabaseAdmin
-      .from("confectioners").select("id").eq("userId", userId).maybeSingle();
-    isRecipient = Boolean(confectioner && (quote.confectioner_ids ?? []).includes(confectioner.id));
-  }
-  return { quote, isOwner, isRecipient, isAdmin };
-}
 
 export async function GET(
   request: NextRequest,
@@ -31,7 +14,13 @@ export async function GET(
   const user = await getUserFromRequest(request);
   if (!user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   const { id } = await params;
-  const access = await resolveAccess(id, user.id, user.roles ?? []);
+  let access;
+  try {
+    access = await resolveQuoteMediaAccess(id, user.id, user.roles ?? []);
+  } catch (error) {
+    console.error("[quote-media] access check failed:", (error as Error).message);
+    return NextResponse.json({ error: "MEDIA_ACCESS_UNAVAILABLE" }, { status: 503 });
+  }
   if (!access.quote) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   if (!access.isOwner && !access.isRecipient && !access.isAdmin) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
