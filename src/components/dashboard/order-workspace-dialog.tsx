@@ -345,9 +345,20 @@ export function OrderWorkspaceDialog({
     queryKey: ["order-media", orderId],
     enabled: open && !!orderId,
     queryFn: async (): Promise<{ media: OrderMediaItem[] }> => {
-      const res = await csrfFetch(`/api/orders/${orderId}/media`);
-      if (!res.ok) throw new Error(`Не удалось загрузить материалы заказа (HTTP ${res.status})`);
-      return (await res.json()) as { media: OrderMediaItem[] };
+      const [orderRes, referenceRes] = await Promise.all([
+        csrfFetch(`/api/orders/${orderId}/media`),
+        csrfFetch(`/api/orders/${orderId}/reference-media`),
+      ]);
+      if (!orderRes.ok) throw new Error(`Не удалось загрузить фото заказа (HTTP ${orderRes.status})`);
+      if (!referenceRes.ok) throw new Error(`Не удалось загрузить исходные материалы (HTTP ${referenceRes.status})`);
+      const orderPayload = await orderRes.json() as { media: OrderMediaItem[] };
+      const referencePayload = await referenceRes.json() as { media: OrderMediaItem[] };
+      return {
+        media: [
+          ...referencePayload.media,
+          ...orderPayload.media.map((item) => ({ ...item, source: "order" as const })),
+        ],
+      };
     },
   });
 
