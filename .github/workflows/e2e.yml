@@ -338,7 +338,7 @@ jobs:
     needs: setup
     services:
       postgres:
-        image: supabase/postgres:15.6.1.141
+        image: postgres:15.6
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci-postgres-password
