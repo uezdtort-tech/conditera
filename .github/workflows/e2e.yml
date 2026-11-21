@@ -340,23 +340,23 @@ jobs:
       postgres:
         image: supabase/postgres:15.6.1.141
         env:
-          POSTGRES_USER: supabase
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci-postgres-password
-          POSTGRES_DB: supabase
+          POSTGRES_DB: conditera
           POSTGRES_PORT: 5432
           POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
           SEED_MODE: none
         ports:
           - 54322:5432
         options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U supabase -d supabase"
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d conditera"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
           --health-start-period 30s
     env:
       NODE_VERSION: "20"
-      DATABASE_URL: postgresql://supabase:ci-postgres-password@127.0.0.1:54322/supabase
+      DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:54322/conditera
       JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
       JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
       TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
