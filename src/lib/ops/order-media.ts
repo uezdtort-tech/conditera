@@ -229,9 +229,10 @@ export async function getOrderMedia(mediaId: string): Promise<OrderMediaRow | nu
     height: number | null;
     uploaded_by: string | null;
     uploaded_at: Date;
+    content_sha256: string | null;
   }>(
     `SELECT id::text, order_id::text, kind, storage_path, mime_type,
-            file_size, width, height, uploaded_by::text, uploaded_at
+            file_size, width, height, uploaded_by::text, uploaded_at, content_sha256
      FROM public.order_media
      WHERE id = $1::uuid AND status = 'approved'`,
     [mediaId]
@@ -249,6 +250,7 @@ export async function getOrderMedia(mediaId: string): Promise<OrderMediaRow | nu
     height: row.height,
     uploadedBy: row.uploaded_by,
     uploadedAt: new Date(row.uploaded_at).toISOString(),
+    contentSha256: row.content_sha256 ?? "",
   };
 }
 
