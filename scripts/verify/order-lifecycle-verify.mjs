@@ -968,6 +968,8 @@ async function main() {
   assert("покупатель видит свой спор и вложенное доказательство",
     disputeView.status === 200 && disputeView.json?.dispute?.evidence?.length === 1,
     JSON.stringify(disputeView.json).slice(0, 240));
+  assert("доказательство связано с SHA-256 оригинального файла",
+    /^[0-9a-f]{64}$/.test(disputeView.json?.dispute?.evidence?.[0]?.content_sha256 || ""));
   const evidenceUrl = disputeView.json?.dispute?.evidence?.[0]?.url;
   const evidenceDownload = await fetch(`${BASE}${evidenceUrl}`, { headers: { Authorization: `Bearer ${customer}` } });
   assert("оригинал доказательства доступен участнику заказа как image/png",
