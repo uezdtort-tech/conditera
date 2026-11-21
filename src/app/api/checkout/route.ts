@@ -199,7 +199,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       notes,
       customerName,
       customerPhone,
-      paymentMethod,
     } = parsed.data;
 
     // Контакт получателя — серверная валидация (P1-A7)
