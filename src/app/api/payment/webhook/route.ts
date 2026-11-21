@@ -381,7 +381,8 @@ export async function POST(request: NextRequest) {
             const lateRefund = await refundPayment(
               providerPaymentId,
               refundAmount,
-              `Автоматический возврат по отменённому заказу ${order.number || orderId}`
+              `Автоматический возврат по отменённому заказу ${order.number || orderId}`,
+              `uezd_konditer:refund:late:${orderId}`
             );
             if (!lateRefund.success) {
               console.error("[webhook] late-cancel refund failed; YooKassa retry required:", lateRefund.error);
