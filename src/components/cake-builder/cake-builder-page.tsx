@@ -429,6 +429,9 @@ export function CakeBuilderPage() {
     resetCakeBuilder();
     setSubmitted(false);
     setSelectedConfectioners([]);
+    setReferenceFiles([]);
+    setBuilderPreviewFile(null);
+    setIsSubmittingQuote(false);
     navigate("home");
   };
 
@@ -1109,8 +1112,8 @@ export function CakeBuilderPage() {
                         multiple
                         onChange={(event) => {
                           const files = Array.from(event.target.files || []);
-                          if (files.length > 10) {
-                            toast.error("Можно прикрепить не более 10 фотографий");
+                          if (files.length + (builderPreviewFile ? 1 : 0) > 10) {
+                            toast.error("Всего к запросу можно прикрепить не более 10 изображений");
                             event.target.value = "";
                             setReferenceFiles([]);
                             return;
@@ -1135,6 +1138,12 @@ export function CakeBuilderPage() {
                         accept="image/jpeg,image/png,image/webp"
                         onChange={(event) => {
                           const file = event.target.files?.[0] || null;
+                          if (file && referenceFiles.length + 1 > 10) {
+                            toast.error("Всего к запросу можно прикрепить не более 10 изображений");
+                            event.target.value = "";
+                            setBuilderPreviewFile(null);
+                            return;
+                          }
                           if (file && file.size > 8 * 1024 * 1024) {
                             toast.error("Размер макета — не более 8 МБ");
                             event.target.value = "";
