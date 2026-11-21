@@ -159,7 +159,23 @@ export async function revokeAllUserSessions(
     console.error("[session-registry] revoke-all failed:", error.message);
     throw new Error("Не удалось завершить остальные сессии");
   }
-  return data?.length || 0;
+  const revokedIds = (data ?? []).map((row) => row.id);
+  if (revokedIds.length) {
+    const { error: eventError } = await supabaseAdmin.from("user_security_events").insert(
+      revokedIds.map((sessionId) => ({
+        user_id: userId,
+        session_id: sessionId,
+        event_type: "session_revoked",
+        severity: "info",
+        details: { reason },
+      }))
+    );
+    if (eventError) {
+      // Отзыв сессий уже состоялся; событие не меняет результат операции.
+      console.error("[session-registry] revoke-all event write failed:", eventError.message);
+    }
+  }
+  return revokedIds.length;
 }
 
 
