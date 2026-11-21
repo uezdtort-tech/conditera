@@ -145,8 +145,29 @@ export async function writeOffOrderRecipe(
         console.error("[recipe-writeoff] claim failed:", claimError.message);
         return { ok: false, status: 503, error: "Не удалось зарезервировать списание. Повторите позже." };
       }
-      // Другая параллельная попытка уже захватила batch-key. Не списываем.
-      return { ok: false, status: 409, error: "Списание уже выполняется; повторите позже" };
+      // Другая попытка могла успеть завершить тот же batch (включая ручной
+      // UI-вызов с идентичным составом). Возвращаем результат, а не списываем снова.
+      const { data: raced, error: racedError } = await supabaseAdmin
+        .from("inventory_write_offs")
+        .select("items, result")
+        .eq("owner_id", inventoryOwnerId)
+        .eq("order_id", orderId)
+        .eq("signature", signature)
+        .maybeSingle();
+      if (racedError || !raced) {
+        return { ok: false, status: 503, error: "Не удалось проверить параллельное списание" };
+      }
+      const saved = raced.result as { applied?: AppliedItem[]; failed?: FailedItem[] } | null;
+      if (!Array.isArray(saved?.applied) || !Array.isArray(saved?.failed)) {
+        return { ok: false, status: 409, error: "Списание уже выполняется; повторите позже" };
+      }
+      if (saved.failed.length === 0) {
+        return { ok: true, applied: saved.applied, failed: [], idempotent: true };
+      }
+      previouslyApplied = saved.applied;
+      const failedIds = new Set(saved.failed.map((item) => item.item_id));
+      items = ((raced.items as WriteOffItem[] | null) ?? items)
+        .filter((item) => failedIds.has(item.item_id));
     }
   }
 
