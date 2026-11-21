@@ -81,7 +81,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             .from("orders")
             .select("*", { count: "exact", head: true })
             .eq("courier_id", courierId)
-            .in("status", ["READY", "IN_DELIVERY"]),
+            .eq("status", "IN_DELIVERY"),
           // Завершено сегодня
           supabaseAdmin
             .from("orders")
@@ -89,33 +89,42 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             .eq("courier_id", courierId)
             .in("status", ["DELIVERED", "COMPLETED"])
             .gte("updated_at", today.toISOString()),
-          // Заработок сегодня (сумма delivery_cost по завершённым)
+          // Фактический заработок — только из записей доставки, не из суммы,
+          // которую покупатель заплатил за доставку.
           supabaseAdmin
-            .from("orders")
-            .select("delivery_cost")
+            .from("deliveries")
+            .select("order_id, courier_earnings, delivered_at")
             .eq("courier_id", courierId)
-            .in("status", ["DELIVERED", "COMPLETED"])
-            .gte("updated_at", today.toISOString()),
-          // Заработок за месяц
+            .eq("status", "delivered")
+            .gte("delivered_at", today.toISOString()),
           supabaseAdmin
-            .from("orders")
-            .select("delivery_cost")
+            .from("deliveries")
+            .select("order_id, courier_earnings, delivered_at")
             .eq("courier_id", courierId)
-            .in("status", ["DELIVERED", "COMPLETED"])
-            .gte("updated_at", monthStart.toISOString()),
+            .eq("status", "delivered")
+            .gte("delivered_at", monthStart.toISOString()),
         ]);
 
+      for (const result of [activeResult, completedTodayResult, earningsTodayResult, earningsMonthResult]) {
+        if (result.error) throw new Error(result.error.message);
+      }
       const earningsToday = (earningsTodayResult.data || []).reduce(
-        (sum: number, o: any) => sum + Number(o.delivery_cost || 0),
+        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0),
         0
       );
       const earningsMonth = (earningsMonthResult.data || []).reduce(
-        (sum: number, o: any) => sum + Number(o.delivery_cost || 0),
+        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0),
         0
+      );
+      const earningsByOrder = new Map<string, number>(
+        (earningsMonthResult.data || []).map((delivery: any) => [
+          delivery.order_id,
+          Number(delivery.courier_earnings || 0),
+        ])
       );
 
       // Получить рейтинг курьера из courier_profiles
-      let rating = 5.0;
+      let rating = 0;
       try {
         const { data: profile } = await supabaseAdmin
           .from("courier_profiles")
@@ -126,19 +135,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           rating = Number(profile.rating);
         }
       } catch {
-        // Если таблицы courier_profiles нет — используем default 5.0
+        // Нет рейтинга — показываем 0, не выдумываем 5.0
       }
 
       // Получить список активных доставок с детализацией
-      const { data: activeOrders } = await supabaseAdmin
+      const { data: activeOrders, error: activeOrdersError } = await supabaseAdmin
         .from("orders")
         .select(
-          "id, number, status, delivery_address, delivery_time, total, user_id, confectioner_id"
+          "id, number, status, delivery_address, delivery_time, delivery_cost, total, user_id, confectioner_id"
         )
         .eq("courier_id", courierId)
-        .in("status", ["READY", "IN_DELIVERY"])
+        .eq("status", "IN_DELIVERY")
         .order("updated_at", { ascending: false })
         .limit(10);
+      if (activeOrdersError) throw new Error(activeOrdersError.message);
 
       // Получить имена клиентов для активных доставок
       const userIds = (activeOrders || []).map((o: any) => o.user_id).filter(Boolean);
@@ -154,15 +164,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
 
       // Получить последние завершённые (история)
-      const { data: historyOrders } = await supabaseAdmin
+      const { data: historyOrders, error: historyOrdersError } = await supabaseAdmin
         .from("orders")
         .select(
-          "id, number, delivery_cost, total, updated_at, user_id"
+          "id, number, delivery_cost, total, updated_at, delivered_at, user_id"
         )
         .eq("courier_id", courierId)
         .in("status", ["DELIVERED", "COMPLETED"])
         .order("updated_at", { ascending: false })
         .limit(10);
+      if (historyOrdersError) throw new Error(historyOrdersError.message);
 
       const historyUserIds = (historyOrders || []).map((o: any) => o.user_id).filter(Boolean);
       if (historyUserIds.length > 0 && historyUserIds.some((id: string) => !customerMap.has(id))) {
@@ -196,15 +207,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           id: o.id,
           orderId: o.number,
           customer: customerMap.get(o.user_id) || "—",
-          completedAt: o.updated_at,
-          earnings: Number(o.delivery_cost || 0),
-          rating: 5, // в v2.1 добавим таблицу courier_ratings
+          completedAt: o.delivered_at || o.updated_at,
+          earnings: earningsByOrder.get(o.id) || 0,
+          rating: 0, // рейтинг появится после внедрения подтверждённых отзывов
         })),
         stub: false,
       });
     } catch (dbError: any) {
-      console.warn("[courier/dashboard] DB unavailable, returning stub:", dbError?.message);
-      return NextResponse.json(STUB_DATA);
+      console.error("[courier/dashboard] DB unavailable:", dbError?.message);
+      return NextResponse.json(
+        { error: "Данные курьера временно недоступны. Повторите попытку." },
+        { status: 503 }
+      );
     }
   } catch (error: any) {
     console.error("GET /api/courier/dashboard error:", error?.message);
