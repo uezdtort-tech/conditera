@@ -58,24 +58,21 @@ export async function GET(
       throw new HttpError(403, "Этот запрос не направлен вам");
     }
 
-    const { data: products, error: productsError } = await supabaseAdmin
-      .from("products").select("id, title, recipe_id")
-      .eq("confectioner_id", confectioner.id).eq("status", "published")
-      .not("recipe_id", "is", null).limit(200);
-    if (productsError) throw new HttpError(503, "Не удалось загрузить производственные товары");
-
-    const recipeIds = [...new Set((products ?? []).map(p => p.recipe_id).filter((id): id is string => Boolean(id)))];
-    const recipes = recipeIds.length
-      ? await getPool().query<{ recipe_id: string }>(
-          "SELECT DISTINCT recipe_id::text FROM public.recipe_ingredients WHERE recipe_id = ANY($1::uuid[])",
-          [recipeIds])
-      : { rows: [] as { recipe_id: string }[] };
-    const readyRecipeIds = new Set(recipes.rows.map(r => r.recipe_id));
-    return NextResponse.json({
-      products: (products ?? [])
-        .filter(p => p.recipe_id && readyRecipeIds.has(p.recipe_id))
-        .map(p => ({ id: p.id, title: p.title })),
-    });
+    const products = await getPool().query<{ id: string; title: string }>(
+      `SELECT p.id::text AS id, p.title
+         FROM public.products AS p
+        WHERE p.confectioner_id = $1
+          AND p.status = 'published'
+          AND p.recipe_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM public.recipe_ingredients AS ri
+             WHERE ri.recipe_id = p.recipe_id
+          )
+        ORDER BY p.title
+        LIMIT 200`,
+      [confectioner.id]
+    );
+    return NextResponse.json({ products: products.rows });
   } catch (error) {
     return handleRouteError(error);
   }
@@ -162,21 +159,22 @@ export async function POST(
     if (!body.production_product_id || !/^[0-9a-f-]{36}$/i.test(body.production_product_id)) {
       throw new HttpError(422, "Выберите товар с действующим производственным рецептом");
     }
-    const { data: productionProduct, error: productError } = await supabaseAdmin
-      .from("products")
-      .select("id, recipe_id, status")
-      .eq("id", body.production_product_id)
-      .eq("confectioner_id", confectioner.id)
-      .maybeSingle();
-    if (productError || !productionProduct || productionProduct.status !== "published" || !productionProduct.recipe_id) {
-      throw new HttpError(422, "Выбранный производственный товар недоступен или не имеет рецепта");
-    }
-    const recipeCheck = await getPool().query<{ count: number }>(
-      "SELECT count(*)::int AS count FROM public.recipe_ingredients WHERE recipe_id = $1::uuid",
-      [productionProduct.recipe_id]
+    const productCheck = await getPool().query<{ id: string }>(
+      `SELECT p.id::text AS id
+         FROM public.products AS p
+        WHERE p.id = $1::uuid
+          AND p.confectioner_id = $2
+          AND p.status = 'published'
+          AND p.recipe_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM public.recipe_ingredients AS ri
+             WHERE ri.recipe_id = p.recipe_id
+          )`,
+      [body.production_product_id, confectioner.id]
     );
-    if (Number(recipeCheck.rows[0]?.count ?? 0) === 0) {
-      throw new HttpError(422, "В производственном рецепте нет ингредиентов");
+    const productionProduct = productCheck.rows[0];
+    if (!productionProduct) {
+      throw new HttpError(422, "Выбранный производственный товар недоступен или не имеет рецепта");
     }
 
     const prepDays = body.prep_days ?? 3;
