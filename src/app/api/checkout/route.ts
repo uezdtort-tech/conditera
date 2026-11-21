@@ -705,31 +705,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let paymentUrl = `/checkout/success?orderId=${order.id}&demo=true`;
     let yookassaPaymentId: string | null = null;
 
-    if (!isYookassaConfigured()) {
-      console.warn(
-        "[checkout] YooKassa не настроена (YOOKASSA_SHOP_ID/YOOKASSA_SECRET_KEY) — stub payment URL"
+    const paymentResult = await createPayment({
+      amount: total, // рубли
+      description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
+      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${order.id}`,
+      orderId: order.id,
+    });
+
+    if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
+      console.error("[checkout] Yookassa error:", paymentResult.error);
+      // Заказ оставляем (можно повторить оплату через /api/payment/create),
+      // корзину НЕ чистим.
+      return NextResponse.json(
+        { error: "Ошибка создания платежа в Yookassa" },
+        { status: 502 }
       );
-    } else {
-      const paymentResult = await createPayment({
-        amount: total, // рубли
-        description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
-        returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${order.id}`,
-        orderId: order.id,
-      });
-
-      if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
-        console.error("[checkout] Yookassa error:", paymentResult.error);
-        // Заказ оставляем (можно повторить оплату через /api/payment/create),
-        // корзину НЕ чистим
-        return NextResponse.json(
-          { error: "Ошибка создания платежа в Yookassa" },
-          { status: 502 }
-        );
-      }
-
-      yookassaPaymentId = paymentResult.payment.id;
-      paymentUrl = paymentResult.payment.confirmation.confirmation_url;
     }
+
+    // В dev/E2E это mock_ ID, но он тоже обязателен в локальном ledger:
+    // webhook должен найти конкретную попытку оплаты, а не только order_id.
+    yookassaPaymentId = paymentResult.payment.id;
+    paymentUrl = paymentResult.payment.confirmation.confirmation_url;
 
     // 7. Запись в payments (существующие колонки 0002) + проверка ошибки
     const { error: paymentError } = await supabaseAdmin
