@@ -513,12 +513,11 @@ async function main() {
             repeatedQuoteAccept.json?.paymentUrl === acceptQuote.json.paymentUrl,
             JSON.stringify(repeatedQuoteAccept.json).slice(0, 220));
 
-          const acceptedMediaList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/media`, {
+          const acceptedMediaList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/reference-media`, {
             token: customer,
           });
-          const inheritedReferences = (acceptedMediaList.json?.media || [])
-            .filter((item) => item.source === "customer_reference");
-          assert("после принятия RFQ фото-пожелание и превью видны в медиа заказа",
+          const inheritedReferences = acceptedMediaList.json?.media || [];
+          assert("после принятия RFQ фото-пожелание и превью доступны в материалах заказа",
             acceptedMediaList.status === 200 && inheritedReferences.length === 2 &&
             inheritedReferences.some(item => item.kind === "customer_reference") &&
             inheritedReferences.some(item => item.kind === "builder_preview"),
@@ -760,11 +759,9 @@ async function main() {
   // Покупатель должен видеть фото собственного готового изделия, но не иметь
   // возможности загружать производственные доказательства вместо кондитера.
   const customerMediaList = await api("GET", `/api/orders/${o1.orderId}/media`, { token: customer });
-  const readyPhotos = (customerMediaList.json?.media || []).filter((item) => item.source === "order" && item.kind === "ready_photo");
-  const inheritedCustomerMedia = (customerMediaList.json?.media || []).filter((item) => item.source === "customer_reference");
-  assert("покупатель получает пять фото готового изделия и исходные вложения заказа → 200",
-    customerMediaList.status === 200 && readyPhotos.length === 5 &&
-    (!acceptedQuoteOrder || inheritedCustomerMedia.length === 2),
+  const readyPhotos = (customerMediaList.json?.media || []).filter((item) => item.kind === "ready_photo");
+  assert("покупатель получает все пять фото готового изделия → 200",
+    customerMediaList.status === 200 && readyPhotos.length === 5,
     JSON.stringify(customerMediaList.json).slice(0, 240));
   const customerMediaFile = await api("GET", mediaUrl, { token: customer });
   assert("покупатель открывает фото своего заказа → 200", customerMediaFile.status === 200);
