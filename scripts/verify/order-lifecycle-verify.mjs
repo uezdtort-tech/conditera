@@ -997,6 +997,18 @@ async function main() {
     evidenceDownload.status === 200 && evidenceDownload.headers.get("content-type") === "image/png",
     `${evidenceDownload.status} ${evidenceDownload.headers.get("content-type")}`);
 
+  const prematureDisputeReply = await api("POST", `/api/orders/${pickup.orderId}/disputes/${disputeId}/reply`, {
+    token: customer,
+    raw: disputeReplyForm(),
+  });
+  assert("покупатель не может отвечать до запроса поддержки → 409",
+    prematureDisputeReply.status === 409);
+  const confectionerDisputeReply = await api("POST", `/api/orders/${pickup.orderId}/disputes/${disputeId}/reply`, {
+    token: owner,
+    raw: disputeReplyForm(),
+  });
+  assert("кондитер не может отправлять ответ от имени покупателя → 403",
+    confectionerDisputeReply.status === 403);
   const disputeReview = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
     token: admin,
     body: { disputeId, status: "under_review" },
