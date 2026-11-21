@@ -384,7 +384,7 @@ async function main() {
   assert("PATCH DELIVERED назначенным курьером → 200", patchDelivered.status === 200, JSON.stringify(patchDelivered.json).slice(0, 120));
   const deliveryState = await client.query(
     `SELECT status, delivered_at FROM public.deliveries WHERE order_id = $1::uuid AND courier_id = $2::uuid`,
-    [o1.orderId, courierIdFromToken(courier)]
+    [o1.orderId, "11111111-1111-4111-8111-111111111113"]
   );
   assert("доставка и заказ закрыты одним переходом", deliveryState.rows[0]?.status === "delivered" && Boolean(deliveryState.rows[0]?.delivered_at));
 
