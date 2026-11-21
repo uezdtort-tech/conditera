@@ -114,6 +114,8 @@ export interface OrderNegotiation {
   confectionerId: string;
   confectionerName: string;
   confectionerAvatar?: string;
+  /** Выбранный кондитером товар, чей рецепт используется для производства индивидуального заказа. */
+  productionProductId?: string;
   // Исходные данные (от покупателя)
   originalRequest: {
     eventType: string;
