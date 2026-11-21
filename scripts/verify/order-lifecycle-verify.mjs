@@ -730,10 +730,9 @@ async function main() {
   const winners = await client.query(`SELECT count(*)::int AS c FROM public.capacity_reservations WHERE order_id = $1::uuid AND status IN ('reserved','confirmed')`, [o6.orderId]);
   assert("ровно один активный резерв после гонки", winners.rows[0].c === 1, `got ${winners.rows[0].c}`);
 
-  // SQL-уровень: параллельные пересекающиеся резервы → EXCLUDE (23P01)
   // SQL-уровень: параллельные пересекающиеся резервы → EXCLUDE (23P01).
-  // Дата +2 дня — чтобы не пересекаться с резервами E2E №1 на завтра.
-  const dayPlus2 = isoDate(new Date(Date.now() + 2 * 86_400_000));
+  // Изолированная дата исключает конфликт с demo/fixture reservations.
+  const dayPlus2 = "2099-01-01";
   const o7 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   const o8 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   testOrders.push(o7.orderId, o8.orderId);
@@ -804,6 +803,9 @@ main()
         [testOrders]
       );
       if (registeredCustomerId) {
+        // Удаляем все оставшиеся тестовые заказы этого покупателя, включая
+        // возможные записи, не попавшие в testOrders из вспомогательных сценариев.
+        await client.query(`DELETE FROM public.orders WHERE user_id = $1::uuid`, [registeredCustomerId]);
         await client.query(`DELETE FROM auth.users WHERE id = $1::uuid`, [registeredCustomerId]);
       }
       const left = await client.query(`SELECT count(*)::int AS c FROM public.orders WHERE number LIKE 'P05V-%'`);
