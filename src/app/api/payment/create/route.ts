@@ -172,15 +172,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Update order payment status
-    const { error: orderUpdErr } = await supabaseAdmin
+    const { data: orderUpdated, error: orderUpdErr } = await supabaseAdmin
       .from("orders")
       .update({ payment_status: "pending" })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("status", order.status)
+      .eq("payment_status", order.payment_status)
+      .select("id");
     if (orderUpdErr) {
       console.error("[payment/create] orders payment_status update failed:", orderUpdErr.message);
       return NextResponse.json(
         { error: "Не удалось зафиксировать состояние заказа перед оплатой" },
         { status: 503 }
+      );
+    }
+    if (!orderUpdated || orderUpdated.length === 0) {
+      // Заказ был отменён/изменён параллельно созданию платежа. Не выдаём
+      // confirmation_url для устаревшего состояния.
+      return NextResponse.json(
+        { error: "Заказ изменился во время создания платежа. Обновите страницу." },
+        { status: 409 }
       );
     }
 
