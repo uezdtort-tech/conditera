@@ -158,6 +158,7 @@ async function deleteOrder(orderId) {
   await client.query(`DELETE FROM public.inventory_write_offs WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   // escrow_accounts создаётся триггером/эккаунтингом при payment_status='escrow'
   await client.query(`DELETE FROM public.escrow_accounts WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
+  await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.payments WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.deliveries WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.order_media WHERE order_id = $1::uuid`, [orderId]);
@@ -957,6 +958,16 @@ main()
         }
       }
       for (const quoteRequestId of testQuoteRequestIds) {
+        const quoteFiles = await client.query(
+          `SELECT storage_path FROM public.quote_request_media WHERE quote_request_id = $1::uuid`,
+          [quoteRequestId]
+        ).catch(() => ({ rows: [] }));
+        for (const file of quoteFiles.rows) {
+          await client.query(
+            `DELETE FROM storage.objects WHERE bucket_id = 'quote_media' AND name = $1`,
+            [file.storage_path]
+          ).catch(() => {});
+        }
         await client.query(`DELETE FROM public.quote_requests WHERE id = $1::uuid`, [quoteRequestId]);
       }
       for (const d of testDraftIds) {
