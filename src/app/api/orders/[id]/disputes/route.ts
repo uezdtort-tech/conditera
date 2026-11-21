@@ -63,7 +63,7 @@ export async function GET(
 
     const [evidence, events] = await Promise.all([
       pool.query(
-        `SELECT e.id, e.order_media_id, e.uploaded_by, e.note, e.created_at,
+        `SELECT e.id, e.order_media_id, e.uploaded_by, e.content_sha256, e.note, e.created_at,
                 m.kind, m.mime_type, m.file_size, m.width, m.height,
                 '/api/order-media/' || m.id::text AS url
          FROM public.order_dispute_evidence e
@@ -93,7 +93,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const uploadedMedia: Array<{ id: string }> = [];
+  const uploadedMedia: Array<{ id: string; contentSha256: string }> = [];
   try {
     const { id: orderId } = await params;
     const user = await getUserFromRequest(request);
@@ -133,7 +133,7 @@ export async function POST(
         uploadedBy: user.id,
         kind: "dispute_evidence",
       });
-      uploadedMedia.push({ id: media.id });
+      uploadedMedia.push({ id: media.id, contentSha256: media.contentSha256 });
     }
 
     const pool = getPool();
@@ -150,9 +150,9 @@ export async function POST(
       dispute = inserted.rows[0];
       for (const media of uploadedMedia) {
         await client.query(
-          `INSERT INTO public.order_dispute_evidence (dispute_id, order_media_id, uploaded_by)
-           VALUES ($1::uuid, $2::uuid, $3::uuid)`,
-          [dispute.id, media.id, user.id],
+          `INSERT INTO public.order_dispute_evidence (dispute_id, order_media_id, uploaded_by, content_sha256)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4)`,
+          [dispute.id, media.id, user.id, media.contentSha256],
         );
       }
       await client.query(
