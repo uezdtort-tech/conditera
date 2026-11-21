@@ -1029,7 +1029,7 @@ async function main() {
     disputeEvents.rows[0]?.count === 3,
     `events=${disputeEvents.rows[0]?.count}`);
   const disputeOpsTask = await client.query(
-    `SELECT status, resolved_by FROM public.ops_tasks
+    `SELECT status, resolved_by, action_url FROM public.ops_tasks
       WHERE type = 'ORDER_DISPUTE_OPENED' AND entity_id = $1`,
     [disputeId],
   );
@@ -1038,7 +1038,8 @@ async function main() {
   );
   assert("открытие спора создаёт задачу администратору, а решение закрывает её",
     disputeOpsTask.rows[0]?.status === "resolved" &&
-    disputeOpsTask.rows[0]?.resolved_by === adminIdentity.rows[0]?.id,
+    disputeOpsTask.rows[0]?.resolved_by === adminIdentity.rows[0]?.id &&
+    disputeOpsTask.rows[0]?.action_url === "/dashboard?tab=orders",
     JSON.stringify(disputeOpsTask.rows[0]));
 
   const mediaServe = await fetch(`${BASE}${mediaUrl}`, { headers: { Authorization: `Bearer ${admin}` } });
