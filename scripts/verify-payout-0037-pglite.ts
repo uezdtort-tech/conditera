@@ -110,6 +110,8 @@ async function main() {
     GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
     GRANT SELECT, INSERT, UPDATE, DELETE ON public.orders, public.order_items, public.payments TO authenticated;
     GRANT SELECT ON public.user_roles, public.support_tickets TO authenticated;
+    ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
   `);
   await db.exec(ORDER_ACCESS_SQL);
   ok("миграция 0075: ограничен доступ к заказам и запрещены прямые записи клиентов");
