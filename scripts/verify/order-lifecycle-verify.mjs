@@ -564,11 +564,14 @@ async function main() {
             assert("оплата принятого RFQ проходит через webhook → 200",
               acceptedWebhook.status === 200, JSON.stringify(acceptedWebhook.json).slice(0, 200));
             const acceptedStatus = await client.query(
-              `SELECT status::text AS status FROM public.orders WHERE id = $1::uuid`,
+              `SELECT status::text AS status, payment_status::text AS payment_status
+                 FROM public.orders WHERE id = $1::uuid`,
               [acceptQuote.json.orderId]
             );
-            assert("оплаченный индивидуальный заказ перешёл в escrow",
-              acceptedStatus.rows[0]?.status === "ESCROW", JSON.stringify(acceptedStatus.rows[0]));
+            assert("оплаченный индивидуальный заказ удерживает деньги в escrow без преждевременного старта производства",
+              acceptedStatus.rows[0]?.payment_status === "escrow" &&
+              acceptedStatus.rows[0]?.status === "PENDING",
+              JSON.stringify(acceptedStatus.rows[0]));
           }
         }
       }
