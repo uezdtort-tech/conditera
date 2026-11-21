@@ -12,7 +12,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import {
   saveOrderReadyPhoto,
@@ -180,80 +179,34 @@ export async function GET(
     }
 
     const pool = getPool();
-    const referenceMediaPromise = (async () => {
-      // RFQ/quote media live in the Supabase PG15 control plane while legacy
-      // order media may still use the PG18 operational pool. Keep this lookup
-      // on supabaseAdmin so the ordinary order-photo endpoint also works before
-      // the planned single-database cutover.
-      const { data: orderSource, error: sourceError } = await supabaseAdmin
-        .from("orders")
-        .select("source_quote_id")
-        .eq("id", id)
-        .maybeSingle();
-      if (sourceError) throw sourceError;
-      if (!orderSource?.source_quote_id) return [];
+    const res = await pool.query<{
+      id: string;
+      kind: string;
+      mime_type: string;
+      file_size: number;
+      width: number | null;
+      height: number | null;
+      uploaded_at: Date;
+    }>(
+      `SELECT id::text, kind, mime_type, file_size, width, height, uploaded_at
+       FROM public.order_media
+       WHERE order_id = $1::uuid AND status = 'approved'
+       ORDER BY uploaded_at ASC`,
+      [id]
+    );
 
-      const { data: quote, error: quoteError } = await supabaseAdmin
-        .from("confectioner_quotes")
-        .select("quote_request_id")
-        .eq("id", orderSource.source_quote_id)
-        .maybeSingle();
-      if (quoteError) throw quoteError;
-      if (!quote?.quote_request_id) return [];
-
-      const { data: rows, error: mediaError } = await supabaseAdmin
-        .from("quote_request_media")
-        .select("id, quote_request_id, kind, mime_type, file_size, width, height, uploaded_at")
-        .eq("quote_request_id", quote.quote_request_id)
-        .eq("status", "approved")
-        .order("uploaded_at", { ascending: true });
-      if (mediaError) throw mediaError;
-      return rows ?? [];
-    })();
-
-    const [orderMedia, referenceMedia] = await Promise.all([
-      pool.query<{
-        id: string;
-        kind: string;
-        mime_type: string;
-        file_size: number;
-        width: number | null;
-        height: number | null;
-        uploaded_at: Date;
-      }>(
-        `SELECT id::text, kind, mime_type, file_size, width, height, uploaded_at
-         FROM public.order_media
-         WHERE order_id = $1::uuid AND status = 'approved'
-         ORDER BY uploaded_at ASC`,
-        [id]
-      ),
-      referenceMediaPromise,
-    ]);
-
-    const orderFiles = orderMedia.rows.map((r) => ({
-      id: r.id,
-      kind: r.kind,
-      source: "order",
-      mimeType: r.mime_type,
-      fileSize: Number(r.file_size),
-      width: r.width,
-      height: r.height,
-      uploadedAt: new Date(r.uploaded_at).toISOString(),
-      url: `/api/order-media/${r.id}`,
-    }));
-    const customerReferences = referenceMedia.map((r) => ({
-      id: r.id,
-      kind: r.kind,
-      source: "customer_reference",
-      mimeType: r.mime_type,
-      fileSize: Number(r.file_size),
-      width: r.width,
-      height: r.height,
-      uploadedAt: new Date(r.uploaded_at).toISOString(),
-      url: `/api/quotes/${r.quote_request_id}/media/${r.id}`,
-    }));
-
-    return NextResponse.json({ media: [...customerReferences, ...orderFiles] });
+    return NextResponse.json({
+      media: res.rows.map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        mimeType: r.mime_type,
+        fileSize: Number(r.file_size),
+        width: r.width,
+        height: r.height,
+        uploadedAt: new Date(r.uploaded_at).toISOString(),
+        url: `/api/order-media/${r.id}`,
+      })),
+    });
   } catch (err) {
     console.error(
       "[orders/media] GET failed:",
