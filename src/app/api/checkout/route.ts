@@ -76,7 +76,9 @@ const CheckoutSchema = z
     promoCode: z.string().max(40).optional(),
     customerName: z.string().min(2).max(100),
     customerPhone: z.string().min(10).max(20),
-    paymentMethod: z.string().max(30).optional(),
+    // Первый production поддерживает только online card/SBP через YooKassa.
+    // cash/split без отдельного контура инкассации/эскроу нельзя принимать.
+    paymentMethod: z.enum(["card", "sbp"]).optional(),
   })
   .superRefine((val, ctx) => {
     // Каждая позиция: либо товар, либо custom-конфигурация конструктора
