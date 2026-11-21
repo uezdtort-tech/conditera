@@ -181,6 +181,22 @@ export async function POST(
     if (!Number.isInteger(prepDays) || prepDays < 1 || prepDays > 365) {
       throw new HttpError(400, "Срок изготовления должен быть от 1 до 365 дней");
     }
+    if (body.available_date !== undefined && body.available_date !== null) {
+      const value = body.available_date;
+      if (typeof value !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value) ||
+          Number.isNaN(Date.parse(`${value}T00:00:00Z`)) ||
+          new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
+        throw new HttpError(400, "Дата готовности должна иметь формат YYYY-MM-DD");
+      }
+    }
+    if ((body.comment !== undefined && body.comment !== null &&
+         (typeof body.comment !== "string" || body.comment.length > 2000)) ||
+        (body.offered_packaging !== undefined && body.offered_packaging !== null &&
+         (typeof body.offered_packaging !== "string" || body.offered_packaging.length > 300)) ||
+        (body.offered_delivery !== undefined && body.offered_delivery !== null &&
+         (typeof body.offered_delivery !== "string" || body.offered_delivery.length > 300))) {
+      throw new HttpError(400, "Комментарий или условия предложения слишком длинные либо имеют неверный формат");
+    }
 
     // Проверить, что скидка в пределах лимита
     const { data: pricing } = await supabaseAdmin
