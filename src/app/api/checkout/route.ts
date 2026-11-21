@@ -722,9 +722,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
 
     if (paymentError) {
-      // Платёж у провайдера уже создан; webhook найдёт заказ по
-      // metadata.orderId (fallback), поэтому не откатываем — но логируем.
-      console.error("[checkout] Payment create error:", paymentError.message);
+      // Confirmation URL ещё не возвращаем и корзину не очищаем, пока
+      // локальный ledger не подтверждён. Иначе capture может прийти без
+      // payment row, по которой можно сверить сумму и инициировать refund.
+      console.error("[checkout] Payment ledger insert failed:", paymentError.message);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать платёж. Повторите попытку оплаты." },
+        { status: 503 }
+      );
     }
 
     // 8. Корзину чистим только после успешного создания платежа
