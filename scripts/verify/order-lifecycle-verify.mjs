@@ -197,6 +197,7 @@ const testDraftIds = [];
 const testQuoteRequestIds = [];
 let recipeInventoryFixture = null;
 let registeredCustomerId = null;
+let acceptedQuoteOrder = null;
 
 /** Demo recipe intentionally omits berries from seed stock. */
 async function prepareRecipeInventoryFixture() {
@@ -413,7 +414,8 @@ async function main() {
         shape: "round",
         city: "Москва",
         delivery_date: tomorrowStr,
-        delivery_type: "pickup",
+        delivery_type: "delivery",
+        address: "ул. Тестовая, 1",
         estimated_price: 330000,
         estimated_delivery_cost: 0,
         confectioner_ids: [quoteConfectionerId],
@@ -483,6 +485,10 @@ async function main() {
           JSON.stringify(acceptQuote.json).slice(0, 260));
         if (acceptQuote.status === 201 && acceptQuote.json?.orderId) {
           testOrders.push(acceptQuote.json.orderId);
+          acceptedQuoteOrder = {
+            orderId: acceptQuote.json.orderId,
+            number: acceptQuote.json.orderNumber,
+          };
 
           const acceptedMediaList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/media`, {
             token: customer,
@@ -554,16 +560,16 @@ async function main() {
   if (checkout.status !== 200 || !checkout.json?.orderId) {
     throw new Error(`Checkout нового покупателя не создал заказ: ${JSON.stringify(checkout.json)}`);
   }
-  const o1 = { orderId: checkout.json.orderId, number: checkout.json.orderNumber };
-  testOrders.push(o1.orderId);
-  assert("checkout сохраняет исполнителя товара", Boolean((await client.query(
-    `SELECT confectioner_id FROM public.orders WHERE id = $1::uuid`, [o1.orderId]
+  const checkoutOrder = { orderId: checkout.json.orderId, number: checkout.json.orderNumber };
+  testOrders.push(checkoutOrder.orderId);
+  assert("обычный checkout сохраняет исполнителя товара", Boolean((await client.query(
+    `SELECT confectioner_id FROM public.orders WHERE id = $1::uuid`, [checkoutOrder.orderId]
   )).rows[0]?.confectioner_id));
 
   const paymentRow = await client.query(
     `SELECT yookassa_payment_id, amount FROM public.payments
      WHERE order_id = $1::uuid ORDER BY created_at DESC LIMIT 1`,
-    [o1.orderId]
+    [checkoutOrder.orderId]
   );
   const paymentId = paymentRow.rows[0]?.yookassa_payment_id;
   assert("checkout создаёт локальную запись платежа", Boolean(paymentId && Number(paymentRow.rows[0]?.amount) === Number(checkout.json.total)));
@@ -575,18 +581,18 @@ async function main() {
         id: paymentId,
         status: "succeeded",
         amount: { value: Number(checkout.json.total).toFixed(2), currency: "RUB" },
-        metadata: { orderId: o1.orderId },
+        metadata: { orderId: checkoutOrder.orderId },
       },
     },
   });
-  assert("payment.succeeded переводит заказ в escrow → 200", webhook.status === 200, JSON.stringify(webhook.json));
+  assert("payment.succeeded обычного checkout переводит заказ в escrow → 200", webhook.status === 200, JSON.stringify(webhook.json));
   const paidState = await client.query(
     `SELECT o.payment_status, p.status AS provider_status
      FROM public.orders o JOIN public.payments p ON p.order_id = o.id
      WHERE o.id = $1::uuid ORDER BY p.created_at DESC LIMIT 1`,
-    [o1.orderId]
+    [checkoutOrder.orderId]
   );
-  assert("оплата зафиксирована в orders и payments", paidState.rows[0]?.payment_status === "escrow" && paidState.rows[0]?.provider_status === "succeeded", JSON.stringify(paidState.rows[0]));
+  assert("оплата обычного checkout зафиксирована в orders и payments", paidState.rows[0]?.payment_status === "escrow" && paidState.rows[0]?.provider_status === "succeeded", JSON.stringify(paidState.rows[0]));
   const duplicateWebhook = await api("POST", "/api/payment/webhook", {
     body: {
       event: "payment.succeeded",
@@ -594,11 +600,18 @@ async function main() {
         id: paymentId,
         status: "succeeded",
         amount: { value: Number(checkout.json.total).toFixed(2), currency: "RUB" },
-        metadata: { orderId: o1.orderId },
+        metadata: { orderId: checkoutOrder.orderId },
       },
     },
   });
-  assert("повтор webhook идемпотентен и не создаёт повторное зачисление", duplicateWebhook.status === 200 && duplicateWebhook.json?.idempotent === true, JSON.stringify(duplicateWebhook.json));
+  assert("повтор webhook обычного checkout идемпотентен", duplicateWebhook.status === 200 && duplicateWebhook.json?.idempotent === true, JSON.stringify(duplicateWebhook.json));
+
+  // Полный производственный путь запускаем для индивидуального заказа, если
+  // RFQ прошёл согласование и оплату. Обычный checkout отдельно проверен выше.
+  const o1 = acceptedQuoteOrder ?? checkoutOrder;
+  assert(acceptedQuoteOrder
+    ? "полный lifecycle выбран для оплаченного индивидуального RFQ-заказа"
+    : "полный lifecycle использует оплаченный checkout-заказ как fallback", true);
   const dayAfterTomorrow = new Date(tomorrow.getTime() + 86_400_000);
   const dayAfterTomorrowStr = isoDate(dayAfterTomorrow);
   const todayStr = isoDate(new Date());
@@ -607,7 +620,7 @@ async function main() {
   section("E2E №1 — нормальный заказ (ТЗ §46)");
   const lc0 = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: customer });
   assert("GET lifecycle → 200 (покупатель после регистрации)", lc0.status === 200, `got ${lc0.status}`);
-  assert("checkout-заказ ожидает производства и уже связан с кондитером", lc0.json?.derived?.businessStatus === "created" && lc0.json?.derived?.assignmentStatus === "assigned", JSON.stringify(lc0.json?.derived));
+  assert("заказ ожидает производства и уже связан с кондитером", lc0.json?.derived?.businessStatus === "created" && lc0.json?.derived?.assignmentStatus === "assigned", JSON.stringify(lc0.json?.derived));
 
   const assignForbidden = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: owner, body: { confectionerId: OWNER_ID } });
   assert("кондитер не может назначать → 403", assignForbidden.status === 403, `got ${assignForbidden.status}`);
@@ -724,7 +737,12 @@ async function main() {
   // Покупатель должен видеть фото собственного готового изделия, но не иметь
   // возможности загружать производственные доказательства вместо кондитера.
   const customerMediaList = await api("GET", `/api/orders/${o1.orderId}/media`, { token: customer });
-  assert("покупатель получает список всех пяти фото своего заказа → 200", customerMediaList.status === 200 && customerMediaList.json?.media?.length === 5, JSON.stringify(customerMediaList.json).slice(0, 160));
+  const readyPhotos = (customerMediaList.json?.media || []).filter((item) => item.source === "order" && item.kind === "ready_photo");
+  const inheritedCustomerMedia = (customerMediaList.json?.media || []).filter((item) => item.source === "customer_reference");
+  assert("покупатель получает пять фото готового изделия и исходные вложения заказа → 200",
+    customerMediaList.status === 200 && readyPhotos.length === 5 &&
+    (!acceptedQuoteOrder || inheritedCustomerMedia.length === 2),
+    JSON.stringify(customerMediaList.json).slice(0, 240));
   const customerMediaFile = await api("GET", mediaUrl, { token: customer });
   assert("покупатель открывает фото своего заказа → 200", customerMediaFile.status === 200);
 
