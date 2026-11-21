@@ -3,7 +3,7 @@
 import { toast } from "sonner";
 
 import { useAppStore } from "@/lib/store";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,7 +128,7 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
   const [productionOptions, setProductionOptions] = useState<Array<{ id: string; title: string }>>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
 
-  const loadServerNegotiations = async () => {
+  const loadServerNegotiations = useCallback(async () => {
     const response = await csrfFetch("/api/quotes?mode=confectioner");
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Не удалось загрузить запросы");
@@ -139,14 +139,14 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
         ...mapped,
       ],
     }));
-  };
+  }, [confectionerId]);
 
   useEffect(() => {
     loadServerNegotiations().catch((error) => {
       console.error("[negotiations] load confectioner quotes:", error);
       toast.error("Не удалось загрузить реальные запросы покупателей");
     });
-  }, [confectionerId]);
+  }, [loadServerNegotiations]);
 
   useEffect(() => {
     if (!editingId) { setProductionOptions([]); return; }
@@ -447,7 +447,7 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                base_cost: Math.round(Math.max(0, total - deliveryCost) * 100),
+                base_cost: Math.round(items.reduce((sum, item) => sum + item.totalPrice, 0) * 100),
                 delivery_cost: Math.round(deliveryCost * 100),
                 comment,
                 prep_days: prepDays,
