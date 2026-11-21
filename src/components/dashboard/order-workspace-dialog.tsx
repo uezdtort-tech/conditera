@@ -297,6 +297,30 @@ const ACTION_SUCCESS: Record<OrderActionKind, string> = {
 };
 
 function OrderDisputePanel({ orderId }: { orderId: string | null }) {
+  const queryClient = useQueryClient();
+  const [resolution, setResolution] = useState("");
+  const reviewMutation = useMutation({
+    mutationFn: async (status: "under_review" | "awaiting_customer" | "resolved" | "rejected") => {
+      const disputeId = query.data?.dispute?.id;
+      if (!disputeId || !orderId) throw new Error("Спор не найден");
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await csrfFetch(`/api/orders/${orderId}/disputes`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ disputeId, status, resolution: resolution.trim() }),
+      });
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      return status;
+    },
+    onSuccess: (status) => {
+      toast.success(status === "resolved" ? "Спор решён" : status === "rejected" ? "Спор отклонён" : "Статус спора обновлён");
+      setResolution("");
+      void queryClient.invalidateQueries({ queryKey: ["order-dispute", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+    },
+    onError: (error: Error) => toast.error("Не удалось обновить спор", { description: error.message }),
+  });
   const query = useQuery({
     queryKey: ["order-dispute", orderId],
     enabled: Boolean(orderId),
@@ -314,6 +338,7 @@ function OrderDisputePanel({ orderId }: { orderId: string | null }) {
           evidence: { id: string; mime_type: string; file_size: number; created_at: string; content_sha256: string }[];
           messages: { id: string; sender_id: string; message: string; created_at: string }[];
         } | null;
+        permissions?: { canReview: boolean };
       };
     },
   });
@@ -362,6 +387,44 @@ function OrderDisputePanel({ orderId }: { orderId: string | null }) {
           </div>
         ))}
       </div>
+      {query.data?.permissions?.canReview && (
+        <div className="rounded-lg border p-3 space-y-2">
+          <p className="text-xs font-semibold">Действия по спору</p>
+          {dispute.status === "under_review" && (
+            <Textarea
+              rows={3}
+              value={resolution}
+              onChange={(event) => setResolution(event.target.value)}
+              placeholder="Комментарий покупателю или обоснование решения (минимум 10 символов для закрытия)"
+            />
+          )}
+          <div className="flex flex-wrap gap-2">
+            {dispute.status === "open" && (
+              <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("under_review")}>
+                Взять в работу
+              </Button>
+            )}
+            {dispute.status === "under_review" && (
+              <>
+                <Button size="sm" variant="outline" disabled={reviewMutation.isPending || resolution.trim().length < 10} onClick={() => reviewMutation.mutate("awaiting_customer")}>
+                  Запросить уточнение
+                </Button>
+                <Button size="sm" disabled={reviewMutation.isPending || resolution.trim().length < 10} onClick={() => reviewMutation.mutate("resolved")}>
+                  Решить спор
+                </Button>
+                <Button size="sm" variant="destructive" disabled={reviewMutation.isPending || resolution.trim().length < 10} onClick={() => reviewMutation.mutate("rejected")}>
+                  Отклонить
+                </Button>
+              </>
+            )}
+            {dispute.status === "awaiting_customer" && (
+              <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("under_review")}>
+                Вернуть в рассмотрение
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
