@@ -316,6 +316,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // читающие getUserFromRequest(), работают без ручного Bearer-заголовка.
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+      return NextResponse.json(
+        { error: "Вход с другого устройства завершился одновременно. Повторите вход." },
+        { status: 409 }
+      );
+    }
     console.error("Login error:", error?.message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
