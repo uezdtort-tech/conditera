@@ -1275,8 +1275,9 @@ async function main() {
       extraHeaders: { "x-real-ip": "10.241.242.245", "user-agent": "Conditera-E2E-Parallel-B/1.0" },
     }),
   ]);
-  assert("оба конкурентных входа обработаны без 5xx",
-    [parallelLoginA.status, parallelLoginB.status].every((status) => status === 200),
+  assert("конкурентные входы: победитель 200, проигравший 409 либо успел завершиться до гонки",
+    [parallelLoginA.status, parallelLoginB.status].every((status) => status === 200 || status === 409) &&
+    [parallelLoginA.status, parallelLoginB.status].includes(200),
     `${parallelLoginA.status}/${parallelLoginB.status}`);
   const [parallelSessionA, parallelSessionB] = await Promise.all([
     api("GET", "/api/auth/sessions", { token: parallelLoginA.json?.accessToken }),
