@@ -1067,6 +1067,17 @@ async function main() {
     mediaMutationState = error.code;
   }
   assert("БД запрещает удалить файл, приложенный к спору (SQLSTATE 55000)", mediaMutationState === "55000", mediaMutationState);
+  let mediaTruncateState = "";
+  await client.query("BEGIN");
+  try {
+    await client.query("TRUNCATE public.order_media");
+  } catch (error) {
+    mediaTruncateState = error.code;
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+  }
+  assert("БД запрещает TRUNCATE хранилища при наличии доказательств (SQLSTATE 55000)",
+    mediaTruncateState === "55000", mediaTruncateState);
   const disputeEvents = await client.query(
     `SELECT count(*)::int AS count FROM public.order_dispute_events WHERE dispute_id = $1::uuid`,
     [disputeId],
