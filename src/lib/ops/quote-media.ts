@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { getPool } from "@/lib/postgrest/pool";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   sniffMime, parseImageMeta, PHOTO_MIMES, MAX_PHOTO_BYTES,
@@ -77,19 +76,23 @@ export async function saveQuoteMedia(input: {
   if (uploadError) throw new Error(`QUOTE_STORAGE_UPLOAD_FAILED: ${uploadError.message}`);
 
   try {
-    const pool = getPool();
-    const result = await pool.query<{
-      id: string; quote_request_id: string; kind: "customer_reference" | "builder_preview";
-      mime_type: string; file_size: number; width: number; height: number; uploaded_at: Date;
-    }>(`INSERT INTO public.quote_request_media
-      (quote_request_id, kind, storage_path, original_filename, mime_type,
-       file_size, width, height, uploaded_by, status)
-      VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::uuid, 'approved')
-      RETURNING id::text, quote_request_id::text, kind, mime_type, file_size,
-                width, height, uploaded_at`,
-      [input.quoteRequestId, input.kind, path, input.file.name.slice(0, 200),
-       sniffed.mime, buffer.length, meta.width, meta.height, input.uploadedBy]);
-    const row = result.rows[0];
+    const { data: row, error: insertError } = await supabaseAdmin
+      .from("quote_request_media")
+      .insert({
+        quote_request_id: input.quoteRequestId,
+        kind: input.kind,
+        storage_path: path,
+        original_filename: input.file.name.slice(0, 200),
+        mime_type: sniffed.mime,
+        file_size: buffer.length,
+        width: meta.width,
+        height: meta.height,
+        uploaded_by: input.uploadedBy,
+        status: "approved",
+      })
+      .select("id, quote_request_id, kind, mime_type, file_size, width, height, uploaded_at")
+      .single();
+    if (insertError || !row) throw insertError || new Error("QUOTE_MEDIA_METADATA_INSERT_FAILED");
     return {
       id: row.id, quoteRequestId: row.quote_request_id, kind: row.kind,
       mimeType: row.mime_type, fileSize: Number(row.file_size),
@@ -108,16 +111,14 @@ export async function saveQuoteMedia(input: {
 }
 
 export async function listQuoteMedia(quoteRequestId: string): Promise<QuoteMedia[]> {
-  const pool = getPool();
-  const result = await pool.query<{
-    id: string; quote_request_id: string; kind: "customer_reference" | "builder_preview";
-    mime_type: string; file_size: number; width: number; height: number; uploaded_at: Date;
-  }>(`SELECT id::text, quote_request_id::text, kind, mime_type, file_size,
-             width, height, uploaded_at
-      FROM public.quote_request_media
-      WHERE quote_request_id = $1::uuid AND status = 'approved'
-      ORDER BY uploaded_at ASC`, [quoteRequestId]);
-  return result.rows.map(row => ({
+  const { data: rows, error } = await supabaseAdmin
+    .from("quote_request_media")
+    .select("id, quote_request_id, kind, mime_type, file_size, width, height, uploaded_at")
+    .eq("quote_request_id", quoteRequestId)
+    .eq("status", "approved")
+    .order("uploaded_at", { ascending: true });
+  if (error) throw error;
+  return (rows ?? []).map(row => ({
     id: row.id, quoteRequestId: row.quote_request_id, kind: row.kind,
     mimeType: row.mime_type, fileSize: Number(row.file_size),
     width: row.width, height: row.height, uploadedAt: new Date(row.uploaded_at).toISOString(),
@@ -127,12 +128,14 @@ export async function listQuoteMedia(quoteRequestId: string): Promise<QuoteMedia
 export async function downloadQuoteMedia(quoteRequestId: string, mediaId: string): Promise<{
   buffer: Buffer; mimeType: string;
 } | null> {
-  const pool = getPool();
-  const result = await pool.query<{ storage_path: string; mime_type: string }>(
-    `SELECT storage_path, mime_type FROM public.quote_request_media
-     WHERE id = $1::uuid AND quote_request_id = $2::uuid AND status = 'approved'`,
-    [mediaId, quoteRequestId]);
-  const row = result.rows[0];
+  const { data: row, error: lookupError } = await supabaseAdmin
+    .from("quote_request_media")
+    .select("storage_path, mime_type")
+    .eq("id", mediaId)
+    .eq("quote_request_id", quoteRequestId)
+    .eq("status", "approved")
+    .maybeSingle();
+  if (lookupError) throw lookupError;
   if (!row) return null;
   if (!row.storage_path.startsWith(`quotes/${quoteRequestId}/references/`) ||
       row.storage_path.includes("..") || row.storage_path.startsWith("/")) {
