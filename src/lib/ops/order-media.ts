@@ -165,6 +165,14 @@ export async function saveOrderReadyPhoto(params: {
     if (cleanupError) {
       console.error("[order-media] failed to compensate storage upload:", cleanupError.message);
     }
+    const dbError = err as { code?: string; message?: string };
+    if (dbError.code === "23514" && dbError.message?.includes("ORDER_READY_PHOTO_LIMIT")) {
+      throw new MediaValidationError(
+        422,
+        "PHOTO_LIMIT_REACHED",
+        "Максимум 5 фото готового изделия на заказ"
+      );
+    }
     throw err;
   }
 }
