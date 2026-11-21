@@ -295,6 +295,9 @@ async function main() {
   const courierOrder = await api("GET", `/api/orders/${o1.orderId}`, { token: courier });
   assert("назначенный курьер открывает карточку заказа → 200", courierOrder.status === 200, JSON.stringify(courierOrder.json).slice(0, 120));
 
+  const courierDashboard = await api("GET", "/api/courier/dashboard", { token: courier });
+  assert("кабинет курьера показывает назначенную доставку", courierDashboard.status === 200 && (courierDashboard.json?.activeDeliveries || []).some((d) => d.orderId === o1.number), JSON.stringify(courierDashboard.json).slice(0, 160));
+
   const courierMedia = await api("GET", mediaUrl, { token: courier });
   assert("назначенный курьер открывает фото готового изделия → 200", courierMedia.status === 200);
 
