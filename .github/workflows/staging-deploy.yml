@@ -8,7 +8,7 @@
 #
 # Триггер: workflow_run — АВТОМАТИЧЕСКИ после успешного CI на push в main.
 # Условия допуска (§7):
-#   • CI (lint/typecheck/test/build/docker/security/migrations-pg18/deps-audit)
+#   • CI (lint/typecheck/test/build/docker/security/migrations-pg17/deps-audit)
 #     завершился success на том же SHA;
 #   • pre-deploy проверки: миграции применяются ledger-мигратором из ТОГО ЖЕ
 #     SHA, staging-БД отдельная (STAGING_DATABASE_URL — ВЛАДЕЛЕЦ), backup
@@ -90,9 +90,9 @@ jobs:
           bash -n scripts/env-check.sh
           echo "env-check script OK (структура проверена; значения — на хосте)"
 
-      - name: Migration dry-run против чистой PG18 (в CI-контейнере)
+      - name: Migration dry-run против чистой PG17 (в CI-контейнере)
         run: |
-          echo "Миграции уже проверены job'ом migrations-pg18 в CI на том же SHA."
+          echo "Миграции уже проверены job'ом migrations-pg17 в CI на том же SHA."
           echo "Здесь фиксируется требование: staging-БД обновляется ТОЛЬКО ledger-мигратором"
           echo "из образа того же SHA (см. deploy-step ниже и STAGING_DEPLOYMENT.md §4)."
 

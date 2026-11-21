@@ -10298,3 +10298,45 @@ DEPLOY_RUNBOOK + parity env §6; Telegram-токен + runtime-watch в
 n8n-instance + импорт 20 workflow; боевые YooKassa/SMTP/Метрика;
 миграция auth.users/Storage старого Supabase; ежемесячный контрольный
 restore и квота под backups/. Секреты нигде не печатались.
+
+## 2026-11-22 — Сведение PostgreSQL на единую целевую PG17 + self-heal compat-схемы
+
+Контекст: первый реальный прогон на чистой PG17 выявил расхождение путей запуска/проверки
+(единый Supabase Runtime = PG17, сценарный CI-стек = PG15, embedded db:setup = PG18) и падение
+создания demo-юзеров: `db:setup` ожидает `auth.users.email_confirmed_at`, которого нет в
+совместимой Auth-схеме, созданной bootstrap-ом рантайма (`CREATE TABLE IF NOT EXISTS` — no-op
+поверх существующей минимальной `auth.users`). До бизнес-сценариев прогон не дошёл.
+
+Сделано:
+1. **Self-heal compat-схемы** (supabase/compat/0000_supabase_compat.sql): идемпотентные
+   `ALTER TABLE … ADD COLUMN IF NOT EXISTS` для auth.users (23 колонки, контракты CREATE-блока:
+   email_confirmed_at DEFAULT now(), raw_*_meta_data DEFAULT '{}', aud/role DEFAULT 'authenticated'…)
+   и storage.buckets/objects — compat-слой теперь доуплотняет ЛЮБУЮ существующую минимальную схему.
+2. **Сведение на PG17**: docker-compose.supabase.yml (supabase/postgres:15.6.1.141 → **17.11.0.017**,
+   предупреждение о несовместимости volume PG15→PG17), docker-compose.yml + docker-compose.dev.yml
+   (postgres:18-alpine → **17-alpine**, volume *_v18 → *_v17), package.json embedded-postgres
+   (^18.4.0-beta.17 → **^17.12.0-beta.19**, binaries PG 17.12), CI ci.yml job migrations-pg18 →
+   **migrations-pg17** (postgres:17-alpine), staging-deploy.yml (строки pg18→pg17),
+   scripts/generate-tz.js (doc-строки 15.6→17.11).
+3. **Гард сходимости**: scripts/verify/pg-version-gate.mjs — якоря точных версий
+   (compose.supabase, package.json), скан всех compose/workflow на postgres-образы major≠17,
+   проверка установленного @embedded-postgres/linux-x64; шаг встроен в CI (migrations-pg17).
+   Менять версию PG только синхронно в 4 местах (перечислены в комментарии compose).
+4. **Гард версии кластера** в scripts/db/runtime.mjs: start() сравнивает major PG_VERSION
+   кластера и бинарей; расхождение = явная ошибка с инструкцией (не молчаливый pg_ctl-failure).
+5. **Z-v24 рецидив**: зомби-миграция 0062_cart_custom_items.sql воскрешена коммитом 8c3b5c6
+   (fix(dashboard)) из старой копии — свежий прогон падал на дубликате ID 0062 ещё ДО SQL
+   (гард работает как задумано). Удалена повторно; канонична 0062_cart_sync_custom.sql;
+   forward-фикс 0080_cart_remove_zombie_check.sql для заражённых БД сохранён. 85 миграций.
+
+Верификация (чистый embedded PG 17.12, .pgdata свежий initdb):
+- `npm run db:setup`: compat 61 stmts → **85/85 миграций** → local fixups → **6/6 demo-юзеров**
+  → 11 seed-файлов + product-media + ops-center → price-history backfill (+12) → env-ключи. OK.
+- Негативный тест self-heal: `ALTER TABLE auth.users DROP COLUMN email_confirmed_at` (симуляция
+  минимальной Auth-схемы PG17-рантайма) → повторный db:setup → колонка ВОССТАНОВЛЕНА
+  (default=now()), 0 миграций повторно, demo-юзеры OK, auth.users=19 / profiles=19.
+- pg-version-gate: 3/3 ✔ (якоря + binaries PG17).
+
+Для владельца: перед апдейтом прод-стека на PG17 — том supabase_db_data (PG15) несовместим:
+pg_dumpall/рестор или свежая инициализация (прод-таблицы пусты по PI-аудиту — свежий init
+безопасен); шаг заблокирован в комментарии compose и будет гардован pg-version-gate в CI.

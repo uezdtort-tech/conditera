@@ -117,6 +117,13 @@ function childEnv(binDir) {
   };
 }
 
+/** Major-версия бинарников (postgres --version → «postgres (PostgreSQL) 17.12»). */
+function binariesMajor(binDir) {
+  const res = run(path.join(binDir, exeName("postgres")), ["--version"], { timeout: 10000 });
+  const m = String(res.stdout || "").match(/PostgreSQL\)\s+(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
 // ============================================================================
 // Вспомогательные
 // ============================================================================
@@ -254,6 +261,22 @@ export async function start() {
   if (status.running) {
     console.log(`✔ PostgreSQL already running (pid ${status.pid}, port ${PG_PORT})`);
     return { started: false };
+  }
+  // ГАРД ВЕРСИИ КЛАСТЕРА (сведение на PG17, 2026-11-22): кластер от другого
+  // major (например, старый embedded PG18 при бинарях PG17) бинарно
+  // несовместим — pg_ctl уйдёт в невнятный failure. Падаем сразу с явной
+  // инструкцией, молча пересоздавать данные не умеем (потеря — сознательный шаг).
+  if (status.initialized) {
+    const clusterMajor = Number(readFileSync(path.join(PGDATA, "PG_VERSION"), "utf8").trim().split(".")[0]);
+    const binMajor = binariesMajor(binDir);
+    if (binMajor && clusterMajor !== binMajor) {
+      throw new Error(
+        `Embedded cluster at ${PGDATA} was initialized by PG${clusterMajor}, ` +
+        `but installed binaries are PG${binMajor}. Данные между major-версиями ` +
+        `несовместимы. Для дев-кластера: остановите PG, удалите ${PGDATA} и ` +
+        `запустите заново (свежий initdb); для ценных данных — pg_dump/pg_restore или pg_upgrade.`
+      );
+    }
   }
   if (!status.initialized) initialize();
   applyConfigs();

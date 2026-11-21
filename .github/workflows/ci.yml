@@ -383,16 +383,18 @@ jobs:
         # core-маршрут = FAIL (иначе инцидент не создастся).
         run: node scripts/verify/route-error-coverage.mjs
 
-  # ===== 8. Миграции на чистой PostgreSQL 18 (DEPLOY-01 §6 п.11-13) =====
+  # ===== 8. Миграции на чистой PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация =====
+  # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI
+  # = PG17, embedded db:setup = PG17 (см. scripts/verify/pg-version-gate.mjs).
   # Реальный ledger-мигратор прод-пайплайна (supabase/init-scripts/
-  # 01-apply-migrations.sh) против чистой PG18: прогон + идемпотентный
+  # 01-apply-migrations.sh) против чистой PG17: прогон + идемпотентный
   # повторный прогон + проверка RLS-политик/GRANT критичных таблиц.
-  migrations-pg18:
-    name: Migrations on clean PostgreSQL 18
+  migrations-pg17:
+    name: Migrations on clean PostgreSQL 17
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:17-alpine
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
@@ -406,6 +408,10 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@v4
+
+      - name: PG version gate — все пути запуска/проверки БД на PG17
+        run: node scripts/verify/pg-version-gate.mjs
+        timeout-minutes: 2
 
       - name: Copy migrations + migrator into service container
         run: |

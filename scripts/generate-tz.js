@@ -367,7 +367,7 @@ content.push(p('В предыдущей версии проекта был ре�
 content.push(h3('2.1.1. Архитектура и инфраструктура'));
 content.push(bullet('Next.js 16.1.3 с Turbopack, App Router, standalone build для Docker.'));
 content.push(bullet('Prisma 7.9.1 с динамической Proxy-обёрткой над PrismaClient для поддержки PostgreSQL и PGlite одновременно.'));
-content.push(bullet('PostgreSQL 16-alpine → 18-alpine в Docker Compose, с PgBouncer как пулером соединений.'));
+content.push(bullet('PostgreSQL 17-alpine — ЦЕЛЕВАЯ конфигурация (едина во всех путях: Supabase-стек, CI, db:setup), с PgBouncer как пулером соединений.'));
 content.push(bullet('Redis 7 для сессий, rate-limiting и Socket.IO adapter.'));
 content.push(bullet('Meilisearch v1.12 для полнотекстового поиска по каталогу.'));
 content.push(bullet('Socket.IO chat-сервис на отдельном Node.js сервере (порт 3030).'));
@@ -421,7 +421,7 @@ content.push(callout(
 
 content.push(callout(
   'Проблема №5: Конфликты PostgreSQL volume versions',
-  'За время разработки проект прошёл через PostgreSQL 16 → 17 → 18. Docker volumes несовместимы между major-версиями (PG_VERSION файл отличается). Каждый upgrade требует либо pg_upgrade (рискованно), либо удаления volume с потерей данных. Текущее состояние: volume postgres_data содержит данные от PG16, а docker-compose.yml указывает postgres:18-alpine — контейнер conditera-db падает в restart loop.'
+  'За время разработки проект прошёл через PostgreSQL 16 → 17 → 18. Docker volumes несовместимы между major-версиями (PG_VERSION файл отличается). Каждый upgrade требует либо pg_upgrade (рискованно), либо удаления volume с потерей данных. Итог сведения (2026-11-22): ЦЕЛЕВАЯ версия — PostgreSQL 17 во всех путях запуска/проверки (Supabase-стек, CI, db:setup); volume от PG18 несовместим с PG17 — при переходе удалить volume или сделать pg_upgrade.'
 ));
 
 content.push(callout(
@@ -487,7 +487,7 @@ content.push(h3('4.1.1. Состав Docker-стека'));
 content.push(dataTable(
   ['Сервис', 'Образ', 'Порт', 'Назначение'],
   [
-    ['supabase-db', 'supabase/postgres:15.6.1', '5432 (внутр.)', 'PostgreSQL 15 с расширениями (pgsodium, pg_cron, pgbouncer)'],
+    ['supabase-db', 'supabase/postgres:17.11.0.017', '5432 (внутр.)', 'PostgreSQL 17 — целевая конфигурация (единая с runtime и CI)'],
     ['supabase-analytics', 'supabase/logflare', '4000 (внутр.)', 'Логирование и аналитика событий'],
     ['supabase-auth', 'supabase/gotrue', '9999 (внутр.)', 'Auth сервис (email/pass, OAuth, Magic Link, 2FA)'],
     ['supabase-rest', 'supabase/postgrest', '3000 (внутр.)', 'Auto-generated REST API из схемы БД'],
@@ -593,7 +593,7 @@ content.push(dataTable(
   [
     ['Node.js', '20 LTS', 'Runtime для Next.js и Edge Functions'],
     ['Supabase', 'latest self-hosted', 'Postgres + Auth + Realtime + Storage + Functions'],
-    ['PostgreSQL', '15.6', 'БД (через supabase/postgres:15.6.1 образ)'],
+    ['PostgreSQL', '17.11', 'БД (через supabase/postgres:17.11.0.017 образ)'],
     ['PostgREST', '12.x', 'Auto-generated REST API из БД схемы'],
     ['GoTrue', '2.x', 'Auth сервис (JWT, OAuth, Magic Link, 2FA)'],
     ['Realtime', '2.x', 'WebSocket подписка на postgres_changes'],

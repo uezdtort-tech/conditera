@@ -139,15 +139,14 @@ services:
       - conditera-net
 
   # ===== PostgreSQL (продакшн БД) =====
-  # ВАЖНО: Используем postgres:18-alpine — актуальный major release.
-  # Если у вас в volume postgres_data лежат данные от старой версии (PG16/17),
-  # нужно либо сделать pg_upgrade, либо удалить volume:
+  # ЦЕЛЕВАЯ ВЕРСИЯ: PostgreSQL 17 (единая с Supabase-стеком, CI и db:setup —
+  # см. scripts/verify/pg-version-gate.mjs). Данные от PG18 (volume *_v18)
+  # бинарно несовместимы с PG17: сделать pg_upgrade либо удалить volume:
   #   docker compose down
-  #   docker volume rm conditera_postgres_data  (или conditera_postgres_data)
+  #   docker volume rm conditera_postgres_data_v18
   #   docker compose up -d
-  # Volume postgres_data_v18 — новый, чистый, без конфликтов версий.
   db:
-    image: public.ecr.aws/docker/library/postgres:18-alpine
+    image: public.ecr.aws/docker/library/postgres:17-alpine
     container_name: conditera-db
     <<: *default-restart
     environment:
@@ -158,7 +157,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - postgres_data_v18:/var/lib/postgresql/data
+      - postgres_data_v17:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U conditera -d conditera"]
       interval: 10s
@@ -552,7 +551,7 @@ services:
       - conditera-net
 
 volumes:
-  postgres_data_v18:
+  postgres_data_v17:
   redis_data:
   caddy_data:
   caddy_config:

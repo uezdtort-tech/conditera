@@ -31,9 +31,15 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # ===== PostgreSQL 15 с расширениями =====
+  # ===== PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация (единая с runtime и CI) =====
+  # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI =
+  # PG17, embedded db:setup = PG17. Образ supabase/postgres:17.11.0.017 —
+  # последний vanilla-тег PG17 (без -orioledb/-multigres). Менять версию
+  # ТОЛЬКО синхронно в: docker-compose.supabase.yml, conditera-v2/docker-compose.local.yml,
+  # .github/workflows/ci.yml (jobs.migrations-pg17), package.json (embedded-postgres).
+  # Гард: scripts/verify/pg-version-gate.mjs (CI) — не-17 версии = FAIL.
   supabase-db:
-    image: supabase/postgres:15.6.1.141
+    image: supabase/postgres:17.11.0.017
     container_name: conditera-supabase-db
     restart: unless-stopped
     command:
@@ -50,6 +56,10 @@ services:
     expose:
       - "5432"
     volumes:
+      # ВНИМАНИЕ (PG15→PG17): старый том supabase_db_data инициализирован
+      # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
+      # («database files are incompatible with server»). Переход только через
+      # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
       - supabase_db_data:/var/lib/postgresql/data
       - ./supabase/init-scripts:/docker-entrypoint-initdb.d:ro
       - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro

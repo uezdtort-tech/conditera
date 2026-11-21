@@ -1,0 +1,62 @@
+=== 0. health ===
+[PASS] health 200 app+db+auth ok
+=== 1. СЦ-02 password reset (XFF 203.0.113.21) ===
+[PASS] reset request 200 ok:true
+[PASS] devToken присутствует (DEV_AUTH_SHIM=1)
+[PASS] DB: токен существует, не used, не expired (sha256)
+[PASS] confirm 200 ok:true
+[PASS] DB: токен помечен usedAt (одноразовость)
+[PASS] login с НОВЫМ паролем 200
+[PASS] login со СТАРЫМ паролем 401
+[PASS] повтор ТОГО ЖЕ токена 400 invalid_token
+=== 1b. СЦ-02 анти-перечисление + восстановление пароля (XFF 203.0.113.22) ===
+[PASS] неизвестный email → 200 ok:true (анти-перечисление)
+[PASS] devToken отсутствует для неизвестного email
+[PASS] повторный reset 200 (новый токен)
+[PASS] пароль восстановлен на Demo123! (confirm 200)
+=== 1c. СЦ-02 rate-limit 5/час/IP (XFF 203.0.113.23): 6-я попытка → 429 ===
+[PASS] 6-я попытка reset → 429 rate_limited
+[PASS] 429 содержит Retry-After (retry-after: 3600)
+=== 2. СЦ-61 idempotency (customer login + POST /api/orders) ===
+[PASS] login customer (Demo123! восстановлен) 200
+[PASS] заказ с ключом (1-й) 201 duplicate:false
+    order1=63a1a0c9-3deb-46da-9c31-e656f0aab911 total=1010000 key=s10b1-idem-1795371800
+[PASS] заказ с ТОТ ЖЕ ключом (2-й) 200 duplicate:true
+[PASS] тот же orderId: 63a1a0c9-3deb-46da-9c31-e656f0aab911
+[PASS] DB: ровно один Order с этим ключом
+[PASS] невалидный ключ → 400 invalid_idempotency_key
+[PASS] без заголовка — как раньше 201
+    order2=914a0a62-4fd1-451c-a6dc-850544d4a5eb total=1010000 (для webhook СЦ-09)
+=== 3. СЦ-09 webhook: amount/currency гейт (XFF 127.0.0.1) ===
+[PASS] неверная сумма → 200 ignored:amount_mismatch
+[PASS] DB: заказ остался PENDING (не CONFIRMED)
+[PASS] DB: webhook_events amount_mismatch hits=1
+[PASS] DB: Payment не создан
+[PASS] ретрай той же доставки → 200 ignored (дедуп)
+[PASS] DB: hits=2 (дедуп-строка та же)
+[PASS] админ-уведомление ТОЛЬКО на первую доставку (count=2)
+[PASS] валюта EUR → 200 ignored:currency_mismatch
+[PASS] DB: webhook_events currency_mismatch
+[PASS] верная сумма → 200 ok (полный путь)
+[PASS] DB: заказ CONFIRMED
+[PASS] DB: Payment succeeded=1
+=== 4. СЦ-54 спор-гейт: admin DELIVERED → ticket → confirm 409 → close → 200 ===
+[PASS] login admin 200
+[PASS] admin transition → PREPARING
+[PASS] admin transition → READY
+[PASS] admin transition → DELIVERED
+[PASS] создан открытый тикет 201
+[PASS] confirm при открытом споре → 409 dispute_open
+[PASS] DB: заказ остался DELIVERED
+[PASS] admin COMPLETED при открытом споре → 409 dispute_open (гейт и для админа)
+[PASS] тикет закрыт покупателем 200
+[PASS] confirm после закрытия спора → 200 COMPLETED
+[PASS] DB: Escrow released (эскроу выпущен)
+=== 5. СЦ-54 auto-complete: DELIVERED с открытым спором — skip ===
+[PASS] order3 оплачен webhook → CONFIRMED
+[PASS] cron: метрика skippedDisputes присутствует
+[PASS] cron: skippedDisputes=1 (>=1)
+[PASS] DB: order3 остался DELIVERED (не завершён cron'ом)
+[PASS] DB: CronRun.metadata содержит skippedDisputes
+
+=== ИТОГ: PASS=50 FAIL=0 ===
