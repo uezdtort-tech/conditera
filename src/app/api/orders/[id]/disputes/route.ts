@@ -162,6 +162,21 @@ export async function POST(
            jsonb_build_object('category', $3::text, 'evidence_count', $4::integer))`,
         [dispute.id, user.id, category, uploadedMedia.length],
       );
+      await client.query(
+        `INSERT INTO public.ops_tasks
+          (dedup_key, type, severity, title, description, entity_type, entity_id,
+           assignee_role, payload, action_label, status, source)
+         VALUES ($1, 'ORDER_DISPUTE_OPENED', 'important', $2, $3, 'order_dispute',
+           $4, 'ADMIN', $5::jsonb, 'Рассмотреть спор', 'open', 'manual')
+         ON CONFLICT (dedup_key) DO NOTHING`,
+        [
+          `ORDER_DISPUTE:${dispute.id}`,
+          `Новый спор по заказу №${order.number}`,
+          `Покупатель ${user.id} сообщил о дефекте. Требуется рассмотрение и решение.`,
+          dispute.id,
+          JSON.stringify({ orderId, orderNumber: order.number, disputeId: dispute.id, category, evidenceCount: uploadedMedia.length }),
+        ],
+      );
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
