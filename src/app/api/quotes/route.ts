@@ -199,32 +199,47 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }
 
       // Запросы, где кондитер в списке confectioner_ids
-      const { data: quotes, error } = await supabaseAdmin
+      const { data: requests, error: requestError } = await supabaseAdmin
         .from("quote_requests")
-        .select(`
-          *,
-          my_quotes:confectioner_quotes(*)
-        `)
+        .select("*")
         .contains("confectioner_ids", [confectioner.id])
-        // PostgREST embedded filter: leave RFQs without this confectioner's
-        // own offer visible, but never return another confectioner's pricing.
-        .eq("my_quotes.confectioner_id", confectioner.id)
         .order("created_at", { ascending: false });
+      if (requestError) {
+        throw new HttpError(500, "DB error", requestError.message);
+      }
 
-      if (error) {
-        throw new HttpError(500, "DB error", error.message);
+      // Fetch only this confectioner's own offers in a separate query. Do not
+      // embed the whole confectioner_quotes relation: that would disclose
+      // competing prices to every invited confectioner.
+      const requestIds = (requests ?? []).map((request) => request.id);
+      const { data: ownOffers, error: ownOffersError } = requestIds.length
+        ? await supabaseAdmin
+            .from("confectioner_quotes")
+            .select("*")
+            .eq("confectioner_id", confectioner.id)
+            .in("quote_request_id", requestIds)
+        : { data: [], error: null };
+      if (ownOffersError) {
+        throw new HttpError(500, "DB error", ownOffersError.message);
+      }
+
+      const offersByRequest = new Map<string, typeof ownOffers>();
+      for (const offer of ownOffers ?? []) {
+        const current = offersByRequest.get(offer.quote_request_id) ?? [];
+        current.push(offer);
+        offersByRequest.set(offer.quote_request_id, current);
       }
 
       // Once the buyer has accepted an offer, the RFQ is visible only to the
       // selected confectioner. Other invited confectioners no longer need the
       // customer's project, address or reference media.
-      const visibleQuotes = (quotes || []).filter((request) => {
-        if (request.status !== "approved") return true;
-        const ownQuotes = Array.isArray(request.my_quotes)
-          ? request.my_quotes
-          : request.my_quotes ? [request.my_quotes] : [];
-        return ownQuotes.some((quote) => quote.status === "accepted");
-      });
+      const visibleQuotes = (requests ?? [])
+        .map((request) => ({
+          ...request,
+          my_quotes: offersByRequest.get(request.id) ?? [],
+        }))
+        .filter((request) => request.status !== "approved" ||
+          request.my_quotes.some((quote) => quote.status === "accepted"));
 
       return NextResponse.json({ quotes: visibleQuotes, confectioner_id: confectioner.id });
     }
