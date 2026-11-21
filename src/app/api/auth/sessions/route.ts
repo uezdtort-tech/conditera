@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 async function currentSession(request: NextRequest) {
   const user = await getUserFromRequest(request);
   const token = request.cookies.get(SESSION_COOKIE)?.value ||
-    request.headers.get("authorization")?.replace(/^Bearer\\s+/i, "");
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   const payload = token ? await verifyAccessToken(token) : null;
   if (!user || !payload?.sid || payload.userId !== user.id) return null;
   return { user, sessionId: payload.sid };
