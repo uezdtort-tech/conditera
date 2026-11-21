@@ -1659,7 +1659,7 @@ function DisputeOrderDialog({
       form.append("category", category);
       form.append("description", description.trim());
       for (const file of files) form.append("evidence", file, file.name);
-      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const headers = await getSessionAuthHeaders(await getCsrfToken(), { json: false });
       const res = await fetch(`/api/orders/${order.id}/disputes`, {
         method: "POST",
         headers,
