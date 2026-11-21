@@ -179,34 +179,71 @@ export async function GET(
     }
 
     const pool = getPool();
-    const res = await pool.query<{
-      id: string;
-      kind: string;
-      mime_type: string;
-      file_size: number;
-      width: number | null;
-      height: number | null;
-      uploaded_at: Date;
-    }>(
-      `SELECT id::text, kind, mime_type, file_size, width, height, uploaded_at
-       FROM public.order_media
-       WHERE order_id = $1::uuid AND status = 'approved'
-       ORDER BY uploaded_at ASC`,
-      [id]
-    );
+    const [orderMedia, referenceMedia] = await Promise.all([
+      pool.query<{
+        id: string;
+        kind: string;
+        mime_type: string;
+        file_size: number;
+        width: number | null;
+        height: number | null;
+        uploaded_at: Date;
+      }>(
+        `SELECT id::text, kind, mime_type, file_size, width, height, uploaded_at
+         FROM public.order_media
+         WHERE order_id = $1::uuid AND status = 'approved'
+         ORDER BY uploaded_at ASC`,
+        [id]
+      ),
+      // Исходные пожелания и превью конструктора остаются в приватном
+      // quote_media bucket. После принятия предложения включаем их в медиа
+      // заказа через source_quote_id, не копируя файлы и не меняя владельца.
+      pool.query<{
+        id: string;
+        quote_request_id: string;
+        kind: string;
+        mime_type: string;
+        file_size: number;
+        width: number | null;
+        height: number | null;
+        uploaded_at: Date;
+      }>(
+        `SELECT qrm.id::text, qr.id::text AS quote_request_id, qrm.kind,
+                qrm.mime_type, qrm.file_size, qrm.width, qrm.height, qrm.uploaded_at
+         FROM public.orders AS o
+         JOIN public.confectioner_quotes AS cq ON cq.id = o.source_quote_id
+         JOIN public.quote_requests AS qr ON qr.id = cq.quote_request_id
+         JOIN public.quote_request_media AS qrm ON qrm.quote_request_id = qr.id
+         WHERE o.id = $1::uuid AND qrm.status = 'approved'
+         ORDER BY qrm.uploaded_at ASC`,
+        [id]
+      ),
+    ]);
 
-    return NextResponse.json({
-      media: res.rows.map((r) => ({
-        id: r.id,
-        kind: r.kind,
-        mimeType: r.mime_type,
-        fileSize: Number(r.file_size),
-        width: r.width,
-        height: r.height,
-        uploadedAt: new Date(r.uploaded_at).toISOString(),
-        url: `/api/order-media/${r.id}`,
-      })),
-    });
+    const orderFiles = orderMedia.rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      source: "order",
+      mimeType: r.mime_type,
+      fileSize: Number(r.file_size),
+      width: r.width,
+      height: r.height,
+      uploadedAt: new Date(r.uploaded_at).toISOString(),
+      url: `/api/order-media/${r.id}`,
+    }));
+    const customerReferences = referenceMedia.rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      source: "customer_reference",
+      mimeType: r.mime_type,
+      fileSize: Number(r.file_size),
+      width: r.width,
+      height: r.height,
+      uploadedAt: new Date(r.uploaded_at).toISOString(),
+      url: `/api/quotes/${r.quote_request_id}/media/${r.id}`,
+    }));
+
+    return NextResponse.json({ media: [...customerReferences, ...orderFiles] });
   } catch (err) {
     console.error(
       "[orders/media] GET failed:",
