@@ -179,6 +179,37 @@ export async function GET(
     }
 
     const pool = getPool();
+    const referenceMediaPromise = (async () => {
+      // RFQ/quote media live in the Supabase PG15 control plane while legacy
+      // order media may still use the PG18 operational pool. Keep this lookup
+      // on supabaseAdmin so the ordinary order-photo endpoint also works before
+      // the planned single-database cutover.
+      const { data: orderSource, error: sourceError } = await supabaseAdmin
+        .from("orders")
+        .select("source_quote_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (sourceError) throw sourceError;
+      if (!orderSource?.source_quote_id) return [];
+
+      const { data: quote, error: quoteError } = await supabaseAdmin
+        .from("confectioner_quotes")
+        .select("quote_request_id")
+        .eq("id", orderSource.source_quote_id)
+        .maybeSingle();
+      if (quoteError) throw quoteError;
+      if (!quote?.quote_request_id) return [];
+
+      const { data: rows, error: mediaError } = await supabaseAdmin
+        .from("quote_request_media")
+        .select("id, quote_request_id, kind, mime_type, file_size, width, height, uploaded_at")
+        .eq("quote_request_id", quote.quote_request_id)
+        .eq("status", "approved")
+        .order("uploaded_at", { ascending: true });
+      if (mediaError) throw mediaError;
+      return rows ?? [];
+    })();
+
     const [orderMedia, referenceMedia] = await Promise.all([
       pool.query<{
         id: string;
@@ -195,29 +226,7 @@ export async function GET(
          ORDER BY uploaded_at ASC`,
         [id]
       ),
-      // Исходные пожелания и превью конструктора остаются в приватном
-      // quote_media bucket. После принятия предложения включаем их в медиа
-      // заказа через source_quote_id, не копируя файлы и не меняя владельца.
-      pool.query<{
-        id: string;
-        quote_request_id: string;
-        kind: string;
-        mime_type: string;
-        file_size: number;
-        width: number | null;
-        height: number | null;
-        uploaded_at: Date;
-      }>(
-        `SELECT qrm.id::text, qr.id::text AS quote_request_id, qrm.kind,
-                qrm.mime_type, qrm.file_size, qrm.width, qrm.height, qrm.uploaded_at
-         FROM public.orders AS o
-         JOIN public.confectioner_quotes AS cq ON cq.id = o.source_quote_id
-         JOIN public.quote_requests AS qr ON qr.id = cq.quote_request_id
-         JOIN public.quote_request_media AS qrm ON qrm.quote_request_id = qr.id
-         WHERE o.id = $1::uuid AND qrm.status = 'approved'
-         ORDER BY qrm.uploaded_at ASC`,
-        [id]
-      ),
+      referenceMediaPromise,
     ]);
 
     const orderFiles = orderMedia.rows.map((r) => ({
@@ -231,7 +240,7 @@ export async function GET(
       uploadedAt: new Date(r.uploaded_at).toISOString(),
       url: `/api/order-media/${r.id}`,
     }));
-    const customerReferences = referenceMedia.rows.map((r) => ({
+    const customerReferences = referenceMedia.map((r) => ({
       id: r.id,
       kind: r.kind,
       source: "customer_reference",
