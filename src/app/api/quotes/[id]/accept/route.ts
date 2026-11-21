@@ -14,7 +14,16 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   const { id: quoteId } = await params;
 
-  if (!isYookassaConfigured() && process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
+  const localE2E = isLocalE2EPaymentStubEnabled();
+  if (process.env.NODE_ENV === "production" &&
+      process.env.CONDITERA_UNIFIED_DATABASE !== "true" &&
+      !localE2E) {
+    return NextResponse.json({
+      error: "Создание индивидуального заказа временно заблокировано: PG18 и Supabase PG15 ещё не объединены.",
+      code: "DATABASE_TOPOLOGY_NOT_READY",
+    }, { status: 503 });
+  }
+  if (!isYookassaConfigured() && process.env.NODE_ENV === "production" && !localE2E) {
     return NextResponse.json({ error: "Платёжный шлюз не настроен", code: "PAYMENT_GATEWAY_UNAVAILABLE" }, { status: 503 });
   }
 
