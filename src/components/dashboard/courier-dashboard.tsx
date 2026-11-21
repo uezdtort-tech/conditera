@@ -179,7 +179,7 @@ export function CourierDashboard() {
               <SidebarStat icon={Coins} label="Сегодня" value={formatCurrency(stats?.earningsToday || 0)} color="text-emerald-600 bg-emerald-100" />
               <SidebarStat icon={TrendingUp} label="За месяц" value={formatCurrency(stats?.earningsMonth || 0)} color="text-primary bg-primary/10" />
               <SidebarStat icon={Clock} label="В обработке" value={formatCurrency(0)} color="text-amber-600 bg-amber-100" />
-              <SidebarStat icon={Package} label="За всё время" value={formatCurrency((stats?.earningsMonth || 0) * 6)} color="text-purple-600 bg-purple-100" />
+              <SidebarStat icon={Package} label="За всё время" value="—" color="text-purple-600 bg-purple-100" />
             </div>
             <Card className="p-4">
               <h3 className="font-semibold mb-3">Транзакции</h3>
