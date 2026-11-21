@@ -87,6 +87,7 @@ env:
   SUPABASE_INTERNAL_URL: "http://127.0.0.1:3000"
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
   NODE_ENV: test
+  LOCAL_AUTH_STUB_ENABLED: "true"
   YANDEX_CLIENT_ID: e2e-yandex-client
   YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
   VK_CLIENT_ID: e2e-vk-client
