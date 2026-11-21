@@ -61,7 +61,7 @@ export async function GET(
     const products = await getPool().query<{ id: string; title: string }>(
       `SELECT p.id::text AS id, p.title
          FROM public.products AS p
-        WHERE p.confectioner_id = $1
+        WHERE p.confectioner_id::text = $1
           AND p.status = 'published'
           AND p.recipe_id IS NOT NULL
           AND EXISTS (
@@ -70,7 +70,7 @@ export async function GET(
           )
         ORDER BY p.title
         LIMIT 200`,
-      [confectioner.id]
+      [user.userId]
     );
     return NextResponse.json({ products: products.rows });
   } catch (error) {
@@ -163,14 +163,14 @@ export async function POST(
       `SELECT p.id::text AS id
          FROM public.products AS p
         WHERE p.id = $1::uuid
-          AND p.confectioner_id = $2
+          AND p.confectioner_id::text = $2
           AND p.status = 'published'
           AND p.recipe_id IS NOT NULL
           AND EXISTS (
             SELECT 1 FROM public.recipe_ingredients AS ri
              WHERE ri.recipe_id = p.recipe_id
           )`,
-      [body.production_product_id, confectioner.id]
+      [body.production_product_id, user.userId]
     );
     const productionProduct = productCheck.rows[0];
     if (!productionProduct) {
