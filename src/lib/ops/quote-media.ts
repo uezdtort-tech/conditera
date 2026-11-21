@@ -11,35 +11,6 @@ const EXT: Record<string, string> = {
   "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
 };
 
-let bucketReady: Promise<void> | null = null;
-async function ensureQuoteMediaBucket(): Promise<void> {
-  if (!bucketReady) {
-    bucketReady = (async () => {
-      const { data, error } = await supabaseAdmin.storage.getBucket(BUCKET);
-      if (data && !error) {
-        if (data.public) throw new Error("QUOTE_MEDIA_BUCKET_MUST_BE_PRIVATE");
-        return;
-      }
-      const { error: createError } = await supabaseAdmin.storage.createBucket(BUCKET, {
-        public: false,
-        fileSizeLimit: String(MAX_PHOTO_BYTES),
-        allowedMimeTypes: [...PHOTO_MIMES],
-      });
-      if (createError && !/already exists|duplicate/i.test(createError.message)) {
-        throw new Error(`QUOTE_MEDIA_BUCKET_CREATE_FAILED: ${createError.message}`);
-      }
-      const { data: verified, error: verifyError } = await supabaseAdmin.storage.getBucket(BUCKET);
-      if (verifyError || !verified || verified.public) {
-        throw new Error("QUOTE_MEDIA_BUCKET_PRIVATE_VERIFICATION_FAILED");
-      }
-    })().catch(error => {
-      bucketReady = null;
-      throw error;
-    });
-  }
-  await bucketReady;
-}
-
 export interface QuoteMedia {
   id: string;
   quoteRequestId: string;
@@ -68,7 +39,6 @@ export async function saveQuoteMedia(input: {
       "Поддерживаются только фото JPEG/PNG/WebP");
   }
   const meta = await parseImageMeta(buffer, sniffed.mime);
-  await ensureQuoteMediaBucket();
   const path = `quotes/${input.quoteRequestId}/references/${randomUUID()}.${EXT[sniffed.mime]}`;
   const { error: uploadError } = await supabaseAdmin.storage.from(BUCKET).upload(path, buffer, {
     contentType: sniffed.mime, cacheControl: "3600", upsert: false,
