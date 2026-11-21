@@ -131,7 +131,11 @@ export async function GET(
       return NextResponse.json({ error: "MEDIA_INTEGRITY_ERROR" }, { status: 500 });
     }
 
-    return new Response(new Uint8Array(file), { status: 200, headers });
+    const body = file.buffer.slice(
+      file.byteOffset,
+      file.byteOffset + file.byteLength
+    ) as ArrayBuffer;
+    return new Response(body, { status: 200, headers });
   } catch (err) {
     console.error(
       "[order-media] GET failed:",
