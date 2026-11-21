@@ -397,21 +397,25 @@ async function main() {
   const secondCustomerLogin = await api("POST", "/api/auth/login", {
     body: { email: customerEmail, password: PASSWORD },
   });
-  assert("повторный вход создаёт отдельный серверный сеанс",
+  assert("повторный вход создаёт новую персональную сессию",
     secondCustomerLogin.status === 200 && Boolean(secondCustomerLogin.json?.accessToken));
-  const revokeOtherSessions = await api("DELETE", "/api/auth/sessions", { token: customer });
-  assert("покупатель может завершить все остальные сеансы",
-    revokeOtherSessions.status === 200 && Number(revokeOtherSessions.json?.revoked) >= 1);
-  const revokedSessionCheck = await api("GET", "/api/auth/sessions", {
-    token: secondCustomerLogin.json?.accessToken,
-  });
-  assert("отозванный сеанс больше не проходит аутентификацию → 401",
-    revokedSessionCheck.status === 401);
+  const revokedPreviousSession = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("повторный вход немедленно отзывает предыдущий JWT → 401",
+    revokedPreviousSession.status === 401);
+  customer = secondCustomerLogin.json.accessToken;
+  const currentSessionAfterLogin = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("после повторного входа доступна ровно одна текущая сессия",
+    currentSessionAfterLogin.status === 200 &&
+    currentSessionAfterLogin.json?.sessions?.length === 1 &&
+    currentSessionAfterLogin.json.sessions[0]?.isCurrent === true);
   const ownSecurityEvents = await api("GET", "/api/auth/security-events", { token: customer });
-  assert("журнал безопасности показывает создание и отзыв сеансов",
+  assert("журнал безопасности показывает создание и отзыв прежней сессии",
     ownSecurityEvents.status === 200 &&
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_created") &&
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_revoked"));
+  const revokeOtherSessions = await api("DELETE", "/api/auth/sessions", { token: customer });
+  assert("завершение остальных сессий при эксклюзивной политике идемпотентно",
+    revokeOtherSessions.status === 200 && Number(revokeOtherSessions.json?.revoked) === 0);
 
   // Индивидуальный RFQ: проект → предложение с рецептом → заказ → платёж.
   const confectionerRow = await client.query(
