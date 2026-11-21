@@ -764,6 +764,9 @@ export function CustomerDashboard() {
                               small
                             />
                           </div>
+                          {(order.status === "DELIVERED" || order.status === "COMPLETED") && (
+                            <OrderDisputeStatus orderId={order.id} />
+                          )}
                           <div className="mt-3 flex gap-2 flex-wrap">
                             <Button
                               size="sm"
@@ -1598,6 +1601,36 @@ function ReviewOrderDialog({
 }
 
 /** «Есть проблема» (ТЗ §16): причина → тикет поддержки по заказу */
+function OrderDisputeStatus({ orderId }: { orderId: string }) {
+  const { data } = useQuery({
+    queryKey: ["order-dispute", orderId],
+    queryFn: async () => {
+      const headers = await getSessionAuthHeaders();
+      const res = await fetch(`/api/orders/${orderId}/disputes`, { headers, credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json() as {
+        dispute: { status: string; resolution?: string | null } | null;
+      };
+    },
+    staleTime: 30_000,
+  });
+  const dispute = data?.dispute;
+  if (!dispute) return null;
+  const labels: Record<string, string> = {
+    open: "Принят",
+    under_review: "На рассмотрении",
+    awaiting_customer: "Ожидает ответа",
+    resolved: "Решён",
+    rejected: "Отклонён",
+  };
+  return (
+    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs">
+      <span className="font-medium">Спор по качеству: {labels[dispute.status] || dispute.status}</span>
+      {dispute.resolution && <p className="mt-1 text-muted-foreground">{dispute.resolution}</p>}
+    </div>
+  );
+}
+
 /** Формальный спор о дефекте: фотографии отправляются как файлы в приватный order_media bucket. */
 function DisputeOrderDialog({
   order,
