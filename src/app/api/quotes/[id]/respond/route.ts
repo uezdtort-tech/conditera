@@ -36,6 +36,51 @@ interface RespondBody {
   production_product_id?: string;
 }
 
+/** GET — товары кондитера с действующим рецептом для привязки к индивидуальному заказу. */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const user = await getUserFromRequest(req);
+    if (!user) throw new HttpError(401, "Не авторизован");
+    const { id: quoteRequestId } = await params;
+
+    const { data: confectioner, error: confError } = await supabaseAdmin
+      .from("confectioners").select("id").eq("userId", user.userId).maybeSingle();
+    if (confError || !confectioner) throw new HttpError(403, "Вы не кондитер");
+
+    const { data: quoteRequest, error: requestError } = await supabaseAdmin
+      .from("quote_requests").select("id, confectioner_ids")
+      .eq("id", quoteRequestId).maybeSingle();
+    if (requestError || !quoteRequest) throw new HttpError(404, "Запрос не найден");
+    if (!(quoteRequest.confectioner_ids ?? []).includes(confectioner.id)) {
+      throw new HttpError(403, "Этот запрос не направлен вам");
+    }
+
+    const { data: products, error: productsError } = await supabaseAdmin
+      .from("products").select("id, title, recipe_id")
+      .eq("confectioner_id", confectioner.id).eq("status", "published")
+      .not("recipe_id", "is", null).limit(200);
+    if (productsError) throw new HttpError(503, "Не удалось загрузить производственные товары");
+
+    const recipeIds = [...new Set((products ?? []).map(p => p.recipe_id).filter((id): id is string => Boolean(id)))];
+    const recipes = recipeIds.length
+      ? await getPool().query<{ recipe_id: string }>(
+          "SELECT DISTINCT recipe_id::text FROM public.recipe_ingredients WHERE recipe_id = ANY($1::uuid[])",
+          [recipeIds])
+      : { rows: [] as { recipe_id: string }[] };
+    const readyRecipeIds = new Set(recipes.rows.map(r => r.recipe_id));
+    return NextResponse.json({
+      products: (products ?? [])
+        .filter(p => p.recipe_id && readyRecipeIds.has(p.recipe_id))
+        .map(p => ({ id: p.id, title: p.title })),
+    });
+  } catch (error) {
+    return handleRouteError(error);
+  }
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
