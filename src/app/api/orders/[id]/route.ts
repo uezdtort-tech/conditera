@@ -60,10 +60,11 @@ export async function PATCH(
     if (!isAdmin && roles.includes("COURIER") &&
         (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")) {
       const { data: assignment, error: assignmentError } = await supabaseAdmin
-        .from("orders")
+        .from("deliveries")
         .select("id")
-        .eq("id", orderId)
+        .eq("order_id", orderId)
         .eq("courier_id", user.id)
+        .in("status", ["assigned", "picked_up", "on_the_way", "delivered"])
         .maybeSingle();
       if (assignmentError) {
         console.error("[orders/[id]] Courier assignment check failed:", assignmentError.message);
