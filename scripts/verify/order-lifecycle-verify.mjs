@@ -35,7 +35,7 @@ const CONF_102 = "11111111-1111-4111-8111-111111111102"; // Сладкая уе�
 const CONF_103 = "11111111-1111-4111-8111-111111111103"; // Кондитерская Купец
 const CONF_111 = "11111111-1111-4111-8111-111111111111"; // Татьяна-Кондитер
 const CONF_112 = "11111111-1111-4111-8111-111111111112"; // Сахарный Лебедь
-const CUSTOMER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
+let CUSTOMER_ID = "11111111-1111-4111-8111-111111111106"; // заменяется ID свежезарегистрированного E2E-покупателя
 const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000001"; // Свадебный торт «Ягодный бархат» (cakes, recipe)
 
 let passed = 0;
@@ -187,6 +187,7 @@ function photoForm() {
 const testOrders = [];
 const testDraftIds = [];
 let recipeInventoryFixture = null;
+let registeredCustomerId = null;
 
 /** Demo recipe intentionally omits berries from seed stock. */
 async function prepareRecipeInventoryFixture() {
@@ -253,27 +254,119 @@ async function main() {
   section("Подготовка");
   const admin = await login("admin@demo.ru");
   const owner = await login("confectioner@demo.ru");
-  const customer = await login("customer@demo.ru");
   const courier = await login("courier@demo.ru");
-  assert("логины admin/confectioner/customer/courier", Boolean(admin && owner && customer && courier));
+  assert("логины admin/confectioner/courier", Boolean(admin && owner && courier));
   recipeInventoryFixture = await prepareRecipeInventoryFixture();
   assert("временная складская позиция ягод привязана к рецепту", Boolean(recipeInventoryFixture.berryId));
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const tomorrowStr = isoDate(tomorrow);
+
+  // Новый покупатель проходит реальную саморегистрацию, а не использует demo-аккаунт.
+  const uniqueSuffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const customerPhone = `+7999${uniqueSuffix.slice(-7)}`;
+  const registration = await api("POST", "/api/auth/register", {
+    body: {
+      email: `e2e-buyer-${uniqueSuffix}@example.test`,
+      password: PASSWORD,
+      name: "E2E Покупатель",
+      phone: customerPhone,
+      role: "CUSTOMER",
+      accountType: "individual",
+      consentPd: true,
+      consentTerms: true,
+      consentOffer: true,
+      consentMarketing: false,
+    },
+  });
+  assert("новый покупатель зарегистрирован через /api/auth/register → 200", registration.status === 200 && Boolean(registration.json?.accessToken && registration.json?.user?.id), JSON.stringify(registration.json).slice(0, 180));
+  if (registration.status !== 200 || !registration.json?.accessToken || !registration.json?.user?.id) {
+    throw new Error("Регистрация нового E2E-покупателя не завершилась успешно");
+  }
+  const customer = registration.json.accessToken;
+  CUSTOMER_ID = registration.json.user.id;
+  registeredCustomerId = CUSTOMER_ID;
+  const registeredSession = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+     WHERE user_id = $1::uuid AND revoked_at IS NULL AND refresh_jti IS NOT NULL`,
+    [CUSTOMER_ID]
+  );
+  assert("после регистрации создана серверная сессия с refresh JTI", registeredSession.rows[0]?.count === 1);
+
+  // Оформляем первый заказ через настоящий checkout и подтверждаем mock-webhook.
+  // В CI нет секретов YooKassa: mock-платёж проверяет тот же ledger/webhook-переход,
+  // но не заменяет отдельную проверку реального провайдера в production.
+  const checkout = await api("POST", "/api/checkout", {
+    token: customer,
+    body: {
+      cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
+      deliveryAddress: "ул. Тестовая, 1",
+      deliveryCity: "Москва",
+      deliveryDate: tomorrowStr,
+      deliveryType: "delivery",
+      customerName: "E2E Покупатель",
+      customerPhone,
+      paymentMethod: "yookassa",
+    },
+  });
+  assert("покупатель оформляет заказ через /api/checkout → 200", checkout.status === 200 && Boolean(checkout.json?.orderId && checkout.json?.paymentUrl), JSON.stringify(checkout.json).slice(0, 220));
+  if (checkout.status !== 200 || !checkout.json?.orderId) {
+    throw new Error("Checkout нового покупателя не создал заказ");
+  }
+  const o1 = { orderId: checkout.json.orderId, number: checkout.json.orderNumber };
+  testOrders.push(o1.orderId);
+  assert("checkout сохраняет исполнителя товара", Boolean((await client.query(
+    `SELECT confectioner_id FROM public.orders WHERE id = $1::uuid`, [o1.orderId]
+  )).rows[0]?.confectioner_id));
+
+  const paymentRow = await client.query(
+    `SELECT yookassa_payment_id, amount FROM public.payments
+     WHERE order_id = $1::uuid ORDER BY created_at DESC LIMIT 1`,
+    [o1.orderId]
+  );
+  const paymentId = paymentRow.rows[0]?.yookassa_payment_id;
+  assert("checkout создаёт локальную запись платежа", Boolean(paymentId && Number(paymentRow.rows[0]?.amount) === Number(checkout.json.total)));
+  if (!paymentId) throw new Error("После checkout отсутствует локальная запись платежа");
+  const webhook = await api("POST", "/api/payment/webhook", {
+    body: {
+      event: "payment.succeeded",
+      object: {
+        id: paymentId,
+        status: "succeeded",
+        amount: { value: Number(checkout.json.total).toFixed(2), currency: "RUB" },
+        metadata: { orderId: o1.orderId },
+      },
+    },
+  });
+  assert("payment.succeeded переводит заказ в escrow → 200", webhook.status === 200, JSON.stringify(webhook.json));
+  const paidState = await client.query(
+    `SELECT o.payment_status, p.status AS provider_status
+     FROM public.orders o JOIN public.payments p ON p.order_id = o.id
+     WHERE o.id = $1::uuid ORDER BY p.created_at DESC LIMIT 1`,
+    [o1.orderId]
+  );
+  assert("оплата зафиксирована в orders и payments", paidState.rows[0]?.payment_status === "escrow" && paidState.rows[0]?.provider_status === "succeeded", JSON.stringify(paidState.rows[0]));
+  const duplicateWebhook = await api("POST", "/api/payment/webhook", {
+    body: {
+      event: "payment.succeeded",
+      object: {
+        id: paymentId,
+        status: "succeeded",
+        amount: { value: Number(checkout.json.total).toFixed(2), currency: "RUB" },
+        metadata: { orderId: o1.orderId },
+      },
+    },
+  });
+  assert("повтор webhook идемпотентен и не создаёт повторное зачисление", duplicateWebhook.status === 200 && duplicateWebhook.json?.idempotent === true, JSON.stringify(duplicateWebhook.json));
   const dayAfterTomorrow = new Date(tomorrow.getTime() + 86_400_000);
   const dayAfterTomorrowStr = isoDate(dayAfterTomorrow);
   const todayStr = isoDate(new Date());
 
   // =========================================================================
   section("E2E №1 — нормальный заказ (ТЗ §46)");
-  const o1 = await createTestOrder({ deliveryDate: tomorrowStr });
-  testOrders.push(o1.orderId);
-
   const lc0 = await api("GET", `/api/orders/${o1.orderId}/lifecycle`, { token: customer });
-  assert("GET lifecycle → 200 (владелец-клиент)", lc0.status === 200, `got ${lc0.status}`);
-  assert("заказ создан: business=created, unassigned", lc0.json?.derived?.businessStatus === "created" && lc0.json?.derived?.assignmentStatus === "unassigned");
-  assert("nextAction: назначить кондитера", lc0.json?.nextAction?.code === "ASSIGN", JSON.stringify(lc0.json?.nextAction));
+  assert("GET lifecycle → 200 (покупатель после регистрации)", lc0.status === 200, `got ${lc0.status}`);
+  assert("checkout-заказ ожидает производства и уже связан с кондитером", lc0.json?.derived?.businessStatus === "created" && lc0.json?.derived?.assignmentStatus === "assigned", JSON.stringify(lc0.json?.derived));
 
   const assignForbidden = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: owner, body: { confectionerId: OWNER_ID } });
   assert("кондитер не может назначать → 403", assignForbidden.status === 403, `got ${assignForbidden.status}`);
