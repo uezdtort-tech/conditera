@@ -1256,6 +1256,38 @@ async function main() {
   );
   assert("для нового устройства создаётся задача контроля аккаунта",
     newDeviceAdminTask.rows[0]?.count >= 1);
+
+  // Одновременные входы с двух новых устройств: advisory lock должен оставить
+  // ровно одну активную сессию, независимо от порядка завершения запросов.
+  const [parallelLoginA, parallelLoginB] = await Promise.all([
+    api("POST", "/api/auth/login", {
+      body: { email: customerEmail, password: PASSWORD },
+      extraHeaders: { "x-real-ip": "10.241.242.244", "user-agent": "Conditera-E2E-Parallel-A/1.0" },
+    }),
+    api("POST", "/api/auth/login", {
+      body: { email: customerEmail, password: PASSWORD },
+      extraHeaders: { "x-real-ip": "10.241.242.245", "user-agent": "Conditera-E2E-Parallel-B/1.0" },
+    }),
+  ]);
+  assert("оба конкурентных входа обработаны без 5xx",
+    [parallelLoginA.status, parallelLoginB.status].every((status) => status === 200),
+    `${parallelLoginA.status}/${parallelLoginB.status}`);
+  const [parallelSessionA, parallelSessionB] = await Promise.all([
+    api("GET", "/api/auth/sessions", { token: parallelLoginA.json?.accessToken }),
+    api("GET", "/api/auth/sessions", { token: parallelLoginB.json?.accessToken }),
+  ]);
+  const validParallelTokens = [parallelSessionA.status, parallelSessionB.status].filter((status) => status === 200).length;
+  assert("конкурентные логины оставляют действительным ровно один JWT",
+    validParallelTokens === 1,
+    `HTTP=${parallelSessionA.status}/${parallelSessionB.status}`);
+  const parallelActiveCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()`,
+    [CUSTOMER_ID],
+  );
+  assert("после конкурентных логинов в БД ровно одна активная сессия",
+    parallelActiveCount.rows[0]?.count === 1,
+    `active=${parallelActiveCount.rows[0]?.count}`);
 }
 
 main()
