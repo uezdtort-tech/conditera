@@ -274,8 +274,13 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   // Legacy sid-less tokens are tolerated only in non-production environments.
   if (!payload.sid) {
     if (process.env.NODE_ENV === "production") return null;
-  } else if (!(await isUserSessionActive(payload.sid, userId))) {
-    return null;
+  } else {
+    try {
+      if (!(await isUserSessionActive(payload.sid, userId))) return null;
+    } catch (sessionError) {
+      console.error("[auth] session validation threw; rejecting request:", sessionError);
+      return null;
+    }
   }
 
   try {
