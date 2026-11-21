@@ -117,7 +117,7 @@ export async function POST(
       throw new HttpError(403, "Этот запрос не направлен вам");
     }
     if (new Date(quoteRequest.expires_at).getTime() <= Date.now() ||
-        ["approved", "rejected", "cancelled", "expired"].includes(quoteRequest.status)) {
+        ["approved", "cancelled", "expired"].includes(quoteRequest.status)) {
       throw new HttpError(409, "Запрос уже закрыт или срок ответа истёк");
     }
 
@@ -262,7 +262,7 @@ export async function POST(
     await supabaseAdmin.from("quote_requests")
       .update({ status: "quoted", updated_at: new Date().toISOString() })
       .eq("id", quoteRequestId)
-      .eq("status", "sent");
+      .in("status", ["sent", "rejected"]);
 
     return NextResponse.json({
       quote,
