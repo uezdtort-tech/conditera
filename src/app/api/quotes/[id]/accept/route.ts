@@ -35,11 +35,14 @@ export async function POST(
   if (!quote.production_product_id) {
     return NextResponse.json({ error: "Кондитер не выбрал производственный рецепт", code: "PRODUCTION_RECIPE_NOT_SELECTED" }, { status: 422 });
   }
-  const { data: existingOrder } = await supabaseAdmin
+  const { data: existingOrder, error: existingOrderError } = await supabaseAdmin
     .from("orders").select("id")
     .eq("source_quote_id", quoteId)
     .eq("user_id", user.id)
     .maybeSingle();
+  if (existingOrderError) {
+    return NextResponse.json({ error: "Не удалось проверить существующий заказ" }, { status: 503 });
+  }
 
   if (!existingOrder) {
     if (new Date(quoteRequest.expires_at).getTime() <= Date.now() ||
