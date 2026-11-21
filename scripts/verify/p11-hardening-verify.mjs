@@ -232,6 +232,26 @@ async function main() {
     JSON.stringify({ webhook: lateCaptureWebhook.json, state: lateCaptureState })
   );
 
+  // 1f. payment.canceled успел пометить ledger, но order ещё не отменён;
+  //     последующий capture должен сначала закрыть заказ, затем вернуть деньги.
+  const cancelledLedger = await seedOrderWithPayment({ total: intTotal, paymentAmount: intTotal, number: `P11V-CANCELLED-LEDGER-${rand()}` });
+  await client.query(`UPDATE public.payments SET status='cancelled' WHERE order_id=$1::uuid`, [cancelledLedger.orderId]);
+  await client.query(`UPDATE public.orders SET total=$2 WHERE id=$1::uuid`, [cancelledLedger.orderId, intTotal + 500]);
+  const cancelledLedgerWebhook = await sendWebhookPaymentSucceeded(
+    cancelledLedger.providerPaymentId,
+    cancelledLedger.orderId,
+    "2457.00"
+  );
+  const cancelledLedgerState = await getOrderPaymentStatus(cancelledLedger.orderId);
+  assert(
+    "capture после payment.canceled закрывает заказ и инициирует возврат",
+    cancelledLedgerWebhook.status === 200 &&
+      cancelledLedgerWebhook.json?.refundInitiated === true &&
+      cancelledLedgerState.status === "CANCELLED" &&
+      cancelledLedgerState.payment_status !== "escrow",
+    JSON.stringify({ webhook: cancelledLedgerWebhook.json, state: cancelledLedgerState })
+  );
+
   // === 2. CHECKOUT IDEMPOTENCY (§8) ===
   section("Checkout: параллельные POST с одним Idempotency-Key");
   const today = new Date(Date.now() + 2 * 86400_000);
