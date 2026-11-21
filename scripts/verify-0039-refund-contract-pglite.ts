@@ -174,7 +174,7 @@ async function main() {
     ? ok("контроль: без снятия резерва — 800₽ при возврате 400₽ (именно это чинит reset в роуте)")
     : fail("контрольный двойной учёт", bad.refund_amount);
 
-  console.log("\\n=== Миграция 0088: усиленный контракт refund RPC ===");
+  console.log("\n=== Миграция 0088: усиленный контракт refund RPC ===");
   await applyFileStrict(db, MIG("0088_harden_yookassa_refund_rpc.sql"), "0088_harden_yookassa_refund_rpc.sql");
   ok("0088 применена поверх 0039");
 
@@ -195,7 +195,7 @@ async function main() {
 
   async function expectSqlError(label: string, sql: string) {
     try { await db.query(sql); fail(label, "ожидалось исключение"); }
-    catch (e) { if (String(e).includes("ожидалось исключение")) throw e; ok(label, String(e).split("\\n")[0]); }
+    catch (e) { if (String(e).includes("ожидалось исключение")) throw e; ok(label, String(e).split("\n")[0]); }
   }
 
   await expectSqlError("0088: тот же refund_id с другой суммой отклонён",
@@ -215,6 +215,12 @@ async function main() {
     ? ok("0088: отказ сверх лимита не меняет платёж и откатывает ledger event")
     : fail("0088: rollback over-limit", JSON.stringify({ overState, overEvents }));
 
+  await expectSqlError("0088: NULL payment_id отклонён",
+    `SELECT * FROM apply_yookassa_refund(NULL::uuid, 'hard_ref_null_payment', 100)`);
+  await expectSqlError("0088: NULL refund_id отклонён",
+    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, NULL::text, 100)`);
+  await expectSqlError("0088: NULL amount отклонён",
+    `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_null_amount', NULL::integer)`);
   await expectSqlError("0088: нулевая сумма отклонена",
     `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_zero', 0)`);
   await expectSqlError("0088: пустой refund_id отклонён",
