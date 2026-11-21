@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => {
     updateResults: {} as Record<string, unknown[]>,
     fromCalls: [] as string[],
     refundPayment: vi.fn(),
+    providerConfigured: false,
+    providerResult: { success: true, payment: { status: "succeeded", amount: { value: "100.00", currency: "RUB" }, metadata: { orderId: "11111111-1111-4111-8111-111111111111" } } },
+    getPaymentStatus: vi.fn(),
   };
   const from = vi.fn((table: string) => {
     state.fromCalls.push(table);
@@ -38,8 +41,8 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: { from: mocks.from } }));
 vi.mock("@/lib/yookassa", () => ({
   verifyWebhook: vi.fn(() => true),
-  isYookassaConfigured: vi.fn(() => false),
-  getPaymentStatus: vi.fn(),
+  isYookassaConfigured: vi.fn(() => mocks.state.providerConfigured),
+  getPaymentStatus: mocks.state.getPaymentStatus,
   getRefund: vi.fn(),
   refundPayment: mocks.state.refundPayment,
 }));
@@ -94,7 +97,29 @@ describe("payment webhook POST — cancellation race", () => {
     mocks.state.singleResults = {};
     mocks.state.updateResults = {};
     mocks.state.fromCalls = [];
+    mocks.state.providerConfigured = false;
+    mocks.state.getPaymentStatus.mockReset().mockImplementation(async () => mocks.state.providerResult);
     mocks.state.refundPayment.mockReset().mockResolvedValue({ success: true, refund: { id: "refund-1" } });
+  });
+
+  it("не обращается к финансовому журналу при несовпадении статуса YooKassa", async () => {
+    mocks.state.providerConfigured = true;
+    mocks.state.providerResult = {
+      success: true,
+      payment: {
+        status: "canceled",
+        amount: { value: "100.00", currency: "RUB" },
+        metadata: { orderId: ORDER_ID },
+      },
+    };
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ success: true, skipped: "provider_mismatch" });
+    expect(mocks.state.getPaymentStatus).toHaveBeenCalledWith(PAYMENT_ID);
+    expect(mocks.state.fromCalls).toEqual([]);
   });
 
   it("возвращает уже списанный платёж, если отмена выигрывает гонку escrow CAS", async () => {
