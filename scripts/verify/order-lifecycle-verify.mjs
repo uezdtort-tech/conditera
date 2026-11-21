@@ -283,7 +283,7 @@ async function main() {
   if (registration.status !== 200 || !registration.json?.accessToken || !registration.json?.user?.id) {
     throw new Error("Регистрация нового E2E-покупателя не завершилась успешно");
   }
-  const customer = registration.json.accessToken;
+  let customer = registration.json.accessToken;
   CUSTOMER_ID = registration.json.user.id;
   registeredCustomerId = CUSTOMER_ID;
   const registeredSession = await client.query(
@@ -292,6 +292,33 @@ async function main() {
     [CUSTOMER_ID]
   );
   assert("после регистрации создана серверная сессия с refresh JTI", registeredSession.rows[0]?.count === 1);
+
+  // Проверяем одноразовую ротацию refresh-токена и обнаружение replay.
+  const firstRefresh = await api("POST", "/api/auth/refresh", {
+    body: { refreshToken: registration.json.refreshToken },
+  });
+  assert("первый refresh успешно ротирует токен → 200", firstRefresh.status === 200 && Boolean(firstRefresh.json?.refreshToken && firstRefresh.json?.accessToken), JSON.stringify(firstRefresh.json).slice(0, 160));
+  if (firstRefresh.status !== 200 || !firstRefresh.json?.refreshToken) {
+    throw new Error("Первичная ротация refresh-токена не прошла");
+  }
+  const replayRefresh = await api("POST", "/api/auth/refresh", {
+    body: { refreshToken: registration.json.refreshToken },
+  });
+  assert("повтор старого refresh-токена отклонён → 401", replayRefresh.status === 401, JSON.stringify(replayRefresh.json));
+  const nextRefresh = await api("POST", "/api/auth/refresh", {
+    body: { refreshToken: firstRefresh.json.refreshToken },
+  });
+  assert("новый refresh-токен остаётся рабочим после обнаружения replay → 200", nextRefresh.status === 200 && Boolean(nextRefresh.json?.refreshToken), JSON.stringify(nextRefresh.json).slice(0, 160));
+  if (nextRefresh.status !== 200 || !nextRefresh.json?.accessToken) {
+    throw new Error("Ротация нового refresh-токена не прошла");
+  }
+  customer = nextRefresh.json.accessToken;
+  const replayAudit = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+     WHERE user_id = $1::uuid AND event_type = 'refresh_replay_detected'`,
+    [CUSTOMER_ID]
+  );
+  assert("обнаруженный replay записан в журнал безопасности", replayAudit.rows[0]?.count === 1);
 
   // Оформляем первый заказ через настоящий checkout и подтверждаем mock-webhook.
   // В CI нет секретов YooKassa: mock-платёж проверяет тот же ledger/webhook-переход,
