@@ -7,3 +7,5 @@ CREATE INDEX IF NOT EXISTS user_sessions_refresh_jti_idx
   WHERE revoked_at IS NULL;
 COMMENT ON COLUMN public.user_sessions.refresh_jti IS
   'Current refresh JWT jti. Compare-and-swap rotation rejects replayed refresh tokens.';
+
+NOTIFY pgrst, 'reload schema';
