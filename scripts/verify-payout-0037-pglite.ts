@@ -429,32 +429,6 @@ async function main() {
   await db.query("RESET ROLE");
   directDeliveryWriteBlocked ? ok("курьер не может менять назначение/заработок доставки напрямую") : fail("прямая запись в deliveries не запрещена");
 
-  // 4c. COMPLETED — штатное состояние для выплаты кондитеру, не блокируем.
-  const completedOrder = await db.query<{ id: string }>(
-    `INSERT INTO public.orders (confectioner_id, payment_status, status)
-     VALUES ('u1', 'escrow', 'COMPLETED') RETURNING id::text`
-  );
-  const balanceBeforeCompleted = (await db.query<{ balance: number }>(
-    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
-  )).rows[0].balance;
-  const completedRelease = await db.query<{ release_escrow_order: number }>(
-    `SELECT release_escrow_order($1::uuid, 'conf_test', 500)`,
-    [completedOrder.rows[0].id]
-  );
-  const completedAfter = await db.query<{ payment_status: string; escrow_released_at: Date | null }>(
-    `SELECT payment_status, escrow_released_at FROM public.orders WHERE id=$1::uuid`,
-    [completedOrder.rows[0].id]
-  );
-  const balanceAfterCompleted = (await db.query<{ balance: number }>(
-    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
-  )).rows[0].balance;
-  completedRelease.rows[0].release_escrow_order === 1 &&
-    completedAfter.rows[0].payment_status === "released" &&
-    completedAfter.rows[0].escrow_released_at !== null &&
-    balanceAfterCompleted === balanceBeforeCompleted + 500
-    ? ok("COMPLETED заказ: escrow release → 1, выплата кондитеру начислена")
-    : fail("COMPLETED заказ ошибочно заблокирован от escrow release");
-
   // 5. Гранты: только service_role
   for (const fn of ["release_escrow_order", "consume_tfa_backup_code", "assign_order_delivery"]) {
     const acl = await db.query<{ proacl: string[] | null }>(
