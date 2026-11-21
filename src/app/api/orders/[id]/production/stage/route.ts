@@ -10,6 +10,7 @@ import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { getOrderChecklist, ensureChecklist, setStageDone, getProductionSnapshot } from "@/lib/ops/production";
 import { loadOrderItemsData } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
+import { writeOffOrderRecipe } from "@/lib/ops/recipe-writeoff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,6 +65,22 @@ export async function POST(
     const stages = await getOrderChecklist(id);
     const stage = stages.find((item) => item.stage_key === stageKey);
     if (!stage) return NextResponse.json({ error: "STAGE_NOT_FOUND" }, { status: 404 });
+
+    // При подтверждении подготовки ингредиентов система сама рассчитывает
+    // нормы по рецептам заказа и списывает их со склада. Ручной ввод списка
+    // ингредиентов для штатного производственного пути не требуется.
+    if (stageKey === "ingredients_prepared" && body.done) {
+      const writeOff = await writeOffOrderRecipe(
+        { id: user.id, roles: (user.roles as string[]) || [] },
+        id
+      );
+      if (!writeOff.ok) {
+        return NextResponse.json(
+          { error: writeOff.error, details: writeOff.details },
+          { status: writeOff.status }
+        );
+      }
+    }
 
     const updated = await setStageDone(id, stageKey, body.done, user.id);
     if (!updated) return NextResponse.json({ error: "STAGE_NOT_FOUND" }, { status: 404 });
