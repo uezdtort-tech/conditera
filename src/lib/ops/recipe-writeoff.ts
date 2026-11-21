@@ -45,6 +45,12 @@ export async function writeOffOrderRecipe(
   if (order.status !== "PREPARING") {
     return { ok: false, status: 409, error: "Списание возможно только во время производства" };
   }
+  if (!order.confectioner_id) {
+    return { ok: false, status: 409, error: "Для заказа не назначен кондитер — склад определить невозможно" };
+  }
+  // Ключ дедупликации принадлежит владельцу склада, а не тому, кто нажал
+  // кнопку. Это исключает повторное списание, если действие повторит администратор.
+  const inventoryOwnerId = order.confectioner_id;
 
   const breakdown = await computeOrderBreakdown(orderId);
   if (!breakdown) return { ok: false, status: 404, error: "Не удалось рассчитать рецептуру заказа" };
@@ -83,7 +89,7 @@ export async function writeOffOrderRecipe(
   const signature = signatureFor(items);
   let previouslyApplied: AppliedItem[] = [];
   const { error: claimError } = await supabaseAdmin.from("inventory_write_offs").insert({
-    owner_id: actor.id,
+    owner_id: inventoryOwnerId,
     order_id: orderId,
     signature,
     items,
@@ -98,7 +104,7 @@ export async function writeOffOrderRecipe(
     const { data: existing, error: existingError } = await supabaseAdmin
       .from("inventory_write_offs")
       .select("result")
-      .eq("owner_id", actor.id)
+      .eq("owner_id", inventoryOwnerId)
       .eq("order_id", orderId)
       .eq("signature", signature)
       .maybeSingle();
@@ -161,14 +167,14 @@ export async function writeOffOrderRecipe(
 
   if (applied.length === 0 && firstFailure && previouslyApplied.length === 0) {
     await supabaseAdmin.from("inventory_write_offs").delete()
-      .eq("owner_id", actor.id).eq("order_id", orderId).eq("signature", signature);
+      .eq("owner_id", inventoryOwnerId).eq("order_id", orderId).eq("signature", signature);
     return { ok: false, status: firstFailure.status, error: firstFailure.message, details: failed };
   }
 
   const { error: resultError } = await supabaseAdmin
     .from("inventory_write_offs")
     .update({ result: { state: "completed", applied, failed } })
-    .eq("owner_id", actor.id)
+    .eq("owner_id", inventoryOwnerId)
     .eq("order_id", orderId)
     .eq("signature", signature);
   if (resultError) {
