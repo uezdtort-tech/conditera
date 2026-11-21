@@ -123,7 +123,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Привязанный к заказу write-off разрешён только назначенному
     // кондитеру/администратору и только в PREPARING.
-    let order = null;
+    let order: Awaited<ReturnType<typeof loadOrderLite>> | null = null;
     if (orderId) {
       order = await loadOrderLite(orderId);
       if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
