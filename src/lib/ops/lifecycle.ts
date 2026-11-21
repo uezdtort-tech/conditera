@@ -211,6 +211,7 @@ export type LifecycleErrorCode =
   | "ASSIGNMENT_REQUIRED"
   | "QC_GATE_FAILED"
   | "READY_PHOTO_REQUIRED"
+  | "DELIVERY_ASSIGNMENT_REQUIRED"
   | "ORDER_NOT_FOUND";
 
 export class LifecycleError extends Error {
