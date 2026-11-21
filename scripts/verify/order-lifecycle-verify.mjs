@@ -382,6 +382,11 @@ async function main() {
 
   const patchDelivered = await api("PATCH", `/api/orders/${o1.orderId}`, { token: courier, body: { status: "DELIVERED" } });
   assert("PATCH DELIVERED назначенным курьером → 200", patchDelivered.status === 200, JSON.stringify(patchDelivered.json).slice(0, 120));
+  const deliveryState = await client.query(
+    `SELECT status, delivered_at FROM public.deliveries WHERE order_id = $1::uuid AND courier_id = $2::uuid`,
+    [o1.orderId, courierIdFromToken(courier)]
+  );
+  assert("доставка и заказ закрыты одним переходом", deliveryState.rows[0]?.status === "delivered" && Boolean(deliveryState.rows[0]?.delivered_at));
 
   const done = await api("POST", `/api/orders/${o1.orderId}/complete`, { token: customer });
   assert("complete (клиент) → COMPLETED", done.status === 200 && done.json?.status === "COMPLETED", JSON.stringify(done.json).slice(0, 160));
