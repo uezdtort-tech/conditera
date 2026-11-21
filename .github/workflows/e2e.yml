@@ -52,6 +52,9 @@ on:
       - "supabase/migrations/**"
       - "scripts/verify/order-lifecycle-verify.mjs"
       - "scripts/verify/refund-concurrency-pg.mjs"
+      - "scripts/verify/p11-hardening-verify.mjs"
+      - "scripts/verify/ops-center-verify.mjs"
+      - "scripts/verify/product-media-verify.mjs"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
@@ -72,6 +75,9 @@ on:
       - ".github/workflows/e2e.yml"
       - "scripts/verify/refund-concurrency-pg.mjs"
       - "scripts/verify/order-lifecycle-verify.mjs"
+      - "scripts/verify/p11-hardening-verify.mjs"
+      - "scripts/verify/ops-center-verify.mjs"
+      - "scripts/verify/product-media-verify.mjs"
       - "supabase/migrations/**"
       - "src/app/api/**"
       - "src/components/**"
@@ -244,6 +250,24 @@ jobs:
 
       - name: Run full order lifecycle regression (registration → production → handoff)
         run: node scripts/verify/order-lifecycle-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+
+      - name: Verify payment, checkout, idempotency, reviews and chat scenarios
+        run: node scripts/verify/p11-hardening-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+
+      - name: Verify ops center, recipe breakdown and stock scenarios
+        run: node scripts/verify/ops-center-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+
+      - name: Verify product media, moderation and storage scenarios
+        run: node scripts/verify/product-media-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
           PGURL: postgresql://postgres@127.0.0.1:54329/conditera
