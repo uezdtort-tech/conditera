@@ -65,7 +65,7 @@ export async function createUserSession(
     "enforce_single_active_user_session",
     { p_user_id: userId, p_session_id: sessionId },
   );
-  if (exclusivityError || exclusivityResult === -1) {
+  if (exclusivityError || typeof exclusivityResult !== "number" || exclusivityResult === -1) {
     console.error("[session-registry] exclusive-session enforcement failed:", exclusivityError?.message ?? "replaced by concurrent login");
     await supabaseAdmin.from("user_sessions")
       .update({ revoked_at: new Date().toISOString(), revoked_reason: "session_policy_enforcement_failed" })
