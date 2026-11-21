@@ -144,6 +144,16 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
 }
 
 async function deleteOrder(orderId) {
+  const mediaRows = await client.query(
+    `SELECT storage_path FROM public.order_media WHERE order_id = $1::uuid`,
+    [orderId]
+  ).catch(() => ({ rows: [] }));
+  for (const media of mediaRows.rows || []) {
+    await client.query(
+      `DELETE FROM storage.objects WHERE bucket_id = 'order_media' AND name = $1`,
+      [media.storage_path]
+    ).catch(() => {});
+  }
   await client.query(`DELETE FROM public.inventory_movements WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.inventory_write_offs WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   // escrow_accounts создаётся триггером/эккаунтингом при payment_status='escrow'
@@ -348,6 +358,15 @@ async function main() {
   assert("загрузка фото готовности → 201", upload.status === 201, JSON.stringify(upload.json).slice(0, 160));
   const mediaUrl = upload.json?.media?.url;
   assert("media URL формата /api/order-media/<id>", typeof mediaUrl === "string" && mediaUrl.startsWith("/api/order-media/"));
+  const mediaObject = await client.query(
+    `SELECT storage_path FROM public.order_media WHERE id = $1::uuid`,
+    [upload.json?.media?.id]
+  );
+  const storageObject = await client.query(
+    `SELECT id FROM storage.objects WHERE bucket_id = 'order_media' AND name = $1`,
+    [mediaObject.rows[0]?.storage_path]
+  );
+  assert("фото готового изделия физически сохранено в приватном Supabase Storage", storageObject.rowCount === 1);
 
   // Покупатель должен видеть фото собственного готового изделия, но не иметь
   // возможности загружать производственные доказательства вместо кондитера.
