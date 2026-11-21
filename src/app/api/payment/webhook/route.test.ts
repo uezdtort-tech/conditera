@@ -127,6 +127,6 @@ describe("payment webhook POST — cancellation race", () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ success: true, refundInitiated: true });
     expect(mocks.state.refundPayment).toHaveBeenCalledTimes(1);
-    expect(mocks.state.fromCalls).toEqual(["payments", "orders"]);
+    expect(mocks.state.fromCalls).toEqual(["payments", "orders", "payments"]);
   });
 });
