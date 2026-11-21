@@ -1288,11 +1288,13 @@ main()
         [testOrders],
       ).catch(() => {});
       await client.query("ALTER TABLE public.order_dispute_evidence ENABLE TRIGGER USER").catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_events DISABLE TRIGGER USER").catch(() => {});
       await client.query(
         `DELETE FROM public.order_dispute_events
           WHERE dispute_id IN (SELECT id FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
         [testOrders],
       ).catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_events ENABLE TRIGGER USER").catch(() => {});
       await client.query(
         `DELETE FROM public.order_disputes WHERE order_id = ANY($1::uuid[])`,
         [testOrders],
