@@ -62,6 +62,7 @@ on:
     branches:
       - main
       - develop
+      - release/first-production-hardening
     paths:
       - ".github/workflows/e2e.yml"
       - "src/app/api/**"
