@@ -271,6 +271,7 @@ async function cleanup() {
     if (cleanupIds.orders.length > 0) {
       await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanupIds.orders]);
       await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanupIds.orders]);
       await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanupIds.orders]);
     }
     if (cleanupIds.drafts.length > 0) {
