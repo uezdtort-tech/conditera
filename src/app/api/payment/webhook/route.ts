@@ -616,38 +616,63 @@ export async function POST(request: NextRequest) {
       }
 
       case "payment.canceled": {
-        // Статус платежа: "canceled" → "cancelled" (enum БД)
-        if (payment && payment.status !== "cancelled") {
-          await supabaseAdmin
+        // Отмена платежа допустима только пока он не succeeded/escrow/released.
+        // Иначе запоздалый webhook canceled не должен перезаписать успешную оплату.
+        let cancellationApplied = !payment;
+        if (payment) {
+          const { data: cancelledPayment, error: cancelPaymentError } = await supabaseAdmin
             .from("payments")
             .update({ status: "cancelled", updated_at: new Date().toISOString() })
-            .eq("id", payment.id);
+            .eq("id", payment.id)
+            .in("status", ["pending", "waiting_for_capture", "cancelled"])
+            .select("id");
+          if (cancelPaymentError) {
+            console.error("[webhook] payment.canceled payment CAS failed:", cancelPaymentError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          cancellationApplied =
+            (cancelledPayment?.length ?? 0) > 0 || payment.status === "cancelled";
         }
-        // P0: отмена ≠ возврат — раньше писалось payment_status="refunded"
-        if (order.payment_status !== "cancelled" && order.status !== "CANCELLED") {
-          await supabaseAdmin
+
+        if (!cancellationApplied) {
+          console.warn("[webhook] stale payment.canceled ignored for non-pending payment:", payment?.id);
+          break;
+        }
+
+        // CAS по обоим статусам заказа: поздняя отмена не перезаписывает
+        // escrow/released/refunded или завершённый заказ.
+        const orderWasPending =
+          ["pending", "waiting_for_capture", "cancelled"].includes(order.payment_status) &&
+          !["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status);
+        if (orderWasPending) {
+          const { data: cancelledOrder, error: cancelOrderError } = await supabaseAdmin
             .from("orders")
             .update({ payment_status: "cancelled", status: "CANCELLED" })
-            .eq("id", orderId);
-        }
-        // P1: клиенту — платёж не прошёл (ТЗ §10; metadata.orderId, fail-safe).
-        // P1.1: гейт тем же условием, что и обновление заказа выше — повторный
-        // payment.canceled webhook не спамит PAYMENT_FAILED при уже отменённом заказе.
-        if (order.payment_status !== "cancelled" && order.status !== "CANCELLED") {
-          try {
-            const canceledUserId = order.user_id || order.customer_id;
-            if (canceledUserId) {
-              const { sendNotification } = await import("@/lib/notifications");
-              await sendNotification({
-                userId: canceledUserId,
-                template: "PAYMENT_FAILED",
-                vars: { orderNumber: order.number },
-                metadata: { orderId },
-                dedupKey: `payment-failed:${orderId}`,
-              });
+            .eq("id", orderId)
+            .eq("payment_status", order.payment_status)
+            .eq("status", order.status)
+            .select("id");
+          if (cancelOrderError) {
+            console.error("[webhook] payment.canceled order CAS failed:", cancelOrderError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+
+          if (cancelledOrder?.length) {
+            try {
+              const canceledUserId = order.user_id || order.customer_id;
+              if (canceledUserId) {
+                const { sendNotification } = await import("@/lib/notifications");
+                await sendNotification({
+                  userId: canceledUserId,
+                  template: "PAYMENT_FAILED",
+                  vars: { orderNumber: order.number },
+                  metadata: { orderId },
+                  dedupKey: `payment-failed:${orderId}`,
+                });
+              }
+            } catch (e) {
+              console.warn("[webhook] cancel notification failed (non-blocking):", e);
             }
-          } catch (e) {
-            console.warn("[webhook] cancel notification failed (non-blocking):", e);
           }
         }
         break;
