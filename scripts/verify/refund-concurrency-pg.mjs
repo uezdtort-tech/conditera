@@ -97,17 +97,20 @@ async function main() {
     (error) => { secondSettled = true; return { ok: false, error }; }
   );
 
-  // Не коммитим первую транзакцию, пока не увидим, что вторая реально ждёт row lock.
+  // Не коммитим первую транзакцию, пока PostgreSQL явно не покажет,
+  // что backend второй сессии заблокирован именно первой сессией.
+  const firstPidResult = await first.query("SELECT pg_backend_pid()::int AS pid");
+  const firstPid = firstPidResult.rows[0].pid;
   let blocked = false;
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 400; i++) {
     const wait = await first.query(
       `SELECT EXISTS (
-         SELECT 1 FROM pg_stat_activity
-          WHERE application_name = $1
-            AND state = 'active'
-            AND wait_event_type = 'Lock'
+         SELECT 1 FROM pg_stat_activity a
+          WHERE a.application_name = $1
+            AND a.state = 'active'
+            AND $2::int = ANY(pg_blocking_pids(a.pid))
        ) AS blocked`,
-      [secondAppName]
+      [secondAppName, firstPid]
     );
     if (wait.rows[0]?.blocked === true) {
       blocked = true;
@@ -116,7 +119,15 @@ async function main() {
     if (secondSettled) break;
     await sleep(25);
   }
-  assert("вторая независимая сессия действительно заблокирована первой транзакцией", blocked);
+  if (!blocked && secondSettled) {
+    const early = await secondPromise;
+    assert(
+      "вторая независимая сессия должна ждать блокировку первой",
+      false,
+      early.ok ? "запрос завершился до COMMIT первой транзакции" : `SQLSTATE ${early.error?.code}: ${early.error?.message}`
+    );
+  }
+  assert("вторая независимая сессия заблокирована именно первой транзакцией", blocked);
 
   await first.query("COMMIT");
   transactionOpen = false;
