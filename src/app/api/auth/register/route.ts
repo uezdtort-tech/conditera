@@ -29,6 +29,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashPassword, createAccessToken, createRefreshToken } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
+import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession } from "@/lib/session-registry";
 
 export const runtime = "nodejs";
 
@@ -468,8 +470,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId });
+    const sessionId = await createUserSession(userId, request, "registration");
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, sid: sessionId });
 
     // 13. Sanitize response (без passwordHash и других sensitive полей)
     const safeUser: SanitizedUser = {
@@ -516,11 +519,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
       .catch(() => {});
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       user: safeUser,
       accessToken,
       refreshToken,
     });
+    return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("Register error:", error?.message);
     return NextResponse.json(
