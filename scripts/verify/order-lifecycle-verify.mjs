@@ -1061,10 +1061,19 @@ async function main() {
   const o7 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   const o8 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   testOrders.push(o7.orderId, o8.orderId);
-  const [ins1, ins2] = await Promise.allSettled([
-    client.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 540, 780, 240)`, [o7.orderId, OWNER_ID, dayPlus2]),
-    client.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 700, 940, 240)`, [o8.orderId, OWNER_ID, dayPlus2]),
-  ]);
+  // Два независимых pg.Client — один Client сериализует query() и не проверяет гонку.
+  const concurrentClient = new Client({ connectionString: PG_URL });
+  await concurrentClient.connect();
+  let ins1;
+  let ins2;
+  try {
+    [ins1, ins2] = await Promise.allSettled([
+      client.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 540, 780, 240)`, [o7.orderId, OWNER_ID, dayPlus2]),
+      concurrentClient.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 700, 940, 240)`, [o8.orderId, OWNER_ID, dayPlus2]),
+    ]);
+  } finally {
+    await concurrentClient.end();
+  }
   const okInserts = (ins1.status === "fulfilled" ? 1 : 0) + (ins2.status === "fulfilled" ? 1 : 0);
   assert("параллельные пересекающиеся резервы: ровно один INSERT прошёл (EXCLUDE)", okInserts === 1, `${ins1.status}/${ins2.status} ${ins1.status === "rejected" ? ins1.reason?.code : ""} ${ins2.status === "rejected" ? ins2.reason?.code : ""}`);
   const overlapRejected = [ins1, ins2].some((r) => r.status === "rejected" && r.reason?.code === "23P01");
