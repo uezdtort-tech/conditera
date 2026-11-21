@@ -1028,6 +1028,14 @@ async function main() {
   assert("журнал спора сохраняет открытие, рассмотрение и решение",
     disputeEvents.rows[0]?.count === 3,
     `events=${disputeEvents.rows[0]?.count}`);
+  const disputeOpsTask = await client.query(
+    `SELECT status, resolved_by FROM public.ops_tasks
+      WHERE type = 'ORDER_DISPUTE_OPENED' AND entity_id = $1`,
+    [disputeId],
+  );
+  assert("открытие спора создаёт задачу администратору, а решение закрывает её",
+    disputeOpsTask.rows[0]?.status === "resolved" && disputeOpsTask.rows[0]?.resolved_by === ADMIN_ID,
+    JSON.stringify(disputeOpsTask.rows[0]));
 
   const mediaServe = await fetch(`${BASE}${mediaUrl}`, { headers: { Authorization: `Bearer ${admin}` } });
   assert("фото раздаётся авторизованному (200, image/png)", mediaServe.status === 200 && mediaServe.headers.get("content-type") === "image/png", `${mediaServe.status} ${mediaServe.headers.get("content-type")}`);
@@ -1349,6 +1357,11 @@ main()
         [testOrders],
       ).catch(() => {});
       await client.query("ALTER TABLE public.order_dispute_events ENABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.ops_tasks WHERE type = 'ORDER_DISPUTE_OPENED' AND entity_id IN
+          (SELECT id::text FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
       await client.query(
         `DELETE FROM public.order_disputes WHERE order_id = ANY($1::uuid[])`,
         [testOrders],
