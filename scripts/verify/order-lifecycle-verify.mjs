@@ -186,6 +186,7 @@ function photoForm() {
 
 const testOrders = [];
 const testDraftIds = [];
+const testQuoteRequestIds = [];
 let recipeInventoryFixture = null;
 let registeredCustomerId = null;
 
@@ -319,6 +320,120 @@ async function main() {
     [CUSTOMER_ID]
   );
   assert("обнаруженный replay записан в журнал безопасности", replayAudit.rows[0]?.count === 1);
+
+  // Индивидуальный RFQ: проект → предложение с рецептом → заказ → платёж.
+  const confectionerRow = await client.query(
+    `SELECT id FROM public.confectioners WHERE "userId" = $1::text LIMIT 1`,
+    [OWNER_ID]
+  );
+  const quoteConfectionerId = confectionerRow.rows[0]?.id;
+  const quoteProduct = await client.query(
+    `SELECT id::text, confectioner_id::text FROM public.products WHERE id = $1::uuid`,
+    [PRODUCT_ID]
+  );
+  assert("RFQ fixture: product belongs to signed-in confectioner",
+    Boolean(quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === quoteConfectionerId),
+    JSON.stringify({ quoteConfectionerId, product: quoteProduct.rows[0] }));
+
+  if (quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === quoteConfectionerId) {
+    const quoteCreate = await api("POST", "/api/quotes", {
+      token: customer,
+      body: {
+        product_type: "cake",
+        product_type_label: "Индивидуальный торт E2E",
+        event_type: "birthday",
+        base: "sponge",
+        filling: "chocolate_ganache",
+        coating: "ganache_dark",
+        decorations: ["berries"],
+        dietary: [],
+        servings: 8,
+        quantity: 1,
+        tiers: 1,
+        shape: "round",
+        city: "Москва",
+        delivery_date: tomorrowStr,
+        delivery_type: "pickup",
+        estimated_price: 330000,
+        estimated_delivery_cost: 0,
+        confectioner_ids: [quoteConfectionerId],
+        project_spec: {
+          productType: "cake", base: "sponge", filling: "chocolate_ganache",
+          coating: "ganache_dark", decorations: ["berries"], servings: 8,
+          city: "Москва", deliveryDate: tomorrowStr, deliveryType: "pickup",
+        },
+      },
+    });
+    assert("покупатель создаёт RFQ с project_spec → 201",
+      quoteCreate.status === 201 && Boolean(quoteCreate.json?.quoteRequest?.id),
+      JSON.stringify(quoteCreate.json).slice(0, 240));
+    if (quoteCreate.status === 201 && quoteCreate.json?.quoteRequest?.id) {
+      const quoteRequestId = quoteCreate.json.quoteRequest.id;
+      testQuoteRequestIds.push(quoteRequestId);
+      const savedProject = await client.query(
+        `SELECT project_spec->>'productType' AS product_type,
+                jsonb_array_length(project_spec->'decorations') AS decor_count
+         FROM public.quote_requests WHERE id = $1::uuid`,
+        [quoteRequestId]
+      );
+      assert("RFQ project snapshot сохранён в PostgreSQL",
+        savedProject.rows[0]?.product_type === "cake" && Number(savedProject.rows[0]?.decor_count) === 1);
+
+      const quoteResponse = await api("POST", `/api/quotes/${quoteRequestId}/respond`, {
+        token: owner,
+        body: {
+          base_cost: 330000,
+          delivery_cost: 0,
+          comment: "Индивидуальное предложение E2E",
+          prep_days: 2,
+          production_product_id: PRODUCT_ID,
+        },
+      });
+      assert("кондитер отправляет предложение с проверенным рецептом → 200",
+        quoteResponse.status === 200 && Boolean(quoteResponse.json?.quote?.id),
+        JSON.stringify(quoteResponse.json).slice(0, 240));
+
+      if (quoteResponse.status === 200 && quoteResponse.json?.quote?.id) {
+        const quoteId = quoteResponse.json.quote.id;
+        const acceptQuote = await api("POST", `/api/quotes/${quoteId}/accept`, { token: customer });
+        assert("покупатель принимает предложение: заказ и payment URL созданы",
+          acceptQuote.status === 201 && Boolean(acceptQuote.json?.orderId && acceptQuote.json?.paymentUrl),
+          JSON.stringify(acceptQuote.json).slice(0, 260));
+        if (acceptQuote.status === 201 && acceptQuote.json?.orderId) {
+          testOrders.push(acceptQuote.json.orderId);
+          const acceptedOrderPayment = await client.query(
+            `SELECT yookassa_payment_id, amount FROM public.payments
+             WHERE order_id = $1::uuid ORDER BY created_at DESC LIMIT 1`,
+            [acceptQuote.json.orderId]
+          );
+          const acceptedPaymentId = acceptedOrderPayment.rows[0]?.yookassa_payment_id;
+          assert("принятый RFQ создаёт запись платежа в ledger",
+            Boolean(acceptedPaymentId && Number(acceptedOrderPayment.rows[0]?.amount) === Number(acceptQuote.json.total)));
+          if (acceptedPaymentId) {
+            const acceptedWebhook = await api("POST", "/api/payment/webhook", {
+              body: {
+                event: "payment.succeeded",
+                object: {
+                  id: acceptedPaymentId,
+                  status: "succeeded",
+                  amount: { value: Number(acceptQuote.json.total).toFixed(2), currency: "RUB" },
+                  metadata: { orderId: acceptQuote.json.orderId },
+                },
+              },
+            });
+            assert("оплата принятого RFQ проходит через webhook → 200",
+              acceptedWebhook.status === 200, JSON.stringify(acceptedWebhook.json).slice(0, 200));
+            const acceptedStatus = await client.query(
+              `SELECT status::text AS status FROM public.orders WHERE id = $1::uuid`,
+              [acceptQuote.json.orderId]
+            );
+            assert("оплаченный индивидуальный заказ перешёл в escrow",
+              acceptedStatus.rows[0]?.status === "ESCROW", JSON.stringify(acceptedStatus.rows[0]));
+          }
+        }
+      }
+    }
+  }
 
   // Оформляем первый заказ через настоящий checkout и подтверждаем mock-webhook.
   // В CI нет секретов YooKassa: mock-платёж проверяет тот же ledger/webhook-переход,
@@ -792,6 +907,9 @@ main()
             ]
           );
         }
+      }
+      for (const quoteRequestId of testQuoteRequestIds) {
+        await client.query(`DELETE FROM public.quote_requests WHERE id = $1::uuid`, [quoteRequestId]);
       }
       for (const d of testDraftIds) {
         await client.query(`DELETE FROM public.purchase_draft_items WHERE draft_id = $1::uuid`, [d]);
