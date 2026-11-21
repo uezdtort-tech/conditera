@@ -296,6 +296,76 @@ const ACTION_SUCCESS: Record<OrderActionKind, string> = {
   complete: "Заказ завершён",
 };
 
+function OrderDisputePanel({ orderId }: { orderId: string | null }) {
+  const query = useQuery({
+    queryKey: ["order-dispute", orderId],
+    enabled: Boolean(orderId),
+    queryFn: async () => {
+      const res = await csrfFetch(`/api/orders/${orderId}/disputes`);
+      if (!res.ok) throw new Error(`Не удалось загрузить спор (HTTP ${res.status})`);
+      return await res.json() as {
+        dispute: {
+          id: string;
+          category: string;
+          description: string;
+          status: string;
+          resolution?: string | null;
+          created_at: string;
+          evidence: { id: string; mime_type: string; file_size: number; created_at: string; content_sha256: string }[];
+          messages: { id: string; sender_id: string; message: string; created_at: string }[];
+        } | null;
+      };
+    },
+  });
+  if (query.isLoading) return <p className="text-sm text-muted-foreground">Загружаем спор…</p>;
+  if (query.error) return <p className="text-sm text-destructive">{(query.error as Error).message}</p>;
+  const dispute = query.data?.dispute;
+  if (!dispute) return <p className="text-sm text-muted-foreground">По заказу нет зарегистрированного спора.</p>;
+
+  const labels: Record<string, string> = {
+    open: "Принят",
+    under_review: "На рассмотрении",
+    awaiting_customer: "Ожидает ответа покупателя",
+    resolved: "Решён",
+    rejected: "Отклонён",
+  };
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">{labels[dispute.status] || dispute.status}</Badge>
+        <span className="text-xs text-muted-foreground">Создан {formatDateTimeShort(dispute.created_at)}</span>
+      </div>
+      <div className="rounded-lg border p-3 space-y-1">
+        <p className="text-xs font-medium">Категория: {dispute.category}</p>
+        <p className="text-sm whitespace-pre-wrap">{dispute.description}</p>
+        {dispute.resolution && (
+          <p className="text-sm text-muted-foreground pt-2 border-t">{dispute.resolution}</p>
+        )}
+      </div>
+      <div className="rounded-lg border p-3">
+        <p className="text-xs font-semibold mb-2">Доказательства · {dispute.evidence.length}</p>
+        {dispute.evidence.map((item) => (
+          <div key={item.id} className="flex justify-between gap-2 text-xs py-1">
+            <span>{item.mime_type} · {(item.file_size / 1024).toFixed(0)} КБ</span>
+            <span className="text-muted-foreground font-mono">{item.content_sha256.slice(0, 12)}…</span>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border p-3 space-y-2">
+        <p className="text-xs font-semibold">Переписка по спору</p>
+        {dispute.messages.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Сообщений пока нет.</p>
+        ) : dispute.messages.map((item) => (
+          <div key={item.id} className="border-t pt-2">
+            <p className="text-sm whitespace-pre-wrap">{item.message}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{formatDateTimeShort(item.created_at)}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ==================== Основной компонент ====================
 
 export function OrderWorkspaceDialog({
@@ -525,6 +595,7 @@ export function OrderWorkspaceDialog({
             <TabsTrigger value="production" className="text-xs sm:text-sm">Производство</TabsTrigger>
             <TabsTrigger value="ingredients" className="text-xs sm:text-sm">Ингредиенты</TabsTrigger>
             <TabsTrigger value="events" className="text-xs sm:text-sm">События</TabsTrigger>
+            <TabsTrigger value="disputes" className="text-xs sm:text-sm">Спор</TabsTrigger>
           </TabsList>
 
           {/* ==================== ОБЗОР ==================== */}
@@ -943,6 +1014,10 @@ export function OrderWorkspaceDialog({
                 </Button>
               </div>
             ) : null}
+          </TabsContent>
+
+          <TabsContent value="disputes" className="mt-1">
+            <OrderDisputePanel orderId={orderId} />
           </TabsContent>
 
           {/* ==================== СОБЫТИЯ ==================== */}
