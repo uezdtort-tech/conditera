@@ -3,7 +3,7 @@
 import { toast } from "sonner";
 
 import { useAppStore } from "@/lib/store";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime } from "@/lib/finance";
 import type { NegotiationItem, OrderNegotiation } from "@/lib/types";
+import { csrfFetch } from "@/lib/api-client";
 
 const STATUS_INFO: Record<string, { label: string; color: string; icon: any }> = {
   pending_confectioner: { label: "Ждёт вашей реакции", color: "bg-amber-100 text-amber-800 border-amber-200", icon: Clock },
@@ -65,13 +66,104 @@ const ITEM_CATEGORIES = [
   { value: "other", label: "📦 Другое" },
 ];
 
+function mapConfectionerQuoteRequests(rows: any[], confectionerId: string): OrderNegotiation[] {
+  return rows.flatMap((request) => {
+    const quote = Array.isArray(request.my_quotes) ? request.my_quotes[0] : request.my_quotes;
+    const status = !quote ? "pending_confectioner"
+      : quote.status === "accepted" ? "approved"
+      : quote.status === "rejected" ? "rejected"
+      : quote.status === "expired" ? "expired"
+      : "pending_customer";
+    const productAmount = quote
+      ? Math.max(0, Number(quote.subtotal || 0) - Number(quote.delivery_cost || 0)) / 100
+      : 0;
+    return [{
+      id: request.id,
+      inquiryId: request.id,
+      customerId: request.customer_id,
+      customerName: request.customer_name || "Покупатель",
+      confectionerId,
+      confectionerName: "Вы",
+      originalRequest: {
+        eventType: request.event_type || "",
+        base: request.base || "",
+        filling: request.filling || "",
+        coating: request.coating || "",
+        decorations: request.decorations || [],
+        servings: Number(request.servings || 0),
+        city: request.city || "",
+        deliveryDate: request.delivery_date || "",
+        deliveryType: request.delivery_type || "delivery",
+        inscription: request.inscription || "",
+        comment: request.comment || "",
+        estimatedPrice: Number(request.estimated_price || 0) / 100,
+      },
+      quotedItems: quote ? [{
+        name: request.product_type_label || "Индивидуальное изделие",
+        description: quote.comment || "Производственный рецепт выбран",
+        quantity: 1,
+        unitPrice: productAmount,
+        totalPrice: productAmount,
+        category: "cake" as const,
+      }] : [],
+      quotedTotal: Number(quote?.total_price || 0) / 100,
+      quotedComment: quote?.comment || "",
+      quotedDeliveryCost: Number(quote?.delivery_cost || 0) / 100,
+      quotedPrepTime: quote?.prep_days ? `${quote.prep_days} дн.` : "",
+      quotedAt: quote?.updated_at || quote?.created_at,
+      productionProductId: quote?.production_product_id || undefined,
+      status: status as OrderNegotiation["status"],
+      revisions: [],
+      createdAt: request.created_at,
+      updatedAt: quote?.updated_at || request.updated_at,
+      validUntil: request.expires_at,
+    }];
+  });
+}
+
 // ==================== КОНДИТЕР: ВКЛАДКА СОГЛАСОВАНИЕ ====================
 export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId: string }) {
   const negotiations = useAppStore((s) => s.negotiations);
-  const quoteNegotiation = useAppStore((s) => s.quoteNegotiation);
-  const reviseNegotiation = useAppStore((s) => s.reviseNegotiation);
-  const withdrawNegotiation = useAppStore((s) => s.withdrawNegotiation);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [productionOptions, setProductionOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+
+  const loadServerNegotiations = async () => {
+    const response = await csrfFetch("/api/quotes?mode=confectioner");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Не удалось загрузить запросы");
+    const mapped = mapConfectionerQuoteRequests(data.quotes || [], confectionerId);
+    useAppStore.setState((state) => ({
+      negotiations: [
+        ...state.negotiations.filter((item) => item.confectionerId !== confectionerId),
+        ...mapped,
+      ],
+    }));
+  };
+
+  useEffect(() => {
+    loadServerNegotiations().catch((error) => {
+      console.error("[negotiations] load confectioner quotes:", error);
+      toast.error("Не удалось загрузить реальные запросы покупателей");
+    });
+  }, [confectionerId]);
+
+  useEffect(() => {
+    if (!editingId) { setProductionOptions([]); return; }
+    let active = true;
+    setLoadingOptions(true);
+    csrfFetch(`/api/quotes/${editingId}/respond`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить производственные рецепты");
+        if (active) setProductionOptions(data.products || []);
+      })
+      .catch((error) => {
+        if (active) toast.error((error as Error).message);
+      })
+      .finally(() => { if (active) setLoadingOptions(false); });
+    return () => { active = false; };
+  }, [editingId]);
 
   const myNegotiations = negotiations.filter((n) => n.confectionerId === confectionerId);
 
@@ -345,17 +437,31 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
           negotiation={myNegotiations.find((n) => n.id === editingId)!}
           isRevision={myNegotiations.find((n) => n.id === editingId)?.status === "rejected"}
           isEdit={myNegotiations.find((n) => n.id === editingId)?.status === "pending_customer"}
+          productionOptions={productionOptions}
+          loadingProductionOptions={loadingOptions}
           onClose={() => setEditingId(null)}
-          onSubmit={(items, total, comment, deliveryCost, prepTime) => {
+          onSubmit={async (items, total, comment, deliveryCost, prepTime, productionProductId) => {
             const neg = myNegotiations.find((n) => n.id === editingId)!;
-            if (neg.status === "pending_confectioner") {
-              quoteNegotiation(editingId, items, total, comment, deliveryCost, prepTime);
-              toast.success("Предложение отправлено покупателю!");
-            } else {
-              reviseNegotiation(editingId, items, total, comment, deliveryCost, prepTime);
-              toast.success("Предложение обновлено и отправлено покупателю!");
+            const prepDays = Math.max(1, Number(prepTime.match(/\d+/)?.[0] || 3));
+            const response = await csrfFetch(`/api/quotes/${neg.inquiryId || editingId}/respond`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                base_cost: Math.round(Math.max(0, total - deliveryCost) * 100),
+                delivery_cost: Math.round(deliveryCost * 100),
+                comment,
+                prep_days: prepDays,
+                production_product_id: productionProductId,
+              }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              toast.error(result.message || result.error || "Не удалось отправить предложение");
+              return;
             }
+            toast.success("Предложение сохранено и отправлено покупателю");
             setEditingId(null);
+            await loadServerNegotiations();
           }}
         />
       )}
@@ -368,14 +474,18 @@ function NegotiationEditorDialog({
   negotiation,
   isRevision,
   isEdit,
+  productionOptions,
+  loadingProductionOptions,
   onClose,
   onSubmit,
 }: {
   negotiation: OrderNegotiation;
   isRevision: boolean;
   isEdit?: boolean;
+  productionOptions: Array<{ id: string; title: string }>;
+  loadingProductionOptions: boolean;
   onClose: () => void;
-  onSubmit: (items: NegotiationItem[], total: number, comment: string, deliveryCost: number, prepTime: string) => void;
+  onSubmit: (items: NegotiationItem[], total: number, comment: string, deliveryCost: number, prepTime: string, productionProductId: string) => void;
 }) {
   const [items, setItems] = useState<NegotiationItem[]>(
     negotiation.quotedItems.length > 0
@@ -394,6 +504,7 @@ function NegotiationEditorDialog({
   const [comment, setComment] = useState(negotiation.quotedComment || "");
   const [deliveryCost, setDeliveryCost] = useState(negotiation.quotedDeliveryCost || 0);
   const [prepTime, setPrepTime] = useState(negotiation.quotedPrepTime || "2 дня");
+  const [productionProductId, setProductionProductId] = useState(negotiation.productionProductId || "");
 
   const total = items.reduce((sum, item) => sum + item.totalPrice, 0) + deliveryCost;
 
@@ -440,6 +551,26 @@ function NegotiationEditorDialog({
           </div>
           {negotiation.originalRequest.comment && (
             <div className="italic mt-1">«{negotiation.originalRequest.comment}»</div>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <Label>Производственный рецепт *</Label>
+          <Select value={productionProductId} onValueChange={setProductionProductId}>
+            <SelectTrigger>
+              <SelectValue placeholder={loadingProductionOptions ? "Загружаем рецепты..." : "Выберите товар с рецептом"} />
+            </SelectTrigger>
+            <SelectContent>
+              {productionOptions.map((product) => (
+                <SelectItem key={product.id} value={product.id}>{product.title}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Выбранный товар должен иметь опубликованный рецепт с ингредиентами. По нему система проверит склад и спишет сырьё.
+          </p>
+          {!loadingProductionOptions && productionOptions.length === 0 && (
+            <p className="text-xs text-destructive">Нет опубликованных товаров с действующим рецептом. Сначала настройте рецепт в каталоге.</p>
           )}
         </div>
 
@@ -551,7 +682,7 @@ function NegotiationEditorDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
-          <Button onClick={() => onSubmit(items, total, comment, deliveryCost, prepTime)}>
+          <Button disabled={!productionProductId || loadingProductionOptions} onClick={() => onSubmit(items, total, comment, deliveryCost, prepTime, productionProductId)}>
             <Send className="h-4 w-4 mr-1" />
             {isEdit ? "Обновить предложение" : isRevision ? "Отправить пересмотр" : "Отправить предложение"}
           </Button>
