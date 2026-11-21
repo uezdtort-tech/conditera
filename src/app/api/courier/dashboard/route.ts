@@ -109,16 +109,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         if (result.error) throw new Error(result.error.message);
       }
       const earningsToday = (earningsTodayResult.data || []).reduce(
-        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0),
+        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0) / 100,
         0
       );
       const earningsMonth = (earningsMonthResult.data || []).reduce(
-        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0),
+        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0) / 100,
         0
       );
       const earningsByOrder = new Map<string, number>();
       for (const delivery of earningsMonthResult.data || []) {
-        earningsByOrder.set(delivery.order_id, Number(delivery.courier_earnings || 0));
+        earningsByOrder.set(delivery.order_id, Number(delivery.courier_earnings || 0) / 100);
       }
 
       // Получить рейтинг курьера из courier_profiles
