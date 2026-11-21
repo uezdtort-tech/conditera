@@ -278,7 +278,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Development и CI/test используют локальный auth.users stub ниже;
       // это полноценная запись в PG с password_hash, не демо-аккаунт и не
       // обход проверки пароля. Не разрешать этот путь в production.
-      if (process.env.NODE_ENV === "production") {
+      const localGoTrueDisabled = authErr.message.includes("Local runtime: Supabase GoTrue is disabled");
+      const localStubAllowed = process.env.NODE_ENV === "development" || process.env.LOCAL_AUTH_STUB_ENABLED === "true";
+      if (!localGoTrueDisabled || !localStubAllowed) {
         return NextResponse.json(
           { error: "Не удалось создать пользователя в Auth", details: authErr.message },
           { status: 500 }
