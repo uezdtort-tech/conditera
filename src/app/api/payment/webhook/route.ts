@@ -100,15 +100,20 @@ async function verifyEventWithProvider(
     if (!res.success || !res.refund) return { ok: false };
     if (res.refund.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
     if (res.refund.status !== "succeeded") return { ok: true, skip: "provider_mismatch" };
-    if (object.payment_id && res.refund.payment_id && res.refund.payment_id !== object.payment_id) {
+
+    // Refunds have no order metadata: the provider's refund object must bind
+    // the refund to the exact payment, and both copies of the amount must exist.
+    // Missing provider fields are not evidence of a valid refund; fail closed
+    // so YooKassa retries instead of allowing an unverifiable ledger mutation.
+    if (!object.payment_id || !res.refund.payment_id) return { ok: false };
+    if (res.refund.payment_id !== object.payment_id) {
       return { ok: true, skip: "provider_mismatch" };
     }
-    if (wireKop !== null) {
-      const refundKop = res.refund.amount?.value
-        ? Math.round(Number(res.refund.amount.value) * 100)
-        : null;
-      if (refundKop !== null && refundKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
+    const providerRefundKop = wireAmountToKop(res.refund.amount);
+    if (wireKop === null || providerRefundKop === null || providerRefundKop <= 0) {
+      return { ok: false };
     }
+    if (providerRefundKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
     return { ok: true };
   }
 
