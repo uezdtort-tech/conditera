@@ -71,6 +71,28 @@ CREATE TRIGGER order_dispute_events_no_update
   BEFORE UPDATE OR DELETE ON public.order_dispute_events
   FOR EACH ROW EXECUTE FUNCTION public.reject_order_dispute_evidence_mutation();
 
+-- Запрещаем менять статус или удалять файл, если он уже приложен к спору.
+CREATE OR REPLACE FUNCTION public.protect_dispute_order_media()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.order_dispute_evidence
+    WHERE order_media_id = OLD.id
+  ) THEN
+    RAISE EXCEPTION 'ORDER_DISPUTE_EVIDENCE_IMMUTABLE'
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN OLD;
+END;
+$;
+DROP TRIGGER IF EXISTS order_media_dispute_evidence_immutable ON public.order_media;
+CREATE TRIGGER order_media_dispute_evidence_immutable
+  BEFORE UPDATE OR DELETE ON public.order_media
+  FOR EACH ROW EXECUTE FUNCTION public.protect_dispute_order_media();
+
 ALTER TABLE public.order_disputes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_dispute_evidence ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_dispute_events ENABLE ROW LEVEL SECURITY;
