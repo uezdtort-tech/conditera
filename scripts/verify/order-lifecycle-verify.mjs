@@ -261,6 +261,8 @@ async function main() {
 
   const tomorrow = new Date(Date.now() + 86_400_000);
   const tomorrowStr = isoDate(tomorrow);
+  const dayAfterTomorrow = new Date(tomorrow.getTime() + 86_400_000);
+  const dayAfterTomorrowStr = isoDate(dayAfterTomorrow);
   const todayStr = isoDate(new Date());
 
   // =========================================================================
@@ -451,7 +453,8 @@ async function main() {
   section("E2E №2 — нехватка ингредиента → закупка → ETA (ТЗ §47, §20)");
   // Сценарий №1 списал рецепт; обнуляем ягоды для гарантированного shortage.
   await client.query(`UPDATE public.inventory_items SET quantity = 0 WHERE id = $1::uuid`, [recipeInventoryFixture.berryId]);
-  const o2 = await createTestOrder({ deliveryDate: tomorrowStr });
+  // Отдельный день: заказ №1 уже занял слот владельца на tomorrowStr.
+  const o2 = await createTestOrder({ deliveryDate: dayAfterTomorrowStr });
   testOrders.push(o2.orderId);
   const a2 = await api("POST", `/api/orders/${o2.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("o2 assign → 200", a2.status === 200, JSON.stringify(a2.json).slice(0, 120));
@@ -469,15 +472,15 @@ async function main() {
   const accNoEta = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("acceptance-check без ETA: canAccept=false (PURCHASE_ETA_MISSING)", accNoEta.status === 200 && accNoEta.json?.canAccept === false && (accNoEta.json?.reasons || []).some((r) => r.code === "PURCHASE_ETA_MISSING"), JSON.stringify((accNoEta.json?.reasons || []).map((r) => r.code)));
 
-  // ETA до безопасного старта (завтра 09:00 < 11:55) → CAN_ACCEPT_WITH_PURCHASE
-  const etaOk = new Date(`${tomorrowStr}T09:00:00`);
+  // ETA до безопасного старта (09:00 < 11:55 в день доставки) → CAN_ACCEPT_WITH_PURCHASE
+  const etaOk = new Date(`${dayAfterTomorrowStr}T09:00:00`);
   const setEta = await api("PATCH", `/api/purchase-drafts/${draftId}`, { token: owner, body: { expectedEta: etaOk.toISOString() } });
   assert("PATCH purchase-draft ETA → 200", setEta.status === 200, JSON.stringify(setEta.json).slice(0, 120));
   const accOk = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("ETA до старта → canAccept=true (CAN_ACCEPT_WITH_PURCHASE)", accOk.status === 200 && accOk.json?.canAccept === true && accOk.json?.availability === "available_with_warning", JSON.stringify({ canAccept: accOk.json?.canAccept, av: accOk.json?.availability }));
 
   // ETA после безопасного старта → CANNOT_ACCEPT
-  const etaLate = new Date(`${tomorrowStr}T20:00:00`);
+  const etaLate = new Date(`${dayAfterTomorrowStr}T20:00:00`);
   await api("PATCH", `/api/purchase-drafts/${draftId}`, { token: owner, body: { expectedEta: etaLate.toISOString() } });
   const accLate = await api("POST", `/api/orders/${o2.orderId}/acceptance-check`, { token: admin });
   assert("ETA после старта → canAccept=false (PURCHASE_ETA_AFTER_DEADLINE)", accLate.json?.canAccept === false && (accLate.json?.reasons || []).some((r) => r.code === "PURCHASE_ETA_AFTER_DEADLINE"), JSON.stringify((accLate.json?.reasons || []).map((r) => r.code)));
