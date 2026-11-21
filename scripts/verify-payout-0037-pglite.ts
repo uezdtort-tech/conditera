@@ -123,7 +123,7 @@ async function main() {
     );
     CREATE SCHEMA auth;
     CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS
-      $ SELECT NULLIF(current_setting('request.jwt.claim.sub', TRUE), '')::UUID $;
+      $$ SELECT NULLIF(current_setting('request.jwt.claim.sub', TRUE), '')::UUID $$;
     GRANT USAGE ON SCHEMA public, auth TO authenticated;
     GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
     GRANT SELECT, INSERT, UPDATE, DELETE ON public.orders, public.order_items, public.payments TO authenticated;
