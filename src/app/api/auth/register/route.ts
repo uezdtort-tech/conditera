@@ -274,10 +274,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (authErr) {
       console.error("[register] supabase auth createUser error:", authErr.message);
-      // В production без GoTrue регистрация невозможна — явный отказ.
-      // Development и CI/test используют локальный auth.users stub ниже;
-      // это полноценная запись в PG с password_hash, не демо-аккаунт и не
-      // обход проверки пароля. Не разрешать этот путь в production.
+      // Локальный auth.users stub допустим только при точном ответе GoTrue-заглушки
+      // и явном разрешении локального режима. Это полноценная запись в PG с
+      // password_hash, не демо-аккаунт и не обход проверки пароля.
       const localGoTrueDisabled = authErr.message.includes("Local runtime: Supabase GoTrue is disabled");
       const localStubAllowed = process.env.NODE_ENV === "development" || process.env.LOCAL_AUTH_STUB_ENABLED === "true";
       if (!localGoTrueDisabled || !localStubAllowed) {
