@@ -199,70 +199,44 @@ export async function POST(
       throw new HttpError(400, `Максимальная скидка: ${pricing.max_discount_percent}%`);
     }
 
-    // Создать или обновить ценовое предложение
-    const { data: existing } = await supabaseAdmin
-      .from("confectioner_quotes")
-      .select("id, status")
-      .eq("quote_request_id", quoteRequestId)
-      .eq("confectioner_id", confectioner.id)
-      .maybeSingle();
-
-    if (existing?.status === "accepted") {
-      throw new HttpError(409, "Покупатель уже принял это предложение и заказ создан");
+    // RPC сериализует создание/пересмотр предложения с принятием и отказом покупателя.
+    const { data: savedQuote, error: saveError } = await supabaseAdmin.rpc(
+      "save_confectioner_quote",
+      {
+        p_quote_request_id: quoteRequestId,
+        p_confectioner_id: confectioner.id,
+        p_production_product_id: productionProduct.id,
+        p_base_cost: base,
+        p_filling_cost: filling,
+        p_coating_cost: coating,
+        p_decoration_cost: decoration,
+        p_packaging_cost: packaging,
+        p_printing_cost: printing,
+        p_storage_cost: storage,
+        p_delivery_cost: delivery,
+        p_service_cost: service,
+        p_custom_design_cost: customDesign,
+        p_discount_percent: discountPercent,
+        p_prep_days: prepDays,
+        p_comment: body.comment ?? null,
+        p_available_date: body.available_date ?? null,
+        p_offered_packaging: body.offered_packaging ?? null,
+        p_offered_delivery: body.offered_delivery ?? null,
+      }
+    );
+    if (saveError) {
+      const message = saveError.message || "";
+      const status = /QUOTE_ALREADY_ACCEPTED|QUOTE_ALREADY_PROCESSED|QUOTE_REQUEST_CLOSED/.test(message) ? 409
+        : /PRODUCTION_RECIPE|QUOTE_AMOUNT_INVALID|QUOTE_COST_INVALID|QUOTE_TERMS_INVALID/.test(message) ? 422
+        : /CONFECTIONER_NOT_INVITED|QUOTE_REQUEST_NOT_FOUND/.test(message) ? 403 : 503;
+      throw new HttpError(status, status === 409
+        ? "Запрос уже закрыт или предложение обработано"
+        : status === 422
+          ? "Не удалось проверить стоимость или производственный рецепт"
+          : "Не удалось сохранить предложение", message);
     }
-
-    const quoteData = {
-      quote_request_id: quoteRequestId,
-      confectioner_id: confectioner.id,
-      base_cost: base,
-      filling_cost: filling,
-      coating_cost: coating,
-      decoration_cost: decoration,
-      packaging_cost: packaging,
-      printing_cost: printing,
-      storage_cost: storage,
-      delivery_cost: delivery,
-      service_cost: service,
-      custom_design_cost: customDesign,
-      subtotal,
-      discount_percent: discountPercent,
-      discount_amount: discountAmount,
-      total_price: totalPrice,
-      prep_days: prepDays,
-      available_date: body.available_date,
-      comment: body.comment,
-      offered_packaging: body.offered_packaging,
-      offered_delivery: body.offered_delivery,
-      production_product_id: productionProduct.id,
-      status: "pending",
-    };
-
-    let quote;
-    if (existing) {
-      const { data: updated, error } = await supabaseAdmin
-        .from("confectioner_quotes")
-        .update(quoteData)
-        .eq("id", existing.id)
-        .in("status", ["pending", "rejected"])
-        .select()
-        .maybeSingle();
-      if (error) throw new HttpError(500, "DB error", error.message);
-      if (!updated) throw new HttpError(409, "Предложение уже принято или обработано");
-      quote = updated;
-    } else {
-      const { data: created, error } = await supabaseAdmin
-        .from("confectioner_quotes")
-        .insert(quoteData)
-        .select()
-        .single();
-      if (error) throw new HttpError(500, "DB error", error.message);
-      quote = created;
-    }
-
-    await supabaseAdmin.from("quote_requests")
-      .update({ status: "quoted", updated_at: new Date().toISOString() })
-      .eq("id", quoteRequestId)
-      .in("status", ["sent", "rejected"]);
+    const quote = Array.isArray(savedQuote) ? savedQuote[0] : savedQuote;
+    if (!quote?.id) throw new HttpError(503, "Сохранённое предложение не возвращено");
 
     return NextResponse.json({
       quote,
