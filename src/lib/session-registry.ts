@@ -8,7 +8,19 @@ function requestMetadata(request?: Request) {
   const forwarded = request?.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const ip = (forwarded || request?.headers.get("x-real-ip") || "").slice(0, 64) || null;
   const userAgent = request?.headers.get("user-agent")?.slice(0, 512) || null;
-  return { ip, userAgent };
+  const ua = userAgent || "";
+  const platform = /Windows/i.test(ua) ? "Windows"
+    : /Android/i.test(ua) ? "Android"
+    : /iPhone|iPad|iPod/i.test(ua) ? "iOS"
+    : /Mac OS X|Macintosh/i.test(ua) ? "macOS"
+    : /Linux/i.test(ua) ? "Linux"
+    : "Неизвестная ОС";
+  const browser = /Edg\\//i.test(ua) ? "Edge"
+    : /Firefox\\//i.test(ua) ? "Firefox"
+    : /Chrome\\//i.test(ua) ? "Chrome"
+    : /Safari\\//i.test(ua) ? "Safari"
+    : "Браузер";
+  return { ip, userAgent, deviceLabel: `${platform} · ${browser}` };
 }
 
 export async function createUserSession(
@@ -39,6 +51,7 @@ export async function createUserSession(
     auth_method: authMethod,
     ip_address: ip,
     user_agent: userAgent,
+    device_label: requestMetadata(request).deviceLabel,
     expires_at: expiresAt,
   });
   if (error) {
