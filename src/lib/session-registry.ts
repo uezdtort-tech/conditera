@@ -30,7 +30,7 @@ export async function createUserSession(
 ): Promise<string> {
   const sessionId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-  const { ip, userAgent } = requestMetadata(request);
+  const { ip, userAgent, deviceLabel } = requestMetadata(request);
   const { data: previousSessions, error: historyError } = await supabaseAdmin
     .from("user_sessions")
     .select("id, ip_address, user_agent")
@@ -51,7 +51,7 @@ export async function createUserSession(
     auth_method: authMethod,
     ip_address: ip,
     user_agent: userAgent,
-    device_label: requestMetadata(request).deviceLabel,
+    device_label: deviceLabel,
     expires_at: expiresAt,
   });
   if (error) {
@@ -76,6 +76,51 @@ export async function createUserSession(
     // Session creation remains authoritative; telemetry failure is logged.
     console.error("[session-registry] session event write failed:", eventError.message);
   }
+
+  if (newDevice) {
+    const eventDate = new Date().toISOString().slice(0, 10);
+    const dedupKey = `ACCOUNT_NEW_DEVICE:${userId}:${eventDate}`;
+    const deviceDetails = {
+      event_type: "new_device_session",
+      session_id: sessionId,
+      ip_address: ip,
+      user_agent: userAgent,
+      device_label: deviceLabel,
+      auth_method: authMethod,
+      previous_active_sessions: previousSessions?.length || 0,
+    };
+
+    const { error: notificationError } = await supabaseAdmin.from("notifications").insert({
+      user_id: userId,
+      type: "security_alert",
+      channel: "in_app",
+      status: "queued",
+      title: "Вход с нового устройства",
+      body: `В ваш аккаунт выполнен вход с нового устройства (${deviceLabel}). Если это не вы, проверьте активные сессии и смените пароль.`,
+      metadata: deviceDetails,
+    });
+    if (notificationError) {
+      console.error("[session-registry] new-device notification failed:", notificationError.message);
+    }
+
+    const { error: taskError } = await supabaseAdmin.from("ops_tasks").upsert({
+      dedup_key: dedupKey,
+      type: "ACCOUNT_NEW_DEVICE",
+      severity: "important",
+      title: "Проверить вход в аккаунт с нового устройства",
+      description: `Пользователь ${userId}: ${deviceLabel}; IP: ${ip ?? "не определён"}. Проверьте историю сессий и признаки передачи аккаунта.`,
+      entity_type: "user",
+      entity_id: userId,
+      assignee_role: "ADMIN",
+      payload: deviceDetails,
+      status: "open",
+      source: "security",
+    }, { onConflict: "dedup_key" });
+    if (taskError) {
+      console.error("[session-registry] new-device admin task failed:", taskError.message);
+    }
+  }
+
   return sessionId;
 }
 
