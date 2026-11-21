@@ -1434,7 +1434,7 @@ export function CheckoutPage() {
   const promoDiscount = useAppStore((s) => s.promoDiscount);
   const user = useAppStore((s) => s.user);
   const [step, setStep] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState<"card" | "sbp">("card");
+  const [paymentMethod, setPaymentMethod] = useState<"yookassa">("yookassa");
   // Получение: доставка / самовывоз (уходит в POST /api/checkout как deliveryType)
   const [deliveryType, setDeliveryType] = useState<"delivery" | "pickup">("delivery");
   // Данные получателя (controlled — уходят в POST /api/checkout как customerName/customerPhone)
@@ -1845,8 +1845,7 @@ export function CheckoutPage() {
               {/* ===== Способ оплаты ===== */}
               <div className="space-y-2">
                 {[
-                  { id: "card" as const, label: "Банковской картой онлайн", desc: "Защищённая страница оплаты YooKassa" },
-                  { id: "sbp" as const, label: "СБП — Система быстрых платежей", desc: "Оплата через QR-код на защищённой странице" },
+                  { id: "yookassa" as const, label: "Онлайн-оплата через YooKassa", desc: "Доступные способы оплаты — карта и СБП — будут показаны на защищённой странице" },
                 ].map((m) => (
                   <button
                     key={m.id}
