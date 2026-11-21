@@ -338,11 +338,13 @@ async function main() {
     `SELECT id::text, confectioner_id::text FROM public.products WHERE id = $1::uuid`,
     [PRODUCT_ID]
   );
-  assert("RFQ fixture: product belongs to signed-in confectioner",
-    Boolean(quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === quoteConfectionerId),
-    JSON.stringify({ quoteConfectionerId, product: quoteProduct.rows[0] }));
+  // confectioners.id is an internal text key (e.g. c0); products.confectioner_id
+  // stores the auth user UUID. These identities must be joined, not compared.
+  assert("RFQ fixture: catalog product belongs to signed-in confectioner account",
+    Boolean(quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === OWNER_ID),
+    JSON.stringify({ quoteConfectionerId, ownerUserId: OWNER_ID, product: quoteProduct.rows[0] }));
 
-  if (quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === quoteConfectionerId) {
+  if (quoteConfectionerId && quoteProduct.rows[0]?.confectioner_id === OWNER_ID) {
     const quoteCreate = await api("POST", "/api/quotes", {
       token: customer,
       body: {
@@ -399,6 +401,14 @@ async function main() {
       );
       assert("RFQ project snapshot сохранён в PostgreSQL",
         savedProject.rows[0]?.product_type === "cake" && Number(savedProject.rows[0]?.decor_count) === 1);
+
+      const eligibleProducts = await api("GET", `/api/quotes/${quoteRequestId}/respond`, {
+        token: owner,
+      });
+      assert("кондитер видит свой товар с действующим рецептом в списке для RFQ",
+        eligibleProducts.status === 200 &&
+        eligibleProducts.json?.products?.some(item => item.id === PRODUCT_ID),
+        JSON.stringify(eligibleProducts.json).slice(0, 220));
 
       const quoteResponse = await api("POST", `/api/quotes/${quoteRequestId}/respond`, {
         token: owner,
