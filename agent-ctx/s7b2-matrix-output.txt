@@ -1,0 +1,61 @@
+=== 0. рестарт dev :3100 ===
+dev :3100 ready after 4s (200)
+=== 1. render страниц ===
+PASS: render / (200)
+PASS: render /catalog (200)
+PASS: render /cake-finder (200)
+PASS: render /catalog/compare (200)
+=== 2. assistant: RBAC/CSRF/базовый ответ ===
+PASS: assistant anon без CSRF → 403 (порядок S2B3: CSRF до auth) (403)
+PASS: assistant anon 401 (401)
+PASS: login customer 200 (200)
+PASS: assistant no-csrf 403 (403)
+PASS: assistant customer 200 (200)
+PASS: assistant reply непустой (len=209, fallback=False)
+PASS: assistant conversationId есть (be6ce88b)
+=== 3. AI-поиск: разбор фильтров + соответствие БД ===
+PASS: search 200 (200)
+PASS: search maxPriceRub=5000 (5000)
+PASS: search excludeAllergens (орехи)
+PASS: search: 0 ореховых в выдаче (0)
+PASS: search: цены ≤ 500000 коп (True)
+PASS: search: товары найдены (4 шт)
+=== 4. compare: 2 id → таблица+insights; 5 id → 400 ===
+PASS: compare 2 id 200 (200)
+PASS: compare items=2 (2)
+PASS: compare insights (3 шт)
+PASS: compare 5 id → 400 (400)
+=== 5. cake-finder (ГОСТЬ): орехи-запрет → ZERO орехи ===
+PASS: cake-finder guest 200 (200)
+PASS: cake-finder: 0 ореховых при запрете орехов (0)
+PASS: cake-finder excludedByAllergens=8 (назначение фильтра видно)
+PASS: cake-finder db cross-check (все id на витрине) (6)
+=== 6. dialogue: confectioner ok / customer 403 ===
+PASS: login confectioner 200 (200)
+PASS: dialogue confectioner 200 (200)
+PASS: dialogue suggestions 1-2 (2)
+PASS: dialogue customer 403 (403)
+PASS: dialogue чужой orderId 404 (404)
+=== 7. лимиты: bucket 20/мин → добивка 19 запросов, 21-й → 429 + Retry-After ===
+PASS: assistant: запросы 2..20 прошли (19×200) (19)
+PASS: assistant: 21-й → 429 (429)
+PASS: 429 Retry-After: 36s
+=== 8. FALLBACK PROOF: ollama-only + blackhole → все фичи fallback:true ===
+dev :3100 ready after 4s (200)
+PASS: fallback: assistant 200 (200)
+PASS: fallback: assistant fallback:true, reply непустой (len=361)
+PASS: fallback: search 200 (200)
+PASS: fallback: search fallback:true + товары из БД (2 шт)
+PASS: fallback: compare 200 (200)
+PASS: fallback: compare fallback:true, таблица+insights из БД
+PASS: fallback: cake-finder 200 (200)
+PASS: fallback: cake-finder fallback:true, товары есть, ореховых 0
+PASS: fallback: dialogue 200 (200)
+PASS: fallback: dialogue fallback:true, подсказки-шаблоны есть
+=== 9. restore env + рестарт → search снова fallback:false ===
+dev :3100 ready after 4s (200)
+PASS: restore: search 200 (200)
+FAIL: restore: search fallback:false — got [True], want [False]
+
+=== ИТОГ: PASS=44 FAIL=1 ===
+MATRIX HAS FAILURES

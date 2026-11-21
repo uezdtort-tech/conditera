@@ -1,0 +1,45 @@
+=== 0. рестарт dev :3100 (свежий env, чистый store) ===
+dev :3100 ready after 4s (200)
+=== 1. GET /api/ai/config — RBAC и состав ===
+PASS: config anon 401 (401)
+PASS: login customer 200 (200)
+PASS: config customer 403 (403)
+PASS: login admin 200 (200)
+PASS: config admin 200 (200)
+PASS: config order zai,ollama (['zai', 'ollama'])
+PASS: config availability.zai.reachable (True)
+PASS: config actions count (5)
+PASS: config assistant limit (20)
+PASS: config no secret values (0)
+PASS: config no secret fields
+=== 2. POST /api/ai/selftest — default (zai) ===
+PASS: selftest default 200 (200)
+PASS: selftest ok:true (True)
+PASS: selftest provider zai (zai)
+PASS: selftest model (glm-4)
+PASS: selftest ms present (426)
+PASS: selftest text present
+=== 3. POST /api/ai/selftest — override port 9 (refused, не hang) ===
+PASS: selftest refused 200 (200)
+PASS: selftest refused ok:false (False)
+PASS: selftest refused ≤15s (69ms)
+=== 4. таймаут-пруф D12: blackhole :9990 (accept без ответа) ===
+PASS: selftest blackhole 200 (200)
+PASS: selftest blackhole ok:false (False)
+PASS: selftest blackhole timeout fired 5..15s (6063ms, 2 попытки × 3s)
+=== 5. лимиты: 21 selftest/min → 429 + Retry-After ===
+PASS: selftest burst 20 x 200 (20)
+PASS: selftest burst без сбоев до 20
+PASS: selftest 21st 429 (429)
+PASS: 429 Retry-After present (54s)
+PASS: 429 body rate_limited
+=== 6. логи: метаданные есть, содержимого нет ===
+PASS: log provider=zai action=selftest
+PASS: log ms= present
+PASS: log contents absent (пинг)
+PASS: log env не печатается
+=== 7. sanity render ===
+PASS: render / 200 (200)
+PASS: render /catalog 200 (200)
+
+=== ИТОГ: PASS=34 FAIL=0 ===

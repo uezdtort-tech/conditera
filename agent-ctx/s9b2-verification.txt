@@ -1,0 +1,38 @@
+=== S9B2-R3 verification evidence (recovery session, honest scope) ===
+2026-11-21T15:59:42Z
+
+--- git log v2 (top 3):
+355bb23 [S9B2-R3] docs: worklog — восстановление базы S5B3-бандлом (S9B1-cb11b51 отсутствует на диске), свежая БД+сид фиксы, baseline ok, handover S6B1→S9B2
+31b7aaf [S9B2-R3] recovery fix: seed fresh-DB — профиль customer@demo.ru для lgr-demo-04 (сид падал на чистой БД; постоянные сессии маскировали профильом с S4B1-эры)
+1f10791 [S5B3] docs: worklog (sha/bundle pinned)
+
+--- bundle verify:
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+--- bundle bytes:
+1310971
+
+--- instructed S9B1 source bundle check:
+grep S9B1 count = 0 (0 = отсутствует — причина перехвата, см. handover)
+
+--- gates:
+lint: 0
+tsc: 0
+
+--- render (stable across calls):
+/ -> 200
+/catalog -> 200
+/api/health -> 200
+
+--- /api/health body (S1B1 contract; chat/cron fields ABSENT until S6B1/S8B1):
+{"status":"ok","app":"ok","database":"ok","auth":"ok","storage":"local","n8n":"unavailable","version":"0.1.0-s2b1","timestamp":"2026-11-21T15:59:56.804Z","environment":"development","notes":["auth: DEV_AUTH_SHIM=1 — mock-GoTrue по явному флагу (:3040), проба /auth/v1/health прошла.","storage: STORAGE_MODE=local — disk-adapter по явному флагу (решение
+
+--- seed counts (fresh DB, after fix 31b7aaf):
+[seed] counts: {"profiles":11,"confectionerProfiles":2,"franchiseeProfiles":0,"categories":8,"products":23,"reviews":15,"recipes":3,"siteSettings":8,"commissionRates":3,"orders":1,"orderItems":1,"payments":1,"escrowAccounts":1,"balanceLedger":4}
+
+--- services:
+shim :3040 -> 200
+dev :3100 process: running
+
+--- secret-leak grep on session logs (must be 0):
+0

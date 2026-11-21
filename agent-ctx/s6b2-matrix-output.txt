@@ -1,0 +1,70 @@
+dev :3100 alive (200)
+chat-service :3030 alive
+=== 0. health ===
+PASS: health 200 database ok
+PASS: chat-service :3030 ok
+=== 1. logins ===
+PASS: login customer 200 (200)
+PASS: login vendor 200 (200)
+PASS: login admin 200 (200)
+=== 2. заказ + pay mock → order_paid ===
+FAIL: create order 201 PENDING — status=400 body={"error":"items_unavailable","detail":"Часть товаров недоступна или снята с публикации","details":["013c31ba-7e06-48d6-93d3-6546b395c3d0"]}
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+KeyError: 'orderId'
+    order1=
+FAIL: pay mock 200 succeeded — status=308 body=/api/orders/pay
+FAIL: Notification order_paid (PAYMENT_SUCCEEDED) создана — got [0], want [1]
+FAIL: outbox order_paid: файлов с <script> — got [], want [0]
+FAIL: outbox order_paid — файлы не найдены
+=== 3. переход вендора CONFIRMED→PREPARING → order_status_changed ===
+FAIL: vendor transition 200 — status=308 body=/api/vendor/orders/status
+FAIL: order_status_changed vendor — count=0
+=== 4. переход админа PREPARING→READY → второй order_status_changed ===
+FAIL: admin transition 200 — status=308 body=/api/admin/orders/transition
+FAIL: order_status_changed admin — count=0
+=== 5. inbound email intake ===
+PASS: inbound без заголовка → 401
+PASS: inbound неверный секрет → 403
+PASS: inbound верный секрет + script-html → 200
+FAIL: inbound sanitized — {"hasScript":false,"htmlLen":47,"status":"new","processed":false}
+PASS: inbound status=new
+=== 6. тикеты: cycle + foreign 404 ===
+PASS: ticket create 201
+    ticket=b74dd0d5-a652-4762-b528-1061124ef52e (T-20261121-MWQONP)
+PASS: foreign GET ticket → 404
+PASS: foreign reply → 404
+PASS: foreign close → 404
+PASS: admin reply 200 (open→in_progress)
+PASS: Notification ticket_replied у покупателя: 1
+PASS: outbox ticket_replied файлов: 1
+PASS: owner GET thread 200 (2 сообщения)
+PASS: customer reply 200 (staff-last → open)
+PASS: customer close 200
+=== 7. unread-count + read-all ===
+PASS: unread-count 200
+PASS: unread до read-all: 1
+PASS: read-all 200
+PASS: unread после read-all (0)
+=== 8. cron payment-reminders ===
+PASS: cron без секрета → 403
+PASS: cron с секретом → 200
+FAIL: order для reminder 201 — status=400 body={"error":"items_unavailable","detail":"Часть товаров недоступна или снята с публикации","details":["013c31ba-7e06-48d6-93d3-6546b395c3d0"]}
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+KeyError: 'orderId'
+PASS: cron прогон 2 → 200
+FAIL: reminder создан — 0 → 0
+PASS: cron прогон 3 — дедуп (reminders не растут) (0)
+FAIL: skippedDuplicates — 0
+=== 9. burst: 6-й create → 429 + Retry-After ===
+PASS: burst tickets create → 429 (429)
+PASS: Retry-After присутствует (retry-after: 51)
+=== 10. render ===
+PASS: render / (200)
+PASS: render /catalog (200)
+PASS: render /support (200)
+
+==================================
+S6B2 MATRIX: PASS=32 FAIL=13
+==================================

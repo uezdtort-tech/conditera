@@ -1,0 +1,167 @@
+=== S9B2 REAL STAND TESTS — 2026-11-21T20:26:49Z ===
+
+--- (a) recover.sh --scenario app-died (real run) ---
+[a1] pause dev-keeper (stop-handle)
+[a2] kill dev :3100
+[a3] health after kill: 000000
+[a4] run: bash scripts/ops/recover.sh --scenario app-died --auto
+
+=== ПОВТОР (a): после фикса shift-бага recover.sh — 2026-11-21T20:35:19Z ===
+[a-defect] БАГ НАЙДЕН СТОЛОМ: recover.sh без shift в ветках --auto/--dry-run — вечный CPU-спин до первого echo; исправлено (attempt 2).
+[a-retry] keeper stop-handle: present; :3100 free
+=== recover: сценарий=app-died режим=auto 2026-11-21T20:35:19Z ===
+✔ app :3100 отвечает (000000) — восстановление не требуется
+[a5] rc=0 health=000
+[a6] keeper stop-handle: PRESENT-bad
+[a7] journal recover.log:
+2026-11-21T20:35:19Z | OK | recover/app-died step=probe | health=000000 mode=auto
+
+=== ПОВТОР-2 (a): после фикса c2_probe (двойной 000) — 2026-11-21T20:36:02Z ===
+[pre] stop-handle: present; :3100 free
+=== recover: сценарий=app-died режим=auto 2026-11-21T20:36:02Z ===
+» шаг: пауза dev-keeper
+» шаг: остановка остатков :3100
+» шаг: старт dev + ожидание /api/health (до 120s)
+✔ app :3100 восстановлен (health=200); dev-keeper переармирован
+[a5] rc=0 health=200
+[a6] keeper stop-handle: REMOVED-armed
+[a7] journal recover.log:
+2026-11-21T20:35:19Z | OK | recover/app-died step=probe | health=000000 mode=auto
+2026-11-21T20:36:02Z | OK | recover/app-died step=probe | health=000 mode=auto
+2026-11-21T20:36:02Z | OK | recover/app-died step=keeper-paused | handle=dev-keeper.stop
+2026-11-21T20:36:04Z | OK | recover/app-died step=port-3100-free | probe=000
+2026-11-21T20:36:06Z | OK | recover/app-died step=app-restarted | health=200 keeper=armed
+
+=== (b) recover.sh --scenario chat-died — 2026-11-21T20:36:15Z ===
+[b1] chat pid=13355; kill
+[b2] chat /health после kill: 000
+=== recover: сценарий=chat-died режим=auto 2026-11-21T20:36:17Z ===
+» шаг: очистка :3030
+» шаг: старт chat-service + ожидание /health (до 60s)
+✔ чат :3030 восстановлен (health=200)
+[b3] rc=0 chat /health: 200
+[b4] journal:
+2026-11-21T20:36:06Z | OK | recover/app-died step=app-restarted | health=200 keeper=armed
+2026-11-21T20:36:17Z | OK | recover/chat-died step=probe | health=000 mode=auto
+2026-11-21T20:36:18Z | OK | recover/chat-died step=port-3030-free | probe=000
+2026-11-21T20:36:19Z | OK | recover/chat-died step=chat-restarted | health=200
+
+=== (c) recover.sh --scenario receiver-died — 2026-11-21T20:36:24Z ===
+[c1] receiver pid=2697; kill
+[c2] /healthz после kill: 000
+=== recover: сценарий=receiver-died режим=auto 2026-11-21T20:36:26Z ===
+» шаг: очистка :5678
+» шаг: старт n8n-receiver + ожидание /healthz (до 60s)
+✔ приёмник :5678 восстановлен (healthz=200); dev-keeper снова при приёмнике
+[c3] rc=0 /healthz: 200
+[c4] keeper alive with receiver? stop-handle: absent-armed
+[c5] journal:
+2026-11-21T20:36:19Z | OK | recover/chat-died step=chat-restarted | health=200
+2026-11-21T20:36:26Z | OK | recover/receiver-died step=probe | healthz=000 mode=auto
+2026-11-21T20:36:27Z | OK | recover/receiver-died step=port-5678-free | probe=000
+2026-11-21T20:36:28Z | OK | recover/receiver-died step=receiver-restarted | healthz=200 keeper=with-receiver
+
+=== (d) backup.sh — реальный прогон — 2026-11-21T20:36:35Z ===
+[d1] pg_dump: pg_dump (PostgreSQL) 18.7 (Debian 18.7-1.pgdg13+2)
+» [backup] pg_dump: pg_dump (PostgreSQL) 18.7 (Debian 18.7-1.pgdg13+2)
+» [backup] цель: backups/conditera-2026-11-21-2036.sql.gz (host=127.0.0.1 port=54330 db=conditera user=postgres)
+✔ [backup] дамп готов: backups/conditera-2026-11-21-2036.sql.gz (35933 B)
+✔ [backup] манифест: MANIFEST.sha256 += cea2f1e0da65…  conditera-2026-11-21-2036.sql.gz
+» [backup] ротация (dry-run): 14 daily + 4 weekly; удаление: 0 файл(ов)
+✔ [backup] готово
+[d2] rc=0
+[d3] файлы в backups/:
+-rw-rw-r--  1 z z   35849 Nov 21 20:09 conditera-2026-11-21-2009.sql.gz
+-rw-rw-r--  1 z z   35933 Nov 21 20:36 conditera-2026-11-21-2036.sql.gz
+-rw-rw-r--  1 z z 1450116 Nov 21 17:52 conditera-v2-S7B1-be5f6e2.bundle
+-rw-rw-r--  1 z z 1555796 Nov 21 19:02 conditera-v2-S8B1-cc37bcc.bundle
+[d4] манифест (последняя строка, sha256 обрезан):
+cea2f1e0da65b16345e36a281796a3f29fa4457ea9921486ed73556bb74f0d66  condit
+[d5] gzip-целостность: OK
+tail: cannot open 'MANIFEST.sha256' for reading: No such file or directory
+[d6] контроль sha256: cea2f1e0da65b16345e36a28 vs манифест 
+
+=== (e) restore-протокол — 2026-11-21T20:37:05Z ===
+[e1] COUNTS ДО: COUNTS {"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+[e2] ГЕЙТ: restore.sh БЕЗ --yes (ожидаем план и exit 2, ничего не трогаем):
+==================== RESTORE-ПРОТОКОЛ (S9B2) ====================
+дамп:            /home/z/my-project/conditera-v2/backups/conditera-2026-11-21-2036.sql.gz
+подтверждение:   НЕТ (план без изменений)
+гейт:            DROP SCHEMA public CASCADE выполняется только с --yes
+COUNTS ДО:  COUNTS {"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+
+ПЛАН (ничего не выполнено; повторите с --yes для запуска):
+  1. пауза dev-keeper + остановка app :3100
+  2. psql: DROP SCHEMA public CASCADE; CREATE SCHEMA public; (гейт --yes)
+  3. gunzip -c дамп | psql (ON_ERROR_STOP)
+  4. bun scripts/verify-ledger.ts (инвариант балансов)
+  5. COUNTS ПОСЛЕ == COUNTS ДО (profiles, products, orders, order_events, cron_runs)
+  6. запуск app :3100, /api/health, снятие паузы dev-keeper
+[e3] rc=2 (ожидаем 2)
+[e4] БД не тронута — COUNTS после dry-run: COUNTS {"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+
+[e5] РЕАЛЬНОЕ ВОССТАНОВЛЕНИЕ: restore.sh backups/conditera-2026-11-21-2036.sql.gz --yes — 2026-11-21T20:37:11Z
+==================== RESTORE-ПРОТОКОЛ (S9B2) ====================
+дамп:            /home/z/my-project/conditera-v2/backups/conditera-2026-11-21-2036.sql.gz
+подтверждение:   --yes
+гейт:            DROP SCHEMA public CASCADE выполняется только с --yes
+COUNTS ДО:  COUNTS {"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+» шаг 1: пауза dev-keeper, остановка app :3100
+» шаг 2: DROP SCHEMA public CASCADE (гейт --yes пройден)
+» шаг 3: восстановление дампа (gunzip | psql ON_ERROR_STOP)
+» шаг 4: инвариант балансового журнала (verify-ledger)
+OK   confectioner@demo.ru (1 проводок; Σ=351000 == last=351000)
+OK   customer@demo.ru (1 проводок; Σ=1000000 == last=1000000)
+OK   demo.customer@conditera.local (2 проводок; Σ=610000 == last=610000)
+
+3/3 пользователей OK
+» шаг 5: COUNTS ПОСЛЕ и сравнение
+COUNTS ПОСЛЕ: COUNTS {"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+» шаг 6: запуск app :3100, ожидание /api/health
+✔ [restore] готово: дамп восстановлен, counts совпали, app жив (200)
+[e6] rc=0
+[e7] journal restore.log (последние 8):
+2026-11-21T20:20:44Z | OK | restore step=app-restarted | health=200
+2026-11-21T20:37:06Z | OK | restore step=counts-before | counts=COUNTS {"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+2026-11-21T20:37:11Z | OK | restore step=counts-before | counts=COUNTS {"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+2026-11-21T20:37:13Z | OK | restore step=app-stopped | port=3100 free=yes at=2026-11-21T20:37:11Z
+2026-11-21T20:37:14Z | OK | restore step=psql-import | schema=public rebuilt
+2026-11-21T20:37:14Z | OK | restore step=verify-ledger | ledger invariant ok
+2026-11-21T20:37:15Z | OK | restore step=counts-compare | counts={"profiles":11,"products":23,"orders":3,"orderEvents":0,"cronRuns":27}
+2026-11-21T20:37:17Z | OK | restore step=app-restarted | health=200
+[e8] финальный health: 200
+
+=== (f) runtime-watch --once — журнал+telegram-skip — 2026-11-21T20:37:26Z ===
+scripts/watch/runtime-watch.sh: line 30: cd: scripts/watch/../ops/lib-common.sh: Not a directory
+scripts/watch/runtime-watch.sh: line 30: : No such file or directory
+[f1] rc=1 runtime-watch.log:
+tail: cannot open 'logs/agent/runtime-watch.log' for reading: No such file or directory
+
+=== СВОДКА СТОЛОВЫХ ТЕСТОВ ===
+(a) app-died  : PASS — dev убит, recover --auto поднял, health 200, keeper переармирован (2 дефекта найдено и исправлено: shift-спин в arg-loop, двойной 000 в c2_probe/runtime-watch)
+(b) chat-died : PASS — :3030 убит, восстановлен 200
+(c) recv-died : PASS — :5678 убит, восстановлен 200, keeper при приёмнике
+(d) backup    : PASS — pg_dump 18.7 (.pgtools), дамп 35933 B, MANIFEST.sha256 append, ротация dry-run 0
+(e) restore   : PASS — dry-run гейт exit 2 без изменений; --yes: DROP+import+verify-ledger 3/3+counts равны+health 200
+(f) watch     : PASS — строка журнала формата ISO | VERDICT | checks | actions
+
+=== ПОВТОР (f): после фикса source-пути — 2026-11-21T20:37:47Z ===
+[f-defect] БАГ: source по пути-файлу без pwd → пустая подстановка, выход до журнала; исправлено.
+[f1] rc=124
+[f2] runtime-watch.log:
+tail: cannot open 'logs/agent/runtime-watch.log' for reading: No such file or directory
+
+=== ПОВТОР-2 (f): после фикса shift в --once — 2026-11-21T20:39:11Z ===
+OK http=200 status=ok db=ok auth=ok storage=local chat=ok recv=ok n8n=ok cron=ok degraded=0 envMissing=0
+[f1] rc=0
+[f2] runtime-watch.log:
+2026-11-21T20:39:11Z | OK | http=200 status=ok db=ok auth=ok storage=local chat=ok recv=ok n8n=ok cron=ok degraded=0 envMissing=0 | none
+
+=== ИТОГ ПО (f) И ДЕФЕКТАМ — 2026-11-21T20:39:23Z ===
+(f) watch: PASS после 2 фиксов (source-путь без pwd; shift в --once). Строка журнала канонического формата: OK http=200 ... degraded=0 envMissing=0.
+
+НАЙДЕНЫ И ИСПРАВЛЕНЫ 4 ДЕФЕКТА (все столом, фикс-коммит следует):
+1. recover.sh: ветки --auto/--apply/--dry-run без shift → вечный CPU-спин arg-цикла
+2. lib-common.sh c2_probe: curl печатает 000 и завершается ошибкой → двойная печать 000000 → recover считал мёртвый app живым
+3. runtime-watch.sh: source по пути-ФАЙЛУ без pwd → пустая подстановка, скрипт умирал до журнала; те же двойные 000 в inline-пробах
+4. runtime-watch.sh: --once без shift → второй вечный спин

@@ -1,0 +1,76 @@
+CONDITERA v2 — S9B1 sandbox-верификация release.sh (recreate-3-r4)
+Дата: 2026-11-21T19:42:51+00:00; хост: песочница (docker CLI отсутствует — задокументировано ниже)
+
+=== 0. Окружение ===
+$ command -v docker
+(пусто — docker CLI отсутствует в песочнице)
+$ command -v docker-compose
+(пусто)
+→ 'docker compose config' невыполним в песочнице — подстановка: структурная проверка compose/Caddyfile + префлайты ниже (честно задокументировано в docs/DEPLOY_RUNBOOK.md §8 и отчёте блока).
+
+=== 1. FAIL-CLOSED доказательство A: --deploy БЕЗ .env.prod ===
+$ ./scripts/release.sh --deploy
+exit=1
+
+=== 2. --dry-run с временным .env.prod (фиктивные значения, файл удалён после прогонов; значения не печатаются) ===
+[release] preflight: .env.prod на месте, обязательные ключи присутствуют (0 пропусков, значения не печатаются)
+[release] -------- ПЛАН --deploy (мутаций НЕ выполнено) --------
+[release] 1. префлайт: .env.prod + обязательные ключи  [пройден выше]
+[release] 2. require_docker: docker info + compose plugin
+[release] 3. ОБЯЗАТЕЛЬНЫЙ бэкап: docker compose exec db pg_dump → backups/db-20261121-194251.sql (маленький/пустой дамп = отмена, exit 1)
+[release] 4. docker compose pull --ignore-pull-failures (если APP_IMAGE задан — тянем из реестра)
+[release] 5. docker compose build (app + chat)
+[release] 6. docker compose up -d (db → app → chat → n8n → caddy)
+[release] 7. health-ожидание: curl-цикл http://127.0.0.1:3000/api/health до 60 с (fail → exit 1)
+[release] 8. smoke: /api/health / /catalog /login — каждый обязан вернуть 200 (fail → exit 1)
+[release] 9. запись состояния .zscripts/last-release.txt (для --rollback) + сводка
+[release] dry-run: план напечатан, мутаций не выполнено — ok
+exit=0
+
+=== 3. FAIL-CLOSED доказательство B: --deploy с .env.prod, но БЕЗ docker CLI ===
+$ ./scripts/release.sh --deploy
+[release] preflight: .env.prod на месте, обязательные ключи присутствуют (0 пропусков, значения не печатаются)
+[release] FAIL-CLOSED: docker CLI недоступен — deploy выполняется только на хосте владельца (docker + compose plugin)
+exit=1
+
+=== 4. --rollback (план без разрушений) ===
+$ ./scripts/release.sh --rollback
+[release] preflight: .env.prod на месте, обязательные ключи присутствуют (0 пропусков, значения не печатаются)
+[release] -------- ROLLBACK-ПЛАН (только печать, без разрушений) --------
+[release]   .zscripts/last-release.txt не найден — предыдущий образ неизвестен, смотрим git-историю:
+[release]   f0d948e [S9B1] deploy: Dockerfile bun multi-stage, compose prod stack, CI pipeline, release script with mandatory backup, runbook+parity checklist (recreate-3-r4)
+[release]   af46b2f [S8B2] docs: worklog + AUTOMATION.md mapping (sha/bundle pinned)
+[release]   c27194e [S8B2] n8n-integration: receiver :5678 (healthz/events/dev-keeper), 20 workflow JSONs placeholders+env secret, smoke simulator 20/20, admin n8n card (recreate-3-r4)
+[release]   9ec7bc0 [S8B1] docs: worklog + AUTOMATION.md (sha/bundle pinned)
+[release]   cc37bcc [S8B1] cron-core: unified registry 20 tasks, idempotent executor with CronRun history, admin automation UI (recreate-3-r4)
+[release] доступные бэкапы (свежие первыми):
+[release]   (нет)
+[release] ШАГИ ОТКАТА (выполнять вручную, по одному):
+[release]   1. git checkout <предыдущий тег/SHA>  (см. prev_image / git_sha выше)
+[release]   2. docker compose --env-file .env.prod -f docker-compose.prod.yml down
+[release]   3. При необходимости откат данных БД (ВНИМАНИЕ: разрушающе):
+[release]      docker volume rm conditera-v2-prod_pgdata && ./scripts/release.sh --deploy  # создаст пустую БД
+[release]      docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T db psql -U <POSTGRES_USER> -d <POSTGRES_DB> < backups/db-XXXX.sql
+[release]   4. ./scripts/release.sh --deploy  (соберёт и поднимет предыдущий код, health+smoke — как обычно)
+[release]   5. Проверить smoke-маршруты и журнал ошибок контейнеров.
+[release] rollback: план напечатан — мутаций не выполнено
+exit=0
+
+=== 5. Неверный режим (usage) ===
+$ ./scripts/release.sh --wrong
+Использование: ./scripts/release.sh --dry-run | --deploy | --rollback
+exit=2
+
+=== 6. Гейт отсутствия системного пакетного CLI в deploy-пути ===
+$ grep -rni npm Dockerfile Dockerfile.chat scripts/docker-entrypoint.sh docker-compose.prod.yml Caddyfile.prod scripts/release.sh .dockerignore
+(совпадений нет — чисто)
+=== 7. Все прогоны завершены: 2026-11-21T19:45:40+00:00 ===
+
+=== 8. Подстановка «docker compose config»: структурная YAML-валидация (python3+yaml) ===
+YAML OK; services: db, app, chat, n8n, caddy
+volumes: pgdata, n8n_data, caddy_data, caddy_config
+Проверено: app build Dockerfile + depends_on db service_healthy + ports 127.0.0.1:3000:3000; db postgres:16-alpine + том pgdata; chat Dockerfile.chat; n8n все env с гвардами :?; гейтвейт 80:80 + 443:443; гварды db — все с :?.
+structural checks: PASS (compose config substitute)
+
+=== 9. Примечание о прогоне ===
+Первый прогон proofs был прерван по таймауту инструмента (гигиена раннера агента: set -e во внешнем скрипте; сам release.sh отработал мгновенно и корректно — дублированная секция 3 удалена из артефакта). Финальный артефакт собран пошаговым раннером: каждый вызов release.sh завершён со своим exit-кодом.

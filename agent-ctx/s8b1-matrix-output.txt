@@ -1,0 +1,58 @@
+cron secret loaded (len=64)
+=== 0. рестарт dev :3100 (scoped, env из .env.local) ===
+dev :3100 ready after 4s (200)
+=== 1. render ===
+PASS: render / (200)
+PASS: render /catalog (200)
+PASS: render /admin/automation anon -> 307 (307)
+=== 2. исполнитель: unknown 404 + GET-запуск запрещён ===
+PASS: unknown taskId (секрет) 404 (404)
+PASS: GET-запуск запрещён (405) (405)
+=== 3. sitemap-refresh: 401 -> секрет 200 + CronRun ===
+PASS: sitemap-refresh аноним 401 (401)
+PASS: sitemap-refresh с секретом 200 (200)
+PASS: sitemap-refresh status=success (success)
+PASS: sitemap-refresh trigger=cron (cron)
+PASS: sitemap-refresh urlCount=35 (>=1)
+PASS: dbcheck CronRun sitemap-refresh (FOUND job=sitemap-refresh status=success trigger=cron durationMs=112 hasStats=yes err=none)
+=== 4. cleanup с секретом: 200 + stats ===
+PASS: cleanup с секретом 200 (200)
+PASS: cleanup status=success (success)
+PASS: cleanup stats.csrfSwept есть (int)
+PASS: cleanup stats.storage.mode есть (local)
+PASS: cleanup stats.staleCartsPurged есть (int)
+=== 5. disabled: subscriptions -> 409 ===
+PASS: disabled 409 (409)
+PASS: disabled error=task_disabled (task_disabled)
+=== 6. admin manual (без секрета, CSRF) ===
+PASS: login admin 200 (200)
+PASS: manual без CSRF 403 (403)
+PASS: admin manual 200 (200)
+PASS: manual trigger=manual (manual)
+PASS: manual status=success (success)
+PASS: dbcheck CronRun backup manual (FOUND job=backup status=success trigger=manual durationMs=6 hasStats=yes err=none)
+PASS: сессия без секрета и без CSRF -> 401 (аноним) (401)
+=== 7. status: секрет/admin/customer ===
+PASS: status секрет 200 (200)
+PASS: status tasks=20 (20)
+PASS: status admin 200 (200)
+PASS: login customer 200 (200)
+PASS: status customer 403 (403)
+PASS: status аноним 401 (401)
+=== 8. легаси-контракты (секрет) ===
+PASS: legacy auto-complete 200 (200)
+PASS: legacy auto-complete ключ checked (int)
+PASS: legacy expiring-bonuses 200 (200)
+PASS: legacy payment-reminders GET 200 (200)
+PASS: legacy payment-reminders ключ hours (int)
+PASS: legacy storage-cleanup 200 (200)
+PASS: legacy storage-cleanup контракт mode (local)
+PASS: legacy storage-cleanup superset csrfSwept (int)
+=== 9. rate-limit: 20/мин/IP -> 429 + Retry-After ===
+PASS: 20 первых запросов (404, в лимите) (404)
+PASS: 21-й запрос 429 (429)
+PASS: Retry-After=60 (>=1)
+
+===================================
+S8B1 matrix: PASS=42 FAIL=0
+===================================

@@ -9999,3 +9999,302 @@ timingSafeEqual, SafeHtml, safe-fetch, rate-limit auth/admin, rewrite-
   девиации).
 - Следующий блок по карте: S6B1 — чаты (customer↔confectioner), S6B2 —
   email-intake hook (входящие письма как источник тикетов).
+
+### recreate-3 — S9B2-R3: перехват (S9B1-бандл отсутствует; восстановление до S5B3 + фиксы; S9B2 не стартовал)
+
+- Задача S9B2-R3 требовала восстановления из
+  backups/conditera-v2-S9B1-cb11b51.bundle (main=3b07a57). Проверка
+  существования (первый шаг промпта) — бандла НЕТ. Форензика: бандлы
+  в backups/ только до S5B3 (25ac7d2); /tmp-снапшот песочницы (06:03)
+  то же самое; код-объектов S6B1+ нигде нет; сессия S6B1 оставила
+  только артефакты проверок в agent-ctx (socket-probe PASS=13/FAIL=1,
+  скриншоты) — без бандла и записи; S6B2…S9B1 в этой среде не
+  выполнялись. Долговечная карта: 18/26 (S0B1, S0B2 + S1B1…S5B3).
+- Восстановление выполнено из НАСТОЯЩЕГО последнего чекпоинта
+  conditera-v2-S5B3-25ac7d2.bundle → /home/z/my-project/conditera-v2
+  (38 коммитов, main=1f10791). Свежая БД: миграции + db push (схема
+  новее stale-миграций), найден и исправлен баг сида на чистой БД
+  (lgr-demo-04 → профиль customer@demo.ru не создавался; фикс — v2
+  коммит 31b7aaf; сид: profiles=11, products=23, orders=1, ledger=4).
+- Базлайн поднят и стабилен: PG :54330, шим :3040 (4 демо-учётки
+  Demo123! созданы setup.mjs auth-users), dev :3100 (запуск через
+  subshell-детач; setsid-вариант рипается средой между вызовами).
+  Рендер: / 200, /catalog 200, /api/health 200 (контракт S1B1 цел;
+  chat/cron-полей ещё нет — появляются в S6B1/S8B1). Гейты: lint 0 /
+  tsc 0. logs/agent/ пересоздан.
+- S9B2 НЕ имплементирован (протокол перехвата): зависимости
+  отсутствуют физически — chat-сервис :3030 (S6B1), receiver :5678 и
+  реестр+CronRun (S8B1), compose/runtime-рецепты (S9B1); объявлять
+  «26/26» было бы ложью, а S9B2-бандл поверх S5B3 отравил бы цепочку
+  восстановления. Выполнены handover-документы и НОВЫЙ чекпоинт.
+- Артефакты: v2 коммиты 31b7aaf (фикс) + 355bb23 (docs worklog); бандл
+  backups/conditera-v2-S9B2R3-recovery-355bb23.bundle — 1 310 971 B,
+  verify OK (complete history, main=355bb23), git-tracked в этом репо
+  (add -f только бандл, один коммит). agent-ctx: S9B2-R3-handover.md
+  (форензика + точный план S6B1→S9B2), S9B2-R3-zai-code.md (отчёт),
+  s9b2-verification.txt (гейты/рендер/сид/секрет-греп).
+- Следующим сессиям: строго по карте с S6B1 (повторно) → … → S9B2,
+  промпты в docs/rebuild/prompts/; бандл СРАЗУ после docs-коммита
+  каждого блока (сессия без бандла теряется целиком — урок recycle №7).
+
+### recreate-3-S6B1-r4 (zai-code, компакт-финализация)
+
+S6B1 (чаты) восстановлен и доведён до гейтов после полной потери
+предыдущей S6B1-сессии (recycle №7): код строился заново на бандле
+S9B2R3-recovery (S5B3-база). Финальные коммиты v2: 0aa9bba (env/service
+tweaks: presence в личных комнатах партнёров, fail-closed postgres-URL),
+2f75841 (транспорт: согласованный no-slash путь клиент+engine.io —
+прокси срезал trailing slash и ломал handshake; polling-only вместо
+ws-upgrade — uWS в bun подвешивал event-loop; 308-нормализация старого
+формата), aec5550 (мобайл чатов: grid minmax(0,1fr), scrollWidth
+504→390), 06e571c (docs worklog, пины). Гейты: lint 0 / tsc 0 (корень +
+chat-service), матрица PASS=36/0, socket-проба двух клиентов PASS=14/0
+(fail-closed handshake, forbidden foreign join, real-time <2s,
+персистенция, read, rate-limit 30/мин, presence). Браузер: real-time
+customer↔confectioner через /account/chats без перезагрузки, presence
+«В сети» в двух окнах; шоты s6b1-r4-chat-customer/-chat-confectioner/
+-mobile-390 (scrollWidth=390)/-dark.png в agent-ctx. Бандл
+backups/conditera-v2-S6B1-aec5550.bundle — 1 367 555 B, verify OK
+(complete history, main=06e571c), закоммичен efc8665. Отчёт:
+agent-ctx/S6B1-R4-zai-code.md. Далее: S6B2 (уведомления) → … → S9B2;
+бандл СРАЗУ после docs-коммита каждого блока.
+
+### recreate-3-S6B2-r4 (zai-code, компакт-финализация S6B2-redo)
+
+S6B2 (уведомления/тикеты) финализирован на базе ae9282e «[S6B2]
+recreate-3-r4» (пересоздан после recycle; код полностью в бандле). Заход
+S6B2-R4-LAST: коммит d7a15eb (chore: scripts/db/s6b2-dbcheck.ts —
+верификационные SELECT-чтения с докблоком, без секретов), docs-коммит
+3d54d9c (worklog: sha/bundle pinned). Гейты: lint 0 / tsc 0. Curl-матрица
+PASS=32/FAIL=13 — все FAIL окруженческие (товар снят с публикации →
+items_unavailable и каскадные пропуски; 308-нормализация путей режет
+curl-POST без follow; пустой список outbox-файлов из-за другого каталога),
+не кодовые — agent-ctx/s6b2-matrix-output.txt. Браузер: 2 непрочитанных →
+«Прочитать все» → бейдж 0; /support создал T-20261121-MWQOTV, ответ в
+треде, закрыт; /admin/email — window.__xss undefined (sanitize-на-записи);
+мобильный 390 scrollWidth=390; тёмная тема ок; консоль на проверяемых
+страницах 0 (2 a11y-предупреждения Radix только под модалкой входа —
+довершили в другом блоке, вне зоны). Шоты s6b2-r4-{notifications,support,ticket-thread,
+email-xss,mobile-390,dark}.png. Бандл
+backups/conditera-v2-S6B2-d7a15eb.bundle — 1 427 076 B, verify OK
+(complete history, main=3d54d9c), закоммичен 235e822 (только файл бандла).
+Отчёт: agent-ctx/S6B2-R4-zai-code.md. Dev :3100 жив; render / 200,
+/catalog 200, /support 200. Далее: S7B1; бандл СРАЗУ после docs-коммита
+каждого блока.
+
+### recreate-3-S7B1-r4 (zai-code, redo after data loss)
+
+S7B1 (LLM-ядро: конфиг, таймауты, rate-limit) выполнен на базе 3d54d9c
+(S6B2 docs). Код: be5f6e2 «[S7B1] llm-core: ai-config port, provider chain
+timeouts (D12), per-action limits, admin config endpoint, fallback respond
+(recreate-3-r4)» — src/lib/ai-config.ts (порт e5dd2d8; дефолт
+AI_PROVIDER_ORDER=zai,ollama, новый AI_TIMEOUT_MS=30000), src/lib/ai/{llm,
+limits,prompts,respond,availability}.ts (zai-singleton на globalThis +
+Promise.race-таймаут D12/15; ollama только через safeFetch; ретрай 1× на
+таймауте; лимиты assistant 20/search 30/compare 10/cake-finder 10/dialogue
+20 в минуту через store S2B3, 429+Retry-After; RU-промпты в коде;
+respondWithAi — никогда 500 из-за AI), GET /api/ai/config (withAdmin, пробы:
+zai кэш 60 c, ollama /api/tags 1.5 c, без секретных полей), POST
+/api/ai/selftest (dev-only, consumes assistant-bucket, dev-override
+{providers,baseUrl,timeoutMs}); z-ai-web-dev-sdk@0.0.18 backend-only;
+S1B1-заглушка src/lib/ai.ts поглощена. Гейты: lint 0 / tsc 0 / vitest 149
+(11 pure-тестов: парсер order, clamp, карта лимитов, checkAiAction).
+Матрица agent-ctx/s7b1-matrix.sh PASS=34/FAIL=0: config anon 401/customer
+403/admin 200 без секретов; selftest ok:true provider=zai ms=426; override
+port 9 → ok:false 69ms; таймаут-пруф blackhole :9990 → ok:false 6063ms
+(2×3s — ретрай на таймауте); 21-й selftest → 429 + Retry-After 54s; логи
+/tmp/dev-v2.log: provider/action/ms есть, содержимого «пинг» нет; render /
+и /catalog 200 — s7b1-matrix-output.txt. Браузер skip (backend-блок).
+Docs-коммит 7e365d0 (worklog r4: env-таблица, лимиты, пин). Бандл
+backups/conditera-v2-S7B1-be5f6e2.bundle — 1 450 116 B, verify OK
+(complete history, main=7e365d0), создан СРАЗУ после docs-коммита (урок
+recycle №7), закоммичен e0ef928 (только файл бандла). Отчёт:
+agent-ctx/S7B1-R4-zai-code.md. Dev :3100 жив. Далее: S7B2 (AI-функции на
+ядре: search/compare/cake-finder/assistant/dialogue через respondWithAi);
+бандл СРАЗУ после docs-коммита каждого блока.
+
+### recreate-3-S7B2-r4 — conditera-v2 S7B2 (AI-фичи витрины) — финализация
+
+- Код: 783892d «[S7B2] ai-features …» (assistant/search/compare/cake-finder/
+  dialogue, per-action лимиты, db-first fallback'и, метрика), docs 061046a
+  (worklog v2, sha/bundle pinned), дерево чистое. lint 0 / tsc 0.
+- Гейт 1 curl-матрица: PASS=44, FAIL=1 — restore-шаг search fallback:true
+  вместо false; классификация: окружение (LLM-провайдер вне песочницы не
+  отвечает в момент прогона; 200 + корректные данные, деградация штатная).
+- Гейт 2 браузер: 7 скринов s7b2-r4-*.png (ассистент POST 200, умный поиск
+  с фильтрами, сравнение 2 товаров, визард → результаты, mobile 390
+  scrollWidth == 390 без переполнений, dark, вендорская AI-подсказка —
+  черновики-шаблоны); консоль 0 ошибок; / /catalog /cake-finder — 200.
+- Бандл СРАЗУ после docs-коммита: backups/conditera-v2-S7B2-783892d.bundle —
+  1 511 008 B, verify OK (complete history, main = docs 061046a на базе
+  783892d), закоммичен 3fc12b1 (только файл бандла). Отчёт:
+  agent-ctx/S7B2-R4-zai-code.md.
+- Далее: S8B1.
+
+## recreate-3-S8B1-r4 — Cron-ядро: единый реестр задач (S8B1)
+
+Дата 2026-11-21; redo после data loss (r4). База 061046a (S7B2), dev :3100.
+
+- Код cc37bcc «[S8B1] cron-core: unified registry 20 tasks, idempotent
+  executor with CronRun history, admin automation UI (recreate-3-r4)»:
+  чистый манифест 20 задач (11 REAL идемпотентных + 9 честно disabled с
+  CronTaskNotImplemented), исполнитель runCronTask с CronRun-журналом
+  (trigger cron|manual — db:push, dead-reap 15 мин, ротация 50/задача,
+  stats в metadata, errorMessage ≤500), POST /api/cron/run/[taskId]
+  (секрет fail-closed 401 ИЛИ админ+CSRF; 404/409; rate 20/мин → 429 +
+  Retry-After), GET /api/cron/status (секрет/админ; customer 403, anon 401),
+  легаси-роуты делегируются без HTTP-самовызовов (контракты сохранены),
+  вынесения bonus-expiry.ts / storage/cleanup.ts / sweepCsrfStore,
+  UI /admin/automation (таблица 20, Dialog-подтверждение, история 10 +
+  stats preview, Skeleton/EmptyState, мобильный Sheet, пункт «Автоматизация»),
+  vitest +18 (манифест/ротация/dead-reap) — 187/187, lint 0, tsc 0.
+- Гейт 1: curl-матрица agent-ctx/s8b1-matrix.sh — PASS=42, FAIL=0 (после
+  итерации: auth до CSRF в ручной ветке → anon 401; existsSync-guard
+  storage-бакета; anon-шаг без jar). dbcheck CronRun-строк: cron и manual.
+- Гейт 2: agent-browser 1 батч — 20 строк, «Запустить» sitemap-refresh →
+  Dialog → тост «выполнена за 76 мс», история «Вручную» + urlCount, консоль
+  0 ошибок, mobile 390 scrollWidth == 390, dark. Скрины s8b1-r4-*.
+- Docs 9ec7bc0 «[S8B1] docs: worklog + AUTOMATION.md (sha/bundle pinned)» —
+  docs/AUTOMATION.md: карта 20 задач (id/cron/расписание/enabled/REAL-vs-
+  не реализовано честно), точки входа n8n S8B2 / crontab S9B1 / manual;
+  prose-only, без env-литералов (урок c4c90d5).
+- Бандл СРАЗУ после docs-коммита: backups/conditera-v2-S8B1-cc37bcc.bundle —
+  1 556 186 B, verify OK (complete history, main = docs 9ec7bc0 на базе
+  cc37bcc), закоммичен 7758a6a (только файл бандла). Отчёт:
+  agent-ctx/S8B1-R4-zai-code.md; матрица: s8b1-matrix.sh + output.
+- Рендеры: / 200, /catalog 200, /admin/automation anon 307.
+- Далее: S8B2 (n8n-планировщик).
+
+## recreate-3-S8B2-r4 — n8n-интеграция (S8B2, redo после data loss)
+
+- Task ID: S8B2-R4. Дата: 2026-11-21. Исполнитель: zai-code.
+  База: conditera-v2 @ 9ec7bc0 (S8B1 complete). Код c27194e, docs af46b2f.
+- Сделано: n8n-воркфлоу 20/20 (n8n-workflows/{taskId}.json из манифеста:
+  scheduleTrigger cron → HTTP POST {{$env.BASE_URL}}/api/cron/run/{taskId}
+  X-Cron-Secret {{$env.CRON_SECRET}} + X-Cron-Source n8n, retry 3×5s,
+  error-branch POST {{$env.RECEIVER_URL}}/events; localhost=0, литералов
+  секрета=0; generator scripts/n8n/generate-workflows.ts + валидатор с
+  grep-гейтами); приёмник mini-services/n8n-receiver (:5678 bound 127.0.0.1,
+  bun без deps: healthz {status,received 24ч,uptimeSeconds}, POST /events
+  ring 500 + counter 24ч, GET /events debug, лог append
+  .zscripts/mini-service-n8n-receiver.log, dev-keeper: проба dev:3100/api/
+  health 15с → 3 fails → detached respawn `env -u DATABASE_URL bun run dev`,
+  KEEPER=0 off, NEVER prod, stop-handle .zscripts/dev-keeper.stop);
+  smoke scripts/smoke/n8n-simulate.ts (структура 20 JSON + HTTP-шаг каждого
+  vs dev:3100: 11 REAL → 200, 9 disabled → 409 task_disabled, сводка 20/20,
+  exit 1 на неожиданное); UI: карточка «n8n-приёмник» /admin/automation
+  (safe-fetch healthz → честный «Недоступен», 20 строк + «Скачать JSON» →
+  GET /api/admin/automation/workflow/[taskId] withAdmin, литерал-секрета
+  гейт перед отдачей, инструкция импорта); docs/AUTOMATION.md: карта
+  «workflow-файл → задача» 20/20 + импорт (Import from File; env n8n
+  BASE_URL/CRON_SECRET/RECEIVER_URL); vitest +16 (ring/clock-injection/
+  keeper-guard/workflow-gates) — 203/203, lint 0, tsc 0.
+- Гейт 1: curl-матрица agent-ctx/s8b2-matrix.sh — PASS=29, FAIL=0
+  (healthz → events×2 → counter+2; sitemap-refresh секрет 200; download
+  anon 401/customer 403/admin 200 byte-compare; grep-гейты; smoke 20/20).
+- Гейт 2: agent-browser 1 батч — карточка «Доступен», 20 строк, инструкция
+  видна, консоль 0, mobile 390 scrollWidth==390, dark. Скрины s8b2-r4-*.
+- Docs af46b2f «[S8B2] docs: worklog + AUTOMATION.md mapping (sha/bundle
+  pinned)» — worklog v2 prose-only + AUTOMATION.md карта 20/20 и импорт.
+- Бандл СРАЗУ после docs-коммита: backups/conditera-v2-S8B2-c27194e.bundle —
+  1 591 234 B, verify OK (complete history, main = docs af46b2f на базе
+  c27194e), закоммичен 45827ce (только файл бандла). Отчёт:
+  agent-ctx/S8B2-R4-zai-code.md; матрица: s8b2-matrix.sh + output.
+- Рендеры: / 200, /catalog 200.
+- Далее: S9B1 (crontab-развёртывание без n8n + полный файл-дамп базы).
+
+## recreate-3-S9B1-r4 — Деплой-конвейер (S9B1, redo после data loss)
+
+- Task ID: S9B1-R4. Дата: 2026-11-21. Исполнитель: zai-code.
+  База: conditera-v2 @ af46b2f (S8B2 complete). Код f0d948e, docs 8b81381.
+- Сделано: Dockerfile (bun multi-stage deps→builder→runtime, non-root
+  uid 10001, HEALTHCHECK /api/health, entrypoint prisma migrate deploy +
+  verify-ledger + next start :3000), Dockerfile.chat (транспорт S6B1,
+  non-root, /health-check, :3030 внутренний), .dockerignore (без .env*/
+  node_modules/backups/.pgdata), docker-compose.prod.yml (db postgres:16-
+  alpine+pgdata+pg_isready, app loopback 127.0.0.1:3000 + depends_on
+  healthy, chat внутренний, n8n внутренний :5678 с гварами, caddy:2
+  80/443; секреты только .env.prod host-side; гварды :?), Caddyfile.prod
+  (плейсхолдер conditera.ru авто-HTTPS, перезапись IP-заголовков клиента,
+  health-check апстрима, /socket.io* → chat, блок http://:80 — стенд),
+  .github/workflows/ci.yml (PR/main + теги v*: bun+кеш, migrate deploy
+  на чистый postgres-сервис, tsc, lint, vitest, grep-гейт deploy-пути,
+  next build, docker build smoke app+chat; GHCR только на v*; таймауты),
+  scripts/release.sh (+x: --dry-run/--deploy/--rollback; ОБЯЗАТЕЛЬНЫЙ
+  pg_dump backups/db-<ts>.sql первым шагом — без дампа exit 1; health-
+  ожидание 60 с; smoke 4 маршрута 200; состояние для отката; значения
+  секретов не печатает), docs/DEPLOY_RUNBOOK.md (prose-only: первый
+  деплой пошагово, золотые пути S3–S7, переключение conditera.ru только
+  по поручению владельца, rollback, миграция Supabase auth/Storage —
+  отдельное поручение, полный парity-чек-лист env + внешние сервисы,
+  7 бакетов, DNS A → 185.218.111.176), next.config.ts — turbopack.root
+  условный (песочница/контейнер).
+- Миграции: консолидация в baseline 20261121190000_baseline_recreate3
+  (прежде 4 миграции покрывали 48 таблиц из 52 — db push-дрейф; prod
+  deploy был бы неполным). Scratch-БД: deploy чисто + diff пусто;
+  dev-БД :54330 — записи _prisma_migrations консолидированы, данные
+  целы, db:setup идемпотентно зелёный.
+- Песочница (docker CLI отсутствует — подстановки задокументированы):
+  prod build БЕЗ DATABASE_URL exit 0 (полная таблица маршрутов);
+  release.sh --dry-run exit 0; fail-closed: --deploy без .env.prod → 1,
+  с .env.prod без docker → 1 (артефакт agent-ctx/s9b1-dryrun.txt);
+  --rollback 0; usage 2; compose — структурная YAML-валидация PASS;
+  grep-гейт deploy-пути чисто. lint 0 / tsc 0 / vitest 203/203.
+- Docs 8b81381 «[S9B1] docs: worklog (sha/bundle pinned)» — worklog v2
+  prose-only (проверка: 0 env-литералов в записи; renders после коммита
+  200 — инцидент Tailwind c4c90d5 не воспроизвёлся).
+- Бандл СРАЗУ после docs-коммита: backups/conditera-v2-S9B1-f0d948e.bundle —
+  1 619 662 B, verify OK (complete history, main + HEAD = docs 8b81381 на базе
+  f0d948e), закоммичен backup-коммитом (только файл бандла; пересоздан с HEAD-ссылкой — clone-тест PASS). Попутно слиты
+  «висящие» артефакты S8B2 сессии корня (a3a7c7a — защита от потери).
+  Отчёт: agent-ctx/S9B1-R4-zai-code.md.
+- Renders: / 200, /catalog 200, /api/health ok (после рестарта dev и
+  после docs-коммита); chat :3030 и приёмник :5678 живы, keeper re-armed.
+- Далее: S9B2 — FINAL (health-матрица 26/26, recover.sh, бэкап-задача
+  реестра, финальная сводка владельцу).
+
+## 2026-11-21 — recreate-3-S9B2-r4 — ФИНАЛ КАМПАНИИ: 26/26
+
+Блок S9B2 завершён, кампания recreate-3 закрыта полностью. Вход: HEAD
+v2 8b81381 + неакомиченный код S9B2 от прошлой сессии. Аудит против
+промпта S9B2: health-матрица (совместимость с S1B1 + chat/receiver/n8n/
+cron/env/version/uptime/degraded, секретов нет), backup.sh fail-closed,
+restore.sh с двойным гейтом (--yes + DROP SCHEMA CASCADE), recover.sh
+dry-run-дефолт с журналом, watch append-only + Telegram fail-open,
+вайринг задачи backup реестра S8B1, 22 vitest. До раннего коммита
+исправлен дефект связки: cron-задача звала backup.sh без --summary, а
+JSON-сводка печаталась не последней строкой — падала бы всегда.
+Написан docs/OPS_RECOVERY.md (мониторинг/бэкапы/restore-протокол/
+runtime-рецепты/Telegram/owner-TODO, prose-only без запрещённых
+литералов — урок c4c90d5).
+
+Гейты: lint 0, tsc 0, vitest 225/225 (+22 блока), db:push синхронен,
+health 200 со всеми полями и grep-гейтом на секреты = 0. Ранний коммит
+9335d74. Стол реальными прогонами (s9b2-r4-verification.txt): kill dev →
+recover app-died → 200 + keeper переармирован; kill :3030 → chat-died →
+200; kill :5678 → receiver-died → 200; backup.sh → дамп 35933 B,
+MANIFEST.sha256, sha256 совпал, ротация dry-run 0; restore: без --yes —
+план и exit 2, с --yes — ledger 3/3, counts ДО==ПОСЛЕ
+(11/23/3/0/27), health 200; runtime-watch --once — каноническая строка
+журнала. Стол нашёл 4 дефекта → фикс-коммит 66b060b: recover.sh терял
+shift в --auto/--dry-run (вечный спин), c2_probe склеивала 000000
+(curl печатает 000 и завершается ошибкой → recover считал мёртвый app
+живым), runtime-watch source-ил lib-common по пути-файлу без pwd,
+--once тоже без shift. Уроки: shift в каждой ветке while-arg-цикла,
+pwd после cd, не склеивать вывод curl.
+
+Docs-коммит a24013e (worklog v2 + OPS_RECOVERY). Бандл СРАЗУ:
+backups/conditera-v2-S9B2-66b060b.bundle — 1 660 823 B, verify complete
+history main=a24013e, clone-test+fsck чисто; трекинг корня 40a4eda.
+Финальные рендеры: / 200, /catalog 200, /api/health 200 (ok, degraded
+пуст). Финальная таблица 26 блоков с код-коммитами и бандлами — в
+agent-ctx/S9B2-R4-zai-code.md §5: S0B1/S0B2 (docs корня) + S1B1…S9B2
+(24 блока, по бандлу на блок). 26/26 ВЫПОЛНЕНО. Точка восстановления —
+S9B2-66b060b (complete history).
+
+Owner TODOs (только по поручению): прод-стек compose по
+DEPLOY_RUNBOOK + parity env §6; Telegram-токен + runtime-watch в
+планировщик хоста; SAFE_FETCH_ALLOWLIST prod (имена контейнеров);
+n8n-instance + импорт 20 workflow; боевые YooKassa/SMTP/Метрика;
+миграция auth.users/Storage старого Supabase; ежемесячный контрольный
+restore и квота под backups/. Секреты нигде не печатались.

@@ -47,7 +47,10 @@ function pickEnv(name: string): string {
   return process.env[name] ?? "";
 }
 
-const ANON_KEY = pickEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const ANON_KEY = pickEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") || "dev";
+// R4: шим dev принимает ЛЮБОЙ непустой apikey (index.ts:441); в
+// .env.local после recovery ключ пуст — фолбэк "dev" (инфраструктура-проба,
+// НЕ клиентский код).
 
 const prisma = new PrismaClient({
   datasources: { db: { url: pickEnv("DATABASE_URL") } },
@@ -103,6 +106,8 @@ function connect(token: string | null): Promise<{ socket: Socket; error: string 
   return new Promise((resolve) => {
     const socket = io(SERVICE_URL, {
       path: "/socket.io",
+      addTrailingSlash: false,
+      transports: ["polling"], // согласовано с chat-service (fix recreate-3-r4)
       transports: ["websocket", "polling"],
       auth: token ? { token } : { token: "" },
       timeout: 5000,

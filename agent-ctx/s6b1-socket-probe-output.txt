@@ -8,9 +8,9 @@ PASS: join FOREIGN conversation → chat:error forbidden
 PASS: join OWN conversation → conversation:joined
 PASS: real-time message:new у собеседника (<2s)
 PASS: message PERSISTED in DB (ChatMessage row)
-FAIL: conversation:updated → личная комната B, unreadDelta=+1 — timeout
+PASS: conversation:updated → личная комната B, unreadDelta=+1
 PASS: conversation:read у отправителя
 PASS: readAt set in DB
 PASS: rate-limit 31st message → chat:error rate_limited
 PASS: presence:update online:false после disconnect
-=== итог: PASS=13 FAIL=1 ===
+=== итог: PASS=14 FAIL=0 ===

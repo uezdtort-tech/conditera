@@ -1,0 +1,46 @@
+cron secret loaded (len=64)
+=== 0. рестарт dev :3100 (scoped, env из .env.local) ===
+dev :3100 ready after 4s (200)
+receiver :5678 listening (127.0.0.1)
+=== 1. receiver: healthz → POST /events ×2 → counter+2 ===
+PASS: healthz 200 (200)
+PASS: healthz status=ok (ok)
+PASS: healthz received=0 (24ч)
+PASS: healthz uptimeSeconds=102
+PASS: healthz после ×2 200 (200)
+PASS: counter+2 (2)
+PASS: GET /events показывает 2 события (2)
+PASS: POST /events мусором 400 (400)
+=== 2. render ===
+PASS: render / (200)
+PASS: render /catalog (200)
+PASS: render /admin/automation anon -> 307 (307)
+=== 3. HTTP-шаг воркфлоу вручную: sitemap-refresh с секретом ===
+PASS: sitemap-refresh с секретом 200 (200)
+PASS: sitemap-refresh status=success (success)
+PASS: sitemap-refresh trigger=cron (cron)
+=== 4. download воркфлоу: anon 401 / customer 403 / admin 200 == файл ===
+PASS: download аноним 401 (401)
+PASS: login customer 200 (200)
+PASS: download customer 403 (403)
+PASS: login admin 200 (200)
+PASS: download admin 200 (200)
+PASS: download admin == файл (byte-compare)
+PASS: Content-Disposition attachment
+PASS: download unknown 404 (404)
+=== 5. grep-гейты по 20 JSON ===
+PASS: файлов с localhost/127.0.0.1/0.0.0.0 = 0 (0)
+PASS: файлов с литералом секрета = 0 (0)
+PASS: файлов с $env.CRON_SECRET = 20 (20)
+PASS: файлов воркфлоу = 20 (20)
+PASS: bun validate-workflows OK
+=== 6. smoke-симуляция n8n: 20/20 ===
+
+СВОДКА: 20/20 (REAL 11/11, disabled 9/9), структурных сбоев: 0
+OK: 20/20 консистентно (11 REAL + 9 disabled), exit 0
+PASS: smoke exit 0 (0)
+PASS: smoke сводка 20/20 (11+9)
+
+===================================
+S8B2 matrix: PASS=29 FAIL=0
+===================================

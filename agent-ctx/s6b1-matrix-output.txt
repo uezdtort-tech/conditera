@@ -1,0 +1,37 @@
+PASS: chat-service /health status ok
+PASS: anon GET conversations → 401 (401)
+PASS: anon POST create → 403 (csrf) (403)
+PASS: login customer → 200 (200)
+PASS: socket-token authed → 200 (200)
+PASS: socket-token содержит accessToken
+PASS: socket-token anon → 401 (401)
+PASS: fixture: confectionerProfileId получен
+PASS: fixture: singleOrderId получен
+PASS: fixture: mixedOrderId получен
+PASS: authed create без CSRF → 403 (403)
+PASS: create direct (CSRF) → 200 (200)
+PASS: create direct вернул conversation.id
+PASS: повтор create direct → 200 (200)
+PASS: повтор create → created:false
+PASS: GET conversations → 200 (200)
+PASS: список содержит беседу
+PASS: список содержит unreadCount
+PASS: GET detail own → 200 (200)
+PASS: login admin → 200 (200)
+PASS: foreign GET detail → 404 (404)
+PASS: foreign GET messages → 404 (404)
+PASS: GET messages → 200 (200)
+PASS: страница 1: 10 сообщений (10)
+PASS: nextCursor не пуст (история > 10 — probe-сообщения)
+PASS: порядок asc внутри страницы
+PASS: страница 2 по курсору → 200 (200)
+PASS: страница 2 — СТАРЕЕ страницы 1
+PASS: битый курсор → 400 (400)
+PASS: create order-chat (single-vendor) → 200 (200)
+PASS: order-chat вернул id
+PASS: create mixed order → 400 (400)
+PASS: mixed_order в теле ошибки
+PASS: 11-й create в минуту → 429 (429)
+PASS: Retry-After присутствует (59)
+PASS: grep-гейт портов в src/ → 0 (0)
+=== итог: PASS=36 FAIL=0 ===
