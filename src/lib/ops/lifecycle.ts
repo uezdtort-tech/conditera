@@ -474,6 +474,31 @@ export async function applyOrderTransition(
       }
     }
 
+    // При подтверждении доставки курьером одновременно закрываем его
+    // delivery assignment в той же транзакции. Если назначения нет, статус
+    // заказа не изменится и запись доставки не потеряется.
+    const courierCompleting =
+      input.to === "DELIVERED" &&
+      input.actorRoles.includes("COURIER") &&
+      !isAdminActor;
+    if (courierCompleting) {
+      const deliveryUpdate = await client.query(
+        `UPDATE public.deliveries
+            SET status = 'delivered', delivered_at = now(), updated_at = now()
+          WHERE order_id = $1::uuid
+            AND courier_id = $2::uuid
+            AND status IN ('assigned', 'picked_up', 'on_the_way')
+          RETURNING id::text`,
+        [input.orderId, input.actorId]
+      );
+      if (deliveryUpdate.rowCount === 0) {
+        throw new LifecycleError(
+          "DELIVERY_ASSIGNMENT_REQUIRED",
+          "Подтвердить доставку может только назначенный курьер"
+        );
+      }
+    }
+
     // --- 4. Атомарное изменение (CAS) ---
     const updates: Record<string, unknown> = { status: input.to };
     if (input.to === "CONFIRMED") updates.confirmed_at = new Date().toISOString();
