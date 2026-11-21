@@ -20,17 +20,25 @@ type AppliedItem = {
   unit: string | null;
 };
 type FailedItem = { item_id: string; error: string };
+type WriteOffItem = { item_id: string; quantity: number };
 
 export type RecipeWriteOffResult =
   | { ok: true; applied: AppliedItem[]; failed: FailedItem[]; idempotent: boolean }
   | { ok: false; status: number; error: string; details?: unknown };
 
-function signatureFor(items: Array<{ item_id: string; quantity: number }>): string {
+function signatureFor(items: WriteOffItem[]): string {
   const canonical = [...items]
     .map((item) => `${item.item_id}:${item.quantity}`)
     .sort()
     .join("|");
   return createHash("sha256").update(canonical).digest("hex");
+}
+
+function movementError(error: { kind: string; available?: number }): { status: number; message: string } {
+  if (error.kind === "insufficient") return { status: 409, message: `Недостаточно на складе: доступно ${error.available ?? 0}` };
+  if (error.kind === "forbidden") return { status: 403, message: "Нет доступа к позиции склада" };
+  if (error.kind === "not_found") return { status: 404, message: "Позиция склада не найдена" };
+  return { status: 500, message: "Не удалось записать движение склада" };
 }
 
 export async function writeOffOrderRecipe(
@@ -48,81 +56,98 @@ export async function writeOffOrderRecipe(
   if (!order.confectioner_id) {
     return { ok: false, status: 409, error: "Для заказа не назначен кондитер — склад определить невозможно" };
   }
-  // Ключ дедупликации принадлежит владельцу склада, а не тому, кто нажал
-  // кнопку. Это исключает повторное списание, если действие повторит администратор.
+
+  // Дедупликация принадлежит владельцу склада, а не тому, кто нажал кнопку.
   const inventoryOwnerId = order.confectioner_id;
-
-  const breakdown = await computeOrderBreakdown(orderId);
-  if (!breakdown) return { ok: false, status: 404, error: "Не удалось рассчитать рецептуру заказа" };
-  if (!breakdown.ingredients.length) {
-    return { ok: false, status: 422, error: "У товаров заказа не настроены рецептуры с ингредиентами" };
-  }
-  if (!breakdown.can_produce) {
-    return {
-      ok: false,
-      status: 409,
-      error: "Недостаточно ингредиентов или несовместимые единицы измерения",
-      details: { shortages: breakdown.shortages, ingredients: breakdown.ingredients },
-    };
-  }
-
-  let items: Array<{ item_id: string; quantity: number }> = [];
-  for (const ingredient of breakdown.ingredients) {
-    if (!ingredient.inventory_item_id || !ingredient.warehouse_unit) {
-      return {
-        ok: false,
-        status: 409,
-        error: `Для ингредиента «${ingredient.name}» не настроена привязка к позиции склада`,
-      };
-    }
-    const quantity = convertQty(ingredient.required, ingredient.unit, ingredient.warehouse_unit);
-    if (quantity === null || !Number.isFinite(quantity) || quantity <= 0) {
-      return {
-        ok: false,
-        status: 409,
-        error: `Невозможно преобразовать единицу ингредиента «${ingredient.name}» в единицу склада`,
-      };
-    }
-    items.push({ item_id: ingredient.inventory_item_id, quantity });
-  }
-
-  const signature = signatureFor(items);
+  let items: WriteOffItem[] = [];
   let previouslyApplied: AppliedItem[] = [];
-  const { error: claimError } = await supabaseAdmin.from("inventory_write_offs").insert({
-    owner_id: inventoryOwnerId,
-    order_id: orderId,
-    signature,
-    items,
-    result: { state: "processing" },
-  });
+  let signature = "";
 
-  if (claimError) {
-    if ((claimError as { code?: string }).code !== "23505") {
-      console.error("[recipe-writeoff] claim failed:", claimError.message);
-      return { ok: false, status: 503, error: "Не удалось зарезервировать списание. Повторите позже." };
-    }
-    const { data: existing, error: existingError } = await supabaseAdmin
-      .from("inventory_write_offs")
-      .select("result")
-      .eq("owner_id", inventoryOwnerId)
-      .eq("order_id", orderId)
-      .eq("signature", signature)
-      .maybeSingle();
-    if (existingError || !existing) {
-      return { ok: false, status: 503, error: "Не удалось проверить предыдущее списание" };
-    }
-    const saved = existing.result as { applied?: AppliedItem[]; failed?: FailedItem[] } | null;
-    if (!Array.isArray(saved?.applied) || !Array.isArray(saved?.failed)) {
+  // Сначала ищем уже созданное recipe-списание. Это важно: после успешного
+  // OUT остаток уменьшен и повторный расчёт breakdown иначе увидит shortage.
+  const { data: priorRows, error: priorError } = await supabaseAdmin
+    .from("inventory_write_offs")
+    .select("signature, items, result")
+    .eq("owner_id", inventoryOwnerId)
+    .eq("order_id", orderId)
+    .contains("result", { source: "recipe" })
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (priorError) {
+    console.error("[recipe-writeoff] prior batch lookup failed:", priorError.message);
+    return { ok: false, status: 503, error: "Не удалось проверить предыдущее списание" };
+  }
+
+  const prior = priorRows?.[0] as {
+    signature: string;
+    items: WriteOffItem[];
+    result: { state?: string; source?: string; applied?: AppliedItem[]; failed?: FailedItem[] };
+  } | undefined;
+
+  if (prior) {
+    const saved = prior.result;
+    if (!Array.isArray(saved.applied) || !Array.isArray(saved.failed)) {
       return { ok: false, status: 409, error: "Списание уже выполняется; повторите позже" };
     }
     if (saved.failed.length === 0) {
       return { ok: true, applied: saved.applied, failed: [], idempotent: true };
     }
-    // Предыдущая попытка могла списать часть ингредиентов. Повторяем только
-    // неуспешные позиции, не трогая уже списанные (защита от двойного расхода).
+    // После частичного успеха повторяем только неуспешные позиции из исходного
+    // снимка рецепта; уже списанные ингредиенты не рассчитываем/не списываем снова.
     const failedIds = new Set(saved.failed.map((item) => item.item_id));
-    items = items.filter((item) => failedIds.has(item.item_id));
+    items = (prior.items ?? []).filter((item) => failedIds.has(item.item_id));
     previouslyApplied = saved.applied;
+    signature = prior.signature;
+  } else {
+    const breakdown = await computeOrderBreakdown(orderId);
+    if (!breakdown) return { ok: false, status: 404, error: "Не удалось рассчитать рецептуру заказа" };
+    if (!breakdown.ingredients.length) {
+      return { ok: false, status: 422, error: "У товаров заказа не настроены рецептуры с ингредиентами" };
+    }
+    if (!breakdown.can_produce) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Недостаточно ингредиентов или несовместимые единицы измерения",
+        details: { shortages: breakdown.shortages, ingredients: breakdown.ingredients },
+      };
+    }
+
+    for (const ingredient of breakdown.ingredients) {
+      if (!ingredient.inventory_item_id || !ingredient.warehouse_unit) {
+        return {
+          ok: false,
+          status: 409,
+          error: `Для ингредиента «${ingredient.name}» не настроена привязка к позиции склада`,
+        };
+      }
+      const quantity = convertQty(ingredient.required, ingredient.unit, ingredient.warehouse_unit);
+      if (quantity === null || !Number.isFinite(quantity) || quantity <= 0) {
+        return {
+          ok: false,
+          status: 409,
+          error: `Невозможно преобразовать единицу ингредиента «${ingredient.name}» в единицу склада`,
+        };
+      }
+      items.push({ item_id: ingredient.inventory_item_id, quantity });
+    }
+
+    signature = signatureFor(items);
+    const { error: claimError } = await supabaseAdmin.from("inventory_write_offs").insert({
+      owner_id: inventoryOwnerId,
+      order_id: orderId,
+      signature,
+      items,
+      result: { state: "processing", source: "recipe" },
+    });
+    if (claimError) {
+      if ((claimError as { code?: string }).code !== "23505") {
+        console.error("[recipe-writeoff] claim failed:", claimError.message);
+        return { ok: false, status: 503, error: "Не удалось зарезервировать списание. Повторите позже." };
+      }
+      // Другая параллельная попытка уже захватила batch-key. Не списываем.
+      return { ok: false, status: 409, error: "Списание уже выполняется; повторите позже" };
+    }
   }
 
   const applied: AppliedItem[] = [...previouslyApplied];
@@ -146,23 +171,11 @@ export async function writeOffOrderRecipe(
         remaining: Number(result.item.quantity) || 0,
         unit: result.item.unit,
       });
-      continue;
+    } else {
+      const mapped = movementError(result.error);
+      if (!firstFailure) firstFailure = mapped;
+      failed.push({ item_id: item.item_id, error: mapped.message });
     }
-
-    const message =
-      result.error.kind === "insufficient"
-        ? `Недостаточно на складе: доступно ${result.error.available}`
-        : result.error.kind === "forbidden"
-          ? "Нет доступа к позиции склада"
-          : result.error.kind === "not_found"
-            ? "Позиция склада не найдена"
-            : "Не удалось записать движение склада";
-    const status =
-      result.error.kind === "insufficient" ? 409 :
-      result.error.kind === "forbidden" ? 403 :
-      result.error.kind === "not_found" ? 404 : 500;
-    if (!firstFailure) firstFailure = { status, message };
-    failed.push({ item_id: item.item_id, error: message });
   }
 
   if (applied.length === 0 && firstFailure && previouslyApplied.length === 0) {
@@ -173,7 +186,7 @@ export async function writeOffOrderRecipe(
 
   const { error: resultError } = await supabaseAdmin
     .from("inventory_write_offs")
-    .update({ result: { state: "completed", applied, failed } })
+    .update({ result: { state: "completed", source: "recipe", applied, failed } })
     .eq("owner_id", inventoryOwnerId)
     .eq("order_id", orderId)
     .eq("signature", signature);
