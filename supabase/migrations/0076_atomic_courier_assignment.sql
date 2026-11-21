@@ -19,7 +19,8 @@ SET search_path = public
 AS $$
 DECLARE
   v_order RECORD;
-  v_delivery RECORD;
+  v_existing RECORD;
+  v_delivery_id UUID;
 BEGIN
   IF p_order_id IS NULL OR p_courier_id IS NULL THEN
     RAISE EXCEPTION 'ORDER_AND_COURIER_REQUIRED';
@@ -45,7 +46,7 @@ BEGIN
   END IF;
 
   SELECT id, courier_id
-    INTO v_delivery
+    INTO v_existing
     FROM public.deliveries
    WHERE order_id = p_order_id
      AND status IN ('assigned', 'picked_up', 'on_the_way')
@@ -54,8 +55,8 @@ BEGIN
    FOR UPDATE;
 
   IF FOUND THEN
-    IF v_delivery.courier_id = p_courier_id THEN
-      RETURN QUERY SELECT v_delivery.id, p_order_id, p_courier_id, FALSE;
+    IF v_existing.courier_id = p_courier_id THEN
+      RETURN QUERY SELECT v_existing.id, p_order_id, p_courier_id, FALSE;
       RETURN;
     END IF;
     RAISE EXCEPTION 'ORDER_ALREADY_ASSIGNED';
@@ -68,9 +69,9 @@ BEGIN
     p_order_id, p_courier_id, 'assigned', v_order.delivery_address,
     COALESCE(v_order.delivery_cost, 0), 0
   )
-  RETURNING id INTO v_delivery.id;
+  RETURNING id INTO v_delivery_id;
 
-  RETURN QUERY SELECT v_delivery.id, p_order_id, p_courier_id, TRUE;
+  RETURN QUERY SELECT v_delivery_id, p_order_id, p_courier_id, TRUE;
 END;
 $$;
 
