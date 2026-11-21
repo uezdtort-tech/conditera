@@ -336,9 +336,9 @@ async function main() {
       paymentMethod: "yookassa",
     },
   });
-  assert("покупатель оформляет заказ через /api/checkout → 200", checkout.status === 200 && Boolean(checkout.json?.orderId && checkout.json?.paymentUrl), JSON.stringify(checkout.json).slice(0, 220));
+  assert("покупатель оформляет заказ через /api/checkout → 200", checkout.status === 200 && Boolean(checkout.json?.orderId && checkout.json?.paymentUrl), JSON.stringify(checkout.json));
   if (checkout.status !== 200 || !checkout.json?.orderId) {
-    throw new Error("Checkout нового покупателя не создал заказ");
+    throw new Error(`Checkout нового покупателя не создал заказ: ${JSON.stringify(checkout.json)}`);
   }
   const o1 = { orderId: checkout.json.orderId, number: checkout.json.orderNumber };
   testOrders.push(o1.orderId);
@@ -400,7 +400,7 @@ async function main() {
 
   const assign = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("POST assign → 200", assign.status === 200, JSON.stringify(assign.json).slice(0, 200));
-  assert("оценка времени: cakes → 240 мин (category, approximate)", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "category", JSON.stringify(assign.json?.estimate));
+  assert("оценка времени: 240 мин по настройке товара", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "product" && assign.json?.estimate?.approximate === false, JSON.stringify(assign.json?.estimate));
   assert("резерв создан на дату доставки", assign.json?.reservation?.date === tomorrowStr, JSON.stringify(assign.json?.reservation));
   assert("latestSafeStartAt рассчитан", Boolean(assign.json?.deadline?.latestSafeStartAt));
   // 18:00 − 65м буферов − 240м производства = 12:55
