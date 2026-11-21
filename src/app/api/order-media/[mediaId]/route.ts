@@ -9,13 +9,11 @@
  * (доверяем своему снифферу, записанному при загрузке).
  */
 
-import { createReadStream, promises as fsp } from "fs";
-import { Readable } from "stream";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { hasAnyRole } from "@/lib/role-guards";
-import { safeAbsOrderMediaPath } from "@/lib/ops/order-media";
+import { downloadOrderMedia } from "@/lib/ops/order-media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,30 +102,10 @@ export async function GET(
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
 
-    let absPath: string;
-    try {
-      absPath = safeAbsOrderMediaPath(media.storage_path);
-    } catch {
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-
-    let stat: Awaited<ReturnType<typeof fsp.stat>>;
-    try {
-      stat = await fsp.stat(absPath);
-    } catch {
-      console.warn(
-        `[order-media] DB/filesystem desync: строка ${media.id} есть, файла нет: ${media.storage_path}`
-      );
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-    if (!stat.isFile()) {
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-
-    const etag = `"${media.id}-${stat.size}"`;
+    const etag = `"${media.id}-${media.file_size}"`;
     const headers: Record<string, string> = {
       "Content-Type": media.mime_type,
-      "Content-Length": String(stat.size),
+      "Content-Length": String(media.file_size),
       "X-Content-Type-Options": "nosniff",
       ETag: etag,
       "Cache-Control": "private, max-age=86400",
@@ -137,9 +115,23 @@ export async function GET(
       return new Response(null, { status: 304, headers });
     }
 
-    const nodeStream = createReadStream(absPath);
-    const body = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
-    return new Response(body, { status: 200, headers });
+    let file: Buffer;
+    try {
+      file = await downloadOrderMedia(media.storage_path);
+    } catch (error) {
+      console.warn(
+        `[order-media] Supabase Storage object unavailable for media ${media.id}:`,
+        error instanceof Error ? error.message : error
+      );
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+
+    if (file.length !== Number(media.file_size)) {
+      console.error("[order-media] stored file size differs from PG metadata:", media.id);
+      return NextResponse.json({ error: "MEDIA_INTEGRITY_ERROR" }, { status: 500 });
+    }
+
+    return new Response(new Uint8Array(file), { status: 200, headers });
   } catch (err) {
     console.error(
       "[order-media] GET failed:",
