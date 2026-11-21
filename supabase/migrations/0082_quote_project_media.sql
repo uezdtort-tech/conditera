@@ -8,13 +8,23 @@ ALTER TABLE public.quote_requests
 COMMENT ON COLUMN public.quote_requests.project_spec IS
   'Immutable customer cake-builder snapshot: dimensions, base, filling, coating, up to five decor elements, dietary constraints and visualisation metadata.';
 
-INSERT INTO storage.buckets (id, name, public, allowed_mime_types, created_at, updated_at)
-VALUES ('quote_media', 'quote_media', FALSE,
-        ARRAY['image/jpeg', 'image/png', 'image/webp'], now(), now())
-ON CONFLICT (id) DO UPDATE
-  SET public = FALSE,
-      allowed_mime_types = EXCLUDED.allowed_mime_types,
-      updated_at = now();
+-- В минимальном PG17 migration harness Storage extension отсутствует.
+-- В полном Supabase runtime bucket создаётся здесь; без Storage миграции БД
+-- остаются проверяемыми, а загрузка корректно недоступна до установки Storage.
+DO $
+BEGIN
+  IF to_regclass('storage.buckets') IS NOT NULL THEN
+    EXECUTE $bucket$
+      INSERT INTO storage.buckets (id, name, public, allowed_mime_types, created_at, updated_at)
+      VALUES ('quote_media', 'quote_media', FALSE,
+              ARRAY['image/jpeg', 'image/png', 'image/webp'], now(), now())
+      ON CONFLICT (id) DO UPDATE
+        SET public = FALSE,
+            allowed_mime_types = EXCLUDED.allowed_mime_types,
+            updated_at = now()
+    $bucket$;
+  END IF;
+END $;
 
 CREATE TABLE IF NOT EXISTS public.quote_request_media (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
