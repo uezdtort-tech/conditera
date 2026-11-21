@@ -209,7 +209,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const unsupportedProductionItems = cartItems.filter((item) =>
       Boolean(item.custom) ||
       Object.entries(item.selected_attributes ?? {}).some(
-        ([key, value]) => key !== "inscription" && Boolean(value?.trim())
+        ([key, value]) => key !== "inscription" && typeof value === "string" && value.trim().length > 0
       )
     );
     if (unsupportedProductionItems.length > 0) {
