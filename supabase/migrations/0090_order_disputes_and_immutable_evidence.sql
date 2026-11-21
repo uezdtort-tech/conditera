@@ -76,7 +76,7 @@ CREATE OR REPLACE FUNCTION public.protect_dispute_order_media()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SET search_path = public
-AS $
+AS $function$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM public.order_dispute_evidence
@@ -87,7 +87,7 @@ BEGIN
   END IF;
   RETURN OLD;
 END;
-$;
+$function$;
 DROP TRIGGER IF EXISTS order_media_dispute_evidence_immutable ON public.order_media;
 CREATE TRIGGER order_media_dispute_evidence_immutable
   BEFORE UPDATE OR DELETE ON public.order_media
