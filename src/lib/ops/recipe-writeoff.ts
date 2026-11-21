@@ -70,17 +70,20 @@ export async function writeOffOrderRecipe(
     .select("signature, items, result")
     .eq("owner_id", inventoryOwnerId)
     .eq("order_id", orderId)
-    // PostgREST JSONB @> для данного поля в runtime-схеме приводился
-    // к jsonb[] и падал. JSON path equality даёт точный scalar-фильтр.
-    .eq("result->>source", "recipe")
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(100);
   if (priorError) {
     console.error("[recipe-writeoff] prior batch lookup failed:", priorError.message);
     return { ok: false, status: 503, error: "Не удалось проверить предыдущее списание" };
   }
 
-  const prior = priorRows?.[0] as {
+  // Фильтруем JSON в приложении: local PostgREST runtime не поддерживает
+  // надёжно JSON-path operators для result, а @> на этой схеме приводился
+  // к jsonb[]. owner_id + order_id уже ограничивают выборку конкретным заказом.
+  const prior = (priorRows ?? []).find((row) => {
+    const result = row.result as { source?: string } | null;
+    return result?.source === "recipe";
+  }) as {
     signature: string;
     items: WriteOffItem[];
     result: { state?: string; source?: string; applied?: AppliedItem[]; failed?: FailedItem[] };
