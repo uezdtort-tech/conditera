@@ -15,10 +15,10 @@ function requestMetadata(request?: Request) {
     : /Mac OS X|Macintosh/i.test(ua) ? "macOS"
     : /Linux/i.test(ua) ? "Linux"
     : "Неизвестная ОС";
-  const browser = /Edg\\//i.test(ua) ? "Edge"
-    : /Firefox\\//i.test(ua) ? "Firefox"
-    : /Chrome\\//i.test(ua) ? "Chrome"
-    : /Safari\\//i.test(ua) ? "Safari"
+  const browser = /Edg/i.test(ua) ? "Edge"
+    : /Firefox/i.test(ua) ? "Firefox"
+    : /Chrome/i.test(ua) ? "Chrome"
+    : /Safari/i.test(ua) ? "Safari"
     : "Браузер";
   return { ip, userAgent, deviceLabel: `${platform} · ${browser}` };
 }
