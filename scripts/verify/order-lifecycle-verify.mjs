@@ -776,6 +776,9 @@ main()
         `DELETE FROM public.ops_tasks WHERE entity_type='order' AND entity_id = ANY($1::text[])`,
         [testOrders]
       );
+      if (registeredCustomerId) {
+        await client.query(`DELETE FROM auth.users WHERE id = $1::uuid`, [registeredCustomerId]);
+      }
       const left = await client.query(`SELECT count(*)::int AS c FROM public.orders WHERE number LIKE 'P05V-%'`);
       console.log(`cleanup: заказов удалено ${testOrders.length}, осталось P05V: ${left.rows[0].c}`);
     } catch (e) {
