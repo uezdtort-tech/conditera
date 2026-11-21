@@ -1034,7 +1034,7 @@ async function main() {
     [disputeId],
   );
   const adminIdentity = await client.query(
-    `SELECT id::text FROM public.profiles WHERE email = 'admin@demo.ru' LIMIT 1`,
+    `SELECT id::text FROM auth.users WHERE email = 'admin@demo.ru' LIMIT 1`,
   );
   assert("открытие спора создаёт задачу администратору, а решение закрывает её",
     disputeOpsTask.rows[0]?.status === "resolved" &&
