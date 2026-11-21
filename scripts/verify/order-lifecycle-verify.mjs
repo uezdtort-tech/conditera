@@ -214,10 +214,12 @@ async function prepareRecipeInventoryFixture() {
   let berryId;
   let created = false;
   let originalBerryQuantity = null;
+  let originalBerryUnit = null;
   if (existing.rows[0]) {
     berryId = existing.rows[0].id;
     originalBerryQuantity = Number(existing.rows[0].quantity);
-    await client.query(`UPDATE public.inventory_items SET quantity = 10 WHERE id = $1::uuid`, [berryId]);
+    originalBerryUnit = existing.rows[0].unit ?? null;
+    await client.query(`UPDATE public.inventory_items SET quantity = 10, unit = 'кг' WHERE id = $1::uuid`, [berryId]);
   } else {
     const inserted = await client.query(
       `INSERT INTO public.inventory_items
@@ -240,6 +242,7 @@ async function prepareRecipeInventoryFixture() {
     berryId,
     created,
     originalBerryQuantity,
+    originalBerryUnit,
     inventorySnapshot: snapshot.rows.map((row) => ({ id: row.id, quantity: Number(row.quantity) })),
   };
 }
@@ -659,8 +662,12 @@ main()
           await client.query(`DELETE FROM public.inventory_items WHERE id = $1::uuid`, [recipeInventoryFixture.berryId]);
         } else if (recipeInventoryFixture.originalBerryQuantity !== null) {
           await client.query(
-            `UPDATE public.inventory_items SET quantity = $2 WHERE id = $1::uuid`,
-            [recipeInventoryFixture.berryId, recipeInventoryFixture.originalBerryQuantity]
+            `UPDATE public.inventory_items SET quantity = $2, unit = $3 WHERE id = $1::uuid`,
+            [
+              recipeInventoryFixture.berryId,
+              recipeInventoryFixture.originalBerryQuantity,
+              recipeInventoryFixture.originalBerryUnit,
+            ]
           );
         }
       }
