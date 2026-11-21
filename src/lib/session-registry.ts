@@ -148,3 +148,48 @@ export async function revokeAllUserSessions(
   }
   return data?.length || 0;
 }
+
+
+/** Первичная привязка единственного refresh-токена к сессии. */
+export async function setSessionRefreshJti(
+  sessionId: string,
+  userId: string,
+  jti: string,
+): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from("user_sessions")
+    .update({ refresh_jti: jti })
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .is("revoked_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) {
+    console.error("[session-registry] initial refresh jti write failed:", error?.message);
+    throw new Error("Не удалось инициализировать refresh-сессию");
+  }
+}
+
+/** Атомарная одноразовая ротация: старый jti после успеха больше не принимается. */
+export async function rotateSessionRefreshJti(
+  sessionId: string,
+  userId: string,
+  currentJti: string,
+  nextJti: string,
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("user_sessions")
+    .update({ refresh_jti: nextJti, last_seen_at: new Date().toISOString() })
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .eq("refresh_jti", currentJti)
+    .is("revoked_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("[session-registry] refresh rotation failed closed:", error.message);
+    return false;
+  }
+  return Boolean(data);
+}
