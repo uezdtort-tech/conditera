@@ -964,6 +964,21 @@ async function main() {
     disputeCreate.status === 201 && Boolean(disputeCreate.json?.dispute?.id),
     JSON.stringify(disputeCreate.json).slice(0, 240));
   const disputeId = disputeCreate.json?.dispute?.id;
+  const duplicateDispute = await api("POST", `/api/orders/${pickup.orderId}/disputes`, {
+    token: customer,
+    raw: disputeForm(),
+  });
+  assert("второй активный спор по тому же заказу отклоняется → 409",
+    duplicateDispute.status === 409 && duplicateDispute.json?.error === "ACTIVE_DISPUTE_ALREADY_EXISTS",
+    JSON.stringify(duplicateDispute.json));
+  const disputeMediaCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.order_media
+      WHERE order_id = $1::uuid AND kind = 'dispute_evidence' AND status = 'approved'`,
+    [pickup.orderId],
+  );
+  assert("отклонённый дубль не оставляет активного orphan-файла",
+    disputeMediaCount.rows[0]?.count === 1,
+    `active evidence media=${disputeMediaCount.rows[0]?.count}`);
   const disputeView = await api("GET", `/api/orders/${pickup.orderId}/disputes`, { token: customer });
   assert("покупатель видит свой спор и вложенное доказательство",
     disputeView.status === 200 && disputeView.json?.dispute?.evidence?.length === 1,
