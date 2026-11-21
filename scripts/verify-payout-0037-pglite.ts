@@ -366,6 +366,16 @@ async function main() {
   await db.query("RESET ROLE");
   directOrderWriteBlocked ? ok("authenticated не может менять статус собственного заказа напрямую") : fail("прямая запись в orders не запрещена");
 
+  await db.query("SET ROLE authenticated");
+  await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [ids.buyer]);
+  const directOrderInsertBlocked = await db.query(
+    `INSERT INTO public.orders (user_id, status, payment_status)
+     VALUES ($1::uuid, 'PENDING', 'pending')`,
+    [ids.buyer]
+  ).then(() => false).catch((e: Error) => /permission denied/.test(e.message));
+  await db.query("RESET ROLE");
+  directOrderInsertBlocked ? ok("authenticated не может создавать заказ в обход checkout") : fail("прямое создание заказа не запрещено");
+
   // 5. Гранты: только service_role
   for (const fn of ["release_escrow_order", "consume_tfa_backup_code"]) {
     const acl = await db.query<{ proacl: string[] | null }>(
