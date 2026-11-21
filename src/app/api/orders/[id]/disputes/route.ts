@@ -307,6 +307,15 @@ export async function PATCH(
          jsonb_build_object('resolution', NULLIF($5::text, ''), 'assigned_to', $6::text))`,
       [disputeId, user.id, current.status, nextStatus, resolution, hasAssignmentChange ? assignedTo : current.assigned_to],
     );
+    if (hasAssignmentChange) {
+      await client.query(
+        `UPDATE public.ops_tasks
+         SET assignee_role = CASE WHEN $2::uuid IS NULL THEN 'ADMIN' ELSE 'SUPPORT' END,
+             assignee_id = $2::uuid, updated_at = now()
+         WHERE dedup_key = $1 AND status = 'open'`,
+        [`ORDER_DISPUTE:${disputeId}`, assignedTo],
+      );
+    }
     if (["resolved", "rejected"].includes(nextStatus)) {
       await client.query(
         `UPDATE public.ops_tasks
