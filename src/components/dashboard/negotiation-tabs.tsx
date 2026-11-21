@@ -275,12 +275,7 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
 
       {/* List */}
       <div className="space-y-3">
-        {loadingQuotes && (
-          <Card className="p-8 text-center text-muted-foreground">
-            Загружаем предложения кондитеров…
-          </Card>
-        )}
-        {!loadingQuotes && filteredNegotiations.length === 0 && (
+        {filteredNegotiations.length === 0 && (
           <Card className="p-8 text-center text-muted-foreground">
             <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
             <p className="text-sm">
@@ -889,7 +884,12 @@ export function CustomerNegotiationTab() {
 
       {/* List */}
       <div className="space-y-3">
-        {filteredNegotiations.length === 0 && (
+        {loadingQuotes && (
+          <Card className="p-8 text-center text-muted-foreground">
+            Загружаем предложения кондитеров…
+          </Card>
+        )}
+        {!loadingQuotes && filteredNegotiations.length === 0 && (
           <Card className="p-8 text-center text-muted-foreground">
             <ShoppingBag className="h-10 w-10 mx-auto mb-2 opacity-30" />
             <p className="text-sm">
