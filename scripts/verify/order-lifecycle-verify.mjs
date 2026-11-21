@@ -112,7 +112,7 @@ function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-async function createTestOrder({ confectionerId = null, deliveryDate, window = "15:00-18:00", escrow = true }) {
+async function createTestOrder({ confectionerId = null, deliveryDate, window = "15:00-18:00", escrow = true, deliveryType = "delivery" }) {
   const number = orderNumber();
   const res = await client.query(
     `INSERT INTO public.orders
@@ -121,7 +121,7 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
         delivery_date, delivery_time_window, delivery_type, metadata, paid_at,
         confirmed_at)
      VALUES ($1, $2::uuid, $3::uuid, 2400, 0, 0, 2400, 'PENDING', $4, 'card',
-             'ул. Тестовая, 1', 'Москва', $5::date, $6, 'delivery',
+             'ул. Тестовая, 1', 'Москва', $5::date, $6, $8,
              jsonb_build_object('test','p05-verify'), $7, $7)
      RETURNING id::text`,
     [
@@ -132,6 +132,7 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
       deliveryDate,
       window,
       escrow ? new Date().toISOString() : null,
+      deliveryType,
     ]
   );
   const orderId = res.rows[0].id;
@@ -888,6 +889,59 @@ async function main() {
     assert(`timeline содержит ${ev}`, tlTypes.includes(ev), tlTypes.join(","));
   }
   assert("timeline НЕ содержит параллельной истории (только события+статусы)", timeline.json?.timeline?.length >= 8, `len=${timeline.json?.timeline?.length}`);
+
+  // Самовывоз: передача кондитером не равна подтверждению получения покупателем.
+  section("E2E №1b — самовывоз: handoff отдельно от customer receipt");
+  const pickup = await createTestOrder({
+    confectionerId: OWNER_ID,
+    deliveryDate: tomorrowStr,
+    deliveryType: "pickup",
+  });
+  testOrders.push(pickup.orderId);
+  await client.query(
+    `UPDATE public.orders SET status = 'READY' WHERE id = $1::uuid`,
+    [pickup.orderId]
+  );
+
+  const pickupPrematureComplete = await api("POST", `/api/orders/${pickup.orderId}/complete`, { token: customer });
+  assert("покупатель не может подтвердить получение до handoff → 409",
+    pickupPrematureComplete.status === 409);
+
+  const pickupHandoff = await api("POST", `/api/orders/${pickup.orderId}/handoff`, {
+    token: owner,
+    body: { executor: "Кондитер самовывоза" },
+  });
+  assert("самовывоз: handoff переводит READY → DELIVERED",
+    pickupHandoff.status === 200 && pickupHandoff.json?.status === "DELIVERED",
+    JSON.stringify(pickupHandoff.json));
+
+  const pickupDeliveryRows = await client.query(
+    `SELECT count(*)::int AS count FROM public.deliveries WHERE order_id = $1::uuid`,
+    [pickup.orderId]
+  );
+  assert("для самовывоза не создаётся доставка курьером",
+    pickupDeliveryRows.rows[0]?.count === 0);
+
+  const pickupHandoffEvents = await client.query(
+    `SELECT count(*)::int AS count FROM public.domain_events
+      WHERE entity_type = 'order' AND entity_id = $1::text AND type = 'order.handed_off'`,
+    [pickup.orderId]
+  );
+  assert("самовывоз записывает ровно одно событие order.handed_off",
+    pickupHandoffEvents.rows[0]?.count === 1,
+    `count=${pickupHandoffEvents.rows[0]?.count}`);
+
+  const pickupComplete = await api("POST", `/api/orders/${pickup.orderId}/complete`, { token: customer });
+  assert("только после handoff покупатель подтверждает получение → COMPLETED",
+    pickupComplete.status === 200 && pickupComplete.json?.status === "COMPLETED",
+    JSON.stringify(pickupComplete.json));
+
+  const pickupDbState = await client.query(
+    `SELECT status FROM public.orders WHERE id = $1::uuid`,
+    [pickup.orderId]
+  );
+  assert("БД сохраняет отдельный финальный статус COMPLETED",
+    pickupDbState.rows[0]?.status === "COMPLETED");
 
   const mediaServe = await fetch(`${BASE}${mediaUrl}`, { headers: { Authorization: `Bearer ${admin}` } });
   assert("фото раздаётся авторизованному (200, image/png)", mediaServe.status === 200 && mediaServe.headers.get("content-type") === "image/png", `${mediaServe.status} ${mediaServe.headers.get("content-type")}`);
