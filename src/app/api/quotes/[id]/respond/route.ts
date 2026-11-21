@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
+import { getPool } from "@/lib/postgrest/pool";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,7 @@ interface RespondBody {
   available_date?: string;
   offered_packaging?: string;
   offered_delivery?: string;
+  production_product_id?: string;
 }
 
 export async function POST(
@@ -75,24 +77,63 @@ export async function POST(
       throw new HttpError(400, parseError || "Невалидный JSON");
     }
 
-    // Расчёт суммы
-    const base = body.base_cost || 0;
-    const filling = body.filling_cost || 0;
-    const coating = body.coating_cost || 0;
-    const decoration = body.decoration_cost || 0;
-    const packaging = body.packaging_cost || 0;
-    const printing = body.printing_cost || 0;
-    const storage = body.storage_cost || 0;
-    const delivery = body.delivery_cost || 0;
-    const service = body.service_cost || 0;
-    const customDesign = body.custom_design_cost || 0;
+    // Денежные поля API и таблицы confectioner_quotes — только целые копейки.
+    const money = (value: unknown, field: string): number => {
+      if (value === undefined || value === null) return 0;
+      if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 100_000_000) {
+        throw new HttpError(400, `Некорректная сумма: ${field} (ожидаются целые копейки)`);
+      }
+      return value as number;
+    };
+    const base = money(body.base_cost, "base_cost");
+    const filling = money(body.filling_cost, "filling_cost");
+    const coating = money(body.coating_cost, "coating_cost");
+    const decoration = money(body.decoration_cost, "decoration_cost");
+    const packaging = money(body.packaging_cost, "packaging_cost");
+    const printing = money(body.printing_cost, "printing_cost");
+    const storage = money(body.storage_cost, "storage_cost");
+    const delivery = money(body.delivery_cost, "delivery_cost");
+    const service = money(body.service_cost, "service_cost");
+    const customDesign = money(body.custom_design_cost, "custom_design_cost");
 
     const subtotal = base + filling + coating + decoration + packaging +
       printing + storage + delivery + service + customDesign;
+    if (!Number.isSafeInteger(subtotal) || subtotal <= 0) {
+      throw new HttpError(400, "Итоговая стоимость предложения должна быть положительной");
+    }
 
-    const discountPercent = body.discount_percent || 0;
+    const discountPercent = body.discount_percent ?? 0;
+    if (!Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 50) {
+      throw new HttpError(400, "Скидка должна быть целым числом от 0 до 50%");
+    }
     const discountAmount = Math.round(subtotal * discountPercent / 100);
     const totalPrice = subtotal - discountAmount;
+    if (totalPrice <= 0) throw new HttpError(400, "Сумма после скидки должна быть положительной");
+
+    if (!body.production_product_id || !/^[0-9a-f-]{36}$/i.test(body.production_product_id)) {
+      throw new HttpError(422, "Выберите товар с действующим производственным рецептом");
+    }
+    const { data: productionProduct, error: productError } = await supabaseAdmin
+      .from("products")
+      .select("id, recipe_id, status")
+      .eq("id", body.production_product_id)
+      .eq("confectioner_id", confectioner.id)
+      .maybeSingle();
+    if (productError || !productionProduct || productionProduct.status !== "published" || !productionProduct.recipe_id) {
+      throw new HttpError(422, "Выбранный производственный товар недоступен или не имеет рецепта");
+    }
+    const recipeCheck = await getPool().query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM public.recipe_ingredients WHERE recipe_id = $1::uuid",
+      [productionProduct.recipe_id]
+    );
+    if (Number(recipeCheck.rows[0]?.count ?? 0) === 0) {
+      throw new HttpError(422, "В производственном рецепте нет ингредиентов");
+    }
+
+    const prepDays = body.prep_days ?? 3;
+    if (!Number.isInteger(prepDays) || prepDays < 1 || prepDays > 365) {
+      throw new HttpError(400, "Срок изготовления должен быть от 1 до 365 дней");
+    }
 
     // Проверить, что скидка в пределах лимита
     const { data: pricing } = await supabaseAdmin
@@ -102,6 +143,9 @@ export async function POST(
       .eq("city", quoteRequest.city)
       .maybeSingle();
 
+    if (discountPercent > 0 && (!pricing || !pricing.accepts_discount_requests)) {
+      throw new HttpError(400, "Кондитер не принимает запросы на скидку");
+    }
     if (pricing && discountPercent > pricing.max_discount_percent) {
       throw new HttpError(400, `Максимальная скидка: ${pricing.max_discount_percent}%`);
     }
@@ -131,11 +175,12 @@ export async function POST(
       discount_percent: discountPercent,
       discount_amount: discountAmount,
       total_price: totalPrice,
-      prep_days: body.prep_days || 3,
+      prep_days: prepDays,
       available_date: body.available_date,
       comment: body.comment,
       offered_packaging: body.offered_packaging,
       offered_delivery: body.offered_delivery,
+      production_product_id: productionProduct.id,
       status: "pending",
     };
 
