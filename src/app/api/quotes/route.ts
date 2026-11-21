@@ -206,13 +206,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           my_quotes:confectioner_quotes(*)
         `)
         .contains("confectioner_ids", [confectioner.id])
+        // PostgREST embedded filter: leave RFQs without this confectioner's
+        // own offer visible, but never return another confectioner's pricing.
+        .eq("my_quotes.confectioner_id", confectioner.id)
         .order("created_at", { ascending: false });
 
       if (error) {
         throw new HttpError(500, "DB error", error.message);
       }
 
-      return NextResponse.json({ quotes: quotes || [], confectioner_id: confectioner.id });
+      // Once the buyer has accepted an offer, the RFQ is visible only to the
+      // selected confectioner. Other invited confectioners no longer need the
+      // customer's project, address or reference media.
+      const visibleQuotes = (quotes || []).filter((request) => {
+        if (request.status !== "approved") return true;
+        const ownQuotes = Array.isArray(request.my_quotes)
+          ? request.my_quotes
+          : request.my_quotes ? [request.my_quotes] : [];
+        return ownQuotes.some((quote) => quote.status === "accepted");
+      });
+
+      return NextResponse.json({ quotes: visibleQuotes, confectioner_id: confectioner.id });
     }
 
     throw new HttpError(400, "Неизвестный режим. Используйте ?mode=my или ?mode=confectioner");
