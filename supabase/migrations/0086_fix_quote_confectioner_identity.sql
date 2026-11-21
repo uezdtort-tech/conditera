@@ -121,7 +121,7 @@ BEGIN
     'PENDING', 'product',
     CASE WHEN COALESCE(v_request.delivery_type, 'delivery') = 'delivery'
       THEN v_request.address ELSE NULL END,
-    v_request.city, v_request.delivery_date,
+    v_request.city, v_request.delivery_date::date,
     COALESCE(v_request.delivery_type, 'delivery'),
     v_request.comment, 'yookassa',
     jsonb_build_object(
