@@ -54,7 +54,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       `
       )
       .eq("status", "IN_DELIVERY")
-      .is("courier_id", null)
       .order("delivery_date", { ascending: true })
       .limit(MAX_ORDERS_RETURN);
 
@@ -70,8 +69,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ orders: [], total: 0 });
     }
 
-    // Получить items для всех заказов одним запросом
-    const orderIds = orders.map((o: any) => o.id);
+    // Назначение курьера хранится в deliveries, а не в orders.
+    const candidateIds = orders.map((order: any) => order.id);
+    const { data: activeAssignments, error: assignmentError } = await supabaseAdmin
+      .from("deliveries")
+      .select("order_id")
+      .in("order_id", candidateIds)
+      .in("status", ["assigned", "picked_up", "on_the_way"]);
+    if (assignmentError) {
+      console.error("[courier/available-orders] assignment lookup failed:", assignmentError.message);
+      return NextResponse.json({ error: "Не удалось проверить назначения доставок" }, { status: 503 });
+    }
+    const assignedIds = new Set((activeAssignments || []).map((assignment: any) => assignment.order_id));
+    const availableOrders = orders.filter((order: any) => !assignedIds.has(order.id));
+    if (availableOrders.length === 0) {
+      return NextResponse.json({ orders: [], total: 0 });
+    }
+
+    // Получить items для всех свободных заказов одним запросом
+    const orderIds = availableOrders.map((o: any) => o.id);
     const [{ data: items }, { data: customers }, { data: confectioners }] = await Promise.all([
       supabaseAdmin
         .from("order_items")
@@ -80,11 +96,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       supabaseAdmin
         .from("profiles")
         .select("id, name, phone")
-        .in("id", orders.map((o: any) => o.user_id).filter(Boolean)),
+        .in("id", availableOrders.map((o: any) => o.user_id).filter(Boolean)),
       supabaseAdmin
         .from("confectioners")
         .select("id, businessName, city")
-        .in("id", orders.map((o: any) => o.confectioner_id).filter(Boolean)),
+        .in("id", availableOrders.map((o: any) => o.confectioner_id).filter(Boolean)),
     ]);
 
     // Сгруппировать items по order_id
@@ -106,7 +122,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // Собрать итоговый массив
-    const result = orders.map((o: any) => ({
+    const result = availableOrders.map((o: any) => ({
       id: o.id,
       number: o.number,
       status: o.status,
