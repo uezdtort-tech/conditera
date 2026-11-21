@@ -36,8 +36,8 @@ test.describe.serial('Integration: full auth flow', () => {
       },
     })
 
-    // Может вернуть 201 (success), 409 (email already exists), 429 (rate limit), 500 (БД недоступна)
-    if (response.status() === 201) {
+    // Контракт /api/auth/register: 200 (успешная регистрация), 409/429/500 — ожидаемые отказы.
+    if (response.status() === 200 || response.status() === 201) {
       const json = await response.json()
       expect(json.user).toBeDefined()
       expect(json.accessToken).toBeDefined()
