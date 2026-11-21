@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
-  result: { data: { id: "session-1" }, error: null as { message: string } | null },
+  result: { data: { id: "session-1" } as { id: string } | null, error: null as { message: string } | null },
   from: vi.fn(),
   update: vi.fn(),
   insert: vi.fn(),
