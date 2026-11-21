@@ -11,6 +11,7 @@ import { getOrderChecklist, ensureChecklist, setStageDone, getProductionSnapshot
 import { loadOrderItemsData } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
 import { writeOffOrderRecipe } from "@/lib/ops/recipe-writeoff";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +66,24 @@ export async function POST(
     const stages = await getOrderChecklist(id);
     const stage = stages.find((item) => item.stage_key === stageKey);
     if (!stage) return NextResponse.json({ error: "STAGE_NOT_FOUND" }, { status: 404 });
+
+    if (stageKey === "ingredients_prepared" && !body.done && order.confectioner_id) {
+      const { data: existingWriteOff, error: writeOffLookupError } = await supabaseAdmin
+        .from("inventory_write_offs")
+        .select("id")
+        .eq("owner_id", order.confectioner_id)
+        .eq("order_id", id)
+        .limit(1);
+      if (writeOffLookupError) {
+        return NextResponse.json({ error: "Не удалось проверить списание склада" }, { status: 503 });
+      }
+      if (existingWriteOff?.length) {
+        return NextResponse.json(
+          { error: "STOCK_ALREADY_WRITTEN_OFF", message: "Ингредиенты уже списаны со склада; отменять этот этап нельзя." },
+          { status: 409 }
+        );
+      }
+    }
 
     // При подтверждении подготовки ингредиентов система сама рассчитывает
     // нормы по рецептам заказа и списывает их со склада. Ручной ввод списка
