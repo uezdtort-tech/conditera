@@ -92,7 +92,7 @@ export async function POST(
 
     await client.query(
       `UPDATE public.order_disputes
-       SET status = 'under_review', updated_at = now(), closed_at = NULL
+       SET status = 'under_review', resolution = NULL, updated_at = now(), closed_at = NULL
        WHERE id = $1::uuid`,
       [disputeId],
     );
