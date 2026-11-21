@@ -3,18 +3,16 @@
  *
  * Тело запроса: { orderId: string }
  *
- * Атомарно: только заказ без курьера в статусе IN_DELIVERY (кондитер уже подтвердил передачу).
- * Два курьера не смогут взять один и тот же заказ одновременно
- * (через .update().is("courier_id", null) — optimistic lock).
- *
- * После назначения: статус меняется на IN_DELIVERY, инкрементируется
- * deliveries_count в courier_profiles.
+ * Атомарно: только заказ IN_DELIVERY, переданный кондитером.
+ * Назначение записывается в deliveries через RPC с SELECT FOR UPDATE;
+ * повторный запрос того же курьера идемпотентен.
  *
  * Auth: COURIER role.
  *
  * Соответствует таблицам:
- *  - orders (атомарное обновление courier_id, status)
- *  - courier_profiles (инкремент deliveries_count)
+ *  - deliveries (назначение курьера)
+ *  - orders (номер заказа и статус handoff)
+ *  - courier_profiles (счётчик доставок)
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -61,67 +59,64 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const courierId = user.id;
 
-    // Атомарное назначение: заказ уже должен быть передан кондитером (IN_DELIVERY).
-    // Используем update + eq().is() для optimistic lock.
-    // Возвращаем обновлённую запись для проверки count.
-    const { data: updated, error: updateErr } = await supabaseAdmin
-      .from("orders")
-      .update({
-        courier_id: courierId,
-        status: "IN_DELIVERY",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", orderId)
-      .is("courier_id", null)
-      .eq("status", "IN_DELIVERY")
-      .select("id, number")
-      .maybeSingle();
+    // Источник назначения — deliveries.courier_id. RPC блокирует строку
+    // заказа FOR UPDATE, проверяет IN_DELIVERY и идемпотентно создаёт delivery.
+    const { data: assignment, error: assignError } = await supabaseAdmin.rpc(
+      "assign_order_delivery",
+      { p_order_id: orderId, p_courier_id: courierId }
+    );
 
-    if (updateErr) {
-      console.error("[courier/assign] update error:", updateErr.message);
-      return NextResponse.json(
-        { error: "Database update failed", details: updateErr.message },
-        { status: 500 }
-      );
+    if (assignError) {
+      const message = assignError.message || "Delivery assignment failed";
+      const status =
+        message.includes("ORDER_NOT_FOUND") ? 404 :
+        message.includes("DELIVERY_NOT_REQUIRED") || message.includes("DELIVERY_ADDRESS_REQUIRED") ? 422 :
+        message.includes("ORDER_NOT_HANDED_OFF") || message.includes("ORDER_ALREADY_ASSIGNED") ? 409 : 500;
+      if (status === 500) console.error("[courier/assign] RPC failed:", message);
+      return NextResponse.json({ error: message }, { status });
     }
 
-    // Если updated === null — значит условие не выполнилось (заказ уже занят)
-    if (!updated) {
-      return NextResponse.json(
-        {
-          error: "Заказ уже занят другим курьером, доставлен или не найден",
-        },
-        { status: 409 }
-      );
+    const result = Array.isArray(assignment) ? assignment[0] : assignment;
+    if (!result?.delivery_id) {
+      return NextResponse.json({ error: "Не удалось создать назначение доставки" }, { status: 500 });
     }
 
-    // Инкремент deliveries_count в courier_profiles (non-blocking)
-    try {
-      // Получить текущее значение
-      const { data: profile } = await supabaseAdmin
-        .from("courier_profiles")
-        .select("id, deliveriesCount")
-        .eq("userId", courierId)
-        .maybeSingle();
-
-      if (profile) {
-        await supabaseAdmin
+    // Счётчик увеличиваем только при новом назначении; повторный запрос
+    // того же курьера возвращает существующую доставку без повторного инкремента.
+    if (result.created) {
+      try {
+        const { data: profile } = await supabaseAdmin
           .from("courier_profiles")
-          .update({
-            deliveriesCount: (profile.deliveriesCount || 0) + 1,
-            updatedAt: new Date().toISOString(),
-          })
-          .eq("id", profile.id);
+          .select("id, deliveriesCount")
+          .eq("userId", courierId)
+          .maybeSingle();
+        if (profile) {
+          await supabaseAdmin
+            .from("courier_profiles")
+            .update({
+              deliveriesCount: (profile.deliveriesCount || 0) + 1,
+              updatedAt: new Date().toISOString(),
+            })
+            .eq("id", profile.id);
+        }
+      } catch (e: any) {
+        console.warn("[courier/assign] courier_profiles update failed:", e?.message);
       }
-    } catch (e: any) {
-      console.warn("[courier/assign] courier_profiles update failed:", e?.message);
     }
+
+    const { data: order } = await supabaseAdmin
+      .from("orders")
+      .select("number")
+      .eq("id", orderId)
+      .maybeSingle();
 
     return NextResponse.json({
       success: true,
-      orderId: updated.id,
-      orderNumber: updated.number,
-      courierId,
+      deliveryId: result.delivery_id,
+      orderId: result.order_id,
+      orderNumber: order?.number ?? null,
+      courierId: result.courier_id,
+      created: Boolean(result.created),
     });
   } catch (error: any) {
     console.error("POST /api/courier/assign error:", error?.message);
