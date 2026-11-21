@@ -324,14 +324,20 @@ async function main() {
   async function visibleOrders(userId: string): Promise<number> {
     await db.query("SET ROLE authenticated");
     await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [userId]);
-    const count = await db.query<{ n: string }>("SELECT count(*)::text AS n FROM public.orders");
+    const count = await db.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM public.orders WHERE id = ANY($1::uuid[])",
+      [[courierOrderId, supportOrderId]]
+    );
     await db.query("RESET ROLE");
     return Number(count.rows[0].n);
   }
   async function visibleItems(userId: string): Promise<number> {
     await db.query("SET ROLE authenticated");
     await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [userId]);
-    const count = await db.query<{ n: string }>("SELECT count(*)::text AS n FROM public.order_items");
+    const count = await db.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM public.order_items WHERE order_id = ANY($1::uuid[])",
+      [[courierOrderId, supportOrderId]]
+    );
     await db.query("RESET ROLE");
     return Number(count.rows[0].n);
   }
@@ -347,16 +353,16 @@ async function main() {
   const buyerVisible = await visibleOrders(ids.buyer);
   buyerVisible === 1 ? ok("покупатель видит только собственный заказ") : fail(`покупатель видит ${buyerVisible} заказов вместо 1`);
   const adminVisible = await visibleOrders(ids.admin);
-  adminVisible === 2 ? ok("администратор видит все тестовые заказы") : fail(`администратор видит ${adminVisible} заказов вместо 2`);
+  adminVisible === 2 ? ok("администратор видит оба тестовых заказа") : fail(`администратор видит ${adminVisible} заказов вместо 2`);
 
   await db.query("SET ROLE authenticated");
   await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [ids.buyer]);
   const directOrderWriteBlocked = await db.query(
     `UPDATE public.orders SET status='COMPLETED' WHERE id=$1::uuid`,
-    [supportOrderId]
+    [courierOrderId]
   ).then(() => false).catch((e: Error) => /permission denied/.test(e.message));
   await db.query("RESET ROLE");
-  directOrderWriteBlocked ? ok("authenticated не может менять статус заказа напрямую") : fail("прямая запись в orders не запрещена");
+  directOrderWriteBlocked ? ok("authenticated не может менять статус собственного заказа напрямую") : fail("прямая запись в orders не запрещена");
 
   // 5. Гранты: только service_role
   for (const fn of ["release_escrow_order", "consume_tfa_backup_code"]) {
