@@ -133,10 +133,21 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Не удалось загрузить запросы");
     const mapped = mapConfectionerQuoteRequests(data.quotes || [], confectionerId);
+    const withMedia = await Promise.all(mapped.map(async (item) => {
+      const mediaResponse = await csrfFetch(`/api/quotes/${item.inquiryId}/media`);
+      if (!mediaResponse.ok) return item;
+      const mediaData = await mediaResponse.json().catch(() => ({}));
+      return {
+        ...item,
+        referenceMedia: (mediaData.media || []).map((media: { id: string; url: string; kind: "customer_reference" | "builder_preview" }) => ({
+          id: media.id, url: media.url, kind: media.kind,
+        })),
+      };
+    }));
     useAppStore.setState((state) => ({
       negotiations: [
         ...state.negotiations.filter((item) => item.confectionerId !== confectionerId),
-        ...mapped,
+        ...withMedia,
       ],
     }));
   }, [confectionerId]);
@@ -322,6 +333,16 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
                 </div>
                 {neg.originalRequest.comment && (
                   <div className="text-xs mt-2 italic text-muted-foreground">«{neg.originalRequest.comment}»</div>
+                )}
+                {neg.referenceMedia && neg.referenceMedia.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {neg.referenceMedia.map((media) => (
+                      <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="block">
+                        <img src={media.url} alt={media.kind === "builder_preview" ? "Макет торта" : "Фото-пожелание покупателя"} className="w-full aspect-square object-cover rounded-md border" loading="lazy" />
+                        <span className="text-[10px] text-muted-foreground">{media.kind === "builder_preview" ? "Макет" : "Пожелание"}</span>
+                      </a>
+                    ))}
+                  </div>
                 )}
                 {neg.originalRequest.inscription && (
                   <div className="text-xs mt-1">Надпись: <strong>«{neg.originalRequest.inscription}»</strong></div>
@@ -775,7 +796,19 @@ export function CustomerNegotiationTab() {
       const response = await csrfFetch("/api/quotes?mode=my");
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Не удалось загрузить предложения");
-      setMyNegotiations(mapCustomerQuoteRequests(data.quotes || []));
+      const mapped = mapCustomerQuoteRequests(data.quotes || []);
+      const withMedia = await Promise.all(mapped.map(async (item) => {
+        const mediaResponse = await csrfFetch(`/api/quotes/${item.inquiryId}/media`);
+        if (!mediaResponse.ok) return item;
+        const mediaData = await mediaResponse.json().catch(() => ({}));
+        return {
+          ...item,
+          referenceMedia: (mediaData.media || []).map((media: { id: string; url: string; kind: "customer_reference" | "builder_preview" }) => ({
+            id: media.id, url: media.url, kind: media.kind,
+          })),
+        };
+      }));
+      setMyNegotiations(withMedia);
     } finally {
       setLoadingQuotes(false);
     }
@@ -900,6 +933,16 @@ export function CustomerNegotiationTab() {
                 <div className="text-muted-foreground mt-1">
                   Оценка: <strong>{formatCurrency(neg.originalRequest.estimatedPrice)}</strong>
                 </div>
+                {neg.referenceMedia && neg.referenceMedia.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {neg.referenceMedia.map((media) => (
+                      <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="block">
+                        <img src={media.url} alt={media.kind === "builder_preview" ? "Макет торта" : "Фото-пожелание"} className="w-full aspect-square object-cover rounded-md border" loading="lazy" />
+                        <span className="text-[10px] text-muted-foreground">{media.kind === "builder_preview" ? "Макет" : "Пожелание"}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Quoted items */}
