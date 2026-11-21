@@ -38,7 +38,7 @@ function fail(label: string, detail = "") {
 
 async function main() {
   const db = new PGlite();
-  console.log("PGlite in-memory → применяем фикстуру + 0037\n");
+  console.log("PGlite in-memory → проверяем финансовые, RLS и delivery migrations\n");
 
   // Роли, на которые ссылается 0037 (в PGlite их нет)
   await db.exec(`
@@ -430,7 +430,7 @@ async function main() {
   directDeliveryWriteBlocked ? ok("курьер не может менять назначение/заработок доставки напрямую") : fail("прямая запись в deliveries не запрещена");
 
   // 5. Гранты: только service_role
-  for (const fn of ["release_escrow_order", "consume_tfa_backup_code"]) {
+  for (const fn of ["release_escrow_order", "consume_tfa_backup_code", "assign_order_delivery"]) {
     const acl = await db.query<{ proacl: string[] | null }>(
       `SELECT proacl FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname='public' AND p.proname=$1`,
@@ -452,7 +452,7 @@ async function main() {
   await db.exec(COURIER_ASSIGNMENT_SQL);
   ok("повторное применение 0037 + 0074 + 0075 + 0076 — идемпотентно");
 
-  console.log(`\n${failed === 0 ? "✅ ИТОГ: 0037 валидна" : `❌ ИТОГ: проваленных проверок — ${failed}`}`);
+  console.log(`\n${failed === 0 ? "✅ ИТОГ: финансовые, RLS и delivery migrations валидны" : `❌ ИТОГ: проваленных проверок — ${failed}`}`);
   await db.close();
   process.exit(failed === 0 ? 0 : 1);
 }
