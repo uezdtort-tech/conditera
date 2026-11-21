@@ -137,7 +137,8 @@ async function login(email) {
 
 // ---------------------------------------------------------------------------
 
-const client = new Client({ connectionString: "postgresql://postgres@127.0.0.1:54329/conditera" });
+const PG_URL = process.env.PGURL || process.env.PG_URL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const client = new Client({ connectionString: PG_URL });
 const createdProducts = []; // {id, storageRoot}
 
 async function main() {
