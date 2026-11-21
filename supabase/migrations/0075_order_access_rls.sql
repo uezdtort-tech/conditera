@@ -65,7 +65,7 @@ CREATE POLICY "order_items_select_own" ON public.order_items
       WHERE o.id = order_items.order_id
         AND (
           o.user_id = auth.uid()
-          OR o.confectioner_id = auth.uid()
+          OR o.confectioner_id::text = auth.uid()::text
           OR EXISTS (
             SELECT 1 FROM public.user_roles ur
             WHERE ur.user_id = auth.uid()
