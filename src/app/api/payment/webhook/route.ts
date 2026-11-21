@@ -157,6 +157,20 @@ export async function POST(request: NextRequest) {
     const wireKop = wireAmountToKop(object.amount);
     const dbStatus = yookassaStatusToDb(object.status ?? "");
 
+    // PAY-1 MUST run before any write to the financial ledger.
+    // A forged/mismatched webhook must not claim an unbound pending payment.
+    const pv = await verifyEventWithProvider(event, object, wireKop);
+    if (!pv.ok) {
+      console.error(
+        `[webhook] provider verification failed (event=${event}, object=${object.id}) — fail-closed 500`
+      );
+      return NextResponse.json({ error: "Provider verification failed" }, { status: 500 });
+    }
+    if (pv.skip) {
+      console.warn(`[webhook] provider mismatch (event=${event}, object=${object.id}) — skipped`);
+      return NextResponse.json({ success: true, skipped: pv.skip });
+    }
+
     // === 1. Матчинг платежа по provider id (точный) ===
     // Для refund.* объект — возврат, платёж ищем по object.payment_id.
     const providerPaymentId = object.payment_id || object.id;
@@ -176,6 +190,10 @@ export async function POST(request: NextRequest) {
     // Никогда не выбираем «последний платёж» с другим provider ID: это могло
     // записать статус новой оплаты в чужую попытку после повторного checkout.
     const metaOrderId = object.metadata?.orderId;
+    // Validate the only value used by legacy linking before touching payments.
+    if (metaOrderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metaOrderId)) {
+      return NextResponse.json({ error: "Invalid orderId in webhook metadata" }, { status: 400 });
+    }
     if (!payment && metaOrderId && event.startsWith("payment.")) {
       const { data: legacyRows, error: legacyLookupError } = await supabaseAdmin
         .from("payments")
@@ -213,19 +231,6 @@ export async function POST(request: NextRequest) {
     // ошибкой входного webhook, а не внутренней ошибкой БД (500).
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId)) {
       return NextResponse.json({ error: "Invalid orderId in webhook metadata" }, { status: 400 });
-    }
-
-    // === PAY-1: СВЕРКА СОБЫТИЯ С ПРОВАЙДЕРОМ ===
-    const pv = await verifyEventWithProvider(event, object, wireKop);
-    if (!pv.ok) {
-      console.error(
-        `[webhook] provider verification failed (event=${event}, object=${object.id}) — fail-closed 500`
-      );
-      return NextResponse.json({ error: "Provider verification failed" }, { status: 500 });
-    }
-    if (pv.skip) {
-      console.warn(`[webhook] provider mismatch (event=${event}, object=${object.id}) — skipped`);
-      return NextResponse.json({ success: true, skipped: pv.skip });
     }
 
     // === IDEMPOTENCY CHECK ===
