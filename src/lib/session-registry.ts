@@ -19,6 +19,20 @@ export async function createUserSession(
   const sessionId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { ip, userAgent } = requestMetadata(request);
+  const { data: previousSessions, error: historyError } = await supabaseAdmin
+    .from("user_sessions")
+    .select("id, ip_address, user_agent")
+    .eq("user_id", userId)
+    .is("revoked_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("last_seen_at", { ascending: false })
+    .limit(10);
+  if (historyError) {
+    console.error("[session-registry] prior-session lookup failed:", historyError.message);
+  }
+  const newDevice = Boolean(previousSessions?.length && !previousSessions.some(
+    (session) => session.user_agent === userAgent && session.ip_address === ip
+  ));
   const { error } = await supabaseAdmin.from("user_sessions").insert({
     id: sessionId,
     user_id: userId,
@@ -35,11 +49,15 @@ export async function createUserSession(
   const { error: eventError } = await supabaseAdmin.from("user_security_events").insert({
     user_id: userId,
     session_id: sessionId,
-    event_type: "session_created",
-    severity: "info",
+    event_type: newDevice ? "new_device_session" : "session_created",
+    severity: newDevice ? "warning" : "info",
     ip_address: ip,
     user_agent: userAgent,
-    details: { auth_method: authMethod },
+    details: {
+      auth_method: authMethod,
+      previous_active_sessions: previousSessions?.length || 0,
+      new_device: newDevice,
+    },
   });
   if (eventError) {
     // Session creation remains authoritative; telemetry failure is logged.
