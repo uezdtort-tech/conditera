@@ -211,9 +211,29 @@ export async function PATCH(
     const disputeId = typeof body.disputeId === "string" ? body.disputeId : "";
     const nextStatus = typeof body.status === "string" ? body.status : "";
     const resolution = typeof body.resolution === "string" ? body.resolution.trim() : "";
+    const hasAssignmentChange = Object.prototype.hasOwnProperty.call(body, "assignedTo");
+    const assignedTo = typeof body.assignedTo === "string" ? body.assignedTo : null;
     const allowed = new Set(["under_review", "awaiting_customer", "resolved", "rejected"]);
     if (!disputeId || !allowed.has(nextStatus)) {
       return NextResponse.json({ error: "INVALID_DISPUTE_TRANSITION" }, { status: 400 });
+    }
+    if (hasAssignmentChange && !canReview(user.roles)) {
+      return NextResponse.json({ error: "ONLY_ADMIN_CAN_ASSIGN_DISPUTE" }, { status: 403 });
+    }
+    if (assignedTo !== null) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(assignedTo)) {
+        return NextResponse.json({ error: "INVALID_ASSIGNEE" }, { status: 400 });
+      }
+      const { data: supportRole, error: roleError } = await supabaseAdmin
+        .from("user_roles")
+        .select("user_id")
+        .eq("user_id", assignedTo)
+        .eq("role", "SUPPORT")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (roleError || !supportRole) {
+        return NextResponse.json({ error: "ASSIGNEE_MUST_HAVE_ACTIVE_SUPPORT_ROLE" }, { status: 422 });
+      }
     }
     if (["resolved", "rejected"].includes(nextStatus) && resolution.length < 10) {
       return NextResponse.json({ error: "RESOLUTION_REQUIRED" }, { status: 422 });
@@ -249,18 +269,19 @@ export async function PATCH(
     const updated = await client.query(
       `UPDATE public.order_disputes
        SET status = $2, resolution = CASE WHEN $3 = '' THEN resolution ELSE $3 END,
+           assigned_to = CASE WHEN $4::boolean THEN $5::uuid ELSE assigned_to END,
            updated_at = now(),
            closed_at = CASE WHEN $2 IN ('resolved', 'rejected') THEN now() ELSE NULL END
        WHERE id = $1::uuid
-       RETURNING id, order_id, status, resolution, updated_at, closed_at`,
-      [disputeId, nextStatus, resolution],
+       RETURNING id, order_id, assigned_to, status, resolution, updated_at, closed_at`,
+      [disputeId, nextStatus, resolution, hasAssignmentChange, assignedTo],
     );
     await client.query(
       `INSERT INTO public.order_dispute_events
         (dispute_id, actor_id, event_type, from_status, to_status, details)
        VALUES ($1::uuid, $2::uuid, 'dispute.status_changed', $3, $4,
-         jsonb_build_object('resolution', NULLIF($5, '')))`,
-      [disputeId, user.id, current.status, nextStatus, resolution],
+         jsonb_build_object('resolution', NULLIF($5, ''), 'assigned_to', $6::text))`,
+      [disputeId, user.id, current.status, nextStatus, resolution, hasAssignmentChange ? assignedTo : current.assigned_to],
     );
     await client.query("COMMIT");
     return NextResponse.json({ dispute: updated.rows[0] });
