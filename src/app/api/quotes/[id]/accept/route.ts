@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createPayment, isYookassaConfigured, isLocalE2EPaymentStubEnabled } from "@/lib/yookassa";
+import { checkAcceptance, loadProductItemsData } from "@/lib/ops/acceptance";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,56 @@ export async function POST(
 
   if (!isYookassaConfigured() && process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
     return NextResponse.json({ error: "Платёжный шлюз не настроен", code: "PAYMENT_GATEWAY_UNAVAILABLE" }, { status: 503 });
+  }
+
+  // До фиксации заказа проверяем реальный рецепт, склад, мощность и срок.
+  const { data: quote, error: quoteError } = await supabaseAdmin
+    .from("confectioner_quotes")
+    .select("id, production_product_id, confectioner_id, quote_request_id")
+    .eq("id", quoteId)
+    .maybeSingle();
+  if (quoteError || !quote) return NextResponse.json({ error: "Предложение не найдено" }, { status: 404 });
+  const { data: quoteRequest, error: requestError } = await supabaseAdmin
+    .from("quote_requests")
+    .select("customer_id, quantity, delivery_date, delivery_type, status, expires_at")
+    .eq("id", quote.quote_request_id)
+    .maybeSingle();
+  if (requestError || !quoteRequest) return NextResponse.json({ error: "Запрос не найден" }, { status: 404 });
+  if (quoteRequest.customer_id !== user.id) return NextResponse.json({ error: "Нет доступа к запросу" }, { status: 403 });
+  if (!quote.production_product_id) {
+    return NextResponse.json({ error: "Кондитер не выбрал производственный рецепт", code: "PRODUCTION_RECIPE_NOT_SELECTED" }, { status: 422 });
+  }
+  if (new Date(quoteRequest.expires_at).getTime() <= Date.now() ||
+      ["approved", "cancelled", "expired"].includes(quoteRequest.status)) {
+    return NextResponse.json({ error: "Запрос уже закрыт или истёк", code: "QUOTE_REQUEST_CLOSED" }, { status: 409 });
+  }
+  try {
+    const productItems = await loadProductItemsData([{
+      productId: quote.production_product_id,
+      quantity: Math.max(1, Number(quoteRequest.quantity || 1)),
+    }]);
+    const acceptance = await checkAcceptance({
+      items: productItems,
+      assignedConfectionerId: quote.confectioner_id,
+      deliveryDate: quoteRequest.delivery_date ?? null,
+      deliveryTimeWindow: null,
+      deliveryTime: null,
+    });
+    if (!acceptance.canAccept) {
+      return NextResponse.json({
+        error: "Производство не может подтвердить этот срок или наличие ингредиентов",
+        code: "PRODUCTION_UNAVAILABLE",
+        reasons: acceptance.reasons,
+        suggestions: acceptance.suggestions,
+        alternativeWindows: acceptance.alternativeWindows,
+      }, { status: 422 });
+    }
+  } catch (error) {
+    console.error("[quote-accept] acceptance check failed:", (error as Error).message);
+    return NextResponse.json({
+      error: "Не удалось проверить рецепт, склад и производственную мощность",
+      code: "ACCEPTANCE_UNAVAILABLE",
+    }, { status: 503 });
   }
 
   const { data: accepted, error: acceptError } = await supabaseAdmin.rpc(
