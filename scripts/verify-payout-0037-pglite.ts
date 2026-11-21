@@ -25,6 +25,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const SQL = readFileSync(join(here, "../supabase/migrations/0037_payout_linkage.sql"), "utf8");
 const ESCROW_GUARD_SQL = readFileSync(join(here, "../supabase/migrations/0074_escrow_release_cancel_guard.sql"), "utf8");
 const ORDER_ACCESS_SQL = readFileSync(join(here, "../supabase/migrations/0075_order_access_rls.sql"), "utf8");
+const COURIER_ASSIGNMENT_SQL = readFileSync(join(here, "../supabase/migrations/0076_atomic_courier_assignment.sql"), "utf8");
 
 let failed = 0;
 function ok(label: string, detail = "") {
@@ -60,7 +61,11 @@ async function main() {
       payment_status TEXT,
       status TEXT NOT NULL DEFAULT 'PENDING',
       user_id UUID,
-      courier_id UUID,
+      delivery_type TEXT DEFAULT 'delivery',
+      delivery_address TEXT,
+      delivery_cost INTEGER DEFAULT 0,
+      delivery_date DATE,
+      delivery_time TEXT,
       escrow_released_at TIMESTAMPTZ,
       payout_reserved_at TIMESTAMPTZ,
       payout_transferred_at TIMESTAMPTZ
@@ -103,18 +108,36 @@ async function main() {
     CREATE TABLE public.support_tickets (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID, assigned_to UUID);
     CREATE TABLE public.order_items (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID NOT NULL REFERENCES public.orders(id));
     CREATE TABLE public.payments (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID NOT NULL REFERENCES public.orders(id));
+    CREATE TABLE public.deliveries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      order_id UUID NOT NULL REFERENCES public.orders(id),
+      courier_id UUID,
+      status TEXT NOT NULL DEFAULT 'assigned',
+      address TEXT NOT NULL,
+      estimated_time TIMESTAMPTZ,
+      cost INTEGER NOT NULL DEFAULT 0,
+      courier_earnings INTEGER DEFAULT 0,
+      delivered_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
     CREATE SCHEMA auth;
     CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS
       $ SELECT NULLIF(current_setting('request.jwt.claim.sub', TRUE), '')::UUID $;
     GRANT USAGE ON SCHEMA public, auth TO authenticated;
     GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
     GRANT SELECT, INSERT, UPDATE, DELETE ON public.orders, public.order_items, public.payments TO authenticated;
-    GRANT SELECT ON public.user_roles, public.support_tickets TO authenticated;
+    GRANT SELECT ON public.user_roles, public.support_tickets, public.deliveries TO authenticated;
     ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
     ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY deliveries_select_own ON public.deliveries
+      FOR SELECT USING (auth.uid() = courier_id);
   `);
   await db.exec(ORDER_ACCESS_SQL);
   ok("миграция 0075: ограничен доступ к заказам и запрещены прямые записи клиентов");
+  await db.exec(COURIER_ASSIGNMENT_SQL);
+  ok("миграция 0076: атомарное назначение курьера через deliveries");
 
   // 1. Колонка + индекс
   const col = await db.query<{ column_name: string }>(
@@ -300,12 +323,12 @@ async function main() {
     admin: "11111111-1111-4111-8111-111111111207",
   };
   const accessOrders = await db.query<{ id: string }>(
-    `INSERT INTO public.orders (user_id, confectioner_id, courier_id, status, payment_status)
+    `INSERT INTO public.orders (user_id, confectioner_id, status, payment_status, delivery_type, delivery_address, delivery_cost)
      VALUES
-       ($1::uuid, 'conf_test', $3::uuid, 'IN_DELIVERY', 'escrow'),
-       ($2::uuid, 'conf_test', NULL, 'PENDING', 'pending')
+       ($1::uuid, 'conf_test', 'IN_DELIVERY', 'escrow', 'delivery', 'Test Courier Street 1', 500),
+       ($2::uuid, 'conf_test', 'PENDING', 'pending', 'delivery', 'Test Support Street 2', 500)
      RETURNING id::text`,
-    [ids.buyer, ids.otherBuyer, ids.courier]
+    [ids.buyer, ids.otherBuyer]
   );
   const courierOrderId = accessOrders.rows[0].id;
   const supportOrderId = accessOrders.rows[1].id;
@@ -318,6 +341,26 @@ async function main() {
     `INSERT INTO public.support_tickets (order_id, assigned_to) VALUES ($1::uuid, $2::uuid)`,
     [supportOrderId, ids.support]
   );
+  const firstAssignment = await db.query<{ delivery_id: string; created: boolean }>(
+    `SELECT delivery_id::text, created FROM public.assign_order_delivery($1::uuid, $2::uuid)`,
+    [courierOrderId, ids.courier]
+  );
+  firstAssignment.rows[0].created
+    ? ok("первое назначение курьера создаёт delivery")
+    : fail("первое назначение курьера не создало delivery");
+  const repeatedAssignment = await db.query<{ delivery_id: string; created: boolean }>(
+    `SELECT delivery_id::text, created FROM public.assign_order_delivery($1::uuid, $2::uuid)`,
+    [courierOrderId, ids.courier]
+  );
+  !repeatedAssignment.rows[0].created && repeatedAssignment.rows[0].delivery_id === firstAssignment.rows[0].delivery_id
+    ? ok("повторное назначение того же курьера идемпотентно")
+    : fail("повторное назначение создало дубль");
+  const otherCourierBlocked = await db.query(
+    `SELECT * FROM public.assign_order_delivery($1::uuid, $2::uuid)`,
+    [courierOrderId, ids.otherCourier]
+  ).then(() => false).catch((e: Error) => e.message.includes("ORDER_ALREADY_ASSIGNED"));
+  otherCourierBlocked ? ok("второй курьер не может забрать уже назначенный заказ") : fail("один заказ назначен двум курьерам");
+
   await db.query(
     `INSERT INTO public.order_items (order_id) VALUES ($1::uuid), ($2::uuid)`,
     [courierOrderId, supportOrderId]
@@ -396,7 +439,8 @@ async function main() {
   await db.exec(SQL);
   await db.exec(ESCROW_GUARD_SQL);
   await db.exec(ORDER_ACCESS_SQL);
-  ok("повторное применение 0037 + 0074 + 0075 — идемпотентно");
+  await db.exec(COURIER_ASSIGNMENT_SQL);
+  ok("повторное применение 0037 + 0074 + 0075 + 0076 — идемпотентно");
 
   console.log(`\n${failed === 0 ? "✅ ИТОГ: 0037 валидна" : `❌ ИТОГ: проваленных проверок — ${failed}`}`);
   await db.close();
