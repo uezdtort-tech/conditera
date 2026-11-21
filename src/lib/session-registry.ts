@@ -166,6 +166,11 @@ export async function setSessionRefreshJti(
     .maybeSingle();
   if (error || !data) {
     console.error("[session-registry] initial refresh jti write failed:", error?.message);
+    await supabaseAdmin.from("user_sessions")
+      .update({ revoked_at: new Date().toISOString(), revoked_reason: "refresh_jti_init_failed" })
+      .eq("id", sessionId)
+      .eq("user_id", userId)
+      .is("revoked_at", null);
     throw new Error("Не удалось инициализировать refresh-сессию");
   }
 }
@@ -191,5 +196,18 @@ export async function rotateSessionRefreshJti(
     console.error("[session-registry] refresh rotation failed closed:", error.message);
     return false;
   }
-  return Boolean(data);
+  if (!data) {
+    // Сессия уже была проверена как активная; отсутствие строки при CAS
+    // означает повторное использование/устаревший refresh JTI.
+    const { error: eventError } = await supabaseAdmin.from("user_security_events").insert({
+      user_id: userId,
+      session_id: sessionId,
+      event_type: "refresh_replay_detected",
+      severity: "warning",
+      details: { reason: "refresh_jti_mismatch" },
+    });
+    if (eventError) console.error("[session-registry] replay event write failed:", eventError.message);
+    return false;
+  }
+  return true;
 }
