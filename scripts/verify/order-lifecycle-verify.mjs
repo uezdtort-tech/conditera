@@ -722,7 +722,7 @@ async function main() {
 
   const assign = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("POST assign → 200", assign.status === 200, JSON.stringify(assign.json).slice(0, 200));
-  assert("оценка времени: 240 мин по настройке товара", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "product" && assign.json?.estimate?.approximate === false, JSON.stringify(assign.json?.estimate));
+  assert("оценка трудоёмкости: 240 мин по категории (lead time товара не считается рабочим окном)", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "category" && assign.json?.estimate?.approximate === true, JSON.stringify(assign.json?.estimate));
   assert("резерв создан на дату доставки", assign.json?.reservation?.date === tomorrowStr, JSON.stringify(assign.json?.reservation));
   assert("latestSafeStartAt рассчитан", Boolean(assign.json?.deadline?.latestSafeStartAt));
   // 18:00 − 65м буферов − 240м производства = 12:55
