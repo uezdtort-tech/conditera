@@ -30,7 +30,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashPassword, createAccessToken, createRefreshToken } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
-import { createUserSession } from "@/lib/session-registry";
+import { createUserSession, setSessionRefreshJti } from "@/lib/session-registry";
 
 export const runtime = "nodejs";
 
@@ -471,8 +471,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     };
 
     const sessionId = await createUserSession(userId, request, "registration");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
     const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
-    const refreshToken = await createRefreshToken({ userId, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, sid: sessionId, jti: refreshJti });
 
     // 13. Sanitize response (без passwordHash и других sensitive полей)
     const safeUser: SanitizedUser = {
