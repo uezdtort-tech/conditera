@@ -54,7 +54,7 @@ const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const PAYMENT_ID = "provider-payment-1";
 const REFUND_ID = "provider-refund-1";
 
-function refundRequest(amount: string | null = "25.00") {
+function refundRequest(amount: string | null = "25.00", paymentId: string | null = PAYMENT_ID) {
   return new NextRequest("http://localhost/api/payment/webhook", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -63,7 +63,7 @@ function refundRequest(amount: string | null = "25.00") {
       object: {
         id: REFUND_ID,
         status: "succeeded",
-        payment_id: PAYMENT_ID,
+        ...(paymentId === null ? {} : { payment_id: paymentId }),
         amount: amount === null ? { currency: "RUB" } : { value: amount, currency: "RUB" },
       },
     }),
@@ -196,6 +196,47 @@ describe("payment webhook POST — cancellation race", () => {
     });
 
     const response = await POST(refundRequest("25.00"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ success: true, skipped: "provider_mismatch" });
+    expect(mocks.state.fromCalls).toEqual([]);
+  });
+
+
+  it("не принимает refund.succeeded без payment_id в webhook", async () => {
+    mocks.state.providerConfigured = true;
+    mocks.state.getRefund.mockResolvedValue({
+      success: true,
+      refund: {
+        id: REFUND_ID,
+        payment_id: PAYMENT_ID,
+        status: "succeeded",
+        amount: { value: "25.00", currency: "RUB" },
+      },
+    });
+
+    const response = await POST(refundRequest("25.00", null));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({ error: "Provider verification failed" });
+    expect(mocks.state.fromCalls).toEqual([]);
+  });
+
+  it("не допускает привязку возврата к другому платежу", async () => {
+    mocks.state.providerConfigured = true;
+    mocks.state.getRefund.mockResolvedValue({
+      success: true,
+      refund: {
+        id: REFUND_ID,
+        payment_id: "another-provider-payment",
+        status: "succeeded",
+        amount: { value: "25.00", currency: "RUB" },
+      },
+    });
+
+    const response = await POST(refundRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
