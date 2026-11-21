@@ -13,14 +13,23 @@ vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: { from: mocked.from },
 }));
 
-const query = {
-  update: (value: unknown) => { mocked.update(value); return query; },
-  eq: (...args: unknown[]) => { mocked.filters.push(["eq", ...args]); return query; },
-  is: (...args: unknown[]) => { mocked.filters.push(["is", ...args]); return query; },
-  gt: (...args: unknown[]) => { mocked.filters.push(["gt", ...args]); return query; },
-  select: (...args: unknown[]) => { mocked.filters.push(["select", ...args]); return query; },
+type Query = {
+  update(value: unknown): Query;
+  eq(...args: unknown[]): Query;
+  is(...args: unknown[]): Query;
+  gt(...args: unknown[]): Query;
+  select(...args: unknown[]): Query;
+  maybeSingle(): Promise<{ data: unknown; error: { message: string } | null }>;
+  insert(value: unknown): Promise<{ error: null }>;
+};
+const query: Query = {
+  update: (value) => { mocked.update(value); return query; },
+  eq: (...args) => { mocked.filters.push(["eq", ...args]); return query; },
+  is: (...args) => { mocked.filters.push(["is", ...args]); return query; },
+  gt: (...args) => { mocked.filters.push(["gt", ...args]); return query; },
+  select: (...args) => { mocked.filters.push(["select", ...args]); return query; },
   maybeSingle: () => Promise.resolve(mocked.result),
-  insert: (value: unknown) => { mocked.insert(value); return Promise.resolve({ error: null }); },
+  insert: (value) => { mocked.insert(value); return Promise.resolve({ error: null }); },
 };
 
 vi.mocked(mocked.from).mockImplementation(() => query as never);
