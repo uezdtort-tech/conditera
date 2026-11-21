@@ -62,7 +62,22 @@ export async function isUserSessionActive(sessionId: string, userId: string): Pr
     console.error("[session-registry] validation failed; rejecting request:", error.message);
     return false;
   }
-  return Boolean(data);
+  if (!data) return false;
+
+  // Update activity at most once per five minutes to avoid a write on every API call.
+  const staleBefore = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { error: touchError } = await supabaseAdmin
+    .from("user_sessions")
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .is("revoked_at", null)
+    .lt("last_seen_at", staleBefore);
+  if (touchError) {
+    console.error("[session-registry] activity update failed:", touchError.message);
+    return false;
+  }
+  return true;
 }
 
 export async function revokeUserSession(
