@@ -159,7 +159,7 @@ export async function POST(
         `INSERT INTO public.order_dispute_events
           (dispute_id, actor_id, event_type, to_status, details)
          VALUES ($1::uuid, $2::uuid, 'dispute.opened', 'open',
-           jsonb_build_object('category', $3, 'evidence_count', $4))`,
+           jsonb_build_object('category', $3::text, 'evidence_count', $4::integer))`,
         [dispute.id, user.id, category, uploadedMedia.length],
       );
       await client.query("COMMIT");
@@ -280,7 +280,7 @@ export async function PATCH(
       `INSERT INTO public.order_dispute_events
         (dispute_id, actor_id, event_type, from_status, to_status, details)
        VALUES ($1::uuid, $2::uuid, 'dispute.status_changed', $3, $4,
-         jsonb_build_object('resolution', NULLIF($5, ''), 'assigned_to', $6::text))`,
+         jsonb_build_object('resolution', NULLIF($5::text, ''), 'assigned_to', $6::text))`,
       [disputeId, user.id, current.status, nextStatus, resolution, hasAssignmentChange ? assignedTo : current.assigned_to],
     );
     await client.query("COMMIT");
