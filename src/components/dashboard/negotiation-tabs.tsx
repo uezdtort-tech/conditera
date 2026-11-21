@@ -731,7 +731,9 @@ function mapCustomerQuoteRequests(rows: any[]): OrderNegotiation[] {
       : request.confectioner_quotes ? [request.confectioner_quotes] : [];
     return quotes.map((quote: any) => {
       const productAmount = Math.max(0, Number(quote.subtotal || 0) - Number(quote.delivery_cost || 0)) / 100;
+      const wasWithdrawnByConfectioner = quote.customer_comment === "Предложение отозвано кондитером";
       const status = quote.status === "accepted" ? "approved"
+        : quote.status === "rejected" && wasWithdrawnByConfectioner ? "revised"
         : quote.status === "rejected" ? "rejected"
         : quote.status === "expired" ? "expired"
         : "pending_customer";
@@ -773,7 +775,7 @@ function mapCustomerQuoteRequests(rows: any[]): OrderNegotiation[] {
         quotedAt: quote.updated_at || quote.created_at,
         status: status as OrderNegotiation["status"],
         customerResponse: quote.status === "accepted" ? "approved" as const
-          : quote.status === "rejected" ? "rejected" as const : undefined,
+          : quote.status === "rejected" && !wasWithdrawnByConfectioner ? "rejected" as const : undefined,
         customerComment: quote.customer_comment || "",
         revisions: [],
         createdAt: request.created_at,
