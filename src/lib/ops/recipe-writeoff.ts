@@ -70,7 +70,9 @@ export async function writeOffOrderRecipe(
     .select("signature, items, result")
     .eq("owner_id", inventoryOwnerId)
     .eq("order_id", orderId)
-    .contains("result", { source: "recipe" })
+    // PostgREST JSONB @> для данного поля в runtime-схеме приводился
+    // к jsonb[] и падал. JSON path equality даёт точный scalar-фильтр.
+    .eq("result->>source", "recipe")
     .order("created_at", { ascending: false })
     .limit(1);
   if (priorError) {
