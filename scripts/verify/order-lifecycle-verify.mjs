@@ -182,6 +182,13 @@ function photoForm() {
   return fd;
 }
 
+function quotePhotoForm(kind) {
+  const fd = new FormData();
+  fd.append("file", new Blob([PNG_1PX], { type: "image/png" }), `${kind}.png`);
+  fd.append("kind", kind);
+  return fd;
+}
+
 // ===========================================================================
 
 const testOrders = [];
@@ -370,6 +377,20 @@ async function main() {
     if (quoteCreate.status === 201 && quoteCreate.json?.quoteRequest?.id) {
       const quoteRequestId = quoteCreate.json.quoteRequest.id;
       testQuoteRequestIds.push(quoteRequestId);
+
+      const referenceUpload = await api("POST", `/api/quotes/${quoteRequestId}/media`, {
+        token: customer, raw: quotePhotoForm("customer_reference"),
+      });
+      assert("покупатель прикрепляет фото-пожелание к RFQ → 201",
+        referenceUpload.status === 201 && referenceUpload.json?.media?.kind === "customer_reference",
+        JSON.stringify(referenceUpload.json).slice(0, 200));
+      const builderPreviewUpload = await api("POST", `/api/quotes/${quoteRequestId}/media`, {
+        token: customer, raw: quotePhotoForm("builder_preview"),
+      });
+      assert("покупатель прикрепляет превью конструктора к RFQ → 201",
+        builderPreviewUpload.status === 201 && builderPreviewUpload.json?.media?.kind === "builder_preview",
+        JSON.stringify(builderPreviewUpload.json).slice(0, 200));
+
       const savedProject = await client.query(
         `SELECT project_spec->>'productType' AS product_type,
                 jsonb_array_length(project_spec->'decorations') AS decor_count
@@ -401,6 +422,23 @@ async function main() {
           JSON.stringify(acceptQuote.json).slice(0, 260));
         if (acceptQuote.status === 201 && acceptQuote.json?.orderId) {
           testOrders.push(acceptQuote.json.orderId);
+
+          const acceptedMediaList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/media`, {
+            token: customer,
+          });
+          const inheritedReferences = (acceptedMediaList.json?.media || [])
+            .filter((item) => item.source === "customer_reference");
+          assert("после принятия RFQ фото-пожелание и превью видны в медиа заказа",
+            acceptedMediaList.status === 200 && inheritedReferences.length === 2 &&
+            inheritedReferences.some(item => item.kind === "customer_reference") &&
+            inheritedReferences.some(item => item.kind === "builder_preview"),
+            JSON.stringify(acceptedMediaList.json).slice(0, 280));
+          if (inheritedReferences[0]?.url) {
+            const confectionerReference = await api("GET", inheritedReferences[0].url, { token: owner });
+            assert("назначенный кондитер открывает исходный референс индивидуального заказа → 200",
+              confectionerReference.status === 200);
+          }
+
           const acceptedOrderPayment = await client.query(
             `SELECT yookassa_payment_id, amount FROM public.payments
              WHERE order_id = $1::uuid ORDER BY created_at DESC LIMIT 1`,
