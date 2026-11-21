@@ -90,6 +90,7 @@ export async function GET(
 
     return NextResponse.json({
       dispute: { ...dispute, evidence: evidence.rows, events: events.rows, messages: messages.rows },
+      permissions: { canReview: isAdmin || isAssignedSupport },
     });
   } catch (error) {
     console.error("[orders/disputes] GET failed:", (error as Error).message);
