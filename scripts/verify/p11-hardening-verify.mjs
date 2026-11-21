@@ -102,7 +102,7 @@ async function seedOrderWithPayment({ total, paymentAmount, number }) {
         status, payment_status, payment_method, delivery_address, delivery_city,
         delivery_date, delivery_type, metadata, paid_at)
      VALUES ($1, $2::uuid, $3::uuid, $4, 0, 0, $4, 'PENDING', 'pending', 'card',
-             'ул. P11verify, 1', 'Москва', CURRENT_DATE + 2, 'delivery',
+             'ул. P11verify, 1', 'Москва', CURRENT_DATE + 30, 'delivery',
              jsonb_build_object('test','p11-verify'), NULL)
      RETURNING id::text`,
     [number, CUSTOMER_USER_ID, CONFECTIONER_USER_ID, total]
