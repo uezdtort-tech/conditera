@@ -5,6 +5,7 @@ const mocked = vi.hoisted(() => ({
   result: { data: { id: "session-1" }, error: null as { message: string } | null },
   from: vi.fn(),
   update: vi.fn(),
+  insert: vi.fn(),
   filters: [] as Array<[string, ...unknown[]]>,
 }));
 
@@ -19,6 +20,7 @@ const query = {
   gt: (...args: unknown[]) => { mocked.filters.push(["gt", ...args]); return query; },
   select: (...args: unknown[]) => { mocked.filters.push(["select", ...args]); return query; },
   maybeSingle: () => Promise.resolve(mocked.result),
+  insert: (value: unknown) => { mocked.insert(value); return Promise.resolve({ error: null }); },
 };
 
 vi.mocked(mocked.from).mockImplementation(() => query as never);
@@ -30,6 +32,7 @@ describe("session refresh-token rotation", () => {
     mocked.result = { data: { id: "session-1" }, error: null };
     mocked.from.mockClear();
     mocked.update.mockClear();
+    mocked.insert.mockClear();
     mocked.filters = [];
   });
 
@@ -63,6 +66,10 @@ describe("session refresh-token rotation", () => {
     await expect(
       rotateSessionRefreshJti("session-1", "user-1", "already-used", "jti-next"),
     ).resolves.toBe(false);
+    expect(mocked.from).toHaveBeenCalledWith("user_security_events");
+    expect(mocked.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ event_type: "refresh_replay_detected", severity: "warning" }),
+    );
   });
 
   it("fails closed when the database rejects rotation", async () => {
