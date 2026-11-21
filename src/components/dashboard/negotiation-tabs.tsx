@@ -264,7 +264,12 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
 
       {/* List */}
       <div className="space-y-3">
-        {filteredNegotiations.length === 0 && (
+        {loadingQuotes && (
+          <Card className="p-8 text-center text-muted-foreground">
+            Загружаем предложения кондитеров…
+          </Card>
+        )}
+        {!loadingQuotes && filteredNegotiations.length === 0 && (
           <Card className="p-8 text-center text-muted-foreground">
             <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
             <p className="text-sm">
@@ -692,17 +697,102 @@ function NegotiationEditorDialog({
   );
 }
 
+function mapCustomerQuoteRequests(rows: any[]): OrderNegotiation[] {
+  return rows.flatMap((request) => {
+    const quotes = Array.isArray(request.confectioner_quotes)
+      ? request.confectioner_quotes
+      : request.confectioner_quotes ? [request.confectioner_quotes] : [];
+    return quotes.map((quote: any) => {
+      const productAmount = Math.max(0, Number(quote.subtotal || 0) - Number(quote.delivery_cost || 0)) / 100;
+      const status = quote.status === "accepted" ? "approved"
+        : quote.status === "rejected" ? "rejected"
+        : quote.status === "expired" ? "expired"
+        : "pending_customer";
+      return {
+        id: quote.id,
+        inquiryId: request.id,
+        customerId: request.customer_id,
+        customerName: request.customer_name || "Покупатель",
+        confectionerId: quote.confectioner_id,
+        confectionerName: quote.confectioner?.businessName || "Кондитер",
+        confectionerAvatar: quote.confectioner?.avatar || undefined,
+        productionProductId: quote.production_product_id || undefined,
+        originalRequest: {
+          eventType: request.event_type || "",
+          base: request.base || "",
+          filling: request.filling || "",
+          coating: request.coating || "",
+          decorations: request.decorations || [],
+          servings: Number(request.servings || 0),
+          city: request.city || "",
+          deliveryDate: request.delivery_date || "",
+          deliveryType: request.delivery_type || "delivery",
+          inscription: request.inscription || "",
+          comment: request.comment || "",
+          estimatedPrice: Number(request.estimated_price || 0) / 100,
+        },
+        quotedItems: [{
+          name: request.product_type_label || "Индивидуальное изделие",
+          description: quote.comment || "Предложение кондитера",
+          quantity: 1,
+          unitPrice: productAmount,
+          totalPrice: productAmount,
+          category: "cake" as const,
+        }],
+        quotedTotal: Number(quote.total_price || 0) / 100,
+        quotedComment: quote.comment || "",
+        quotedDeliveryCost: Number(quote.delivery_cost || 0) / 100,
+        quotedPrepTime: quote.prep_days ? `${quote.prep_days} дн.` : "",
+        quotedAt: quote.updated_at || quote.created_at,
+        status: status as OrderNegotiation["status"],
+        customerResponse: quote.status === "accepted" ? "approved" as const
+          : quote.status === "rejected" ? "rejected" as const : undefined,
+        customerComment: quote.customer_comment || "",
+        revisions: [],
+        createdAt: request.created_at,
+        updatedAt: quote.updated_at || request.updated_at,
+        validUntil: request.expires_at,
+      };
+    });
+  });
+}
+
 // ==================== ПОКУПАТЕЛЬ: ФОРМА СОГЛАСИЯ ====================
 export function CustomerNegotiationTab() {
-  const negotiations = useAppStore((s) => s.negotiations);
-  const user = useAppStore((s) => s.user);
-  const approveNegotiation = useAppStore((s) => s.approveNegotiation);
-  const rejectNegotiation = useAppStore((s) => s.rejectNegotiation);
-  const setCartOpen = useAppStore((s) => s.setCartOpen);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
+  const [myNegotiations, setMyNegotiations] = useState<OrderNegotiation[]>([]);
+  const [loadingQuotes, setLoadingQuotes] = useState(true);
 
-  // Показываем все согласования, где покупатель — текущий пользователь (или u1 для demo)
-  const myNegotiations = negotiations.filter((n) => n.customerId === user?.id || n.customerId === "u1" || n.customerId === "u9");
+  const loadCustomerQuotes = useCallback(async () => {
+    setLoadingQuotes(true);
+    try {
+      const response = await csrfFetch("/api/quotes?mode=my");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Не удалось загрузить предложения");
+      setMyNegotiations(mapCustomerQuoteRequests(data.quotes || []));
+    } finally {
+      setLoadingQuotes(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCustomerQuotes().catch((error) => {
+      console.error("[negotiations] load customer quotes:", error);
+      toast.error("Не удалось загрузить реальные предложения кондитеров");
+    });
+  }, [loadCustomerQuotes]);
+
+  const acceptAndPay = async (quoteId: string) => {
+    const response = await csrfFetch(`/api/quotes/${quoteId}/accept`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.paymentUrl) {
+      toast.error(data.message || data.error || "Не удалось создать оплачиваемый заказ");
+      return;
+    }
+    toast.success("Заказ создан. Переходим к оплате.");
+    window.location.assign(data.paymentUrl);
+  };
+
   const pendingCount = myNegotiations.filter((n) => n.status === "pending_customer").length;
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [response, setResponse] = useState<"approve" | "reject" | null>(null);
@@ -902,7 +992,7 @@ export function CustomerNegotiationTab() {
                     <CheckCircle2 className="h-4 w-4" />
                     Заказ одобрен — можно оплачивать!
                   </div>
-                  <Button className="w-full" onClick={() => toast.success("Переход к оплате...")}>
+                  <Button className="w-full" onClick={() => void acceptAndPay(neg.id)}>
                     <ShoppingBag className="h-4 w-4 mr-1" /> Перейти к оплате {formatCurrency(neg.quotedTotal)}
                   </Button>
                 </div>
@@ -971,17 +1061,26 @@ export function CustomerNegotiationTab() {
               <Button variant="outline" onClick={() => setRespondingId(null)}>Отмена</Button>
               <Button
                 className={response === "approve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}
-                onClick={() => {
+                onClick={async () => {
                   if (response === "approve") {
-                    approveNegotiation(respondingId, comment);
-                    toast.success("Заказ одобрен! Можно переходить к оплате.");
+                    await acceptAndPay(respondingId);
                   } else {
                     if (!comment.trim()) {
                       toast.error("Укажите причину отклонения");
                       return;
                     }
-                    rejectNegotiation(respondingId, comment);
-                    toast.success("Заказ отклонён. Кондитер получит уведомление.");
+                    const result = await csrfFetch(`/api/quotes/${respondingId}/reject`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ comment }),
+                    });
+                    const payload = await result.json().catch(() => ({}));
+                    if (!result.ok) {
+                      toast.error(payload.error || "Не удалось отклонить предложение");
+                      return;
+                    }
+                    toast.success("Предложение отклонено");
+                    await loadCustomerQuotes();
                   }
                   setRespondingId(null);
                 }}
