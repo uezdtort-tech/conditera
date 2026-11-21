@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { hasAnyRole } from "@/lib/role-guards";
@@ -29,6 +30,7 @@ type MediaRow = {
   mime_type: string;
   file_size: number;
   status: string;
+  content_sha256: string | null;
   customer_id: string;
   confectioner_id: string | null;
 };
@@ -54,7 +56,7 @@ export async function GET(
     const pool = getPool();
     const { rows } = await pool.query<MediaRow>(
       `SELECT m.id, m.order_id, m.kind, m.storage_path, m.mime_type,
-              m.file_size, m.status,
+              m.file_size, m.status, m.content_sha256,
               o.user_id::text AS customer_id, o.confectioner_id::text AS confectioner_id
        FROM public.order_media m
        JOIN public.orders o ON o.id = m.order_id
@@ -129,6 +131,13 @@ export async function GET(
     if (file.length !== Number(media.file_size)) {
       console.error("[order-media] stored file size differs from PG metadata:", media.id);
       return NextResponse.json({ error: "MEDIA_INTEGRITY_ERROR" }, { status: 500 });
+    }
+    if (media.kind === "dispute_evidence" && media.content_sha256) {
+      const actualSha256 = createHash("sha256").update(file).digest("hex");
+      if (actualSha256 !== media.content_sha256) {
+        console.error("[order-media] dispute evidence SHA-256 mismatch:", media.id);
+        return NextResponse.json({ error: "MEDIA_INTEGRITY_ERROR" }, { status: 500 });
+      }
     }
 
     const body = file.buffer.slice(
