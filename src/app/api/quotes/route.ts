@@ -174,7 +174,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         .from("quote_requests")
         .select(`
           *,
-          confectioner_quotes:confectioner_quotes(*)
+          confectioner_quotes:confectioner_quotes(*, confectioner:confectioners(businessName, avatar))
         `)
         .eq("customer_id", user.userId)
         .order("created_at", { ascending: false });
@@ -203,7 +203,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         .from("quote_requests")
         .select(`
           *,
-          my_quotes:confectioner_quotes!inner(*)
+          my_quotes:confectioner_quotes(*)
         `)
         .contains("confectioner_ids", [confectioner.id])
         .order("created_at", { ascending: false });
