@@ -356,6 +356,16 @@ async function main() {
 
   const upload = await api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() });
   assert("загрузка фото готовности → 201", upload.status === 201, JSON.stringify(upload.json).slice(0, 160));
+  // Четыре конкурентные загрузки заполняют лимит до пяти; шестая обязана
+  // отклоняться DB-trigger даже если все запросы прошли предварительный count.
+  const concurrentPhotos = await Promise.all(
+    Array.from({ length: 4 }, () =>
+      api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() })
+    )
+  );
+  assert("четыре параллельные фотографии укладываются в лимит → 201", concurrentPhotos.every((item) => item.status === 201), JSON.stringify(concurrentPhotos.map((item) => item.status)));
+  const sixthPhoto = await api("POST", `/api/orders/${o1.orderId}/media`, { token: owner, raw: photoForm() });
+  assert("шестая фотография отклоняется → 422 PHOTO_LIMIT_REACHED", sixthPhoto.status === 422 && sixthPhoto.json?.error === "PHOTO_LIMIT_REACHED", JSON.stringify(sixthPhoto.json));
   const mediaUrl = upload.json?.media?.url;
   assert("media URL формата /api/order-media/<id>", typeof mediaUrl === "string" && mediaUrl.startsWith("/api/order-media/"));
   const mediaObject = await client.query(
@@ -371,7 +381,7 @@ async function main() {
   // Покупатель должен видеть фото собственного готового изделия, но не иметь
   // возможности загружать производственные доказательства вместо кондитера.
   const customerMediaList = await api("GET", `/api/orders/${o1.orderId}/media`, { token: customer });
-  assert("покупатель получает список фото своего заказа → 200", customerMediaList.status === 200 && customerMediaList.json?.media?.length === 1, JSON.stringify(customerMediaList.json).slice(0, 160));
+  assert("покупатель получает список всех пяти фото своего заказа → 200", customerMediaList.status === 200 && customerMediaList.json?.media?.length === 5, JSON.stringify(customerMediaList.json).slice(0, 160));
   const customerMediaFile = await api("GET", mediaUrl, { token: customer });
   assert("покупатель открывает фото своего заказа → 200", customerMediaFile.status === 200);
 
