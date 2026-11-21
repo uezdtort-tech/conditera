@@ -274,8 +274,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (authErr) {
       console.error("[register] supabase auth createUser error:", authErr.message);
-      // В проде без GoTrue регистрация невозможна — явный отказ
-      if (process.env.NODE_ENV !== "development") {
+      // В production без GoTrue регистрация невозможна — явный отказ.
+      // Development и CI/test используют локальный auth.users stub ниже;
+      // это полноценная запись в PG с password_hash, не демо-аккаунт и не
+      // обход проверки пароля. Не разрешать этот путь в production.
+      if (process.env.NODE_ENV === "production") {
         return NextResponse.json(
           { error: "Не удалось создать пользователя в Auth", details: authErr.message },
           { status: 500 }
