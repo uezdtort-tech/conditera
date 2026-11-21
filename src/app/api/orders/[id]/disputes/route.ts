@@ -61,7 +61,7 @@ export async function GET(
       return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
     }
 
-    const [evidence, events] = await Promise.all([
+    const [evidence, events, messages] = await Promise.all([
       pool.query(
         `SELECT e.id, e.order_media_id, e.uploaded_by, e.content_sha256, e.note, e.created_at,
                 m.kind, m.mime_type, m.file_size, m.width, m.height,
@@ -79,9 +79,18 @@ export async function GET(
          ORDER BY created_at ASC`,
         [dispute.id],
       ),
+      pool.query(
+        `SELECT id, sender_id, message, created_at
+         FROM public.order_dispute_messages
+         WHERE dispute_id = $1::uuid
+         ORDER BY created_at ASC`,
+        [dispute.id],
+      ),
     ]);
 
-    return NextResponse.json({ dispute: { ...dispute, evidence: evidence.rows, events: events.rows } });
+    return NextResponse.json({
+      dispute: { ...dispute, evidence: evidence.rows, events: events.rows, messages: messages.rows },
+    });
   } catch (error) {
     console.error("[orders/disputes] GET failed:", (error as Error).message);
     return NextResponse.json({ error: "INTERNAL" }, { status: 500 });
