@@ -489,6 +489,12 @@ async function main() {
             orderId: acceptQuote.json.orderId,
             number: acceptQuote.json.orderNumber,
           };
+          const repeatedQuoteAccept = await api("POST", `/api/quotes/${quoteId}/accept`, { token: customer });
+          assert("повторное принятие RFQ возвращает тот же заказ и платёжную ссылку",
+            repeatedQuoteAccept.status === 200 &&
+            repeatedQuoteAccept.json?.orderId === acceptQuote.json.orderId &&
+            repeatedQuoteAccept.json?.paymentUrl === acceptQuote.json.paymentUrl,
+            JSON.stringify(repeatedQuoteAccept.json).slice(0, 220));
 
           const acceptedMediaList = await api("GET", `/api/orders/${acceptQuote.json.orderId}/media`, {
             token: customer,
