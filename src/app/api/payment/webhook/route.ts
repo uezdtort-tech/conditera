@@ -341,6 +341,13 @@ export async function POST(request: NextRequest) {
       }
 
       case "payment.succeeded": {
+        // Успешная оплата без локальной payment-записи не может попасть в escrow:
+        // нет надёжной суммы/связи с попыткой оплаты и механизма возврата.
+        if (!payment) {
+          console.error(`[webhook] succeeded event without local payment row: provider=${providerPaymentId}, order=${orderId}`);
+          return NextResponse.json({ error: "Payment ledger row missing" }, { status: 500 });
+        }
+
         // === СВЕРКА СУММЫ (P0) ===
         // payments.amount и orders.total — в рублях; провайдер присылает
         // строку в рублях. Не совпало → платёж НЕ зачисляем.
@@ -354,14 +361,17 @@ export async function POST(request: NextRequest) {
           Number(payment ? payment.amount : order.total) * 100
         );
         const orderKop = Math.round(Number(order.total) * 100);
+        const terminalOrder = ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status);
         const amountMismatch =
           (wireKop !== null && wireKop !== expectedKop) ||
-          (payment !== null && orderKop !== expectedKop);
+          (!terminalOrder && orderKop !== expectedKop);
         if (amountMismatch) {
           console.error(
             `[webhook] AMOUNT_MISMATCH order=${orderId} expected_kop=${expectedKop} order_kop=${orderKop} got_kop=${wireKop} — платёж НЕ зачислен`
           );
-          return NextResponse.json({ success: true, skipped: "amount_mismatch" });
+          // Не подтверждаем webhook: оператор должен сверить списание и
+          // сделать корректировку/возврат, а провайдер повторит уведомление.
+          return NextResponse.json({ error: "Payment amount mismatch" }, { status: 500 });
         }
 
         // Если подтверждение оплаты пришло ПОСЛЕ отмены заказа, деньги
@@ -680,6 +690,11 @@ export async function POST(request: NextRequest) {
       }
 
       case "refund.succeeded": {
+        if (!payment) {
+          console.error(`[webhook] refund event without local payment row: provider=${providerPaymentId}, refund=${object.id}`);
+          return NextResponse.json({ error: "Payment ledger row missing for refund" }, { status: 500 });
+        }
+
         // Сумма возврата не может превышать сумму платежа
         // (P1.1: Math.round — дробные рубли ломали сравнение копеек)
         const paymentKop = payment ? Math.round(Number(payment.amount) * 100) : null;
@@ -687,14 +702,14 @@ export async function POST(request: NextRequest) {
           console.error(
             `[webhook] REFUND_AMOUNT_MISMATCH payment=${payment.id} payment_kop=${paymentKop} refund_kop=${wireKop}`
           );
-          return NextResponse.json({ success: true, skipped: "refund_amount_mismatch" });
+          return NextResponse.json({ error: "Refund amount mismatch" }, { status: 500 });
         }
 
         if (payment) {
           if (wireKop === null || wireKop <= 0) {
             // Не применяем возврат с неизвестной суммой — YooKassa повторит доставку
             console.error(`[webhook] refund без суммы — skip (payment=${payment.id}, refund=${object.id})`);
-            return NextResponse.json({ success: true, skipped: "refund_amount_missing" });
+            return NextResponse.json({ error: "Refund amount missing" }, { status: 500 });
           }
 
           // pay4: идемпотентное применение через RPC 0039 — дедуп по refund id
