@@ -53,6 +53,19 @@ BEGIN
   IF v_request.customer_id IS DISTINCT FROM p_customer_id THEN
     RAISE EXCEPTION 'QUOTE_CUSTOMER_MISMATCH';
   END IF;
+
+  -- A concurrent accept may have committed while this call waited on the
+  -- quote/request row locks. Re-read after acquiring locks and return its order.
+  SELECT o.id, o.number, o.total
+    INTO v_order_id, v_order_number, v_total
+    FROM public.orders AS o
+   WHERE o.source_quote_id = p_quote_id
+     AND o.user_id = p_customer_id;
+  IF FOUND THEN
+    RETURN QUERY SELECT v_order_id, v_order_number, v_total;
+    RETURN;
+  END IF;
+
   IF v_request.expires_at <= now()
      OR v_request.status IN ('expired', 'cancelled', 'rejected') THEN
     RAISE EXCEPTION 'QUOTE_REQUEST_EXPIRED';
