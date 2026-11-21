@@ -92,6 +92,8 @@ const cleanup = {
   notificationDedupKeys: [],
   chatRoomIds: [],
   productPriceOriginal: null,
+  productRecipeOriginal: null,
+  recipeId: null,
 };
 
 /** Создать тестовый заказ напрямую в БД (для webhook-кейсов) */
@@ -250,6 +252,54 @@ async function main() {
       cancelledLedgerState.status === "CANCELLED" &&
       cancelledLedgerState.payment_status !== "escrow",
     JSON.stringify({ webhook: cancelledLedgerWebhook.json, state: cancelledLedgerState })
+  );
+
+  // Для checkout нужен реальный рецепт и доступный складской ингредиент.
+  // Демонстрационный Napoleon намеренно не связан с рецептом, поэтому не должен
+  // приниматься в заказ без настройки кондитера. Создаём изолированный fixture.
+  const productBefore = await client.query(
+    `SELECT recipe_id::text, production_time_hours FROM public.products WHERE id = $1::uuid`,
+    [PRODUCT_ID]
+  );
+  if (productBefore.rowCount !== 1) throw new Error(`checkout fixture product missing: ${PRODUCT_ID}`);
+  cleanup.productRecipeOriginal = {
+    id: PRODUCT_ID,
+    recipeId: productBefore.rows[0].recipe_id,
+    productionTimeHours: productBefore.rows[0].production_time_hours,
+  };
+  const stockIngredient = await client.query(
+    `SELECT id::text, name, unit, quantity
+       FROM public.inventory_items
+      WHERE owner_id = $1::uuid AND is_active IS TRUE AND quantity > 0
+      ORDER BY id
+      LIMIT 1`,
+    [CONFECTIONER_USER_ID]
+  );
+  if (stockIngredient.rowCount !== 1) throw new Error("checkout fixture requires one active in-stock ingredient");
+  const ingredient = stockIngredient.rows[0];
+  const unitText = String(ingredient.unit ?? "");
+  const ingredientQty = /^(кг|kg)$/i.test(unitText) ? 0.001 : 1;
+  const recipe = await client.query(
+    `INSERT INTO public.recipes
+       (author_id, title, description, content, difficulty, servings, slug, status,
+        published_at, prep_time_minutes, cook_time_minutes)
+     VALUES ($1::uuid, 'P11 checkout fixture', 'Изолированный рецепт для проверки checkout',
+             'Тестовая рецептура', 'easy', 1, $2, 'published', now(), 60, 60)
+     RETURNING id::text`,
+    [CONFECTIONER_USER_ID, `p11-checkout-${rand()}`]
+  );
+  cleanup.recipeId = recipe.rows[0].id;
+  await client.query(
+    `INSERT INTO public.recipe_ingredients
+       (recipe_id, name, qty, unit, inventory_item_id, sort_order)
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid, 1)`,
+    [cleanup.recipeId, ingredient.name, ingredientQty, ingredient.unit, ingredient.id]
+  );
+  await client.query(
+    `UPDATE public.products
+        SET recipe_id = $2::uuid, updated_at = now()
+      WHERE id = $1::uuid`,
+    [PRODUCT_ID, cleanup.recipeId]
   );
 
   // === 2. CHECKOUT IDEMPOTENCY (§8) ===
@@ -456,6 +506,18 @@ async function cleanupAll() {
     }
     if (cleanup.notificationDedupKeys.length > 0) {
       await client.query(`DELETE FROM public.notifications WHERE metadata->>'dedup_key' = ANY($1)`, [cleanup.notificationDedupKeys]).catch(() => {});
+    }
+    if (cleanup.productRecipeOriginal) {
+      await client.query(
+        `UPDATE public.products
+            SET recipe_id = $2::uuid, production_time_hours = $3, updated_at = now()
+          WHERE id = $1::uuid`,
+        [cleanup.productRecipeOriginal.id, cleanup.productRecipeOriginal.recipeId, cleanup.productRecipeOriginal.productionTimeHours]
+      ).catch(() => {});
+    }
+    if (cleanup.recipeId) {
+      await client.query(`DELETE FROM public.recipe_ingredients WHERE recipe_id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
+      await client.query(`DELETE FROM public.recipes WHERE id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
     }
     if (cleanup.productPriceOriginal) {
       await client
