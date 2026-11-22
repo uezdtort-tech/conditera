@@ -157,6 +157,12 @@ jobs:
       - name: Run the complete Vitest unit and integration-test suite
         run: bun run test
 
+      - name: Run ESLint with zero-warning budget
+        run: bun run lint --max-warnings=0
+
+      - name: Run TypeScript type checking
+        run: bun run typecheck
+
       - name: Cache Next.js build
         uses: actions/cache@v6
         with:
