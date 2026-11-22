@@ -390,7 +390,7 @@ export async function cleanupOldBackups(): Promise<number> {
       const prefix = manifestName.slice(0, -".json".length);
       for (const file of files.filter((candidate) => candidate.startsWith(`${prefix}.`))) {
         try {
-          unlinkSync(/*turbopackIgnore: true*/ join(BACKUP_DIR, file));
+          unlinkSync(join(/*turbopackIgnore: true*/ BACKUP_DIR, file));
         } catch {
           // Continue cleanup of the remaining components.
         }
