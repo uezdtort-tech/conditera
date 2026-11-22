@@ -1,38 +1,37 @@
-# Уездный кондитер / Conditera — локальный запуск БЕЗ Docker
+# Уездный кондитер / Conditera — локальная разработка и production на PostgreSQL 17
 
 ## Быстрый старт (Windows / macOS / Linux)
 
-```text
-1. Установите Node.js 20+            → https://nodejs.org
-2. Установите PostgreSQL              → https://www.postgresql.org/download/windows/
-   (или пропустите — встроенный dev-PostgreSQL поставится через npm, см. шаг 5)
-3. Создайте базу:  CREATE DATABASE conditera;
-4. Скопируйте .env.example → .env.local и укажите DATABASE_URL
-5. npm install
-6. npm run db:setup        → миграции + сиды + демо-юзеры + ключи (.env.local)
-   Своя PostgreSQL недоступна?  npm run db:start  — встроенный PostgreSQL на :54329
-7. npm run dev             → http://localhost:3000
-8. Опционально: npx n8n (порт 5678) — автоматизации; приложение работает и без него
-```
+~~~text
+1. Установите Node.js 20+.
+2. npm install
+3. npm run db:setup        → чистый embedded PostgreSQL 17 на :54330 + все миграции
+4. При необходимости демо-данных: SEED_MODE=demo npm run db:setup
+5. npm run dev             → http://localhost:3000
+6. Опционально: npx n8n (порт 5678) — автоматизации; приложение работает и без него
+~~~
 
-Демо-аккаунты (создаёт db:setup, пароль у всех `Demo123!`):
+Локальный embedded PostgreSQL 17 использует каталог .pgdata-pg17 и порт 54330. Старый PG18 в .pgdata на порту 54329 не переиспользуется и не удаляется автоматически.
+
+Демо-аккаунты создаются только при явном SEED_MODE=demo (пароль у всех Demo123!):
 customer@demo.ru · confectioner@demo.ru · admin@demo.ru · support@demo.ru · decor@demo.ru · animator@demo.ru
 
 ## Архитектура локального рантайма
 
-```text
-Windows ── PostgreSQL (локально) ── Next.js (npm run dev, :3000) ── браузер
-                                       │
-                                       ├── /api/**        — REST API приложения
-                                       ├── /rest/v1/**    — PostgREST-шим (supabase-js → SQL)
-                                       ├── /storage/v1/** — файловое хранилище (upload/storage)
-                                       └── /api/health    — {app, database, n8n, environment}
-n8n (localhost:5678) ← webhook-события (fail-safe, необязателен)
-```
+~~~text
+Windows/macOS/Linux ── embedded PostgreSQL 17 (:54330) ── Next.js (:3000) ── браузер
+                                                               │
+                                                               ├── /api/**        — REST API приложения
+                                                               ├── /rest/v1/**    — PostgREST-шим (supabase-js → SQL)
+                                                               ├── /storage/v1/** — локальное файловое хранилище
+                                                               └── /api/health    — состояние приложения и БД
+n8n (localhost:5678) ← webhook-события (необязателен)
+~~~
 
-- **Docker не требуется.** Прежние docker-compose файлы оставлены как legacy deployment-тулинг.
-- Данные БД встроенного PostgreSQL лежат в `.pgdata/` (команды: `npm run db:start|stop|status`).
-- Секреты не хранятся в Git: `.env*` игнорируется, `.env.example` — шаблон.
+- Docker не требуется для локальной разработки. Production использует единый Supabase Runtime на PostgreSQL 17.
+- Данные локальной БД лежат в .pgdata-pg17/ (команды: npm run db:start|stop|status).
+- Старый .pgdata/ PG18 оставлен нетронутым и не используется новым db:setup.
+- Секреты не хранятся в Git: .env* игнорируется; production-шаблоны — .env.production.example и .env.supabase-runtime.example.
 
 ## Команды
 
@@ -89,8 +88,8 @@ n8n (localhost:5678) ← webhook-события (fail-safe, необязател
 ## Архитектура
 
 - **Backend:** Next.js 16 (App Router), ~68 групп API-роутов, 18 cron-задач (`src/app/api/cron/`)
-- **Database:** PostgreSQL 15+ (локально или embedded через `npm run db:start` — без Docker). Доступ через `supabase-js` поверх PostgREST-шима (`/rest/v1` обслуживает сам Next.js)
-- **Migrations:** SQL-файлы `supabase/migrations/0001..0047`, применяются командой `npm run db:setup`
+- **Database:** PostgreSQL 17 (embedded для локальной разработки; единый Supabase Runtime для production). Доступ через `supabase-js` поверх PostgREST-шима (`/rest/v1` обслуживает сам Next.js)
+- **Migrations:** все актуальные SQL-файлы `supabase/migrations/`, применяются через `npm run db:setup` или init runner единого PG17 runtime
 - **Realtime:** Socket.IO (chat, typing, online, order-tracking) — `mini-services/chat-server`
 - **Payments:** YooKassa (mock/real, идемпотентность, IP whitelist, эскроу через cron)
 - **Auth:** JWT (jose) + bcrypt + 2FA TOTP + OAuth (Telegram/Google/Yandex/VK)
@@ -114,22 +113,22 @@ npm run dev         # http://localhost:3000
 > Примечание: `npm run dev` запускает настоящий dev-сервер (`next dev`).
 > Production-сборка — отдельная команда `npm run build && npm run start`.
 
-### Production (Docker, legacy deployment-тулинг)
+### Production — единый Supabase Runtime / PostgreSQL 17
 
-Самохостинг Supabase/Docker-файлы сохранены как legacy deployment-вариант и
-локальному запуску не требуются:
+Подготовьте .env.production и .env.supabase-runtime из шаблонов, заполните уникальные секреты, затем запускайте только канонический launcher:
 
-```bash
+~~~bash
 cp .env.production.example .env.production
-# Сгенерировать секреты:
-openssl rand -base64 48  # JWT_SECRET
-openssl rand -hex 32    # TFA_ENCRYPTION_KEY
-openssl rand -hex 32    # SIMPLEX_BRIDGE_API_KEY
+cp .env.supabase-runtime.example .env.supabase-runtime
 
-docker-compose up -d
-docker-compose ps
-docker-compose logs -f web
-```
+node scripts/compose-single-runtime.mjs config
+node scripts/compose-single-runtime.mjs up -d --build
+node scripts/compose-single-runtime.mjs ps
+node scripts/compose-single-runtime.mjs logs --tail 200 supabase-runtime
+node scripts/compose-single-runtime.mjs logs --tail 200 web
+~~~
+
+Не запускать docker-compose up напрямую: отдельные PG15/PG18 Compose-сервисы являются legacy-профилями и не входят в целевую архитектуру. Подробности — в docs/SUPABASE_SINGLE_CONTAINER_RUNTIME.md.
 
 > ⚠️ **Никогда не запускайте `npm run db:seed` / `db:setup` в production** —
 > сиды создают демонстрационные аккаунты с публично известными паролями (`Demo123!`).
