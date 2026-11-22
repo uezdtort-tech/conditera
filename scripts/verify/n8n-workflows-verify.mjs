@@ -67,6 +67,13 @@ for (const [file, expectedCron] of activeWorkflows) {
       }
     }
   }
+  if (file.endsWith("04-backup.json") || file.endsWith("05-cleanup.json")) {
+    const statusNode = workflow.nodes.find((node) => node.name === "Записать статус");
+    const body = String(statusNode?.parameters?.jsonBody || "");
+    if (!body.includes("$json.success") || !body.includes("$json.durationMs")) {
+      throw new Error(`${file}: status reporting must reflect the actual result and durationMs field`);
+    }
+  }
   console.log(`PASS ${file}: ${httpNodes.length} HTTP nodes, cron auth, idempotency and schedule verified`);
 }
 
