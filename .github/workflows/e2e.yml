@@ -63,6 +63,8 @@ on:
       - "src/middleware.test.ts"
       - "src/lib/postgrest/**"
       - "tests/e2e/**"
+      - "n8n-workflows/**"
+      - "scripts/verify/n8n-workflows-verify.mjs"
       - "playwright.config.ts"
       - "package.json"
       - "bun.lock"
@@ -87,6 +89,8 @@ on:
       - "src/middleware.test.ts"
       - "src/lib/postgrest/**"
       - "tests/e2e/**"
+      - "n8n-workflows/**"
+      - "scripts/verify/n8n-workflows-verify.mjs"
       - "playwright.config.ts"
       - ".github/workflows/e2e.yml"
 
@@ -129,6 +133,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Verify n8n retention workflow contracts
+        run: bun scripts/verify/n8n-workflows-verify.mjs
 
       - name: Run acceptance and production-time unit tests
         run: bunx vitest run src/lib/ops/risk.test.ts
