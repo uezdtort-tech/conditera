@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const activeWorkflows = new Map([
   ["n8n-workflows/01-abandoned-cart.json", "0 * * * *"],
@@ -30,6 +30,18 @@ const disabledWorkflows = [
   "n8n-workflows/25-ai-smart-cake-search.json",
   "n8n-workflows/26-conditera-event-bus.json",
 ];
+
+const knownFiles = new Set([...activeWorkflows.keys(), ...disabledWorkflows]);
+const actualFiles = readdirSync("n8n-workflows").filter((name) => name.endsWith(".json")).map((name) => `n8n-workflows/${name}`);
+const unclassified = actualFiles.filter((file) => !knownFiles.has(file));
+const missingFiles = [...knownFiles].filter((file) => !actualFiles.includes(file));
+if (unclassified.length || missingFiles.length || actualFiles.length !== knownFiles.size) {
+  throw new Error(JSON.stringify({ unclassified, missingFiles, actual: actualFiles.length, classified: knownFiles.size }));
+}
+const ids = actualFiles.map((file) => JSON.parse(readFileSync(file, "utf8")).id);
+if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
+  throw new Error("Every n8n workflow must have a unique, stable id");
+}
 
 for (const [file, expectedCron] of activeWorkflows) {
   const workflow = JSON.parse(readFileSync(file, "utf8"));
