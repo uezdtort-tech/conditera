@@ -57,7 +57,7 @@ jobs:
             -e N8N_ENCRYPTION_KEY_FILE=/run/secrets/n8n_encryption_key \
             -e NODE_OPTIONS=--max-old-space-size=1024 \
             -e N8N_BLOCK_ENV_ACCESS_IN_NODE=false \
-            -e N8N_USER_FOLDER=/home/node/.n8n \
+            -e N8N_USER_FOLDER=/home/node \
             -e N8N_HOST=127.0.0.1 \
             -e N8N_PORT=5678 \
             -e N8N_PROTOCOL=http \
@@ -90,9 +90,9 @@ jobs:
             exit 1
           fi
           docker logs --tail 200 conditera-n8n-bootstrap-test
-          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node/.n8n conditera-n8n-bootstrap-test sh -c 'echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$N8N_USER_FOLDER"; n8n list:workflow'
-          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node/.n8n conditera-n8n-bootstrap-test mkdir -p /tmp/conditera-n8n-export
-          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node/.n8n conditera-n8n-bootstrap-test n8n export:workflow --all --separate --output=/tmp/conditera-n8n-export
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$N8N_USER_FOLDER"; n8n list:workflow'
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test mkdir -p /tmp/conditera-n8n-export
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test n8n export:workflow --all --separate --output=/tmp/conditera-n8n-export
           mkdir -p /tmp/conditera-n8n-export
           docker cp conditera-n8n-bootstrap-test:/tmp/conditera-n8n-export/. /tmp/conditera-n8n-export/
           node --input-type=module <<'NODE'
@@ -363,7 +363,7 @@ jobs:
           mkdir -p /tmp/supabase-runtime-diagnostics
           if docker inspect conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-inspect.json 2>&1; then
             docker logs --timestamps conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap.log 2>&1 || true
-            docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node/.n8n conditera-n8n-bootstrap-test sh -c 'id; echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$N8N_USER_FOLDER"; n8n list:workflow' > /tmp/supabase-runtime-diagnostics/n8n-workflows.txt 2>&1 || true
+            docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'id; echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$N8N_USER_FOLDER"; n8n list:workflow' > /tmp/supabase-runtime-diagnostics/n8n-workflows.txt 2>&1 || true
           fi
           if docker inspect conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container-inspect.json 2>&1; then
             docker logs --timestamps conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container.log 2>&1 || true
