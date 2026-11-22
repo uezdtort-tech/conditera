@@ -29,7 +29,7 @@ import { spawnSync } from "node:child_process";
 
 const BASE = process.env.VERIFY_BASE || "http://127.0.0.1:3000";
 const PASSWORD = "Demo123!";
-const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54330/conditera";
 
 const OWNER_ID = "11111111-1111-4111-8111-111111111101"; // confectioner@demo.ru (Торты на заказ | Сахарная печать)
 const CONF_102 = "11111111-1111-4111-8111-111111111102"; // Сладкая уездная
