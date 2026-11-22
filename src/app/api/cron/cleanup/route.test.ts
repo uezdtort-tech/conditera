@@ -65,7 +65,7 @@ describe("GET /api/cron/cleanup — partial failures", () => {
     expect(body.error).toContain("expired_semaphores");
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
       status: "failed",
-      error_message: expect.stringContaining("database timeout"),
+      errorMessage: expect.stringContaining("database timeout"),
     }));
   });
 
@@ -85,7 +85,7 @@ describe("GET /api/cron/cleanup — partial failures", () => {
     expect((await response.json()).success).toBe(true);
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
       status: "success",
-      error_message: null,
+      errorMessage: null,
     }));
   });
 });
