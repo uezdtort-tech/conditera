@@ -1443,9 +1443,9 @@ async function main() {
       extraHeaders: { "x-real-ip": "10.241.242.243", "user-agent": "Conditera-E2E-New-Device/1.0" },
     }),
   ]);
-  assert("конкурентные входы с известного устройства: один 200, второй 409",
-    [parallelLoginA.status, parallelLoginB.status].every((status) => status === 200 || status === 409) &&
-    [parallelLoginA.status, parallelLoginB.status].includes(200),
+  assert("конкурентные входы с известного устройства: строго один 200 и один 409",
+    [parallelLoginA.status, parallelLoginB.status].filter((status) => status === 200).length === 1 &&
+    [parallelLoginA.status, parallelLoginB.status].filter((status) => status === 409).length === 1,
     `${parallelLoginA.status}/${parallelLoginB.status}`);
   const [parallelSessionA, parallelSessionB] = await Promise.all([
     api("GET", "/api/auth/sessions", { token: parallelLoginA.json?.accessToken }),
