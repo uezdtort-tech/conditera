@@ -69,7 +69,7 @@ jobs:
             -v conditera-n8n-bootstrap-test:/home/node/.n8n \
             -v "$PWD/n8n-workflows:/imports:ro" \
             -v "$PWD/scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro" \
-            n8nio/n8n:1.95.0 /bin/sh /usr/local/bin/conditera-n8n-entrypoint.sh
+            n8nio/n8n:2.48.7 /bin/sh /usr/local/bin/conditera-n8n-entrypoint.sh
           ready=0
           for attempt in $(seq 1 120); do
             if curl -fsS http://127.0.0.1:15678/healthz >/dev/null; then ready=1; break; fi
