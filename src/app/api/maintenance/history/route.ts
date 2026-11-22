@@ -83,7 +83,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     const [logsResult, countResult] = await Promise.all([
-      logsQuery,
+      isAdmin
+        ? logsQuery
+        : Promise.resolve({ data: [] as MaintenanceLogRow[], error: null }),
       countQuery,
     ]);
 
