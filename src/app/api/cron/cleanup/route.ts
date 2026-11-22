@@ -89,7 +89,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             errorMessage: r.errorMessage,
           })),
         },
-        error_message: failureSummary || null,
+        errorMessage: failureSummary || null,
       })
       .eq("id", log.id);
 
@@ -118,7 +118,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .update({
         status: "failed",
         finishedAt: new Date().toISOString(),
-        error_message: error?.message ?? "Unknown error",
+        errorMessage: error?.message ?? "Unknown error",
       })
       .eq("id", log.id);
 
