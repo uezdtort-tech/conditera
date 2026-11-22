@@ -150,6 +150,12 @@ jobs:
           file: ./Dockerfile
           push: false
           tags: conditera:${{ github.sha }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            NEXT_PUBLIC_APP_URL=https://conditera.ru
+            NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=ci-public-anon-key
+            NEXT_PUBLIC_YANDEX_METRIKA_ID=111432662
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
