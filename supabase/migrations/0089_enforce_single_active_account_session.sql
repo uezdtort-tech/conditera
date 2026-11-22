@@ -107,6 +107,29 @@ CREATE TRIGGER user_sessions_exclusive_insert
   BEFORE INSERT ON public.user_sessions
   FOR EACH ROW EXECUTE FUNCTION public.revoke_previous_user_sessions_before_insert();
 
+CREATE OR REPLACE FUNCTION public.prevent_user_session_reactivation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $fn$
+BEGIN
+  IF OLD.user_id IS DISTINCT FROM NEW.user_id OR OLD.id IS DISTINCT FROM NEW.id THEN
+    RAISE EXCEPTION 'USER_SESSION_IDENTITY_IMMUTABLE'
+      USING ERRCODE = '55000';
+  END IF;
+  IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS NULL THEN
+    RAISE EXCEPTION 'USER_SESSION_CANNOT_BE_REACTIVATED'
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS user_sessions_identity_and_reactivation_guard ON public.user_sessions;
+CREATE TRIGGER user_sessions_identity_and_reactivation_guard
+  BEFORE UPDATE ON public.user_sessions
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_user_session_reactivation();
+
 COMMENT ON FUNCTION public.enforce_single_active_user_session(UUID, UUID) IS
   'Enforces one active personal account session; a new login revokes prior device sessions atomically.';
 
