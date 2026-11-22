@@ -62,6 +62,7 @@ COPY scripts/supabase-runtime-poc/ /usr/local/lib/supabase-runtime-poc/
 COPY scripts/supabase-runtime-poc/supervisord.conf /etc/supervisord.conf
 
 RUN chmod +x /usr/local/lib/supabase-runtime-poc/*.sh \
+    && chmod +x /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-backup-role.sh \
     && mkdir -p /var/log/supervisor /run/supervisor \
     && ln -sf /usr/local/lib/supabase-runtime-poc/supabase-runtime-entrypoint.sh /usr/local/bin/supabase-runtime-entrypoint.sh \
     && ln -sf /usr/local/lib/supabase-runtime-poc/supabase-runtime-healthcheck.sh /usr/local/bin/supabase-runtime-healthcheck.sh
