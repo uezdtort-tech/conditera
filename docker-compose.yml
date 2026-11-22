@@ -348,7 +348,7 @@ services:
     image: n8nio/n8n:2.48.7
     container_name: conditera-n8n
     <<: *default-restart
-    command: ["/bin/sh", "/usr/local/bin/conditera-n8n-entrypoint.sh"]
+    entrypoint: ["tini", "--", "/bin/sh", "/usr/local/bin/conditera-n8n-entrypoint.sh"]
     environment:
       - N8N_HOST=n8n
       - N8N_PORT=5678
