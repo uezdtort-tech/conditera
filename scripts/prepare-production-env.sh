@@ -75,6 +75,8 @@ app_generated = {
     "CRON_SECRET": random_hex(32),
     "BOT_SECRET": random_hex(32),
     "TELEGRAM_WEBHOOK_SECRET": random_hex(32),
+    "N8N_WEBHOOK_SECRET": random_hex(32),
+    "N8N_ENCRYPTION_KEY": random_hex(32),
     "IP_HASH_SALT": random_hex(32),
     "MEILI_MASTER_KEY": random_hex(32),
     "ENCRYPTOR_KEY": random_hex(32),
