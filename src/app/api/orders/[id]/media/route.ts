@@ -171,7 +171,17 @@ export async function GET(
     // Фото готового изделия — часть заказа и доказательство исполнения:
     // владелец-покупатель должен иметь возможность просматривать их.
     // SUPPORT/COURIER не получают доступ только по наличию глобальной роли.
-    if (order.user_id !== user.id && !(await canOperateOrder(order, user.id))) {
+    let canView = order.user_id === user.id || await canOperateOrder(order, user.id);
+    if (!canView && user.roles.includes("SUPPORT")) {
+      const assignedDispute = await getPool().query(
+        `SELECT 1 FROM public.order_disputes
+         WHERE order_id = $1::uuid AND assigned_to = $2::uuid
+         LIMIT 1`,
+        [id, user.id],
+      );
+      canView = assignedDispute.rows.length > 0;
+    }
+    if (!canView) {
       return NextResponse.json(
         { error: "FORBIDDEN", message: "Нет доступа" },
         { status: 403 }
