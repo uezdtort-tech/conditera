@@ -142,7 +142,12 @@ NODE
 
   while IFS= read -r workflow_id; do
     [ -n "$workflow_id" ] || continue
-    n8n publish:workflow --id="$workflow_id"
+    # During bootstrap the n8n HTTP server is intentionally stopped.
+    # Disable the async publication applier for this one-shot CLI process so
+    # publish writes the version mapping directly and cannot wait for a
+    # background service that is not running yet. The server applies published
+    # versions when it starts below.
+    N8N_USE_WORKFLOW_PUBLICATION_SERVICE=false n8n publish:workflow --id="$workflow_id"
   done < "$current_ids"
 
   # Explicitly unpublish repository prototypes that are not approved for
@@ -152,7 +157,7 @@ NODE
     source_id="$(node -e 'const w=require(process.argv[1]); process.stdout.write(String(w.id || ""))' "$source_file")"
     source_active="$(node -e 'const w=require(process.argv[1]); process.stdout.write(w.active === true ? "true" : "false")' "$source_file")"
     if [ "$source_active" != "true" ] && [ -n "$source_id" ]; then
-      n8n unpublish:workflow --id="$source_id" || \
+      N8N_USE_WORKFLOW_PUBLICATION_SERVICE=false n8n unpublish:workflow --id="$source_id" || \
         echo "[n8n-bootstrap] inactive source workflow $source_id is not published; skipping"
     fi
   done
@@ -163,7 +168,7 @@ NODE
     while IFS= read -r old_id; do
       [ -n "$old_id" ] || continue
       if ! grep -Fqx "$old_id" "$current_ids"; then
-        n8n unpublish:workflow --id="$old_id" || \
+        N8N_USE_WORKFLOW_PUBLICATION_SERVICE=false n8n unpublish:workflow --id="$old_id" || \
           echo "[n8n-bootstrap] stale workflow $old_id is already absent; skipping"
       fi
     done < "$IDS_MARKER"
