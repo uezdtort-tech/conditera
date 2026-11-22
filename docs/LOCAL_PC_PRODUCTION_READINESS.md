@@ -1,6 +1,6 @@
 # Подготовка Conditera к production на локальном ПК
 
-Статус документа: release gate. CI подтвердил полный E2E-набор на PostgreSQL 17 и запуск единого Supabase runtime; production на локальном Windows ПК ещё не развёрнут и не принят.
+Статус документа: release gate. Для PG17 добавлены отдельные CI-сценарии полного жизненного цикла, миграций, backup/restore и единого Supabase runtime. Последние актуальные запуски на момент обновления ещё ожидают выполнения; успешный результат не подтверждён. Production на локальном Windows ПК не развёрнут и не принят.
 
 ## Зафиксированная целевая среда
 
@@ -17,7 +17,7 @@
 1. Целевая БД — PostgreSQL 17.12. `docker-compose.yml` и мигратор выровнены на PostgreSQL 17; в production overlay эти legacy app-db сервисы отключены.
 2. `docker-compose.supabase.yml` содержит прежний многоконтейнерный Supabase на PG15, но все его сервисы, включая Studio, отключены профилем `legacy-supabase` при использовании целевого overlay.
 3. Единый Supabase runtime собран из закреплённых версий PostgreSQL 17, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy, Kong и Edge Runtime в одном контейнере. Его Compose overlay подключает Next.js к той же базе через роль `conditera_app`.
-4. GitHub Actions подтвердил PostgreSQL 17 migration Compose validation, Supabase runtime smoke, 980 unit/integration tests, 196 P0.5 checks, 26 payment checks, 37 operational checks, 63 media/moderation checks и 156 Playwright Chromium tests. Это CI-проверка, не локальный production deployment.
+4. В CI добавлен полный PG17 acceptance job: чистые миграции, повторный db:setup, production Docker image, конкурентные возвраты, полный order lifecycle, checkout/idempotency, чат, рецепты, склад, backup/restore и Playwright. До завершения актуальных GitHub Actions запусков на текущем SHA нельзя заявлять, что этот набор прошёл. Старые успешные прогоны на PG15 не подтверждают PG17.
 5. `scripts/deploy.sh` остаётся намеренно заблокированным. Добавлен отдельный `scripts/deploy-single-container.sh`: он проверяет реальные env, итоговую Compose-конфигурацию и запрещает публикацию web/Meilisearch портов; не удаляет контейнеры или volumes.
 6. `.github/workflows/deploy.yml` ориентирован на удалённый VPS через SSH и каталог `/opt/conditera`; не запускать его для production Conditera.
 7. Фактическое состояние Docker Desktop, DNS, маршрутизатора/NAT, Windows Firewall, volumes и секретов на локальном ПК можно подтвердить только проверкой на самой машине владельца.
@@ -29,16 +29,16 @@
 
 - Единый образ Supabase all-in-one уже реализован в `Dockerfile.supabase-runtime-poc` с supervisor; в production overlay используется один контейнер `supabase-runtime`.
 - Внутри него запускаются PostgreSQL 17.12, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy, Kong и Edge Runtime; версии закреплены.
-- Readiness/health checks и корректное завершение процессов проверены в CI runtime POC. Полный бизнес E2E на PG17 подтверждён отдельно.
+- Readiness/health checks и корректное завершение процессов проверяются в CI runtime POC. Полный бизнес E2E на PG17 остаётся отдельным обязательным gate до зелёного запуска.
 - На локальном Windows ПК ещё требуется проверить падение/перезапуск каждого процесса, восстановление клиентов, нагрузку, backup/restore и восстановление после перезагрузки ПК.
 - Не использовать плавающие теги образов и не запускать старый multi-container Supabase профиль.
 
 ### B. Единая база PostgreSQL 17 с нуля
 
-- Не проектировать перенос или слияние данных: владелец подтвердил, что обе прежние БД пустые и пользовательских данных нет.
+- Не проектировать перенос или слияние данных: владелец подтвердил, что все прежние БД пустые и пользовательских данных нет. Создаётся новая чистая PG17 без переноса старого PGDATA.
 - На локальном ПК создать новый volume `supabase_runtime_pg17_data`; не подключать к нему PGDATA от PostgreSQL 15 или 18.
-- CI на чистом PG17.12 уже применяет системные и прикладные миграции, сверяет ledger с точным списком файлов и повторно выполняет `bun run db:setup` без изменения ledger.
-- CI проверяет роль `conditera_app`, grants, RLS, Auth/Storage/Realtime схемы; полный набор бизнес-сценариев выполняется на PG17.
+- CI job на чистом PG17.12 настроен применять системные и прикладные миграции, сверять ledger с точным списком файлов и повторно выполнять `bun run db:setup` без изменения ledger; результат последнего актуального запуска должен быть проверен.
+- CI должен подтвердить роль `conditera_app`, grants, RLS, Auth/Storage/Realtime схемы и полный набор бизнес-сценариев на PG17; не подменять это успешным прогоном PG15.
 - На локальном ПК первый старт должен использовать `SEED_MODE=none`, новый volume и подтвердить тот же migration ledger без demo seeds.
 - Настроить регулярные резервные копии новой PG17 и Storage с проверенным восстановлением. Это защита уже созданных production-данных, а не перенос старых БД.
 - Старые тестовые volumes не использовать как источник истины; не удалять их в рамках deploy-скрипта.
