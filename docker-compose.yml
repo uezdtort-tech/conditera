@@ -352,7 +352,7 @@ services:
       - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - WEBHOOK_URL=https://${DOMAIN:-conditera.ru}/n8n/
+      - WEBHOOK_URL=http://n8n:5678/
       - GENERIC_TIMEZONE=Europe/Moscow
       - APP_URL=http://web:3000
       - CRON_SECRET=${CRON_SECRET:?CRON_SECRET required}
