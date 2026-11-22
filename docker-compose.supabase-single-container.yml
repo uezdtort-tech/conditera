@@ -14,6 +14,8 @@ services:
 
   # Override web's DB target and dependencies without dropping its other env.
   web:
+    # The reverse proxy is the only public HTTP entry point.
+    ports: !override []
     environment: !override
       - APP_VERSION=${WEB_TAG:-dev}
       - DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
@@ -66,6 +68,10 @@ services:
       meilisearch:
         condition: service_healthy
 
+  meilisearch:
+    # Search is internal-only; expose it through the application API, never host port 7700.
+    ports: !override []
+
   supabase-db:
     profiles: ["legacy-supabase"]
   supabase-kong:
@@ -83,6 +89,8 @@ services:
   supabase-imgproxy:
     profiles: ["legacy-supabase"]
   supabase-meta:
+    profiles: ["legacy-supabase"]
+  supabase-studio:
     profiles: ["legacy-supabase"]
   supabase-analytics:
     profiles: ["legacy-supabase"]
