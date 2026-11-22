@@ -96,11 +96,11 @@ jobs:
           BEFORE="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d supabase -c 'SELECT count(*) FROM public.schema_migrations')"
           pwsh -NoProfile -File scripts/ops/audit-local-production.ps1 \
             -RuntimeContainer "$RUNTIME" -Database supabase -User supabase_admin \
-            -OutputRoot /tmp/conditera-audit-pg17
+            -OutputRoot "$RUNNER_TEMP/conditera-audit-pg17"
           AFTER="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d supabase -c 'SELECT count(*) FROM public.schema_migrations')"
           test "$BEFORE" = "$AFTER"
           test "$AFTER" = "82"
 
-          REPORT="$(find /tmp/conditera-audit-pg17 -name pg17-runtime-inventory.json -type f | head -n 1)"
+          REPORT="$(find "$RUNNER_TEMP/conditera-audit-pg17" -name pg17-runtime-inventory.json -type f | head -n 1)"
           test -n "$REPORT"
           jq -e '.mode == "READ_ONLY" and .databaseAudit.serverMajor == 17 and .databaseAudit.appMigrationCount == 82 and .safety.databasesModified == false and .safety.volumesModified == false' "$REPORT"
