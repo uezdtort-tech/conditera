@@ -92,6 +92,18 @@ NODE
     n8n publish:workflow --id="$workflow_id"
   done < "$current_ids"
 
+  # Explicitly unpublish repository prototypes that are not approved for
+  # production. This also reverses an accidental manual activation in the UI.
+  for source_file in "$IMPORT_DIR"/*.json; do
+    [ -f "$source_file" ] || continue
+    source_id="$(node -e 'const w=require(process.argv[1]); process.stdout.write(String(w.id || ""))' "$source_file")"
+    source_active="$(node -e 'const w=require(process.argv[1]); process.stdout.write(w.active === true ? "true" : "false")' "$source_file")"
+    if [ "$source_active" != "true" ] && [ -n "$source_id" ]; then
+      n8n unpublish:workflow --id="$source_id" || \
+        echo "[n8n-bootstrap] inactive source workflow $source_id is not published; skipping"
+    fi
+  done
+
   # If a workflow was removed or disabled in source control, deactivate its
   # previously imported copy. Never delete workflows or execution history.
   if [ -s "$IDS_MARKER" ]; then
