@@ -94,7 +94,6 @@ jobs:
           TFA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           CRON_SECRET=ci-cron-secret-for-compose-validation
           N8N_WEBHOOK_SECRET=ci-n8n-webhook-secret-for-compose-validation
-          N8N_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           BOT_SECRET=ci-bot-secret-for-compose-validation
           IP_HASH_SALT=ci-ip-hash-salt
           MEILI_MASTER_KEY=ci-meili-master-key-32-characters-long
@@ -129,6 +128,7 @@ jobs:
           cat > .env.supabase-runtime <<EOF
           APP_DATABASE_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           BACKUP_DATABASE_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+          N8N_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           SUPABASE_SECRET_KEY_BASE=$SECRET_KEY_BASE
           PG_META_CRYPTO_KEY=$PG_META_CRYPTO_KEY
           REALTIME_DB_ENC_KEY=$REALTIME_DB_ENC_KEY
