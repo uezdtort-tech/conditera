@@ -36,6 +36,8 @@ jobs:
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
           ANON_KEY: ci-only-anon-key
           SERVICE_ROLE_KEY: ci-only-service-role-key
+          NEXT_PUBLIC_APP_URL: https://conditera.ru
+          NEXT_PUBLIC_SUPABASE_URL: https://conditera.ru/api
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key
           SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key
           SUPABASE_SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
