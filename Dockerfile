@@ -151,7 +151,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/jose ./node_modules/
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
 
 # Создаём директорию для upload/backup
-RUN mkdir -p /app/upload /app/backups /app/storage && chown -R nextjs:nodejs /app/upload /app/backups /app/storage
+RUN mkdir -p /app/upload /app/backups /app/storage /app/supabase-storage && chown -R nextjs:nodejs /app/upload /app/backups /app/storage
 
 USER nextjs
 
