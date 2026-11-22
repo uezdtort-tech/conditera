@@ -6,7 +6,7 @@
 1. Установите Node.js 20+.
 2. npm install
 3. npm run db:setup        → чистый embedded PostgreSQL 17 на :54330 + все миграции
-4. При необходимости демо-данных: SEED_MODE=demo npm run db:setup
+4. При необходимости демо-данных: PowerShell — `$env:SEED_MODE="demo"; npm run db:setup`; Bash — `SEED_MODE=demo npm run db:setup`
 5. npm run dev             → http://localhost:3000
 6. Опционально: npx n8n (порт 5678) — автоматизации; приложение работает и без него
 ~~~
