@@ -218,7 +218,7 @@ export async function cleanupOldBackups(): Promise<number> {
   let deleted = 0;
 
   for (const file of files) {
-    const filepath = join(BACKUP_DIR, file);
+    const filepath = join(/*turbopackIgnore: true*/ BACKUP_DIR, file);
     try {
       const stats = statSync(/*turbopackIgnore: true*/ filepath);
       if (stats.mtime < cutoff) {
@@ -250,7 +250,7 @@ export async function listBackups(): Promise<
   return files
     .filter((f) => f.startsWith("backup-"))
     .map((file) => {
-      const filepath = join(BACKUP_DIR, file);
+      const filepath = join(/*turbopackIgnore: true*/ BACKUP_DIR, file);
       const stats = statSync(/*turbopackIgnore: true*/ filepath);
       return {
         filename: file,
