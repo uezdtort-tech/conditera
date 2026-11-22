@@ -55,6 +55,19 @@ describe("session refresh-token rotation", () => {
     expect(mocked.filters).toContainEqual(["is", "revoked_at", null]);
   });
 
+  it("classifies a session revoked by a concurrent login as a conflict", async () => {
+    mocked.result = { data: null, error: null };
+
+    await expect(
+      setSessionRefreshJti("session-1", "user-1", "jti-first"),
+    ).rejects.toThrow("ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN");
+
+    expect(mocked.update).toHaveBeenCalledWith({ refresh_jti: "jti-first" });
+    expect(mocked.update).toHaveBeenCalledWith(
+      expect.objectContaining({ revoked_reason: "refresh_jti_init_failed" }),
+    );
+  });
+
   it("allows only the currently stored JTI to rotate", async () => {
     await expect(
       rotateSessionRefreshJti("session-1", "user-1", "jti-first", "jti-second"),
