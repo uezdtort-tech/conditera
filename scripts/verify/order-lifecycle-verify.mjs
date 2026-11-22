@@ -1105,8 +1105,19 @@ async function main() {
   } finally {
     await client.query("ROLLBACK").catch(() => {});
   }
-  assert("БД запрещает TRUNCATE хранилища при наличии доказательств (SQLSTATE 55000)",
-    mediaTruncateState === "55000", mediaTruncateState);
+  assert("TRUNCATE order_media не удаляет файлы, на которые ссылаются доказательства",
+    mediaTruncateState === "55000" || mediaTruncateState === "0A000", mediaTruncateState);
+  let evidenceTruncateState = "";
+  await client.query("BEGIN");
+  try {
+    await client.query("TRUNCATE public.order_dispute_evidence");
+  } catch (error) {
+    evidenceTruncateState = error.code;
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+  }
+  assert("БД запрещает TRUNCATE неизменяемых доказательств (SQLSTATE 55000)",
+    evidenceTruncateState === "55000", evidenceTruncateState);
   const disputeEvents = await client.query(
     `SELECT count(*)::int AS count FROM public.order_dispute_events WHERE dispute_id = $1::uuid`,
     [disputeId],
