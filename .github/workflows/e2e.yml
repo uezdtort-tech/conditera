@@ -204,7 +204,7 @@ jobs:
       - name: Verify concurrent YooKassa refunds on independent PostgreSQL sessions
         run: node scripts/verify/refund-concurrency-pg.mjs
         env:
-          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
 
       - name: Export generated Supabase service-role key to CI runtime
         shell: bash
@@ -242,7 +242,7 @@ jobs:
             exit 1
           fi
         env:
-          DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
+          DATABASE_URL: "postgresql://postgres@127.0.0.1:54330/conditera"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
@@ -256,25 +256,25 @@ jobs:
         run: node scripts/verify/order-lifecycle-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
 
       - name: Verify payment, checkout, idempotency, reviews and chat scenarios
         run: node scripts/verify/p11-hardening-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
 
       - name: Verify ops center, recipe breakdown and stock scenarios
         run: node scripts/verify/ops-center-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
 
       - name: Verify product media, moderation and storage scenarios
         run: node scripts/verify/product-media-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
 
       - name: Run Playwright tests
         run: bun run test:e2e -- --project=${{ matrix.browser }} ${{ github.event.inputs.grep && format('--grep "{0}"', github.event.inputs.grep) || '' }}
@@ -282,7 +282,7 @@ jobs:
           # Сервер уже запущен предыдущим шагом — запрещаем playwright
           # поднимать собственный webServer (иначе конфликт порта 3000)
           E2E_BASE_URL: http://localhost:3000
-          DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
+          DATABASE_URL: "postgresql://postgres@127.0.0.1:54330/conditera"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
