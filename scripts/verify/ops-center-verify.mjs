@@ -287,7 +287,7 @@ async function main() {
     );
     if (backup.json?.logId) {
       const log = await client.query(
-        `SELECT status, backup_path, backup_size_bytes
+        `SELECT status, "backupPath" AS backup_path, "backupSizeBytes" AS backup_size_bytes
          FROM public.maintenance_logs WHERE id = $1`,
         [backup.json.logId]
       );
