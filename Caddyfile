@@ -11,7 +11,7 @@
 #      НЕ напрямую к web:3000 — иначе при рестарте Next.js будет 502.
 
 # Основной домен + www-редирект
-conditera.ru, www.conditera.ru {
+conditera.ru {
         # Редирект www → корень (если зашли на www.conditera.ru)
         # (Caddy автоматически делает это через 'www.conditera.ru' в сертификате)
 
@@ -152,6 +152,11 @@ conditera.ru, www.conditera.ru {
         #               window 1s
         #       }
         # }
+}
+
+# Единственный канонический host — без www (совпадает с canonical URL приложения).
+www.conditera.ru {
+        redir https://conditera.ru{uri} permanent
 }
 
 # SimpleX SMP — опциональный профиль. Публичный endpoint не включается в первом production-релизе.
