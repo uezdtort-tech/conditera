@@ -29,6 +29,10 @@ SELECT 'CREATE ROLE conditera_app LOGIN'
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_app') \gexec
 ALTER ROLE conditera_app WITH LOGIN PASSWORD :'app_password' BYPASSRLS;
 GRANT CONNECT ON DATABASE supabase TO conditera_app;
+-- The Next.js PostgREST compatibility layer connects as conditera_app and
+-- switches to anon/authenticated/service_role per verified JWT claims.
+-- Match Supabase's authenticator role membership so SET LOCAL ROLE is legal.
+GRANT anon, authenticated, service_role TO conditera_app;
 GRANT USAGE ON SCHEMA public TO conditera_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera_app;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app;
