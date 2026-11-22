@@ -1414,11 +1414,12 @@ async function main() {
   const activeParallelToken = parallelSessionA.status === 200
     ? parallelLoginA.json.accessToken
     : parallelLoginB.json.accessToken;
-  await client.query(
+  const directInsertSession = await client.query(
     `INSERT INTO public.user_sessions
       (id, user_id, auth_method, user_agent, ip_address, device_label, expires_at)
      VALUES (uuid_generate_v4(), $1::uuid, 'dev', 'direct-db-insert-test',
-       '10.241.242.246', 'DB trigger test', now() + interval '1 hour')`,
+       '10.241.242.246', 'DB trigger test', now() + interval '1 hour')
+     RETURNING id::text`,
     [CUSTOMER_ID],
   );
   const directInsertActiveCount = await client.query(
@@ -1428,6 +1429,14 @@ async function main() {
   );
   assert("даже прямой INSERT в user_sessions отзывает предыдущие устройства",
     directInsertActiveCount.rows[0]?.count === 1);
+  const directInsertSecurityEvent = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+      WHERE user_id = $1::uuid AND event_type = 'session_revoked'
+        AND details->>'replacement_session_id' = $2`,
+    [CUSTOMER_ID, directInsertSession.rows[0]?.id],
+  );
+  assert("DB-триггер фиксирует отзыв прежнего устройства в журнале безопасности",
+    directInsertSecurityEvent.rows[0]?.count >= 1);
   const directInsertRevokedToken = await api("GET", "/api/auth/sessions", { token: activeParallelToken });
   assert("прямой DB INSERT немедленно инвалидирует прежний JWT → 401",
     directInsertRevokedToken.status === 401);
