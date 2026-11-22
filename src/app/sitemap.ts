@@ -39,6 +39,9 @@ const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "wee
  * Mock fallback разрешён только в development; test и production используют исключительно реальные данные.
  */
 async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string; updatedAt: string }[]> {
+  // Static build has no service-role credentials; return the public shell and let ISR
+  // populate verified profiles after the production runtime has its real secrets.
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return [];
   try {
     const { data, error } = await supabaseAdmin
       .from("confectioners")
