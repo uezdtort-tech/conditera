@@ -160,8 +160,8 @@ if app.get("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/") != "https://conditera.ru/
 if not app.get("YOOKASSA_SECRET_KEY", "").startswith("live_"):
     errors.append("YOOKASSA_SECRET_KEY must be a live_ production key, not a test credential")
 for key in ("EXTERNAL_YANDEX_ENABLED", "EXTERNAL_VK_ENABLED"):
-    if app.get(key, "").lower() != "true":
-        errors.append(f".env.production: {key}=true is required to enable the requested OAuth providers")
+    if app.get(key, "false").lower() != "false":
+        errors.append(f".env.production: {key} must remain false; Conditera uses its own PKCE callback routes, not GoTrue provider callbacks")
 
 if errors:
     print("Production environment validation failed:")
