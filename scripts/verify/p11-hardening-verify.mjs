@@ -431,6 +431,12 @@ async function main() {
       reviewDupBlocked = e.code === "23505";
     }
     assert("второй отзыв на тот же заказ → 23505 (uq_product_reviews_order)", reviewDupBlocked);
+    // The DB uniqueness contract is verified above; remove its fixture so the
+    // HTTP path can independently prove a valid delivered-order review.
+    await client.query(
+      "DELETE FROM public.product_reviews WHERE order_id = $1::uuid AND user_id = $2::uuid",
+      [verifyOrderId, CUSTOMER_USER_ID],
+    );
   }
   const orderDedupKey = `p11-order-key-${rand()}`;
   const insOrder = () =>
@@ -461,6 +467,11 @@ async function main() {
     assert("отзыв за ЧУЖОЙ заказ → 403", alien.status === 403, `got ${alien.status}`);
     const ownPending = await api("POST", "/api/reviews", { token: customer, body: { orderId: verifyOrderId, rating: 5, text: "ещё не доставлен" } });
     assert("отзыв на недоставленный заказ → 422", ownPending.status === 422, `got ${ownPending.status}`);
+    await client.query("UPDATE public.orders SET status = 'DELIVERED' WHERE id = $1::uuid", [verifyOrderId]);
+    const ownDelivered = await api("POST", "/api/reviews", { token: customer, body: { orderId: verifyOrderId, rating: 5, text: "доставленный заказ" } });
+    assert("отзыв за доставленный собственный заказ → 201", ownDelivered.status === 201 && ownDelivered.json?.review?.productId === PRODUCT_ID, `got ${ownDelivered.status}`);
+    const duplicateReview = await api("POST", "/api/reviews", { token: customer, body: { orderId: verifyOrderId, rating: 4, text: "повторный отзыв" } });
+    assert("повторный HTTP-отзыв на заказ → 409", duplicateReview.status === 409, `got ${duplicateReview.status}`);
   }
 
   // === 7. CHAT: один order = одна комната (§12) ===
