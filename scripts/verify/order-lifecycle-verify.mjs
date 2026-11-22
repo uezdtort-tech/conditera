@@ -991,6 +991,19 @@ async function main() {
     JSON.stringify(disputeView.json).slice(0, 240));
   assert("доказательство связано с SHA-256 оригинального файла",
     /^[0-9a-f]{64}$/.test(disputeView.json?.dispute?.evidence?.[0]?.content_sha256 || ""));
+  let evidenceHashMismatchState = "";
+  try {
+    await client.query(
+      `INSERT INTO public.order_dispute_evidence
+        (dispute_id, order_media_id, uploaded_by, content_sha256)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, repeat('0', 64))`,
+      [disputeId, disputeView.json?.dispute?.evidence?.[0]?.order_media_id, CUSTOMER_ID],
+    );
+  } catch (error) {
+    evidenceHashMismatchState = error.code;
+  }
+  assert("БД отклоняет доказательство с хешем, не совпадающим с оригиналом (23514)",
+    evidenceHashMismatchState === "23514", evidenceHashMismatchState);
   const evidenceUrl = disputeView.json?.dispute?.evidence?.[0]?.url;
   const evidenceDownload = await fetch(`${BASE}${evidenceUrl}`, { headers: { Authorization: `Bearer ${customer}` } });
   assert("оригинал доказательства доступен участнику заказа как image/png",
