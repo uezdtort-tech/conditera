@@ -167,9 +167,13 @@ try {
       cartId: changedCart.id,
       action: "mark_notified",
       skipped: false,
-      channel: "email",
+      channel: "in_app",
     });
-    assert("second cart snapshot can be marked sent independently", changedSent.status === 200);
+    const inAppRow = await db.query(
+      "SELECT reminder_status, reminder_channel FROM public.abandoned_cart_logs WHERE id = $1::uuid",
+      [changedCart.id],
+    );
+    assert("second cart snapshot supports in-app reminder delivery", changedSent.status === 200 && inAppRow.rows[0]?.reminder_status === "sent" && inAppRow.rows[0]?.reminder_channel === "in_app");
   }
 
   const recentCartItem = await db.query(
