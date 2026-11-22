@@ -108,6 +108,9 @@ export async function createUserSession(
     }, { onConflict: "dedup_key" });
     if (taskError) {
       console.error("[session-registry] blocked-device admin task failed:", taskError.message);
+      // Без административного сигнала механизм контроля передачи аккаунта
+      // не считается доступным: вход остаётся запрещённым, операция fail-closed.
+      throw new Error(SESSION_POLICY_UNAVAILABLE);
     }
 
     // Не создаём новую сессию и не отзываем действующую. Для смены устройства
