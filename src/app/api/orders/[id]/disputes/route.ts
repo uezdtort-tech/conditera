@@ -135,22 +135,13 @@ export async function POST(
       return NextResponse.json({ error: "INVALID_EVIDENCE_FILE_SIZE" }, { status: 422 });
     }
 
-    // Сохраняем оригиналы в приватном bucket; никакие публичные URL от клиента не принимаются.
-    for (const file of files) {
-      const media = await saveOrderReadyPhoto({
-        orderId,
-        file,
-        uploadedBy: user.id,
-        kind: "dispute_evidence",
-      });
-      uploadedMedia.push({ id: media.id, contentSha256: media.contentSha256 });
-    }
-
     const pool = getPool();
     const client = await pool.connect();
     let dispute: Record<string, unknown>;
     try {
       await client.query("BEGIN");
+      // Сначала атомарно резервируем единственный активный спор. Повторный POST
+      // отклоняется до загрузки файлов и не создаёт orphan-объекты.
       const inserted = await client.query(
         `INSERT INTO public.order_disputes (order_id, opened_by, category, description)
          VALUES ($1::uuid, $2::uuid, $3, $4)
@@ -158,6 +149,18 @@ export async function POST(
         [orderId, user.id, category, description],
       );
       dispute = inserted.rows[0];
+
+      // Сохраняем оригиналы в приватном bucket; никакие публичные URL от клиента не принимаются.
+      for (const file of files) {
+        const media = await saveOrderReadyPhoto({
+          orderId,
+          file,
+          uploadedBy: user.id,
+          kind: "dispute_evidence",
+        });
+        uploadedMedia.push({ id: media.id, contentSha256: media.contentSha256 });
+      }
+
       for (const media of uploadedMedia) {
         await client.query(
           `INSERT INTO public.order_dispute_evidence (dispute_id, order_media_id, uploaded_by, content_sha256)
