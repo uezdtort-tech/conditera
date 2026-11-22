@@ -17,20 +17,20 @@ import { test, expect, type APIRequestContext } from '@playwright/test'
 test.describe('Auth flow — register/login (exempt от CSRF)', () => {
   // register и login exempt от CSRF → POST проходит без CSRF
 
-  test('POST /api/auth/register без полей → 400-500 (exempt от CSRF)', async ({ request }) => {
+  test('POST /api/auth/register без полей → 400/429 (exempt от CSRF; 429 is the registration anti-fraud limit)', async ({ request }) => {
     const response = await request.post('/api/auth/register', { data: {} })
     // register exempt от CSRF → проходит → валидация тела → 400 (missing fields) или 500 (БД недоступна)
-    expect([400, 422, 500]).toContain(response.status())
+    expect([400, 429]).toContain(response.status())
   })
 
-  test('POST /api/auth/register с коротким паролем → 400-500', async ({ request }) => {
+  test('POST /api/auth/register с коротким паролем → 400/429', async ({ request }) => {
     const response = await request.post('/api/auth/register', {
       data: { email: 'test@example.com', password: '123', name: 'Test', phone: '+79999999999' },
     })
-    expect([400, 422, 500]).toContain(response.status())
+    expect([400, 429]).toContain(response.status())
   })
 
-  test('POST /api/auth/login без email/password → 400-500', async ({ request }) => {
+  test('POST /api/auth/login без email/password → 400/429', async ({ request }) => {
     const response = await request.post('/api/auth/login', { data: {} })
     expect([400, 500]).toContain(response.status())
   })
