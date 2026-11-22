@@ -224,6 +224,7 @@ validate_compose() {
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 config = json.loads(Path(sys.argv[1]).read_text())
 services = config["services"]
