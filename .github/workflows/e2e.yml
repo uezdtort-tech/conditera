@@ -565,6 +565,7 @@ jobs:
     env:
       NODE_VERSION: "20"
       DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:54323/conditera
+      BACKUP_DATABASE_PASSWORD: e2e_backup_password_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaa
       JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
       JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
       TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
@@ -638,6 +639,35 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      - name: Provision isolated read-only backup role on PostgreSQL 17
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const roleSql = (await db.query(
+              "SELECT format('CREATE ROLE conditera_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L', $1)",
+              [process.env.BACKUP_DATABASE_PASSWORD]
+            )).rows[0].format;
+            await db.query(roleSql);
+            await db.query("GRANT pg_read_all_data TO conditera_backup");
+            const role = await db.query(
+              "SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls FROM pg_roles WHERE rolname='conditera_backup'"
+            );
+            const r = role.rows[0];
+            if (!r?.rolcanlogin || r.rolsuper || r.rolcreatedb || r.rolcreaterole || !r.rolbypassrls) {
+              throw new Error("Backup role does not satisfy the least-privilege login/BYPASSRLS contract");
+            }
+            console.log("PASS: dedicated backup role provisioned with pg_read_all_data and no elevated admin privileges");
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          BACKUP_DATABASE_PASSWORD: ${{ env.BACKUP_DATABASE_PASSWORD }}
+
       - name: Verify migration setup is repeatable on clean PG17
         run: |
           bun run db:setup
@@ -702,6 +732,7 @@ jobs:
             -e PORT=3000 \
             -e HOSTNAME=0.0.0.0 \
             -e DATABASE_URL="$DATABASE_URL" \
+            -e BACKUP_DATABASE_PASSWORD="$BACKUP_DATABASE_PASSWORD" \
             -e BACKUP_DATABASE_URL="postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
             -e BACKUP_DIR=/app/backups \
             -e PRODUCT_MEDIA_ROOT=/app/storage \
