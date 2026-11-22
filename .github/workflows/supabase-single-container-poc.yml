@@ -44,7 +44,7 @@ jobs:
           sh -n scripts/n8n-entrypoint.sh
           node scripts/verify/n8n-workflows-verify.mjs
           printf '%s\n' "$N8N_ENCRYPTION_KEY" > /tmp/conditera-n8n-encryption-key
-          chmod 600 /tmp/conditera-n8n-encryption-key
+          chmod 644 /tmp/conditera-n8n-encryption-key
           docker volume create conditera-n8n-bootstrap-test >/dev/null
           cleanup() {
             docker rm -f conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
