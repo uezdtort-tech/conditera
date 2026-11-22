@@ -44,6 +44,8 @@ COPY supabase/functions/ /opt/supabase/services/edge-runtime/home/deno/functions
 COPY supabase/kong.yml /opt/supabase/kong.yml.template
 COPY supabase/init-scripts/00-service-role-passwords.sh \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-00-role-passwords.sh
+COPY supabase/init-scripts/03-backup-role.sh \
+  /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-backup-role.sh
 COPY supabase/init-scripts/02-realtime-schema.sql \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-schema.sql
 # Seed the exact tenant schema/migration state shipped with the pinned Realtime
