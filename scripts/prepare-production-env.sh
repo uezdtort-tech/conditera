@@ -131,6 +131,20 @@ runtime_generated = {
 }
 runtime = upsert(".env.supabase-runtime", runtime_generated)
 
+import re
+n8n_encryption_key = runtime.get("N8N_ENCRYPTION_KEY", "")
+if not re.fullmatch(r"[0-9a-fA-F]{64}", n8n_encryption_key):
+    raise SystemExit("ОШИБКА: N8N_ENCRYPTION_KEY должен содержать 64 шестнадцатеричных символа.")
+
+# Keep the n8n encryption key out of the web container's .env.production.
+# Docker Compose mounts this file as a read-only secret into the n8n container.
+secrets_dir = Path(".secrets")
+secrets_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+secrets_dir.chmod(0o700)
+n8n_key_file = secrets_dir / "n8n_encryption_key"
+n8n_key_file.write_text(n8n_encryption_key + "\\n", encoding="utf-8")
+n8n_key_file.chmod(0o644)
+
 required_external = [
     ("SMTP_USER", app), ("SMTP_PASSWORD", app),
     ("YANDEX_CLIENT_ID", app), ("YANDEX_CLIENT_SECRET", app),
@@ -142,6 +156,7 @@ missing = [key for key, values in required_external if needs_value(values.get(ke
 print("Production env files prepared with generated secrets:")
 print(" - .env.production (permissions 600)")
 print(" - .env.supabase-runtime (permissions 600)")
+print(" - .secrets/n8n_encryption_key (mounted only into n8n)")
 print(" - Supabase anon/service_role JWTs signed with the generated JWT_SECRET")
 if missing:
     print("\nStill required from the real providers (not generated):")
