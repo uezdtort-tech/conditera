@@ -10,6 +10,7 @@ command -v git >/dev/null 2>&1 || { echo "ОШИБКА: требуется Git."
 command -v node >/dev/null 2>&1 || { echo "ОШИБКА: требуется Node.js для генерации Web Push VAPID keys." >&2; exit 1; }
 git check-ignore -q .env.production || { echo "ОШИБКА: .env.production не защищён .gitignore." >&2; exit 1; }
 git check-ignore -q .env.supabase-runtime || { echo "ОШИБКА: .env.supabase-runtime не защищён .gitignore." >&2; exit 1; }
+git check-ignore -q .secrets/n8n_encryption_key || { echo "ОШИБКА: .secrets/n8n_encryption_key не защищён .gitignore." >&2; exit 1; }
 
 [[ -f .env.production ]] || cp .env.production.example .env.production
 [[ -f .env.supabase-runtime ]] || cp .env.supabase-runtime.example .env.supabase-runtime
