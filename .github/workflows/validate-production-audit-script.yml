@@ -13,7 +13,7 @@ on:
       - ".github/workflows/validate-production-audit-script.yml"
 
 concurrency:
-  group: validate-production-audit-script-${{ github.ref }}
+  group: validate-production-audit-script-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
