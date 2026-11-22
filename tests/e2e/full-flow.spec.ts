@@ -228,19 +228,13 @@ test.describe("Navigation", () => {
 test.describe("Cake builder", () => {
   test("cake builder dialog can be opened from homepage", async ({ page }) => {
     await page.goto(BASE_URL);
-    await page.waitForTimeout(2000);
-    // Ищем кнопку конструктора
-    const builderButton = page.locator("text=Конструктор").first();
-    if (await builderButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await builderButton.click();
-      await page.waitForTimeout(2000);
-      // Должен открыться диалог конструктора
-      const dialog = page.locator("[role='dialog']").first();
-      // Если Supabase недоступен, диалог может не открыться — это OK для smoke-теста
-      if (await dialog.isVisible().catch(() => false)) {
-        await expect(dialog).toBeVisible();
-      }
-    }
+    const builderButton = page.getByRole("button", {
+      name: /Собрать торт в конструкторе/i,
+    });
+    await expect(builderButton).toBeVisible();
+    await builderButton.click();
+    const dialog = page.getByRole("dialog").first();
+    await expect(dialog).toBeVisible({ timeout: 5000 });
   });
 });
 
