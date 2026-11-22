@@ -134,7 +134,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
           const existing = existingRows || [];
           const alreadyDelivered = existing.length > 0 &&
-            existing.every((row) => ["queued", "sent", "delivered", "read"].includes(row.status));
+            existing.every((row) => ["sent", "delivered", "read"].includes(row.status));
           if (alreadyDelivered) {
             return NextResponse.json({
               success: true,
@@ -165,6 +165,16 @@ export async function POST(req: Request): Promise<NextResponse> {
           notificationIds: notificationIds.notificationIds,
           failed: failed.map((row) => ({ id: row.id, channel: row.channel })),
         }, { status: 502 });
+      }
+      const allQueued = rows.length > 0 && rows.every((row) => row.status === "queued");
+      if (allQueued) {
+        return NextResponse.json({
+          success: true,
+          skipped: true,
+          scheduled: true,
+          notificationIds: notificationIds.notificationIds,
+          channels: rows.map((row) => ({ channel: row.channel, status: row.status })),
+        });
       }
       return NextResponse.json({
         success: true,
