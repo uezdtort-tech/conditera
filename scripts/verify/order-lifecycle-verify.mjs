@@ -1409,6 +1409,28 @@ async function main() {
   assert("после конкурентных логинов в БД ровно одна активная сессия",
     parallelActiveCount.rows[0]?.count === 1,
     `active=${parallelActiveCount.rows[0]?.count}`);
+
+  // Проверяем защиту на уровне БД в обход createUserSession helper.
+  const activeParallelToken = parallelSessionA.status === 200
+    ? parallelLoginA.json.accessToken
+    : parallelLoginB.json.accessToken;
+  await client.query(
+    `INSERT INTO public.user_sessions
+      (id, user_id, auth_method, user_agent, ip_address, device_label, expires_at)
+     VALUES (uuid_generate_v4(), $1::uuid, 'dev', 'direct-db-insert-test',
+       '10.241.242.246', 'DB trigger test', now() + interval '1 hour')`,
+    [CUSTOMER_ID],
+  );
+  const directInsertActiveCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()`,
+    [CUSTOMER_ID],
+  );
+  assert("даже прямой INSERT в user_sessions отзывает предыдущие устройства",
+    directInsertActiveCount.rows[0]?.count === 1);
+  const directInsertRevokedToken = await api("GET", "/api/auth/sessions", { token: activeParallelToken });
+  assert("прямой DB INSERT немедленно инвалидирует прежний JWT → 401",
+    directInsertRevokedToken.status === 401);
 }
 
 main()
