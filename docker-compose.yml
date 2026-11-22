@@ -511,7 +511,9 @@ services:
     container_name: conditera-mailu
     <<: *default-restart
     profiles: ["mail", "full"]
-    env_file: mailu.env
+    env_file:
+      - path: ./mailu.env
+        required: false
     environment:
       - DOMAIN=conditera.ru
       - HOSTNAMES=mail.conditera.ru
