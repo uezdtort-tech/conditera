@@ -6,6 +6,13 @@ on:
       - work/pg17-compose-validation-and-import
     paths:
       - "docker-compose.supabase.yml"
+      - "docker-compose.yml"
+      - "docker-compose.supabase-single-container.yml"
+      - "Dockerfile"
+      - "Dockerfile.supabase-runtime-poc"
+      - "scripts/deploy-single-container.sh"
+      - ".env.production.example"
+      - ".env.supabase-runtime.example"
       - "docker-compose.pg17-migration.yml"
       - "supabase/config.toml"
       - "supabase/migrations/**"
@@ -41,6 +48,52 @@ jobs:
       - uses: actions/checkout@v4
       - name: Проверить доступность Docker Compose
         run: docker compose version
+      - name: Проверить безопасный production overlay и deploy gate
+        run: |
+          set -Eeuo pipefail
+          trap 'rm -f .env.production .env.supabase-runtime' EXIT
+          cat > .env.production <<EOF
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          JWT_SECRET=$JWT_SECRET
+          JWT_REFRESH_SECRET=ci-refresh-secret-which-is-not-used-for-real-auth
+          TFA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef
+          CRON_SECRET=ci-cron-secret-for-compose-validation
+          BOT_SECRET=ci-bot-secret-for-compose-validation
+          IP_HASH_SALT=ci-ip-hash-salt
+          MEILI_MASTER_KEY=ci-meili-master-key-32-characters-long
+          N8N_ADMIN_PASSWORD=ci-n8n-admin-password
+          SMTP_HOST=localhost
+          SMTP_PORT=587
+          SMTP_FROM=noreply@conditera.ru
+          YOOKASSA_SHOP_ID=ci-shop-id
+          YOOKASSA_SECRET_KEY=ci-yookassa-secret
+          YANDEX_CLIENT_ID=ci-yandex-client
+          YANDEX_CLIENT_SECRET=ci-yandex-secret
+          VK_CLIENT_ID=ci-vk-client
+          TELEGRAM_BOT_TOKEN=123456:ci-telegram-token
+          TELEGRAM_CHANNEL_ID=@conditera-ci
+          TELEGRAM_WEBHOOK_SECRET=ci-telegram-webhook-secret
+          VAPID_PUBLIC_KEY=ci-vapid-public-key
+          VAPID_PRIVATE_KEY=ci-vapid-private-key
+          NEXT_PUBLIC_APP_URL=https://conditera.ru
+          NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
+          SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
+          EXTERNAL_YANDEX_ENABLED=true
+          EXTERNAL_VK_ENABLED=true
+          ENCRYPTOR_KEY=$ENCRYPTOR_KEY
+          SECRET_KEY_BASE=$SECRET_KEY_BASE
+          SIMPLEX_BRIDGE_API_KEY=ci-simplex-bridge-key
+          EOF
+          cat > .env.supabase-runtime <<EOF
+          APP_DATABASE_PASSWORD=ci-app-database-password
+          SUPABASE_SECRET_KEY_BASE=$SECRET_KEY_BASE
+          PG_META_CRYPTO_KEY=$PG_META_CRYPTO_KEY
+          REALTIME_DB_ENC_KEY=$REALTIME_DB_ENC_KEY
+          REALTIME_DB_ENC_KEY_GCM=$REALTIME_DB_ENC_KEY_GCM
+          EOF
+          bash -n scripts/deploy-single-container.sh
+          bash scripts/deploy-single-container.sh --config
       - name: Проверить объединённую конфигурацию Supabase + PG17
         run: |
           docker compose \
