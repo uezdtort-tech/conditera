@@ -64,6 +64,7 @@ import json
 import hmac
 import base64
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 def read_env(path):
     values = {}
@@ -256,6 +257,22 @@ backup_mounts = [
 ]
 if not backup_mounts:
     raise SystemExit("The web service must mount the persistent conditera_backups volume at /app/backups")
+
+runtime_environment = services["supabase-runtime"].get("environment", {})
+if isinstance(runtime_environment, list):
+    runtime_environment = dict(
+        entry.split("=", 1) if "=" in entry else (entry, "")
+        for entry in runtime_environment
+    )
+backup_url = urlparse(web_environment.get("BACKUP_DATABASE_URL", ""))
+if (
+    backup_url.scheme not in ("postgres", "postgresql")
+    or backup_url.username != "conditera_backup"
+    or backup_url.hostname != "supabase-runtime"
+    or backup_url.path != "/supabase"
+    or unquote(backup_url.password) != runtime_environment.get("BACKUP_DATABASE_PASSWORD")
+):
+    raise SystemExit("Production backups must use the dedicated read-only conditera_backup role on the internal PG17 runtime")
 
 web_build_args = services["web"].get("build", {}).get("args", {})
 for key in ("NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"):
