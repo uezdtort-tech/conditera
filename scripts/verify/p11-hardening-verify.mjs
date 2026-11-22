@@ -93,6 +93,7 @@ const cleanup = {
   chatRoomIds: [],
   productPriceOriginal: null,
   productRecipeOriginal: null,
+  inventoryOriginal: null,
   recipeId: null,
 };
 
@@ -279,6 +280,17 @@ async function main() {
   const ingredient = stockIngredient.rows[0];
   const unitText = String(ingredient.unit ?? "");
   const ingredientQty = /^(кг|kg)$/i.test(unitText) ? 0.001 : 1;
+  // Checkout requests 12 pieces. The demo seed may contain a positive but
+  // insufficient quantity (e.g. 5 l), which makes an idempotency test fail
+  // before reaching the idempotency contract. Isolate the fixture stock and
+  // restore the exact original quantity in cleanup.
+  cleanup.inventoryOriginal = { id: ingredient.id, quantity: ingredient.quantity };
+  await client.query(
+    `UPDATE public.inventory_items
+        SET quantity = GREATEST(quantity, $2::numeric)
+      WHERE id = $1::uuid`,
+    [ingredient.id, ingredientQty * 12 + 1],
+  );
   const recipe = await client.query(
     `INSERT INTO public.recipes
        (author_id, title, description, content, difficulty, servings, slug, status,
@@ -520,6 +532,12 @@ async function cleanupAll() {
     if (cleanup.recipeId) {
       await client.query(`DELETE FROM public.recipe_ingredients WHERE recipe_id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
       await client.query(`DELETE FROM public.recipes WHERE id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
+    }
+    if (cleanup.inventoryOriginal) {
+      await client.query(
+        `UPDATE public.inventory_items SET quantity = $2::numeric WHERE id = $1::uuid`,
+        [cleanup.inventoryOriginal.id, cleanup.inventoryOriginal.quantity],
+      ).catch(() => {});
     }
     if (cleanup.productPriceOriginal) {
       await client
