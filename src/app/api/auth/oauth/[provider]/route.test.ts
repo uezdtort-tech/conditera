@@ -33,7 +33,7 @@ describe("OAuth initiation — Yandex ID and VK ID", () => {
     expect(location.searchParams.get("scope")).toContain("login:email");
     expect(response.cookies.get("oauth_state_yandex")?.value).toBe(location.searchParams.get("state"));
     expect(response.cookies.get("oauth_verifier_yandex")?.value).toBeTruthy();
-    expect(response.cookies.get("oauth_return_to_yandex")?.value).toBe("%2Fdashboard%3Ftab%3Dorders");
+    expect(decodeURIComponent(response.cookies.get("oauth_return_to_yandex")?.value || "")).toBe("/dashboard?tab=orders");
     expect(response.cookies.get("oauth_consent_pd_yandex")?.value).toBe("1");
     expect(response.cookies.get("oauth_consent_terms_yandex")?.value).toBe("1");
   });
@@ -53,7 +53,7 @@ describe("OAuth initiation — Yandex ID and VK ID", () => {
     expect(location.searchParams.get("scope")).toBe("email");
     expect(response.cookies.get("oauth_state_vk")?.value).toBe(location.searchParams.get("state"));
     expect(response.cookies.get("oauth_verifier_vk")?.value).toBeTruthy();
-    expect(response.cookies.get("oauth_return_to_vk")?.value).toBe("%2Fdashboard");
+    expect(decodeURIComponent(response.cookies.get("oauth_return_to_vk")?.value || "")).toBe("/dashboard");
   });
 
   it("не принимает внешний returnTo и возвращает пользователя только на внутренний dashboard", async () => {
@@ -62,7 +62,7 @@ describe("OAuth initiation — Yandex ID and VK ID", () => {
     });
 
     expect(response.status).toBe(302);
-    expect(response.cookies.get("oauth_return_to_yandex")?.value).toBe("%2Fdashboard");
+    expect(decodeURIComponent(response.cookies.get("oauth_return_to_yandex")?.value || "")).toBe("/dashboard");
   });
 
   it("режим check сообщает, настроен ли провайдер, без запуска OAuth", async () => {
