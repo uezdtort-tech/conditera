@@ -69,8 +69,8 @@ const nextConfig: NextConfig = {
   async headers() {
     const csp = [
       "default-src 'self'",
-      // Next.js требует 'unsafe-inline' для стилей в dev; в prod — nonce-based (см. ниже)
-      // Для скриптов: только 'self' + whitelist внешних доменов
+      // Inline scripts/styles are still required by the current App Router rendering path.
+      // unsafe-eval is restricted to development and is never emitted in production.
       `script-src 'self' 'unsafe-inline' ${IS_PROD ? "" : "'unsafe-eval'"} https://yookassa.ru https://*.yoomoney.ru https://mc.yandex.ru https://mc.yandex.com`,
       // Стили — только self + inline (Next.js инлайнит критичные стили)
       `style-src 'self' 'unsafe-inline'`,
