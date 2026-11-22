@@ -13,7 +13,7 @@
 # ====================================================================
 
 # --- Этап 1: Dependencies (all, including dev) ---
-FROM node:26-alpine AS deps
+FROM oven/bun:1.4.5-alpine AS deps
 WORKDIR /app
 
 # Копируем package файлы
@@ -21,16 +21,10 @@ COPY package.json bun.lock* package-lock.json* ./
 COPY .npmrc* ./
 
 # Устанавливаем ВСЕ зависимости (нужны dev для build)
-RUN if [ -f package-lock.json ]; then \
-      npm ci --legacy-peer-deps; \
-    elif [ -f bun.lock ]; then \
-      npm install --legacy-peer-deps --no-package-lock; \
-    else \
-      npm install --legacy-peer-deps; \
-    fi
+RUN bun install --frozen-lockfile
 
 # --- Этап 2: Build ---
-FROM node:26-alpine AS builder
+FROM oven/bun:1.4.5-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -98,7 +92,7 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
 
 # Собираем Next.js со standalone-выходом (см. next.config.ts: output: "standalone")
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN bun run build
 
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
