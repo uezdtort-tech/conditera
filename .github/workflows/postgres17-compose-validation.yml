@@ -84,6 +84,9 @@ jobs:
           }
           ANON_KEY="$(make_test_jwt anon)"
           SERVICE_ROLE_KEY="$(make_test_jwt service_role)"
+          VAPID_KEYS="$(node -e 'const {createECDH}=require("node:crypto"); const e=createECDH("prime256v1"); e.generateKeys(); console.log(e.getPublicKey(null,"uncompressed").toString("base64url")); console.log(e.getPrivateKey().toString("base64url"));')"
+          VAPID_PUBLIC_KEY="$(printf '%s\n' "$VAPID_KEYS" | sed -n '1p')"
+          VAPID_PRIVATE_KEY="$(printf '%s\n' "$VAPID_KEYS" | sed -n '2p')"
           cat > .env.production <<EOF
           POSTGRES_PASSWORD=$POSTGRES_PASSWORD
           JWT_SECRET=$JWT_SECRET
@@ -109,8 +112,8 @@ jobs:
           TELEGRAM_BOT_TOKEN=123456:ci-telegram-token
           TELEGRAM_CHANNEL_ID=@conditera-ci
           TELEGRAM_WEBHOOK_SECRET=ci-telegram-webhook-secret
-          VAPID_PUBLIC_KEY=ci-vapid-public-key
-          VAPID_PRIVATE_KEY=ci-vapid-private-key
+          VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY
+          VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY
           NEXT_PUBLIC_APP_URL=https://conditera.ru
           NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
           NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
