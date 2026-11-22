@@ -40,6 +40,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Проверить синтаксис локальных launchers
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/deploy.sh
+          bash -n scripts/init-db.sh
+          node --check scripts/compose-single-runtime.mjs
+          node --check scripts/start-standalone.mjs
+
       - name: Проверить Compose без старых баз и без запуска контейнеров
         shell: bash
         run: |
