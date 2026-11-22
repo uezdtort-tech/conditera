@@ -117,21 +117,24 @@ export async function GET(
       return unauthorizedResponse();
     }
 
-    const { data: order, error } = await supabaseAdmin
+    // Загружаем строку заказа отдельно от one-to-many связей.
+    // Встроенный select с items/payment/delivery скрывал ошибки отношений
+    // как 404 и давал разный результат на чистых PG15/PG17 схемах.
+    const { data: orderRow, error: orderError } = await supabaseAdmin
       .from("orders")
-      .select(`
-        *,
-        items:order_items(*),
-        payment:payments(*),
-        delivery:deliveries(*)
-      `)
+      .select("*")
       .eq("id", orderId)
-      .single();
+      .maybeSingle();
 
-    if (error || !order) {
+    if (orderError) {
+      console.error("[orders/[id]] Order lookup failed:", orderError.message);
+      return NextResponse.json({ error: "Не удалось загрузить заказ" }, { status: 503 });
+    }
+    if (!orderRow) {
       return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
     }
 
+    const order = orderRow;
     // Проверяем права доступа
     const isOwner = order.user_id === user.id;
     const isConfectioner = order.confectioner_id === user.id;
@@ -177,7 +180,33 @@ export async function GET(
       return forbiddenResponse("Нет доступа к этому заказу");
     }
 
-    return NextResponse.json({ order });
+    // Связанные коллекции читаются отдельно: это исключает зависимость
+    // от автоматического обнаружения FK и сохраняет полный контракт карточки.
+    const [itemsResult, paymentsResult, deliveriesResult] = await Promise.all([
+      supabaseAdmin.from("order_items").select("*").eq("order_id", orderId),
+      supabaseAdmin.from("payments").select("*").eq("order_id", orderId),
+      supabaseAdmin.from("deliveries").select("*").eq("order_id", orderId),
+    ]);
+
+    for (const [relation, result] of [
+      ["order_items", itemsResult],
+      ["payments", paymentsResult],
+      ["deliveries", deliveriesResult],
+    ] as const) {
+      if (result.error) {
+        console.error(`[orders/[id]] ${relation} lookup failed:`, result.error.message);
+        return NextResponse.json({ error: "Не удалось загрузить состав заказа" }, { status: 503 });
+      }
+    }
+
+    return NextResponse.json({
+      order: {
+        ...order,
+        items: itemsResult.data ?? [],
+        payment: paymentsResult.data ?? [],
+        delivery: deliveriesResult.data ?? [],
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
