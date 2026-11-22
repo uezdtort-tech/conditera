@@ -74,6 +74,14 @@ CREATE TABLE IF NOT EXISTS auth.users (
   deleted_at timestamptz
 );
 
+
+-- Совместимость demo seed-файлов с Supabase PG: в некоторых версиях образа
+-- auth.users содержит confirmed_at, но не email_confirmed_at. Прикладные
+-- seed-файлы используют второе имя; добавляем nullable-колонку без изменения
+-- поведения GoTrue и без перезаписи существующих данных.
+ALTER TABLE auth.users
+  ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz;
+
 -- ===== 4. JWT-функции (источник — request.jwt.claims, выставляет шим) =====
 -- auth.uid(): uuid текущего пользователя или NULL (аноним/нет claims).
 -- null-safe: если GUC не установлен/пуст — NULL, не ошибку.
