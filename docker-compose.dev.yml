@@ -83,7 +83,7 @@ services:
   n8n-dev:
     image: n8nio/n8n:2.48.7
     container_name: uyezdny-n8n-dev
-    command: ["/bin/sh", "/usr/local/bin/conditera-n8n-entrypoint.sh"]
+    entrypoint: ["tini", "--", "/bin/sh", "/usr/local/bin/conditera-n8n-entrypoint.sh"]
     ports:
       - "127.0.0.1:5678:5678"
     environment:
