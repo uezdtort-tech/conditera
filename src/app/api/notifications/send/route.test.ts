@@ -106,6 +106,18 @@ describe("POST /api/notifications/send — trusted cron delivery", () => {
     expect(mocks.sendNotification).not.toHaveBeenCalled();
   });
 
+  it("fails closed when a notification ID has no persisted delivery-status row", async () => {
+    mocks.in.mockResolvedValue({ data: [], error: null });
+
+    const response = await POST(request({
+      userId: USER_ID,
+      template: "ABANDONED_CART",
+      dedupKey: "abandoned-cart:cart-log-uuid",
+    }));
+
+    expect(response.status).toBe(502);
+  });
+
   it("returns 502 instead of reporting success when a delivery channel failed", async () => {
     mocks.in.mockResolvedValue({
       data: [{ id: "notification-1", channel: "email", status: "failed" }],
