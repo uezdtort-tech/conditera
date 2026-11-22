@@ -279,7 +279,7 @@ async function main() {
         backupResult?.success === true &&
         Number(backupResult.backupSizeBytes) > 0 &&
         typeof backupResult.backupPath === "string" &&
-        backupResult.backupPath.endsWith(".sql.gz"),
+        backupResult.backupPath.endsWith(".json"),
       JSON.stringify(backupResult).slice(0, 240)
     );
     if (backup.json?.logId) {
