@@ -48,7 +48,7 @@ if [ -n "${BACKUP_DATABASE_PASSWORD:-}" ]; then
   /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
     /bin/bash -c 'psql -X -v ON_ERROR_STOP=1 --username "$PGUSER" --dbname "$PGDATABASE" --set=backup_password="$BACKUP_DATABASE_PASSWORD"' <<'SQL'
 SELECT 'CREATE ROLE conditera_backup LOGIN'
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \\gexec
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \gexec
 ALTER ROLE conditera_backup WITH LOGIN PASSWORD :'backup_password' BYPASSRLS;
 GRANT CONNECT ON DATABASE supabase TO conditera_backup;
 GRANT pg_read_all_data TO conditera_backup;
