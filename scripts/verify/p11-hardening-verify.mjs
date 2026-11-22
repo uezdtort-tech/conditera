@@ -22,7 +22,7 @@
 import { Client } from "pg";
 
 const BASE = process.env.VERIFY_BASE || "http://127.0.0.1:3000";
-const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54330/conditera";
 const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
 const CONFECTIONER_USER_ID = "11111111-1111-4111-8111-111111111101"; // confectioner@demo.ru
