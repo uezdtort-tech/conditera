@@ -279,7 +279,10 @@ async function main() {
         backupResult?.success === true &&
         Number(backupResult.backupSizeBytes) > 0 &&
         typeof backupResult.backupPath === "string" &&
-        backupResult.backupPath.endsWith(".json"),
+        backupResult.backupPath.endsWith(".json") &&
+        typeof backupResult.databaseBackupPath === "string" && backupResult.databaseBackupPath.endsWith(".sql.gz") &&
+        typeof backupResult.productMediaBackupPath === "string" && backupResult.productMediaBackupPath.endsWith(".product-media.tar.gz") &&
+        typeof backupResult.supabaseStorageBackupPath === "string" && backupResult.supabaseStorageBackupPath.endsWith(".supabase-storage.tar.gz"),
       JSON.stringify(backupResult).slice(0, 240)
     );
     if (backup.json?.logId) {
