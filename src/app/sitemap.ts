@@ -4,11 +4,10 @@
  * Источники данных:
  *   - Статичные публичные страницы (home, catalog, confectioners, etc.)
  *   - Категории каталога (CATEGORIES из mock-data — стабильные slugs)
- *   - Профили верифицированных кондитеров (из Supabase, fallback на mock)
- *   - Статьи блога (пока mock-data, будет переведено на БД позже)
+ *   - Профили верифицированных кондитеров (только реальные данные из Supabase в production)
+ *   - Статьи блога не добавляются в sitemap до появления канонического источника в БД.
  *
- * Если БД недоступна (build-time) — sitemap содержит статичные страницы + mock data,
- * чтобы build не падал. На runtime (через ISR / cron) — реальные данные.
+ * В production sitemap никогда не публикует mock-профили или демонстрационные записи.
  */
 import type { MetadataRoute } from "next";
 import { CATEGORIES, MOCK_CONFECTIONERS } from "@/lib/mock-data";
@@ -51,7 +50,7 @@ const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "wee
 
 /**
  * Загрузить верифицированных кондитеров из Supabase (camelCase columns, migration 0017).
- * При ошибке / пустой БД — fallback на MOCK_CONFECTIONERS (build не должен падать).
+ * В development допускается mock fallback; production при ошибке или пустой БД возвращает пустой список.
  */
 async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string; updatedAt: string }[]> {
   try {
@@ -60,7 +59,8 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
       .select("id, slug, updatedAt")
       .eq("verified", true);
     if (error) {
-      console.warn("[sitemap] Supabase query failed, fallback to mock:", error.message);
+      console.warn("[sitemap] Supabase query failed:", error.message);
+      if (process.env.NODE_ENV === "production") return [];
       return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
         id: c.id,
         slug: c.slug,
@@ -68,7 +68,7 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
       }));
     }
     if (!data || data.length === 0) {
-      // БД пуста — возвращаем mock (чтобы sitemap не был пустым на старте)
+      if (process.env.NODE_ENV === "production") return [];
       return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
         id: c.id,
         slug: c.slug,
@@ -78,6 +78,7 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
     return data as { id: string; slug: string; updatedAt: string }[];
   } catch (e) {
     console.warn("[sitemap] Confectioners fetch exception:", (e as Error).message);
+    if (process.env.NODE_ENV === "production") return [];
     return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
       id: c.id,
       slug: c.slug,
@@ -114,7 +115,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.warn("[sitemap] Categories failed:", (e as Error).message);
   }
 
-  // 3. Профили верифицированных кондитеров (Supabase, fallback на mock)
+  // 3. Профили верифицированных кондитеров (в production — только Supabase)
   // Чистые slug-URL /confectioners/<slug> (роут src/app/confectioners/[slug]/page.tsx).
   // Query-URL (?confectioner=<id>) поисковики не индексируют как отдельные страницы.
   try {
@@ -131,18 +132,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.warn("[sitemap] Confectioners failed:", (e as Error).message);
   }
 
-  // 4. Рецепты/статьи блога (пока mock — будут переведены на БД в следующем раунде)
-  try {
-    for (const r of MOCK_RECIPES) {
-      entries.push({
-        url: `${APP_URL}/recipes?id=${r.id}`,
-        lastModified: now,
-        changeFrequency: "monthly" as const,
-        priority: 0.5,
-      });
+  // 4. Демонстрационные рецепты не публикуются в production sitemap.
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      for (const r of MOCK_RECIPES) {
+        entries.push({
+          url: `${APP_URL}/recipes?id=${r.id}`,
+          lastModified: now,
+          changeFrequency: "monthly" as const,
+          priority: 0.5,
+        });
+      }
+    } catch (e) {
+      console.warn("[sitemap] Recipes failed:", (e as Error).message);
     }
-  } catch (e) {
-    console.warn("[sitemap] Recipes failed:", (e as Error).message);
   }
 
   return entries;
