@@ -1099,7 +1099,7 @@ async function main() {
   let mediaTruncateState = "";
   await client.query("BEGIN");
   try {
-    await client.query("TRUNCATE public.order_media");
+    await client.query("TRUNCATE public.order_media CASCADE");
   } catch (error) {
     mediaTruncateState = error.code;
   } finally {
