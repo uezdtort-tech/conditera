@@ -112,8 +112,8 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
           NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
           SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
-          EXTERNAL_YANDEX_ENABLED=true
-          EXTERNAL_VK_ENABLED=true
+          EXTERNAL_YANDEX_ENABLED=false
+          EXTERNAL_VK_ENABLED=false
           ENCRYPTOR_KEY=$ENCRYPTOR_KEY
           SECRET_KEY_BASE=$SECRET_KEY_BASE
           SIMPLEX_BRIDGE_API_KEY=ci-simplex-bridge-key
