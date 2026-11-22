@@ -190,7 +190,7 @@ fi
 
 # Docker healthcheck and deployment readiness must not pass while imports or
 # workflow publication are still running.
-printf '%s\\n' "$(date -u +%FT%TZ)" > "$READY_MARKER.tmp"
+printf '%s\n' "$(date -u +%FT%TZ)" > "$READY_MARKER.tmp"
 mv "$READY_MARKER.tmp" "$READY_MARKER"
 
 exec n8n start
