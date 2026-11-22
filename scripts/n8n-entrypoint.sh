@@ -75,7 +75,11 @@ NODE
 )"
 
   if [ ! -s "$MARKER" ] || [ "$(cat "$MARKER")" != "$workflow_hash" ]; then
-    if [ "$(find "$import_dir" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')" -gt 0 ]; then
+    has_active_workflows=false
+    for workflow_file in "$import_dir"/*.json; do
+      if [ -f "$workflow_file" ]; then has_active_workflows=true; break; fi
+    done
+    if [ "$has_active_workflows" = "true" ]; then
       echo "[n8n-bootstrap] importing verified active workflows"
       n8n import:workflow --separate --input="$import_dir"
     fi
