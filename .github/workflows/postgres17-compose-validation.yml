@@ -132,7 +132,8 @@ jobs:
           tmpdir="$(mktemp -d)"
           mkdir -p "$tmpdir/scripts"
           cp scripts/prepare-production-env.sh "$tmpdir/scripts/"
-          cp .env.production.example .env.supabase-runtime.example "$tmpdir/"
+          cp .env.production.example .env.supabase-runtime.example .gitignore "$tmpdir/"
+          git -C "$tmpdir" init -q
           (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
           first_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime")"
           (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
