@@ -229,6 +229,25 @@ for name in ("web", "meilisearch"):
     if services[name].get("ports"):
         raise SystemExit(f"{name} must not publish host ports; Caddy is the only public web entry point")
 
+web_environment = services["web"].get("environment", {})
+if isinstance(web_environment, list):
+    web_environment = dict(
+        entry.split("=", 1) if "=" in entry else (entry, "")
+        for entry in web_environment
+    )
+if web_environment.get("SMTP_TLS_REJECT_UNAUTHORIZED", "").lower() not in ("true", "1", "yes"):
+    raise SystemExit("Production SMTP must verify TLS certificates (SMTP_TLS_REJECT_UNAUTHORIZED=true)")
+if web_environment.get("BACKUP_DIR") != "/app/backups":
+    raise SystemExit("Production backups must use the persistent /app/backups mount")
+backup_mounts = [
+    mount for mount in services["web"].get("volumes", [])
+    if mount.get("type") == "volume"
+    and mount.get("source") == "conditera_backups"
+    and mount.get("target") == "/app/backups"
+]
+if not backup_mounts:
+    raise SystemExit("The web service must mount the persistent conditera_backups volume at /app/backups")
+
 n8n_ports = services["n8n"].get("ports", [])
 if len(n8n_ports) != 1 or n8n_ports[0].get("host_ip") != "127.0.0.1" or str(n8n_ports[0].get("target")) != "5678":
     raise SystemExit("n8n must be bound to 127.0.0.1:5678 only")
