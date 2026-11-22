@@ -200,12 +200,26 @@ test.describe("SEO", () => {
 
 // ===== Группа: Mobile responsive =====
 test.describe("Mobile responsive", () => {
-  test("homepage on mobile has no horizontal scroll", async ({ page, isMobile }) => {
-    if (!isMobile) return;
-    await page.goto(BASE_URL);
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-    const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
-    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 5);
+  test("all primary public routes render without horizontal overflow on mobile", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "Runs in the Pixel 5 mobile-chrome project");
+    const routes = [
+      "/", "/catalog", "/confectioners", "/recipes", "/blog",
+      "/faq", "/help", "/about", "/contacts", "/checkout", "/login",
+    ];
+
+    for (const route of routes) {
+      await page.goto(`${BASE_URL}${route}`);
+      await expect(page.locator("body")).toBeVisible();
+      await page.waitForLoadState("domcontentloaded");
+      const dimensions = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        dimensions.scrollWidth,
+        `Horizontal overflow on mobile route ${route}: ${dimensions.scrollWidth}px > ${dimensions.clientWidth}px`,
+      ).toBeLessThanOrEqual(dimensions.clientWidth + 5);
+    }
   });
 });
 
