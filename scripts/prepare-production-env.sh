@@ -76,7 +76,6 @@ app_generated = {
     "BOT_SECRET": random_hex(32),
     "TELEGRAM_WEBHOOK_SECRET": random_hex(32),
     "N8N_WEBHOOK_SECRET": random_hex(32),
-    "N8N_ENCRYPTION_KEY": random_hex(32),
     "IP_HASH_SALT": random_hex(32),
     "MEILI_MASTER_KEY": random_hex(32),
     "ENCRYPTOR_KEY": random_hex(32),
@@ -124,6 +123,7 @@ console.log(ecdh.getPrivateKey().toString('base64url'));
 runtime_generated = {
     "APP_DATABASE_PASSWORD": random_hex(32),
     "BACKUP_DATABASE_PASSWORD": random_hex(32),
+    "N8N_ENCRYPTION_KEY": random_hex(32),
     "SUPABASE_SECRET_KEY_BASE": random_hex(32),
     "PG_META_CRYPTO_KEY": random_hex(16),
     "REALTIME_DB_ENC_KEY": random_hex(8),
