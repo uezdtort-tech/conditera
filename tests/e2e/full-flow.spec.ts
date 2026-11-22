@@ -222,6 +222,16 @@ test.describe("SEO", () => {
       await expect(robots).toHaveAttribute("content", /noindex/);
     }
   });
+
+  test("production CSP blocks eval, permits Yandex Metrika and does not block OAuth redirects", async ({ request }) => {
+    const response = await request.get(BASE_URL);
+    const csp = response.headers()["content-security-policy"] || "";
+    expect(csp).toContain("script-src");
+    expect(csp).not.toContain("'unsafe-eval'");
+    expect(csp).toContain("https://mc.yandex.ru");
+    expect(csp).toContain("frame-ancestors 'self'");
+    expect(csp).not.toContain("navigate-to 'self'");
+  });
 });
 
 // ===== Группа: Mobile responsive =====
