@@ -49,7 +49,10 @@ export async function createUserSession(
     throw new Error(SESSION_POLICY_UNAVAILABLE);
   }
   const newDevice = Boolean(previousSessions?.length && !previousSessions.some(
-    (session) => session.user_agent === userAgent && session.ip_address === ip
+    (session) =>
+      Boolean(userAgent && ip && session.user_agent && session.ip_address) &&
+      session.user_agent === userAgent &&
+      session.ip_address === ip
   ));
 
   if (newDevice) {
