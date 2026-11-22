@@ -997,6 +997,12 @@ async function main() {
     evidenceDownload.status === 200 && evidenceDownload.headers.get("content-type") === "image/png",
     `${evidenceDownload.status} ${evidenceDownload.headers.get("content-type")}`);
 
+  const confectionerDisputeDecision = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: owner,
+    body: { disputeId, status: "under_review" },
+  });
+  assert("кондитер не может принимать решение по спору → 403",
+    confectionerDisputeDecision.status === 403);
   const prematureDisputeReply = await api("POST", `/api/orders/${pickup.orderId}/disputes/${disputeId}/reply`, {
     token: customer,
     raw: disputeReplyForm(),
