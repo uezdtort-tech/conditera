@@ -90,9 +90,28 @@ if (!isPostgresUrl(DATABASE_URL)) {
   DATABASE_URL = fileEnv.DATABASE_URL || "";
   databaseUrlSource = ".env/.env.local";
 }
+const EMBEDDED_PG17_URL = "postgresql://postgres@127.0.0.1:54330/conditera";
 if (!isPostgresUrl(DATABASE_URL)) {
-  DATABASE_URL = "postgresql://postgres@127.0.0.1:54329/conditera";
-  databaseUrlSource = "default (embedded)";
+  DATABASE_URL = EMBEDDED_PG17_URL;
+  databaseUrlSource = "default (embedded PG17)";
+}
+
+// Старый embedded PG18 жил на 54329. Не подключаемся к нему и не пытаемся
+// переиспользовать его PGDATA: перенаправляем локальную конфигурацию на новый
+// чистый PG17 instance (54330 / .pgdata-pg17). Старый каталог не удаляем.
+if (isLocalEmbeddedPort(DATABASE_URL, 54329)) {
+  const legacyUrl = DATABASE_URL;
+  DATABASE_URL = EMBEDDED_PG17_URL;
+  databaseUrlSource = "legacy embedded PG18 redirected to PG17";
+  for (const file of [ENV_LOCAL, ENV_FILE]) {
+    if (!existsSync(file) || parseEnvFile(file).DATABASE_URL !== legacyUrl) continue;
+    const raw = readFileSync(file, "utf8");
+    const updated = raw.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${DATABASE_URL}`);
+    writeFileSync(file, updated);
+    console.log(`  ✔ ${path.basename(file)}: legacy embedded PG18 URL redirected to PostgreSQL 17`);
+    break;
+  }
+  if (process.env.DATABASE_URL === legacyUrl) process.env.DATABASE_URL = DATABASE_URL;
 }
 
 // Sanitize legacy .env: Prisma-era `DATABASE_URL=file:...` ломает bun/next env
@@ -595,11 +614,11 @@ async function main() {
   console.log(`» SEED_MODE: ${seedMode}${runDemoSeeds ? " (demo data enabled)" : " (demo data disabled)"}`);
 
   // 2. Доступность БД (+ автостарт embedded)
-  if (DATABASE_URL.includes("127.0.0.1:54329") || DATABASE_URL.includes("localhost:54329")) {
+  if (isLocalEmbeddedPort(DATABASE_URL, 54330)) {
     const runtime = await import("./runtime.mjs");
     const status = await runtime.getStatus();
     if (!status.running) {
-      console.log("» embedded PostgreSQL is not running — starting...");
+      console.log("» embedded PostgreSQL 17 is not running — starting...");
       await runtime.start();
     }
     await runtime.ensureDatabase(DATABASE_URL);
