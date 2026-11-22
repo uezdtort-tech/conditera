@@ -7,6 +7,7 @@ on:
     paths:
       - "docker-compose.supabase.yml"
       - "docker-compose.yml"
+      - "docker-compose.dev.yml"
       - "Caddyfile"
       - "docker-compose.supabase-single-container.yml"
       - "Dockerfile"
@@ -26,6 +27,7 @@ on:
     paths:
       - "docker-compose.supabase.yml"
       - "docker-compose.yml"
+      - "docker-compose.dev.yml"
       - "Caddyfile"
       - "docker-compose.supabase-single-container.yml"
       - "Dockerfile"
@@ -141,6 +143,17 @@ jobs:
           rm -rf "$tmpdir"
           bash scripts/deploy-single-container.sh --config
           docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
+          docker compose -f docker-compose.dev.yml config --format json > /tmp/conditera-dev-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          services = json.loads(Path("/tmp/conditera-dev-compose.json").read_text())["services"]
+          assert services["db-dev"]["image"] == "postgres:17-alpine"
+          assert services["n8n-dev"]["image"] == "n8nio/n8n:1.95.0"
+          ports = services["n8n-dev"]["ports"]
+          assert len(ports) == 1 and ports[0].get("host_ip") == "127.0.0.1"
+          print("Development Compose PASS: PostgreSQL 17 and local-only n8n.")
+          PY
       - name: Проверить объединённую конфигурацию Supabase + PG17
         run: |
           docker compose \
