@@ -33,6 +33,7 @@ describe("n8n event emitter", () => {
     if (originalWebhookSecret === undefined) delete process.env.N8N_WEBHOOK_SECRET;
     else process.env.N8N_WEBHOOK_SECRET = originalWebhookSecret;
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("does not enable event delivery just because the internal health URL exists", async () => {
