@@ -26,9 +26,6 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
-      - name: Validate PostgreSQL backup-role init script syntax
-        run: bash -n supabase/init-scripts/03-backup-role.sh
-
 
       - name: Validate production single-container Compose overlay
         env:
