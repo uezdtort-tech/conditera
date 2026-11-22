@@ -1010,6 +1010,13 @@ async function main() {
     evidenceDownload.status === 200 && evidenceDownload.headers.get("content-type") === "image/png",
     `${evidenceDownload.status} ${evidenceDownload.headers.get("content-type")}`);
 
+  const evidenceDownloadAdmin = await fetch(`${BASE}${evidenceUrl}`, {
+    headers: { Authorization: `Bearer ${admin}` },
+  });
+  assert("администратор может скачать доказательство для рассмотрения",
+    evidenceDownloadAdmin.status === 200 &&
+    evidenceDownloadAdmin.headers.get("content-type") === "image/png");
+
   const confectionerDisputeDecision = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
     token: owner,
     body: { disputeId, status: "under_review" },
