@@ -692,13 +692,27 @@ jobs:
             await db.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app");
             await db.query("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO conditera_app");
             await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO conditera_app");
-            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO conditera_app");
-            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO conditera_app");
             const result = await db.query(
               "SELECT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND rolbypassrls AS valid FROM pg_roles WHERE rolname='conditera_app'"
             );
             if (result.rows[0]?.valid !== true) throw new Error("conditera_app does not match production role attributes");
             console.log("PASS: conditera_app is non-superuser, BYPASSRLS, and has production-equivalent public-schema grants");
+            const appUrl = new URL(process.env.DATABASE_URL);
+            appUrl.username = "conditera_app";
+            appUrl.password = process.env.APP_DATABASE_PASSWORD;
+            const appDb = new Client({ connectionString: appUrl.toString() });
+            await appDb.connect();
+            try {
+              const access = await appDb.query("SELECT current_user, has_schema_privilege(current_user, 'public', 'USAGE') AS schema_usage, has_table_privilege(current_user, 'public.schema_migrations', 'SELECT') AS ledger_select");
+              if (access.rows[0]?.current_user !== "conditera_app" || !access.rows[0]?.schema_usage || !access.rows[0]?.ledger_select) {
+                throw new Error("conditera_app cannot connect and read the migrated public schema");
+              }
+              console.log("PASS: conditera_app authenticates with its own password and reads the migrated schema");
+            } finally {
+              await appDb.end();
+            }
           } finally {
             await db.end();
           }
@@ -714,11 +728,13 @@ jobs:
           const db = new Client({ connectionString: process.env.DATABASE_URL });
           await db.connect();
           try {
-            const roleSql = (await db.query(
-              "SELECT format('CREATE ROLE conditera_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L', $1::text)",
-              [process.env.BACKUP_DATABASE_PASSWORD]
-            )).rows[0].format;
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='conditera_backup'");
+            const statement = exists.rowCount
+              ? "ALTER ROLE conditera_backup WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L"
+              : "CREATE ROLE conditera_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L";
+            const roleSql = (await db.query("SELECT format($1::text, $2::text)", [statement, process.env.BACKUP_DATABASE_PASSWORD])).rows[0].format;
             await db.query(roleSql);
+            await db.query("GRANT CONNECT ON DATABASE supabase TO conditera_backup");
             await db.query("GRANT pg_read_all_data TO conditera_backup");
             const role = await db.query(
               "SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls FROM pg_roles WHERE rolname='conditera_backup'"
@@ -728,6 +744,21 @@ jobs:
               throw new Error("Backup role does not satisfy the least-privilege login/BYPASSRLS contract");
             }
             console.log("PASS: dedicated backup role provisioned with pg_read_all_data and no elevated admin privileges");
+            const backupUrl = new URL(process.env.DATABASE_URL);
+            backupUrl.username = "conditera_backup";
+            backupUrl.password = process.env.BACKUP_DATABASE_PASSWORD;
+            const backupDb = new Client({ connectionString: backupUrl.toString() });
+            await backupDb.connect();
+            try {
+              const readCheck = await backupDb.query("SELECT count(*)::int AS n FROM public.schema_migrations");
+              const writeCheck = await backupDb.query("SELECT has_table_privilege(current_user, 'public.profiles', 'INSERT') AS can_insert");
+              if (!Number.isInteger(readCheck.rows[0]?.n) || writeCheck.rows[0]?.can_insert !== false) {
+                throw new Error("conditera_backup does not satisfy read-only database access");
+              }
+              console.log("PASS: conditera_backup connects, reads migration ledger and cannot insert");
+            } finally {
+              await backupDb.end();
+            }
           } finally {
             await db.end();
           }
@@ -893,7 +924,7 @@ jobs:
           DB_USER="$(node -e 'console.log(new URL(process.env.DATABASE_URL).username)')"
           DB_PASSWORD="$(node -e 'console.log(new URL(process.env.DATABASE_URL).password)')"
           docker exec -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
-            createdb -h 127.0.0.1 -p 54323 -U "$DB_USER" -T template0 conditera_restore_smoke
+            createdb -h 127.0.0.1 -p 54323 -U "$DB_USER" -T template0 supabase_restore_smoke
           docker exec conditera-web-pg17-ci sh -c "gzip -dc '$DB_BACKUP_PATH'" |
             docker exec -i -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
               psql -h 127.0.0.1 -p 54323 -U "$DB_USER" -d conditera_restore_smoke \
