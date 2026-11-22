@@ -88,8 +88,8 @@ jobs:
             docker logs conditera-n8n-bootstrap-test
             exit 1
           fi
-          docker exec conditera-n8n-bootstrap-test mkdir -p /tmp/conditera-n8n-export
-          docker exec conditera-n8n-bootstrap-test n8n export:workflow --all --separate --output=/tmp/conditera-n8n-export
+          docker exec -u node conditera-n8n-bootstrap-test mkdir -p /tmp/conditera-n8n-export
+          docker exec -u node conditera-n8n-bootstrap-test n8n export:workflow --all --separate --output=/tmp/conditera-n8n-export
           mkdir -p /tmp/conditera-n8n-export
           docker cp conditera-n8n-bootstrap-test:/tmp/conditera-n8n-export/. /tmp/conditera-n8n-export/
           node --input-type=module <<'NODE'
