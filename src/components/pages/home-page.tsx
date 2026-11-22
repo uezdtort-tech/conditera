@@ -135,8 +135,8 @@ export function HomePage() {
           className="object-cover -z-10 pointer-events-none"
         />
         {/* Затемнение для читаемости текста — мягче, чтобы фото дышало */}
-        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-background/55 to-background/20" />
-        <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-background/10 to-transparent" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-r from-background/80 via-background/55 to-background/20" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-background/85 via-background/10 to-transparent" />
         {/* Трендовый mesh-акцент поверх фото — глубина без шума */}
         <div className="absolute inset-0 mesh-gradient opacity-60 pointer-events-none" />
         <div className="container mx-auto px-4 py-12 sm:py-16 lg:py-24 relative">
@@ -235,7 +235,7 @@ export function HomePage() {
               className="relative hidden lg:block"
             >
               <div className="relative aspect-square max-w-md mx-auto">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-amber-300/30 blur-3xl" />
+                <div className="absolute inset-0 pointer-events-none rounded-full bg-gradient-to-br from-primary/20 to-amber-300/30 blur-3xl" />
                 <Image
                   src="https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800"
                   alt="Домашний торт"
@@ -452,7 +452,7 @@ export function HomePage() {
       {/* ===== CAKE BUILDER CTA ===== */}
       <section className="container mx-auto px-4">
         <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-accent/40 to-amber-200/20">
-          <div className="absolute inset-0 bg-pattern opacity-30" />
+          <div className="absolute inset-0 pointer-events-none bg-pattern opacity-30" />
           <div className="relative p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">
             <div className="space-y-4">
               <Badge className="bg-primary text-primary-foreground">
@@ -547,7 +547,7 @@ export function HomePage() {
             }}
             className="group relative overflow-hidden rounded-xl border-2 border-dashed border-primary/30 bg-gradient-to-br from-primary/5 via-accent/10 to-primary/5 hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
           >
-            <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity">
+            <div className="absolute inset-0 pointer-events-none opacity-10 group-hover:opacity-20 transition-opacity">
               <div className="absolute top-4 right-4 text-6xl">🎂</div>
               <div className="absolute bottom-4 left-4 text-5xl">🧁</div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-7xl">🍰</div>
@@ -575,7 +575,7 @@ export function HomePage() {
             }}
             className="group relative overflow-hidden rounded-xl border-2 border-dashed border-emerald-400/30 bg-gradient-to-br from-emerald-50/50 via-accent/5 to-emerald-50/50 hover:border-emerald-400/50 hover:shadow-lg transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
           >
-            <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity">
+            <div className="absolute inset-0 pointer-events-none opacity-10 group-hover:opacity-20 transition-opacity">
               <div className="absolute top-4 right-4 text-6xl">🏆</div>
               <div className="absolute bottom-4 left-4 text-5xl">⭐</div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-7xl">🌟</div>
@@ -614,7 +614,7 @@ export function HomePage() {
             quality={75}
             className="object-cover -z-10 pointer-events-none"
           />
-          <div className="absolute inset-0 bg-background/80" />
+          <div className="absolute inset-0 pointer-events-none bg-background/80" />
           <div className="container mx-auto px-4 relative">
             <div className="flex items-end justify-between mb-6">
               <div>
@@ -646,7 +646,7 @@ export function HomePage() {
           quality={60}
           className="object-cover -z-10 pointer-events-none"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
         <div className="container mx-auto px-4 relative">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
@@ -728,7 +728,7 @@ export function HomePage() {
 
       {/* ===== STEPS ===== */}
       <section className="relative overflow-hidden py-12">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
         <div className="container mx-auto px-4 relative">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
@@ -800,7 +800,7 @@ export function HomePage() {
       {/* ===== STATS ===== */}
       <section className="container mx-auto px-4">
         <div className="rounded-2xl bg-primary text-primary-foreground border-0 overflow-hidden relative mesh-gradient" style={{ background: "none", backgroundColor: "oklch(0.42 0.18 25)" }}>
-          <div className="absolute inset-0 bg-pattern opacity-10" />
+          <div className="absolute inset-0 pointer-events-none bg-pattern opacity-10" />
           <div className="relative p-8 lg:p-12 grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
             {[
               // Реальные счётчики платформы (БД/API), а не выдуманные цифры
@@ -931,7 +931,7 @@ export function HomePage() {
           quality={60}
           className="object-cover -z-10 pointer-events-none"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
         <div className="container mx-auto px-4 relative">
         <Card className="overflow-hidden border-0 bg-gradient-to-br from-amber-100/80 via-accent/60 to-primary/10 glow-primary backdrop-blur-sm">
           <div className="p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">
