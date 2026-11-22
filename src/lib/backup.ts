@@ -117,6 +117,9 @@ async function pgDumpBackup(
          AND table_schema NOT IN ('pg_catalog', 'information_schema')`
     );
     tablesCount = Number(result.rows[0]?.count || 0);
+    if (tablesCount < 1) {
+      throw new Error("Backup database has no user tables; refusing to create an empty archive");
+    }
   } finally {
     await db.end().catch(() => undefined);
   }
