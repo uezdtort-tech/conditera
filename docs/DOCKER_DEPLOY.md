@@ -313,7 +313,7 @@ docker compose logs caddy --tail=100
 # Проверить что DNS настроен
 dig conditera.ru +short
 
-# Проверить что порт 80 открыт (нужен для ACME challenge)
+# УСТАРЕВШАЯ ИНСТРУКЦИЯ: не использовать для текущего production PG17 single-container deploy.\n# Актуальный путь: scripts/prepare-production-env.sh → scripts/deploy-single-container.sh.\n\n# Проверить что порт 80 открыт (нужен для ACME challenge)
 sudo ufw status | grep 80
 
 # Принудительно перезапросить сертификат
@@ -324,8 +324,8 @@ docker compose restart caddy
 ```bash
 docker compose logs n8n --tail=100
 
-# Если N8N_ADMIN_PASSWORD не задан — проверить .env.production
-grep N8N_ADMIN_PASSWORD .env.production
+# n8n UI доступен только локально: http://127.0.0.1:5678
+# При первом запуске создать owner account через штатный setup wizard.
 ```
 
 ---
