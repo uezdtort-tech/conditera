@@ -265,6 +265,15 @@ media_mounts = [
 ]
 if not media_mounts or web_environment.get("PRODUCT_MEDIA_ROOT") != "/app/storage":
     raise SystemExit("Product media must use the persistent conditera_product_media volume at /app/storage")
+supabase_storage_mounts = [
+    mount for mount in services["web"].get("volumes", [])
+    if mount.get("type") == "volume"
+    and mount.get("source") == "supabase_runtime_storage_data"
+    and mount.get("target") == "/app/supabase-storage"
+    and mount.get("read_only") is True
+]
+if not supabase_storage_mounts or web_environment.get("SUPABASE_STORAGE_BACKUP_ROOT") != "/app/supabase-storage":
+    raise SystemExit("Supabase Storage must be mounted read-only for complete production backups")
 
 runtime_environment = services["supabase-runtime"].get("environment", {})
 if isinstance(runtime_environment, list):
