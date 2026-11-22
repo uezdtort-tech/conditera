@@ -170,6 +170,20 @@ jobs:
           docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status || true
           exit 1
 
+      - name: Verify read-only backup role can dump the Supabase PostgreSQL database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          BACKUP_DATABASE_PASSWORD="$(grep '^BACKUP_DATABASE_PASSWORD=' /tmp/runtime.env | cut -d= -f2-)"
+          docker exec -e PGPASSWORD="$BACKUP_DATABASE_PASSWORD" conditera-supabase-runtime-poc \
+            pg_dump --host 127.0.0.1 --port 5432 --username conditera_backup \
+              --dbname supabase --no-owner --no-privileges > /tmp/supabase-runtime-backup.sql
+          test -s /tmp/supabase-runtime-backup.sql
+          grep -q 'CREATE TABLE auth.users' /tmp/supabase-runtime-backup.sql
+          grep -q 'CREATE TABLE storage.objects' /tmp/supabase-runtime-backup.sql
+          grep -q 'CREATE TABLE public.profiles' /tmp/supabase-runtime-backup.sql
+          echo "PASS: conditera_backup dumped auth, storage and application schemas"
+
       - name: Verify runtime processes and gateway endpoints
         run: |
           set -Eeuo pipefail
