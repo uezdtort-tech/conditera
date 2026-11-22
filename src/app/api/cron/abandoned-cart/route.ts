@@ -61,15 +61,32 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const cutoff = new Date(now.getTime() - ABANDONED_HOURS * 60 * 60 * 1000);
     const recentOrderCutoff = new Date(now.getTime() - RECENT_ORDER_HOURS * 60 * 60 * 1000);
 
+    // First identify users with at least one stale item, then load their
+    // complete cart. A recently changed item means the cart as a whole is not
+    // abandoned, even if another line has been sitting untouched for hours.
+    const { data: staleRows, error: staleErr } = await supabaseAdmin
+      .from("cart_items")
+      .select("user_id")
+      .not("user_id", "is", null)
+      .lt("updated_at", cutoff.toISOString());
+
+    if (staleErr) {
+      console.error("[cron/abandoned-cart] stale cart lookup failed:", staleErr.message);
+      return NextResponse.json({ error: "Database query failed" }, { status: 500 });
+    }
+    const candidateUserIds = [...new Set((staleRows || []).map((row) => row.user_id).filter((id): id is string => Boolean(id)))];
+    if (!candidateUserIds.length) {
+      return NextResponse.json({ carts: [], total: 0, cutoff: cutoff.toISOString() });
+    }
+
     const { data: cartItems, error: cartErr } = await supabaseAdmin
       .from("cart_items")
       .select("user_id, product_id, quantity, selected_attributes, created_at, updated_at")
-      .not("user_id", "is", null)
-      .lt("updated_at", cutoff.toISOString())
+      .in("user_id", candidateUserIds)
       .order("updated_at", { ascending: false });
 
     if (cartErr) {
-      console.error("[cron/abandoned-cart] cart query failed:", cartErr.message);
+      console.error("[cron/abandoned-cart] full cart lookup failed:", cartErr.message);
       return NextResponse.json({ error: "Database query failed" }, { status: 500 });
     }
     if (!cartItems?.length) {
@@ -143,6 +160,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
         if (profileErr) throw new Error(`Profile lookup failed: ${profileErr.message}`);
         if (!profile || profile.is_blocked) return null;
+        if (info.lastActivity >= cutoff) return null;
         if (isOptedOut(profile.notify_prefs) || !hasAnyDeliveryChannel(profile.notify_prefs)) return null;
 
         const { data: legacyPrefs, error: prefsErr } = await supabaseAdmin
