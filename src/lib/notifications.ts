@@ -679,11 +679,6 @@ async function deliverPush(
     .select("id, endpoint, keys")
     .eq("user_id", userId) as { data: PushSubscriptionRow[] | null; error: SupabaseError | null };
 
-  if (error) {
-    console.warn("[notify:push] subscriptions query failed:", error.message);
-    return;
-  }
-
   if (error) throw new Error(`Push subscription lookup failed: ${error.message}`);
   if (!subscriptions || subscriptions.length === 0) {
     if (process.env.NODE_ENV === "production") {
