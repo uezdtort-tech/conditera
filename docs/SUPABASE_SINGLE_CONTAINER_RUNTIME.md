@@ -20,7 +20,7 @@ docker compose --env-file .env.production --env-file .env.supabase-runtime \
   config
 ```
 
-Перед запуском после backup/restore и проверки данных нужно остановить старые контейнеры, не удаляя их volumes. Иначе старый контейнер `supabase-kong` может продолжить владеть DNS alias и конфликтовать с новым runtime:
+Поскольку прежние БД пустые, перенос и восстановление пользовательских данных не выполняются. Перед первым запуском нужно остановить старые контейнеры, не удаляя их volumes. Иначе старый контейнер `supabase-kong` может продолжить владеть DNS alias и конфликтовать с новым runtime:
 
 ```bash
 docker compose --env-file .env.production \
@@ -49,7 +49,11 @@ docker compose --env-file .env.production --env-file .env.supabase-runtime \
 Runtime использует отдельные именованные volumes:
 
 - `supabase_runtime_pg17_data` — PostgreSQL 17;
-- `supabase_runtime_storage_data` — Storage и read-only mount для Imgproxy.
+- `supabase_runtime_storage_data` — Supabase Storage и read-only mount для Imgproxy;
+- `conditera_product_media` — локальные файлы карточек/медиа товаров, `PRODUCT_MEDIA_ROOT=/app/storage`;
+- `conditera_backups` — архивы `pg_dump`, `BACKUP_DIR=/app/backups`.
+
+Два последних тома подключены к web-контейнеру отдельно от его writable layer: обновление или пересоздание контейнера не должно удалять медиа и архивы.
 
 **Владелец подтвердил, что обе прежние БД пустые и пользовательских данных нет. Перенос/слияние не выполняется.** На production создаётся новый `supabase_runtime_pg17_data`, инициализируемый PostgreSQL 17 с нуля. Не подключать к нему PGDATA от PostgreSQL 15/18: major-версии несовместимы. Текущий CI проверяет чистые disposable volumes, применение миграций и полные бизнес-сценарии на PostgreSQL 17.
 
@@ -68,6 +72,7 @@ Runtime использует отдельные именованные volumes:
 Помимо существующих `POSTGRES_PASSWORD`, `JWT_SECRET`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` и `SUPABASE_SERVICE_ROLE_KEY` из `.env.production`, файл `.env.supabase-runtime` должен содержать:
 
 - `APP_DATABASE_PASSWORD` — отдельный случайный пароль для роли `conditera_app`;
+- `BACKUP_DATABASE_PASSWORD` — отдельный случайный пароль для read-only роли `conditera_backup`;
 - `SUPABASE_SECRET_KEY_BASE` — 64 hex characters;
 - `PG_META_CRYPTO_KEY` — 32 hex characters;
 - `REALTIME_DB_ENC_KEY` — ровно 16 characters;
