@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   select: vi.fn(),
   in: vi.fn(),
+  eq: vi.fn(),
+  contains: vi.fn(),
+  limit: vi.fn(),
   getUserFromRequest: vi.fn(),
   requireAnyRole: vi.fn(),
 }));
@@ -47,11 +50,14 @@ describe("POST /api/notifications/send — trusted cron delivery", () => {
     mocks.requireAnyRole.mockResolvedValue(null);
     mocks.sendNotification.mockResolvedValue({ notificationIds: ["notification-1"] });
     mocks.select.mockReturnThis();
+    mocks.eq.mockReturnThis();
+    mocks.contains.mockReturnThis();
+    mocks.limit.mockResolvedValue({ data: [], error: null });
     mocks.in.mockResolvedValue({
       data: [{ id: "notification-1", channel: "in_app", status: "sent" }],
       error: null,
     });
-    mocks.from.mockReturnValue({ select: mocks.select, in: mocks.in });
+    mocks.from.mockReturnValue({ select: mocks.select, in: mocks.in, eq: mocks.eq, contains: mocks.contains, limit: mocks.limit });
   });
 
   it("accepts a valid Cron Secret and delegates template delivery to the shared engine", async () => {
@@ -114,6 +120,43 @@ describe("POST /api/notifications/send — trusted cron delivery", () => {
 
     expect(response.status).toBe(502);
     expect((await response.json()).success).toBe(false);
+  });
+
+  it("confirms an existing successful deduplicated delivery instead of leaving the cart pending", async () => {
+    mocks.sendNotification.mockResolvedValue({ notificationIds: [] });
+    mocks.limit.mockResolvedValue({
+      data: [{ id: "notification-existing", channel: "email", status: "sent" }],
+      error: null,
+    });
+
+    const response = await POST(request({
+      userId: USER_ID,
+      template: "ABANDONED_CART",
+      dedupKey: "abandoned-cart:cart-log-uuid",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      alreadySent: true,
+      notificationIds: ["notification-existing"],
+      channels: [{ channel: "email", status: "sent" }],
+    });
+    expect(mocks.contains).toHaveBeenCalledWith("metadata", { dedup_key: "abandoned-cart:cart-log-uuid" });
+  });
+
+  it("keeps a notification pending when the engine skips without an existing successful delivery", async () => {
+    mocks.sendNotification.mockResolvedValue({ notificationIds: [] });
+    mocks.limit.mockResolvedValue({ data: [], error: null });
+
+    const response = await POST(request({
+      userId: USER_ID,
+      template: "ABANDONED_CART",
+      dedupKey: "abandoned-cart:cart-log-uuid",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, skipped: true, notificationIds: [] });
   });
 
   it("rejects malformed user identifiers before invoking the delivery engine", async () => {
