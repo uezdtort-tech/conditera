@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
-import { verifyCronSecret, cronUnauthorized } from "@/lib/cron-auth";
+import { verifyCronSecret } from "@/lib/cron-auth";
 import { sendNotification, TEMPLATES, type Channel, type Template } from "@/lib/notifications";
 
 export const runtime = "nodejs";
