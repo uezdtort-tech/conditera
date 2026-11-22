@@ -80,13 +80,25 @@ export async function GET(
     }
 
     if (!authorized && await hasAnyRole(user.id, ["SUPPORT"])) {
-      const assigned = await pool.query(
-        `SELECT 1 FROM public.support_tickets
-         WHERE order_id = $1::uuid AND assigned_to = $2::uuid
-         LIMIT 1`,
-        [media.order_id, user.id]
-      );
-      authorized = assigned.rows.length > 0;
+      if (media.kind === "dispute_evidence") {
+        const assigned = await pool.query(
+          `SELECT 1
+           FROM public.order_dispute_evidence e
+           JOIN public.order_disputes d ON d.id = e.dispute_id
+           WHERE e.order_media_id = $1::uuid AND d.assigned_to = $2::uuid
+           LIMIT 1`,
+          [media.id, user.id]
+        );
+        authorized = assigned.rows.length > 0;
+      } else {
+        const assigned = await pool.query(
+          `SELECT 1 FROM public.support_tickets
+           WHERE order_id = $1::uuid AND assigned_to = $2::uuid
+           LIMIT 1`,
+          [media.order_id, user.id]
+        );
+        authorized = assigned.rows.length > 0;
+      }
     }
 
     if (!authorized && await hasAnyRole(user.id, ["COURIER"])) {
