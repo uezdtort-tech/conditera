@@ -143,7 +143,7 @@ secrets_dir = Path(".secrets")
 secrets_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 secrets_dir.chmod(0o700)
 n8n_key_file = secrets_dir / "n8n_encryption_key"
-n8n_key_file.write_text(n8n_encryption_key + "\\n", encoding="utf-8")
+n8n_key_file.write_text(n8n_encryption_key + "\n", encoding="utf-8")
 n8n_key_file.chmod(0o644)
 
 required_external = [
