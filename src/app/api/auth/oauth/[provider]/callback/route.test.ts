@@ -191,8 +191,8 @@ describe("OAuth provider callbacks — Yandex ID and VK ID", () => {
       email: "new.oauth@example.test",
       email_confirm: true,
     }));
-    expect(mocks.fromCalls).toContain("user_consent_events");
-    expect(mocks.fromCalls).toContain("oauth_identity_links");
+    expect(mocks.state.fromCalls).toContain("user_consent_events");
+    expect(mocks.state.fromCalls).toContain("oauth_identity_links");
     expect(mocks.state.createUserSession).toHaveBeenCalledWith(USER_ID, expect.any(NextRequest), "oauth");
     expect(mocks.state.setSessionRefreshJti).toHaveBeenCalledWith("session-oauth-1", USER_ID, expect.any(String));
     expect(mocks.state.createAccessToken).toHaveBeenCalledWith(expect.objectContaining({ userId: USER_ID, sid: "session-oauth-1" }));
