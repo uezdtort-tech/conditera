@@ -154,6 +154,29 @@ jobs:
           (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
           second_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime" "$tmpdir/.secrets/n8n_encryption_key")"
           test "$first_hash" = "$second_hash"
+          python3 - "$tmpdir" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          root = Path(sys.argv[1])
+          runtime = {}
+          for line in (root / ".env.supabase-runtime").read_text().splitlines():
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  runtime[key] = value
+          secret_path = root / ".secrets/n8n_encryption_key"
+          secret = secret_path.read_bytes()
+          expected = runtime["N8N_ENCRYPTION_KEY"].encode() + b"\\n"
+          if secret != expected:
+              raise SystemExit("n8n encryption secret file must contain exactly the generated key followed by one newline")
+          if not re.fullmatch(r"[0-9a-f]{64}", runtime["N8N_ENCRYPTION_KEY"]):
+              raise SystemExit("generated n8n encryption key must be 64 lowercase hex characters")
+          if (root / ".env.production").stat().st_mode & 0o777 != 0o600:
+              raise SystemExit(".env.production must be mode 0600")
+          if (root / ".env.supabase-runtime").stat().st_mode & 0o777 != 0o600:
+              raise SystemExit(".env.supabase-runtime must be mode 0600")
+          print("Production env bootstrap PASS: idempotent secrets, exact n8n key-file bytes, and restrictive permissions.")
+          PY
           rm -rf "$tmpdir"
           bash scripts/deploy-single-container.sh --config
           docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
