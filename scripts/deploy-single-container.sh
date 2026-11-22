@@ -208,6 +208,13 @@ for name in ("web", "meilisearch"):
     if services[name].get("ports"):
         raise SystemExit(f"{name} must not publish host ports; Caddy is the only public web entry point")
 
+n8n_ports = services["n8n"].get("ports", [])
+if len(n8n_ports) != 1 or n8n_ports[0].get("host_ip") != "127.0.0.1" or str(n8n_ports[0].get("target")) != "5678":
+    raise SystemExit("n8n must be bound to 127.0.0.1:5678 only")
+caddyfile = Path("Caddyfile").read_text()
+if "reverse_proxy n8n:5678" in caddyfile:
+    raise SystemExit("n8n must not be reverse-proxied to the public internet")
+
 runtime = services["supabase-runtime"]
 if runtime.get("image") != "conditera/supabase-runtime:pg17":
     raise SystemExit("Supabase runtime image must be the pinned Conditera PG17 image")
