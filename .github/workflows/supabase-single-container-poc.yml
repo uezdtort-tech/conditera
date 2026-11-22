@@ -42,7 +42,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           sh -n scripts/n8n-entrypoint.sh
-          bun scripts/verify/n8n-workflows-verify.mjs
+          node scripts/verify/n8n-workflows-verify.mjs
           printf '%s\n' "$N8N_ENCRYPTION_KEY" > /tmp/conditera-n8n-encryption-key
           chmod 600 /tmp/conditera-n8n-encryption-key
           docker volume create conditera-n8n-bootstrap-test >/dev/null
