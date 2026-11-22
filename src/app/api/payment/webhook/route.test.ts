@@ -116,6 +116,14 @@ describe("payment webhook POST — cancellation race", () => {
     mocks.state.updateResults = {};
     mocks.state.fromCalls = [];
     mocks.state.providerConfigured = false;
+    mocks.state.providerResult = {
+      success: true,
+      payment: {
+        status: "succeeded",
+        amount: { value: "100.00", currency: "RUB" },
+        metadata: { orderId: ORDER_ID },
+      },
+    };
     mocks.state.getPaymentStatus.mockReset().mockImplementation(async () => mocks.state.providerResult);
     mocks.state.getRefund.mockReset();
     mocks.state.refundPayment.mockReset().mockResolvedValue({ success: true, refund: { id: "refund-1" } });
