@@ -30,7 +30,7 @@ docker compose --env-file .env.production \
     supabase-imgproxy supabase-meta supabase-analytics supabase-vector
 ```
 
-После проверки конфигурации и отдельного плана переноса данных:
+После заполнения реальных секретов и проверки итоговой конфигурации:
 
 ```bash
 docker compose --env-file .env.production --env-file .env.supabase-runtime \
@@ -51,11 +51,11 @@ Runtime использует отдельные именованные volumes:
 - `supabase_runtime_pg17_data` — PostgreSQL 17;
 - `supabase_runtime_storage_data` — Storage и read-only mount для Imgproxy.
 
-**Не подключать к PostgreSQL 17 volume от старого PostgreSQL 15.** Формат data directory несовместим. Нельзя считать запуск overlay способом автоматического переноса production-данных. До переключения необходимы согласованные backup, логический dump/restore в PG17, проверка владельцев/ролей/extensions/RLS и контрольные суммы критичных таблиц. Текущий CI использует пустые disposable volumes и не доказывает перенос существующих данных.
+**Владелец подтвердил, что обе прежние БД пустые и пользовательских данных нет. Перенос/слияние не выполняется.** На production создаётся новый `supabase_runtime_pg17_data`, инициализируемый PostgreSQL 17 с нуля. Не подключать к нему PGDATA от PostgreSQL 15/18: major-версии несовместимы. Текущий CI проверяет чистые disposable volumes, применение миграций и полные бизнес-сценарии на PostgreSQL 17.
 
 Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. После этого создаёт отдельную роль `conditera_app` (не superuser, но с `BYPASSRLS` и CRUD/EXECUTE на `public`) для доверенного серверного Next.js-контейнера. Её пароль не передаётся chat-service/n8n: он берётся из отдельного `.env.supabase-runtime` и попадает в `web` только внутри `DATABASE_URL`/`DIRECT_DATABASE_URL`. Серверные Supabase-клиенты используют внутренний `SUPABASE_INTERNAL_URL=http://supabase-kong:8000`.
 
-На восстановленной БД ledger должен быть предварительно согласован с фактическим состоянием схемы; запускать полный replay поверх существующей схемы без этого нельзя.
+На новой пустой БД runtime создаёт ledger и применяет полный набор прикладных миграций. Повторный запуск `db:setup` проверяется в PG17 E2E job; production seeds выключены.
 
 Не удалять volumes при обычном обновлении. Не использовать `down -v` на сервере с данными.
 
@@ -76,8 +76,10 @@ Runtime использует отдельные именованные volumes:
 ## Ограничения до production cutover
 
 - Edge Runtime включён в единый runtime, но функции Conditera содержат незавершённые реализации/stub-обработчики; до включения бизнес-сценариев требуется отдельная проверка каждой функции и её авторизации. Публичные webhooks YooKassa/Telegram должны оставаться на защищённых Next.js API routes, а не на Edge Functions.
-- Не выполнен backup/restore production data и не проверен перенос данных из двух прежних источников (Supabase PG15 и отдельный app PG18) на копии реального объёма. Перед переключением требуется установить фактический источник истины и сверить данные; overlay не сливает две базы автоматически.
+- Production ещё не запущен на локальном Windows ПК; требуется создать новый PG17 volume, выполнить первый запуск, проверить health всех сервисов и подтвердить внешний HTTPS-доступ.
+- Не выполнены реальные транзакции YooKassa, реальные OAuth-входы Yandex/VK, SMTP-доставка и Web Push на пользовательских устройствах: для них нужны production credentials и проверка callback/доменов.
+- В Edge Runtime остаются намеренно fail-closed 501 stubs для шести legacy функций (`abandoned-cart`, `bonus-expiry`, `daily-digest`, `send-email`, `send-push`, `tasting-reminder`). Текущие n8n retention workflows используют Next.js API routes; необходимо не вызывать эти legacy endpoints до реализации или удаления маршрутов из gateway.
 - Не проведены нагрузочные, отказоустойчивые и восстановительные испытания.
 - Не проверена полная совместимость всех внутренних клиентов Conditera с новым runtime и его секретами.
 
-До закрытия этих пунктов overlay — подготовленная интеграция и путь к переключению, но не разрешение на production cutover. Старый runtime и volumes должны оставаться доступными до завершения приёмки и согласованного rollback-плана.
+До закрытия этих пунктов overlay и deploy script — проверенная production-конфигурация, но сайт ещё не развёрнут в production. Запуск выполняется через `bash scripts/deploy-single-container.sh --config`, затем `--up` на локальном Windows ПК в WSL2/Docker Desktop. Скрипт не удаляет volumes и не запускает legacy DB/Supabase стеки.
