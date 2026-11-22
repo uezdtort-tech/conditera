@@ -55,9 +55,10 @@ jobs:
             trap - EXIT
             if [ "$status" -ne 0 ] && docker inspect conditera-n8n-bootstrap-test >/dev/null 2>&1; then
               mkdir -p /tmp/supabase-runtime-diagnostics
-              docker inspect conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-inspect.json 2>&1 || true
+              docker inspect conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-inspect-before-cleanup.json 2>&1 || true
+              docker inspect -f 'status={{.State.Status}} exit_code={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} error={{.State.Error}}' conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-exit.txt 2>&1 || true
               docker logs --timestamps conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap.log 2>&1 || true
-              docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'id; echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$HOME/.n8n"; n8n list:workflow' > /tmp/supabase-runtime-diagnostics/n8n-workflows.txt 2>&1 || true
+              docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'id; echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ps -ef; ls -la "$HOME/.n8n"; cat "$HOME/.n8n/n8nEventLog.log" 2>/dev/null || true; n8n list:workflow' > /tmp/supabase-runtime-diagnostics/n8n-workflows.txt 2>&1 || true
             fi
             docker rm -f conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
             docker volume rm conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
@@ -376,9 +377,8 @@ jobs:
         run: |
           set +e
           mkdir -p /tmp/supabase-runtime-diagnostics
-          if docker inspect conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-inspect.json 2>&1; then
-            docker logs --timestamps conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap.log 2>&1 || true
-            docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'id; echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$HOME/.n8n"; n8n list:workflow' > /tmp/supabase-runtime-diagnostics/n8n-workflows.txt 2>&1 || true
+          if docker inspect conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-inspect-after-cleanup.json 2>&1; then
+            docker logs --timestamps conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-after-cleanup.log 2>&1 || true
           fi
           if docker inspect conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container-inspect.json 2>&1; then
             docker logs --timestamps conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container.log 2>&1 || true
