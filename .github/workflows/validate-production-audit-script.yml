@@ -83,16 +83,14 @@ jobs:
           ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
           DROP POLICY IF EXISTS audit_read_only_fixture ON public.profiles;
           CREATE POLICY audit_read_only_fixture ON public.profiles USING (true);
-          DO $
-          DECLARE role_name text;
-          BEGIN
-            FOREACH role_name IN ARRAY ARRAY['conditera_app', 'anon', 'authenticated', 'service_role'] LOOP
-              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
-                EXECUTE format('CREATE ROLE %I LOGIN', role_name);
-              END IF;
-            END LOOP;
-          END
-          $;
+          SELECT 'CREATE ROLE conditera_app LOGIN'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_app') \\gexec
+          SELECT 'CREATE ROLE anon LOGIN'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') \\gexec
+          SELECT 'CREATE ROLE authenticated LOGIN'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') \\gexec
+          SELECT 'CREATE ROLE service_role LOGIN'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') \\gexec
           SQL
 
           BEFORE="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d supabase -c 'SELECT count(*) FROM public.schema_migrations')"
