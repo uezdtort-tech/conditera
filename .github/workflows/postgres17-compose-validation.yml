@@ -11,6 +11,10 @@ on:
       - ".github/workflows/postgres17-compose-validation.yml"
   workflow_dispatch:
 
+concurrency:
+  group: postgres17-compose-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
