@@ -83,6 +83,16 @@ function isPostgresUrl(u) {
   return typeof u === "string" && /^postgres(ql)?:\/\//i.test(u.trim());
 }
 
+function isLocalEmbeddedPort(value, port) {
+  try {
+    const parsed = new URL(value);
+    return ["127.0.0.1", "localhost"].includes(parsed.hostname) &&
+      parsed.port === String(port);
+  } catch {
+    return false;
+  }
+}
+
 // Итоговый DATABASE_URL: process.env > .env.local > .env > embedded-дефолт
 let DATABASE_URL = process.env.DATABASE_URL || "";
 let databaseUrlSource = "process env";
