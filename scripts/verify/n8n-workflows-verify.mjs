@@ -20,6 +20,15 @@ const disabledWorkflows = [
   "n8n-workflows/14-user-reenagement.json",
   "n8n-workflows/15-report-generation.json",
   "n8n-workflows/16-review-analysis.json",
+  "n8n-workflows/17-quality-inspections.json",
+  "n8n-workflows/18-certification-reminders.json",
+  "n8n-workflows/19-taster-assignment.json",
+  "n8n-workflows/20-franchisee-reports.json",
+  "n8n-workflows/21-pp-certification.json",
+  "n8n-workflows/23-ai-confectioner-onboarding.json",
+  "n8n-workflows/24-ai-fillings-moderation.json",
+  "n8n-workflows/25-ai-smart-cake-search.json",
+  "n8n-workflows/26-conditera-event-bus.json",
 ];
 
 for (const [file, expectedCron] of activeWorkflows) {
