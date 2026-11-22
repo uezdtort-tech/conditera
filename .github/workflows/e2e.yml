@@ -798,30 +798,42 @@ jobs:
           PGURL: ${{ env.DATABASE_URL }}
           VERIFY_BACKUP: "1"
 
-      - name: Verify generated PostgreSQL backup archive
+      - name: Verify complete PostgreSQL and media backup set
         run: |
           set -Eeuo pipefail
-          docker exec conditera-web-pg17-ci sh -c '
-            set -eu
-            backup="$(find /app/backups -maxdepth 1 -type f -name "backup-*.sql.gz" -size +0c | head -n 1)"
-            test -n "$backup"
-            gzip -t "$backup"
-            echo "PASS: non-empty gzip backup archive is valid: $backup"
-          '
+          MANIFEST_PATH="$(docker exec conditera-web-pg17-ci sh -c 'find /app/backups -maxdepth 1 -type f -name "backup-*.json" | head -n 1')"
+          test -n "$MANIFEST_PATH"
+          PREFIX="$(basename "$MANIFEST_PATH" .json)"
+          DB_BACKUP_PATH="/app/backups/$PREFIX.sql.gz"
+          PRODUCT_MEDIA_BACKUP_PATH="/app/backups/$PREFIX.product-media.tar.gz"
+          SUPABASE_STORAGE_BACKUP_PATH="/app/backups/$PREFIX.supabase-storage.tar.gz"
+          docker exec conditera-web-pg17-ci gzip -t "$DB_BACKUP_PATH"
+          docker exec conditera-web-pg17-ci tar -tzf "$PRODUCT_MEDIA_BACKUP_PATH" >/dev/null
+          docker exec conditera-web-pg17-ci tar -tzf "$SUPABASE_STORAGE_BACKUP_PATH" >/dev/null
+          echo "PASS: database, product-media and Supabase Storage archives are valid"
 
-      - name: Restore PostgreSQL 17 backup into a clean shadow database
+      - name: Restore PostgreSQL 17 and media backups into clean shadow locations
         run: |
           set -Eeuo pipefail
-          BACKUP_PATH="$(docker exec conditera-web-pg17-ci sh -c 'find /app/backups -maxdepth 1 -type f -name "backup-*.sql.gz" -size +0c | head -n 1')"
+          MANIFEST_PATH="$(docker exec conditera-web-pg17-ci sh -c 'find /app/backups -maxdepth 1 -type f -name "backup-*.json" | head -n 1')"
+          test -n "$MANIFEST_PATH"
+          PREFIX="$(basename "$MANIFEST_PATH" .json)"
+          DB_BACKUP_PATH="/app/backups/$PREFIX.sql.gz"
+          PRODUCT_MEDIA_BACKUP_PATH="/app/backups/$PREFIX.product-media.tar.gz"
+          SUPABASE_STORAGE_BACKUP_PATH="/app/backups/$PREFIX.supabase-storage.tar.gz"
           DB_USER="$(node -e 'console.log(new URL(process.env.DATABASE_URL).username)')"
           DB_PASSWORD="$(node -e 'console.log(new URL(process.env.DATABASE_URL).password)')"
-          test -n "$BACKUP_PATH"
           docker exec -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
             createdb -h 127.0.0.1 -p 54323 -U "$DB_USER" -T template0 conditera_restore_smoke
-          docker exec conditera-web-pg17-ci sh -c "gzip -dc '$BACKUP_PATH'" |
+          docker exec conditera-web-pg17-ci sh -c "gzip -dc '$DB_BACKUP_PATH'" |
             docker exec -i -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
               psql -h 127.0.0.1 -p 54323 -U "$DB_USER" -d conditera_restore_smoke \
                 -v ON_ERROR_STOP=1 --single-transaction
+          docker exec conditera-web-pg17-ci mkdir -p /tmp/restore-product-media /tmp/restore-supabase-storage
+          docker exec conditera-web-pg17-ci tar -xzf "$PRODUCT_MEDIA_BACKUP_PATH" -C /tmp/restore-product-media
+          docker exec conditera-web-pg17-ci tar -xzf "$SUPABASE_STORAGE_BACKUP_PATH" -C /tmp/restore-supabase-storage
+          docker exec conditera-web-pg17-ci sh -c 'test "$(cat /tmp/restore-product-media/backup-smoke/sentinel.txt)" = "conditera-product-media-backup-smoke"'
+          docker exec conditera-web-pg17-ci sh -c 'test "$(cat /tmp/restore-supabase-storage/backup-smoke/sentinel.txt)" = "conditera-supabase-storage-backup-smoke"'
           RESTORE_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:54323/conditera_restore_smoke" \
           node --input-type=module <<'NODE'
           import { Client } from "pg";
