@@ -10,7 +10,6 @@ services:
   # ===== PostgreSQL 17 (dev) =====
   # Целевая версия локальной Docker-БД — PostgreSQL 17.
   # Новый volume PG17 создаётся отдельно; старый PG18 volume не подключается.
-    #   docker-compose -f docker-compose.dev.yml up -d
   db-dev:
     image: postgres:17-alpine
     container_name: uyezdny-db-dev
