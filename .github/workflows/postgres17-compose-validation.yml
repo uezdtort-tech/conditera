@@ -6,7 +6,10 @@ on:
       - "docker-compose.yml"
       - "docker-compose.supabase.yml"
       - "docker-compose.supabase-single-container.yml"
+      - "docker-compose.dev.yml"
       - "scripts/compose-single-runtime.mjs"
+      - "scripts/deploy.sh"
+      - "scripts/init-db.sh"
       - ".env.supabase-runtime.example"
       - ".github/workflows/postgres17-compose-validation.yml"
   workflow_dispatch:
