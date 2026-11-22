@@ -7,8 +7,8 @@
         "rule": {
           "interval": [
             {
-              "field": "weeks",
-              "weeksInterval": 1
+              "field": "cronExpression",
+              "expression": "0 10 * * 1"
             }
           ]
         }
