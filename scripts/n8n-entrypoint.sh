@@ -81,8 +81,17 @@ NODE
       if [ -f "$workflow_file" ]; then has_active_workflows=true; break; fi
     done
     if [ "$has_active_workflows" = "true" ]; then
-      echo "[n8n-bootstrap] importing verified active workflows"
-      n8n import:workflow --separate --input="$import_dir"
+      echo "[n8n-bootstrap] importing verified active workflows one by one"
+      # n8n 2.48.x caches the existing tag list once per import batch. When
+      # multiple workflows share a tag name, --separate tries to insert that
+      # tag more than once and SQLite rejects the batch with UNIQUE tag_entity.name.
+      # Import each file in its own CLI process so ImportService reloads tags
+      # from the database before the next workflow; shared tags remain shared.
+      for workflow_file in "$import_dir"/*.json; do
+        [ -f "$workflow_file" ] || continue
+        echo "[n8n-bootstrap] importing $(basename "$workflow_file")"
+        n8n import:workflow --input="$workflow_file"
+      done
     fi
   else
     echo "[n8n-bootstrap] verified workflow source unchanged; import skipped"
