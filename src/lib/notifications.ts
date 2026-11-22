@@ -645,7 +645,12 @@ export async function deliverNotification(
       .from("notifications")
       .update({
         status: "failed",
-        metadata: { error: errMsg.slice(0, 500) },
+        metadata: {
+          ...(notif.metadata && typeof notif.metadata === "object" && !Array.isArray(notif.metadata)
+            ? notif.metadata as Record<string, unknown>
+            : {}),
+          delivery_error: errMsg.slice(0, 500),
+        },
       })
       .eq("id", notificationId);
     console.error(`[notify] delivery failed for ${notificationId} via ${channel}:`, errMsg);
