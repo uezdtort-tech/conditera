@@ -116,6 +116,35 @@ export async function POST(req: Request): Promise<NextResponse> {
       });
 
       if (notificationIds.notificationIds.length === 0) {
+        // A retry after a successful delivery may hit the dedup constraint and
+        // return no new IDs. Confirm the existing delivery before telling n8n
+        // to leave the abandoned-cart log pending forever.
+        if (body.dedupKey) {
+          const { data: existingRows, error: existingError } = await supabaseAdmin
+            .from("notifications")
+            .select("id, channel, status")
+            .eq("user_id", body.userId)
+            .contains("metadata", { dedup_key: body.dedupKey })
+            .limit(10);
+
+          if (existingError) {
+            console.error("[notifications/send] dedup lookup failed:", existingError.message);
+            return NextResponse.json({ error: "Не удалось подтвердить повторную доставку" }, { status: 502 });
+          }
+
+          const existing = existingRows || [];
+          const alreadyDelivered = existing.length > 0 &&
+            existing.every((row) => ["queued", "sent", "delivered", "read"].includes(row.status));
+          if (alreadyDelivered) {
+            return NextResponse.json({
+              success: true,
+              alreadySent: true,
+              notificationIds: existing.map((row) => row.id),
+              channels: existing.map((row) => ({ channel: row.channel, status: row.status })),
+            });
+          }
+        }
+
         return NextResponse.json({ success: true, skipped: true, notificationIds: [] });
       }
 
