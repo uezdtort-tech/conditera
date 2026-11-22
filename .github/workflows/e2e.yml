@@ -761,13 +761,57 @@ jobs:
       - name: Verify generated PostgreSQL backup archive
         run: |
           set -Eeuo pipefail
-          docker exec conditera-web-pg17-ci sh -lc '
+          docker exec conditera-web-pg17-ci sh -c '
             set -eu
             backup="$(find /app/backups -maxdepth 1 -type f -name "backup-*.sql.gz" -size +0c | head -n 1)"
             test -n "$backup"
             gzip -t "$backup"
             echo "PASS: non-empty gzip backup archive is valid: $backup"
           '
+
+      - name: Restore PostgreSQL 17 backup into a clean shadow database
+        run: |
+          set -Eeuo pipefail
+          BACKUP_PATH="$(docker exec conditera-web-pg17-ci sh -c 'find /app/backups -maxdepth 1 -type f -name "backup-*.sql.gz" -size +0c | head -n 1')"
+          DB_USER="$(node -e 'console.log(new URL(process.env.DATABASE_URL).username)')"
+          DB_PASSWORD="$(node -e 'console.log(new URL(process.env.DATABASE_URL).password)')"
+          test -n "$BACKUP_PATH"
+          docker exec -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
+            createdb -h 127.0.0.1 -p 54323 -U "$DB_USER" -T template0 conditera_restore_smoke
+          docker exec conditera-web-pg17-ci sh -c "gzip -dc '$BACKUP_PATH'" |
+            docker exec -i -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
+              psql -h 127.0.0.1 -p 54323 -U "$DB_USER" -d conditera_restore_smoke \
+                -v ON_ERROR_STOP=1 --single-transaction
+          RESTORE_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:54323/conditera_restore_smoke" \
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const source = new Client({ connectionString: process.env.DATABASE_URL });
+          const restored = new Client({ connectionString: process.env.RESTORE_DATABASE_URL });
+          const tables = ["profiles", "orders", "products", "maintenance_logs", "schema_migrations"];
+          await Promise.all([source.connect(), restored.connect()]);
+          try {
+            for (const table of tables) {
+              const [a, b] = await Promise.all([
+                source.query(`SELECT count(*)::int AS n FROM public."${table}"`),
+                restored.query(`SELECT count(*)::int AS n FROM public."${table}"`),
+              ]);
+              if (a.rows[0].n !== b.rows[0].n) {
+                throw new Error(`Restore row-count mismatch for ${table}: ${a.rows[0].n} != ${b.rows[0].n}`);
+              }
+              console.log(`PASS: restored ${table}: ${b.rows[0].n} rows`);
+            }
+            const [sourceVersion, restoredVersion] = await Promise.all([
+              source.query("SHOW server_version"),
+              restored.query("SHOW server_version"),
+            ]);
+            if (!sourceVersion.rows[0].server_version.startsWith("17.") ||
+                !restoredVersion.rows[0].server_version.startsWith("17.")) {
+              throw new Error("Backup restore did not remain on PostgreSQL 17");
+            }
+          } finally {
+            await Promise.all([source.end(), restored.end()]);
+          }
+          NODE
 
       - name: Verify product media and moderation on PostgreSQL 17
         run: node scripts/verify/product-media-verify.mjs
