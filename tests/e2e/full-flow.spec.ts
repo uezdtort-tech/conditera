@@ -70,11 +70,10 @@ test.describe("Auth flow", () => {
     await expect(page.locator("body")).toBeVisible();
   });
 
-  test("login page has auth form", async ({ page }) => {
+  test("login page exposes separate Yandex ID and VK ID actions", async ({ page }) => {
     await page.goto(`${BASE_URL}/login`);
-    // Должна быть форма с email/password или OAuth кнопки
-    const body = await page.locator("body").textContent();
-    expect(body).toBeTruthy();
+    await expect(page.getByRole("button", { name: "Яндекс", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "ВКонтакте", exact: true })).toBeVisible();
   });
 
   test("dashboard redirects unauthenticated user", async ({ page }) => {
@@ -93,10 +92,13 @@ test.describe("API endpoints", () => {
     expect(response.ok()).toBeTruthy();
   });
 
-  test("GET /api/products returns 200 or 500 (no DB in test)", async ({ request }) => {
+  test("GET /api/products returns a valid database-backed catalog response", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/products`);
-    // 200 если БД есть, 500 если нет — оба варианта допустимы
-    expect([200, 500]).toContain(response.status());
+    expect(response.status()).toBe(200);
+    const payload = await response.json();
+    expect(Array.isArray(payload.products)).toBe(true);
+    expect(Number.isInteger(payload.total)).toBe(true);
+    expect(payload.total).toBeGreaterThanOrEqual(0);
   });
 
   test("GET /api/csrf-token returns 200", async ({ request }) => {
@@ -276,21 +278,21 @@ test.describe("Navigation", () => {
 
 // ===== Группа: Cake builder =====
 test.describe("Cake builder", () => {
-  test("cake builder dialog can be opened from homepage", async ({ page }) => {
+  test("cake builder opens and accepts the first product selection", async ({ page }) => {
     await page.goto(BASE_URL);
-    await page.waitForTimeout(2000);
-    // Ищем кнопку конструктора
-    const builderButton = page.locator("text=Конструктор").first();
-    if (await builderButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await builderButton.click();
-      await page.waitForTimeout(2000);
-      // Должен открыться диалог конструктора
-      const dialog = page.locator("[role='dialog']").first();
-      // Если Supabase недоступен, диалог может не открыться — это OK для smoke-теста
-      if (await dialog.isVisible().catch(() => false)) {
-        await expect(dialog).toBeVisible();
-      }
-    }
+    const builderButton = page.getByRole("button", { name: /Собрать торт в конструкторе/i });
+    await expect(builderButton).toBeVisible();
+    await builderButton.click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Шаг 1 / 9");
+    await expect(dialog).toContainText("Что будем создавать?");
+
+    // Выбор изделия должен менять состояние конструктора и переводить на следующий шаг.
+    await dialog.getByText("Торт", { exact: true }).first().click();
+    await expect(dialog).toContainText("Шаг 2 / 9");
+    await expect(dialog).toContainText("Мероприятие");
   });
 });
 
