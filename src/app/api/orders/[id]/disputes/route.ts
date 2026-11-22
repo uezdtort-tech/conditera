@@ -301,6 +301,13 @@ export async function PATCH(
        RETURNING id, order_id, assigned_to, status, resolution, updated_at, closed_at`,
       [disputeId, nextStatus, resolution, hasAssignmentChange, assignedTo],
     );
+    if (resolution.length >= 10) {
+      await client.query(
+        `INSERT INTO public.order_dispute_messages (dispute_id, sender_id, message)
+         VALUES ($1::uuid, $2::uuid, $3)`,
+        [disputeId, user.id, resolution],
+      );
+    }
     await client.query(
       `INSERT INTO public.order_dispute_events
         (dispute_id, actor_id, event_type, from_status, to_status, details)
