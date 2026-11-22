@@ -74,6 +74,7 @@ services:
       - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
       - BACKUP_DIR=/app/backups
       - BACKUP_DATABASE_URL=postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD:?BACKUP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase
+      - PRODUCT_MEDIA_ROOT=/app/storage
       - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
       - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
       - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-Кондитера}
@@ -102,6 +103,7 @@ services:
         condition: service_healthy
     volumes: !override
       - conditera_backups:/app/backups
+      - conditera_product_media:/app/storage
 
   meilisearch:
     # Search is internal-only; expose it through the application API, never host port 7700.
@@ -217,6 +219,7 @@ services:
 
 volumes:
   conditera_backups:
+  conditera_product_media:
   supabase_runtime_pg17_data:
   supabase_runtime_storage_data:
   supabase_runtime_deno_cache:
