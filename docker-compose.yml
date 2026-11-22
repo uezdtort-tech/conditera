@@ -1,6 +1,10 @@
 # ===== Docker Compose для "Уездного кондитера" (production) =====
-# Запуск: docker-compose up -d
-# Требует .env.production со всеми секретами (см. .env.example)
+# ВАЖНО: этот файл содержит только legacy app PostgreSQL 18 и НЕ является самостоятельной production-конфигурацией.
+# Канонический запуск единого Supabase PostgreSQL 17:
+#   node scripts/compose-single-runtime.mjs up -d
+# Launcher подключает docker-compose.supabase.yml + docker-compose.supabase-single-container.yml,
+# проверяет отсутствие активных PG18/PG15 и не допускает удаления volumes.
+# Требует .env.production и .env.supabase-runtime; см. docs/SUPABASE_SINGLE_CONTAINER_RUNTIME.md
 # ====================================================================
 
 # Общие настройки логирования (ротация логов)
@@ -18,6 +22,7 @@ x-default-restart: &default-restart
 services:
   # ===== Migrator (init-контейнер — применяет миграции БД один раз) =====
   migrator:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -49,6 +54,7 @@ services:
 
   # ===== Веб-приложение (Next.js) =====
   web:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -143,6 +149,7 @@ services:
   # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
   # с резервной копией и контрольной сверкой данных.
   db:
+    profiles: ["legacy-app-db"]
     image: postgres:18-alpine
     container_name: conditera-db
     <<: *default-restart
@@ -180,6 +187,7 @@ services:
   # session-level features (temp tables, SET без транзакции, LISTEN/NOTIFY).
   # Для Prisma этого достаточно — все запросы в явных транзакциях.
   pgbouncer:
+    profiles: ["legacy-app-db"]
     image: pgbouncer/pgbouncer:latest
     container_name: conditera-pgbouncer
     <<: *default-restart
@@ -240,6 +248,7 @@ services:
   # Индексация через API endpoint /api/search/reindex.
   # Заменяет медленный ILIKE '%...%' в PostgreSQL.
   meilisearch:
+    profiles: ["legacy-app-db"]
     image: getmeili/meilisearch:v1.12
     container_name: conditera-meilisearch
     <<: *default-restart
@@ -280,6 +289,7 @@ services:
 
   # ===== Redis (кэш, сессии, Socket.IO adapter, rate-limiting) =====
   redis:
+    profiles: ["legacy-app-db"]
     image: redis:7-alpine
     container_name: conditera-redis
     <<: *default-restart
@@ -307,6 +317,7 @@ services:
 
   # ===== Сервис чата (Socket.IO) =====
   chat-service:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile.chat
@@ -345,6 +356,7 @@ services:
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, сгорание бонусов) =====
   n8n:
+    profiles: ["legacy-app-db"]
     image: n8nio/n8n:1.95.0
     container_name: conditera-n8n
     <<: *default-restart
@@ -385,6 +397,7 @@ services:
 
   # ===== Caddy (обратный прокси + HTTPS) =====
   caddy:
+    profiles: ["legacy-app-db"]
     image: caddy:2.8-alpine
     container_name: conditera-caddy
     <<: *default-restart
@@ -420,9 +433,10 @@ services:
   # ===== SimpleX SMP server (приватный E2E-канал) =====
   # ВНИМАНИЕ: SimpleX-сервисы (smp-server + simplex-bridge) — опциональны.
   # Они нужны только для E2E-чата PREMIUM-пользователей.
-  # Чтобы запустить стек без SimpleX (например для первого деплоя или тестов):
-  #   docker compose up -d web db redis chat-service n8n caddy
-  # Или создать профиль: docker compose --profile simplex up -d
+  # Канонический стек без SimpleX запускается только через единый PG17 launcher:
+  #   CONDITERA_PG17_CUTOVER_APPROVED=1 node scripts/compose-single-runtime.mjs up -d
+  # Для осознанного включения SimpleX добавьте --profile simplex перед up.
+  # Прямой запуск legacy Compose без overlay не является поддерживаемым production-путём.
   smp-server:
     image: simplexchat/smp-server:v7.0.1
     container_name: conditera-smp
