@@ -39,8 +39,8 @@ const require = createRequire(import.meta.url);
 // <project>/scripts/db/runtime.mjs → <project> (require.resolve — работает
 // и на Windows с буквами дисков, в отличие от fileURLToPath(import.meta.url))
 const ROOT = path.resolve(path.dirname(require.resolve("./runtime.mjs")), "..", "..");
-export const PGDATA = path.join(ROOT, ".pgdata");
-export const PG_PORT = Number(process.env.CONDITERA_PG_PORT || 54329);
+export const PGDATA = path.join(ROOT, ".pgdata-pg17");
+export const PG_PORT = Number(process.env.CONDITERA_PG_PORT || 54330);
 export const PG_USER = "postgres";
 export const PG_DB = "conditera";
 export const EMBEDDED_URL = `postgresql://${PG_USER}@127.0.0.1:${PG_PORT}/${PG_DB}`;
@@ -169,15 +169,45 @@ function pidAlive(pid) {
   }
 }
 
-/** Живая проверка статуса: pid-файл + процесс + TCP. */
+async function readServerVersion() {
+  const { Client } = require("pg");
+  const client = new Client({
+    connectionString: `postgresql://${PG_USER}@127.0.0.1:${PG_PORT}/postgres`,
+    connectionTimeoutMillis: 1200,
+  });
+  try {
+    await client.connect();
+    const result = await client.query("SHOW server_version_num");
+    return Number(result.rows[0]?.server_version_num || 0);
+  } catch {
+    return null;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+/** Живая проверка статуса: PID + TCP + фактическая major-версия сервера. */
 export async function getStatus() {
-  const initialized = existsSync(path.join(PGDATA, "PG_VERSION"));
-  if (!initialized) return { running: false, initialized: false, pid: null };
+  const versionFile = path.join(PGDATA, "PG_VERSION");
+  const initialized = existsSync(versionFile);
+  const dataVersion = initialized ? readFileSync(versionFile, "utf8").trim() : null;
   const pid = readPidFile();
   const procAlive = pid ? pidAlive(pid) : false;
   const tcpOk = await tcpProbe(PG_PORT);
-  const running = (procAlive && tcpOk) || (!pid && tcpOk);
-  return { running, initialized, pid: running ? pid : null };
+  const serverVersionNum = tcpOk ? await readServerVersion() : null;
+  const serverMajor = serverVersionNum ? Math.floor(serverVersionNum / 10000) : null;
+  const dataCompatible = !dataVersion || dataVersion === "17";
+  const serverCompatible = !tcpOk || serverMajor === 17;
+  const running = dataCompatible && serverCompatible &&
+    ((procAlive && tcpOk) || (!pid && tcpOk));
+  return {
+    running,
+    initialized,
+    pid: running ? pid : null,
+    dataVersion,
+    serverVersionNum,
+    incompatible: !dataCompatible || (tcpOk && !serverCompatible),
+  };
 }
 
 // ============================================================================
@@ -257,7 +287,7 @@ export async function start() {
   }
   if (!status.initialized) initialize();
   applyConfigs();
-  console.log(`» starting PostgreSQL on 127.0.0.1:${PG_PORT} ...`);
+  console.log(`» starting PostgreSQL 17 on 127.0.0.1:${PG_PORT} ...`);
   const res = run(
     pg_ctl,
     ["-D", PGDATA, "-l", PG_LOG, "-o", `-p ${PG_PORT}`, "-w", "start"],
