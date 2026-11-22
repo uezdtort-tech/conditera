@@ -81,17 +81,60 @@ NODE
       if [ -f "$workflow_file" ]; then has_active_workflows=true; break; fi
     done
     if [ "$has_active_workflows" = "true" ]; then
-      echo "[n8n-bootstrap] importing verified active workflows one by one"
-      # n8n 2.48.x caches the existing tag list once per import batch. When
-      # multiple workflows share a tag name, --separate tries to insert that
-      # tag more than once and SQLite rejects the batch with UNIQUE tag_entity.name.
-      # Import each file in its own CLI process so ImportService reloads tags
-      # from the database before the next workflow; shared tags remain shared.
-      for workflow_file in "$import_dir"/*.json; do
-        [ -f "$workflow_file" ] || continue
-        echo "[n8n-bootstrap] importing $(basename "$workflow_file")"
-        n8n import:workflow --input="$workflow_file"
-      done
+      echo "[n8n-bootstrap] preparing shared workflow tags"
+      # n8n 2.48.x loads tag_entity once per import batch. It does not add tags
+      # created during that batch to its in-memory lookup, so shared tag names
+      # across separate workflow files otherwise collide on the unique index.
+      # Pre-create each distinct tag in the same SQLite database; ImportService
+      # then resolves every workflow tag by name without duplicate inserts.
+      node - "$USER_DIR/database.sqlite" "$import_dir" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { createRequire } = require('node:module');
+const n8nRequire = createRequire('/usr/local/lib/node_modules/n8n/package.json');
+const sqlite3 = n8nRequire('sqlite3');
+const dbPath = process.argv[2];
+const importDir = process.argv[3];
+const tags = new Set();
+for (const name of fs.readdirSync(importDir).filter((entry) => entry.endsWith('.json'))) {
+  const workflow = JSON.parse(fs.readFileSync(path.join(importDir, name), 'utf8'));
+  for (const tag of workflow.tags || []) {
+    if (typeof tag.name === 'string' && tag.name.trim()) tags.add(tag.name.trim());
+  }
+}
+const db = new sqlite3.Database(dbPath);
+const run = (sql, params = []) => new Promise((resolve, reject) => {
+  db.run(sql, params, function (error) {
+    if (error) reject(error);
+    else resolve(this);
+  });
+});
+(async () => {
+  await run('BEGIN IMMEDIATE');
+  try {
+    for (const name of tags) {
+      const id = crypto.randomBytes(12).toString('base64url');
+      await run(
+        'INSERT OR IGNORE INTO tag_entity (id, name, createdAt, updatedAt) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+        [id, name],
+      );
+    }
+    await run('COMMIT');
+    process.stdout.write(`[n8n-bootstrap] prepared ${tags.size} distinct shared tags\n`);
+  } catch (error) {
+    await run('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    db.close();
+  }
+})().catch((error) => {
+  console.error('[n8n-bootstrap] failed to prepare shared tags:', error);
+  process.exitCode = 1;
+});
+NODE
+      echo "[n8n-bootstrap] importing verified active workflows"
+      n8n import:workflow --separate --input="$import_dir"
     fi
   else
     echo "[n8n-bootstrap] verified workflow source unchanged; import skipped"
