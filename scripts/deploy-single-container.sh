@@ -166,7 +166,8 @@ for key, expected_length in (("VAPID_PUBLIC_KEY", 65), ("VAPID_PRIVATE_KEY", 32)
         except Exception as error:
             errors.append(f".env.production: {key} is not a valid Web Push key ({error})")
 
-for key, expected in (("SUPABASE_SECRET_KEY_BASE", 64), ("PG_META_CRYPTO_KEY", 32),
+for key, expected in (("APP_DATABASE_PASSWORD", 64), ("BACKUP_DATABASE_PASSWORD", 64),
+                      ("SUPABASE_SECRET_KEY_BASE", 64), ("PG_META_CRYPTO_KEY", 32),
                       ("REALTIME_DB_ENC_KEY", 16), ("REALTIME_DB_ENC_KEY_GCM", 32)):
     value = runtime.get(key, "")
     if value and (len(value) != expected or not re.fullmatch(r"[0-9a-fA-F]+", value)):
