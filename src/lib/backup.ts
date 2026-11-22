@@ -327,7 +327,7 @@ export async function runFullBackup(): Promise<BackupResult> {
       { flag: "wx", mode: 0o600 }
     );
     renameSync(
-      /*turbopackIgnore: true*/ manifestTemp,
+      /*turbopackIgnore: true*/ manifestTempPath,
       /*turbopackIgnore: true*/ manifestPath
     );
 
