@@ -287,6 +287,7 @@ export async function runFullBackup(): Promise<BackupResult> {
   chmodSync(/*turbopackIgnore: true*/ BACKUP_DIR, 0o700);
 
   const artifacts: BackupArtifact[] = [];
+  let manifestTempPath: string | null = null;
   try {
     const { artifact: database, tablesCount } = await pgDumpBackup(
       databaseUrl,
@@ -319,9 +320,9 @@ export async function runFullBackup(): Promise<BackupResult> {
       backupSizeBytes,
     };
     const manifestPath = join(/*turbopackIgnore: true*/ BACKUP_DIR, `${prefix}.json`);
-    const manifestTemp = `${manifestPath}.tmp`;
+    manifestTempPath = `${manifestPath}.tmp`;
     writeFileSync(
-      /*turbopackIgnore: true*/ manifestTemp,
+      /*turbopackIgnore: true*/ manifestTempPath,
       JSON.stringify(manifest, null, 2),
       { flag: "wx", mode: 0o600 }
     );
@@ -347,6 +348,13 @@ export async function runFullBackup(): Promise<BackupResult> {
       durationMs,
     };
   } catch (error) {
+    if (manifestTempPath) {
+      try {
+        unlinkSync(/*turbopackIgnore: true*/ manifestTempPath);
+      } catch {
+        // Ignore a missing partial manifest.
+      }
+    }
     for (const artifact of artifacts) {
       try {
         unlinkSync(/*turbopackIgnore: true*/ artifact.path);
@@ -415,7 +423,7 @@ export async function listBackups(): Promise<
   if (!existsSync(/*turbopackIgnore: true*/ BACKUP_DIR)) return [];
 
   const files = readdirSync(/*turbopackIgnore: true*/ BACKUP_DIR);
-  const backups = [];
+  const backups: Array<{ filename: string; sizeBytes: number; createdAt: Date }> = [];
   for (const filename of files.filter(
     (file) => file.startsWith("backup-") && file.endsWith(".json")
   )) {
@@ -436,7 +444,7 @@ export async function listBackups(): Promise<
       backups.push({
         filename,
         sizeBytes: Number(manifest.backupSizeBytes || 0),
-        createdAt: new Date(manifest.createdAt || stats.mtime),
+        createdAt: manifest.createdAt ? new Date(manifest.createdAt) : stats.mtime,
       });
     } catch {
       // An incomplete/corrupt backup set is not advertised as restorable.
