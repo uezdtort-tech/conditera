@@ -52,7 +52,7 @@ const CONF_MARKER = "# conditera-local";
 // ============================================================================
 function platformPackageShort() {
   const { platform, arch } = process;
-  if (platform === "win32") return "win-x64";
+  if (platform === "win32") return "windows-x64";
   if (platform === "darwin") {
     if (arch === "arm64") return "darwin-arm64";
     if (arch === "x64") return "darwin-x64";
