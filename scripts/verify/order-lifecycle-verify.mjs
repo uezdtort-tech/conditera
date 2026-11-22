@@ -328,7 +328,17 @@ async function prepareRecipeInventoryFixture() {
   };
 }
 
+function runQualityCommand(label, args) {
+  const result = spawnSync("bun", args, { stdio: "inherit" });
+  assert(label, result.status === 0, `exit=${result.status ?? "signal"}`);
+}
+
 async function main() {
+  section("Статическое качество и полный набор unit-тестов");
+  runQualityCommand("TypeScript typecheck", ["run", "typecheck"]);
+  runQualityCommand("ESLint по всему репозиторию", ["run", "lint"]);
+  runQualityCommand("Полный набор Vitest", ["run", "test"]);
+
   section("OAuth Yandex/VK и YooKassa — внешние контракты безопасности");
   const oauthTests = spawnSync("bunx", [
     "vitest",
