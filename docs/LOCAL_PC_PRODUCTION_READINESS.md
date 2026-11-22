@@ -30,7 +30,7 @@
 ## Запуск
 
 ~~~powershell
-node scripts/compose-single-runtime.mjs up -d --build
+./scripts/deploy.sh
 node scripts/compose-single-runtime.mjs ps
 node scripts/compose-single-runtime.mjs logs --tail 200 supabase-runtime
 node scripts/compose-single-runtime.mjs logs --tail 200 web
