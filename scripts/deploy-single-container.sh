@@ -145,6 +145,19 @@ for key, expected_role in (("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon"),
                 raise ValueError(f"role must be {expected_role}")
         except Exception as error:
             errors.append(f".env.production: {key} is not a valid JWT signed by JWT_SECRET ({error})")
+
+for key, expected_length in (("VAPID_PUBLIC_KEY", 65), ("VAPID_PRIVATE_KEY", 32)):
+    token = app.get(key, "")
+    if token:
+        try:
+            decoded = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
+            if len(decoded) != expected_length:
+                raise ValueError(f"decoded length must be {expected_length} bytes")
+            if key == "VAPID_PUBLIC_KEY" and decoded[0] != 4:
+                raise ValueError("public key must be an uncompressed P-256 point")
+        except Exception as error:
+            errors.append(f".env.production: {key} is not a valid Web Push key ({error})")
+
 for key, expected in (("SUPABASE_SECRET_KEY_BASE", 64), ("PG_META_CRYPTO_KEY", 32),
                       ("REALTIME_DB_ENC_KEY", 16), ("REALTIME_DB_ENC_KEY_GCM", 32)):
     value = runtime.get(key, "")
