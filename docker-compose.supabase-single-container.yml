@@ -75,6 +75,7 @@ services:
       - BACKUP_DIR=/app/backups
       - BACKUP_DATABASE_URL=postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD:?BACKUP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase
       - PRODUCT_MEDIA_ROOT=/app/storage
+      - SUPABASE_STORAGE_BACKUP_ROOT=/app/supabase-storage
       - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
       - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
       - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-Кондитера}
@@ -104,6 +105,7 @@ services:
     volumes: !override
       - conditera_backups:/app/backups
       - conditera_product_media:/app/storage
+      - supabase_runtime_storage_data:/app/supabase-storage:ro
 
   meilisearch:
     # Search is internal-only; expose it through the application API, never host port 7700.
