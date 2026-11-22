@@ -129,10 +129,10 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 1G
+          memory: 1536M
         reservations:
           cpus: '0.25'
-          memory: 256M
+          memory: 384M
     logging: *default-logging
     networks:
       - conditera-net
@@ -355,6 +355,7 @@ services:
       - N8N_PROTOCOL=http
       - N8N_USER_FOLDER=/home/node/.n8n
       - N8N_ENCRYPTION_KEY_FILE=/run/secrets/n8n_encryption_key
+      - NODE_OPTIONS=--max-old-space-size=1024
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - N8N_NODES_EXCLUDE=["n8n-nodes-base.code","n8n-nodes-base.executeCommand","n8n-nodes-base.readWriteFile","n8n-nodes-base.readBinaryFiles","n8n-nodes-base.ssh"]
       - N8N_COMMUNITY_PACKAGES_ENABLED=false
