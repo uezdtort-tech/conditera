@@ -115,11 +115,18 @@ jobs:
             if (version < 170000 || version >= 180000) throw new Error(`Expected PostgreSQL 17, got ${version}`);
             const migrations = Number((await db.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
             if (migrations < 81) throw new Error(`Expected at least 81 applied app migrations, got ${migrations}`);
-            const required = ["profiles","user_roles","products","orders","inventory_items","chat_channels","oauth_identity_links","user_consent_events"];
+            const required = ["profiles","user_roles","products","orders","inventory_items","chat_channels","oauth_identity_links","user_consent_events","moderation_queue"];
             for (const table of required) {
               const found = (await db.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${table}`])).rows[0].ok;
               if (!found) throw new Error(`Missing required table public.${table}`);
             }
+            const moderationColumns = new Set((await db.query(
+              "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue'"
+            )).rows.map(x => x.column_name));
+            for (const column of ["author_name","title","content","images","auto_score","violations"]) {
+              if (!moderationColumns.has(column)) throw new Error(`Missing moderation_queue.${column}`);
+            }
+
             const extensions = (await db.query("SELECT extname FROM pg_extension")).rows.map(x => x.extname);
             for (const ext of ["pgcrypto","uuid-ossp","pg_trgm","btree_gist"]) {
               if (!extensions.includes(ext)) throw new Error(`Missing required extension ${ext}; installed: ${extensions.join(", ")}`);
@@ -234,6 +241,30 @@ jobs:
         env:
           VERIFY_BASE: http://localhost:3000
           PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Проверить фактическую запись в очередь автоматической модерации
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import { Client } from "pg";
+          const log = fs.readFileSync("/tmp/conditera-pg17-next.log", "utf8");
+          if (log.includes("[moderation] queue insert failed")) {
+            throw new Error("Content moderation insert failed; inspect server log for schema mismatch");
+          }
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const result = await db.query(
+              "SELECT count(*)::int AS n FROM public.moderation_queue WHERE author_name IS NOT NULL AND title IS NOT NULL AND content IS NOT NULL"
+            );
+            if (result.rows[0].n < 1) throw new Error("No persisted moderation queue entry with author/title/content");
+            console.log(`PASS moderation queue persisted rows=${result.rows[0].n}`);
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
 
       - name: Полный набор Playwright на PostgreSQL 17
         run: bun run test:e2e -- --project=chromium
