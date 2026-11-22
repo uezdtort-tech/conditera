@@ -261,6 +261,45 @@ async function main() {
     typesList.join(",")
   );
 
+  if (process.env.VERIFY_BACKUP === "1") {
+    section("Production PostgreSQL backup");
+    const backup = await api("POST", "/api/maintenance/history", {
+      token: admin,
+      body: { action: "backup" },
+    });
+    assert(
+      "POST /api/maintenance/history backup → 200",
+      backup.status === 200,
+      `got ${backup.status} ${JSON.stringify(backup.json).slice(0, 240)}`
+    );
+    const backupResult = backup.json?.result;
+    assert(
+      "pg_dump archive is confirmed and non-empty",
+      backup.json?.success === true &&
+        backupResult?.success === true &&
+        Number(backupResult.backupSizeBytes) > 0 &&
+        typeof backupResult.backupPath === "string" &&
+        backupResult.backupPath.endsWith(".sql.gz"),
+      JSON.stringify(backupResult).slice(0, 240)
+    );
+    if (backup.json?.logId) {
+      const log = await client.query(
+        `SELECT status, backup_path, backup_size_bytes
+         FROM public.maintenance_logs WHERE id = $1`,
+        [backup.json.logId]
+      );
+      assert(
+        "maintenance log confirms the same successful archive",
+        log.rows[0]?.status === "success" &&
+          log.rows[0]?.backup_path === backupResult?.backupPath &&
+          Number(log.rows[0]?.backup_size_bytes) > 0,
+        JSON.stringify(log.rows[0] || null)
+      );
+    } else {
+      assert("backup maintenance log id returned", false);
+    }
+  }
+
   section("Итог");
   console.log(`\n  ИТОГО: PASS ${passed}  FAIL ${failed}`);
   if (failed > 0) {
