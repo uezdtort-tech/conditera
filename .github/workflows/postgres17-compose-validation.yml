@@ -60,6 +60,7 @@ jobs:
       PG_META_CRYPTO_KEY: 0123456789abcdef0123456789abcdef
       REALTIME_DB_ENC_KEY: 0123456789abcdef
       REALTIME_DB_ENC_KEY_GCM: 0123456789abcdef0123456789abcdef
+      N8N_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - name: Проверить доступность Docker Compose
@@ -67,7 +68,7 @@ jobs:
       - name: Проверить безопасный production overlay и deploy gate
         run: |
           set -Eeuo pipefail
-          trap 'rm -f .env.production .env.supabase-runtime' EXIT
+          trap 'rm -f .env.production .env.supabase-runtime .secrets/n8n_encryption_key; rmdir .secrets 2>/dev/null || true' EXIT
           make_test_jwt() {
             python3 - "$JWT_SECRET" "$1" <<'PY'
           import base64, hashlib, hmac, json, sys, time
@@ -128,12 +129,15 @@ jobs:
           cat > .env.supabase-runtime <<EOF
           APP_DATABASE_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           BACKUP_DATABASE_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
-          N8N_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY
           SUPABASE_SECRET_KEY_BASE=$SECRET_KEY_BASE
           PG_META_CRYPTO_KEY=$PG_META_CRYPTO_KEY
           REALTIME_DB_ENC_KEY=$REALTIME_DB_ENC_KEY
           REALTIME_DB_ENC_KEY_GCM=$REALTIME_DB_ENC_KEY_GCM
           EOF
+          mkdir -p .secrets
+          printf '%s\n' "$N8N_ENCRYPTION_KEY" > .secrets/n8n_encryption_key
+          chmod 644 .secrets/n8n_encryption_key
           bash -n scripts/deploy-single-container.sh
           bash -n scripts/prepare-production-env.sh
           tmpdir="$(mktemp -d)"
@@ -142,9 +146,9 @@ jobs:
           cp .env.production.example .env.supabase-runtime.example .gitignore "$tmpdir/"
           git -C "$tmpdir" init -q
           (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
-          first_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime")"
+          first_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime" "$tmpdir/.secrets/n8n_encryption_key")"
           (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
-          second_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime")"
+          second_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime" "$tmpdir/.secrets/n8n_encryption_key")"
           test "$first_hash" = "$second_hash"
           rm -rf "$tmpdir"
           bash scripts/deploy-single-container.sh --config
