@@ -24,7 +24,11 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   throw "Docker CLI не найден."
 }
 
-$root = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $OutputRoot))
+$root = if ([System.IO.Path]::IsPathRooted($OutputRoot)) {
+  [System.IO.Path]::GetFullPath($OutputRoot)
+} else {
+  [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $OutputRoot))
+}
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
 $outDir = Join-Path $root $stamp
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
