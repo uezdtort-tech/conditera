@@ -104,6 +104,24 @@ describe("personal account device-transfer protection", () => {
     expect(mocked.rpc).not.toHaveBeenCalled();
   });
 
+  it("does not trust missing IP or user-agent values as a known device", async () => {
+    mocked.previousSessions = [{
+      id: "existing-session",
+      ip_address: null,
+      user_agent: "Known browser",
+    }];
+
+    await expect(createUserSession(
+      "user-1",
+      new Request("https://conditera.test/api/auth/login", {
+        headers: { "user-agent": "Known browser" },
+      }),
+      "password",
+    )).rejects.toThrow(NEW_DEVICE_LOGIN_BLOCKED);
+
+    expect(mocked.inserts.some((x) => x.table === "user_sessions")).toBe(false);
+  });
+
   it("fails closed when active-session history cannot be read", async () => {
     mocked.historyError = { message: "database unavailable" };
 
