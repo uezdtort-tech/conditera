@@ -34,7 +34,7 @@ permissions:
 
 concurrency:
   group: pg17-business-scenarios-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   pg17-scenarios:
