@@ -77,7 +77,6 @@ app_generated = {
     "TELEGRAM_WEBHOOK_SECRET": random_hex(32),
     "IP_HASH_SALT": random_hex(32),
     "MEILI_MASTER_KEY": random_hex(32),
-    "N8N_ADMIN_PASSWORD": random_hex(32),
     "ENCRYPTOR_KEY": random_hex(32),
     "SECRET_KEY_BASE": random_hex(32),
     "SIMPLEX_BRIDGE_API_KEY": random_hex(32),
