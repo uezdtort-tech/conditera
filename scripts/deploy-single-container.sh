@@ -218,6 +218,17 @@ if len(n8n_ports) != 1 or n8n_ports[0].get("host_ip") != "127.0.0.1" or str(n8n_
 caddyfile = Path("Caddyfile").read_text()
 if "reverse_proxy n8n:5678" in caddyfile:
     raise SystemExit("n8n must not be reverse-proxied to the public internet")
+for route in (
+    "@supabase_auth path /api/auth/v1/*",
+    "@supabase_api path /api/rest/v1/* /api/realtime/v1/* /api/storage/v1/*",
+):
+    if route not in caddyfile:
+        raise SystemExit("Caddy is missing a required Supabase route: " + route)
+app_api = caddyfile.split("handle /api/*", 1)[-1].split("# WebSocket", 1)[0]
+if "reverse_proxy web:3000" not in app_api or "supabase-kong:8000" in app_api:
+    raise SystemExit("Application /api/* handlers must reach Next.js, not Supabase Kong")
+if "www.conditera.ru {\n        redir https://conditera.ru{uri} permanent" not in caddyfile:
+    raise SystemExit("www host must redirect to canonical https://conditera.ru")
 
 runtime = services["supabase-runtime"]
 if runtime.get("image") != "conditera/supabase-runtime:pg17":
