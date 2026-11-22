@@ -16,7 +16,7 @@ import { revokeUserSession } from "@/lib/session-registry";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const appToken = request.cookies.get(SESSION_COOKIE)?.value ||
-    request.headers.get("authorization")?.replace(/^Bearer\\s+/i, "");
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (appToken) {
     const payload = await verifyAccessToken(appToken);
     if (payload?.sid && payload.userId) {
