@@ -954,6 +954,13 @@ jobs:
           VERIFY_BASE: http://localhost:3000
           PGURL: ${{ env.DATABASE_URL }}
 
+      - name: Verify abandoned-cart persistence, retries and opt-out on PostgreSQL 17
+        run: node scripts/verify/abandoned-cart-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+
       - name: Verify checkout, idempotency, reviews and chat on PostgreSQL 17
         run: node scripts/verify/p11-hardening-verify.mjs
         env:
