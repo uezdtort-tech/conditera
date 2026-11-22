@@ -129,10 +129,10 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 1536M
+          memory: 1G
         reservations:
           cpus: '0.25'
-          memory: 384M
+          memory: 256M
     logging: *default-logging
     networks:
       - conditera-net
