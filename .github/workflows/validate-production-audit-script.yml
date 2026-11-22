@@ -84,6 +84,7 @@ jobs:
           CREATE TABLE IF NOT EXISTS public.orders (id uuid PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS public.inventory_items (id uuid PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS public.chat_channels (id uuid PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS public.moderation_queue (id uuid PRIMARY KEY, author_name text, title text, content text, images text[] NOT NULL DEFAULT '{}', auto_score numeric NOT NULL DEFAULT 0, violations text[] NOT NULL DEFAULT '{}');
           ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
           DROP POLICY IF EXISTS audit_read_only_fixture ON public.profiles;
           CREATE POLICY audit_read_only_fixture ON public.profiles USING (true);
