@@ -132,7 +132,7 @@ export function HomePage() {
           fetchPriority="high"
           sizes="100vw"
           quality={80}
-          className="object-cover -z-10"
+          className="object-cover -z-10 pointer-events-none"
         />
         {/* Затемнение для читаемости текста — мягче, чтобы фото дышало */}
         <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-background/55 to-background/20" />
@@ -612,7 +612,7 @@ export function HomePage() {
             fill
             sizes="100vw"
             quality={75}
-            className="object-cover -z-10"
+            className="object-cover -z-10 pointer-events-none"
           />
           <div className="absolute inset-0 bg-background/80" />
           <div className="container mx-auto px-4 relative">
@@ -644,7 +644,7 @@ export function HomePage() {
           fill
           sizes="100vw"
           quality={60}
-          className="object-cover -z-10"
+          className="object-cover -z-10 pointer-events-none"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
         <div className="container mx-auto px-4 relative">
@@ -929,7 +929,7 @@ export function HomePage() {
           fill
           sizes="100vw"
           quality={60}
-          className="object-cover -z-10"
+          className="object-cover -z-10 pointer-events-none"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
         <div className="container mx-auto px-4 relative">
