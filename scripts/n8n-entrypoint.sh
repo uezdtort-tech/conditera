@@ -89,7 +89,7 @@ NODE
 
   while IFS= read -r workflow_id; do
     [ -n "$workflow_id" ] || continue
-    n8n update:workflow --id="$workflow_id" --active=true
+    n8n publish:workflow --id="$workflow_id"
   done < "$current_ids"
 
   # If a workflow was removed or disabled in source control, deactivate its
@@ -98,7 +98,7 @@ NODE
     while IFS= read -r old_id; do
       [ -n "$old_id" ] || continue
       if ! grep -Fqx "$old_id" "$current_ids"; then
-        n8n update:workflow --id="$old_id" --active=false || \
+        n8n unpublish:workflow --id="$old_id" || \
           echo "[n8n-bootstrap] stale workflow $old_id is already absent; skipping"
       fi
     done < "$IDS_MARKER"
