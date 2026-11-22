@@ -191,18 +191,16 @@ missing = sorted(required - services.keys())
 if missing:
     raise SystemExit("Compose is missing required services: " + ", ".join(missing))
 
-def profiles(name):
-    return set(services[name].get("profiles", []))
-
-for name in ("db", "pgbouncer", "migrator"):
-    if "legacy-app-db" not in profiles(name):
-        raise SystemExit(f"{name} must be disabled by legacy-app-db profile")
-for name in ("supabase-db", "supabase-kong", "supabase-auth", "supabase-rest",
-             "supabase-realtime", "supabase-storage", "supabase-app-migrator",
-             "supabase-imgproxy", "supabase-meta", "supabase-studio",
-             "supabase-analytics", "supabase-vector"):
-    if "legacy-supabase" not in profiles(name):
-        raise SystemExit(f"{name} must be disabled by legacy-supabase profile")
+legacy_services = {
+    "db", "pgbouncer", "migrator",
+    "supabase-db", "supabase-kong", "supabase-auth", "supabase-rest",
+    "supabase-realtime", "supabase-storage", "supabase-app-migrator",
+    "supabase-imgproxy", "supabase-meta", "supabase-studio",
+    "supabase-analytics", "supabase-vector",
+}
+enabled_legacy = sorted(legacy_services.intersection(services))
+if enabled_legacy:
+    raise SystemExit("Legacy split database/Supabase services must not be active: " + ", ".join(enabled_legacy))
 
 for name in ("web", "meilisearch"):
     if services[name].get("ports"):
