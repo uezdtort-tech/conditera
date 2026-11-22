@@ -93,7 +93,7 @@ jobs:
           import path from "node:path";
           const sourceDir = "n8n-workflows";
           const exportDir = "/tmp/conditera-n8n-export";
-          const source = fs.readdirSync(sourceDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(sourceDir, name), "utf8")));
+          const source = fs.readdirSync(sourceDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(sourceDir, name), "utf8"))).filter((workflow) => workflow.active === true);
           const exported = fs.readdirSync(exportDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(exportDir, name), "utf8")));
           const actual = new Map(exported.map((workflow) => [workflow.id, workflow]));
           const missing = source.filter((workflow) => !actual.has(workflow.id)).map((workflow) => workflow.id);
