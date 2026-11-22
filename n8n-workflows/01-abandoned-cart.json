@@ -116,7 +116,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"ABANDONED_CART\",\n  \"vars\": {\n    \"itemsCount\": {{ $json.itemsCount }},\n    \"total\": {{ $json.total }}\n  },\n  \"data\": { \"cartId\": \"{{ $json.id }}\", \"type\": \"abandoned_cart\" }\n}",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"ABANDONED_CART\",\n  \"vars\": {\n    \"itemsCount\": {{ $json.itemsCount }},\n    \"total\": {{ $json.total }}\n  },\n  \"data\": { \"cartId\": \"{{ $json.id }}\", \"type\": \"abandoned_cart\" },\n  \"dedupKey\": \"abandoned-cart:{{ $json.id }}\"\n}",
         "options": {}
       },
       "id": "send-notification",
