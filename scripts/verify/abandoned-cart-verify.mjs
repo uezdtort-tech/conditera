@@ -13,6 +13,7 @@ let oldLegacyPreference = null;
 let legacyPreferenceExisted = false;
 const cartItemIds = [];
 const logIds = new Set();
+const testStartedAt = new Date();
 
 function assert(name, condition, detail = "") {
   if (condition) console.log(`  PASS ${name}`);
@@ -220,6 +221,10 @@ try {
     if (logIds.size) {
       await db.query("DELETE FROM public.abandoned_cart_logs WHERE id = ANY($1::uuid[])", [[...logIds]]).catch(() => {});
     }
+    await db.query(
+      "DELETE FROM public.abandoned_cart_logs WHERE user_id = $1::uuid AND created_at >= $2::timestamptz",
+      [userId, testStartedAt.toISOString()],
+    ).catch(() => {});
     await db.query("UPDATE public.profiles SET notify_prefs = $2::jsonb WHERE id = $1::uuid", [userId, oldNotifyPrefs]).catch(() => {});
     if (legacyPreferenceExisted) {
       await db.query("UPDATE public.notification_preferences SET abandoned_cart = $2 WHERE user_id = $1::uuid", [userId, oldLegacyPreference]).catch(() => {});
