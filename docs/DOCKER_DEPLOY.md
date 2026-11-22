@@ -1,6 +1,12 @@
-# 🐳 Docker Compose — запуск production-стека
+# 🐳 Docker Compose — историческая инструкция
 
-> Пошаговая инструкция по деплою «Уездного кондитера» через Docker Compose.
+> **УСТАРЕЛО. Не использовать для текущего production.** Документ описывает прежнюю split-DB/VPS схему и не соответствует целевому PostgreSQL 17 single-container runtime.
+>
+> Актуальный путь на локальном Windows ПК (WSL2 + Docker Desktop):
+> 1. `bash scripts/prepare-production-env.sh`
+> 2. Заполнить реальные credentials провайдеров.
+> 3. `bash scripts/deploy-single-container.sh --config`
+> 4. После успешной проверки `bash scripts/deploy-single-container.sh --up`
 
 ---
 
