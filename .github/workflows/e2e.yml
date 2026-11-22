@@ -17,6 +17,10 @@
 
 name: E2E Tests
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 on:
   schedule:
     # Nightly в 03:00 UTC — полный smoke для всех браузеров
