@@ -199,15 +199,17 @@ health_check() {
   fi
 
   docker exec conditera-web node -e '
-    const urls = [
-      "http://127.0.0.1:3000/api/health",
-      "http://supabase-runtime:8000/auth/v1/health"
-    ];
-    for (const url of urls) {
-      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!response.ok) throw new Error(url + " returned HTTP " + response.status);
-      console.log("HTTP " + response.status + " " + url);
-    }
+    (async () => {
+      const urls = [
+        "http://127.0.0.1:3000/api/health",
+        "http://supabase-runtime:8000/auth/v1/health"
+      ];
+      for (const url of urls) {
+        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!response.ok) throw new Error(url + " returned HTTP " + response.status);
+        console.log("HTTP " + response.status + " " + url);
+      }
+    })().catch((error) => { console.error(error); process.exit(1); });
   '
 }
 
