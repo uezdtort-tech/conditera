@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/cron/abandoned-cart",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -100,7 +99,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/notifications/send",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -132,7 +130,6 @@
       "parameters": {
         "method": "PATCH",
         "url": "={{ $env.APP_URL }}/api/cron/abandoned-cart",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
