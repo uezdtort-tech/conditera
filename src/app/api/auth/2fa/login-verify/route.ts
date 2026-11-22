@@ -285,6 +285,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Cookie-сессия — единый контракт с /api/auth/login
     return setSessionCookies(verifyResponse, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json(
+        { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
+        { status: 403 }
+      );
+    }
+    if (error?.message === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json(
+        { error: "Не удалось безопасно проверить активные устройства. Повторите попытку позже." },
+        { status: 503 }
+      );
+    }
     console.error("POST /api/auth/2fa/login-verify error:", error?.message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
