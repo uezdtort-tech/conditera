@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 const ABANDONED_HOURS = 2;
 const RECENT_ORDER_HOURS = 24;
-const REMINDER_CHANNELS = new Set(["email", "push", "telegram"]);
+const REMINDER_CHANNELS = new Set(["email", "push", "telegram", "in_app"]);
 
 interface AbandonedCartInfo {
   id: string;
