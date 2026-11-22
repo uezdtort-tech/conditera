@@ -196,6 +196,32 @@ test.describe("SEO", () => {
     const body = await response.text();
     expect(body).toContain("xml");
   });
+
+  test("sitemap contains only canonical public routes, not demo/query records", async ({ request }) => {
+    const response = await request.get(`${BASE_URL}/sitemap.xml`);
+    expect(response.ok()).toBeTruthy();
+    const body = await response.text();
+    expect(body).toContain("/catalog");
+    expect(body).toContain("/confectioners");
+    expect(body).not.toContain("/recipes?id=");
+    expect(body).not.toContain("?category=");
+    expect(body).not.toContain("/dashboard");
+    expect(body).not.toContain("/checkout");
+  });
+
+  test("catalog has a server-rendered canonical URL and page-specific title", async ({ page }) => {
+    await page.goto(`${BASE_URL}/catalog`);
+    await expect(page).toHaveTitle(/Каталог.*Уездный кондитер/i);
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/catalog$/);
+  });
+
+  test("private login and checkout routes are marked noindex", async ({ page }) => {
+    for (const route of ["/login", "/checkout"]) {
+      await page.goto(`${BASE_URL}${route}`);
+      const robots = page.locator('meta[name="robots"]');
+      await expect(robots).toHaveAttribute("content", /noindex/);
+    }
+  });
 });
 
 // ===== Группа: Mobile responsive =====
