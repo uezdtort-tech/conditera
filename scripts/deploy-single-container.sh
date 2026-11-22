@@ -176,6 +176,12 @@ for key, expected in (("APP_DATABASE_PASSWORD", 64), ("BACKUP_DATABASE_PASSWORD"
     if value and (len(value) != expected or not re.fullmatch(r"[0-9a-fA-F]+", value)):
         errors.append(f".env.supabase-runtime: {key} must be {expected} hexadecimal characters")
 
+n8n_key_file = Path(".secrets/n8n_encryption_key")
+if not n8n_key_file.is_file():
+    errors.append(".secrets/n8n_encryption_key is missing; run scripts/prepare-production-env.sh")
+elif n8n_key_file.read_text(encoding="utf-8").strip() != runtime.get("N8N_ENCRYPTION_KEY", ""):
+    errors.append(".secrets/n8n_encryption_key does not match N8N_ENCRYPTION_KEY in .env.supabase-runtime")
+
 if app.get("NEXT_PUBLIC_APP_URL", "").rstrip("/") != "https://conditera.ru":
     errors.append("NEXT_PUBLIC_APP_URL must be https://conditera.ru for production")
 if app.get("SMTP_TLS_REJECT_UNAUTHORIZED", "true").lower() not in ("true", "1", "yes"):
