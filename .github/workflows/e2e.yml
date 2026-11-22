@@ -152,8 +152,8 @@ jobs:
       - name: Verify n8n retention workflow contracts
         run: bun scripts/verify/n8n-workflows-verify.mjs
 
-      - name: Run acceptance and production-time unit tests
-        run: bunx vitest run src/lib/ops/risk.test.ts
+      - name: Run the complete Vitest unit and integration-test suite
+        run: bun run test
 
       - name: Cache Next.js build
         uses: actions/cache@v6
