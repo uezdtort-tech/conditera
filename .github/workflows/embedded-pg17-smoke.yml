@@ -19,6 +19,10 @@ on:
       - ".github/workflows/embedded-pg17-smoke.yml"
   workflow_dispatch:
 
+concurrency:
+  group: embedded-pg17-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
