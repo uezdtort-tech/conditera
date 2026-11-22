@@ -1,4 +1,6 @@
-# 🔑 GitHub Secrets — настройка
+# 🔑 GitHub Secrets — legacy remote CI/CD
+
+> **Не использовать для текущего production на локальном Windows ПК.** Секреты production должны оставаться в gitignored `.env.production` и `.env.supabase-runtime`; актуальная настройка выполняется через `scripts/prepare-production-env.sh`. Этот документ относится только к старому удалённому VPS workflow.
 
 > Инструкция по добавлению секретов в GitHub репозиторий для CI/CD.
 
