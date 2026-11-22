@@ -1,21 +1,21 @@
 # ===== Docker Compose для dev-режима =====
 # Запуск: docker-compose -f docker-compose.dev.yml up -d
 #
-# Включает: PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n
+# Включает: PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n
 # Next.js запускается отдельно через `npm run dev:local`
 
 version: "3.8"
 
 services:
-  # ===== PostgreSQL 18 (dev) =====
-  # ВАЖНО: postgres:18-alpine — актуальный major release.
-  # Старый volume uyezdny-db-dev-data мог содержать данные от PG16/17 —
+  # ===== PostgreSQL 17 (dev) =====
+  # Целевая версия локальной Docker-БД — PostgreSQL 17.
+  # Новый volume PG17 создаётся отдельно; старый PG18 volume не подключается —
   # если контейнер падает с ошибкой "PG_VERSION mismatch", удалите volume:
   #   docker-compose -f docker-compose.dev.yml down
   #   docker volume rm uyezdny_uyezdny-db-dev-data
   #   docker-compose -f docker-compose.dev.yml up -d
   db-dev:
-    image: postgres:18-alpine
+    image: postgres:17-alpine
     container_name: uyezdny-db-dev
     ports:
       - "5433:5432"
@@ -24,7 +24,7 @@ services:
       POSTGRES_PASSWORD: uyezdny_dev_pass
       POSTGRES_DB: uyezdny_konditer_dev
     volumes:
-      - uyezdny-db-dev-data-v18:/var/lib/postgresql/data
+      - uyezdny-db-dev-data-v17:/var/lib/postgresql/data
       # Mount migrations & seeds so init script can apply them.
       # NOTE: files in /docker-entrypoint-initdb.d/ run only on FIRST init
       # (when data volume is empty). For re-runs use ./scripts/init-db.sh.
@@ -111,6 +111,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  uyezdny-db-dev-data-v18:
+  uyezdny-db-dev-data-v17:
   uyezdny-meili-dev-data:
   uyezdny-n8n-dev-data:
