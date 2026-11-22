@@ -113,7 +113,7 @@ function queueNewCustomer() {
   mocks.state.setSessionRefreshJti.mockResolvedValue(undefined);
   mocks.state.createAccessToken.mockResolvedValue("app-access-token");
   mocks.state.createRefreshToken.mockResolvedValue("app-refresh-token");
-  mocks.state.setSessionCookies.mockImplementation((response: NextResponse) => response);
+  mocks.state.setSessionCookies.mockImplementation((response: any) => response);
 }
 
 function callbackRequest(
