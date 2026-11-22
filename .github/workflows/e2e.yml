@@ -446,7 +446,7 @@ jobs:
           BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --set=backup_password="$BACKUP_DATABASE_PASSWORD" <<'SQL'
           SELECT 'CREATE ROLE conditera_backup LOGIN'
-          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \\gexec
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \gexec
           ALTER ROLE conditera_backup WITH LOGIN PASSWORD :'backup_password'
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS;
           GRANT CONNECT ON DATABASE conditera TO conditera_backup;
