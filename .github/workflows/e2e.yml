@@ -205,8 +205,6 @@ jobs:
           --health-timeout 5s
           --health-retries 10
           --health-start-period 30s
-    env:
-      DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
     strategy:
       fail-fast: false
       matrix:
@@ -247,13 +245,13 @@ jobs:
           }
           NODE
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
+          DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
 
       - name: Start PostgreSQL 17, apply migrations and seed E2E data
         run: bun run db:setup
         env:
           SEED_MODE: demo
-          DATABASE_URL: ${{ env.DATABASE_URL }}
+          DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
