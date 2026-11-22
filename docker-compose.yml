@@ -354,7 +354,8 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - N8N_USER_FOLDER=/home/node/.n8n
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY required}
+      - N8N_ENCRYPTION_KEY_FILE=/run/secrets/n8n_encryption_key
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - N8N_LOG_LEVEL=info
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_PERSONALIZATION_ENABLED=false
@@ -364,11 +365,12 @@ services:
       - GENERIC_TIMEZONE=Europe/Moscow
       - APP_URL=http://web:3000
       - CRON_SECRET=${CRON_SECRET:?CRON_SECRET required}
-      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:?N8N_WEBHOOK_SECRET required}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n-workflows:/imports:ro
       - ./scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro
+    secrets:
+      - n8n_encryption_key
     depends_on:
       web:
         condition: service_healthy
@@ -565,6 +567,10 @@ volumes:
   meili_data:
   mailu_data:
   mailu_mail:
+
+secrets:
+  n8n_encryption_key:
+    file: ./.secrets/n8n_encryption_key
 
 networks:
   conditera-net:
