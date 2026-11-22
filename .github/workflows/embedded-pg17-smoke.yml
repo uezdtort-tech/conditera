@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: embedded-pg17-smoke-${{ github.ref }}
+  group: embedded-pg17-smoke-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
