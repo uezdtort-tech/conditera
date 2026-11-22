@@ -565,7 +565,7 @@ jobs:
     env:
       NODE_VERSION: "20"
       DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:54323/conditera
-      BACKUP_DATABASE_PASSWORD: e2e_backup_password_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      BACKUP_DATABASE_PASSWORD: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
       JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
       TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
