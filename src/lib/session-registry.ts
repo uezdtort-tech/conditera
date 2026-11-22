@@ -331,12 +331,20 @@ export async function setSessionRefreshJti(
     .select("id")
     .maybeSingle();
   if (error || !data) {
-    console.error("[session-registry] initial refresh jti write failed:", error?.message);
+    console.error("[session-registry] initial refresh jti write failed:", error?.message ?? "session is no longer active");
     await supabaseAdmin.from("user_sessions")
       .update({ revoked_at: new Date().toISOString(), revoked_reason: "refresh_jti_init_failed" })
       .eq("id", sessionId)
       .eq("user_id", userId)
       .is("revoked_at", null);
+
+    // A concurrent login on the same known device may revoke this session
+    // after createUserSession() succeeds but before the refresh JTI is stored.
+    // No row and no database error means this request lost that race; return
+    // the same conflict contract as the RPC's -1 result, never an HTTP 500.
+    if (!error && !data) {
+      throw new Error("ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN");
+    }
     throw new Error("Не удалось инициализировать refresh-сессию");
   }
 }
