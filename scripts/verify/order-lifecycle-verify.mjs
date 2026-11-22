@@ -1031,8 +1031,11 @@ async function main() {
     disputeReply.status === 201 && disputeReply.json?.status === "under_review",
     JSON.stringify(disputeReply.json));
   const disputeAfterReply = await api("GET", `/api/orders/${pickup.orderId}/disputes`, { token: customer });
-  assert("сообщение покупателя сохраняется в истории спора",
-    disputeAfterReply.status === 200 && disputeAfterReply.json?.dispute?.messages?.length === 1);
+  assert("переписка сохраняет запрос поддержки и ответ покупателя",
+    disputeAfterReply.status === 200 &&
+    disputeAfterReply.json?.dispute?.messages?.length === 2 &&
+    disputeAfterReply.json.dispute.messages[0]?.message.includes("Нужны дополнительные сведения") &&
+    disputeAfterReply.json.dispute.messages[1]?.message.includes("Прикладываю дополнительные сведения"));
   let disputeMessageMutationState = "";
   try {
     await client.query(
