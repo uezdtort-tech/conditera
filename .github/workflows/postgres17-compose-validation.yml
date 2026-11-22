@@ -93,11 +93,16 @@ jobs:
           SMTP_HOST=localhost
           SMTP_PORT=587
           SMTP_FROM=noreply@conditera.ru
+          SMTP_USER=ci-smtp-user
+          SMTP_PASSWORD=ci-smtp-password
+          SMTP_TLS_REJECT_UNAUTHORIZED=true
           YOOKASSA_SHOP_ID=ci-shop-id
           YOOKASSA_SECRET_KEY=live_ci_yookassa_secret
           YANDEX_CLIENT_ID=ci-yandex-client
           YANDEX_CLIENT_SECRET=ci-yandex-secret
+          YANDEX_OAUTH_REDIRECT=https://conditera.ru/api/auth/oauth/yandex/callback
           VK_CLIENT_ID=ci-vk-client
+          VK_OAUTH_REDIRECT=https://conditera.ru/api/auth/oauth/vk/callback
           TELEGRAM_BOT_TOKEN=123456:ci-telegram-token
           TELEGRAM_CHANNEL_ID=@conditera-ci
           TELEGRAM_WEBHOOK_SECRET=ci-telegram-webhook-secret
