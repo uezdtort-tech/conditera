@@ -333,8 +333,9 @@ async function main() {
     "src/app/api/auth/oauth/[provider]/callback/route.test.ts",
     "src/app/api/payment/webhook/route.test.ts",
     "src/lib/yookassa.test.ts",
+    "src/lib/session-registry-device-policy.test.ts",
   ], { stdio: "inherit" });
-  assert("контрактные тесты OAuth Yandex/VK проходят",
+  assert("контрактные тесты OAuth, YooKassa и защиты сессий проходят",
     oauthTests.status === 0 && !oauthTests.error,
     oauthTests.error?.message || `exit=${oauthTests.status}`);
 
