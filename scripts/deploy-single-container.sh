@@ -79,7 +79,7 @@ runtime = read_env(sys.argv[2])
 required_app = [
     "POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "TFA_ENCRYPTION_KEY",
     "CRON_SECRET", "BOT_SECRET", "IP_HASH_SALT", "MEILI_MASTER_KEY",
-    "N8N_ADMIN_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM",
+    "N8N_ADMIN_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD",
     "YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET", "VK_CLIENT_ID",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL_ID", "TELEGRAM_WEBHOOK_SECRET",
@@ -149,6 +149,12 @@ for key, expected in (("SUPABASE_SECRET_KEY_BASE", 64), ("PG_META_CRYPTO_KEY", 3
 
 if app.get("NEXT_PUBLIC_APP_URL", "").rstrip("/") != "https://conditera.ru":
     errors.append("NEXT_PUBLIC_APP_URL must be https://conditera.ru for production")
+if app.get("SMTP_TLS_REJECT_UNAUTHORIZED", "true").lower() not in ("true", "1", "yes"):
+    errors.append("SMTP_TLS_REJECT_UNAUTHORIZED must remain enabled in production")
+for key, expected in (("YANDEX_OAUTH_REDIRECT", "https://conditera.ru/api/auth/oauth/yandex/callback"),
+                      ("VK_OAUTH_REDIRECT", "https://conditera.ru/api/auth/oauth/vk/callback")):
+    if app.get(key, "").rstrip("/") != expected:
+        errors.append(f".env.production: {key} must be {expected}")
 if app.get("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/") != "https://conditera.ru/api":
     errors.append("NEXT_PUBLIC_SUPABASE_URL must be https://conditera.ru/api")
 if not app.get("YOOKASSA_SECRET_KEY", "").startswith("live_"):
