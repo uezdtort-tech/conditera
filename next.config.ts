@@ -71,7 +71,7 @@ const nextConfig: NextConfig = {
       "default-src 'self'",
       // Next.js требует 'unsafe-inline' для стилей в dev; в prod — nonce-based (см. ниже)
       // Для скриптов: только 'self' + whitelist внешних доменов
-      `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://yookassa.ru https://*.yoomoney.ru`,
+      `script-src 'self' 'unsafe-inline' ${IS_PROD ? "" : "'unsafe-eval'"} https://yookassa.ru https://*.yoomoney.ru https://mc.yandex.ru https://mc.yandex.com`,
       // Стили — только self + inline (Next.js инлайнит критичные стили)
       `style-src 'self' 'unsafe-inline'`,
       // Шрифты — только локальные (self-hosted через next/font)
@@ -82,18 +82,16 @@ const nextConfig: NextConfig = {
       `media-src 'self' data: blob:`,
       // WebSocket (Socket.IO чат) + fetch к API
       // localhost:8000 — self-hosted Supabase (GoTrue/Storage через mini-kong) для браузерных signInWithPassword/Storage-upload
-      `connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https: wss: ws:`,
+      `connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https: wss: ws: https://mc.yandex.ru https://mc.yandex.com https://api-metrika.yandex.net`,
       // iframe — только свои + preview-платформа
       `frame-src 'self' https://www.google.com`,
-      `frame-ancestors 'self' https://*.space-z.ai https://space-z.ai http://localhost:*`,
+      `frame-ancestors 'self' ${IS_PROD ? "" : "https://*.space-z.ai https://space-z.ai http://localhost:*"}`,
       // Запрещаем<object>, <embed> (Flash и т.п.)
       `object-src 'none'`,
       // base-uri — только свой домен (защита от base-tag injection)
       `base-uri 'self'`,
       // form-action — ограничиваем отправку форм
       `form-action 'self' https://yookassa.ru https://*.yoomoney.ru`,
-      // Запрещаем preflight для beacon API
-      `navigate-to 'self'`,
       // Upgrade insecure requests (HTTP → HTTPS)
       `upgrade-insecure-requests`,
     ].join("; ");
@@ -104,7 +102,8 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           // SAMEORIGIN разрешает встраивание в iframe (нужно для preview-платформы)
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // CSP frame-ancestors is authoritative; allow preview iframe only in development.
+          ...(IS_PROD ? [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] : []),
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           // Permissions-Policy — отключаем всё лишнее
           {
