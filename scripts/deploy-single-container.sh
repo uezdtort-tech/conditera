@@ -231,6 +231,10 @@ fi
 command -v docker >/dev/null 2>&1 || { echo "ОШИБКА: Docker CLI не найден." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "ОШИБКА: Docker Desktop/daemon не запущен." >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "ОШИБКА: требуется Python 3 для проверки конфигурации." >&2; exit 1; }
+if [[ "$MODE" == "--health" ]]; then
+  health_check
+  exit $?
+fi
 validate_env
 validate_compose
 
@@ -238,6 +242,11 @@ if [[ "$MODE" == "--config" ]]; then
   echo "Конфигурация проверена. Контейнеры и volumes не изменялись."
   exit 0
 fi
+
+echo "Остановка только legacy-контейнеров БД/Supabase без удаления их volumes..."
+compose stop db pgbouncer migrator supabase-db supabase-kong supabase-auth supabase-rest \
+  supabase-realtime supabase-storage supabase-app-migrator supabase-imgproxy \
+  supabase-meta supabase-studio supabase-analytics supabase-vector || true
 
 echo "Сборка и запуск единого Supabase runtime (PostgreSQL 17) и приложения..."
 compose up -d --build supabase-runtime redis meilisearch web chat-service n8n caddy
