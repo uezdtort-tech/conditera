@@ -73,6 +73,7 @@ services:
       # Certificate validation must fail closed in production.
       - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
       - BACKUP_DIR=/app/backups
+      - BACKUP_DATABASE_URL=postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD:?BACKUP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase
       - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
       - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
       - NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME:-Кондитера}
