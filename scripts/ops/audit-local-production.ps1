@@ -76,7 +76,8 @@ SELECT jsonb_build_object(
     'public.products', to_regclass('public.products') IS NOT NULL,
     'public.orders', to_regclass('public.orders') IS NOT NULL,
     'public.inventory_items', to_regclass('public.inventory_items') IS NOT NULL,
-    'public.chat_channels', to_regclass('public.chat_channels') IS NOT NULL
+    'public.chat_channels', to_regclass('public.chat_channels') IS NOT NULL,
+    'public.moderation_queue', to_regclass('public.moderation_queue') IS NOT NULL
   ),
   'requiredRoles', jsonb_build_object(
     'supabase_admin', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_admin'),
