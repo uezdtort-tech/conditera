@@ -692,6 +692,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           docker rm -f conditera-web-pg17-ci >/dev/null 2>&1 || true
+          mkdir -p "$GITHUB_WORKSPACE/storage"
+          chmod 0777 "$GITHUB_WORKSPACE/storage"
           docker run -d --name conditera-web-pg17-ci --network host \
             -e NODE_ENV=production \
             -e PORT=3000 \
@@ -699,6 +701,7 @@ jobs:
             -e DATABASE_URL="$DATABASE_URL" \
             -e BACKUP_DATABASE_URL="postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
             -e BACKUP_DIR=/app/backups \
+            -e PRODUCT_MEDIA_ROOT=/app/storage \
             -e NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
             -e NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
             -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
@@ -719,6 +722,7 @@ jobs:
             -e GOOGLE_OAUTH_REDIRECT="$GOOGLE_OAUTH_REDIRECT" \
             -e NEXT_PUBLIC_YANDEX_METRIKA_ID=111432662 \
             -e CI=true \
+            -v "$GITHUB_WORKSPACE/storage:/app/storage" \
             conditera-web:pg17-ci
           READY=0
           for i in {1..45}; do
