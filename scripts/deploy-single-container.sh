@@ -42,13 +42,17 @@ compose() {
 require_files() {
   for file in "$ENV_FILE" "$RUNTIME_ENV_FILE"; do
     if [[ ! -f "$file" ]]; then
-      echo "ОШИБКА: отсутствует $file. Создайте его из соответствующего .example и заполните реальные значения." >&2
+      echo "ОШИБКА: отсутствует $file. Выполните bash scripts/prepare-production-env.sh и заполните реальные значения." >&2
       exit 1
     fi
   done
   for file in docker-compose.yml docker-compose.supabase.yml docker-compose.supabase-single-container.yml Dockerfile.supabase-runtime-poc Caddyfile; do
     [[ -f "$file" ]] || { echo "ОШИБКА: отсутствует обязательный файл $file" >&2; exit 1; }
   done
+  command -v git >/dev/null 2>&1 || { echo "ОШИБКА: требуется Git для проверки защиты env-файлов." >&2; exit 1; }
+  git check-ignore -q "$ENV_FILE" || { echo "ОШИБКА: $ENV_FILE не защищён .gitignore." >&2; exit 1; }
+  git check-ignore -q "$RUNTIME_ENV_FILE" || { echo "ОШИБКА: $RUNTIME_ENV_FILE не защищён .gitignore." >&2; exit 1; }
+  chmod 600 "$ENV_FILE" "$RUNTIME_ENV_FILE"
 }
 
 validate_env() {
