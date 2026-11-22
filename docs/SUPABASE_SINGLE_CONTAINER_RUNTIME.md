@@ -53,7 +53,11 @@ Runtime использует отдельные именованные volumes:
 
 **Владелец подтвердил, что обе прежние БД пустые и пользовательских данных нет. Перенос/слияние не выполняется.** На production создаётся новый `supabase_runtime_pg17_data`, инициализируемый PostgreSQL 17 с нуля. Не подключать к нему PGDATA от PostgreSQL 15/18: major-версии несовместимы. Текущий CI проверяет чистые disposable volumes, применение миграций и полные бизнес-сценарии на PostgreSQL 17.
 
-Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. После этого создаёт отдельную роль `conditera_app` (не superuser, но с `BYPASSRLS` и CRUD/EXECUTE на `public`) для доверенного серверного Next.js-контейнера. Её пароль не передаётся chat-service/n8n: он берётся из отдельного `.env.supabase-runtime` и попадает в `web` только внутри `DATABASE_URL`/`DIRECT_DATABASE_URL`. Серверные Supabase-клиенты используют внутренний `SUPABASE_INTERNAL_URL=http://supabase-kong:8000`.
+Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. После этого создаёт две отдельные роли:
+- `conditera_app` — не superuser, но с `BYPASSRLS` и CRUD/EXECUTE на `public`, для доверенного серверного Next.js-контейнера. Её пароль берётся из отдельного `.env.supabase-runtime` и попадает в `web` только внутри `DATABASE_URL`/`DIRECT_DATABASE_URL`.
+- `conditera_backup` — не superuser, без прав записи, с `BYPASSRLS` и членством в `pg_read_all_data`. Она используется только `pg_dump`; её пароль передаётся приложению через `BACKUP_DATABASE_URL`, а не через основной app DB URL. Так резервное копирование может читать защищённые схемы Supabase, не раскрывая Next.js пароль суперпользователя PostgreSQL.
+
+Оба пароля находятся в отдельном `.env.supabase-runtime` и не передаются chat-service/n8n. Серверные Supabase-клиенты используют внутренний `SUPABASE_INTERNAL_URL=http://supabase-kong:8000`.
 
 На новой пустой БД runtime создаёт ledger и применяет полный набор прикладных миграций. Повторный запуск `db:setup` проверяется в PG17 E2E job; production seeds выключены.
 
