@@ -19,7 +19,7 @@ if [ "${DB_TYPE:-sqlite}" = "sqlite" ] && [ ! -s "$USER_DIR/database.sqlite" ]; 
   ready=0
   attempt=0
   while [ "$attempt" -lt 90 ]; do
-    if wget -q -O /dev/null "http://127.0.0.1:$PORT/healthz"; then
+    if wget -q -O /dev/null "http://127.0.0.1:$PORT/healthz/readiness"; then
       ready=1
       break
     fi
