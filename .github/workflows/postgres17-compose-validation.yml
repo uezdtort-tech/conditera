@@ -91,7 +91,6 @@ jobs:
           BOT_SECRET=ci-bot-secret-for-compose-validation
           IP_HASH_SALT=ci-ip-hash-salt
           MEILI_MASTER_KEY=ci-meili-master-key-32-characters-long
-          N8N_ADMIN_PASSWORD=ci-n8n-admin-password-long-enough-for-production-config-check
           SMTP_HOST=localhost
           SMTP_PORT=587
           SMTP_FROM=noreply@conditera.ru
