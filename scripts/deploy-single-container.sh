@@ -84,7 +84,7 @@ runtime = read_env(sys.argv[2])
 required_app = [
     "POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "TFA_ENCRYPTION_KEY",
     "CRON_SECRET", "BOT_SECRET", "IP_HASH_SALT", "MEILI_MASTER_KEY",
-    "N8N_WEBHOOK_SECRET", "N8N_ENCRYPTION_KEY",
+    "N8N_WEBHOOK_SECRET",
     "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD",
     "YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET", "YANDEX_OAUTH_REDIRECT",
@@ -95,7 +95,7 @@ required_app = [
     "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
 ]
 required_runtime = [
-    "APP_DATABASE_PASSWORD", "BACKUP_DATABASE_PASSWORD", "SUPABASE_SECRET_KEY_BASE", "PG_META_CRYPTO_KEY",
+    "APP_DATABASE_PASSWORD", "BACKUP_DATABASE_PASSWORD", "N8N_ENCRYPTION_KEY", "SUPABASE_SECRET_KEY_BASE", "PG_META_CRYPTO_KEY",
     "REALTIME_DB_ENC_KEY", "REALTIME_DB_ENC_KEY_GCM",
 ]
 errors = []
@@ -118,9 +118,6 @@ for key in ("POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "CRON_SECRE
     if value and len(value) < 32:
         errors.append(f".env.production: {key} must contain at least 32 characters")
 
-n8n_encryption_key = app.get("N8N_ENCRYPTION_KEY", "")
-if n8n_encryption_key and (len(n8n_encryption_key) != 64 or not re.fullmatch(r"[0-9a-fA-F]{64}", n8n_encryption_key)):
-    errors.append("N8N_ENCRYPTION_KEY must be 64 hexadecimal characters")
 if app.get("JWT_SECRET") == app.get("JWT_REFRESH_SECRET"):
     errors.append("JWT_REFRESH_SECRET must be different from JWT_SECRET")
 tfa_key = app.get("TFA_ENCRYPTION_KEY", "")
@@ -173,7 +170,7 @@ for key, expected_length in (("VAPID_PUBLIC_KEY", 65), ("VAPID_PRIVATE_KEY", 32)
             errors.append(f".env.production: {key} is not a valid Web Push key ({error})")
 
 for key, expected in (("APP_DATABASE_PASSWORD", 64), ("BACKUP_DATABASE_PASSWORD", 64),
-                      ("SUPABASE_SECRET_KEY_BASE", 64), ("PG_META_CRYPTO_KEY", 32),
+                      ("N8N_ENCRYPTION_KEY", 64), ("SUPABASE_SECRET_KEY_BASE", 64), ("PG_META_CRYPTO_KEY", 32),
                       ("REALTIME_DB_ENC_KEY", 16), ("REALTIME_DB_ENC_KEY_GCM", 32)):
     value = runtime.get(key, "")
     if value and (len(value) != expected or not re.fullmatch(r"[0-9a-fA-F]+", value)):
