@@ -12,6 +12,7 @@ on:
       - "Dockerfile"
       - "Dockerfile.supabase-runtime-poc"
       - "scripts/deploy-single-container.sh"
+      - "scripts/prepare-production-env.sh"
       - ".env.production.example"
       - ".env.supabase-runtime.example"
       - "docker-compose.pg17-migration.yml"
@@ -30,6 +31,7 @@ on:
       - "Dockerfile"
       - "Dockerfile.supabase-runtime-poc"
       - "scripts/deploy-single-container.sh"
+      - "scripts/prepare-production-env.sh"
       - ".env.production.example"
       - ".env.supabase-runtime.example"
       - "docker-compose.pg17-migration.yml"
@@ -126,6 +128,17 @@ jobs:
           REALTIME_DB_ENC_KEY_GCM=$REALTIME_DB_ENC_KEY_GCM
           EOF
           bash -n scripts/deploy-single-container.sh
+          bash -n scripts/prepare-production-env.sh
+          tmpdir="$(mktemp -d)"
+          mkdir -p "$tmpdir/scripts"
+          cp scripts/prepare-production-env.sh "$tmpdir/scripts/"
+          cp .env.production.example .env.supabase-runtime.example "$tmpdir/"
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          first_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime")"
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          second_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime")"
+          test "$first_hash" = "$second_hash"
+          rm -rf "$tmpdir"
           bash scripts/deploy-single-container.sh --config
           docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
       - name: Проверить объединённую конфигурацию Supabase + PG17
