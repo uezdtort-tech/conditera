@@ -93,6 +93,8 @@ jobs:
           JWT_REFRESH_SECRET=ci-refresh-secret-which-is-not-used-for-real-auth
           TFA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           CRON_SECRET=ci-cron-secret-for-compose-validation
+          N8N_WEBHOOK_SECRET=ci-n8n-webhook-secret-for-compose-validation
+          N8N_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           BOT_SECRET=ci-bot-secret-for-compose-validation
           IP_HASH_SALT=ci-ip-hash-salt
           MEILI_MASTER_KEY=ci-meili-master-key-32-characters-long
