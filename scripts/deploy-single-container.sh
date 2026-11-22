@@ -248,6 +248,20 @@ backup_mounts = [
 if not backup_mounts:
     raise SystemExit("The web service must mount the persistent conditera_backups volume at /app/backups")
 
+web_build_args = services["web"].get("build", {}).get("args", {})
+for key in ("NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"):
+    if not isinstance(web_build_args.get(key), str) or not web_build_args[key].strip():
+        raise SystemExit(f"Next.js production image must receive {key} as a build arg")
+app_url = web_build_args["NEXT_PUBLIC_APP_URL"].rstrip("/")
+supabase_url = web_build_args["NEXT_PUBLIC_SUPABASE_URL"].rstrip("/")
+if not app_url.startswith("https://") or supabase_url != app_url + "/api":
+    raise SystemExit("Public Supabase URL must be the canonical HTTPS app URL with the /api prefix")
+if web_build_args["NEXT_PUBLIC_SUPABASE_ANON_KEY"] != web_environment.get("NEXT_PUBLIC_SUPABASE_ANON_KEY"):
+    raise SystemExit("Build-time and runtime Supabase anon keys must match")
+for forbidden in ("JWT_SECRET", "JWT_REFRESH_SECRET", "SUPABASE_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY", "SMTP_PASSWORD"):
+    if forbidden in web_build_args:
+        raise SystemExit(f"Server secret {forbidden} must never be passed as a Docker build arg")
+
 n8n_ports = services["n8n"].get("ports", [])
 if len(n8n_ports) != 1 or n8n_ports[0].get("host_ip") != "127.0.0.1" or str(n8n_ports[0].get("target")) != "5678":
     raise SystemExit("n8n must be bound to 127.0.0.1:5678 only")
