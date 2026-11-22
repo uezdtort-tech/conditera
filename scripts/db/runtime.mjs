@@ -24,7 +24,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, openSync, readSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmdirSync, readFileSync, writeFileSync, statSync, openSync, readSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import net from "node:net";
 import path from "node:path";
@@ -246,10 +246,14 @@ function writeHba(hbaPath) {
 // ============================================================================
 function initialize() {
   const { initdb, binDir } = resolveBinaries();
-  if (!existsSync(PGDATA)) mkdirSync(PGDATA, { recursive: true });
-  const entries = readdirSync(PGDATA);
-  if (entries.length > 0) {
-    throw new Error(`Data dir ${PGDATA} is not empty but has no PG_VERSION. Remove it manually and retry.`);
+  // Не создавать сам PGDATA через Node: Windows initdb должен создать каталог
+  // самостоятельно, иначе его попытка выставить ACL может завершиться EACCES.
+  if (existsSync(PGDATA)) {
+    const entries = readdirSync(PGDATA);
+    if (entries.length > 0) {
+      throw new Error(`Data dir ${PGDATA} is not empty but has no PG_VERSION. Remove it manually and retry.`);
+    }
+    rmdirSync(PGDATA);
   }
   console.log(`» initdb: creating cluster at ${PGDATA}`);
   const res = run(
