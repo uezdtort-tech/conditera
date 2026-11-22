@@ -8,6 +8,8 @@ USER_DIR="$USER_FOLDER/.n8n"
 PORT="${N8N_PORT:-5678}"
 MARKER="$USER_DIR/.conditera-workflows.sha256"
 IDS_MARKER="$USER_DIR/.conditera-workflow-ids"
+READY_MARKER="$USER_DIR/.conditera-workflows.ready"
+rm -f "$READY_MARKER"
 
 mkdir -p "$USER_DIR"
 
@@ -142,11 +144,11 @@ NODE
 
   while IFS= read -r workflow_id; do
     [ -n "$workflow_id" ] || continue
-    # During bootstrap the n8n HTTP server is intentionally stopped.
-    # Disable the async publication applier for this one-shot CLI process so
-    # publish writes the version mapping directly and cannot wait for a
-    # background service that is not running yet. The server applies published
-    # versions when it starts below.
+    # The CLI runs before the main n8n server starts. Disable the async
+    # publication applier for this one-shot process. Unpublish first so the
+    # operation remains idempotent when the container restarts with unchanged
+    # source files; n8n applies the published versions when the server starts.
+    N8N_USE_WORKFLOW_PUBLICATION_SERVICE=false n8n unpublish:workflow --id="$workflow_id" || true
     N8N_USE_WORKFLOW_PUBLICATION_SERVICE=false n8n publish:workflow --id="$workflow_id"
   done < "$current_ids"
 
@@ -181,6 +183,14 @@ NODE
   rm -rf "$import_dir"
   rm -f "$current_ids"
   trap - EXIT INT TERM
+else
+  echo "[n8n-bootstrap] workflow import directory is missing: $IMPORT_DIR" >&2
+  exit 1
 fi
+
+# Docker healthcheck and deployment readiness must not pass while imports or
+# workflow publication are still running.
+printf '%s\\n' "$(date -u +%FT%TZ)" > "$READY_MARKER.tmp"
+mv "$READY_MARKER.tmp" "$READY_MARKER"
 
 exec n8n start
