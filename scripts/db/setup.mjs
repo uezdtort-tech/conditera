@@ -100,7 +100,11 @@ if (!isPostgresUrl(DATABASE_URL)) {
   DATABASE_URL = fileEnv.DATABASE_URL || "";
   databaseUrlSource = ".env/.env.local";
 }
-const EMBEDDED_PG17_URL = "postgresql://postgres@127.0.0.1:54330/conditera";
+const EMBEDDED_PG17_PORT = Number(process.env.CONDITERA_PG_PORT || 54330);
+if (EMBEDDED_PG17_PORT === 54329) {
+  throw new Error("CONDITERA_PG_PORT=54329 is reserved for the legacy embedded PG18 runtime; use 54330 or another free port for PG17.");
+}
+const EMBEDDED_PG17_URL = `postgresql://postgres@127.0.0.1:${EMBEDDED_PG17_PORT}/conditera`;
 if (!isPostgresUrl(DATABASE_URL)) {
   DATABASE_URL = EMBEDDED_PG17_URL;
   databaseUrlSource = "default (embedded PG17)";
@@ -624,7 +628,7 @@ async function main() {
   console.log(`» SEED_MODE: ${seedMode}${runDemoSeeds ? " (demo data enabled)" : " (demo data disabled)"}`);
 
   // 2. Доступность БД (+ автостарт embedded)
-  if (isLocalEmbeddedPort(DATABASE_URL, 54330)) {
+  if (isLocalEmbeddedPort(DATABASE_URL, EMBEDDED_PG17_PORT)) {
     const runtime = await import("./runtime.mjs");
     const status = await runtime.getStatus();
     if (!status.running) {
