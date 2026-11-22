@@ -83,7 +83,7 @@ runtime = read_env(sys.argv[2])
 required_app = [
     "POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "TFA_ENCRYPTION_KEY",
     "CRON_SECRET", "BOT_SECRET", "IP_HASH_SALT", "MEILI_MASTER_KEY",
-    "N8N_ADMIN_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD",
+    "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD",
     "YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET", "VK_CLIENT_ID",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL_ID", "TELEGRAM_WEBHOOK_SECRET",
@@ -110,7 +110,7 @@ for key in required_runtime:
         errors.append(f".env.supabase-runtime: {key} still contains a placeholder")
 
 for key in ("POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "CRON_SECRET",
-            "BOT_SECRET", "MEILI_MASTER_KEY", "N8N_ADMIN_PASSWORD"):
+            "BOT_SECRET", "MEILI_MASTER_KEY"):
     value = app.get(key, "")
     if value and len(value) < 32:
         errors.append(f".env.production: {key} must contain at least 32 characters")
