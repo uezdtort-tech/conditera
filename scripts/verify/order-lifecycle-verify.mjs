@@ -25,6 +25,7 @@
  */
 
 import { Client } from "pg";
+import { spawnSync } from "node:child_process";
 
 const BASE = process.env.VERIFY_BASE || "http://127.0.0.1:3000";
 const PASSWORD = "Demo123!";
@@ -324,6 +325,17 @@ async function prepareRecipeInventoryFixture() {
 }
 
 async function main() {
+  section("OAuth Yandex/VK — контрактные тесты callback и PKCE");
+  const oauthTests = spawnSync("bunx", [
+    "vitest",
+    "run",
+    "src/app/api/auth/oauth/[provider]/route.test.ts",
+    "src/app/api/auth/oauth/[provider]/callback/route.test.ts",
+  ], { stdio: "inherit" });
+  assert("контрактные тесты OAuth Yandex/VK проходят",
+    oauthTests.status === 0 && !oauthTests.error,
+    oauthTests.error?.message || `exit=${oauthTests.status}`);
+
   await client.connect();
 
   section("Подготовка");
