@@ -91,6 +91,24 @@ for (const [file, expectedCron] of activeWorkflows) {
       }
     }
   }
+  if (file.endsWith("01-abandoned-cart.json")) {
+    const sendNode = workflow.nodes.find((node) => node.name === "Отправить напоминание");
+    const patchNode = workflow.nodes.find((node) => node.name === "Пометить как уведомлённый");
+    const sendBody = String(sendNode?.parameters?.jsonBody || "");
+    const patchBody = String(patchNode?.parameters?.jsonBody || "");
+    if (!sendBody.includes("abandoned-cart:{{ $json.id }}")) {
+      throw new Error("abandoned-cart: deduplication key must be unique per persisted cart snapshot");
+    }
+    if (!patchBody.includes("$('Разделить по корзинам').item.json.id") ||
+        !patchBody.includes("$json.skipped === true") ||
+        !patchBody.includes("$json.channels?.[0]?.channel")) {
+      throw new Error("abandoned-cart: PATCH must preserve the original cart ID and persist skipped/channel results from notification delivery");
+    }
+    if (patchBody.includes("{{ $json.id }}")) {
+      throw new Error("abandoned-cart: PATCH must not read cart id from the notification response body");
+    }
+  }
+
   if (file.endsWith("04-backup.json") || file.endsWith("05-cleanup.json")) {
     const statusNode = workflow.nodes.find((node) => node.name === "Записать статус");
     const body = String(statusNode?.parameters?.jsonBody || "");
