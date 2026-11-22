@@ -172,6 +172,19 @@ try {
     assert("second cart snapshot can be marked sent independently", changedSent.status === 200);
   }
 
+  const recentCartItem = await db.query(
+    `INSERT INTO public.cart_items (user_id, product_id, quantity, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 1, now() - interval '30 minutes', now() - interval '30 minutes')
+     RETURNING id::text AS id`,
+    [userId, product.rows[0].id],
+  );
+  const recentCartItemId = recentCartItem.rows[0].id;
+  cartItemIds.push(recentCartItemId);
+  const mixedActivity = await request("GET", "/api/cron/abandoned-cart");
+  assert("one recent cart item prevents reminder for the entire cart", mixedActivity.status === 200 && !mixedActivity.json?.carts?.some((cart) => cart.userId === userId));
+  await db.query("DELETE FROM public.cart_items WHERE id = $1::uuid", [recentCartItemId]);
+  cartItemIds.splice(cartItemIds.indexOf(recentCartItemId), 1);
+
   await db.query(
     `UPDATE public.profiles
         SET notify_prefs = COALESCE(notify_prefs, '{}'::jsonb) || '{"abandonedCart":false}'::jsonb
