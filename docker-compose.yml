@@ -89,7 +89,7 @@ services:
       - SMTP_FROM=${SMTP_FROM:-Кондитера <noreply@conditera.ru>}
       - SMTP_REPLY_TO=${SMTP_REPLY_TO:-support@conditera.ru}
       - SMTP_SECURE=${SMTP_SECURE:-false}
-      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-false}
+      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
       - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
       - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
       # Контакты сайта (NEXT_PUBLIC_ — видны на клиенте)
