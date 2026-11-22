@@ -19,13 +19,21 @@ test.describe('Auth flow — register/login (exempt от CSRF)', () => {
 
   test('POST /api/auth/register без полей → 400/429 (exempt от CSRF; 429 is the registration anti-fraud limit)', async ({ request }) => {
     const response = await request.post('/api/auth/register', { data: {} })
-    // register exempt от CSRF → проходит → валидация тела → 400 (missing fields) или 500 (БД недоступна)
+    // Request reaches input validation unless the per-IP anti-fraud limit has already been reached.
     expect([400, 429]).toContain(response.status())
   })
 
   test('POST /api/auth/register с коротким паролем → 400/429', async ({ request }) => {
     const response = await request.post('/api/auth/register', {
-      data: { email: 'test@example.com', password: '123', name: 'Test', phone: '+79999999999' },
+      data: {
+        email: 'short-password@example.test',
+        password: '123',
+        name: 'Test',
+        phone: '+79999999999',
+        consentPd: true,
+        consentTerms: true,
+        consentOffer: true,
+      },
     })
     expect([400, 429]).toContain(response.status())
   })
@@ -83,10 +91,12 @@ test.describe('Auth flow — 2FA (без авторизации запрещен
 })
 
 test.describe('Auth flow — session & logout', () => {
-  test('GET /api/auth/session без авторизации → 401/307/200', async ({ request }) => {
+  test('GET /api/auth/session без авторизации возвращает пустую сессию', async ({ request }) => {
     const response = await request.get('/api/auth/session')
-    // 401 (unauthorized), 307 (Supabase redirect), 200 (если middleware пропускает)
-    expect([401, 307, 200, 500]).toContain(response.status())
+    expect(response.status()).toBe(200)
+    const payload = await response.json()
+    expect(payload.user).toBeNull()
+    expect(payload.accessToken).toBeUndefined()
   })
 
   test('POST /api/auth/logout без сессии безопасно очищает cookie → 200', async ({ request }) => {
