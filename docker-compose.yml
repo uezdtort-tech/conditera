@@ -353,7 +353,7 @@ services:
       - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - N8N_USER_FOLDER=/home/node/.n8n
+      - N8N_USER_FOLDER=/home/node
       - N8N_ENCRYPTION_KEY_FILE=/run/secrets/n8n_encryption_key
       - NODE_OPTIONS=--max-old-space-size=1024
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
