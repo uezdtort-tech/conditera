@@ -20,13 +20,13 @@
 === 2. СЦ-61 idempotency (customer login + POST /api/orders) ===
 [PASS] login customer (Demo123! восстановлен) 200
 [PASS] заказ с ключом (1-й) 201 duplicate:false
-    order1=63a1a0c9-3deb-46da-9c31-e656f0aab911 total=1010000 key=s10b1-idem-1795371800
+    order1=8120a0ca-5e2c-4439-89b0-a85b039e2464 total=1010000 key=s10b1-idem-1795379275
 [PASS] заказ с ТОТ ЖЕ ключом (2-й) 200 duplicate:true
-[PASS] тот же orderId: 63a1a0c9-3deb-46da-9c31-e656f0aab911
+[PASS] тот же orderId: 8120a0ca-5e2c-4439-89b0-a85b039e2464
 [PASS] DB: ровно один Order с этим ключом
 [PASS] невалидный ключ → 400 invalid_idempotency_key
 [PASS] без заголовка — как раньше 201
-    order2=914a0a62-4fd1-451c-a6dc-850544d4a5eb total=1010000 (для webhook СЦ-09)
+    order2=146ca7a6-6f8e-4476-b196-8a6b0411badf total=1010000 (для webhook СЦ-09)
 === 3. СЦ-09 webhook: amount/currency гейт (XFF 127.0.0.1) ===
 [PASS] неверная сумма → 200 ignored:amount_mismatch
 [PASS] DB: заказ остался PENDING (не CONFIRMED)
