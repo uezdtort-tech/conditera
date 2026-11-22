@@ -93,13 +93,16 @@ SELECT jsonb_build_object(
   $auditError = $_.Exception.Message
 }
 
+$healthProperty = if ($null -ne $container) { $container.State.PSObject.Properties["Health"] } else { $null }
+$containerHealth = if ($null -ne $healthProperty -and $null -ne $healthProperty.Value) { $healthProperty.Value.Status } else { "no-healthcheck" }
+
 $containerInfo = if ($null -ne $container) {
   [ordered]@{
     name = ([string]$container.Name).TrimStart("/")
     id = $container.Id
     image = $container.Config.Image
     state = $container.State.Status
-    health = if ($null -ne $container.State.PSObject.Properties["Health"] -and $null -ne $container.State.PSObject.Properties["Health"].Value) { $container.State.PSObject.Properties["Health"].Value.Status } else { "no-healthcheck" }
+    health = $containerHealth
     startedAt = $container.State.StartedAt
     restartPolicy = $container.HostConfig.RestartPolicy.Name
     networks = @($container.NetworkSettings.Networks.PSObject.Properties.Name)
@@ -147,30 +150,30 @@ if ($auditError) {
   exit 2
 }
 if ($audit.serverMajor -ne 17) {
-  Write-Error "Expected PostgreSQL 17; actual major is $($audit.serverMajor)."
+  Write-Host "FAIL: Expected PostgreSQL 17; actual major is $($audit.serverMajor)." -ForegroundColor Red
   exit 3
 }
 if ($audit.isInRecovery) {
-  Write-Error "The target PostgreSQL server is in recovery; it is not a writable primary."
+  Write-Host "FAIL: The target PostgreSQL server is in recovery; it is not a writable primary." -ForegroundColor Red
   exit 4
 }
 if ($audit.appMigrationCount -lt 81) {
-  Write-Error "Expected at least 81 applied application migrations; got $($audit.appMigrationCount)."
+  Write-Host "FAIL: Expected at least 81 applied application migrations; got $($audit.appMigrationCount)." -ForegroundColor Red
   exit 5
 }
 if ($audit.rlsPolicyCount -lt 1 -or $audit.rlsEnabledTableCount -lt 1) {
-  Write-Error "RLS policies or RLS-enabled tables are missing."
+  Write-Host "FAIL: RLS policies or RLS-enabled tables are missing." -ForegroundColor Red
   exit 6
 }
 foreach ($property in $audit.requiredObjects.PSObject.Properties) {
   if (-not $property.Value) {
-    Write-Error "Required database object is missing: $($property.Name)."
+    Write-Host "FAIL: Required database object is missing: $($property.Name)." -ForegroundColor Red
     exit 7
   }
 }
 foreach ($property in $audit.requiredRoles.PSObject.Properties) {
   if (-not $property.Value) {
-    Write-Error "Required PostgreSQL role is missing: $($property.Name)."
+    Write-Host "FAIL: Required PostgreSQL role is missing: $($property.Name)." -ForegroundColor Red
     exit 8
   }
 }
