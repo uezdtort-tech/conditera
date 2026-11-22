@@ -44,7 +44,6 @@ jobs:
           REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
           MEILI_MASTER_KEY: ci-only-meili-master-key
           CRON_SECRET: ci-only-cron-secret
-          N8N_ADMIN_PASSWORD: ci-only-n8n-password
           SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
         run: |
           set -Eeuo pipefail
