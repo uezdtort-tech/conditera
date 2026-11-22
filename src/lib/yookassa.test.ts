@@ -9,7 +9,8 @@ describe("YooKassa webhook source verification", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("TRUSTED_PROXY_HOPS", "1");
-    vi.stubEnv("LOCAL_E2E_PAYMENT_STUB", "false");
+    vi.stubEnv("E2E_PAYMENT_STUB_ENABLED", "false");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://conditera.test");
   });
 
   afterEach(() => vi.unstubAllEnvs());
