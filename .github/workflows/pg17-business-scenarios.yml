@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pg17-business-scenarios-${{ github.ref }}
+  group: pg17-business-scenarios-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
