@@ -17,8 +17,7 @@ FROM oven/bun:1.4.5-alpine AS deps
 WORKDIR /app
 
 # Копируем package файлы
-COPY package.json bun.lock* package-lock.json* ./
-COPY .npmrc* ./
+COPY package.json bun.lock ./.npmrc ./
 
 # Устанавливаем ВСЕ зависимости (нужны dev для build)
 RUN bun install --frozen-lockfile
