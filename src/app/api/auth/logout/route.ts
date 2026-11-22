@@ -15,8 +15,10 @@ import { revokeUserSession } from "@/lib/session-registry";
  */
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const appToken = request.cookies.get(SESSION_COOKIE)?.value ||
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  // При явном Bearer-заголовке используем именно указанный токен,
+  // как и getUserFromRequest(); cookie — fallback для браузерного logout.
+  const bearerToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const appToken = bearerToken || request.cookies.get(SESSION_COOKIE)?.value;
   if (appToken) {
     const payload = await verifyAccessToken(appToken);
     if (payload?.sid && payload.userId) {
