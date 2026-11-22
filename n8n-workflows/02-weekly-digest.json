@@ -84,7 +84,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"PROMO_NEAR_YOU\",\n  \"vars\": {\n    \"confectionerName\": \"Уездный кондитер\",\n    \"promoTitle\": \"Ваш дайджест недели\",\n    \"promoDesc\": \"Новинок: {{ $json.newProducts }}, акций: {{ $json.activePromos }}, новых кондитеров: {{ $json.newConfectioners }}. Заходите!\"\n  },\n  \"channels\": [\"email\", \"in_app\"],\n  \"data\": { \"type\": \"weekly_digest\" }\n}",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"PROMO_NEAR_YOU\",\n  \"vars\": {\n    \"confectionerName\": \"Уездный кондитер\",\n    \"promoTitle\": \"Ваш дайджест недели\",\n    \"promoDesc\": \"Новинок: {{ $json.newProducts }}, акций: {{ $json.activePromos }}, новых кондитеров: {{ $json.newConfectioners }}. Заходите!\"\n  },\n  \"channels\": [\"email\", \"in_app\"],\n  \"data\": { \"type\": \"weekly_digest\" },\n  \"dedupKey\": \"weekly-digest:{{ $json.userId }}:{{ $now.toISODate() }}\"\n}",
         "options": {}
       },
       "id": "send-digest",
