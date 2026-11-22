@@ -10,6 +10,9 @@ on:
       - "docker-compose.yml"
       - "Caddyfile"
       - "scripts/supabase-runtime-poc/**"
+      - "scripts/n8n-entrypoint.sh"
+      - "scripts/verify/n8n-workflows-verify.mjs"
+      - "n8n-workflows/**"
       - "supabase/kong.yml"
       - "supabase/init-scripts/**"
       - "supabase/migrations/**"
@@ -26,6 +29,76 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
+
+      - name: Validate and smoke-test source-controlled n8n workflows
+        env:
+          N8N_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          N8N_WEBHOOK_SECRET: ci-only-n8n-webhook-secret
+          CRON_SECRET: ci-only-cron-secret
+          APP_URL: http://127.0.0.1:3000
+          GENERIC_TIMEZONE: Europe/Moscow
+        run: |
+          set -Eeuo pipefail
+          sh -n scripts/n8n-entrypoint.sh
+          bun scripts/verify/n8n-workflows-verify.mjs
+          docker volume create conditera-n8n-bootstrap-test >/dev/null
+          cleanup() {
+            docker rm -f conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
+            docker volume rm conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run -d --name conditera-n8n-bootstrap-test \
+            -p 127.0.0.1:15678:5678 \
+            -e N8N_ENCRYPTION_KEY="$N8N_ENCRYPTION_KEY" \
+            -e N8N_USER_FOLDER=/home/node/.n8n \
+            -e N8N_HOST=127.0.0.1 \
+            -e N8N_PORT=5678 \
+            -e N8N_PROTOCOL=http \
+            -e WEBHOOK_URL=http://127.0.0.1:15678/ \
+            -e N8N_EDITOR_BASE_URL=http://127.0.0.1:15678/ \
+            -e GENERIC_TIMEZONE="$GENERIC_TIMEZONE" \
+            -e N8N_DIAGNOSTICS_ENABLED=false \
+            -e N8N_PERSONALIZATION_ENABLED=false \
+            -e N8N_VERSION_NOTIFICATIONS_ENABLED=false \
+            -e APP_URL="$APP_URL" \
+            -e CRON_SECRET="$CRON_SECRET" \
+            -e N8N_WEBHOOK_SECRET="$N8N_WEBHOOK_SECRET" \
+            -v conditera-n8n-bootstrap-test:/home/node/.n8n \
+            -v "$PWD/n8n-workflows:/imports:ro" \
+            -v "$PWD/scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro" \
+            n8nio/n8n:1.95.0 /bin/sh /usr/local/bin/conditera-n8n-entrypoint.sh
+          ready=0
+          for attempt in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:15678/healthz >/dev/null; then ready=1; break; fi
+            state="$(docker inspect -f '{{.State.Status}}' conditera-n8n-bootstrap-test 2>/dev/null || true)"
+            if [ "$state" != "running" ]; then
+              docker logs conditera-n8n-bootstrap-test
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs conditera-n8n-bootstrap-test
+            exit 1
+          fi
+          docker exec conditera-n8n-bootstrap-test n8n export:workflow --all --separate --output=/tmp/conditera-n8n-export
+          mkdir -p /tmp/conditera-n8n-export
+          docker cp conditera-n8n-bootstrap-test:/tmp/conditera-n8n-export/. /tmp/conditera-n8n-export/
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const sourceDir = "n8n-workflows";
+          const exportDir = "/tmp/conditera-n8n-export";
+          const source = fs.readdirSync(sourceDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(sourceDir, name), "utf8")));
+          const exported = fs.readdirSync(exportDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(exportDir, name), "utf8")));
+          const actual = new Map(exported.map((workflow) => [workflow.id, workflow]));
+          const missing = source.filter((workflow) => !actual.has(workflow.id)).map((workflow) => workflow.id);
+          const wrongState = source.filter((workflow) => actual.has(workflow.id) && actual.get(workflow.id).active !== workflow.active).map((workflow) => ({ id: workflow.id, expected: workflow.active, actual: actual.get(workflow.id).active }));
+          if (missing.length || wrongState.length || exported.length !== source.length) {
+            throw new Error(JSON.stringify({ source: source.length, exported: exported.length, missing, wrongState }));
+          }
+          console.log(`PASS: ${exported.length} n8n workflows imported with source-controlled active states`);
+          NODE
 
       - name: Validate production single-container Compose overlay
         env:
@@ -47,6 +120,8 @@ jobs:
           REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
           MEILI_MASTER_KEY: ci-only-meili-master-key
           CRON_SECRET: ci-only-cron-secret
+          N8N_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          N8N_WEBHOOK_SECRET: ci-only-n8n-webhook-secret
           SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
         run: |
           set -Eeuo pipefail
