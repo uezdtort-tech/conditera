@@ -118,10 +118,12 @@ jobs:
           const actual = new Map(exported.map((workflow) => [workflow.id, workflow]));
           const missing = source.filter((workflow) => !actual.has(workflow.id)).map((workflow) => workflow.id);
           const wrongState = source.filter((workflow) => actual.has(workflow.id) && actual.get(workflow.id).active !== workflow.active).map((workflow) => ({ id: workflow.id, expected: workflow.active, actual: actual.get(workflow.id).active }));
-          if (missing.length || wrongState.length || exported.length !== source.length) {
-            throw new Error(JSON.stringify({ source: source.length, exported: exported.length, missing, wrongState }));
+          const tagNames = (workflow) => (workflow.tags || []).map((tag) => tag.name).sort();
+          const wrongTags = source.filter((workflow) => actual.has(workflow.id) && JSON.stringify(tagNames(workflow)) !== JSON.stringify(tagNames(actual.get(workflow.id)))).map((workflow) => ({ id: workflow.id, expected: tagNames(workflow), actual: tagNames(actual.get(workflow.id)) }));
+          if (missing.length || wrongState.length || wrongTags.length || exported.length !== source.length) {
+            throw new Error(JSON.stringify({ source: source.length, exported: exported.length, missing, wrongState, wrongTags }));
           }
-          console.log(`PASS: ${exported.length} n8n workflows imported with source-controlled active states`);
+          console.log(`PASS: ${exported.length} n8n workflows imported with source-controlled active states and shared tags`);
           NODE
 
       - name: Validate production single-container Compose overlay
