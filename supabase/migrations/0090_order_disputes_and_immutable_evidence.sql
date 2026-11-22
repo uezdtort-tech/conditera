@@ -70,12 +70,12 @@ BEGIN
   WHERE d.id = NEW.dispute_id;
 
   IF NOT FOUND
-     OR v_dispute_order <> v_media_order
-     OR v_customer_id <> NEW.uploaded_by
-     OR v_media_uploader <> NEW.uploaded_by
-     OR v_media_kind <> 'dispute_evidence'
+     OR v_dispute_order IS DISTINCT FROM v_media_order
+     OR v_customer_id IS DISTINCT FROM NEW.uploaded_by
+     OR v_media_uploader IS DISTINCT FROM NEW.uploaded_by
+     OR v_media_kind IS DISTINCT FROM 'dispute_evidence'
      OR v_media_hash IS NULL
-     OR v_media_hash <> NEW.content_sha256 THEN
+     OR v_media_hash IS DISTINCT FROM NEW.content_sha256 THEN
     RAISE EXCEPTION 'ORDER_DISPUTE_EVIDENCE_LINK_INVALID'
       USING ERRCODE = '23514';
   END IF;
