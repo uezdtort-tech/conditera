@@ -710,6 +710,9 @@ jobs:
             const roleSql = (await db.query("SELECT format($1::text, $2::text)", [statement, process.env.APP_DATABASE_PASSWORD])).rows[0].format;
             await db.query(roleSql);
             await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_app");
+            // The Next.js PostgREST shim connects as conditera_app and uses
+            // SET LOCAL ROLE according to the verified JWT role claim.
+            await db.query("GRANT anon, authenticated, service_role TO conditera_app");
             await db.query("GRANT USAGE ON SCHEMA public TO conditera_app");
             await db.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera_app");
             await db.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app");
@@ -735,7 +738,13 @@ jobs:
               if (access.rows[0]?.current_user !== "conditera_app" || !access.rows[0]?.schema_usage || !access.rows[0]?.ledger_select) {
                 throw new Error("conditera_app cannot connect and read the migrated public schema");
               }
-              console.log("PASS: conditera_app authenticates with its own password and reads the migrated schema");
+              for (const role of ["anon", "authenticated", "service_role"]) {
+                await appDb.query(`SET ROLE ${role}`);
+                const current = await appDb.query("SELECT current_user");
+                if (current.rows[0]?.current_user !== role) throw new Error(`conditera_app cannot SET ROLE ${role}`);
+                await appDb.query("RESET ROLE");
+              }
+              console.log("PASS: conditera_app authenticates, reads public schema and can SET ROLE anon/authenticated/service_role");
             } finally {
               await appDb.end();
             }
