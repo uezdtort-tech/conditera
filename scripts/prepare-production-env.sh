@@ -72,6 +72,7 @@ app_generated = {
     "TFA_ENCRYPTION_KEY": random_hex(32),
     "CRON_SECRET": random_hex(32),
     "BOT_SECRET": random_hex(32),
+    "TELEGRAM_WEBHOOK_SECRET": random_hex(32),
     "IP_HASH_SALT": random_hex(32),
     "MEILI_MASTER_KEY": random_hex(32),
     "N8N_ADMIN_PASSWORD": random_hex(32),
@@ -118,7 +119,7 @@ required_external = [
     ("YANDEX_CLIENT_ID", app), ("YANDEX_CLIENT_SECRET", app),
     ("VK_CLIENT_ID", app), ("YOOKASSA_SHOP_ID", app),
     ("YOOKASSA_SECRET_KEY", app), ("TELEGRAM_BOT_TOKEN", app),
-    ("TELEGRAM_CHANNEL_ID", app), ("TELEGRAM_WEBHOOK_SECRET", app),
+    ("TELEGRAM_CHANNEL_ID", app),
 ]
 missing = [key for key, values in required_external if needs_value(values.get(key, ""))]
 print("Production env files prepared with generated secrets:")
