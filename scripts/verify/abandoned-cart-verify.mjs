@@ -11,7 +11,7 @@ let userId = null;
 let oldNotifyPrefs = null;
 let oldLegacyPreference = null;
 let legacyPreferenceExisted = false;
-let cartItemId = null;
+const cartItemIds = [];
 const logIds = new Set();
 
 function assert(name, condition, detail = "") {
@@ -81,7 +81,7 @@ try {
   );
 
   const product = await db.query(
-    "SELECT id::text AS id FROM public.products WHERE status = 'ACTIVE' ORDER BY created_at LIMIT 1",
+    "SELECT id::text AS id FROM public.products ORDER BY created_at LIMIT 1",
   );
   if (!product.rows.length) throw new Error("No active product available for abandoned-cart verification");
 
@@ -91,7 +91,7 @@ try {
      RETURNING id::text AS id`,
     [userId, product.rows[0].id],
   );
-  cartItemId = inserted.rows[0].id;
+  cartItemIds.push(inserted.rows[0].id);
 
   const unauthorized = await request("GET", "/api/cron/abandoned-cart", undefined, false);
   assert("cron endpoint rejects requests without X-Cron-Secret", unauthorized.status === 401, String(unauthorized.status));
@@ -109,9 +109,13 @@ try {
   assert("cart log ID is a UUID, not a synthetic user key", typeof firstCart?.id === "string" && /^[0-9a-f-]{36}$/i.test(firstCart.id));
 
   if (!firstCart?.id) throw new Error("Cannot continue without a persisted abandoned-cart log");
+  const fingerprintRow = await db.query(
+    "SELECT cart_fingerprint FROM public.abandoned_cart_logs WHERE id = $1::uuid",
+    [firstCart.id],
+  );
   const logCount = await db.query(
-    "SELECT count(*)::int AS count FROM public.abandoned_cart_logs WHERE user_id = $1::uuid AND cart_fingerprint IS NOT NULL",
-    [userId],
+    "SELECT count(*)::int AS count FROM public.abandoned_cart_logs WHERE user_id = $1::uuid AND cart_fingerprint = $2",
+    [userId, fingerprintRow.rows[0]?.cart_fingerprint],
   );
   assert("concurrent registration creates one fingerprinted log", logCount.rows[0].count === 1, String(logCount.rows[0].count));
 
@@ -146,10 +150,13 @@ try {
   const afterSent = await request("GET", "/api/cron/abandoned-cart");
   assert("sent cart is no longer returned by the cron endpoint", afterSent.status === 200 && !afterSent.json?.carts?.some((cart) => cart.userId === userId));
 
-  await db.query(
-    "UPDATE public.cart_items SET quantity = 2, updated_at = now() - interval '2 hours 30 minutes' WHERE id = $1::uuid",
-    [cartItemId],
+  const secondCartItem = await db.query(
+    `INSERT INTO public.cart_items (user_id, product_id, quantity, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 2, now() - interval '2 hours 30 minutes', now() - interval '2 hours 30 minutes')
+     RETURNING id::text AS id`,
+    [userId, product.rows[0].id],
   );
+  cartItemIds.push(secondCartItem.rows[0].id);
   const changed = await request("GET", "/api/cron/abandoned-cart");
   const changedCart = changed.json?.carts?.find((cart) => cart.userId === userId);
   if (changedCart?.id) logIds.add(changedCart.id);
@@ -175,10 +182,13 @@ try {
     "UPDATE public.notification_preferences SET abandoned_cart = false WHERE user_id = $1::uuid",
     [userId],
   );
-  await db.query(
-    "UPDATE public.cart_items SET quantity = 3, updated_at = now() - interval '2 hours 20 minutes' WHERE id = $1::uuid",
-    [cartItemId],
+  const thirdCartItem = await db.query(
+    `INSERT INTO public.cart_items (user_id, product_id, quantity, created_at, updated_at)
+     VALUES ($1::uuid, $2::uuid, 3, now() - interval '2 hours 20 minutes', now() - interval '2 hours 20 minutes')
+     RETURNING id::text AS id`,
+    [userId, product.rows[0].id],
   );
+  cartItemIds.push(thirdCartItem.rows[0].id);
   const optedOut = await request("GET", "/api/cron/abandoned-cart");
   assert("abandoned-cart opt-out suppresses reminders", optedOut.status === 200 && !optedOut.json?.carts?.some((cart) => cart.userId === userId));
 
@@ -189,7 +199,7 @@ try {
   assert("PATCH rejects malformed log IDs", invalidPatch.status === 400);
 } finally {
   if (userId) {
-    if (cartItemId) await db.query("DELETE FROM public.cart_items WHERE id = $1::uuid", [cartItemId]).catch(() => {});
+    if (cartItemIds.length) await db.query("DELETE FROM public.cart_items WHERE id = ANY($1::uuid[])", [cartItemIds]).catch(() => {});
     if (logIds.size) {
       await db.query("DELETE FROM public.abandoned_cart_logs WHERE id = ANY($1::uuid[])", [[...logIds]]).catch(() => {});
     }
