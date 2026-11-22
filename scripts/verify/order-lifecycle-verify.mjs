@@ -1355,7 +1355,7 @@ async function main() {
   assert("Control Tower → 200 c группами (ТЗ §21-22)", tower.status === 200 && tower.json?.groups && "atRisk" in tower.json.groups && "unassigned" in tower.json.groups);
   assert("Tower: группа atRisk содержит o4 (RED до старта был)", Array.isArray(tower.json?.groups?.atRisk));
 
-  // Контроль передачи аккаунта: второй вход с другого устройства заменяет старую сессию.
+  // Контроль передачи аккаунта: чужое устройство не может вытеснить владельца.
   const newDeviceLogin = await api("POST", "/api/auth/login", {
     body: { email: customerEmail, password: PASSWORD },
     extraHeaders: {
@@ -1363,56 +1363,47 @@ async function main() {
       "user-agent": "Conditera-E2E-New-Device/1.0",
     },
   });
-  assert("вход с нового устройства проходит аутентификацию",
-    newDeviceLogin.status === 200 && Boolean(newDeviceLogin.json?.accessToken));
-  const activeSessionsAfterReplacement = await client.query(
+  assert("вход с нового устройства блокируется → 403",
+    newDeviceLogin.status === 403 && !newDeviceLogin.json?.accessToken,
+    JSON.stringify(newDeviceLogin.json));
+  const activeSessionsAfterBlockedLogin = await client.query(
     `SELECT count(*)::int AS count FROM public.user_sessions
       WHERE user_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()`,
     [CUSTOMER_ID]
   );
-  assert("после нового входа у аккаунта ровно одна активная сессия",
-    activeSessionsAfterReplacement.rows[0]?.count === 1,
-    `active=${activeSessionsAfterReplacement.rows[0]?.count}`);
+  assert("заблокированная попытка не отзывает и не заменяет действующую сессию",
+    activeSessionsAfterBlockedLogin.rows[0]?.count === 1,
+    `active=${activeSessionsAfterBlockedLogin.rows[0]?.count}`);
   const previousTokenCheck = await api("GET", "/api/auth/sessions", { token: customer });
-  assert("JWT предыдущего устройства немедленно отозван → 401",
-    previousTokenCheck.status === 401,
+  assert("JWT владельца остаётся действительным после чужой попытки входа",
+    previousTokenCheck.status === 200,
     JSON.stringify(previousTokenCheck.json));
   const newDeviceSecurityEvent = await client.query(
     `SELECT count(*)::int AS count FROM public.user_security_events
-      WHERE user_id = $1::uuid AND event_type = 'new_device_session'`,
+      WHERE user_id = $1::uuid AND event_type = 'new_device_login_blocked'`,
     [CUSTOMER_ID]
   );
-  assert("новое устройство фиксируется как security warning",
+  assert("заблокированная попытка нового устройства фиксируется в security journal",
     newDeviceSecurityEvent.rows[0]?.count >= 1);
-  const replacementEvent = await client.query(
-    `SELECT count(*)::int AS count FROM public.user_security_events
-      WHERE user_id = $1::uuid AND event_type = 'session_revoked'
-        AND details->>'reason' = 'replaced_by_new_login'`,
-    [CUSTOMER_ID]
-  );
-  assert("отзыв старого устройства записан в security journal",
-    replacementEvent.rows[0]?.count >= 1);
   const newDeviceAdminTask = await client.query(
     `SELECT count(*)::int AS count FROM public.ops_tasks
       WHERE type = 'ACCOUNT_NEW_DEVICE' AND entity_id = $1 AND status = 'open'`,
     [CUSTOMER_ID]
   );
-  assert("для нового устройства создаётся задача контроля аккаунта",
+  assert("для заблокированной попытки создаётся задача контроля аккаунта",
     newDeviceAdminTask.rows[0]?.count >= 1);
 
-  // Одновременные входы с двух новых устройств: advisory lock должен оставить
-  // ровно одну активную сессию, независимо от порядка завершения запросов.
+  // Одновременные входы с одного уже известного устройства: advisory lock
+  // должен оставить действительной ровно одну из параллельно созданных сессий.
   const [parallelLoginA, parallelLoginB] = await Promise.all([
     api("POST", "/api/auth/login", {
       body: { email: customerEmail, password: PASSWORD },
-      extraHeaders: { "x-real-ip": "10.241.242.244", "user-agent": "Conditera-E2E-Parallel-A/1.0" },
     }),
     api("POST", "/api/auth/login", {
       body: { email: customerEmail, password: PASSWORD },
-      extraHeaders: { "x-real-ip": "10.241.242.245", "user-agent": "Conditera-E2E-Parallel-B/1.0" },
     }),
   ]);
-  assert("конкурентные входы: победитель 200, проигравший 409 либо успел завершиться до гонки",
+  assert("конкурентные входы с известного устройства: один 200, второй 409",
     [parallelLoginA.status, parallelLoginB.status].every((status) => status === 200 || status === 409) &&
     [parallelLoginA.status, parallelLoginB.status].includes(200),
     `${parallelLoginA.status}/${parallelLoginB.status}`);
