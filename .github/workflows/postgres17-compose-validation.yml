@@ -166,7 +166,7 @@ jobs:
                   runtime[key] = value
           secret_path = root / ".secrets/n8n_encryption_key"
           secret = secret_path.read_bytes()
-          expected = runtime["N8N_ENCRYPTION_KEY"].encode() + b"\\n"
+          expected = runtime["N8N_ENCRYPTION_KEY"].encode() + b"\n"
           if secret != expected:
               raise SystemExit("n8n encryption secret file must contain exactly the generated key followed by one newline")
           if not re.fullmatch(r"[0-9a-f]{64}", runtime["N8N_ENCRYPTION_KEY"]):
