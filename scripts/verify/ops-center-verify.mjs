@@ -100,6 +100,15 @@ async function main() {
   const owner = await login("confectioner@demo.ru");
   const customer = await login("customer@demo.ru");
   assert("логины admin/confectioner/customer", Boolean(admin && owner && customer));
+  const maintenanceForCustomer = await api("GET", "/api/maintenance/history?limit=50", { token: customer });
+  assert(
+    "maintenance history не раскрывает backup-логи покупателю",
+    maintenanceForCustomer.status === 200 &&
+      Array.isArray(maintenanceForCustomer.json?.logs) &&
+      maintenanceForCustomer.json.logs.length === 0 &&
+      Number.isFinite(maintenanceForCustomer.json?.total),
+    `got ${maintenanceForCustomer.status}`
+  );
 
   // Демо-заказ DEMO-1048 (создан скриптом demo-data): recipe-товар ×2
   const demo = await client.query(
