@@ -113,7 +113,7 @@ for key in required_runtime:
         errors.append(f".env.supabase-runtime: {key} still contains a placeholder")
 
 for key in ("POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "CRON_SECRET",
-            "BOT_SECRET", "MEILI_MASTER_KEY"):
+            "BOT_SECRET", "MEILI_MASTER_KEY", "N8N_WEBHOOK_SECRET"):
     value = app.get(key, "")
     if value and len(value) < 32:
         errors.append(f".env.production: {key} must contain at least 32 characters")
