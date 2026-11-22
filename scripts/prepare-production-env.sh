@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 command -v git >/dev/null 2>&1 || { echo "ОШИБКА: требуется Git." >&2; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "ОШИБКА: требуется Node.js для генерации Web Push VAPID keys." >&2; exit 1; }
 git check-ignore -q .env.production || { echo "ОШИБКА: .env.production не защищён .gitignore." >&2; exit 1; }
 git check-ignore -q .env.supabase-runtime || { echo "ОШИБКА: .env.supabase-runtime не защищён .gitignore." >&2; exit 1; }
 
@@ -21,6 +22,7 @@ import hmac
 import json
 import secrets
 import time
+import subprocess
 
 def read_lines(path):
     return Path(path).read_text(encoding="utf-8").splitlines()
@@ -104,6 +106,20 @@ jwt_generated = {
 }
 app = upsert(".env.production", jwt_generated)
 
+if needs_value(app.get("VAPID_PUBLIC_KEY", "")) or needs_value(app.get("VAPID_PRIVATE_KEY", "")):
+    vapid_code = """
+const { createECDH } = require('node:crypto');
+const ecdh = createECDH('prime256v1');
+ecdh.generateKeys();
+console.log(ecdh.getPublicKey(null, 'uncompressed').toString('base64url'));
+console.log(ecdh.getPrivateKey().toString('base64url'));
+"""
+    public_key, private_key = subprocess.check_output(["node", "-e", vapid_code], text=True).splitlines()
+    app = upsert(".env.production", {
+        "VAPID_PUBLIC_KEY": public_key,
+        "VAPID_PRIVATE_KEY": private_key,
+    })
+
 runtime_generated = {
     "APP_DATABASE_PASSWORD": random_hex(32),
     "SUPABASE_SECRET_KEY_BASE": random_hex(32),
@@ -115,7 +131,6 @@ runtime = upsert(".env.supabase-runtime", runtime_generated)
 
 required_external = [
     ("SMTP_USER", app), ("SMTP_PASSWORD", app),
-    ("VAPID_PUBLIC_KEY", app), ("VAPID_PRIVATE_KEY", app),
     ("YANDEX_CLIENT_ID", app), ("YANDEX_CLIENT_SECRET", app),
     ("VK_CLIENT_ID", app), ("YOOKASSA_SHOP_ID", app),
     ("YOOKASSA_SECRET_KEY", app), ("TELEGRAM_BOT_TOKEN", app),
