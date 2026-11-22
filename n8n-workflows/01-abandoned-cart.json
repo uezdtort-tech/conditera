@@ -145,7 +145,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"cartId\": \"{{ $json.id }}\",\n  \"action\": \"mark_notified\"\n}",
+        "jsonBody": "={\n  \"cartId\": \"{{ $('Разделить по корзинам').item.json.id }}\",\n  \"action\": \"mark_notified\",\n  \"skipped\": {{ $json.skipped === true }},\n  \"channel\": \"{{ $json.channels?.[0]?.channel || 'email' }}\"\n}",
         "options": {}
       },
       "id": "mark-notified",
