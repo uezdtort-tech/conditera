@@ -257,6 +257,14 @@ backup_mounts = [
 ]
 if not backup_mounts:
     raise SystemExit("The web service must mount the persistent conditera_backups volume at /app/backups")
+media_mounts = [
+    mount for mount in services["web"].get("volumes", [])
+    if mount.get("type") == "volume"
+    and mount.get("source") == "conditera_product_media"
+    and mount.get("target") == "/app/storage"
+]
+if not media_mounts or web_environment.get("PRODUCT_MEDIA_ROOT") != "/app/storage":
+    raise SystemExit("Product media must use the persistent conditera_product_media volume at /app/storage")
 
 runtime_environment = services["supabase-runtime"].get("environment", {})
 if isinstance(runtime_environment, list):
