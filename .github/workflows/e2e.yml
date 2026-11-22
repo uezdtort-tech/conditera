@@ -556,25 +556,25 @@ jobs:
     needs: setup
     services:
       postgres:
-        image: postgres:17
+        image: supabase/postgres:17.12.0.001
         env:
-          POSTGRES_USER: postgres
+          POSTGRES_USER: supabase_admin
           POSTGRES_PASSWORD: ci-postgres-password
-          POSTGRES_DB: conditera
+          POSTGRES_DB: supabase
           POSTGRES_PORT: 5432
           POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
           SEED_MODE: none
         ports:
           - 54323:5432
         options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d conditera"
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d supabase"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
           --health-start-period 30s
     env:
       NODE_VERSION: "20"
-      DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:54323/conditera
+      DATABASE_URL: postgresql://supabase_admin:ci-postgres-password@127.0.0.1:54323/supabase
       APP_DATABASE_PASSWORD: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
       BACKUP_DATABASE_PASSWORD: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
@@ -661,14 +661,14 @@ jobs:
             const statement = exists.rowCount
               ? "ALTER ROLE conditera_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD %L"
               : "CREATE ROLE conditera_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD %L";
-            const roleSql = (await db.query("SELECT format($1, $2)", [statement, process.env.APP_DATABASE_PASSWORD])).rows[0].format;
+            const roleSql = (await db.query("SELECT format($1::text, $2::text)", [statement, process.env.APP_DATABASE_PASSWORD])).rows[0].format;
             await db.query(roleSql);
-            await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_app");
+            await db.query("GRANT CONNECT ON DATABASE supabase TO conditera_app");
             await db.query("GRANT USAGE ON SCHEMA public TO conditera_app");
             await db.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera_app");
             await db.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app");
             await db.query("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO conditera_app");
-            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO conditera_app");
             await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO conditera_app");
             await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO conditera_app");
             const result = await db.query(
@@ -692,7 +692,7 @@ jobs:
           await db.connect();
           try {
             const roleSql = (await db.query(
-              "SELECT format('CREATE ROLE conditera_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L', $1)",
+              "SELECT format('CREATE ROLE conditera_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L', $1::text)",
               [process.env.BACKUP_DATABASE_PASSWORD]
             )).rows[0].format;
             await db.query(roleSql);
@@ -776,10 +776,10 @@ jobs:
             -e NODE_ENV=production \
             -e PORT=3000 \
             -e HOSTNAME=0.0.0.0 \
-            -e DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
-            -e DIRECT_DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
+            -e DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/supabase" \
+            -e DIRECT_DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/supabase" \
             -e BACKUP_DATABASE_PASSWORD="$BACKUP_DATABASE_PASSWORD" \
-            -e BACKUP_DATABASE_URL="postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
+            -e BACKUP_DATABASE_URL="postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@127.0.0.1:54323/supabase" \
             -e BACKUP_DIR=/app/backups \
             -e PRODUCT_MEDIA_ROOT=/app/storage \
             -e SUPABASE_STORAGE_BACKUP_ROOT=/app/supabase-storage \
@@ -880,7 +880,7 @@ jobs:
           docker exec conditera-web-pg17-ci tar -xzf "$SUPABASE_STORAGE_BACKUP_PATH" -C /tmp/restore-supabase-storage
           docker exec conditera-web-pg17-ci sh -c 'test "$(cat /tmp/restore-product-media/backup-smoke/sentinel.txt)" = "conditera-product-media-backup-smoke"'
           docker exec conditera-web-pg17-ci sh -c 'test "$(cat /tmp/restore-supabase-storage/backup-smoke/sentinel.txt)" = "conditera-supabase-storage-backup-smoke"'
-          RESTORE_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:54323/conditera_restore_smoke" \
+          RESTORE_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:54323/supabase_restore_smoke" \
           node --input-type=module <<'NODE'
           import { Client } from "pg";
           const source = new Client({ connectionString: process.env.DATABASE_URL });
