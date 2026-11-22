@@ -55,6 +55,10 @@ validate_env() {
   python3 - "$ENV_FILE" "$RUNTIME_ENV_FILE" <<'PY'
 import re
 import sys
+import time
+import json
+import hmac
+import base64
 from pathlib import Path
 
 def read_env(path):
@@ -101,10 +105,42 @@ for key in required_runtime:
     elif "CHANGE_ME" in value or value.startswith("stub_"):
         errors.append(f".env.supabase-runtime: {key} still contains a placeholder")
 
-for key in ("JWT_SECRET", "JWT_REFRESH_SECRET", "TFA_ENCRYPTION_KEY", "CRON_SECRET", "BOT_SECRET", "IP_HASH_SALT"):
+for key in ("POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "CRON_SECRET",
+            "BOT_SECRET", "MEILI_MASTER_KEY", "N8N_ADMIN_PASSWORD"):
     value = app.get(key, "")
-    if value and len(value) < 16:
-        errors.append(f".env.production: {key} must contain at least 16 characters")
+    if value and len(value) < 32:
+        errors.append(f".env.production: {key} must contain at least 32 characters")
+if app.get("JWT_SECRET") == app.get("JWT_REFRESH_SECRET"):
+    errors.append("JWT_REFRESH_SECRET must be different from JWT_SECRET")
+tfa_key = app.get("TFA_ENCRYPTION_KEY", "")
+if tfa_key and (len(tfa_key) != 64 or not re.fullmatch(r"[0-9a-fA-F]{64}", tfa_key)):
+    errors.append("TFA_ENCRYPTION_KEY must be 64 hexadecimal characters")
+
+def decode_jwt(token):
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("JWT must have three segments")
+    header = json.loads(base64.urlsafe_b64decode(parts[0] + "=" * (-len(parts[0]) % 4)))
+    payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    signature = base64.urlsafe_b64decode(parts[2] + "=" * (-len(parts[2]) % 4))
+    signing_input = (parts[0] + "." + parts[1]).encode()
+    expected = hmac.new(app["JWT_SECRET"].encode(), signing_input, "sha256").digest()
+    if header.get("alg") != "HS256" or not hmac.compare_digest(signature, expected):
+        raise ValueError("JWT signature/algorithm does not match JWT_SECRET")
+    if int(payload.get("exp", 0)) <= int(time.time()):
+        raise ValueError("JWT is expired")
+    return payload
+
+for key, expected_role in (("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon"),
+                           ("SUPABASE_SERVICE_ROLE_KEY", "service_role")):
+    token = app.get(key, "")
+    if token:
+        try:
+            payload = decode_jwt(token)
+            if payload.get("role") != expected_role:
+                raise ValueError(f"role must be {expected_role}")
+        except Exception as error:
+            errors.append(f".env.production: {key} is not a valid JWT signed by JWT_SECRET ({error})")
 for key, expected in (("SUPABASE_SECRET_KEY_BASE", 64), ("PG_META_CRYPTO_KEY", 32),
                       ("REALTIME_DB_ENC_KEY", 16), ("REALTIME_DB_ENC_KEY_GCM", 32)):
     value = runtime.get(key, "")
@@ -115,6 +151,8 @@ if app.get("NEXT_PUBLIC_APP_URL", "").rstrip("/") != "https://conditera.ru":
     errors.append("NEXT_PUBLIC_APP_URL must be https://conditera.ru for production")
 if app.get("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/") != "https://conditera.ru/api":
     errors.append("NEXT_PUBLIC_SUPABASE_URL must be https://conditera.ru/api")
+if not app.get("YOOKASSA_SECRET_KEY", "").startswith("live_"):
+    errors.append("YOOKASSA_SECRET_KEY must be a live_ production key, not a test credential")
 for key in ("EXTERNAL_YANDEX_ENABLED", "EXTERNAL_VK_ENABLED"):
     if app.get(key, "").lower() != "true":
         errors.append(f".env.production: {key}=true is required to enable the requested OAuth providers")
