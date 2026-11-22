@@ -38,9 +38,9 @@ n8n (localhost:5678) ← webhook-события (необязателен)
 | Команда | Что делает |
 |---|---|
 | `npm run dev` | dev-сервер Next.js на :3000 |
-| `npm run db:setup` | проверить PG → миграции → сиды → демо-юзеры → ключи |
+| `npm run db:setup` | проверить/запустить PG17 → миграции → ключи; demo seed только при `SEED_MODE=demo` |
 | `npm run db:start / db:stop / db:status` | встроенный PostgreSQL (без Docker) |
-| `npm run db:seed` | повторно применить сиды и демо-юзеров |
+| `npm run db:seed` | повторно применить demo seed и тестовые данные |
 | `npm run lint / typecheck / test` | качество кода |
 
 ---
@@ -166,13 +166,13 @@ order.created/paid/status_changed/cancelled, refund.created/completed,
 chat.message.created, inventory.low, service.booking.created).
 
 Для локальной разработки без Docker остаётся встроенный PostgreSQL
-(`npm run db:start`, порт 54329) и dev-приёмник n8n
+(`npm run db:start`, порт 54330) и dev-приёмник n8n
 (`mini-services/n8n-receiver`, тот же порт 5678).
 
 ## Структура проекта
 
 ```
-├── supabase/                  # миграции (0001..0047), compat-сиды, seed-данные витрины
+├── supabase/                  # все актуальные миграции, compat-сиды, seed-данные витрины
 ├── src/
 │   ├── app/
 │   │   ├── api/               # ~68 групп роутов: auth, orders, payment, chat,
@@ -200,7 +200,7 @@ chat.message.created, inventory.low, service.booking.created).
 ├── mobile-app/                # Expo React Native
 ├── scripts/                   # db/setup.mjs (db:setup), db/runtime.mjs (embedded PG), db-push.mjs (legacy deploy-контракт)
 ├── docs/                      # AUTH, DATABASE, ROLE_MATRIX, API_AUTH_MATRIX...
-├── docker-compose*.yml        # LEGACY deployment-тулинг (локальному запуску не нужен)
+├── docker-compose*.yml        # единый PG17 runtime + legacy профили
 └── Caddyfile                  # reverse-proxy (legacy deploy)
 ```
 
