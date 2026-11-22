@@ -1,5 +1,6 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
+  "name": "conditera",
+  "description": "Conditera marketplace with a unified Supabase PostgreSQL 17 runtime",
   "version": "0.2.0",
   "private": true,
   "engines": {
