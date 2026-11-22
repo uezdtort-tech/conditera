@@ -65,6 +65,48 @@ REVOKE ALL ON FUNCTION public.enforce_single_active_user_session(UUID, UUID)
 GRANT EXECUTE ON FUNCTION public.enforce_single_active_user_session(UUID, UUID)
   TO service_role;
 
+-- DB-level guard: any server-side session insert (not only the login helper)
+-- serializes by user and revokes previous devices in the same transaction.
+CREATE OR REPLACE FUNCTION public.revoke_previous_user_sessions_before_insert()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+  v_now TIMESTAMPTZ := now();
+BEGIN
+  IF NEW.user_id IS NULL OR NEW.id IS NULL THEN
+    RAISE EXCEPTION 'user_id and session id are required'
+      USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(NEW.user_id::text, 0));
+
+  WITH revoked AS (
+    UPDATE public.user_sessions
+    SET revoked_at = v_now, revoked_reason = 'replaced_by_new_login'
+    WHERE user_id = NEW.user_id
+      AND revoked_at IS NULL
+      AND expires_at > v_now
+    RETURNING id
+  )
+  INSERT INTO public.user_security_events (
+    user_id, session_id, event_type, severity, details
+  )
+  SELECT NEW.user_id, id, 'session_revoked', 'warning',
+    jsonb_build_object('reason', 'replaced_by_new_login', 'replacement_session_id', NEW.id)
+  FROM revoked;
+
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS user_sessions_exclusive_insert ON public.user_sessions;
+CREATE TRIGGER user_sessions_exclusive_insert
+  BEFORE INSERT ON public.user_sessions
+  FOR EACH ROW EXECUTE FUNCTION public.revoke_previous_user_sessions_before_insert();
+
 COMMENT ON FUNCTION public.enforce_single_active_user_session(UUID, UUID) IS
   'Enforces one active personal account session; a new login revokes prior device sessions atomically.';
 
