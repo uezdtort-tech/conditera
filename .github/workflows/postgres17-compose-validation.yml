@@ -159,7 +159,7 @@ jobs:
           from pathlib import Path
           services = json.loads(Path("/tmp/conditera-dev-compose.json").read_text())["services"]
           assert services["db-dev"]["image"] == "postgres:17-alpine"
-          assert services["n8n-dev"]["image"] == "n8nio/n8n:1.95.0"
+          assert services["n8n-dev"]["image"] == "n8nio/n8n:2.48.7"
           ports = services["n8n-dev"]["ports"]
           assert len(ports) == 1 and ports[0].get("host_ip") == "127.0.0.1"
           print("Development Compose PASS: PostgreSQL 17 and local-only n8n.")
