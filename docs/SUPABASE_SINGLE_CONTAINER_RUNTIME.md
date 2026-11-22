@@ -53,7 +53,9 @@ Runtime использует отдельные именованные volumes:
 - `conditera_product_media` — локальные файлы карточек/медиа товаров, `PRODUCT_MEDIA_ROOT=/app/storage`;
 - `conditera_backups` — архивы `pg_dump`, `BACKUP_DIR=/app/backups`.
 
-Два последних тома подключены к web-контейнеру отдельно от его writable layer: обновление или пересоздание контейнера не должно удалять медиа и архивы.
+`supabase_runtime_storage_data` дополнительно подключается к web-контейнеру read-only по пути `/app/supabase-storage`, чтобы backup мог включить оригинальные пользовательские файлы без права изменять Storage.
+
+Три файловых компонента полного backup — SQL dump, архив `conditera_product_media` и архив `supabase_runtime_storage_data` — объединяются manifest-файлом с SHA-256 и размерами. Все тома подключены отдельно от writable layer web-контейнера: обновление или пересоздание контейнера не должно удалять медиа и архивы.
 
 **Владелец подтвердил, что обе прежние БД пустые и пользовательских данных нет. Перенос/слияние не выполняется.** На production создаётся новый `supabase_runtime_pg17_data`, инициализируемый PostgreSQL 17 с нуля. Не подключать к нему PGDATA от PostgreSQL 15/18: major-версии несовместимы. Текущий CI проверяет чистые disposable volumes, применение миграций и полные бизнес-сценарии на PostgreSQL 17.
 
