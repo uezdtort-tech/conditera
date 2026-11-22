@@ -156,6 +156,13 @@ export async function POST(req: Request): Promise<NextResponse> {
         console.error("[notifications/send] delivery status lookup failed:", statusError?.message);
         return NextResponse.json({ error: "Не удалось подтвердить доставку уведомлений" }, { status: 502 });
       }
+      if (rows.length !== notificationIds.notificationIds.length) {
+        console.error("[notifications/send] notification status count mismatch", {
+          expected: notificationIds.notificationIds.length,
+          actual: rows.length,
+        });
+        return NextResponse.json({ error: "Не удалось подтвердить сохранение всех уведомлений" }, { status: 502 });
+      }
 
       const failed = rows.filter((row) => row.status === "failed");
       if (failed.length > 0) {
