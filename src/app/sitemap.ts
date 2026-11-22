@@ -12,7 +12,6 @@
 import type { MetadataRoute } from "next";
 import { MOCK_CONFECTIONERS } from "@/lib/mock-data";
 import { MOCK_RECIPES } from "@/lib/mock-data-extra";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -43,6 +42,7 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
   // populate verified profiles after the production runtime has its real secrets.
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return [];
   try {
+    const { supabaseAdmin } = await import("@/lib/supabase/admin");
     const { data, error } = await supabaseAdmin
       .from("confectioners")
       .select("id, slug, updatedAt")
