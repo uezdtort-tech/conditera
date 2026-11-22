@@ -439,6 +439,23 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      - name: Create least-privilege PostgreSQL 17 backup role
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --set=backup_password="$BACKUP_DATABASE_PASSWORD" <<'SQL'
+          SELECT 'CREATE ROLE conditera_backup LOGIN'
+          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \\gexec
+          ALTER ROLE conditera_backup WITH LOGIN PASSWORD :'backup_password'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS;
+          GRANT CONNECT ON DATABASE conditera TO conditera_backup;
+          GRANT pg_read_all_data TO conditera_backup;
+          SQL
+          echo "BACKUP_DATABASE_PASSWORD=$BACKUP_DATABASE_PASSWORD" >> "$GITHUB_ENV"
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
       - name: Export generated Supabase service-role key
         shell: bash
         run: |
@@ -672,7 +689,7 @@ jobs:
             -e PORT=3000 \
             -e HOSTNAME=0.0.0.0 \
             -e DATABASE_URL="$DATABASE_URL" \
-            -e BACKUP_DATABASE_URL="$DATABASE_URL" \
+            -e BACKUP_DATABASE_URL="postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
             -e BACKUP_DIR=/app/backups \
             -e NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
             -e NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
