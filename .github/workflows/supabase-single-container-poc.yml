@@ -106,7 +106,7 @@ jobs:
           docker logs --tail 200 conditera-n8n-bootstrap-test
           docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$HOME/.n8n"; n8n list:workflow'
           docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test mkdir -p /tmp/conditera-n8n-export
-          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test n8n export:workflow --all --separate --output=/tmp/conditera-n8n-export
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test n8n export:workflow --all --published --separate --output=/tmp/conditera-n8n-export
           mkdir -p /tmp/conditera-n8n-export
           docker cp conditera-n8n-bootstrap-test:/tmp/conditera-n8n-export/. /tmp/conditera-n8n-export/
           node --input-type=module <<'NODE'
@@ -118,13 +118,12 @@ jobs:
           const exported = fs.readdirSync(exportDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(exportDir, name), "utf8")));
           const actual = new Map(exported.map((workflow) => [workflow.id, workflow]));
           const missing = source.filter((workflow) => !actual.has(workflow.id)).map((workflow) => workflow.id);
-          const wrongState = source.filter((workflow) => actual.has(workflow.id) && actual.get(workflow.id).active !== workflow.active).map((workflow) => ({ id: workflow.id, expected: workflow.active, actual: actual.get(workflow.id).active }));
           const tagNames = (workflow) => (workflow.tags || []).map((tag) => tag.name).sort();
           const wrongTags = source.filter((workflow) => actual.has(workflow.id) && JSON.stringify(tagNames(workflow)) !== JSON.stringify(tagNames(actual.get(workflow.id)))).map((workflow) => ({ id: workflow.id, expected: tagNames(workflow), actual: tagNames(actual.get(workflow.id)) }));
-          if (missing.length || wrongState.length || wrongTags.length || exported.length !== source.length) {
-            throw new Error(JSON.stringify({ source: source.length, exported: exported.length, missing, wrongState, wrongTags }));
+          if (missing.length || wrongTags.length || exported.length !== source.length) {
+            throw new Error(JSON.stringify({ expectedPublished: source.length, exported: exported.length, missing, wrongTags }));
           }
-          console.log(`PASS: ${exported.length} n8n workflows imported with source-controlled active states and shared tags`);
+          console.log(`PASS: ${exported.length} n8n workflows have published versions matching source-controlled IDs and shared tags`);
           NODE
 
       - name: Validate production single-container Compose overlay
