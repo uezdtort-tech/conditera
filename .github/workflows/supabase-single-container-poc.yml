@@ -26,6 +26,9 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
+      - name: Validate PostgreSQL backup-role init script syntax
+        run: bash -n supabase/init-scripts/03-backup-role.sh
+
 
       - name: Validate production single-container Compose overlay
         env:
@@ -176,7 +179,8 @@ jobs:
           set -Eeuo pipefail
           BACKUP_DATABASE_PASSWORD="$(grep '^BACKUP_DATABASE_PASSWORD=' /tmp/runtime.env | cut -d= -f2-)"
           docker exec -e PGPASSWORD="$BACKUP_DATABASE_PASSWORD" conditera-supabase-runtime-poc \
-            pg_dump --host 127.0.0.1 --port 5432 --username conditera_backup \
+            /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 pg_dump \
+              --host 127.0.0.1 --port 5432 --username conditera_backup \
               --dbname supabase --no-owner --no-privileges > /tmp/supabase-runtime-backup.sql
           test -s /tmp/supabase-runtime-backup.sql
           grep -q 'CREATE TABLE auth.users' /tmp/supabase-runtime-backup.sql
