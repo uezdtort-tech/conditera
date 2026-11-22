@@ -45,7 +45,7 @@ jobs:
   validate-compose:
     runs-on: ubuntu-latest
     env:
-      POSTGRES_PASSWORD: ci-only-postgres-password
+      POSTGRES_PASSWORD: ci-only-postgres-password-at-least-32-characters
       JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
       ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
       SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
@@ -62,21 +62,37 @@ jobs:
         run: |
           set -Eeuo pipefail
           trap 'rm -f .env.production .env.supabase-runtime' EXIT
+          make_test_jwt() {
+            python3 - "$JWT_SECRET" "$1" <<'PY'
+          import base64, hashlib, hmac, json, sys, time
+          secret, role = sys.argv[1], sys.argv[2]
+          def b64(value):
+              return base64.urlsafe_b64encode(value).decode().rstrip("=")
+          header = b64(json.dumps({"alg":"HS256","typ":"JWT"}, separators=(",",":")).encode())
+          now = int(time.time())
+          payload = b64(json.dumps({"iss":"supabase-demo","role":role,"iat":now,"exp":now+315360000}, separators=(",",":")).encode())
+          message = f"{header}.{payload}"
+          signature = b64(hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest())
+          print(f"{message}.{signature}")
+          PY
+          }
+          ANON_KEY="$(make_test_jwt anon)"
+          SERVICE_ROLE_KEY="$(make_test_jwt service_role)"
           cat > .env.production <<EOF
           POSTGRES_PASSWORD=$POSTGRES_PASSWORD
           JWT_SECRET=$JWT_SECRET
           JWT_REFRESH_SECRET=ci-refresh-secret-which-is-not-used-for-real-auth
-          TFA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef
+          TFA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           CRON_SECRET=ci-cron-secret-for-compose-validation
           BOT_SECRET=ci-bot-secret-for-compose-validation
           IP_HASH_SALT=ci-ip-hash-salt
           MEILI_MASTER_KEY=ci-meili-master-key-32-characters-long
-          N8N_ADMIN_PASSWORD=ci-n8n-admin-password
+          N8N_ADMIN_PASSWORD=ci-n8n-admin-password-long-enough-for-production-config-check
           SMTP_HOST=localhost
           SMTP_PORT=587
           SMTP_FROM=noreply@conditera.ru
           YOOKASSA_SHOP_ID=ci-shop-id
-          YOOKASSA_SECRET_KEY=ci-yookassa-secret
+          YOOKASSA_SECRET_KEY=live_ci_yookassa_secret
           YANDEX_CLIENT_ID=ci-yandex-client
           YANDEX_CLIENT_SECRET=ci-yandex-secret
           VK_CLIENT_ID=ci-vk-client
