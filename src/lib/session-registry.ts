@@ -2,6 +2,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type SessionAuthMethod = "password" | "oauth" | "two_factor" | "registration" | "dev";
 
+export const NEW_DEVICE_LOGIN_BLOCKED = "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT";
+export const SESSION_POLICY_UNAVAILABLE = "ACCOUNT_SESSION_POLICY_UNAVAILABLE";
+
 const SESSION_TTL_DAYS = 30;
 
 function requestMetadata(request?: Request) {
@@ -40,11 +43,75 @@ export async function createUserSession(
     .order("last_seen_at", { ascending: false })
     .limit(10);
   if (historyError) {
+    // Fail closed: без достоверной проверки активного устройства нельзя
+    // разрешать новый вход и тем самым обходить персональную защиту аккаунта.
     console.error("[session-registry] prior-session lookup failed:", historyError.message);
+    throw new Error(SESSION_POLICY_UNAVAILABLE);
   }
   const newDevice = Boolean(previousSessions?.length && !previousSessions.some(
     (session) => session.user_agent === userAgent && session.ip_address === ip
   ));
+
+  if (newDevice) {
+    const deviceDetails = {
+      event_type: "new_device_login_blocked",
+      ip_address: ip,
+      user_agent: userAgent,
+      device_label: deviceLabel,
+      auth_method: authMethod,
+      previous_active_sessions: previousSessions?.length || 0,
+      policy: "existing_device_must_end_session_before_device_change",
+    };
+    const { error: eventError } = await supabaseAdmin.from("user_security_events").insert({
+      user_id: userId,
+      session_id: null,
+      event_type: "new_device_login_blocked",
+      severity: "warning",
+      ip_address: ip,
+      user_agent: userAgent,
+      details: deviceDetails,
+    });
+    if (eventError) {
+      console.error("[session-registry] blocked-device event write failed:", eventError.message);
+      throw new Error(SESSION_POLICY_UNAVAILABLE);
+    }
+
+    const { error: notificationError } = await supabaseAdmin.from("notifications").insert({
+      user_id: userId,
+      type: "security_alert",
+      channel: "in_app",
+      status: "queued",
+      title: "Заблокирован вход с нового устройства",
+      body: `Попытка входа с нового устройства (${deviceLabel}) отклонена: сначала завершите активный сеанс на прежнем устройстве.`,
+      metadata: deviceDetails,
+    });
+    if (notificationError) {
+      console.error("[session-registry] blocked-device notification failed:", notificationError.message);
+    }
+
+    const eventDate = new Date().toISOString().slice(0, 10);
+    const { error: taskError } = await supabaseAdmin.from("ops_tasks").upsert({
+      dedup_key: `ACCOUNT_NEW_DEVICE_BLOCKED:${userId}:${eventDate}`,
+      type: "ACCOUNT_NEW_DEVICE",
+      severity: "important",
+      title: "Проверить заблокированную попытку входа с нового устройства",
+      description: `Пользователь ${userId}: ${deviceLabel}; IP: ${ip ?? "не определён"}. Активный сеанс на прежнем устройстве не был завершён.`,
+      entity_type: "user",
+      entity_id: userId,
+      assignee_role: "ADMIN",
+      payload: deviceDetails,
+      status: "open",
+      source: "security",
+    }, { onConflict: "dedup_key" });
+    if (taskError) {
+      console.error("[session-registry] blocked-device admin task failed:", taskError.message);
+    }
+
+    // Не создаём новую сессию и не отзываем действующую. Для смены устройства
+    // владелец сначала завершает прежний сеанс или обращается в поддержку.
+    throw new Error(NEW_DEVICE_LOGIN_BLOCKED);
+  }
+
   const { error } = await supabaseAdmin.from("user_sessions").insert({
     id: sessionId,
     user_id: userId,
