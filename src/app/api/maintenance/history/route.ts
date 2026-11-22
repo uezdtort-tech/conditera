@@ -166,6 +166,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       if (action === "backup") {
         const result = await runFullBackup();
+        if (!result.success) {
+          throw new Error(result.errorMessage || "Backup service did not confirm a completed PostgreSQL dump");
+        }
         await supabaseAdmin
           .from("maintenance_logs")
           .update({
