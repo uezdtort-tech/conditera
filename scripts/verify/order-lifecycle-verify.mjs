@@ -1431,6 +1431,23 @@ async function main() {
   const directInsertRevokedToken = await api("GET", "/api/auth/sessions", { token: activeParallelToken });
   assert("прямой DB INSERT немедленно инвалидирует прежний JWT → 401",
     directInsertRevokedToken.status === 401);
+  const revokedSessionRow = await client.query(
+    `SELECT id FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NOT NULL
+      ORDER BY revoked_at DESC LIMIT 1`,
+    [CUSTOMER_ID],
+  );
+  let reactivationState = "";
+  try {
+    await client.query(
+      `UPDATE public.user_sessions SET revoked_at = NULL WHERE id = $1::uuid`,
+      [revokedSessionRow.rows[0]?.id],
+    );
+  } catch (error) {
+    reactivationState = error.code;
+  }
+  assert("БД запрещает повторно активировать отозванную сессию (SQLSTATE 55000)",
+    reactivationState === "55000", reactivationState);
 }
 
 main()
