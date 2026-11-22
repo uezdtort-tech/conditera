@@ -13,52 +13,62 @@ const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 // ===== Группа: Public pages =====
 test.describe("Public pages — должны возвращать 200", () => {
   test("homepage loads", async ({ page }) => {
-    await page.goto(BASE_URL);
+    const response = await page.goto(BASE_URL);
+    expect(response?.status()).toBe(200);
     await expect(page).toHaveTitle(/Уездный кондитер/i);
   });
 
   test("catalog page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/catalog`);
+    const response = await page.goto(`${BASE_URL}/catalog`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("confectioners page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/confectioners`);
+    const response = await page.goto(`${BASE_URL}/confectioners`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("recipes page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/recipes`);
+    const response = await page.goto(`${BASE_URL}/recipes`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("blog page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/blog`);
+    const response = await page.goto(`${BASE_URL}/blog`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("faq page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/faq`);
+    const response = await page.goto(`${BASE_URL}/faq`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("help page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/help`);
+    const response = await page.goto(`${BASE_URL}/help`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("about page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/about`);
+    const response = await page.goto(`${BASE_URL}/about`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("contacts page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/contacts`);
+    const response = await page.goto(`${BASE_URL}/contacts`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
   test("checkout page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/checkout`);
+    const response = await page.goto(`${BASE_URL}/checkout`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 });
@@ -66,7 +76,8 @@ test.describe("Public pages — должны возвращать 200", () => {
 // ===== Группа: Auth flow =====
 test.describe("Auth flow", () => {
   test("login page loads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/login`);
+    const response = await page.goto(`${BASE_URL}/login`);
+    expect(response?.status()).toBe(200);
     await expect(page.locator("body")).toBeVisible();
   });
 
@@ -183,6 +194,29 @@ test.describe("Sensitive endpoints — Cache-Control no-store", () => {
   });
 });
 
+// ===== Группа: Runtime quality and performance =====
+test.describe("Runtime quality and performance", () => {
+  test("homepage renders within the basic performance budget without uncaught JavaScript errors", async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    const response = await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
+    expect(response?.status()).toBe(200);
+    await expect(page.locator("body")).toBeVisible();
+
+    const timing = await page.evaluate(() => {
+      const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
+      return {
+        responseStart: navigation.responseStart,
+        domContentLoaded: navigation.domContentLoadedEventEnd,
+      };
+    });
+    expect(timing.responseStart).toBeLessThan(6000);
+    expect(timing.domContentLoaded).toBeLessThan(10000);
+    expect(pageErrors).toEqual([]);
+  });
+});
+
 // ===== Группа: SEO =====
 test.describe("SEO", () => {
   test("robots.txt is accessible", async ({ request }) => {
@@ -246,7 +280,8 @@ test.describe("Mobile responsive", () => {
     ];
 
     for (const route of routes) {
-      await page.goto(`${BASE_URL}${route}`);
+      const response = await page.goto(`${BASE_URL}${route}`);
+      expect(response?.status(), `Unexpected HTTP status on mobile route ${route}`).toBe(200);
       await expect(page.locator("body")).toBeVisible();
       await page.waitForLoadState("domcontentloaded");
       const dimensions = await page.evaluate(() => ({
