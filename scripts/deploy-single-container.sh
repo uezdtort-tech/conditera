@@ -84,6 +84,7 @@ runtime = read_env(sys.argv[2])
 required_app = [
     "POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "TFA_ENCRYPTION_KEY",
     "CRON_SECRET", "BOT_SECRET", "IP_HASH_SALT", "MEILI_MASTER_KEY",
+    "N8N_WEBHOOK_SECRET", "N8N_ENCRYPTION_KEY",
     "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD",
     "YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET", "YANDEX_OAUTH_REDIRECT",
@@ -116,6 +117,10 @@ for key in ("POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "CRON_SECRE
     value = app.get(key, "")
     if value and len(value) < 32:
         errors.append(f".env.production: {key} must contain at least 32 characters")
+
+n8n_encryption_key = app.get("N8N_ENCRYPTION_KEY", "")
+if n8n_encryption_key and (len(n8n_encryption_key) != 64 or not re.fullmatch(r"[0-9a-fA-F]{64}", n8n_encryption_key)):
+    errors.append("N8N_ENCRYPTION_KEY must be 64 hexadecimal characters")
 if app.get("JWT_SECRET") == app.get("JWT_REFRESH_SECRET"):
     errors.append("JWT_REFRESH_SECRET must be different from JWT_SECRET")
 tfa_key = app.get("TFA_ENCRYPTION_KEY", "")
