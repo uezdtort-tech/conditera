@@ -93,6 +93,7 @@ jobs:
           export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
           export POSTGRES_PASSWORD="ci-only-postgres-password"
           export APP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
           export REALTIME_DB_ENC_KEY="0123456789abcdef"
@@ -117,6 +118,7 @@ jobs:
           values = {
               "POSTGRES_PASSWORD":os.environ["POSTGRES_PASSWORD"],
               "APP_DATABASE_PASSWORD":os.environ["APP_DATABASE_PASSWORD"],
+              "BACKUP_DATABASE_PASSWORD":os.environ["BACKUP_DATABASE_PASSWORD"],
               "JWT_SECRET":os.environ["JWT_SECRET"],
               "ANON_KEY":jwt("anon"),
               "SERVICE_ROLE_KEY":jwt("service_role"),
