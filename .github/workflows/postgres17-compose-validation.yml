@@ -1,5 +1,9 @@
 name: PostgreSQL 17 migration Compose validation
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
