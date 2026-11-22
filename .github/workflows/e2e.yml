@@ -418,6 +418,27 @@ jobs:
           path: .next
           key: nextjs-build-${{ github.sha }}
 
+      - name: Provision Supabase compatibility administrator on PostgreSQL 15
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='supabase_admin'");
+            if (exists.rowCount === 0) {
+              await db.query("CREATE ROLE supabase_admin WITH LOGIN SUPERUSER");
+            }
+            const role = await db.query("SELECT rolsuper FROM pg_roles WHERE rolname='supabase_admin'");
+            if (role.rows[0]?.rolsuper !== true) throw new Error("supabase_admin must be a superuser in the vanilla PostgreSQL compatibility test");
+            console.log("PASS: Supabase compatibility administrator exists");
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
       - name: Apply all migrations and seed isolated PostgreSQL 15
         run: bun run db:setup
         env:
@@ -449,11 +470,12 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
-      - name: Create least-privilege PostgreSQL 17 backup role
+      - name: Create least-privilege PostgreSQL 15 backup role
         shell: bash
         run: |
           set -Eeuo pipefail
           BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export BACKUP_DATABASE_PASSWORD
           node --input-type=module <<'NODE'
           import { Client } from "pg";
           const password = process.env.BACKUP_DATABASE_PASSWORD;
