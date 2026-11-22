@@ -267,10 +267,10 @@ $composePg17Services = ""
 $composeAppImages = ""
 $composeSupabaseImages = ""
 $composePg17Images = ""
-try { $composeAppServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.yml", "config", "--services")) } catch { $composeAppServices = "ERROR: " + $_.Exception.Message }
-try { $composeSupabaseServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "config", "--services")) } catch { $composeSupabaseServices = "ERROR: " + $_.Exception.Message }
-try { $composeAppImages = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.yml", "config", "--images")) } catch { $composeAppImages = "ERROR: " + $_.Exception.Message }
-try { $composeSupabaseImages = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "config", "--images")) } catch { $composeSupabaseImages = "ERROR: " + $_.Exception.Message }
+try { $composeAppServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("--profile", "legacy-app-db", "-f", "docker-compose.yml", "config", "--services")) } catch { $composeAppServices = "ERROR: " + $_.Exception.Message }
+try { $composeSupabaseServices = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("--profile", "legacy-supabase", "-f", "docker-compose.supabase.yml", "config", "--services")) } catch { $composeSupabaseServices = "ERROR: " + $_.Exception.Message }
+try { $composeAppImages = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("--profile", "legacy-app-db", "-f", "docker-compose.yml", "config", "--images")) } catch { $composeAppImages = "ERROR: " + $_.Exception.Message }
+try { $composeSupabaseImages = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("--profile", "legacy-supabase", "-f", "docker-compose.supabase.yml", "config", "--images")) } catch { $composeSupabaseImages = "ERROR: " + $_.Exception.Message }
 try { $composePg17Services = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "-f", "docker-compose.pg17-migration.yml", "--profile", "pg17-migration", "config", "--services")) } catch { $composePg17Services = "ERROR: " + $_.Exception.Message }
 try { $composePg17Images = Invoke-DockerText -Arguments (@("compose") + $composeEnvArgs + @("-f", "docker-compose.supabase.yml", "-f", "docker-compose.pg17-migration.yml", "--profile", "pg17-migration", "config", "--images")) } catch { $composePg17Images = "ERROR: " + $_.Exception.Message }
 
