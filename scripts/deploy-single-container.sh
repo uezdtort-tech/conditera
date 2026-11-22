@@ -85,7 +85,8 @@ required_app = [
     "CRON_SECRET", "BOT_SECRET", "IP_HASH_SALT", "MEILI_MASTER_KEY",
     "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD",
     "YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY",
-    "YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET", "VK_CLIENT_ID",
+    "YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET", "YANDEX_OAUTH_REDIRECT",
+    "VK_CLIENT_ID", "VK_OAUTH_REDIRECT",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL_ID", "TELEGRAM_WEBHOOK_SECRET",
     "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY",
     "NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_SUPABASE_URL",
@@ -134,6 +135,13 @@ def decode_jwt(token):
     if int(payload.get("exp", 0)) <= int(time.time()):
         raise ValueError("JWT is expired")
     return payload
+
+app_url = app.get("NEXT_PUBLIC_APP_URL", "").rstrip("/")
+for provider in ("yandex", "vk"):
+    key = f"{provider.upper()}_OAUTH_REDIRECT"
+    expected = f"{app_url}/api/auth/oauth/{provider}/callback"
+    if app.get(key, "").rstrip("/") != expected:
+        errors.append(f".env.production: {key} must equal {expected}")
 
 for key, expected_role in (("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon"),
                            ("SUPABASE_SERVICE_ROLE_KEY", "service_role")):
