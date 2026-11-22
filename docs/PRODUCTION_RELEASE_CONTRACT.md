@@ -26,7 +26,7 @@
 - Отдельный runtime smoke подтверждает сборку/запуск единого Supabase контейнера, Auth signup, REST/OpenAPI, Realtime health и Storage upload/download.
 - Эти проверки не равны production deployment. До публичного запуска обязательны нагрузочная проверка, проверка restart/recovery каждого supervised процесса, security review, DNS/TLS, реальные OAuth/YooKassa/Telegram credentials и контрольный заказ.
 - Известные ограничения POC: часть Edge Functions возвращает not_implemented, Telegram notification channel требует настройки, Telegram/YooKassa webhooks должны идти через защищённые Next.js API routes. Нельзя объявлять все интеграции готовыми по факту успешного PG17 smoke.
-- Старые deploy.yml и scripts/deploy.sh не считать каноническим способом запуска единого runtime. Production запускается через launcher на целевом локальном Windows-компьютере владельца; CI не разворачивает систему вместо него.
+- scripts/deploy.sh — канонический локальный production launcher: он проверяет env-файлы, собирает единый runtime, ждёт PG17 и Next.js health, проверяет миграционный ledger. .github/workflows/deploy.yml остаётся заблокированным, потому что он рассчитан на удалённый VPS, а целевой хост — локальный Windows-компьютер владельца. CI не разворачивает систему вместо него.
 
 ## 2. OAuth — обязательные провайдеры
 
