@@ -3,7 +3,8 @@
 set -eu
 
 IMPORT_DIR="${N8N_WORKFLOWS_DIR:-/imports}"
-USER_DIR="${N8N_USER_FOLDER:-/home/node/.n8n}"
+USER_FOLDER="${N8N_USER_FOLDER:-/home/node}"
+USER_DIR="$USER_FOLDER/.n8n"
 PORT="${N8N_PORT:-5678}"
 MARKER="$USER_DIR/.conditera-workflows.sha256"
 IDS_MARKER="$USER_DIR/.conditera-workflow-ids"
