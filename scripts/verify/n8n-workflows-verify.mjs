@@ -57,6 +57,18 @@ for (const [file, expectedCron] of activeWorkflows) {
     throw new Error(`${file}: expected deterministic schedule ${expectedCron}`);
   }
 
+  const blockedNodeTypes = new Set([
+    "n8n-nodes-base.code",
+    "n8n-nodes-base.executeCommand",
+    "n8n-nodes-base.readWriteFile",
+    "n8n-nodes-base.readBinaryFiles",
+    "n8n-nodes-base.ssh",
+  ]);
+  const blockedNodes = workflow.nodes.filter((node) => blockedNodeTypes.has(node.type));
+  if (blockedNodes.length) {
+    throw new Error(`${file}: environment access is enabled only for trusted expressions; blocked nodes: ${blockedNodes.map((node) => node.name).join(", ")}`);
+  }
+
   const httpNodes = workflow.nodes.filter((node) => node.type === "n8n-nodes-base.httpRequest");
   if (httpNodes.length === 0) throw new Error(`${file}: no HTTP request nodes found`);
 
