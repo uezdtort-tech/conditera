@@ -159,6 +159,44 @@ describe("POST /api/notifications/send — trusted cron delivery", () => {
     expect(await response.json()).toMatchObject({ success: true, skipped: true, notificationIds: [] });
   });
 
+  it("keeps quiet-hours notifications retryable while every delivery channel is queued", async () => {
+    mocks.in.mockResolvedValue({
+      data: [{ id: "notification-queued", channel: "email", status: "queued" }],
+      error: null,
+    });
+
+    const response = await POST(request({
+      userId: USER_ID,
+      template: "ABANDONED_CART",
+      dedupKey: "abandoned-cart:cart-log-uuid",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      skipped: true,
+      scheduled: true,
+      channels: [{ channel: "email", status: "queued" }],
+    });
+  });
+
+  it("does not confirm a queued deduplicated notification as already delivered", async () => {
+    mocks.sendNotification.mockResolvedValue({ notificationIds: [] });
+    mocks.limit.mockResolvedValue({
+      data: [{ id: "notification-queued", channel: "email", status: "queued" }],
+      error: null,
+    });
+
+    const response = await POST(request({
+      userId: USER_ID,
+      template: "ABANDONED_CART",
+      dedupKey: "abandoned-cart:cart-log-uuid",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, skipped: true, notificationIds: [] });
+  });
+
   it("rejects malformed user identifiers before invoking the delivery engine", async () => {
     const response = await POST(request({
       userId: "not-a-uuid",
