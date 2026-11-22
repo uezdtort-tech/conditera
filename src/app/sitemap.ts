@@ -36,7 +36,7 @@ const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "wee
 
 /**
  * Загрузить верифицированных кондитеров из Supabase (camelCase columns, migration 0017).
- * В development допускается mock fallback; production при ошибке или пустой БД возвращает пустой список.
+ * Mock fallback разрешён только в development; test и production используют исключительно реальные данные.
  */
 async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string; updatedAt: string }[]> {
   try {
@@ -46,7 +46,7 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
       .eq("verified", true);
     if (error) {
       console.warn("[sitemap] Supabase query failed:", error.message);
-      if (process.env.NODE_ENV === "production") return [];
+      if (process.env.NODE_ENV !== "development") return [];
       return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
         id: c.id,
         slug: c.slug,
@@ -54,7 +54,7 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
       }));
     }
     if (!data || data.length === 0) {
-      if (process.env.NODE_ENV === "production") return [];
+      if (process.env.NODE_ENV !== "development") return [];
       return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
         id: c.id,
         slug: c.slug,
@@ -64,7 +64,7 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
     return data as { id: string; slug: string; updatedAt: string }[];
   } catch (e) {
     console.warn("[sitemap] Confectioners fetch exception:", (e as Error).message);
-    if (process.env.NODE_ENV === "production") return [];
+    if (process.env.NODE_ENV !== "development") return [];
     return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
       id: c.id,
       slug: c.slug,
@@ -107,7 +107,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // 3. Демонстрационные рецепты не публикуются в production sitemap.
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV === "development") {
     try {
       for (const r of MOCK_RECIPES) {
         entries.push({
