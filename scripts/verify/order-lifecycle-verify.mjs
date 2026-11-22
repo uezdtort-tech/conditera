@@ -1394,14 +1394,37 @@ async function main() {
   assert("для заблокированной попытки создаётся задача контроля аккаунта",
     newDeviceAdminTask.rows[0]?.count >= 1);
 
+  // Владелец завершает свой сеанс на старом устройстве — только после этого
+  // разрешается контролируемый перенос аккаунта на новое устройство.
+  const ownerLogout = await api("POST", "/api/auth/logout", { token: customer });
+  assert("владелец может завершить текущий сеанс перед сменой устройства",
+    ownerLogout.status === 200 && ownerLogout.json?.ok === true,
+    JSON.stringify(ownerLogout.json));
+  const approvedDeviceLogin = await api("POST", "/api/auth/login", {
+    body: { email: customerEmail, password: PASSWORD },
+    extraHeaders: {
+      "x-real-ip": "10.241.242.243",
+      "user-agent": "Conditera-E2E-New-Device/1.0",
+    },
+  });
+  assert("смена устройства разрешена после добровольного завершения прежнего сеанса",
+    approvedDeviceLogin.status === 200 && Boolean(approvedDeviceLogin.json?.accessToken),
+    JSON.stringify(approvedDeviceLogin.json));
+  const oldOwnerTokenAfterLogout = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("старый JWT владельца недействителен после logout → 401",
+    oldOwnerTokenAfterLogout.status === 401);
+  customer = approvedDeviceLogin.json.accessToken;
+
   // Одновременные входы с одного уже известного устройства: advisory lock
   // должен оставить действительной ровно одну из параллельно созданных сессий.
   const [parallelLoginA, parallelLoginB] = await Promise.all([
     api("POST", "/api/auth/login", {
       body: { email: customerEmail, password: PASSWORD },
+      extraHeaders: { "x-real-ip": "10.241.242.243", "user-agent": "Conditera-E2E-New-Device/1.0" },
     }),
     api("POST", "/api/auth/login", {
       body: { email: customerEmail, password: PASSWORD },
+      extraHeaders: { "x-real-ip": "10.241.242.243", "user-agent": "Conditera-E2E-New-Device/1.0" },
     }),
   ]);
   assert("конкурентные входы с известного устройства: один 200, второй 409",
