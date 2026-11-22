@@ -13,10 +13,10 @@
  *   node scripts/db/runtime.mjs stop     — остановить (pg_ctl -m fast + fallback)
  *   node scripts/db/runtime.mjs restart  — stop + start
  *   node scripts/db/runtime.mjs status   — pid-файл + TCP-проверка
- *   node scripts/db/runtime.mjs logs     — хвост .pgdata/server.log
+ *   node scripts/db/runtime.mjs logs     — хвост .pgdata-pg17/server.log
  *
- * Порт по умолчанию: 54329 (специально НЕ 5432, чтобы не конфликтовать
- * с пользовательским PostgreSQL). Переопределяется CONDITERA_PG_PORT.
+ * PostgreSQL 17. Порт по умолчанию: 54330, каталог .pgdata-pg17.
+ * Старый PG18 в .pgdata на порту 54329 не переиспользуется. Переопределяется CONDITERA_PG_PORT.
  *
  * ВАЖНО: команды управляют ТОЛЬКО встроенным экземпляром. Если DATABASE_URL
  * указывает на другой сервер — выводится предупреждение, но embedded
