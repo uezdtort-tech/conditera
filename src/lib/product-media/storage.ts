@@ -151,7 +151,7 @@ export async function removeFileQuiet(absPath: string): Promise<boolean> {
  * (pending/published × photos/videos).
  */
 export async function ensureProductDirs(productId: string): Promise<void> {
-  const base = path.join(path.resolve(STORAGE_ROOT), "products", productId);
+  const base = path.join(path.resolve(/*turbopackIgnore: true*/ STORAGE_ROOT), "products", productId);
   await Promise.all([
     fsp.mkdir(path.join(base, "pending", "photos"), { recursive: true }),
     fsp.mkdir(path.join(base, "pending", "videos"), { recursive: true }),
