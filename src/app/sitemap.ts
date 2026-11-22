@@ -10,7 +10,7 @@
  * В production sitemap никогда не публикует mock-профили или демонстрационные записи.
  */
 import type { MetadataRoute } from "next";
-import { CATEGORIES, MOCK_CONFECTIONERS } from "@/lib/mock-data";
+import { MOCK_CONFECTIONERS } from "@/lib/mock-data";
 import { MOCK_RECIPES } from "@/lib/mock-data-extra";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -26,26 +26,12 @@ const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "wee
   { path: "", priority: 1.0, changeFreq: "daily" },
   { path: "catalog", priority: 0.9, changeFreq: "daily" },
   { path: "confectioners", priority: 0.9, changeFreq: "daily" },
-  { path: "cake-builder", priority: 0.9, changeFreq: "weekly" },
-  { path: "promotions", priority: 0.8, changeFreq: "weekly" },
-  { path: "recipes", priority: 0.8, changeFreq: "weekly" },
   { path: "ready-made", priority: 0.7, changeFreq: "weekly" },
-  { path: "corporate-events", priority: 0.7, changeFreq: "monthly" },
-  { path: "decor-shop", priority: 0.7, changeFreq: "weekly" },
-  { path: "services-shop", priority: 0.7, changeFreq: "weekly" },
-  { path: "venues", priority: 0.7, changeFreq: "weekly" },
-  { path: "supplier-shop", priority: 0.7, changeFreq: "weekly" },
-  { path: "gift-certificates", priority: 0.6, changeFreq: "monthly" },
   { path: "for-confectioners", priority: 0.6, changeFreq: "monthly" },
   { path: "for-suppliers", priority: 0.6, changeFreq: "monthly" },
-  { path: "tenders", priority: 0.6, changeFreq: "weekly" },
-  { path: "blog", priority: 0.7, changeFreq: "weekly" },
-  { path: "reviews", priority: 0.6, changeFreq: "weekly" },
   { path: "faq", priority: 0.5, changeFreq: "monthly" },
   { path: "about", priority: 0.5, changeFreq: "monthly" },
   { path: "contacts", priority: 0.5, changeFreq: "monthly" },
-  { path: "help", priority: 0.5, changeFreq: "monthly" },
-  { path: "telegram-bot", priority: 0.4, changeFreq: "monthly" },
 ];
 
 /**
@@ -101,21 +87,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   }
 
-  // 2. Категории каталога
-  try {
-    for (const cat of CATEGORIES) {
-      entries.push({
-        url: `${APP_URL}/catalog?category=${cat.slug}`,
-        lastModified: now,
-        changeFrequency: "weekly" as const,
-        priority: 0.6,
-      });
-    }
-  } catch (e) {
-    console.warn("[sitemap] Categories failed:", (e as Error).message);
-  }
-
-  // 3. Профили верифицированных кондитеров (в production — только Supabase)
+  // 2. Профили верифицированных кондитеров (в production — только Supabase)
   // Чистые slug-URL /confectioners/<slug> (роут src/app/confectioners/[slug]/page.tsx).
   // Query-URL (?confectioner=<id>) поисковики не индексируют как отдельные страницы.
   try {
@@ -132,7 +104,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.warn("[sitemap] Confectioners failed:", (e as Error).message);
   }
 
-  // 4. Демонстрационные рецепты не публикуются в production sitemap.
+  // 3. Демонстрационные рецепты не публикуются в production sitemap.
   if (process.env.NODE_ENV !== "production") {
     try {
       for (const r of MOCK_RECIPES) {
