@@ -44,8 +44,6 @@ COPY supabase/functions/ /opt/supabase/services/edge-runtime/home/deno/functions
 COPY supabase/kong.yml /opt/supabase/kong.yml.template
 COPY supabase/init-scripts/00-service-role-passwords.sh \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-00-role-passwords.sh
-COPY supabase/init-scripts/03-backup-role.sh \
-  /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-backup-role.sh
 COPY supabase/init-scripts/02-realtime-schema.sql \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-schema.sql
 # Seed the exact tenant schema/migration state shipped with the pinned Realtime
@@ -62,7 +60,6 @@ COPY scripts/supabase-runtime-poc/ /usr/local/lib/supabase-runtime-poc/
 COPY scripts/supabase-runtime-poc/supervisord.conf /etc/supervisord.conf
 
 RUN chmod +x /usr/local/lib/supabase-runtime-poc/*.sh \
-    && chmod +x /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-backup-role.sh \
     && mkdir -p /var/log/supervisor /run/supervisor \
     && ln -sf /usr/local/lib/supabase-runtime-poc/supabase-runtime-entrypoint.sh /usr/local/bin/supabase-runtime-entrypoint.sh \
     && ln -sf /usr/local/lib/supabase-runtime-poc/supabase-runtime-healthcheck.sh /usr/local/bin/supabase-runtime-healthcheck.sh
