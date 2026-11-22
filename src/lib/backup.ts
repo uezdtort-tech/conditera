@@ -75,6 +75,9 @@ export async function runFullBackup(): Promise<BackupResult> {
   if (!/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
     throw new Error("Database backup requires PostgreSQL; JSON/Prisma fallback is disabled");
   }
+  if (isProd && new URL(databaseUrl).username !== "conditera_backup") {
+    throw new Error("Production BACKUP_DATABASE_URL must use the dedicated read-only conditera_backup role");
+  }
 
   if (!existsSync(/*turbopackIgnore: true*/ BACKUP_DIR)) {
     mkdirSync(/*turbopackIgnore: true*/ BACKUP_DIR, { recursive: true, mode: 0o700 });
