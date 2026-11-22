@@ -6,6 +6,10 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+command -v git >/dev/null 2>&1 || { echo "ОШИБКА: требуется Git." >&2; exit 1; }
+git check-ignore -q .env.production || { echo "ОШИБКА: .env.production не защищён .gitignore." >&2; exit 1; }
+git check-ignore -q .env.supabase-runtime || { echo "ОШИБКА: .env.supabase-runtime не защищён .gitignore." >&2; exit 1; }
+
 [[ -f .env.production ]] || cp .env.production.example .env.production
 [[ -f .env.supabase-runtime ]] || cp .env.supabase-runtime.example .env.supabase-runtime
 
