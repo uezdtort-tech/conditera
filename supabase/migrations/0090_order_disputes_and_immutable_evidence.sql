@@ -49,6 +49,45 @@ CREATE TABLE IF NOT EXISTS public.order_dispute_evidence (
 CREATE INDEX IF NOT EXISTS order_dispute_evidence_dispute_idx
   ON public.order_dispute_evidence(dispute_id, created_at);
 
+CREATE OR REPLACE FUNCTION public.validate_order_dispute_evidence_link()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $fn$
+DECLARE
+  v_dispute_order UUID;
+  v_customer_id UUID;
+  v_media_order UUID;
+  v_media_uploader UUID;
+  v_media_kind TEXT;
+  v_media_hash TEXT;
+BEGIN
+  SELECT d.order_id, o.user_id, m.order_id, m.uploaded_by, m.kind, m.content_sha256
+    INTO v_dispute_order, v_customer_id, v_media_order, v_media_uploader, v_media_kind, v_media_hash
+  FROM public.order_disputes d
+  JOIN public.orders o ON o.id = d.order_id
+  JOIN public.order_media m ON m.id = NEW.order_media_id
+  WHERE d.id = NEW.dispute_id;
+
+  IF NOT FOUND
+     OR v_dispute_order <> v_media_order
+     OR v_customer_id <> NEW.uploaded_by
+     OR v_media_uploader <> NEW.uploaded_by
+     OR v_media_kind <> 'dispute_evidence'
+     OR v_media_hash IS NULL
+     OR v_media_hash <> NEW.content_sha256 THEN
+    RAISE EXCEPTION 'ORDER_DISPUTE_EVIDENCE_LINK_INVALID'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS order_dispute_evidence_validate_link ON public.order_dispute_evidence;
+CREATE TRIGGER order_dispute_evidence_validate_link
+  BEFORE INSERT ON public.order_dispute_evidence
+  FOR EACH ROW EXECUTE FUNCTION public.validate_order_dispute_evidence_link();
+
 CREATE TABLE IF NOT EXISTS public.order_dispute_events (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   dispute_id UUID NOT NULL REFERENCES public.order_disputes(id) ON DELETE RESTRICT,
