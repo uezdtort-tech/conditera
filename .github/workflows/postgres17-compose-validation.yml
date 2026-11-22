@@ -23,6 +23,13 @@ on:
   pull_request:
     paths:
       - "docker-compose.supabase.yml"
+      - "docker-compose.yml"
+      - "docker-compose.supabase-single-container.yml"
+      - "Dockerfile"
+      - "Dockerfile.supabase-runtime-poc"
+      - "scripts/deploy-single-container.sh"
+      - ".env.production.example"
+      - ".env.supabase-runtime.example"
       - "docker-compose.pg17-migration.yml"
       - "supabase/config.toml"
       - "supabase/migrations/**"
