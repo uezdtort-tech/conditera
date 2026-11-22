@@ -120,6 +120,7 @@ jobs:
           EOF
           bash -n scripts/deploy-single-container.sh
           bash scripts/deploy-single-container.sh --config
+          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
       - name: Проверить объединённую конфигурацию Supabase + PG17
         run: |
           docker compose \
