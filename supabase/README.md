@@ -2,7 +2,7 @@
 
 ## Канонический запуск
 
-Cond itera использует единый Supabase Runtime на PostgreSQL 17.12. PostgreSQL, GoTrue Auth, PostgREST, Realtime, Storage, Imgproxy, Postgres Meta, Kong и Edge Runtime запускаются в одном runtime-контейнере. Next.js подключается к той же базе через отдельную роль `conditera_app`.
+Conditera использует единый Supabase Runtime на PostgreSQL 17.12. PostgreSQL, GoTrue Auth, PostgREST, Realtime, Storage, Imgproxy, Postgres Meta, Kong и Edge Runtime запускаются в одном runtime-контейнере. Next.js подключается к той же базе через отдельную роль `conditera_app`.
 
 Базы пустые — перенос данных из PG15/PG18 не выполняется. На чистом PG17 применяются системные и прикладные миграции. Demo seed разрешён только для локального тестирования и CI.
 
