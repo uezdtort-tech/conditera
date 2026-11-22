@@ -1,5 +1,5 @@
 {
-  "name": "conditera",
+  "name": "nextjs_tailwind_shadcn_ts",
   "description": "Conditera marketplace with a unified Supabase PostgreSQL 17 runtime",
   "version": "0.2.0",
   "private": true,
@@ -138,6 +138,13 @@
     "@sentry/nextjs": "^10.69.0"
   },
   "trustedDependencies": [
-    "@embedded-postgres/linux-x64"
+    "@embedded-postgres/darwin-arm64",
+    "@embedded-postgres/darwin-x64",
+    "@embedded-postgres/linux-arm",
+    "@embedded-postgres/linux-arm64",
+    "@embedded-postgres/linux-ia32",
+    "@embedded-postgres/linux-ppc64",
+    "@embedded-postgres/linux-x64",
+    "@embedded-postgres/windows-x64"
   ]
 }
