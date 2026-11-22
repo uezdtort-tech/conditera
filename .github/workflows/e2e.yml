@@ -171,7 +171,7 @@ jobs:
       fail-fast: false
       matrix:
         # По умолчанию только chromium, для nightly — все 3 браузера
-        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit"]')) || fromJson('["chromium"]') }}
+        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit","mobile-chrome"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit","mobile-chrome"]')) || fromJson('["chromium","mobile-chrome"]') }}
 
     steps:
       - uses: actions/checkout@v7
@@ -218,7 +218,12 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Install Playwright browsers
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          if [ "${{ matrix.browser }}" = "mobile-chrome" ]; then
+            bunx playwright install --with-deps chromium
+          else
+            bunx playwright install --with-deps ${{ matrix.browser }}
+          fi
 
       - name: Start application
         run: |
@@ -481,7 +486,7 @@ jobs:
           PGURL: ${{ env.DATABASE_URL }}
 
       - name: Run Playwright suite on PostgreSQL 15
-        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium
+        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium --project=mobile-chrome
         env:
           E2E_BASE_URL: http://localhost:3000
           DATABASE_URL: ${{ env.DATABASE_URL }}
@@ -682,7 +687,7 @@ jobs:
           PGURL: ${{ env.DATABASE_URL }}
 
       - name: Run Playwright suite on PostgreSQL 17
-        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium
+        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium --project=mobile-chrome
         env:
           E2E_BASE_URL: http://localhost:3000
           DATABASE_URL: ${{ env.DATABASE_URL }}
