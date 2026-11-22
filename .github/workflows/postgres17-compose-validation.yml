@@ -125,7 +125,8 @@ jobs:
           SIMPLEX_BRIDGE_API_KEY=ci-simplex-bridge-key
           EOF
           cat > .env.supabase-runtime <<EOF
-          APP_DATABASE_PASSWORD=ci-app-database-password
+          APP_DATABASE_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          BACKUP_DATABASE_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
           SUPABASE_SECRET_KEY_BASE=$SECRET_KEY_BASE
           PG_META_CRYPTO_KEY=$PG_META_CRYPTO_KEY
           REALTIME_DB_ENC_KEY=$REALTIME_DB_ENC_KEY
