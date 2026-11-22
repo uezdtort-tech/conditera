@@ -126,7 +126,27 @@ jobs:
             }
             const policies = Number((await db.query("SELECT count(*)::int AS n FROM pg_policies WHERE schemaname='public'")).rows[0].n);
             if (policies < 1) throw new Error("No public RLS policies found");
-            console.log(`PASS PostgreSQL ${version}; app migrations=${migrations}; extensions=${extensions.join(",")}; public RLS policies=${policies}`);
+
+            // db:setup не должен молча пропускать демо-сиды: полный order
+            // lifecycle требует витрину и рецепт с ингредиентом «Ягоды».
+            const demoProduct = await db.query(
+              `SELECT p.recipe_id, count(ri.id)::int AS ingredient_count,
+                      bool_or(ri.name = 'Ягоды') AS has_berries
+                 FROM public.products p
+                 LEFT JOIN public.recipe_ingredients ri ON ri.recipe_id = p.recipe_id
+                WHERE p.id = 'aaaaaaaa-0000-4000-8000-000000000001'::uuid
+                GROUP BY p.recipe_id`
+            );
+            if (demoProduct.rowCount !== 1 || !demoProduct.rows[0].recipe_id ||
+                demoProduct.rows[0].ingredient_count < 5 || !demoProduct.rows[0].has_berries) {
+              throw new Error(`Demo vitrine/recipe seed incomplete: ${JSON.stringify(demoProduct.rows)}`);
+            }
+            const confectioners = Number((await db.query(
+              "SELECT count(*)::int AS n FROM public.confectioners WHERE id IN ('c0','c1','c2','c3','c4')"
+            )).rows[0].n);
+            if (confectioners !== 5) throw new Error(`Expected 5 demo confectioners, got ${confectioners}`);
+
+            console.log(`PASS PostgreSQL ${version}; app migrations=${migrations}; extensions=${extensions.join(",")}; public RLS policies=${policies}; demo product recipe ingredients=${demoProduct.rows[0].ingredient_count}; demo confectioners=${confectioners}`);
           } finally {
             await db.end();
           }
