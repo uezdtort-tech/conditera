@@ -122,7 +122,7 @@ cp .env.production.example .env.production
 cp .env.supabase-runtime.example .env.supabase-runtime
 
 node scripts/compose-single-runtime.mjs config
-node scripts/compose-single-runtime.mjs up -d --build
+./scripts/deploy.sh
 node scripts/compose-single-runtime.mjs ps
 node scripts/compose-single-runtime.mjs logs --tail 200 supabase-runtime
 node scripts/compose-single-runtime.mjs logs --tail 200 web
