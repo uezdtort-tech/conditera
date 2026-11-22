@@ -1,7 +1,7 @@
 # ===== Docker Compose для dev-режима =====
 # Запуск: docker-compose -f docker-compose.dev.yml up -d
 #
-# Включает: PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n
+# Включает: PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n
 # Next.js запускается отдельно через `npm run dev:local`
 
 version: "3.8"
@@ -15,7 +15,7 @@ services:
   #   docker volume rm uyezdny_uyezdny-db-dev-data
   #   docker-compose -f docker-compose.dev.yml up -d
   db-dev:
-    image: postgres:18-alpine
+    image: postgres:17-alpine
     container_name: uyezdny-db-dev
     ports:
       - "5433:5432"
@@ -24,7 +24,7 @@ services:
       POSTGRES_PASSWORD: uyezdny_dev_pass
       POSTGRES_DB: uyezdny_konditer_dev
     volumes:
-      - uyezdny-db-dev-data-v18:/var/lib/postgresql/data
+      - uyezdny-db-dev-data-v17:/var/lib/postgresql/data
       # Mount migrations & seeds so init script can apply them.
       # NOTE: files in /docker-entrypoint-initdb.d/ run only on FIRST init
       # (when data volume is empty). For re-runs use ./scripts/init-db.sh.
@@ -81,19 +81,16 @@ services:
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, бонусы, AI) =====
   n8n-dev:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.95.0
     container_name: uyezdny-n8n-dev
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_HOST=localhost
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
       - GENERIC_TIMEZONE=Europe/Moscow
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=admin
       - N8N_ENCRYPTION_KEY=dev_n8n_encryption_key_32_chars
       # App URL для cron-задач (URL нашего Next.js API)
       - APP_URL=http://host.docker.internal:3000
@@ -111,6 +108,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  uyezdny-db-dev-data-v18:
+  uyezdny-db-dev-data-v17:
   uyezdny-meili-dev-data:
   uyezdny-n8n-dev-data:
