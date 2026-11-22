@@ -1,0 +1,90 @@
+name: Embedded PostgreSQL 17 — Windows and Linux smoke
+
+on:
+  push:
+    branches:
+      - feat/pg17-full-scenarios-current
+    paths:
+      - "package.json"
+      - "bun.lock"
+      - "scripts/db/runtime.mjs"
+      - "scripts/db/setup.mjs"
+      - ".github/workflows/embedded-pg17-smoke.yml"
+  pull_request:
+    paths:
+      - "package.json"
+      - "bun.lock"
+      - "scripts/db/runtime.mjs"
+      - "scripts/db/setup.mjs"
+      - ".github/workflows/embedded-pg17-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  embedded-pg17:
+    name: Embedded PG17 on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      SEED_MODE: none
+      NODE_ENV: test
+      JWT_SECRET: embedded_pg17_test_jwt_secret_32_chars_minimum
+      JWT_REFRESH_SECRET: embedded_pg17_refresh_secret_32_chars_minimum
+      TFA_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      CRON_SECRET: embedded_pg17_cron_secret
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Установить зависимости и платформенные бинарники PG17
+        run: bun install --frozen-lockfile
+
+      - name: Инициализировать чистую embedded PostgreSQL 17 и применить миграции
+        run: npm run db:setup
+
+      - name: Проверить версию, каталог данных и полный журнал миграций
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import pg from "pg";
+          const client = new pg.Client({
+            connectionString: "postgresql://postgres@127.0.0.1:54330/conditera",
+            connectionTimeoutMillis: 5000,
+          });
+          await client.connect();
+          try {
+            const version = Number((await client.query("SHOW server_version_num")).rows[0].server_version_num);
+            if (Math.floor(version / 10000) !== 17) throw new Error(`Expected PG17, got server_version_num=${version}`);
+            const count = Number((await client.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
+            if (count < 81) throw new Error(`Expected at least 81 app migrations, got ${count}`);
+            const required = ["profiles","user_roles","products","orders","inventory_items","chat_channels"];
+            for (const name of required) {
+              const exists = (await client.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${name}`])).rows[0].ok;
+              if (!exists) throw new Error(`Missing public.${name}`);
+            }
+            if (fs.readFileSync(".pgdata-pg17/PG_VERSION", "utf8").trim() !== "17") {
+              throw new Error("Embedded data directory is not PostgreSQL 17");
+            }
+            console.log(`PASS embedded PostgreSQL ${version}; ${count} app migrations; .pgdata-pg17 verified`);
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Остановить embedded PostgreSQL 17
+        if: always()
+        run: node scripts/db/runtime.mjs stop
