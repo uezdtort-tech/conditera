@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: supabase-single-container-poc-${{ github.ref }}
+  group: supabase-single-container-poc-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
