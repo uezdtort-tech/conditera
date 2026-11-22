@@ -444,14 +444,22 @@ jobs:
         run: |
           set -Eeuo pipefail
           BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --set=backup_password="$BACKUP_DATABASE_PASSWORD" <<'SQL'
-          SELECT 'CREATE ROLE conditera_backup LOGIN'
-          WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \gexec
-          ALTER ROLE conditera_backup WITH LOGIN PASSWORD :'backup_password'
-            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS;
-          GRANT CONNECT ON DATABASE conditera TO conditera_backup;
-          GRANT pg_read_all_data TO conditera_backup;
-          SQL
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const password = process.env.BACKUP_DATABASE_PASSWORD;
+          if (!/^[a-f0-9]{64}$/.test(password || "")) throw new Error("Invalid generated backup password");
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup'");
+            if (exists.rowCount === 0) await db.query("CREATE ROLE conditera_backup LOGIN");
+            await db.query(`ALTER ROLE conditera_backup WITH LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS`);
+            await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_backup");
+            await db.query("GRANT pg_read_all_data TO conditera_backup");
+          } finally {
+            await db.end();
+          }
+          NODE
           echo "BACKUP_DATABASE_PASSWORD=$BACKUP_DATABASE_PASSWORD" >> "$GITHUB_ENV"
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
