@@ -85,7 +85,7 @@ async function login(email) {
 }
 
 // P1.1: единый паттерн с order-lifecycle-verify — PGURL окружением переопределяется
-const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54330/conditera";
 const client = new Client({ connectionString: PG_URL });
 const cleanupIds = { orders: [], drafts: [] };
 
