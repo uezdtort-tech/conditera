@@ -487,6 +487,7 @@ jobs:
             if (exists.rowCount === 0) await db.query("CREATE ROLE conditera_backup LOGIN");
             await db.query(`ALTER ROLE conditera_backup WITH LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS`);
             await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_backup");
+            await db.query("GRANT CONNECT ON DATABASE supabase TO conditera_backup");
             await db.query("GRANT pg_read_all_data TO conditera_backup");
           } finally {
             await db.end();
