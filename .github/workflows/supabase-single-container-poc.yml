@@ -36,7 +36,6 @@ jobs:
       - name: Validate and smoke-test source-controlled n8n workflows
         env:
           N8N_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-          N8N_WEBHOOK_SECRET: ci-only-n8n-webhook-secret
           CRON_SECRET: ci-only-cron-secret
           APP_URL: http://127.0.0.1:3000
           GENERIC_TIMEZONE: Europe/Moscow
@@ -44,15 +43,19 @@ jobs:
           set -Eeuo pipefail
           sh -n scripts/n8n-entrypoint.sh
           bun scripts/verify/n8n-workflows-verify.mjs
+          printf '%s\\n' "$N8N_ENCRYPTION_KEY" > /tmp/conditera-n8n-encryption-key
+          chmod 600 /tmp/conditera-n8n-encryption-key
           docker volume create conditera-n8n-bootstrap-test >/dev/null
           cleanup() {
             docker rm -f conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
             docker volume rm conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
+            rm -f /tmp/conditera-n8n-encryption-key
           }
           trap cleanup EXIT
           docker run -d --name conditera-n8n-bootstrap-test \
             -p 127.0.0.1:15678:5678 \
-            -e N8N_ENCRYPTION_KEY="$N8N_ENCRYPTION_KEY" \
+            -e N8N_ENCRYPTION_KEY_FILE=/run/secrets/n8n_encryption_key \
+            -e N8N_BLOCK_ENV_ACCESS_IN_NODE=false \
             -e N8N_USER_FOLDER=/home/node/.n8n \
             -e N8N_HOST=127.0.0.1 \
             -e N8N_PORT=5678 \
@@ -65,8 +68,8 @@ jobs:
             -e N8N_VERSION_NOTIFICATIONS_ENABLED=false \
             -e APP_URL="$APP_URL" \
             -e CRON_SECRET="$CRON_SECRET" \
-            -e N8N_WEBHOOK_SECRET="$N8N_WEBHOOK_SECRET" \
             -v conditera-n8n-bootstrap-test:/home/node/.n8n \
+            -v /tmp/conditera-n8n-encryption-key:/run/secrets/n8n_encryption_key:ro \
             -v "$PWD/n8n-workflows:/imports:ro" \
             -v "$PWD/scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro" \
             n8nio/n8n:2.48.7 /bin/sh /usr/local/bin/conditera-n8n-entrypoint.sh
