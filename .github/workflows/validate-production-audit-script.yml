@@ -12,6 +12,10 @@ on:
       - "scripts/ops/audit-local-production.ps1"
       - ".github/workflows/validate-production-audit-script.yml"
 
+concurrency:
+  group: validate-production-audit-script-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
