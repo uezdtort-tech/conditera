@@ -1,69 +1,37 @@
 /**
- * GET  /api/notifications/send — список последних уведомлений (alias для /list)
- * POST /api/notifications/send — отправка уведомления (только ADMIN/SUPER_ADMIN)
- *
- * Тело POST: { userId: string, type: string, title: string, body: string, data?: Record<string, unknown> }
- *
- * Auth: ADMIN или SUPER_ADMIN для POST
- *
- * Соответствует таблицам:
- *  - notifications (создание записи)
- *  - push_subscriptions (для отправки Web Push)
+ * GET  /api/notifications/send — список последних уведомлений текущего пользователя.
+ * POST /api/notifications/send — системная отправка по шаблону (n8n Cron Secret)
+ *                         или ручная отправка ADMIN/SUPER_ADMIN.
  */
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
-import { isAllowedPushEndpoint } from "@/lib/push-subscriptions";
+import { verifyCronSecret, cronUnauthorized } from "@/lib/cron-auth";
+import { sendNotification, TEMPLATES, type Channel, type Template } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const USER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ALLOWED_CHANNELS = new Set<Channel>(["in_app", "push", "email"]);
+
 interface SendRequestBody {
   userId: string;
-  type: string;
-  title: string;
-  body: string;
+  type?: string;
+  title?: string;
+  body?: string;
   data?: Record<string, unknown>;
-  channel?: "in_app" | "push" | "email" | "sms" | "telegram";
-  // n8n compatibility: template + vars → converts to title/body
+  channel?: Channel;
   template?: string;
   vars?: Record<string, unknown>;
   channels?: string[];
+  dedupKey?: string;
 }
 
-// Template → title/body mapping (for n8n workflows)
-const TEMPLATE_MAP: Record<string, { title: string; body: string }> = {
-  ABANDONED_CART: {
-    title: "Вы забыли корзину!",
-    body: "В вашей корзине остались товары. Завершите заказ, пока они не закончились!",
-  },
-  WEEKLY_DIGEST: {
-    title: "Ваш еженедельный дайджест",
-    body: "Новые торты, акции и рецепты за эту неделю — внутри!",
-  },
-  BONUS_EXPIRING: {
-    title: "Бонусы сгорают!",
-    body: "У вас сгорают бонусы. Используйте их при следующем заказе!",
-  },
-  REENGAGEMENT: {
-    title: "Мы скучаем по вам!",
-    body: "Давно не видели вас. Загляните — у нас новинки и скидки!",
-  },
-  REVIEW_REQUEST: {
-    title: "Оставьте отзыв",
-    body: "Как вам последний заказ? Поделитесь впечатлениями!",
-  },
-};
-
-/**
- * GET /api/notifications/send — алиас для /list (последние 50 уведомлений).
- */
 export async function GET(req: Request): Promise<NextResponse> {
   const user = await getUserFromRequest(req);
-  if (!user) {
-    return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
 
   const { data, error } = await supabaseAdmin
     .from("notifications")
@@ -73,191 +41,141 @@ export async function GET(req: Request): Promise<NextResponse> {
     .limit(50);
 
   if (error) {
-    console.warn("[notifications/send GET] query error:", error.message);
-    return NextResponse.json({ notifications: [] });
+    console.error("[notifications/send GET] query failed:", error.message);
+    return NextResponse.json({ error: "Не удалось загрузить уведомления" }, { status: 500 });
   }
-
   return NextResponse.json({ notifications: data || [] });
 }
 
-/**
- * POST /api/notifications/send — отправить уведомление пользователю.
- * Только ADMIN или SUPER_ADMIN.
- */
 export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const user = await getUserFromRequest(req);
-    if (!user) {
-      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    const cronAuthorized = verifyCronSecret(req);
+    let actorId: string | null = null;
+
+    if (!cronAuthorized) {
+      const user = await getUserFromRequest(req);
+      if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+      const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
+      if (guard) {
+        return new NextResponse(guard.body, { status: guard.status, headers: guard.headers });
+      }
+      actorId = user.id;
     }
 
-    // Проверка роли — ADMIN или SUPER_ADMIN
-    const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
-    if (guard) {
-      return new NextResponse(guard.body, {
-        status: guard.status,
-        headers: guard.headers,
+    const body = await req.json() as SendRequestBody;
+    if (!body || typeof body !== "object" || !USER_ID_RE.test(body.userId || "")) {
+      return NextResponse.json({ error: "Некорректный userId" }, { status: 400 });
+    }
+
+    // n8n/system workflow: use the shared notification engine so preferences,
+    // quiet hours, deduplication, SMTP, and Web Push delivery are consistent.
+    if (body.template) {
+      if (!Object.prototype.hasOwnProperty.call(TEMPLATES, body.template)) {
+        return NextResponse.json({ error: "Неизвестный шаблон уведомления" }, { status: 400 });
+      }
+      if (!cronAuthorized && !actorId) {
+        return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+      }
+
+      const rawVars = body.vars || {};
+      if (typeof rawVars !== "object" || Array.isArray(rawVars) || Object.keys(rawVars).length > 40) {
+        return NextResponse.json({ error: "Некорректные vars" }, { status: 400 });
+      }
+      const vars: Record<string, string | number> = {};
+      for (const [key, value] of Object.entries(rawVars)) {
+        if (typeof value !== "string" && typeof value !== "number") {
+          return NextResponse.json({ error: `Недопустимое значение vars.${key}` }, { status: 400 });
+        }
+        if (typeof value === "string" && value.length > 2000) {
+          return NextResponse.json({ error: `Слишком длинное значение vars.${key}` }, { status: 400 });
+        }
+        if (typeof value === "number" && !Number.isFinite(value)) {
+          return NextResponse.json({ error: `Некорректное число vars.${key}` }, { status: 400 });
+        }
+        vars[key] = value;
+      }
+
+      const requestedChannels = body.channels?.length
+        ? body.channels
+        : body.channel ? [body.channel] : undefined;
+      if (requestedChannels && requestedChannels.some((channel) => !ALLOWED_CHANNELS.has(channel as Channel))) {
+        return NextResponse.json({ error: "Поддерживаются только in_app, email и push" }, { status: 400 });
+      }
+      if (body.dedupKey !== undefined &&
+          (typeof body.dedupKey !== "string" || body.dedupKey.length < 1 || body.dedupKey.length > 200)) {
+        return NextResponse.json({ error: "Некорректный dedupKey" }, { status: 400 });
+      }
+
+      const notificationIds = await sendNotification({
+        userId: body.userId,
+        template: body.template as Template,
+        vars,
+        channels: requestedChannels as Channel[] | undefined,
+        data: body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {},
+        dedupKey: body.dedupKey,
+      });
+
+      if (notificationIds.notificationIds.length === 0) {
+        return NextResponse.json({ success: true, skipped: true, notificationIds: [] });
+      }
+
+      const { data: rows, error: statusError } = await supabaseAdmin
+        .from("notifications")
+        .select("id, channel, status")
+        .in("id", notificationIds.notificationIds);
+      if (statusError || !rows) {
+        console.error("[notifications/send] delivery status lookup failed:", statusError?.message);
+        return NextResponse.json({ error: "Не удалось подтвердить доставку уведомлений" }, { status: 502 });
+      }
+
+      const failed = rows.filter((row) => row.status === "failed");
+      if (failed.length > 0) {
+        return NextResponse.json({
+          success: false,
+          error: "Часть каналов уведомлений не доставлена",
+          notificationIds: notificationIds.notificationIds,
+          failed: failed.map((row) => ({ id: row.id, channel: row.channel })),
+        }, { status: 502 });
+      }
+      return NextResponse.json({
+        success: true,
+        notificationIds: notificationIds.notificationIds,
+        channels: rows.map((row) => ({ channel: row.channel, status: row.status })),
       });
     }
 
-    const body = (await req.json()) as SendRequestBody;
-
-    // n8n compatibility: if template is provided, convert to title/body
-    let finalTitle = body.title;
-    let finalBody = body.body;
-    let finalType = body.type;
-
-    if (body.template && !finalTitle) {
-      const templateInfo = TEMPLATE_MAP[body.template];
-      if (templateInfo) {
-        finalTitle = templateInfo.title;
-        finalBody = templateInfo.body;
-        finalType = body.template.toLowerCase();
-      } else {
-        finalTitle = body.template;
-        finalBody = body.template;
-        finalType = body.template.toLowerCase();
-      }
+    // Manual admin notifications are intentionally limited to in-app. External
+    // channels must use a typed template so provider delivery and preferences apply.
+    if (cronAuthorized) {
+      return NextResponse.json({ error: "Cron requests must use a notification template" }, { status: 400 });
     }
-
-    // This endpoint currently delivers one channel only. Do not silently
-    // report success for email/SMS/Telegram or multi-channel requests.
-    const requestedChannels = Array.isArray(body.channels) && body.channels.length > 0
-      ? body.channels
-      : [body.channel || "in_app"];
-    if (
-      requestedChannels.length !== 1 ||
-      requestedChannels.some((channel) => channel !== "in_app" && channel !== "push")
-    ) {
-      return NextResponse.json(
-        { error: "Unsupported notification channel; this endpoint supports one channel: in_app or push" },
-        { status: 501 }
-      );
+    if (!body.title || !body.body || typeof body.title !== "string" || typeof body.body !== "string") {
+      return NextResponse.json({ error: "title и body обязательны" }, { status: 400 });
     }
-    const finalChannel = requestedChannels[0] as "in_app" | "push";
-    const shouldSendPush = finalChannel === "push";
-    const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
-    const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-    if (shouldSendPush && (!vapidPublicKey || !vapidPrivateKey)) {
-      return NextResponse.json({ error: "Web Push VAPID keys are not configured" }, { status: 503 });
+    if (body.title.length > 180 || body.body.length > 5000) {
+      return NextResponse.json({ error: "Превышена длина уведомления" }, { status: 400 });
     }
-
-    let webpushClient: (typeof import("web-push"))["default"] | null = null;
-    if (shouldSendPush) {
-      try {
-        webpushClient = (await import("web-push")).default;
-        webpushClient.setVapidDetails(
-          `mailto:${process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "noreply@conditera.ru"}`,
-          vapidPublicKey!,
-          vapidPrivateKey!,
-        );
-      } catch (error) {
-        console.error("[notifications/send] Web Push initialization failed:", error);
-        return NextResponse.json({ error: "Web Push provider is unavailable" }, { status: 503 });
-      }
-    }
-
-    const { userId, data } = body;
-
-    // Валидация
-    if (!userId || typeof userId !== "string") {
-      return NextResponse.json(
-        { error: "userId обязателен" },
-        { status: 400 }
-      );
-    }
-    if (!finalTitle || typeof finalTitle !== "string") {
-      return NextResponse.json(
-        { error: "title обязателен" },
-        { status: 400 }
-      );
-    }
-    if (!finalBody || typeof finalBody !== "string") {
-      return NextResponse.json(
-        { error: "body обязателен" },
-        { status: 400 }
-      );
-    }
-
-    // Сохранить уведомление в БД (схема 0010: metadata вместо data)
-    const { data: notif, error: notifErr } = await supabaseAdmin
+    const { data: notif, error } = await supabaseAdmin
       .from("notifications")
       .insert({
-        user_id: userId,
-        type: finalType || "info",
-        title: finalTitle,
-        body: finalBody,
-        metadata: data || {},
-        channel: finalChannel,
+        user_id: body.userId,
+        type: body.type || "info",
+        title: body.title,
+        body: body.body,
+        metadata: body.data || {},
+        channel: "in_app",
         status: "sent",
       })
       .select("id")
       .single();
 
-    if (notifErr) {
-      console.error("[notifications/send] insert error:", notifErr.message);
-      return NextResponse.json(
-        { error: "Database insert failed", details: notifErr.message },
-        { status: 500 }
-      );
+    if (error || !notif) {
+      console.error("[notifications/send] manual insert failed:", error?.message);
+      return NextResponse.json({ error: "Не удалось сохранить уведомление" }, { status: 500 });
     }
-
-    let pushSent = 0;
-    let pushFailed = 0;
-    if (webpushClient) {
-      const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
-        .from("push_subscriptions")
-        .select("endpoint, keys")
-        .eq("user_id", userId);
-
-      if (subscriptionsError) {
-        console.error("[notifications/send] subscription lookup failed:", subscriptionsError.message);
-        await supabaseAdmin.from("notifications").update({ status: "failed" }).eq("id", notif.id);
-        return NextResponse.json({ error: "Could not load push subscriptions" }, { status: 502 });
-      }
-
-      for (const sub of subscriptions || []) {
-        if (!isAllowedPushEndpoint(sub.endpoint)) {
-          pushFailed += 1;
-          console.warn("[notifications/send] skipped invalid push endpoint:", String(sub.endpoint).slice(0, 80));
-          continue;
-        }
-        const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
-        if (!keys.p256dh || !keys.auth) {
-          pushFailed += 1;
-          continue;
-        }
-        try {
-          await webpushClient.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: { p256dh: keys.p256dh, auth: keys.auth },
-            },
-            JSON.stringify({ title: finalTitle, body: finalBody, data })
-          );
-          pushSent += 1;
-        } catch (pushError) {
-          pushFailed += 1;
-          console.warn("[notifications/send] push failed for endpoint:", sub.endpoint.slice(0, 50), pushError);
-        }
-      }
-
-      if (pushFailed > 0 && pushSent === 0) {
-        await supabaseAdmin.from("notifications").update({ status: "failed" }).eq("id", notif.id);
-        return NextResponse.json({ error: "Web Push delivery failed", pushSent, pushFailed }, { status: 502 });
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      notificationId: notif?.id,
-      ...(shouldSendPush ? { pushSent, pushFailed } : {}),
-    });
-  } catch (e: any) {
-    console.error("POST /api/notifications/send error:", e?.message);
-    return NextResponse.json(
-      { error: "Ошибка отправки", detail: e?.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, notificationId: notif.id });
+  } catch (error) {
+    console.error("[notifications/send] request failed:", error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: "Внутренняя ошибка отправки уведомления" }, { status: 500 });
   }
 }
