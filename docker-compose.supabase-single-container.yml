@@ -72,6 +72,11 @@ services:
     # Search is internal-only; expose it through the application API, never host port 7700.
     ports: !override []
 
+  n8n:
+    # n8n UI is available only from the owner's local machine, never through the public reverse proxy.
+    ports: !override
+      - "127.0.0.1:5678:5678"
+
   supabase-db:
     profiles: ["legacy-supabase"]
   supabase-kong:
