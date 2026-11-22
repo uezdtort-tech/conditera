@@ -325,13 +325,14 @@ async function prepareRecipeInventoryFixture() {
 }
 
 async function main() {
-  section("OAuth Yandex/VK — контрактные тесты callback и PKCE");
+  section("OAuth Yandex/VK и YooKassa — внешние контракты безопасности");
   const oauthTests = spawnSync("bunx", [
     "vitest",
     "run",
     "src/app/api/auth/oauth/[provider]/route.test.ts",
     "src/app/api/auth/oauth/[provider]/callback/route.test.ts",
     "src/app/api/payment/webhook/route.test.ts",
+    "src/lib/yookassa.test.ts",
   ], { stdio: "inherit" });
   assert("контрактные тесты OAuth Yandex/VK проходят",
     oauthTests.status === 0 && !oauthTests.error,
