@@ -348,18 +348,24 @@ services:
     image: n8nio/n8n:1.95.0
     container_name: conditera-n8n
     <<: *default-restart
+    command: ["/bin/sh", "/usr/local/bin/conditera-n8n-entrypoint.sh"]
     environment:
       - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
+      - N8N_USER_FOLDER=/home/node/.n8n
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY required}
+      - N8N_LOG_LEVEL=info
       - WEBHOOK_URL=http://n8n:5678/
       - N8N_EDITOR_BASE_URL=http://127.0.0.1:5678/
       - GENERIC_TIMEZONE=Europe/Moscow
       - APP_URL=http://web:3000
       - CRON_SECRET=${CRON_SECRET:?CRON_SECRET required}
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:?N8N_WEBHOOK_SECRET required}
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./n8n-workflows:/imports
+      - ./n8n-workflows:/imports:ro
+      - ./scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro
     depends_on:
       web:
         condition: service_healthy
