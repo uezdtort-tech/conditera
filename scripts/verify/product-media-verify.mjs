@@ -124,6 +124,8 @@ function shouldCheckCsrf(method) {
   return ["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase());
 }
 
+const sessionTokens = [];
+
 async function login(email) {
   await ensureCsrf();
   const res = await api("POST", "/api/auth/login", {
@@ -132,7 +134,9 @@ async function login(email) {
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 200)}`);
   }
-  return res.json.accessToken;
+  const token = res.json.accessToken;
+  sessionTokens.push(token);
+  return token;
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +426,14 @@ async function main() {
 async function cleanup() {
   // Тестовые товары: строки БД (product_media каскадом) + файлы с диска
   try {
+    // Освобождаем демо-аккаунты после сценария: следующий E2E-контур
+    // не должен принимать оставшийся тестовый сеанс за передачу аккаунта.
+    for (const token of sessionTokens) {
+      const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
+      if (logout && logout.status !== 200) {
+        console.warn("[verify] test session cleanup returned", logout.status);
+      }
+    }
     const ids = createdProducts.map((p) => p.id).filter(Boolean);
     if (ids.length > 0) {
       await client.query(`DELETE FROM products WHERE id = ANY($1)`, [ids]);

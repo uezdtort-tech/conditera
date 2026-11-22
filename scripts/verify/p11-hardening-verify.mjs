@@ -75,12 +75,16 @@ async function api(method, path, { token, body, headers: extraHeaders } = {}) {
   return { status: res.status, json };
 }
 
+const sessionTokens = [];
+
 async function login(email) {
   const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
-  return res.json.accessToken;
+  const token = res.json.accessToken;
+  sessionTokens.push(token);
+  return token;
 }
 
 const rand = () => Math.floor(Math.random() * 1e9).toString(36);
@@ -496,6 +500,14 @@ async function main() {
 
 async function cleanupAll() {
   try {
+    // Освобождаем демо-аккаунты после сценария: следующий E2E-контур
+    // не должен принимать оставшийся тестовый сеанс за передачу аккаунта.
+    for (const token of sessionTokens) {
+      const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
+      if (logout && logout.status !== 200) {
+        console.warn("[verify] test session cleanup returned", logout.status);
+      }
+    }
     // Уникальные строки product_reviews verify-заказов удалятся каскадом с заказами? — удаляем явно
     for (const oid of cleanup.orderIds) {
       await client.query(`DELETE FROM public.product_reviews WHERE order_id = $1::uuid`, [oid]).catch(() => {});
