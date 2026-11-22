@@ -93,9 +93,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const confectioners = await fetchVerifiedConfectioners();
     for (const c of confectioners) {
+      if (typeof c.slug !== "string" || !c.slug.trim()) continue;
+      const updatedAt = c.updatedAt ? new Date(c.updatedAt) : now;
       entries.push({
-        url: `${APP_URL}/confectioners/${c.slug}`,
-        lastModified: c.updatedAt ? new Date(c.updatedAt) : now,
+        url: `${APP_URL}/confectioners/${encodeURIComponent(c.slug.trim())}`,
+        lastModified: Number.isNaN(updatedAt.getTime()) ? now : updatedAt,
         changeFrequency: "weekly" as const,
         priority: 0.7,
       });
