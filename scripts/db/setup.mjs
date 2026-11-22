@@ -303,8 +303,49 @@ async function upsertDemoUsers(client) {
   console.log("\n─── Demo users ───");
   const passwordHash = bcrypt.hashSync(DEMO_PASSWORD, 10);
 
-  // Плэйсхолдеры из seed.sql (RECIPE_DEVELOPER / LOYALTY_PARTNERS) — чтобы
-  // FK-сиды (recipe_marketplace.author_id, loyalty_partners.user_id) прошли.
+  // Не предполагаем фиксированную версию схемы GoTrue. В vanilla PostgreSQL
+  // compat создаёт auth.users с email_confirmed_at; в Supabase PG17 таблица
+  // уже может быть создана образом и иметь confirmed_at вместо него.
+  const authColumnsResult = await client.query(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'auth' AND table_name = 'users'`
+  );
+  const authColumns = new Set(authColumnsResult.rows.map((row) => row.column_name));
+  for (const required of ["id", "email"]) {
+    if (!authColumns.has(required)) {
+      throw new Error(`auth.users is missing required column "${required}"`);
+    }
+  }
+
+  const insertAuthUser = async ({ id, email, metadata, updateOnConflict = false }) => {
+    const definitions = [
+      ["id", "$1"],
+      ["email", "$2"],
+      ["encrypted_password", "''"],
+      [authColumns.has("email_confirmed_at") ? "email_confirmed_at" : "confirmed_at", "now()"],
+      ["raw_app_meta_data", "'{}'::jsonb"],
+      ["raw_user_meta_data", "$3::jsonb"],
+      ["aud", "'authenticated'"],
+      ["role", "'authenticated'"],
+      ["created_at", "now()"],
+      ["updated_at", "now()"],
+    ];
+    const selected = definitions.filter(([column]) => column && authColumns.has(column));
+    const columns = selected.map(([column]) => `"${column}"`).join(", ");
+    const values = selected.map(([, expression]) => expression).join(", ");
+    const conflict = updateOnConflict
+      ? "DO UPDATE SET email = EXCLUDED.email, updated_at = now()"
+      : "DO NOTHING";
+    await client.query(
+      `INSERT INTO auth.users (${columns})
+       VALUES (${values})
+       ON CONFLICT (id) ${conflict}`,
+      [id, email, JSON.stringify(metadata)]
+    );
+  };
+
+  // Плэйсхолдеры из seed.sql (RECIPE_DEVELOPER / LOYALTY_PARTNERS).
   for (const [idx, meta] of [
     [1, "RECIPE_DEVELOPER (seed placeholder)"],
     [2, "LOYALTY_PARTNER (seed placeholder)"],
@@ -312,23 +353,22 @@ async function upsertDemoUsers(client) {
     [4, "LOYALTY_PARTNER (seed placeholder)"],
   ]) {
     const id = `00000000-0000-0000-0000-00000000000${idx}`;
-    await client.query(
-      `INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_user_meta_data, created_at, updated_at)
-       VALUES ($1, $2, '', now(), $3::jsonb, now(), now())
-       ON CONFLICT (id) DO NOTHING`,
-      [id, `system-${idx}@conditera.local`, JSON.stringify({ name: meta })]
-    );
+    await insertAuthUser({
+      id,
+      email: `system-${idx}@conditera.local`,
+      metadata: { name: meta },
+    });
   }
 
   for (const u of DEMO_USERS) {
     try {
       await client.query("BEGIN");
-      await client.query(
-        `INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, raw_user_meta_data, created_at, updated_at)
-         VALUES ($1, $2, '', now(), $3::jsonb, now(), now())
-         ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, updated_at = now()`,
-        [u.id, u.email, JSON.stringify({ name: u.name, demo: true })]
-      );
+      await insertAuthUser({
+        id: u.id,
+        email: u.email,
+        metadata: { name: u.name, demo: true },
+        updateOnConflict: true,
+      });
 
       await client.query(
         `INSERT INTO public.profiles (id, email, name, is_verified, password_hash, is_blocked, loyalty_level, bonus_balance)
@@ -348,7 +388,6 @@ async function upsertDemoUsers(client) {
         [u.id, u.role]
       );
       if (u.role !== "CUSTOMER") {
-        // триггер on_auth_user_created добавляет CUSTOMER — деактивируем для не-покупателей
         await client.query(
           `UPDATE public.user_roles SET is_active = false WHERE user_id = $1 AND role = 'CUSTOMER'`,
           [u.id]
