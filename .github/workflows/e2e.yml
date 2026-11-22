@@ -565,6 +565,7 @@ jobs:
     env:
       NODE_VERSION: "20"
       DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:54323/conditera
+      APP_DATABASE_PASSWORD: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
       BACKUP_DATABASE_PASSWORD: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
       JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
@@ -638,6 +639,40 @@ jobs:
           NODE
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Provision the production-equivalent conditera_app role on PostgreSQL 17
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='conditera_app'");
+            const statement = exists.rowCount
+              ? "ALTER ROLE conditera_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD %L"
+              : "CREATE ROLE conditera_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD %L";
+            const roleSql = (await db.query("SELECT format($1, $2)", [statement, process.env.APP_DATABASE_PASSWORD])).rows[0].format;
+            await db.query(roleSql);
+            await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_app");
+            await db.query("GRANT USAGE ON SCHEMA public TO conditera_app");
+            await db.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera_app");
+            await db.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app");
+            await db.query("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO conditera_app");
+            const result = await db.query(
+              "SELECT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND rolbypassrls AS valid FROM pg_roles WHERE rolname='conditera_app'"
+            );
+            if (result.rows[0]?.valid !== true) throw new Error("conditera_app does not match production role attributes");
+            console.log("PASS: conditera_app is non-superuser, BYPASSRLS, and has production-equivalent public-schema grants");
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          APP_DATABASE_PASSWORD: ${{ env.APP_DATABASE_PASSWORD }}
 
       - name: Provision isolated read-only backup role on PostgreSQL 17
         run: |
@@ -731,7 +766,8 @@ jobs:
             -e NODE_ENV=production \
             -e PORT=3000 \
             -e HOSTNAME=0.0.0.0 \
-            -e DATABASE_URL="$DATABASE_URL" \
+            -e DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
+            -e DIRECT_DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
             -e BACKUP_DATABASE_PASSWORD="$BACKUP_DATABASE_PASSWORD" \
             -e BACKUP_DATABASE_URL="postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
             -e BACKUP_DIR=/app/backups \
