@@ -77,20 +77,24 @@ export function Footer() {
               {siteConfig.description}
             </p>
             <div className="space-y-2 text-sm">
-              <a
-                href={`mailto:${siteConfig.supportEmail}`}
-                className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
-              >
-                <Mail className="h-4 w-4" />
-                {siteConfig.supportEmail}
-              </a>
-              <a
-                href={`tel:${siteConfig.phoneHref}`}
-                className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
-              >
-                <Phone className="h-4 w-4" />
-                {siteConfig.phone}
-              </a>
+              {siteConfig.supportEmail && (
+                <a
+                  href={`mailto:${siteConfig.supportEmail}`}
+                  className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <Mail className="h-4 w-4" />
+                  {siteConfig.supportEmail}
+                </a>
+              )}
+              {siteConfig.phone && siteConfig.phoneHref && (
+                <a
+                  href={`tel:${siteConfig.phoneHref}`}
+                  className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <Phone className="h-4 w-4" />
+                  {siteConfig.phone}
+                </a>
+              )}
               {siteConfig.address && (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <MapPin className="h-4 w-4" />
