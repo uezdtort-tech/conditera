@@ -37,6 +37,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: ci-only-postgres-password
           APP_DATABASE_PASSWORD: ci-only-app-db-password
+          BACKUP_DATABASE_PASSWORD: ci-only-backup-db-password
           JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
           ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
@@ -87,6 +88,9 @@ jobs:
           assert "supabase_runtime_pg17_data" in config["volumes"]
           assert "supabase_runtime_storage_data" in config["volumes"]
           assert "supabase_runtime_deno_cache" in config["volumes"]
+          assert "conditera_backup_data" in config["volumes"]
+          assert "conditera_backup:" in web["environment"]["BACKUP_DATABASE_URL"]
+          assert any(v.get("target") == "/app/backups" and "conditera_backup_data" in v.get("source", "") for v in web.get("volumes", []))
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
           node scripts/compose-single-runtime.mjs config
@@ -103,6 +107,7 @@ jobs:
           export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
           export POSTGRES_PASSWORD="ci-only-postgres-password"
           export APP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
           export REALTIME_DB_ENC_KEY="0123456789abcdef"
@@ -127,6 +132,7 @@ jobs:
           values = {
               "POSTGRES_PASSWORD":os.environ["POSTGRES_PASSWORD"],
               "APP_DATABASE_PASSWORD":os.environ["APP_DATABASE_PASSWORD"],
+              "BACKUP_DATABASE_PASSWORD":os.environ["BACKUP_DATABASE_PASSWORD"],
               "JWT_SECRET":os.environ["JWT_SECRET"],
               "ANON_KEY":jwt("anon"),
               "SERVICE_ROLE_KEY":jwt("service_role"),
@@ -256,7 +262,7 @@ jobs:
           docker exec conditera-supabase-runtime-poc \
             /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
             /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase \
-            -Atqc "SELECT floor(current_setting('server_version_num')::integer / 10000) = 17 AND to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 81 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.inventory_items') IS NOT NULL AND to_regclass('public.recipe_ingredients') IS NOT NULL AND to_regclass('public.chat_channels') IS NOT NULL AND to_regclass('public.oauth_identity_links') IS NOT NULL AND to_regclass('public.moderation_queue') IS NOT NULL AND (SELECT count(*) = 6 FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue' AND column_name IN ('author_name','title','content','images','auto_score','violations')) AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
+            -Atqc "SELECT floor(current_setting('server_version_num')::integer / 10000) = 17 AND to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 81 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.inventory_items') IS NOT NULL AND to_regclass('public.recipe_ingredients') IS NOT NULL AND to_regclass('public.chat_channels') IS NOT NULL AND to_regclass('public.oauth_identity_links') IS NOT NULL AND to_regclass('public.moderation_queue') IS NOT NULL AND (SELECT count(*) = 6 FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue' AND column_name IN ('author_name','title','content','images','auto_score','violations')) AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
             | grep -qx t
 
       - name: Collect runtime diagnostics on failure
