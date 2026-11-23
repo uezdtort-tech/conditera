@@ -15,18 +15,18 @@ export const siteConfig = {
   url: process.env.NEXT_PUBLIC_APP_URL || "https://conditera.ru",
 
   // === Контакты ===
-  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@conditera.ru",
-  infoEmail: process.env.NEXT_PUBLIC_INFO_EMAIL || "info@conditera.ru",
-  privacyEmail: process.env.NEXT_PUBLIC_PRIVACY_EMAIL || "privacy@conditera.ru",
-  phone: process.env.NEXT_PUBLIC_SUPPORT_PHONE || "8 (800) 000-00-00",
-  phoneHref: process.env.NEXT_PUBLIC_SUPPORT_PHONE_HREF || "+78000000000",
+  supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "",
+  infoEmail: process.env.NEXT_PUBLIC_INFO_EMAIL || "",
+  privacyEmail: process.env.NEXT_PUBLIC_PRIVACY_EMAIL || "",
+  phone: process.env.NEXT_PUBLIC_SUPPORT_PHONE || "",
+  phoneHref: process.env.NEXT_PUBLIC_SUPPORT_PHONE_HREF || "",
   address: process.env.NEXT_PUBLIC_COMPANY_ADDRESS || "",
   inn: process.env.NEXT_PUBLIC_COMPANY_INN || "",
   ogrn: process.env.NEXT_PUBLIC_COMPANY_OGRN || "",
 
   // === Соцсети ===
-  telegram: process.env.NEXT_PUBLIC_TELEGRAM_CHANNEL || "@conditera",
-  telegramUrl: process.env.NEXT_PUBLIC_TELEGRAM_URL || "https://t.me/conditera",
+  telegram: process.env.NEXT_PUBLIC_TELEGRAM_CHANNEL || "",
+  telegramUrl: process.env.NEXT_PUBLIC_TELEGRAM_URL || "",
   vkUrl: process.env.NEXT_PUBLIC_VK_URL || "",
   instagramUrl: process.env.NEXT_PUBLIC_INSTAGRAM_URL || "",
 
