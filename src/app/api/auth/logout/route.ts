@@ -31,13 +31,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const hasSupabaseAuthCookies = request.cookies.getAll().some(({ name }) => name.startsWith("sb-"));
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    // Stub mode: просто очищаем cookies
+  // App JWT (Bearer/cd_session) — отдельная сессия, не GoTrue access token.
+  // Если Supabase auth cookies отсутствуют, серверная app-сессия уже отозвана
+  // выше; не вызываем GoTrue signOut без GoTrue-сессии (локальный PG runtime
+  // намеренно не запускает GoTrue).
+  if (!supabaseUrl || !supabaseAnonKey || !hasSupabaseAuthCookies) {
     const response = NextResponse.json({ ok: true });
     response.cookies.delete("sb-access-token");
     response.cookies.delete("sb-refresh-token");
-    // App-сессия (единый контракт: cd_session/cd_refresh)
     clearSessionCookies(response);
     return response;
   }
