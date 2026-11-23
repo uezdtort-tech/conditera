@@ -181,7 +181,11 @@ jobs:
             --profile pg17-migration exec -T supabase-db-pg17-migration \
             psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
             "SELECT count(*) FROM public.schema_migrations;")
-          test "$MIGRATIONS" -gt 0
+          EXPECTED_MIGRATIONS=$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d '[:space:]')
+          test "$MIGRATIONS" -eq "$EXPECTED_MIGRATIONS" || {
+            echo "FAIL: Supabase PG17 applied $MIGRATIONS/$EXPECTED_MIGRATIONS migrations"
+            exit 1
+          }
           STORAGE_MIGRATION=$(docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
@@ -204,7 +208,23 @@ jobs:
               psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
               "SELECT to_regclass('public.$table') IS NOT NULL;" | grep -qx t
           done
-          echo "PG17 schema migrations: $MIGRATIONS; Storage migration: $STORAGE_MIGRATION; buckets: $BUCKETS"
+          docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration exec -T supabase-db-pg17-migration \
+            bash /docker-entrypoint-initdb.d/zz-conditera-apply-migrations.sh | tee /tmp/pg17-migration-rerun.log
+          if grep -q "→ Применяю:" /tmp/pg17-migration-rerun.log; then
+            echo "FAIL: повторный прогон Supabase PG17 пытался применить уже записанные миграции"
+            exit 1
+          fi
+          RERUN_COUNT=$(docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration exec -T supabase-db-pg17-migration \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            "SELECT count(*) FROM public.schema_migrations;")
+          test "$RERUN_COUNT" -eq "$EXPECTED_MIGRATIONS"
+          echo "PG17 schema migrations: $MIGRATIONS/$EXPECTED_MIGRATIONS; idempotent rerun: $RERUN_COUNT; Storage migration: $STORAGE_MIGRATION; buckets: $BUCKETS"
       - name: Проверить логический перенос дампа PostgreSQL 18 в теневую БД PostgreSQL 17
         run: |
           docker run -d --name conditera-pg18-source \
