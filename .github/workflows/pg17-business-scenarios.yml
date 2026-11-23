@@ -292,10 +292,14 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
-      - name: Полный набор Playwright на PostgreSQL 17
-        run: bun run test:e2e -- --project=chromium
+      - name: Полный набор Playwright на PostgreSQL 17 — все проекты
+        run: bun run test:e2e
         env:
           E2E_BASE_URL: http://localhost:3000
+          E2E_APP_URL: http://localhost:3000
+          E2E_ADMIN_EMAIL: admin@demo.ru
+          E2E_ADMIN_PASSWORD: Demo123!
+          PGURL: ${{ env.DATABASE_URL }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
@@ -306,6 +310,25 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: test
           CI: "true"
+
+      - name: Запретить пропуски сценариев и проверить итоговый JUnit
+        if: success()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const xml = fs.readFileSync("test-results/junit.xml", "utf8");
+          const root = xml.match(/<testsuites\\b([^>]*)>/);
+          if (!root) throw new Error("JUnit root <testsuites> not found");
+          const attrs = Object.fromEntries([...root[1].matchAll(/([a-zA-Z]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
+          const tests = Number(attrs.tests || 0);
+          const failures = Number(attrs.failures || 0);
+          const errors = Number(attrs.errors || 0);
+          const skipped = Number(attrs.skipped || 0);
+          console.log(JSON.stringify({ tests, failures, errors, skipped }, null, 2));
+          if (tests < 1 || failures !== 0 || errors !== 0 || skipped !== 0) {
+            throw new Error(`E2E acceptance failed: tests=${tests}, failures=${failures}, errors=${errors}, skipped=${skipped}`);
+          }
+          NODE
 
       - name: Диагностика сервера при ошибке
         if: failure() || cancelled()
