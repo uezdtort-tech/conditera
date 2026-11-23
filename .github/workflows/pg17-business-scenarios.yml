@@ -296,8 +296,9 @@ jobs:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
       - name: Полный набор Playwright на PostgreSQL 17 — все проекты
-        run: bun run test:e2e
+        run: bun run test:e2e -- --fail-on-flaky-tests
         env:
+          PLAYWRIGHT_WORKERS: "2"
           E2E_BASE_URL: http://localhost:3000
           E2E_APP_URL: http://localhost:3000
           PGURL: ${{ env.DATABASE_URL }}
