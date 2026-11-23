@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAppStore } from "@/lib/store";
+import { siteConfig } from "@/lib/site-config";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -151,7 +152,7 @@ function ConsentContent() {
         Настоящее согласие на обработку персональных данных (далее — «Согласие») составлено в соответствии с
         требованиями Федерального закона от 27.07.2006 № 152-ФЗ «О персональных данных» (далее — «Закон о персональных данных»)
         и регулирует порядок обработки и использования персональных данных Пользователя платформы «Уездный кондитер»
-        (далее — «Платформа»), оператором которой является ООО «Уездный кондитер» (далее — «Оператор»).
+        (далее — «Платформа»), оператором которой является {siteConfig.legalName || "Оператор платформы"} (далее — «Оператор»).
       </p>
 
       <h2 className="text-lg font-bold mt-4">2. Состав персональных данных</h2>
@@ -260,7 +261,7 @@ function ConsentContent() {
         <li><Mail className="h-3 w-3 inline mr-1" /> Обжаловать действия Оператора в Роскомнадзор</li>
       </ul>
       <p className="text-sm text-muted-foreground leading-relaxed mt-2">
-        Для реализации этих прав напишите на <b>privacy@conditera.ru</b> или через форму обратной связи в личном кабинете.
+        Для реализации этих прав {siteConfig.privacyEmail ? <>напишите на <b>{siteConfig.privacyEmail}</b> или через форму обратной связи в личном кабинете.</> : "воспользуйтесь формой обратной связи на сайте."}
         Ответ предоставляется в течение 30 дней.
       </p>
 
@@ -273,19 +274,19 @@ function ConsentContent() {
       <h2 className="text-lg font-bold mt-4">10. Отзыв согласия</h2>
       <p className="text-sm text-muted-foreground leading-relaxed">
         Пользователь может отозвать настоящее согласие в любой момент, направив соответствующее уведомление
-        на адрес <b>privacy@conditera.ru</b> или через настройки в личном кабинете.
+        на адрес {siteConfig.privacyEmail ? <b>{siteConfig.privacyEmail}</b> : "через форму обратной связи на сайте"} или через настройки в личном кабинете.
         Отзыв согласия влечёт удаление аккаунта и всех связанных данных в течение 30 дней,
         за исключением данных, которые Оператор обязан хранить по закону (налоговые документы — 5 лет).
       </p>
 
       <h2 className="text-lg font-bold mt-4">11. Контактные данные Оператора</h2>
       <div className="bg-muted/40 rounded-lg p-4 text-sm space-y-1">
-        <div><b>Оператор:</b> ООО «Уездный кондитер»</div>
-        <div><b>ИНН:</b> 7701234567</div>
-        <div><b>ОГРН:</b> 1234567890123</div>
-        <div><b>Адрес:</b> 101000, г. Москва, ул. Сладкая, д. 1</div>
-        <div><b>Email:</b> privacy@conditera.ru</div>
-        <div><b>Телефон:</b> 8 800 555-35-35</div>
+        <div><b>Оператор:</b> {siteConfig.legalName || "не настроено"}</div>
+        {siteConfig.inn && <div><b>ИНН:</b> {siteConfig.inn}</div>}
+        {siteConfig.ogrn && <div><b>ОГРН / ОГРНИП:</b> {siteConfig.ogrn}</div>}
+        {siteConfig.legalAddress && <div><b>Юридический адрес:</b> {siteConfig.legalAddress}</div>}
+        {siteConfig.privacyEmail && <div><b>Email:</b> {siteConfig.privacyEmail}</div>}
+        {siteConfig.phone && <div><b>Телефон:</b> {siteConfig.phone}</div>}
       </div>
     </>
   );
@@ -323,7 +324,7 @@ function PrivacyContent() {
       <h2 className="text-lg font-bold mt-4">6. Права пользователя</h2>
       <p className="text-sm text-muted-foreground leading-relaxed">
         Вы вправе запросить доступ, исправление, удаление своих данных и отзыв согласия.
-        Для этого напишите на privacy@conditera.ru.
+        Для этого {siteConfig.privacyEmail ? <>напишите на {siteConfig.privacyEmail}</> : "воспользуйтесь формой обратной связи на сайте"}.
       </p>
     </>
   );
@@ -361,7 +362,7 @@ function OfferContent() {
     <>
       <h2 className="text-lg font-bold">1. Предмет оферты</h2>
       <p className="text-sm text-muted-foreground leading-relaxed">
-        ООО «Уездный кондитер» предлагает любому лицу (Пользователю) воспользоваться услугами платформы
+        {siteConfig.legalName || "Оператор платформы"} предлагает любому лицу (Пользователю) воспользоваться услугами платформы
         на условиях настоящего Договора-оферты. Акцепт оферты — регистрация на платформе.
       </p>
       <h2 className="text-lg font-bold mt-4">2. Услуги платформы</h2>
