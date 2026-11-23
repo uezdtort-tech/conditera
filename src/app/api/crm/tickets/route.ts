@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { invokeInternalEdgeFunction } from "@/lib/supabase/edge-functions";
 import { getUserFromRequest } from "@/lib/auth";
 import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
 
@@ -119,21 +120,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.warn("[crm/tickets] First message error:", msgError.message);
     }
 
-    // Отправить уведомление support через Edge Function
+    // Отправить уведомление support через внутренний Edge Function route.
     try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      if (supabaseUrl) {
-        await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "ticket_created",
-            ticketId: ticket.number,
-            customer: user.email,
-            priority,
-          }),
-        });
-      }
+      await invokeInternalEdgeFunction("send-notification", {
+        type: "ticket_created",
+        ticketId: ticket.number,
+        customer: user.email,
+        priority,
+      });
     } catch (e) {
       console.warn("[crm/tickets] Notification error:", (e as Error).message);
     }

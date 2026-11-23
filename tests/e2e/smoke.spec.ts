@@ -135,7 +135,7 @@ test.describe('Smoke tests — базовая работоспособность
   test('CSRF protection blocks POST without token', async ({ request }) => {
     const response = await request.post('/api/orders', {
       data: { test: 'data' },
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Cookie: 'cd_session=e2e-cookie-session' },
     })
     expect(response.status()).toBe(403)
     const body = await response.json()

@@ -157,7 +157,14 @@ export async function requireAnyRole(
       { status: 401, headers: { "Content-Type": "application/json" } }
     );
   }
-  if (roles.length === 0) return null; // нет требований — доступ открыт
+  // Fail-closed: пустой список разрешённых ролей не означает публичный доступ.
+  // Публичные endpoints не должны вызывать requireAnyRole вообще.
+  if (roles.length === 0) {
+    return new Response(
+      JSON.stringify({ error: "Для этого действия не настроены разрешённые роли", required_roles: [] }),
+      { status: 403, headers: { "Content-Type": "application/json" } }
+    );
+  }
   const has = await hasAnyRole(userId, roles);
   if (!has) {
     return new Response(

@@ -1,10 +1,18 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "http://supabase-kong:8000", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
-Deno.serve(async (req: Request) => {
-  const { userId, title, body, url } = await req.json();
-  const { data: subs } = await supabase.from("push_subscriptions").select("endpoint, keys").eq("user_id", userId);
-  if (!subs || subs.length === 0) return new Response(JSON.stringify({ ok: false, message: "No subscriptions" }), { headers: { "Content-Type": "application/json" } });
-  // В production: использовать Web Push API через deno-web-push
-  console.log(`[send-push] To: ${userId}, Title: ${title}`);
-  return new Response(JSON.stringify({ ok: true, sent: subs.length }), { headers: { "Content-Type": "application/json" } });
+/**
+ * send-push — временно выключенная бизнес-функция.
+ *
+ * Реальная бизнес-логика и сквозные тесты ещё не готовы. Возвращаем 501
+ * вместо ложного { ok: true }, чтобы расписание/оператор не считал задачу
+ * успешно выполненной и не терял уведомления/операции без результата.
+ */
+
+Deno.serve((req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204 });
+  if (req.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+  return Response.json(
+    { ok: false, error: "not_implemented", function: "send-push" },
+    { status: 501 },
+  );
 });

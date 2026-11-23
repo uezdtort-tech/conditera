@@ -66,6 +66,7 @@ export function SupabaseAuthModal({
   const [mode, setMode] = React.useState<"login" | "register" | "forgot" | "magic">(defaultMode);
   const [showPassword, setShowPassword] = React.useState(false);
   const [agreeToTerms, setAgreeToTerms] = React.useState(false);
+  const [agreeToPrivacy, setAgreeToPrivacy] = React.useState(false);
   const [magicEmailSent, setMagicEmailSent] = React.useState(false);
 
   // Form state
@@ -89,6 +90,7 @@ export function SupabaseAuthModal({
       setName("");
       setPhone("");
       setAgreeToTerms(false);
+      setAgreeToPrivacy(false);
       setShowPassword(false);
       setMagicEmailSent(false);
       setMode(defaultMode);
@@ -131,8 +133,8 @@ export function SupabaseAuthModal({
       toast.error("Пароль должен быть не менее 8 символов");
       return;
     }
-    if (!agreeToTerms) {
-      toast.error("Подтвердите согласие с условиями");
+    if (!agreeToTerms || !agreeToPrivacy) {
+      toast.error("Отдельно подтвердите пользовательское соглашение и согласие на обработку персональных данных");
       return;
     }
     signUp.mutate(
@@ -146,7 +148,15 @@ export function SupabaseAuthModal({
   };
 
   const handleOAuth = (provider: "google" | "yandex" | "vk"): void => {
-    oauth.mutate(provider);
+    if (mode === "register" && (!agreeToTerms || !agreeToPrivacy)) {
+      toast.error("Для регистрации через соцсеть подтвердите пользовательское соглашение и обработку персональных данных");
+      return;
+    }
+    oauth.mutate({
+      provider,
+      consentPd: mode === "register" && agreeToPrivacy,
+      consentTerms: mode === "register" && agreeToTerms,
+    });
   };
 
   const handleResetPassword = (e: React.FormEvent): void => {
@@ -390,21 +400,31 @@ export function SupabaseAuthModal({
                   </div>
                 </div>
 
-                <label className="flex items-start gap-2 cursor-pointer text-xs">
-                  <Checkbox
-                    id="terms"
-                    checked={agreeToTerms}
-                    onCheckedChange={(v: boolean) => setAgreeToTerms(v)}
-                  />
-                  <span className="text-muted-foreground">
-                    Я согласен с{" "}
-                    <a href="/about?legal=terms" className="text-primary hover:underline">условиями</a>{" "}
-                    и{" "}
-                    <a href="/about?legal=privacy" className="text-primary hover:underline">политикой конфиденциальности</a>
-                  </span>
-                </label>
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer text-xs">
+                    <Checkbox id="terms" checked={agreeToTerms} onCheckedChange={(v: boolean) => setAgreeToTerms(v === true)} />
+                    <span className="text-muted-foreground">
+                      Принимаю <a href="/about?legal=terms" target="_blank" rel="noreferrer" className="text-primary hover:underline">пользовательское соглашение</a>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer text-xs">
+                    <Checkbox id="privacy-consent" checked={agreeToPrivacy} onCheckedChange={(v: boolean) => setAgreeToPrivacy(v === true)} />
+                    <span className="text-muted-foreground">
+                      Даю согласие на обработку персональных данных в соответствии с <a href="/about?legal=privacy" target="_blank" rel="noreferrer" className="text-primary hover:underline">политикой конфиденциальности</a>
+                    </span>
+                  </label>
+                </div>
 
-                <Button type="submit" className="w-full" disabled={isProcessing || !agreeToTerms}>
+                <div className="space-y-2 border-t pt-3">
+                  <p className="text-center text-xs text-muted-foreground">Или зарегистрируйтесь через</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button type="button" variant="outline" onClick={() => handleOAuth("google")} disabled={isProcessing || !agreeToTerms || !agreeToPrivacy} aria-label="Зарегистрироваться через Google"><span className="font-semibold">G</span></Button>
+                    <Button type="button" variant="outline" onClick={() => handleOAuth("yandex")} disabled={isProcessing || !agreeToTerms || !agreeToPrivacy} aria-label="Зарегистрироваться через Яндекс"><span className="font-bold text-red-500">Я</span></Button>
+                    <Button type="button" variant="outline" onClick={() => handleOAuth("vk")} disabled={isProcessing || !agreeToTerms || !agreeToPrivacy} aria-label="Зарегистрироваться через VK ID"><span className="font-bold text-blue-500">VK</span></Button>
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={isProcessing || !agreeToTerms || !agreeToPrivacy}>
                   {signUp.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />

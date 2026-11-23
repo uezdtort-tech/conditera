@@ -52,64 +52,64 @@ vi.mock('next/image', () => ({
 // React для mock next/image
 import React from 'react'
 
-// Mock matchMedia (не реализован в jsdom)
-// v4.5: guard для node-реалма (@vitest-environment node — auth.expiry.test.ts,
-// jose требует node-реалм для Uint8Array) — window отсутствует, DOM-моки не нужны
+// DOM mocks включаются только в jsdom. Часть серверных тестов запускается
+// в Node environment (например, JWT/Jose), где window и Element отсутствуют.
 if (typeof window !== 'undefined') {
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: (query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  }),
-})
+  // Mock matchMedia (не реализован в jsdom)
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }),
+  })
 
-// Mock IntersectionObserver
-class MockIntersectionObserver {
-  observe = vi.fn()
-  unobserve = vi.fn()
-  disconnect = vi.fn()
-  takeRecords = vi.fn(() => [])
-  root = null
-  rootMargin = ''
-  thresholds = []
-}
-Object.defineProperty(window, 'IntersectionObserver', {
-  writable: true,
-  configurable: true,
-  value: MockIntersectionObserver,
-})
-Object.defineProperty(global, 'IntersectionObserver', {
-  writable: true,
-  configurable: true,
-  value: MockIntersectionObserver,
-})
+  // Mock IntersectionObserver
+  class MockIntersectionObserver {
+    observe = vi.fn()
+    unobserve = vi.fn()
+    disconnect = vi.fn()
+    takeRecords = vi.fn(() => [])
+    root = null
+    rootMargin = ''
+    thresholds = []
+  }
+  Object.defineProperty(window, 'IntersectionObserver', {
+    writable: true,
+    configurable: true,
+    value: MockIntersectionObserver,
+  })
+  Object.defineProperty(global, 'IntersectionObserver', {
+    writable: true,
+    configurable: true,
+    value: MockIntersectionObserver,
+  })
 
-// Mock ResizeObserver
-class MockResizeObserver {
-  observe = vi.fn()
-  unobserve = vi.fn()
-  disconnect = vi.fn()
-}
-Object.defineProperty(window, 'ResizeObserver', {
-  writable: true,
-  configurable: true,
-  value: MockResizeObserver,
-})
+  // Mock ResizeObserver
+  class MockResizeObserver {
+    observe = vi.fn()
+    unobserve = vi.fn()
+    disconnect = vi.fn()
+  }
+  Object.defineProperty(window, 'ResizeObserver', {
+    writable: true,
+    configurable: true,
+    value: MockResizeObserver,
+  })
 
-// Mock scrollTo
-window.scrollTo = vi.fn() as any
-// scrollIntoView — это метод Element, не window
-if (!Element.prototype.scrollIntoView) {
-  Element.prototype.scrollIntoView = vi.fn() as any
+  // Mock scrollTo
+  window.scrollTo = vi.fn() as any
+  // scrollIntoView — это метод Element, не window
+  if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = vi.fn() as any
+  }
 }
-} // end typeof window !== 'undefined'
 
 // Подавляем шум консоли в тестах (можно включить обратно при дебаге)
 const originalError = console.error

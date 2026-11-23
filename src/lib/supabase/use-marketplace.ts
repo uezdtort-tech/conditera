@@ -36,6 +36,7 @@ import type {
   Product as StoreProduct,
   ProductCategory,
   ProductMediaItem,
+  ProductSliceItem,
   Review,
 } from "@/lib/types";
 
@@ -882,6 +883,8 @@ export interface ApiProduct {
   // PR-2C (additive): effective_from покрывающей now строки истории цен;
   // null на legacy-фолбэке (version_id NULL)
   priceEffectiveFrom?: string | null;
+  slices?: ProductSliceItem[] | null;
+
   confectioner: { id: string; businessName: string; avatar: string; verified: boolean; city: string } | null;
 }
 
@@ -1022,6 +1025,9 @@ export function mapApiProductToProduct(p: ApiProduct): StoreProduct {
     media: Array.isArray(p.media) ? p.media : undefined,
     // PR-2C (additive): дата вступления текущей цены; на legacy-фолбэке null
     priceEffectiveFrom: p.priceEffectiveFrom ?? null,
+    // ProductCard получает только реальные записи product_slices из API.
+    slices: Array.isArray(p.slices) ? p.slices : [],
+
   };
 }
 
@@ -1037,7 +1043,13 @@ export function useLiveProducts(limit = 60) {
         next: { tags: ["products", "vitrina"], revalidate: 60 },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as { products?: ApiProduct[] };
+      const json = (await res.json()) as {
+        products?: ApiProduct[];
+        dataStatus?: { productSlices?: "ok" | "unavailable" };
+      };
+      if (json.dataStatus?.productSlices === "unavailable") {
+        console.warn("[marketplace] product slices are temporarily unavailable; cutaway images may be omitted");
+      }
       return (json.products ?? []).map(mapApiProductToProduct);
     },
     staleTime: 60 * 1000,
@@ -1107,10 +1119,18 @@ export function useLiveProductDetail(id: string | null | undefined) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as {
         product?: ApiProduct;
+        slices?: ProductSliceItem[] | null;
         reviews?: ApiReview[];
+        dataStatus?: { productSlices?: "ok" | "unavailable" };
       };
+      if (json.dataStatus?.productSlices === "unavailable") {
+        console.warn("[marketplace] product detail slices are temporarily unavailable");
+      }
+      const product = json.product
+        ? mapApiProductToProduct({ ...json.product, slices: json.slices ?? [] })
+        : null;
       return {
-        product: json.product ? mapApiProductToProduct(json.product) : null,
+        product,
         reviews: (json.reviews ?? []).map(mapApiReviewToReview),
       };
     },

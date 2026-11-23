@@ -44,17 +44,22 @@ export function useAuth() {
       }
 
       // Загрузить профиль и роли
-      const { data: profile } = await supabaseBrowser
+      const { data: profile, error: profileError } = await supabaseBrowser
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
         .single();
 
-      const { data: roles } = await supabaseBrowser
+      const { data: roles, error: rolesError } = await supabaseBrowser
         .from("user_roles")
         .select("role, is_active")
         .eq("user_id", session.user.id)
         .eq("is_active", true);
+
+      if (profileError || !profile || profile.is_blocked === true || Boolean(profile.deleted_at) || rolesError) {
+        if (isMounted) setState({ user: null, profile: null, isLoading: false });
+        return;
+      }
 
       const user: UserWithRoles = {
         id: session.user.id,
@@ -76,17 +81,22 @@ export function useAuth() {
           return;
         }
 
-        const { data: profile } = await supabaseBrowser
+        const { data: profile, error: profileError } = await supabaseBrowser
           .from("profiles")
           .select("*")
           .eq("id", session.user.id)
           .single();
 
-        const { data: roles } = await supabaseBrowser
+        const { data: roles, error: rolesError } = await supabaseBrowser
           .from("user_roles")
           .select("role, is_active")
           .eq("user_id", session.user.id)
           .eq("is_active", true);
+
+        if (profileError || !profile || profile.is_blocked === true || Boolean(profile.deleted_at) || rolesError) {
+          if (isMounted) setState({ user: null, profile: null, isLoading: false });
+          return;
+        }
 
         const user: UserWithRoles = {
           id: session.user.id,
@@ -220,17 +230,56 @@ export function useSignOut() {
 // ==================== useOAuth (Google/Яндекс/VK) ====================
 type OAuthProvider = "google" | "yandex" | "vk";
 
+interface OAuthInput {
+  provider: OAuthProvider;
+  consentPd?: boolean;
+  consentTerms?: boolean;
+}
+
 export function useOAuth() {
   return useMutation({
-    mutationFn: async (provider: OAuthProvider) => {
-      const { data, error } = await supabaseBrowser.auth.signInWithOAuth({
-        provider: provider as "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+    mutationFn: async ({ provider, consentPd = false, consentTerms = false }: OAuthInput) => {
+      // Conditera uses its own server-side OAuth adapters for Yandex, VK ID
+      // and Google. Supabase GoTrue does not expose all three providers with
+      // the same contract; passing "yandex"/"vk" to signInWithOAuth is invalid.
+      const checkResponse = await fetch(`/api/auth/oauth/${provider}?mode=check`, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
       });
-      if (error) throw error;
-      return data;
+      const check = (await checkResponse.json()) as {
+        configured?: boolean;
+        error?: string;
+      };
+      if (!checkResponse.ok || !check.configured) {
+        throw new Error(check.error || `Вход через ${provider} пока не настроен`);
+      }
+
+      // The server endpoint creates the state/PKCE cookies and redirects to
+      // the selected identity provider. Navigation is intentionally full-page.
+      const queryReturnTo = new URLSearchParams(window.location.search).get("returnTo");
+      const currentPath = window.location.pathname + window.location.search;
+      const fallbackReturnTo =
+        window.location.pathname === "/login" ||
+        window.location.pathname === "/register" ||
+        window.location.pathname === "/auth/login"
+          ? "/dashboard"
+          : currentPath;
+      const candidate = queryReturnTo || fallbackReturnTo;
+      const returnTo =
+        candidate.startsWith("/") &&
+        !candidate.startsWith("//") &&
+        !candidate.includes("\\") &&
+        !/[\r\n]/.test(candidate)
+          ? candidate
+          : "/dashboard";
+      const startUrl = new URL("/api/auth/oauth/" + provider, window.location.origin);
+      startUrl.searchParams.set("returnTo", returnTo);
+      if (consentPd) startUrl.searchParams.set("consentPd", "1");
+      if (consentTerms) startUrl.searchParams.set("consentTerms", "1");
+      window.location.assign(startUrl.toString());
+      return { provider };
     },
     onError: (error: { message?: string }) => {
       toast.error("Ошибка OAuth", { description: error.message });

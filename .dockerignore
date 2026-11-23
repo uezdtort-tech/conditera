@@ -20,3 +20,12 @@ simplex
 docs
 .env*
 !.env.example
+
+# Keep only the microservice source trees required by Dockerfile.chat and
+# Dockerfile.simplex-bridge; the generic mini-services exclusion above
+# otherwise makes both Docker build contexts empty.
+!mini-services/
+!mini-services/chat-server/
+!mini-services/chat-server/**
+!mini-services/simplex-bridge/
+!mini-services/simplex-bridge/**

@@ -319,9 +319,13 @@ export async function setWebhook(webhookUrl: string): Promise<boolean> {
   }
 
   try {
-    // TELEGRAM_WEBHOOK_SECRET: Telegram будет присылать его в каждом update
-    // в заголовке X-Telegram-Bot-Api-Secret-Token (проверка в webhook route).
+    // Telegram must authenticate every update with its secret-token header.
     const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret || !/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret) ||
+        (process.env.NODE_ENV === "production" && /^(CHANGE_ME|dev_)/i.test(webhookSecret))) {
+      console.error("[telegram] TELEGRAM_WEBHOOK_SECRET is missing or invalid");
+      return false;
+    }
     const response = await fetch(`${API_BASE}/${BOT_TOKEN}/setWebhook`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -334,7 +338,7 @@ export async function setWebhook(webhookUrl: string): Promise<boolean> {
           "inline_query",
           "chat_member",
         ],
-        ...(webhookSecret ? { secret_token: webhookSecret } : {}),
+        secret_token: webhookSecret,
       }),
     })
 

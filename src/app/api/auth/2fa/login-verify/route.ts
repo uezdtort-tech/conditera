@@ -59,11 +59,15 @@ interface SanitizedUser {
  * Получить роли пользователя из user_roles.
  */
 async function getUserRoles(userId: string): Promise<string[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("user_roles")
     .select("role")
     .eq("user_id", userId)
     .eq("is_active", true);
+  if (error) {
+    console.error("[2fa/login-verify] active role lookup failed; refusing to issue session:", error.message);
+    throw new Error("Не удалось проверить права доступа");
+  }
   return (data || []).map((r: any) => r.role as string);
 }
 
@@ -135,7 +139,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .select(
         `
         id, email, name, phone, account_type, city, bonus_balance,
-        loyalty_level, is_blocked, two_factor_enabled, two_factor_secret,
+        loyalty_level, is_blocked, deleted_at, two_factor_enabled, two_factor_secret,
         two_factor_backup_codes
       `
       )
@@ -154,6 +158,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { error: "2FA не настроена для этого пользователя" },
         { status: 400 }
       );
+    }
+
+    if (user.deleted_at) {
+      return NextResponse.json({ error: "Аккаунт удалён" }, { status: 403 });
     }
 
     if (user.is_blocked) {

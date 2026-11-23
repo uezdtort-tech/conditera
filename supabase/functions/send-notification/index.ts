@@ -1,17 +1,6 @@
 /**
- * supabase/functions/send-notification/index.ts
- *
- * Edge Function для отправки уведомления в Telegram-канал @conditera.
- * Вызывается через trigger на INSERT в orders/leads/tickets.
- *
- * Использование через pg_cron:
- *   SELECT cron.schedule('send-channel-notification',
- *     '* * * * *',
- *     $$SELECT net.http_post(
- *       url:='http://supabase-kong:8000/functions/v1/send-notification',
- *       headers:='{"Content-Type":"application/json"}'::jsonb,
- *       body:='{"type":"order_created","orderId":"ORD-2026-0042","amount":4500,"customer":"Maria S."}'::jsonb
- *     )$$);
+ * Internal Edge Function for operational Telegram channel notifications.
+ * Access is restricted by Kong key-auth + service_role ACL.
  */
 
 interface NotificationPayload {
@@ -36,16 +25,65 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function escapeHtml(value: string): string {
+  const replacements: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  };
+  return value.replace(/[&<>"']/g, (character) => replacements[character] ?? character);
+}
+
+function formatMessage(payload: NotificationPayload): string {
+  const definitions = {
+    order_created: { emoji: "🛒", title: "Новый заказ" },
+    lead_new: { emoji: "📊", title: "Новый лид" },
+    ticket_created: { emoji: "🎫", title: "Новый тикет" },
+    payout_request: { emoji: "💰", title: "Запрос выплаты" },
+    fraud_alert: { emoji: "⚠️", title: "Фрод-алерт" },
+  } as const;
+  const definition = definitions[payload.type];
+  if (!definition) throw new Error("Unsupported notification type");
+
+  const lines = [`${definition.emoji} <b>${definition.title}</b>`, ""];
+  if (payload.orderId) lines.push(`📦 Заказ: <code>${escapeHtml(payload.orderId)}</code>`);
+  if (payload.leadId) lines.push(`📊 Лид: <code>${escapeHtml(payload.leadId)}</code>`);
+  if (payload.ticketId) lines.push(`🎫 Тикет: <code>${escapeHtml(payload.ticketId)}</code>`);
+  if (payload.payoutId) lines.push(`💰 Выплата: <code>${escapeHtml(payload.payoutId)}</code>`);
+  if (typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount >= 0) {
+    lines.push(`💵 Сумма: <b>${payload.amount.toLocaleString("ru-RU")} ₽</b>`);
+  }
+  if (payload.customer) lines.push(`👤 Клиент: ${escapeHtml(payload.customer.slice(0, 160))}`);
+  if (payload.confectioner) lines.push(`👨‍🍳 Кондитер: ${escapeHtml(payload.confectioner.slice(0, 160))}`);
+  if (payload.priority) {
+    const priorityEmoji = { low: "🟢", medium: "🟡", high: "🟠", urgent: "🔴" }[payload.priority];
+    if (priorityEmoji) lines.push(`${priorityEmoji} Приоритет: <b>${payload.priority.toUpperCase()}</b>`);
+  }
+  lines.push("", `📅 ${new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}`);
+  return lines.join("\n");
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405, headers: corsHeaders });
+  }
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHANNEL_ID) {
+    console.error("[send-notification] Telegram bot/channel is not configured");
+    return Response.json({ error: "Telegram notification channel is not configured" }, { status: 503, headers: corsHeaders });
   }
 
   try {
-    const payload: NotificationPayload = await req.json();
+    const payload = await req.json() as NotificationPayload;
+    const supportedTypes = ["order_created", "lead_new", "ticket_created", "payout_request", "fraud_alert"];
+    if (!payload || typeof payload !== "object" ||
+        typeof payload.type !== "string" || !supportedTypes.includes(payload.type)) {
+      return Response.json({ error: "Invalid notification payload" }, { status: 400, headers: corsHeaders });
+    }
     const message = formatMessage(payload);
-
-    await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
+    const response = await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -54,56 +92,17 @@ Deno.serve(async (req: Request) => {
         parse_mode: "HTML",
         disable_web_page_preview: true,
       }),
+      signal: AbortSignal.timeout(10_000),
     });
+    const result = await response.json().catch(() => null) as { ok?: boolean; description?: string } | null;
+    if (!response.ok || result?.ok !== true) {
+      console.error("[send-notification] Telegram API rejected message:", result?.description || response.status);
+      return Response.json({ error: "Telegram delivery failed" }, { status: 502, headers: corsHeaders });
+    }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
+    return Response.json({ ok: true }, { headers: corsHeaders });
   } catch (error) {
-    console.error("Send notification error:", error);
-    return new Response(
-      JSON.stringify({ error: (error as Error).message }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
-    );
+    console.error("[send-notification] Failed:", error);
+    return Response.json({ error: "Notification processing failed" }, { status: 500, headers: corsHeaders });
   }
 });
-
-function formatMessage(payload: NotificationPayload): string {
-  const emoji = {
-    order_created: "🛒",
-    lead_new: "📊",
-    ticket_created: "🎫",
-    payout_request: "💰",
-    fraud_alert: "⚠️",
-  }[payload.type] || "📢";
-
-  const titles = {
-    order_created: "Новый заказ",
-    lead_new: "Новый лид",
-    ticket_created: "Новый тикет",
-    payout_request: "Запрос выплаты",
-    fraud_alert: "⚠️ Фрод-алерт",
-  };
-
-  let msg = `${emoji} <b>${titles[payload.type]}</b>\n\n`;
-
-  if (payload.orderId) msg += `📦 Заказ: <code>${payload.orderId}</code>\n`;
-  if (payload.leadId) msg += `📊 Лид: <code>${payload.leadId}</code>\n`;
-  if (payload.ticketId) msg += `🎫 Тикет: <code>${payload.ticketId}</code>\n`;
-  if (payload.payoutId) msg += `💰 Выплата: <code>${payload.payoutId}</code>\n`;
-  if (payload.amount) msg += `💵 Сумма: <b>${payload.amount.toLocaleString()} ₽</b>\n`;
-  if (payload.customer) msg += `👤 Клиент: ${payload.customer}\n`;
-  if (payload.confectioner) msg += `👨‍🍳 Кондитер: ${payload.confectioner}\n`;
-  if (payload.priority) {
-    const priorityEmoji = { low: "🟢", medium: "🟡", high: "🟠", urgent: "🔴" }[payload.priority] || "⚪";
-    msg += `${priorityEmoji} Приоритет: <b>${payload.priority.toUpperCase()}</b>\n`;
-  }
-
-  msg += `\n📅 ${new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}`;
-
-  return msg;
-}

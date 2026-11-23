@@ -52,6 +52,11 @@ services:
       POSTGRES_DB: supabase
       POSTGRES_PORT: 5432
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      # Пути должны совпадать с фактическими bind mounts ниже.
+      MIGRATIONS_DIR: /conditera-migrations
+      SEEDS_DIR: /docker-entrypoint-initdb.d/seed
+      # Production никогда не загружает тестовые аккаунты, рецепты и промокоды.
+      SEED_MODE: none
     # НЕ пробрасываем порт наружу — только через supabase-kong
     expose:
       - "5432"
@@ -61,13 +66,17 @@ services:
       # («database files are incompatible with server»). Переход только через
       # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
       - supabase_db_data:/var/lib/postgresql/data
-      - ./supabase/init-scripts:/docker-entrypoint-initdb.d:ro
-      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+      # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
+      # там находятся обязательные системные миграции и init-scripts.
+      # Подключаем только наш скрипт отдельным файлом, после системного migrate.sh.
+      - ./supabase/init-scripts/00-service-role-passwords.sh:/docker-entrypoint-initdb.d/zz-conditera-00-role-passwords.sh:ro
+      - ./supabase/init-scripts/01-apply-migrations.sh:/docker-entrypoint-initdb.d/zz-conditera-apply-migrations.sh:ro
+      - ./supabase/migrations:/conditera-migrations:ro
       - ./supabase/seed.sql:/docker-entrypoint-initdb.d/seed/01-seed.sql:ro
       - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U supabase -d supabase"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U supabase -d supabase"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -204,7 +213,7 @@ services:
     container_name: conditera-supabase-rest
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=public
+      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -212,12 +221,6 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
     deploy:
       resources:
         limits:
@@ -236,6 +239,7 @@ services:
     container_name: conditera-supabase-realtime
     restart: unless-stopped
     environment:
+      APP_NAME: realtime
       DB_HOST: supabase-db
       DB_PORT: 5432
       DB_USER: supabase
@@ -243,6 +247,7 @@ services:
       DB_NAME: supabase
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       PORT: 4000
+      RLIMIT_NOFILE: 65536
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       ENCRYPTOR_KEY: ${ENCRYPTOR_KEY:?ENCRYPTOR_KEY required}
       API_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -250,7 +255,6 @@ services:
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?SECRET_KEY_BASE required}
       ERL_AFLAGS: "+sbwt none +sbwtdcpu none +sbwtdio none"
       DB_ENC_KEY: ${ENCRYPTOR_KEY:?ENCRYPTOR_KEY required}
-      API_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -297,12 +301,14 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
+      supabase-meta:
+        condition: service_started
       supabase-rest:
-        condition: service_healthy
+        condition: service_started
       supabase-imgproxy:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/status || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5000/status || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -318,6 +324,36 @@ services:
     logging: *default-logging
     networks:
       - conditera-net
+
+  # ===== Прикладные миграции после инициализации Supabase Storage =====
+  # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
+  # только после того, как Storage API создал свои таблицы.
+  supabase-app-migrator:
+    image: supabase/postgres:15.6.1.141
+    container_name: conditera-supabase-app-migrator
+    restart: "no"
+    command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
+    environment:
+      PGHOST: supabase-db
+      PGPORT: 5432
+      PGUSER: supabase
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      PGDATABASE: supabase
+      MIGRATIONS_DIR: /conditera-migrations
+      SEEDS_DIR: /seeds
+      SEED_MODE: none
+    volumes:
+      - ./supabase/init-scripts/01-apply-migrations.sh:/scripts/01-apply-migrations.sh:ro
+      - ./supabase/migrations:/conditera-migrations:ro
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-storage:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - conditera-net
+
 
   # ===== imgproxy (обработка изображений) =====
   supabase-imgproxy:
@@ -364,12 +400,6 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
     deploy:
       resources:
         limits:
@@ -385,8 +415,9 @@ services:
   # ===== Supabase Studio (web UI — админка для БД/Auth/Storage) =====
   # ВАЖНО: порт 8100 (не 3000 — конфликтует с Next.js)
   supabase-studio:
-    image: supabase/studio:2025.06.23-sha-2cd0383
+    image: supabase/studio:2026.11.02-sha-a05e7ec
     container_name: conditera-supabase-studio
+    profiles: ["studio"]
     restart: unless-stopped
     environment:
       STUDIO_PG_META_URL: http://supabase-meta:8080
@@ -410,7 +441,7 @@ services:
       supabase-db:
         condition: service_healthy
       supabase-meta:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ || exit 1"]
       interval: 30s

@@ -56,6 +56,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "examples/**",
     "skills/**",
     "scripts/**", // build/utility scripts (CommonJS allowed)
+    ".merge-ws/**", // чужой git-worktree (merge/pub-20261124) — вне lint-гейта
     "archive/mobile-app/**",
     "mobile-app/**", // дубликат archive/mobile-app (74c12f0: NOT MAINTAINED, ZV31-015 CLOSED) — вне lint-гейта
     "mini-services/**",

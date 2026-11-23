@@ -51,6 +51,27 @@ export interface PgrstResult {
   headers: Record<string, string>;
 }
 
+// node-postgres сохраняет numeric/decimal и bigint строками ради точности.
+// PostgREST JSON-контракт отдаёт безопасные числовые значения как JSON number.
+// Значения за пределами безопасного диапазона или с >15 значащими цифрами
+// оставляем строками, чтобы не терять точность денежных/идентификаторных данных.
+const JSON_NUMERIC_TYPES = new Set(["numeric", "decimal", "real", "double precision", "bigint"]);
+
+function normalizeNumericRow(row: Record<string, unknown>, table: IntrospectedTable): Record<string, unknown> {
+  const out = { ...row };
+  for (const col of table.columns.values()) {
+    if (!JSON_NUMERIC_TYPES.has(col.dataType) && col.udtName !== "int8") continue;
+    const value = out[col.name];
+    if (typeof value !== "string" || value.trim() === "") continue;
+    const numeric = Number(value);
+    const significantDigits = value.replace(/^[+-]/, "").replace(".", "").replace(/^0+/, "").replace(/0+$/, "").length;
+    if (Number.isFinite(numeric) && Math.abs(numeric) <= Number.MAX_SAFE_INTEGER && significantDigits <= 15) {
+      out[col.name] = numeric;
+    }
+  }
+  return out;
+}
+
 interface SelectItem {
   alias: string | null;
   column?: { name: string };
@@ -473,7 +494,7 @@ export async function handleSelect(ctx: PgrstContext, tableName: string): Promis
   const sql = `SELECT ${selectList}${countSql} FROM ${quoteIdent(table.name)}${where.sql}${order}${limitSql}`;
 
   const res = await ctx.pool.query(sql, where.params);
-  let rows = res.rows as Record<string, unknown>[];
+  let rows = (res.rows as Record<string, unknown>[]).map((row) => normalizeNumericRow(row, table));
 
   let total: number | null = null;
   if (countMode) {
@@ -504,10 +525,11 @@ export async function handleSelect(ctx: PgrstContext, tableName: string): Promis
         for (const r of res2.rows as Record<string, unknown>[]) {
           const key = r["__link__"];
           const { ["__link__"]: _link, ...rest } = r;
-          if (plan.direction === "many-to-one") map.set(String(key), rest);
+          const normalized = normalizeNumericRow(rest, plan.relTable);
+          if (plan.direction === "many-to-one") map.set(String(key), normalized);
           else {
             const arr = grouped.get(String(key)) || [];
-            arr.push(rest);
+            arr.push(normalized);
             grouped.set(String(key), arr);
           }
         }
@@ -625,7 +647,7 @@ export async function handleInsert(ctx: PgrstContext, tableName: string): Promis
   const sql = `INSERT INTO ${quoteIdent(table.name)} (${colNames}) VALUES ${valuesSql.join(", ")}${conflictSql}${returningSql}`;
 
   const res = await ctx.pool.query(sql, params);
-  const outRows = res.rows as Record<string, unknown>[];
+  const outRows = (res.rows as Record<string, unknown>[]).map((row) => normalizeNumericRow(row, table));
 
   if (!returnRepresentation) return { status: 204, json: undefined, headers: {} };
   if (wantsObject) {
@@ -676,7 +698,7 @@ export async function handleUpdate(ctx: PgrstContext, tableName: string): Promis
   const sql = `UPDATE ${quoteIdent(table.name)} SET ${setSql}${where.sql}${returningSql}`;
 
   const res = await ctx.pool.query(sql, params);
-  const outRows = res.rows as Record<string, unknown>[];
+  const outRows = (res.rows as Record<string, unknown>[]).map((row) => normalizeNumericRow(row, table));
 
   if (!returnRepresentation) return { status: 204, json: undefined, headers: {} };
   if (wantsObject) {
@@ -696,7 +718,8 @@ export async function handleDelete(ctx: PgrstContext, tableName: string): Promis
   const sql = `DELETE FROM ${quoteIdent(table.name)}${where.sql}${returningSql}`;
   const res = await ctx.pool.query(sql, where.params);
   if (!returnRepresentation) return { status: 204, json: undefined, headers: {} };
-  return { status: 200, json: res.rows, headers: {} };
+  const rows = (res.rows as Record<string, unknown>[]).map((row) => normalizeNumericRow(row, table));
+  return { status: 200, json: rows, headers: {} };
 }
 
 // ============================================================================

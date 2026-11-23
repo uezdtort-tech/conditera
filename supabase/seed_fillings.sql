@@ -2,7 +2,19 @@
 -- seed_fillings.sql — 45 начинок с группами вкуса
 -- ====================================================================
 
-INSERT INTO public.fillings (name, description, base_sponge, flavor_group, dietary_tags, price_multiplier, is_seasonal, season_months, color_code, sort_order) VALUES
+INSERT INTO public.fillings (name, description, base_sponge, flavor_group, dietary_tags, price_multiplier, is_seasonal, season_months, color_code, sort_order)
+SELECT
+  seed.name,
+  seed.description,
+  seed.base_sponge,
+  seed.flavor_group,
+  seed.dietary_tags::text[],
+  seed.price_multiplier,
+  seed.is_seasonal,
+  seed.season_months::integer[],
+  seed.color_code,
+  seed.sort_order
+FROM (VALUES
 -- Ягодные
 ('Молочная девочка (малина)', 'Нежный молочный бисквит с малиновым конфитюром', 'milk', 'berry', '{}', 1.0, false, '{}', '#F8B4D9', 1),
 ('Молочная девочка (вишня)', 'Молочный бисквит с вишнёвым конфитюром', 'milk', 'berry', '{}', 1.0, false, '{}', '#C0392B', 2),
@@ -41,7 +53,7 @@ INSERT INTO public.fillings (name, description, base_sponge, flavor_group, dieta
 -- Сливочные
 ('Ванильный пудинг', 'Ванильный бисквит с заварным кремом', 'classic', 'cream', '{}', 1.0, false, '{}', '#FFFACD', 31),
 ('Сметанный', 'Сметанный бисквит со сметанным кремом', 'classic', 'cream', '{}', 1.0, false, '{}', '#F5F5DC', 32),
-('Сметанный (дубль)', 'Сметанный бисквит с варёной сгущёнкой', 'classic', 'cream', '{}', 1.0, false, '{}', '#FAEBD7', 33),
+('Сметанный с варёной сгущёнкой', 'Сметанный бисквит с варёной сгущёнкой', 'classic', 'cream', '{}', 1.0, false, '{}', '#FAEBD7', 33),
 ('Клубника со сливками', 'Клубничный конфитюр со взбитыми сливками', 'classic', 'cream', '{}', 1.0, false, '{}', '#FFB6C1', 34),
 ('Сливочный', 'Ванильный бисквит с масляным кремом', 'classic', 'cream', '{}', 1.0, false, '{}', '#F0E6FA', 35),
 ('Птичье молоко', 'Суфле с белым шоколадом и сгущёнкой', 'classic', 'cream', '{}', 1.1, false, '{}', '#FFF8E7', 36),
@@ -56,4 +68,9 @@ INSERT INTO public.fillings (name, description, base_sponge, flavor_group, dieta
 ('Карпатка', 'Заварной бисквит с заварным кремом', 'classic', 'mousse', '{}', 1.0, false, '{}', '#F5DEB3', 44),
 -- Сезонная
 ('Лимонный пирог', 'Лимонный курд на классическом бисквите', 'classic', 'fruit', '{}', 1.0, false, '{}', '#FFF44F', 45)
-ON CONFLICT (name) DO NOTHING;
+) AS seed(name, description, base_sponge, flavor_group, dietary_tags, price_multiplier, is_seasonal, season_months, color_code, sort_order)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.fillings existing
+  WHERE lower(existing.name) = lower(seed.name)
+    AND existing.created_by IS NULL
+);

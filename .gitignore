@@ -37,6 +37,8 @@ yarn-error.log*
 # mailu.env — секреты почтового сервера (профиль mail/full), коммитить запрещено;
 # шаблон имён ключей — mailu.env.template
 /mailu.env
+.merge-ws/
+!.env.supabase-runtime.example
 
 # vercel
 .vercel

@@ -217,7 +217,8 @@ const ROOM_ACCESS_TTL_MS = 60_000;
 
 async function verifyRoomAccess(
   socket: import("socket.io").Socket,
-  rawRoomId: string
+  rawRoomId: string,
+  forceRefresh = false
 ): Promise<{ ok: boolean; realRoomId: string }> {
   const userId: string = (socket as any).userId;
   const token = socket.handshake.auth?.token as string | undefined;
@@ -234,7 +235,7 @@ async function verifyRoomAccess(
 
   const cacheKey = `${userId}:${roomId}`;
   const cached = roomAccessCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < ROOM_ACCESS_TTL_MS) {
+  if (!forceRefresh && cached && Date.now() - cached.ts < ROOM_ACCESS_TTL_MS) {
     return { ok: true, realRoomId: roomId };
   }
   if (!token) return { ok: false, realRoomId: roomId };
@@ -544,7 +545,7 @@ io.use(async (socket, next) => {
       return next(new Error("auth: token required"));
     }
 
-    // Проверяем подпись и срок действия
+    // Быстрая локальная проверка подписи и срока действия.
     const { payload } = await jwtVerify(token, JWT_SECRET, {
       algorithms: ["HS256"],
     });
@@ -553,18 +554,42 @@ io.use(async (socket, next) => {
       return next(new Error("auth: invalid token (no userId)"));
     }
 
-    // Проверяем, что это не TFA-pending токен (используется только для логина)
+    // Временный токен второго фактора не может открыть чат.
     if ((payload as any).tfa_pending) {
       return next(new Error("auth: TFA pending token cannot be used for chat"));
     }
 
-    // userId/roles/email берём из JWT — клиент не может их подделать
-    (socket as any).userId = payload.userId as string;
-    (socket as any).userEmail = payload.email as string;
-    (socket as any).userRoles = (payload.roles as string[]) || [];
+    // Повторная серверная проверка через Next API — JWT claims могут быть
+    // устаревшими после блокировки, удаления профиля или отзыва роли.
+    // При недоступности Next API подключение отклоняется (fail-closed).
+    const validationResponse = await fetch(`${NEXT_API_BASE}/api/auth/session`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!validationResponse.ok) {
+      return next(new Error("auth: account validation unavailable"));
+    }
+    const validation = (await validationResponse.json()) as {
+      user?: {
+        id?: string;
+        email?: string;
+        name?: string;
+        roles?: string[];
+      } | null;
+    };
+    const currentUser = validation.user;
+    if (!currentUser?.id || currentUser.id !== payload.userId) {
+      return next(new Error("auth: unauthorized"));
+    }
+
+    // Идентичность и полномочия берём из БД через общий auth-контракт.
+    (socket as any).userId = currentUser.id;
+    (socket as any).userEmail = currentUser.email || "";
+    (socket as any).userRoles = Array.isArray(currentUser.roles) ? currentUser.roles : [];
     (socket as any).userName =
+      currentUser.name ||
       (socket.handshake.auth?.userName as string) ||
-      (payload.email as string) ||
+      currentUser.email ||
       "Пользователь";
     (socket as any).userAvatar = socket.handshake.auth?.userAvatar as string;
 
@@ -606,7 +631,7 @@ io.on("connection", (socket) => {
   // P1.1: только члены комнаты (или свои mock-комнаты витрины). Чужая —
   // room:error без join: слушать чужой заказ-чат больше нельзя.
   socket.on("room:join", async (rawRoomId: string) => {
-    const access = await verifyRoomAccess(socket, rawRoomId);
+    const access = await verifyRoomAccess(socket, rawRoomId, true);
     if (!access.ok) {
       socket.emit("room:error", { roomId: rawRoomId, error: "Нет доступа к комнате" });
       console.warn(`⛔ ${userName} → ${rawRoomId}: доступ запрещён`);
@@ -706,7 +731,7 @@ io.on("connection", (socket) => {
       forwardedFrom?: string;
     };
   }) => {
-    const access = await verifyRoomAccess(socket, data.roomId);
+    const access = await verifyRoomAccess(socket, data.roomId, true);
     if (!access.ok) {
       socket.emit("message:error", {
         roomId: data.roomId,

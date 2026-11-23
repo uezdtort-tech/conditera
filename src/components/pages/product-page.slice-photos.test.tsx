@@ -7,6 +7,12 @@
  * заглушен (контракт гейта секции); здесь галерея РЕАЛЬНАЯ — проверяется
  * фактический рендер главного фото из product.images.
  *
+ * Слияние 2026-11-23: секция «Срезы торта по начинкам» (fillingName-гейт)
+ * superseded канонической ProductSliceGallery (гейт product.slices.length>0,
+ * slices приходят в product из detail-запроса). Фото разреза рендерится
+ * ВНУТРИ галереи — контракт проверяется через spy-мок галереи (props.slices
+ * с fixture-URL), без привязки к внутренностям компонента.
+ *
  * Fixtures (явно обозначены, не выдаются за production-контент):
  *   - главное фото: РЕАЛЬНЫЙ ассет репо, используемый реальным продуктом
  *     ...0001 — /uploads/products/svadebnyy-tort-yagodnyy-barhat.png;
@@ -98,7 +104,11 @@ let slicesFixture: Array<{
   sortOrder: number;
 }> = [];
 
-function productFixture(fillings: Product["fillings"]): Product {
+function productFixture(
+  fillings: Product["fillings"],
+  slices: Product["slices"] = []
+): Product {
+  // Канонический поток данных: slices приходят в product из detail-запроса.
   return {
     id: PRODUCT_ID,
     title: TITLE,
@@ -113,6 +123,7 @@ function productFixture(fillings: Product["fillings"]): Product {
     reviewsCount: 3,
     isAvailable: true,
     fillings,
+    slices,
   };
 }
 
@@ -130,6 +141,16 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+
+// --- Мок канонической галереи: spy с записью props ---
+const gallerySpy = vi.fn();
+vi.mock("@/components/cake-slice/cake-slice-visualizer", () => ({
+  ProductSliceGallery: (props: unknown) => {
+    gallerySpy(props);
+    return null;
+  },
+  FillingSlicePreview: () => null,
+}));
 
 import { ProductPage } from "./product-page";
 
@@ -149,17 +170,10 @@ describe("ProductPage — главное фото и фото разреза п�
     expect(mainImg.getAttribute("src")).toBe(MAIN_PHOTO);
   });
 
-  it("совпадающий slice → фото разреза в DOM (fillingName → slice.image), URL = fixture", async () => {
-    mockDetail(
-      productFixture([
-        { name: "Шоколад-ганаш", priceModifier: 300 },
-        { name: "Малина-базилик", priceModifier: 0 },
-      ])
-    );
-    slicesFixture = [
+  it("slices с fixture-URL переданы в каноническую галерею (props.slices)", async () => {
+    const slices = [
       {
         id: "u06-v42-fixture-slice",
-        productId: PRODUCT_ID,
         fillingName: "Шоколад-ганаш",
         image: SLICE_FIXTURE,
         config: null,
@@ -167,19 +181,30 @@ describe("ProductPage — главное фото и фото разреза п�
         sortOrder: 0,
       },
     ];
+    mockDetail(
+      productFixture(
+        [
+          { name: "Шоколад-ганаш", priceModifier: 300 },
+          { name: "Малина-базилик", priceModifier: 0 },
+        ],
+        slices
+      )
+    );
 
     render(<ProductPage />);
 
-    // Секция срезов смонтирована (гейт fillings.length > 0 пройден)
-    expect(await screen.findByText("Срезы торта по начинкам")).toBeInTheDocument();
-    // Фото разреза: alt = имя начинки, src = fixture-URL (матчинг строгий)
-    const sliceImg = await screen.findByAltText("Шоколад-ганаш");
-    expect(sliceImg).toHaveAttribute("src", SLICE_FIXTURE);
-    // Начинка без среза → фото разреза НЕ рендерится (нет чужих URL)
-    expect(screen.queryByAltText("Малина-базилик")).toBeNull();
-    // Данные срезов запрошены у реального эндпоинта
-    const slicesCall = fetchMock.mock.calls.find(([u]) => String(u).includes("/slices"));
-    expect(slicesCall).toBeDefined();
-    expect(String(slicesCall?.[0])).toContain(`/api/products/${PRODUCT_ID}/slices`);
+    // Карточка отрисовалась, главное фото — реальной галереей (прошлый тест)
+    expect(await screen.findByText(TITLE)).toBeInTheDocument();
+    // Каноническая ProductSliceGallery получила slices с fixture-URL:
+    // фото разреза рендерится внутри галереи (image + caption)
+    await vi.waitFor(() => expect(gallerySpy).toHaveBeenCalled());
+    const props = gallerySpy.mock.calls[0][0] as {
+      productId: string;
+      slices: Array<{ id: string; image: string | null }>;
+    };
+    expect(props.productId).toBe(PRODUCT_ID);
+    const fixtureSlice = props.slices.find((x) => x.id === "u06-v42-fixture-slice");
+    expect(fixtureSlice).toBeDefined();
+    expect(fixtureSlice?.image).toBe(SLICE_FIXTURE);
   });
 });

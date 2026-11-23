@@ -204,7 +204,8 @@ export default function DashboardPage(): React.JSX.Element {
           </div>
         </main>
         <Footer />
-        <AuthModal />
+          <AuthModal />
+
         <PromoPopup />
         <CartDrawer />
         <ChatWidget initialOrderId={chatOrderId ?? undefined} />

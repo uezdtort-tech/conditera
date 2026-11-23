@@ -104,7 +104,11 @@ describe('ingress trust: Caddyfile header_up X-Real-IP (v4.6)', () => {
     const proxied = parseProxyBlocks(caddy).filter((b) =>
       b.upstream === 'web:3000' || b.upstream === 'chat-service:3030'
     )
-    expect(proxied.length).toBeGreaterThanOrEqual(8) // api×2, ws×2, site×2, api_auth×2, localhost×1 (+n8n отдельный upstream)
+    // Слияние 2026-11-23: канонический Kong занял /api/auth/v1/* (supabase auth),
+    // наш отдельный @api_auth-хендле сложился в общий handle /api/* — блоков 7
+    // (api×2, ws×2, site×2, localhost×1; n8n — отдельный upstream).
+    // Инвариант защиты — второй ассерт: НИ один блок web/chat без перезаписи.
+    expect(proxied.length).toBeGreaterThanOrEqual(7)
     const missing = proxied.filter((b) => !b.headerUp.some((h) => h.startsWith('X-Real-IP')))
     expect(missing, `блоки без перезаписи X-Real-IP: строки ${missing.map((b) => b.line).join(', ')}`).toEqual([])
   })

@@ -5,7 +5,7 @@ import { middleware } from './proxy'
 /**
  * Тесты CSRF-защиты в middleware.
  * Проверяем:
- *  1. Запрос без токена к защищённому endpoint → 403
+ *  1. Cookie-аутентифицированный запрос без CSRF-токена → 403
  *  2. Запрос с неверным токеном → 403
  *  3. Запрос с корректным токеном (header == cookie) → 200
  *  4. GET-запрос не требует CSRF
@@ -18,6 +18,7 @@ function makeRequest(opts: {
   path: string
   csrfHeader?: string | null
   csrfCookie?: string | null
+  sessionCookie?: string | null
   proto?: string
 }): NextRequest {
   const url = `https://conditera.ru${opts.path}`
@@ -28,31 +29,49 @@ function makeRequest(opts: {
   if (opts.csrfCookie !== null && opts.csrfCookie !== undefined) {
     req.cookies.set('csrf_token', opts.csrfCookie)
   }
+  if (opts.sessionCookie) req.cookies.set('cd_session', opts.sessionCookie)
   return req
 }
 
 describe('CSRF middleware', () => {
+  describe('CSRF is required only for cookie-authenticated mutations', () => {
+    it('does not mask the route authentication response for anonymous POST', async () => {
+      const req = makeRequest({ method: 'POST', path: '/api/recipes/marketplace/00000000-0000-0000-0000-000000000000/purchase' })
+      const res = await middleware(req)
+      expect(res.status).not.toBe(403)
+    })
+
+    it('does not require CSRF for explicit Bearer API clients', async () => {
+      const req = new NextRequest('https://conditera.ru/api/orders', {
+        method: 'POST',
+        headers: { authorization: 'Bearer test-token' },
+      })
+      const res = await middleware(req)
+      expect(res.status).not.toBe(403)
+    })
+  })
+
   describe('blocks state-changing requests without token', () => {
     it('blocks POST /api/orders without CSRF token', async () => {
-      const req = makeRequest({ method: 'POST', path: '/api/orders' })
+      const req = makeRequest({ method: 'POST', path: '/api/orders', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
 
     it('blocks PUT /api/products/123 without CSRF token', async () => {
-      const req = makeRequest({ method: 'PUT', path: '/api/products/123' })
+      const req = makeRequest({ method: 'PUT', path: '/api/products/123', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
 
     it('blocks DELETE /api/reviews/456 without CSRF token', async () => {
-      const req = makeRequest({ method: 'DELETE', path: '/api/reviews/456' })
+      const req = makeRequest({ method: 'DELETE', path: '/api/reviews/456', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
 
     it('blocks PATCH /api/profile without CSRF token', async () => {
-      const req = makeRequest({ method: 'PATCH', path: '/api/profile' })
+      const req = makeRequest({ method: 'PATCH', path: '/api/profile', sessionCookie: 'test-session' })
       const res = await middleware(req)
       expect(res.status).toBe(403)
     })
@@ -64,6 +83,7 @@ describe('CSRF middleware', () => {
         method: 'POST',
         path: '/api/orders',
         csrfHeader: 'token-from-header',
+        sessionCookie: 'test-session',
         csrfCookie: 'token-from-cookie',
       })
       const res = await middleware(req)
@@ -75,6 +95,7 @@ describe('CSRF middleware', () => {
         method: 'POST',
         path: '/api/orders',
         csrfHeader: 'some-token',
+        sessionCookie: 'test-session',
         csrfCookie: null,
       })
       const res = await middleware(req)
@@ -86,6 +107,7 @@ describe('CSRF middleware', () => {
         method: 'POST',
         path: '/api/orders',
         csrfHeader: null,
+        sessionCookie: 'test-session',
         csrfCookie: 'some-token',
       })
       const res = await middleware(req)
@@ -100,6 +122,7 @@ describe('CSRF middleware', () => {
         method: 'POST',
         path: '/api/orders',
         csrfHeader: token,
+        sessionCookie: 'test-session',
         csrfCookie: token,
       })
       const res = await middleware(req)
@@ -113,6 +136,7 @@ describe('CSRF middleware', () => {
         method: 'PUT',
         path: '/api/products/123',
         csrfHeader: token,
+        sessionCookie: 'test-session',
         csrfCookie: token,
       })
       const res = await middleware(req)
@@ -256,6 +280,7 @@ describe('CSRF middleware', () => {
         method: 'POST',
         path: '/api/orders',
         csrfHeader: 'short',
+        sessionCookie: 'test-session',
         csrfCookie: 'much-longer-token-value',
       })
       const res = await middleware(req)

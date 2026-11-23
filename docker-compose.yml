@@ -33,7 +33,13 @@ services:
       # POSTGRES_USER/DB нужны для init-scripts/01-apply-migrations.sh
       - POSTGRES_USER=conditera
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - PGPASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=conditera
+      # Скрипт мигратора использует libpq; DATABASE_URL сам по себе не читается psql.
+      - PGHOST=db
+      - PGPORT=5432
+      - PGUSER=conditera
+      - PGDATABASE=conditera
     depends_on:
       db:
         condition: service_healthy
@@ -74,6 +80,7 @@ services:
       # MEILISearch_URL со сломанным регистром — код эту переменную не читал)
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
+      - SUPABASE_INTERNAL_URL=${SUPABASE_INTERNAL_URL:-}
       - NODE_ENV=production
       # Telegram bot + канал (для уведомлений о заказах, лидах, тикетах)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
@@ -139,12 +146,10 @@ services:
       - conditera-net
 
   # ===== PostgreSQL (продакшн БД) =====
-  # ЦЕЛЕВАЯ ВЕРСИЯ: PostgreSQL 17 (единая с Supabase-стеком, CI и db:setup —
-  # см. scripts/verify/pg-version-gate.mjs). Данные от PG18 (volume *_v18)
-  # бинарно несовместимы с PG17: сделать pg_upgrade либо удалить volume:
-  #   docker compose down
-  #   docker volume rm conditera_postgres_data_v18
-  #   docker compose up -d
+  # ВАЖНО: версия PostgreSQL должна совпадать с форматом существующего volume.
+  # НЕЛЬЗЯ удалять volume для "исправления" несовместимости major-версии.
+  # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
+  # с резервной копией и контрольной сверкой данных.
   db:
     image: public.ecr.aws/docker/library/postgres:17-alpine
     container_name: conditera-db
@@ -327,10 +332,13 @@ services:
       - REDIS_URL=redis://redis:6379
       - CHAT_PORT=3030
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      - NEXT_API_URL=${NEXT_API_URL:-http://web:3000}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
       - NEXT_API_URL=http://web:3000
     depends_on:
       redis:
+        condition: service_healthy
+      web:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3030/health"]
@@ -470,6 +478,8 @@ services:
     profiles: ["simplex", "full"]
     env_file:
       - .env.production
+    volumes:
+      - simplex_bridge_data:/data
     environment:
       - SIMPLEX_CLI_WS=ws://localhost:5225
       - BACKEND_WEBHOOK=${NEXT_PUBLIC_APP_URL}/api/simplex/incoming
@@ -486,7 +496,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -557,6 +567,7 @@ volumes:
   caddy_config:
   n8n_data:
   smp_data:
+  simplex_bridge_data:
   meili_data:
   mailu_data:
   mailu_mail:

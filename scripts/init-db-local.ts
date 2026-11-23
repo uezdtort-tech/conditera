@@ -150,7 +150,10 @@ function preprocessForPglite(sql: string): string {
   // 1. Remove "WITH SCHEMA extensions" — PGlite has no extensions schema
   out = out.replace(/WITH SCHEMA extensions/gi, "WITH SCHEMA public");
 
-  // 2. Skip ALL CREATE EXTENSION statements — PGlite bundles pgcrypto,
+  // 2. pgsodium is wrapped in a DO block for Supabase PG17; skip that whole block in PGlite.
+  out = out.replace(/DO\s+\$pgsodium\$[\s\S]*?END\s+\$pgsodium\$;/gi, "-- skipped: pgsodium extension is unavailable in PGlite");
+
+  // 3. Skip ALL CREATE EXTENSION statements — PGlite bundles pgcrypto,
   //    pg_trgm (partial), but doesn't accept the CREATE EXTENSION syntax.
   //    Functions like gen_random_uuid() are already available.
   out = out.replace(
@@ -158,7 +161,7 @@ function preprocessForPglite(sql: string): string {
     "-- skipped: CREATE EXTENSION (PGlite bundles built-in extensions)"
   );
 
-  // 3. Skip `auth.users` references → put replacement comment on its OWN line
+  // 4. Skip `auth.users` references → put replacement comment on its OWN line
   //    so the trailing comma stays on the column-definition line.
   //    (Putting `-- comment` on the same line would eat the comma into the comment.)
   out = out.replace(
@@ -166,11 +169,11 @@ function preprocessForPglite(sql: string): string {
     "\n-- dropped FK to auth.users (PGlite has no auth schema)\n  "
   );
 
-  // 4. Skip `auth.uid()` calls inside RLS policies → replace with NULL::uuid
+  // 5. Skip `auth.uid()` calls inside RLS policies → replace with NULL::uuid
   //    This effectively disables RLS for PGlite (which is fine for local dev).
   out = out.replace(/auth\.uid\(\)/gi, "NULL::uuid");
 
-  // 5. Replace uuid_generate_v4() (from uuid-ossp) with gen_random_uuid() (pgcrypto)
+  // 6. Replace uuid_generate_v4() (from uuid-ossp) with gen_random_uuid() (pgcrypto)
   //    PGlite bundles pgcrypto, so gen_random_uuid() works out of the box.
   out = out.replace(/extensions\.uuid_generate_v4\(\)/gi, "gen_random_uuid()");
   out = out.replace(/\buuid_generate_v4\(\)/gi, "gen_random_uuid()");

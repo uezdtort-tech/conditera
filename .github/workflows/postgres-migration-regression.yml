@@ -1,0 +1,42 @@
+name: PostgreSQL migration regression tests
+
+on:
+  push:
+    branches:
+      - work/pg17-compose-validation-and-import
+    paths:
+      - "supabase/migrations/0001_init.sql"
+      - "supabase/migrations/0026_storage_buckets_and_confectioners_rls.sql"
+      - "supabase/migrations/0039_release_readiness.sql"
+      - "scripts/verify-release-0039-pglite.ts"
+      - "scripts/verify-0039-refund-contract-pglite.ts"
+      - "scripts/db/setup.mjs"
+      - "scripts/init-db-local.ts"
+      - ".github/workflows/postgres-migration-regression.yml"
+  pull_request:
+    paths:
+      - "supabase/migrations/0001_init.sql"
+      - "supabase/migrations/0026_storage_buckets_and_confectioners_rls.sql"
+      - "supabase/migrations/0039_release_readiness.sql"
+      - "scripts/verify-release-0039-pglite.ts"
+      - "scripts/verify-0039-refund-contract-pglite.ts"
+      - "scripts/db/setup.mjs"
+      - "scripts/init-db-local.ts"
+      - ".github/workflows/postgres-migration-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Установить зависимости
+        run: bun install --frozen-lockfile
+      - name: Проверить RLS владельца транзакций и контракт возвратов
+        run: bun scripts/verify-release-0039-pglite.ts
+      - name: Проверить идемпотентность возвратов YooKassa
+        run: bun scripts/verify-0039-refund-contract-pglite.ts

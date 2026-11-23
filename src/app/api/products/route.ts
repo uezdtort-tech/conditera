@@ -237,6 +237,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     /** Enrichment страницы: кондитер, изображения, обложка, category_slug. */
+    let sliceEnrichmentUnavailable = false;
+    const respondWithSliceStatus = (payload: Record<string, unknown>) => {
+      const response = NextResponse.json({
+        ...payload,
+        dataStatus: {
+          productSlices: sliceEnrichmentUnavailable ? "unavailable" : "ok",
+        },
+      });
+      if (sliceEnrichmentUnavailable) {
+        response.headers.set("X-Conditera-Data-Degraded", "product-slices");
+      }
+      return response;
+    };
+
     const enrichProducts = async (
       rows: Record<string, unknown>[]
     ): Promise<Record<string, unknown>[]> => {
@@ -288,6 +302,45 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         });
       }
 
+      // Отдельная таблица product_slices содержит именно изображения разреза.
+      // Не используем detailImages: там могут быть упаковка и любые другие детали.
+      const sliceMap: Record<string, Array<{
+        id: string;
+        fillingName: string | null;
+        image: string | null;
+        caption: string | null;
+        sortOrder: number;
+      }>> = {};
+      if (productIds.length > 0) {
+        const { data: sliceRows, error: sliceError } = await supabaseAdmin
+          .from("product_slices")
+          .select("id, productId, fillingName, image, caption, sortOrder")
+          .in("productId", productIds)
+          .order("sortOrder", { ascending: true });
+        if (sliceError) {
+          sliceEnrichmentUnavailable = true;
+          console.error("[products] GET slices enrichment error:", sliceError.message);
+        } else {
+          (sliceRows || []).forEach((slice: {
+            id: string;
+            productId: string;
+            fillingName: string | null;
+            image: string | null;
+            caption: string | null;
+            sortOrder: number;
+          }) => {
+            if (!sliceMap[slice.productId]) sliceMap[slice.productId] = [];
+            sliceMap[slice.productId].push({
+              id: slice.id,
+              fillingName: slice.fillingName,
+              image: slice.image,
+              caption: slice.caption,
+              sortOrder: slice.sortOrder,
+            });
+          });
+        }
+      }
+
       return rows.map((p) => {
         const confId = p.confectioner_id as string;
         const conf = confId ? confectionerMap[confId] : null;
@@ -301,6 +354,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         return {
           ...p,
           images: mergedImages,
+          slices: sliceMap[p.id as string] || [],
           category_slug: categorySlug,
           confectioner: conf
             ? {
@@ -388,7 +442,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
 
       const enrichedProducts = await enrichProducts(pageRows);
-      return NextResponse.json({ products: enrichedProducts, total, limit, offset });
+      return respondWithSliceStatus({ products: enrichedProducts, total, limit, offset });
     }
 
     // ==== Обычный путь (без q/advanced) — прежние PostgREST-фильтры ====
@@ -457,7 +511,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const enrichedProducts = await enrichProducts((products || []) as Record<string, unknown>[]);
 
-    return NextResponse.json({
+    return respondWithSliceStatus({
       products: enrichedProducts,
       total: countError ? enrichedProducts.length : (totalCount ?? 0),
       limit,

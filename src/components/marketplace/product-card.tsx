@@ -1,47 +1,41 @@
 "use client";
 
-import { useState } from "react";
 import { useAppStore } from "@/lib/store";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Heart, ShoppingCart, Star, Check, Calendar, Cake } from "lucide-react";
+import { Heart, ShoppingCart, Star, Check, Calendar, Cake, Image as ImageIcon, Scale, SlidersHorizontal } from "lucide-react";
 import {
   formatCurrency,
-  TRUST_LEVELS,
   getProductPaymentOptions,
   formatInstallmentPlan,
 } from "@/lib/finance";
 import type { Product } from "@/lib/types";
+import { ProductSliceConfigPreview } from "@/components/cake-slice/cake-slice-visualizer";
 import { cn } from "@/lib/utils";
 import { hasRealDiscount, isFromPrice } from "@/lib/price-display";
 
 interface ProductCardProps {
   product: Product;
   variant?: "default" | "compact";
+  onCompare?: () => void;
+  isCompared?: boolean;
 }
 
-export function ProductCard({ product, variant = "default" }: ProductCardProps) {
+export function ProductCard({ product, variant = "default", onCompare, isCompared = false }: ProductCardProps) {
   const navigate = useAppStore((s) => s.navigate);
   const addToCart = useAppStore((s) => s.addToCart);
   const toggleFavorite = useAppStore((s) => s.toggleFavorite);
   const isFavorite = useAppStore((s) => s.isFavorite(product.id));
   const confectioners = useAppStore((s) => s.confectioners);
   const confectioner = confectioners.find((c) => c.id === product.confectionerId);
-
-  // Design Revamp V1: битый URL изображения не должен показывать «иконку сломанной картинки» —
-  // честный placeholder с иконкой кондитерской (данные не подменяются).
-  const [primaryFailed, setPrimaryFailed] = useState(false);
-  const [secondaryFailed, setSecondaryFailed] = useState(false);
-
-  // Вторая фотография (для тортов — цельный вид + альтернативный ракурс/разрез
-  // из реального набора изображений товара). Показывается crossfade на hover.
-  const hasSecondaryPhoto = Boolean(product.images?.[1]) && !secondaryFailed;
+  const slicePreview = product.slices?.find((slice) => Boolean(slice.image || slice.config));
+  const paymentOptions = getProductPaymentOptions(product, confectioner);
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (product.isAvailable === false) return; // кнопка задизейблена — защита на всякий случай
+    if (product.isAvailable === false) return;
     addToCart(product);
   };
 
@@ -50,10 +44,23 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
     toggleFavorite(product.id);
   };
 
+  const handleCompare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onCompare?.();
+  };
+
+  const handleCustomize = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate("product", { id: product.id, customize: "true" });
+  };
+
+  const hasCustomization = Boolean(
+    product.fillings?.length || product.coatings?.length || product.decorations?.length
+  );
+
   return (
     <Card
       onClick={() => navigate("product", { id: product.id })}
-      className="card-hover group relative overflow-hidden cursor-pointer border-border p-0 h-full flex flex-col focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       role="link"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -62,176 +69,160 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
           navigate("product", { id: product.id });
         }
       }}
+      className="group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border-border/80 bg-card p-0 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-foreground/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      {/* Фото — главный визуальный элемент карточки */}
-      <div className="relative aspect-[4/3] overflow-hidden bg-accent/60">
-        {product.images?.[0] && !primaryFailed ? (
-          <>
-            <img
-              src={product.images[0]}
-              alt={product.title}
-              loading="lazy"
-              onError={() => setPrimaryFailed(true)}
-              className={cn(
-                "w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.04]",
-                hasSecondaryPhoto && "group-hover:opacity-0",
-              )}
-              decoding="async" />
-            {/* Второе фото товара (реальные данные; для тортов — вид в разрезе/альтернативный ракурс) */}
-            {hasSecondaryPhoto && (
-              <img
-                src={product.images[1]}
-                alt={`${product.title} — дополнительное фото`}
-                loading="lazy"
-                onError={() => setSecondaryFailed(true)}
-                className="absolute inset-0 w-full h-full object-cover opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-                decoding="async" />
-            )}
-          </>
+      <div className="relative aspect-[4/5] overflow-hidden bg-muted">
+        {product.images?.[0] ? (
+          <img
+            src={product.images[0]}
+            alt={product.title}
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+          />
         ) : (
-          <div
-            className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground/45"
-            aria-label="Фотография появится после модерации"
+          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-secondary via-muted to-accent/40">
+            <Cake className="h-14 w-14 text-muted-foreground/30" aria-hidden />
+          </div>
+        )}
+
+        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-3">
+          <div className="flex flex-wrap gap-1.5">
+            {product.isAvailable === false && <Badge className="border-0 bg-foreground/80 text-background shadow-sm">Нет в наличии</Badge>}
+            {product.isHit && <Badge className="border-0 bg-primary text-primary-foreground shadow-sm">Хит</Badge>}
+            {product.isNew && <Badge className="border-0 bg-emerald-700 text-white shadow-sm">Новинка</Badge>}
+            {product.isPopular && !product.isHit && <Badge className="border-0 bg-amber-600 text-white shadow-sm">Популярное</Badge>}
+            {hasRealDiscount(product) && product.oldPrice !== undefined && (
+              <Badge className="border-0 bg-rose-700 text-white shadow-sm">
+                −{Math.round((1 - product.price / product.oldPrice) * 100)}%
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {onCompare && (
+              <button
+                type="button"
+                onClick={handleCompare}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-full border shadow-md backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  isCompared
+                    ? "border-purple-600 bg-purple-600 text-white"
+                    : "border-white/50 bg-white/90 text-foreground hover:bg-white"
+                )}
+                aria-label={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+                aria-pressed={isCompared}
+                title={isCompared ? "Убрать из сравнения" : "Добавить к сравнению"}
+              >
+                <Scale className="h-[18px] w-[18px]" />
+              </button>
+            )}
+          <button
+            type="button"
+            onClick={handleFavorite}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/50 bg-white/90 text-foreground shadow-md backdrop-blur transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={isFavorite ? "Убрать из избранного" : "В избранное"}
+            aria-pressed={isFavorite}
           >
-            <Cake className="h-10 w-10" aria-hidden />
-            <span className="text-[11px]">Фото скоро появится</span>
+            <Heart className={cn("h-[18px] w-[18px] transition-colors", isFavorite ? "fill-primary text-primary" : "text-foreground/70")} />
+          </button>
           </div>
-        )}
-
-        {/* Индикатор второго фото */}
-        {hasSecondaryPhoto && (
-          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 pointer-events-none" aria-hidden>
-            <span className="h-1.5 w-1.5 rounded-full bg-white shadow-sm" />
-            <span className="h-1.5 w-1.5 rounded-full bg-white/50 shadow-sm" />
-          </div>
-        )}
-
-        {/* Badges */}
-        <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 items-start">
-          {product.isAvailable === false && (
-            <Badge className="bg-muted/95 text-muted-foreground text-[10px] px-2 py-0.5 border border-border/60">
-              Нет в наличии
-            </Badge>
-          )}
-          {product.isHit && (
-            <Badge className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5">
-              Хит
-            </Badge>
-          )}
-          {product.isNew && (
-            <Badge className="bg-emerald-700 text-white text-[10px] px-2 py-0.5">
-              Новинка
-            </Badge>
-          )}
-          {product.isPopular && !product.isHit && (
-            <Badge className="bg-accent text-accent-foreground text-[10px] px-2 py-0.5 border border-border/60">
-              Популярное
-            </Badge>
-          )}
-          {/* PR-4: бейдж скидки — только на реальную скидку (old_price > price) */}
-          {hasRealDiscount(product) && product.oldPrice !== undefined && (
-            <Badge className="bg-destructive text-white text-[10px] px-2 py-0.5">
-              -{Math.round((1 - product.price / product.oldPrice) * 100)}%
-            </Badge>
-          )}
         </div>
 
-        {/* Favorite */}
-        <button
-          onClick={handleFavorite}
-          className="absolute top-2.5 right-2.5 h-9 w-9 rounded-full bg-background/90 backdrop-blur border border-border/50 flex items-center justify-center hover:bg-background hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring shadow-sm transition-colors"
-          aria-label="В избранное"
-        >
-          <Heart
-            className={cn(
-              "h-4 w-4 transition-colors",
-              isFavorite ? "fill-primary text-primary" : "text-muted-foreground"
+        {slicePreview && (
+          <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-white/70 bg-white/95 p-1.5 pr-3 shadow-lg backdrop-blur">
+            {slicePreview.image ? (
+              <img
+                src={slicePreview.image}
+                alt={slicePreview.caption || `Разрез торта «${product.title}»`}
+                loading="lazy"
+                decoding="async"
+                className="h-12 w-12 rounded-lg object-cover"
+              />
+            ) : (
+              <ProductSliceConfigPreview
+                config={slicePreview.config}
+                fillingName={slicePreview.fillingName || "Торт"}
+                size={48}
+              />
             )}
-          />
-        </button>
+            <span className="flex flex-col text-xs font-medium leading-tight text-stone-700">
+              <span className="flex items-center gap-1.5">
+                <ImageIcon className="h-3.5 w-3.5" />
+                Разрез
+              </span>
+              {slicePreview.fillingName && <span className="max-w-28 truncate text-[10px] font-normal text-stone-500">{slicePreview.fillingName}</span>}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Content */}
-      <div className="p-3.5 sm:p-4 space-y-2 flex flex-col flex-1">
-        {/* Кондитер */}
-        {confectioner && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Avatar className="h-5 w-5 border border-border/60">
-              <AvatarImage src={confectioner.avatar} alt={confectioner.businessName} />
-              <AvatarFallback className="text-[9px] bg-accent">
-                {confectioner.businessName.slice(0, 2)}
-              </AvatarFallback>
-            </Avatar>
-            <span className="truncate">{confectioner.businessName}</span>
-            {confectioner.verified && (
-              <Check className="h-3 w-3 text-primary fill-primary/20 shrink-0" />
-            )}
-          </div>
-        )}
-
-        {/* Название */}
-        <h3 className="text-[15px] leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors min-h-[2.6rem]">
-          {product.title}
-        </h3>
-
-        {variant === "default" && (
-          <p className="text-[13px] text-muted-foreground line-clamp-2">
-            {product.description}
-          </p>
-        )}
-
-        {/* Рейтинг — только при наличии настоящих отзывов; вес */}
-        <div className="flex items-center justify-between text-xs mt-auto">
-          {product.reviewsCount > 0 ? (
-            <div className="flex items-center gap-1">
-              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-              <span className="font-medium">{product.rating.toFixed(1)}</span>
-              <span className="text-muted-foreground">({product.reviewsCount})</span>
+      <div className="flex flex-1 flex-col gap-3 p-4 sm:p-5">
+        <div className="flex min-h-5 items-center justify-between gap-3">
+          {confectioner ? (
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <Avatar className="h-5 w-5 shrink-0">
+                <AvatarImage src={confectioner.avatar} alt={confectioner.businessName} />
+                <AvatarFallback className="text-[9px]">{confectioner.businessName.slice(0, 2)}</AvatarFallback>
+              </Avatar>
+              <span className="truncate">{confectioner.businessName}</span>
+              {confectioner.verified && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-700" aria-label="Проверенный кондитер" />}
             </div>
-          ) : (
-            <span />
-          )}
-          {product.weight && (
-            <span className="text-muted-foreground">{product.weight}</span>
+          ) : <span className="text-xs text-muted-foreground">Авторский десерт</span>}
+          <div className="flex shrink-0 items-center gap-1 text-xs">
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" />
+            <span className="font-semibold tabular-nums">{product.rating.toFixed(1)}</span>
+            <span className="text-muted-foreground">({product.reviewsCount})</span>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <h3 className="line-clamp-2 text-base font-semibold leading-snug tracking-tight text-foreground transition-colors group-hover:text-primary sm:text-[17px]">
+            {product.title}
+          </h3>
+          {variant === "default" && (product.shortDescription || product.description) && (
+            <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+              {product.shortDescription || product.description}
+            </p>
           )}
         </div>
 
-        {/* Payment options */}
-        {(() => {
-          const opts = getProductPaymentOptions(product, confectioner);
-          if (!opts.installment && !opts.split) return null;
-          return (
-            <div className="flex flex-wrap gap-1 pt-1.5 border-t border-border/70">
-              {opts.installment && opts.installments[0] && (
-                <Badge variant="outline" className="text-[11px] bg-primary/5 text-primary border-primary/20">
-                  <Calendar className="h-2.5 w-2.5 mr-0.5" />
-                  {formatInstallmentPlan(opts.installments[0], product.price)}
-                </Badge>
-              )}
-              {opts.split && (
-                <Badge variant="outline" className="text-[11px] bg-accent text-accent-foreground border-border">
-                  <span aria-hidden>🔀</span>
-                  <span className="ml-0.5">Сплит</span>
-                </Badge>
-              )}
-            </div>
-          );
-        })()}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {product.weight && <span>{product.weight}</span>}
+          {product.servings && <span>{product.servings} порций</span>}
+          {product.prepTime && <span>Изготовление: {product.prepTime}</span>}
+        </div>
 
-        {/* Цена и действие */}
-        <div className="flex items-end justify-between pt-1.5">
-          <div>
-            {/* PR-4: зачёркнутая old_price — только реальная скидка (old_price > price) */}
-            {hasRealDiscount(product) && product.oldPrice !== undefined && (
-              <div className="text-xs text-muted-foreground line-through">
-                {formatCurrency(product.oldPrice)}
-              </div>
+        {(product.dietaryFeatures?.length || product.ecoBadges?.length) ? (
+          <div className="flex flex-wrap gap-1.5">
+            {[...(product.dietaryFeatures ?? []), ...(product.ecoBadges ?? [])].slice(0, 3).map((label) => (
+              <Badge key={label} variant="secondary" className="rounded-full px-2.5 py-1 text-[10px] font-medium">{label}</Badge>
+            ))}
+          </div>
+        ) : null}
+
+        {(paymentOptions.installment || paymentOptions.split) && (
+          <div className="flex flex-wrap gap-1.5 border-t border-border/70 pt-2">
+            {paymentOptions.installment && paymentOptions.installments[0] && (
+              <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[10px] text-rose-800">
+                <Calendar className="mr-1 h-3 w-3" />
+                {formatInstallmentPlan(paymentOptions.installments[0], product.price)}
+              </Badge>
             )}
-            <div className="font-bold text-lg text-foreground tracking-tight">
+            {paymentOptions.split && <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[10px] text-amber-800">Сплит</Badge>}
+          </div>
+        )}
+
+        <div className="mt-auto flex items-end justify-between gap-3 border-t border-border/70 pt-3">
+          <div className="min-w-0">
+            {hasRealDiscount(product) && product.oldPrice !== undefined && (
+              <div className="text-xs text-muted-foreground line-through">{formatCurrency(product.oldPrice)}</div>
+            )}
+            <div className="font-display text-xl font-bold leading-tight tracking-tight text-foreground sm:text-2xl">
               {/* PR-4: маркер «от» — цена базовая, опции могут её повысить */}
               {isFromPrice(product) && (
                 <span
-                  className="text-primary mr-0.5 text-sm font-semibold"
+                  className="mr-0.5 text-sm font-semibold text-primary"
                   title="Итоговая цена зависит от выбранных опций"
                 >
                   от
@@ -239,18 +230,34 @@ export function ProductCard({ product, variant = "default" }: ProductCardProps) 
               )}
               {formatCurrency(product.price)}
             </div>
+            <div className="mt-0.5 text-[11px] text-muted-foreground">Цена за изделие</div>
           </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            {hasCustomization && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCustomize}
+                className="h-11 gap-2 rounded-xl px-3"
+                aria-label={`Настроить ${product.title}`}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span>Настроить</span>
+              </Button>
+            )}
           <Button
-            size="icon"
+            size="lg"
             onClick={handleAddToCart}
             disabled={product.isAvailable === false}
             aria-disabled={product.isAvailable === false}
             title={product.isAvailable === false ? "Нет в наличии" : "Добавить в корзину"}
-            className="h-10 w-10 shrink-0 rounded-xl"
+            className="h-11 shrink-0 gap-2 rounded-xl px-4 shadow-sm"
             aria-label="Добавить в корзину"
           >
-            <ShoppingCart className="h-4.5 w-4.5" />
+            <ShoppingCart className="h-4 w-4" />
+            <span className="hidden sm:inline">В корзину</span>
           </Button>
+          </div>
         </div>
       </div>
     </Card>

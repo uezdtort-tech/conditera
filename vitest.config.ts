@@ -22,6 +22,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // server-only бросает в client-окружении; в тестах гвард не нужен
+      'server-only': path.resolve(__dirname, './vitest.server-only-stub.ts'),
     },
   },
 })

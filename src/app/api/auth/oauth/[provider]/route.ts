@@ -7,7 +7,7 @@
 // configured), constructs and returns the provider's authorization URL.
 
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
 
@@ -33,8 +33,10 @@ function getProviderConfig(provider: Provider): {
   switch (provider) {
     case "google": {
       const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
-      if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
+      // Callback uses Google's confidential-client token exchange.
+      if (isStubValue(clientId) || isStubValue(clientSecret) || isStubValue(redirectUri)) return null;
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
     case "yandex": {
@@ -43,21 +45,15 @@ function getProviderConfig(provider: Provider): {
       if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
       return { clientId: clientId!, redirectUri: redirectUri! };
     }
-    case "vk":
-      // ЧЕСТНОЕ СОСТОЯНИЕ (RELEASE-02 §6): VK ID (id.vk.ru, OAuth 2.1 + PKCE) на main
-      // НЕ реализован — callback для vk это JSON-заглушка. Раньше initiation с
-      // выставленным VK_CLIENT_ID вёл на legacy oauth.vk.com, который возвращал
-      // пользователя в JSON-заглушку — битый флоу. Полная реализация есть в ветке
-      // release-candidate/gate-20 (a7e169a…9ca33d7) — НЕ слита.
-      // Fail-closed: vk всегда «не настроен» независимо от VK_CLIENT_ID.
-      return null;
-    case "telegram": {
-      // Telegram OAuth uses the bot token + redirect URI configured in the
-      // Telegram login widget. We don't expose the bot token to the browser.
-      const redirectUri = process.env.TELEGRAM_OAUTH_REDIRECT;
-      if (isStubValue(redirectUri)) return null;
-      return { clientId: "telegram", redirectUri: redirectUri! };
+    case "vk": {
+      const clientId = process.env.VK_CLIENT_ID;
+      const redirectUri = process.env.VK_OAUTH_REDIRECT;
+      if (isStubValue(clientId) || isStubValue(redirectUri)) return null;
+      return { clientId: clientId!, redirectUri: redirectUri! };
     }
+    case "telegram":
+      // Telegram Login uses a separate signed-widget flow, not this OAuth code flow.
+      return null;
     default:
       return null;
   }
@@ -70,7 +66,9 @@ function getProviderConfig(provider: Provider): {
 function buildAuthorizationUrl(
   provider: Provider,
   config: { clientId: string; redirectUri: string },
-  state: string
+  state: string,
+  codeChallenge: string,
+  nonce: string
 ): string {
   const params = new URLSearchParams({
     client_id: config.clientId,
@@ -82,16 +80,25 @@ function buildAuthorizationUrl(
   switch (provider) {
     case "google": {
       params.set("scope", "openid email profile");
-      params.set("access_type", "offline");
-      params.set("prompt", "consent");
+      params.set("nonce", nonce);
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "S256");
+      params.set("prompt", "select_account");
       return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
     case "yandex": {
       params.set("scope", "login:email login:info");
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "S256");
       return `https://oauth.yandex.ru/authorize?${params.toString()}`;
     }
-    // NOTE: case "vk" недостижим и удалён (legacy oauth.vk.com) — см.
-    // getProviderConfig: vk всегда не настроен (RELEASE-02 §6).
+    case "vk": {
+      // Современный VK ID (OAuth 2.1), не legacy oauth.vk.com.
+      params.set("scope", "email");
+      params.set("code_challenge", codeChallenge);
+      params.set("code_challenge_method", "s256");
+      return `https://id.vk.ru/authorize?${params.toString()}`;
+    }
     case "telegram": {
       // Telegram Login Widget uses a JS-based flow; here we return the bot
       // login page URL as a fallback for direct-browser flows.
@@ -150,19 +157,61 @@ export async function GET(
 
   // Production mode — construct the authorization URL.
   // `state` — CSRF-токен: кладём в httpOnly-cookie и сверяем в callback
-  // (timing-safe сравнение параметра с cookie в callback/route.ts,
-  // cookie живёт 10 минут, путь — наш callback, гасится при любом исходе).
-  const state = randomBytes(32).toString("hex");
-  const redirectUrl = buildAuthorizationUrl(provider, config, state);
+  // (сравнение параметра с cookie, cookie живёт 10 минут, путь — наш callback).
+  const requestedReturnTo = request.nextUrl.searchParams.get("returnTo") || "/dashboard";
+  const returnTo = requestedReturnTo.startsWith("/") &&
+    !requestedReturnTo.startsWith("//") &&
+    !requestedReturnTo.includes("\\") &&
+    !/[\r\n]/.test(requestedReturnTo)
+    ? requestedReturnTo
+    : "/dashboard";
 
+  const state = randomBytes(32).toString("base64url");
+  const codeVerifier = randomBytes(48).toString("base64url");
+  const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+  const nonce = randomBytes(32).toString("base64url");
+  const redirectUrl = buildAuthorizationUrl(provider, config, state, codeChallenge, nonce);
+
+  const secureCookies = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   const response = NextResponse.redirect(redirectUrl, { status: 302 });
   response.cookies.set(`oauth_state_${provider}`, state, {
     httpOnly: true,
     sameSite: "lax",
     // Secure в production (HTTPS-деплой); в dev/preview без TLS остаётся false
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookies,
     maxAge: 600,
     path: "/api/auth/oauth",
   });
+  response.cookies.set(`oauth_return_to_${provider}`, returnTo, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: secureCookies,
+    maxAge: 600,
+    path: "/api/auth/oauth",
+  });
+  response.cookies.set("oauth_consent_pd_" + provider, request.nextUrl.searchParams.get("consentPd") === "1" ? "1" : "0", {
+    httpOnly: true, sameSite: "lax", secure: secureCookies, maxAge: 600, path: "/api/auth/oauth",
+  });
+  response.cookies.set("oauth_consent_terms_" + provider, request.nextUrl.searchParams.get("consentTerms") === "1" ? "1" : "0", {
+    httpOnly: true, sameSite: "lax", secure: secureCookies, maxAge: 600, path: "/api/auth/oauth",
+  });
+  if (provider === "google" || provider === "vk" || provider === "yandex") {
+    response.cookies.set(`oauth_verifier_${provider}`, codeVerifier, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: secureCookies,
+      maxAge: 600,
+      path: "/api/auth/oauth",
+    });
+  }
+  if (provider === "google") {
+    response.cookies.set("oauth_nonce_google", nonce, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: secureCookies,
+      maxAge: 600,
+      path: "/api/auth/oauth",
+    });
+  }
   return response;
 }

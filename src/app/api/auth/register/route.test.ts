@@ -38,6 +38,7 @@ const profileDeleteEqMock = vi.fn();
 const blacklistMaybeSingleMock = vi.fn();
 const userRolesUpsertMock = vi.fn();
 const referralsInsertMock = vi.fn();
+const userConsentInsertMock = vi.fn();
 
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
@@ -66,6 +67,9 @@ vi.mock("@/lib/supabase/admin", () => ({
           return { upsert: userRolesUpsertMock };
         case "referrals":
           return { insert: referralsInsertMock };
+        case "user_consent_events":
+          // Шаг 9.5 канонической линии (e4a781a0): журнал согласий 152-ФЗ
+          return { insert: userConsentInsertMock };
         default:
           throw new Error(`[test] неожиданная таблица: ${table}`);
       }
@@ -107,6 +111,9 @@ vi.mock("@/lib/email", () => ({
 
 import { POST } from "./route";
 
+// Шаг 9.5: журнал согласий — штатно успешный insert
+userConsentInsertMock.mockResolvedValue({ data: null, error: null });
+
 // --- Фикстуры (синтетические, без секретов) ---
 
 const VALID_BODY = {
@@ -117,6 +124,11 @@ const VALID_BODY = {
   name: "Тест Тестов",
   phone: "+79990000000",
   role: "CUSTOMER",
+  // Контракт канонической линии (e4a781a0/1e1c0953/05c42f28): регистрация
+  // требует ОТДЕЛЬНЫХ согласий (ПД, условия, оферта) — без них 400.
+  consentPd: true,
+  consentTerms: true,
+  consentOffer: true,
 };
 
 const PROFILE_ROW = {

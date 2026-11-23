@@ -1,264 +1,294 @@
 /**
- * /api/inquiries — CRUD для запросов на индивидуальные торты.
- *
- * GET — список запросов текущего пользователя (CUSTOMER) или доступных для кондитера;
- *       ZV33-4b D3: filter=available также возвращает заявки, по которым у ЭТОГО
- *       кондитера переговоры уже accepted (заявка конвертирована) — иначе карточка
- *       «Принято покупателем» исчезала из «Заявок из конструктора» сразу после
- *       принятия (accept конвертирует inquiry, а листинг тянул только open).
- *       Форма ответа не меняется: { inquiries: [...] } с теми же полями.
- * POST — создать новый запрос (из cake_builder_draft)
- * PATCH — обновить (закрыть, продлить)
- * DELETE — удалить
+ * /api/inquiries — проекты индивидуальных изделий и переговоры с кондитерами.
+ * GET: запросы пользователя или открытые запросы для кондитера.
+ * POST: атомарно создаёт draft + inquiry + negotiations из проекта конструктора.
  */
-
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth";
-import { unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { withClaims } from "@/lib/postgrest/execute";
+
+const projectSchema = z.object({
+  productType: z.string().trim().min(1).max(80),
+  eventType: z.string().trim().max(80).nullable().optional(),
+  base: z.string().trim().max(80).nullable().optional(),
+  tiers: z.number().int().min(1).max(10).nullable().optional(),
+  shape: z.string().trim().max(80).nullable().optional(),
+  filling: z.string().trim().max(80).nullable().optional(),
+  coating: z.string().trim().max(80).nullable().optional(),
+  decorations: z.array(z.string().trim().min(1).max(80)).max(40).default([]),
+  dietary: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
+  servings: z.number().int().min(1).max(500).default(8),
+  quantity: z.number().int().min(1).max(1000).default(1),
+  city: z.string().trim().min(2).max(120),
+  deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => !Number.isNaN(Date.parse(value)), "Некорректная дата"),
+  deliveryType: z.enum(["delivery", "pickup"]),
+  address: z.string().trim().max(500).optional().default(""),
+  inscription: z.string().max(50).optional().default(""),
+  comment: z.string().max(3000).optional().default(""),
+}).superRefine((project, ctx) => {
+  if (project.deliveryType === "delivery" && !project.address.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["address"], message: "Для доставки укажите адрес" });
+  }
+});
+
+const submitSchema = z.object({
+  project: projectSchema,
+  confectionerIds: z.array(z.string().uuid()).min(1).max(20),
+  estimatedPriceRubles: z.number().finite().min(0).max(10_000_000),
+  estimatedDeliveryCostRubles: z.number().finite().min(0).max(1_000_000).default(0),
+  requestDiscount: z.boolean().default(false),
+  discountPercent: z.number().int().min(0).max(30).default(0),
+  discountComment: z.string().max(1000).default(""),
+}).superRefine((body, ctx) => {
+  if (new Set(body.confectionerIds).size !== body.confectionerIds.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["confectionerIds"], message: "Список кондитеров содержит дубликаты" });
+  }
+});
+
+function errorResponse(message: string, status: number): NextResponse {
+  return NextResponse.json({ error: message }, { status });
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) return unauthorizedResponse();
+    if (!user) return errorResponse("Не авторизован", 401);
 
-    const { searchParams } = request.nextUrl;
-    const filter = searchParams.get("filter") || "own"; // 'own' | 'available'
-    const city = searchParams.get("city");
+    const filter = request.nextUrl.searchParams.get("filter") || "own";
+    const city = request.nextUrl.searchParams.get("city");
+    const isAdmin = user.roles.includes("ADMIN") || user.roles.includes("SUPER_ADMIN");
+    const isConfectioner = user.roles.includes("CONFECTIONER");
 
-    const INQUIRY_SELECT = `
-      *,
-      negotiations:negotiations(*)
-    `;
-
-    let query = supabaseAdmin.from("inquiries").select(INQUIRY_SELECT);
-
-    if (filter === "available") {
-      // Открытые запросы для кондитера
-      if (!user.roles.includes("CONFECTIONER") && !user.roles.includes("ADMIN")) {
-        return forbiddenResponse("Только кондитеры могут просматривать доступные запросы");
-      }
-      query = query.eq("status", "open");
-      if (city) query = query.eq("city", city);
-    } else {
-      // Свои запросы
-      query = query.eq("user_id", user.id);
+    if (filter === "available" && !isConfectioner && !isAdmin) {
+      return errorResponse("Только кондитеры могут просматривать доступные запросы", 403);
+    }
+    if (filter !== "available" && filter !== "own") {
+      return errorResponse("Неизвестный фильтр запросов", 400);
     }
 
-    const { data, error } = await query.order("submitted_at", { ascending: false });
+    // POST пишет через прямой PostgreSQL transaction (withClaims). Чтение
+    // через PostgREST здесь давало пустой список в локальном runtime при том,
+    // что запись уже была в основной БД. Читаем тем же DB-контрактом.
+    const inquiries = await withClaims(
+      { role: "service_role", sub: user.id, raw: { role: "service_role", sub: user.id } },
+      async (client) => {
+        const params: unknown[] = [];
+        let where = "";
+        if (filter === "own") {
+          params.push(user.id);
+          where = "i.user_id = $1::uuid";
+        } else {
+          where = "i.status = 'open'";
+          if (!isAdmin) {
+            params.push(user.id);
+            where += ` AND EXISTS (
+              SELECT 1 FROM public.negotiations access_n
+              WHERE access_n.inquiry_id = i.id
+                AND access_n.confectioner_id = $1::uuid
+            )`;
+          }
+          if (city) {
+            params.push(city);
+            where += ` AND i.city = $${params.length}`;
+          }
+          // ZV33-4b D3 (перенос фикса на канонический PG-rewrite): accept
+          // конвертирует inquiry (status='converted'), поэтому open-only
+          // фильтр выкидывал карточку «Принято покупателем» из «Заявок из
+          // конструктора» сразу после принятия. Догружаем заявки, где у
+          // ЭТОГО кондитера переговоры в status='accepted' (isolation по
+          // confectioner_id; город у accepted-догрузки не фильтруется —
+          // семантика исходного фикса).
+          params.push(user.id);
+          where = `(${where}) OR EXISTS (
+            SELECT 1 FROM public.negotiations acc_n
+            WHERE acc_n.inquiry_id = i.id
+              AND acc_n.confectioner_id = $${params.length}::uuid
+              AND acc_n.status = 'accepted'
+          )`;
+        }
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    // ZV33-4b D3: + заявки с ПРИНЯТЫМ предложением этого кондитера. Accept
-    // конвертирует inquiry (status='converted'), поэтому после принятия карточка
-    // выпадала из листинга open-заявок — кондитер не видел «Принято покупателем».
-    // Догружаем их отдельным запросом (переговоры кондитера с status='accepted'
-    // → inquiry_id), объединяем, дедуп по id, сортировка как в основном запросе.
-    let rows = (data || []) as Array<Record<string, unknown>>;
-    if (filter === "available") {
-      const openIds = new Set(rows.map((r) => r.id));
-      const { data: acceptedNegs } = await supabaseAdmin
-        .from("negotiations")
-        .select("inquiry_id")
-        .eq("confectioner_id", user.id)
-        .eq("status", "accepted");
-      const acceptedInquiryIds = Array.from(
-        new Set(
-          ((acceptedNegs || []) as Array<{ inquiry_id?: unknown }>)
-            .map((n) => n.inquiry_id)
-            .filter(
-              (v): v is string =>
-                typeof v === "string" && v.length > 0 && !openIds.has(v)
-            )
-        )
-      );
-      if (acceptedInquiryIds.length > 0) {
-        let acceptedQuery = supabaseAdmin
-          .from("inquiries")
-          .select(INQUIRY_SELECT)
-          .in("id", acceptedInquiryIds);
-        if (city) acceptedQuery = acceptedQuery.eq("city", city);
-        const { data: acceptedRows } = await acceptedQuery.order(
-          "submitted_at",
-          { ascending: false }
+        const inquiryResult = await client.query<Record<string, unknown> & { id: string }>(
+          `SELECT i.*
+             FROM public.inquiries i
+            WHERE ${where}
+            ORDER BY i.submitted_at DESC`,
+          params
         );
-        rows = [...rows, ...((acceptedRows || []) as Array<Record<string, unknown>>)].sort(
-          (a, b) =>
-            String(b.submitted_at ?? b.created_at ?? "").localeCompare(
-              String(a.submitted_at ?? a.created_at ?? "")
-            )
-        );
-      }
-    }
+        const rows = inquiryResult.rows;
+        if (rows.length === 0) return [];
 
-    // Этап 10 §D1: имя покупателя (profiles.name) для карточки заявки —
-    // только имя, без контактов (email/телефон не отдаём). Safe enrich
-    // вторым запросом (embed в локальном PostgREST-шим ненадёжен).
-    const inquirerIds = Array.from(
-      new Set(rows.map((r) => r.user_id).filter((v): v is string => typeof v === "string"))
+        const ids = rows.map((row) => row.id);
+        const negotiationsResult = await client.query<Record<string, unknown> & { inquiry_id: string }>(
+          `SELECT n.*
+             FROM public.negotiations n
+            WHERE n.inquiry_id = ANY($1::uuid[])`,
+          [ids]
+        );
+        const byInquiry = new Map<string, Array<Record<string, unknown>>>();
+        for (const negotiation of negotiationsResult.rows) {
+          const list = byInquiry.get(negotiation.inquiry_id) || [];
+          list.push(negotiation);
+          byInquiry.set(negotiation.inquiry_id, list);
+        }
+        return rows.map((row) => ({
+          ...row,
+          negotiations: byInquiry.get(row.id) || [],
+        }));
+      }
     );
-    const namesById = new Map<string, string>();
-    if (inquirerIds.length > 0) {
-      const { data: profiles } = await supabaseAdmin
-        .from("profiles")
-        .select("id, name")
-        .in("id", inquirerIds);
-      for (const p of profiles || []) {
-        namesById.set((p as { id: string }).id, ((p as { name?: string }).name || ""));
-      }
-    }
 
-    return NextResponse.json({
-      inquiries: rows.map((r) => ({ ...r, customer_name: namesById.get(r.user_id as string) || "" })),
-    });
+    return NextResponse.json({ inquiries });
   } catch (error) {
-    return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    );
+    console.error("[inquiries] GET error:", error instanceof Error ? error.message : String(error));
+    return errorResponse("Внутренняя ошибка сервера", 500);
   }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const user = await getUserFromRequest(request);
+  if (!user) return errorResponse("Не авторизован", 401);
+
+  const body = await request.json().catch(() => null);
+  const parsed = submitSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Проверьте параметры проекта", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const input = parsed.data;
+  const project = input.project;
+  const selectedIds = input.confectionerIds;
+  if (selectedIds.includes(user.id)) return errorResponse("Нельзя отправить запрос самому себе", 400);
+  const priceKopecks = Math.round(input.estimatedPriceRubles * 100);
+  const deliveryKopecks = Math.round(input.estimatedDeliveryCostRubles * 100);
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+  const projectSpec = {
+    ...project,
+    price: {
+      productRubles: input.estimatedPriceRubles,
+      deliveryRubles: input.estimatedDeliveryCostRubles,
+      totalRubles: input.estimatedPriceRubles + input.estimatedDeliveryCostRubles,
+      productKopecks: priceKopecks,
+      deliveryKopecks,
+      totalKopecks: priceKopecks + deliveryKopecks,
+      isEstimate: true,
+    },
+  };
+
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return unauthorizedResponse();
-
-    const body = await request.json();
-    const {
-      draftId,
-      confectionerIds,
-      estimatedPrice,
-      requestDiscount = false,
-      discountPercent = 0,
-      discountComment = "",
-    } = body as {
-      draftId: string;
-      confectionerIds: string[];
-      estimatedPrice: number;
-      requestDiscount?: boolean;
-      discountPercent?: number;
-      discountComment?: string;
-    };
-
-    if (!draftId || !confectionerIds || confectionerIds.length === 0) {
-      return NextResponse.json(
-        { error: "Draft ID и confectionerIds обязательны" },
-        { status: 400 }
-      );
-    }
-
-    // 1. Загрузить черновик
-    const { data: draft, error: draftError } = await supabaseAdmin
-      .from("cake_builder_drafts")
-      .select("*")
-      .eq("id", draftId)
-      .single();
-
-    if (draftError || !draft) {
-      return NextResponse.json({ error: "Черновик не найден" }, { status: 404 });
-    }
-
-    if (draft.user_id !== user.id) {
-      return forbiddenResponse("Чужой черновик");
-    }
-
-    // 2. Создать inquiry
-    const { data: inquiry, error: inquiryError } = await supabaseAdmin
-      .from("inquiries")
-      .insert({
-        user_id: user.id,
-        event_type: draft.event_type,
-        base: draft.base,
-        filling: draft.filling,
-        coating: draft.coating,
-        decorations: draft.decorations,
-        dietary: draft.dietary,
-        servings: draft.servings,
-        city: draft.city,
-        delivery_date: draft.delivery_date,
-        delivery_type: draft.delivery_type,
-        inscription: draft.inscription,
-        comment: draft.comment,
-        estimated_price: estimatedPrice,
-        status: "open",
-        expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-      })
-      .select()
-      .single();
-
-    if (inquiryError || !inquiry) {
-      return NextResponse.json(
-        { error: "Ошибка создания inquiry", detail: inquiryError?.message },
-        { status: 500 }
-      );
-    }
-
-    // 3. Создать negotiations для выбранных кондитеров
-    const negotiationsToInsert = confectionerIds.map((confectionerId: string) => ({
-      inquiry_id: inquiry.id,
-      user_id: user.id,
-      confectioner_id: confectionerId,
-      discount_requested: requestDiscount,
-      discount_percent: requestDiscount ? discountPercent : 0,
-      discount_comment: requestDiscount ? discountComment : "",
-      status: "pending_confectioner",
-      expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    }));
-
-    const { data: negotiations, error: negError } = await supabaseAdmin
-      .from("negotiations")
-      .insert(negotiationsToInsert)
-      .select();
-
-    if (negError) {
-      // Откатываем inquiry
-      await supabaseAdmin.from("inquiries").delete().eq("id", inquiry.id);
-      return NextResponse.json(
-        { error: "Ошибка создания negotiations", detail: negError.message },
-        { status: 500 }
-      );
-    }
-
-    // 4. Помечаем draft как submitted
-    await supabaseAdmin
-      .from("cake_builder_drafts")
-      .update({ is_submitted: true })
-      .eq("id", draftId);
-
-    // 5. Отправить уведомление кондитерам (через Edge Function)
-    try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      if (supabaseUrl) {
-        await Promise.all(
-          confectionerIds.map((confectionerId) =>
-            fetch(`${supabaseUrl}/functions/v1/send-notification`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                type: "lead_new",
-                leadId: inquiry.id,
-                customer: user.email,
-                priority: "medium",
-              }),
-            }).catch(() => null)
-          )
+    const result = await withClaims(
+      { role: "service_role", sub: user.id, raw: { role: "service_role", sub: user.id } },
+      async (client) => {
+        const validConfectioners = await client.query<{ user_id: string }>(
+          `SELECT DISTINCT ur.user_id::text
+             FROM public.user_roles ur
+             JOIN public.confectioners c ON c."userId" = ur.user_id::text
+            WHERE ur.user_id = ANY($1::uuid[])
+              AND ur.role::text = 'CONFECTIONER'
+              AND ur.is_active = TRUE
+              AND c.verified = TRUE
+              AND c."verificationStatus" = 'approved'`,
+          [selectedIds]
         );
+        const validIds = new Set(validConfectioners.rows.map((row) => row.user_id));
+        if (selectedIds.some((id) => !validIds.has(id))) {
+          const err = new Error("Один или несколько выбранных кондитеров недоступны") as Error & { status?: number };
+          err.status = 422;
+          throw err;
+        }
+
+        const draftResult = await client.query<{ id: string }>(
+          `INSERT INTO public.cake_builder_drafts (
+             user_id, product_type, event_type, base, tiers, shape, filling, coating,
+             decorations, dietary, servings, quantity, city, delivery_date, delivery_type,
+             address, inscription, comment, step, is_submitted, project_spec
+           ) VALUES (
+             $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10::text[],
+             $11, $12, $13, $14::date, $15, $16, $17, $18, 8, TRUE, $19::jsonb
+           ) RETURNING id::text`,
+          [
+            user.id, project.productType, project.eventType || null, project.base || null,
+            project.tiers ?? null, project.shape || null, project.filling || null, project.coating || null,
+            project.decorations, project.dietary, project.servings, project.quantity, project.city,
+            project.deliveryDate, project.deliveryType, project.address, project.inscription, project.comment,
+            JSON.stringify(projectSpec),
+          ]
+        );
+        const draftId = draftResult.rows[0]?.id;
+        if (!draftId) throw new Error("Не удалось сохранить проект");
+
+        const inquiryResult = await client.query<{ id: string }>(
+          `INSERT INTO public.inquiries (
+             user_id, product_type, event_type, base, tiers, shape, filling, coating,
+             decorations, dietary, servings, quantity, city, delivery_date, delivery_type,
+             address, inscription, comment, estimated_price, estimated_delivery_cost,
+             project_spec, status, expires_at, negotiations_count
+           ) VALUES (
+             $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10::text[],
+             $11, $12, $13, $14::date, $15, $16, $17, $18, $19, $20,
+             $21::jsonb, 'open', $22::timestamptz, $23
+           ) RETURNING id::text`,
+          [
+            user.id, project.productType, project.eventType || null, project.base || null,
+            project.tiers ?? null, project.shape || null, project.filling || null, project.coating || null,
+            project.decorations, project.dietary, project.servings, project.quantity, project.city,
+            project.deliveryDate, project.deliveryType, project.address, project.inscription, project.comment,
+            priceKopecks, deliveryKopecks, JSON.stringify(projectSpec), expiresAt, selectedIds.length,
+          ]
+        );
+        const inquiryId = inquiryResult.rows[0]?.id;
+        if (!inquiryId) throw new Error("Не удалось создать запрос кондитерам");
+
+        const negotiationsResult = await client.query<{ id: string; confectioner_id: string }>(
+          `INSERT INTO public.negotiations (
+             inquiry_id, user_id, confectioner_id, discount_requested, discount_percent,
+             discount_comment, status, expires_at
+           )
+           SELECT $1::uuid, $2::uuid, selected.confectioner_id, $4::boolean, $5::integer,
+                  $6::text, 'pending_confectioner', $7::timestamptz
+             FROM unnest($3::uuid[]) AS selected(confectioner_id)
+           RETURNING id::text, confectioner_id::text`,
+          [inquiryId, user.id, selectedIds, input.requestDiscount, input.requestDiscount ? input.discountPercent : 0, input.requestDiscount ? input.discountComment : "", expiresAt]
+        );
+        // Первое системное сообщение фиксирует старт переговоров и попадает в Realtime.
+        await client.query(
+          `INSERT INTO public.negotiation_messages (negotiation_id, sender_id, text, attachments, is_system)
+           SELECT n.id, $1::uuid, 'Проект отправлен заказчиком. Подготовьте цену и срок выполнения.', '[]'::jsonb, TRUE
+             FROM public.negotiations n
+            WHERE n.inquiry_id = $2::uuid`,
+          [user.id, inquiryId]
+        );
+
+        return { draftId, inquiryId, negotiations: negotiationsResult.rows };
       }
-    } catch (e) {
-      console.warn("[inquiries] Notification error:", (e as Error).message);
+    );
+
+    try {
+      const { emitEvent } = await import("@/lib/n8n");
+      await emitEvent("inquiry.created", {
+        inquiryId: result.inquiryId,
+        customerId: user.id,
+        confectionerIds: selectedIds,
+        negotiationsCount: result.negotiations.length,
+      });
+    } catch (notificationError) {
+      console.warn("[inquiries] notification event failed:", notificationError instanceof Error ? notificationError.message : String(notificationError));
     }
 
     return NextResponse.json({
-      inquiryId: inquiry.id,
-      negotiationsCount: negotiations.length,
-    });
+      success: true,
+      draftId: result.draftId,
+      inquiryId: result.inquiryId,
+      negotiationsCount: result.negotiations.length,
+      negotiations: result.negotiations,
+    }, { status: 201 });
   } catch (error) {
-    return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    );
+    const status = typeof error === "object" && error !== null && "status" in error
+      ? Number((error as { status?: unknown }).status) || 500
+      : 500;
+    const message = error instanceof Error ? error.message : "Не удалось отправить проект";
+    console.error("[inquiries] POST failed:", message);
+    return errorResponse(status >= 400 && status < 500 ? message : "Не удалось отправить проект. Попробуйте позже.", status);
   }
 }

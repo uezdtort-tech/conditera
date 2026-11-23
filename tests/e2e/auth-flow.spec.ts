@@ -63,23 +63,22 @@ test.describe('Auth flow — register/login (exempt от CSRF)', () => {
   })
 })
 
-test.describe('Auth flow — 2FA (setup/verify/disable требуют CSRF)', () => {
-  // 2fa/setup, 2fa/verify, 2fa/disable НЕ exempt → 403 без CSRF
-  // 2fa/login-verify IS exempt → 400/401 без CSRF
+test.describe('Auth flow — 2FA (без авторизации запрещено)', () => {
+  // Без cookie-сессии эти endpoints должны вернуть 401; CSRF проверяется только для cookie-auth.
 
-  test('POST /api/auth/2fa/setup без CSRF → 403', async ({ request }) => {
+  test('POST /api/auth/2fa/setup без сессии → 401', async ({ request }) => {
     const response = await request.post('/api/auth/2fa/setup')
-    expect(response.status()).toBe(403)
+    expect(response.status()).toBe(401)
   })
 
-  test('POST /api/auth/2fa/verify без CSRF → 403', async ({ request }) => {
+  test('POST /api/auth/2fa/verify без сессии → 401', async ({ request }) => {
     const response = await request.post('/api/auth/2fa/verify', { data: { code: '123456' } })
-    expect(response.status()).toBe(403)
+    expect(response.status()).toBe(401)
   })
 
-  test('POST /api/auth/2fa/disable без CSRF → 403', async ({ request }) => {
+  test('POST /api/auth/2fa/disable без сессии → 401', async ({ request }) => {
     const response = await request.post('/api/auth/2fa/disable', { data: { code: '123456' } })
-    expect(response.status()).toBe(403)
+    expect(response.status()).toBe(401)
   })
 
   test('POST /api/auth/2fa/login-verify без tfaTempToken → 400 (exempt)', async ({ request }) => {
@@ -108,9 +107,9 @@ test.describe('Auth flow — session & logout', () => {
     expect(response.status()).toBe(200)
   })
 
-  test('POST /api/auth/logout без CSRF → 403', async ({ request }) => {
+  test('POST /api/auth/logout без сессии безопасно очищает cookie → 200', async ({ request }) => {
     const response = await request.post('/api/auth/logout')
-    expect(response.status()).toBe(403)
+    expect(response.status()).toBe(200)
   })
 })
 

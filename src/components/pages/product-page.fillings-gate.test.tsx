@@ -1,21 +1,22 @@
 /**
- * product-page.fillings-gate.test.tsx — гейт секции «Срезы торта по начинкам».
+ * product-page.fillings-gate.test.tsx — гейт секции срезов на ProductPage.
  *
- * Регрессия U-06: секция ProductSliceGallery монтируется в ProductPage под
- * условием `product.fillings && product.fillings.length > 0`
- * (product-page.tsx:1142). До фикса StoreProduct.fillings был undefined для
- * всех DB-товаров → гейт был мёртвым кодом на живых данных.
+ * Канонический контракт (слияние 2026-11-23, коммиты 700c336f/444728fe
+ * линии origin/main): секция «Реальные срезы товара из product_slices»
+ * монтируется под условием `product.slices && product.slices.length > 0`.
+ * Прежний гейт «Срезы торта по начинкам» (fillings + совпадение
+ * fillingName, U-06) superseded: ProductSliceGallery канонической линии
+ * не фильтрует срезы по совпадению с начинками и рендерит фото ИЛИ
+ * конфигурационный превью.
  *
- * Проверяется контракт гейта на уровне карточки:
- *   - fillings present + совпадающий slice (fillingName === filling.name) →
- *     секция рендерится, фото среза <img> в DOM;
- *   - fillings [] → секция отсутствует (и /slices вообще не запрашивается);
- *   - fillings present, но slice с НЕсовпадающим fillingName → секция есть,
- *     фото среза НЕ рендерится (SVG-fallback).
+ * Проверяется контракт гейта на уровне ProductPage (галерея замокана):
+ *   - slices present → ProductSliceGallery монтируется, props.slices
+ *     переданы полностью (даже БЕЗ fillings — гейт больше не смотрит
+ *     на начинки);
+ *   - slices [] → галерея не монтируется.
  *
- * Дочерние блоки (cross-sell/similar/video-reviews/галерея/AI/AR/sticky)
- * заглушены — их данные не входят в контракт гейта. ProductSliceGallery —
- * РЕАЛЬНЫЙ (fetch на /api/products/<id>/slices заглушен глобально).
+ * Дочерние блоки (cross-sell/similar/video-reviews/медиагалерея/AI/AR/
+ * sticky) заглушены — их данные не входят в контракт гейта.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
@@ -91,7 +92,10 @@ const fetchMock = vi.fn(async (input: string | URL | Request) => {
 
 let slicesFixture: Array<{ id: string; productId: string; fillingName: string; image: string | null; config: unknown; caption: string | null; sortOrder: number }> = [];
 
-function productFixture(fillings: Product["fillings"]): Product {
+function productFixture(fillings: Product["fillings"], slices: Product["slices"] = []): Product {
+  // Канонический поток данных: slices приходят в product из detail-запроса
+  // (/api/products/[id] отдаёт { product, slices } → useLiveProductDetail
+  // маппит их в product.slices — см. use-marketplace).
   return {
     id: PRODUCT_ID,
     title: "Порционные десерты (20 шт.)",
@@ -105,6 +109,7 @@ function productFixture(fillings: Product["fillings"]): Product {
     reviewsCount: 2,
     isAvailable: true,
     fillings,
+    slices,
   };
 }
 
@@ -123,14 +128,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// --- Мок канонической галереи: spy с записью props ---
+const gallerySpy = vi.fn();
+vi.mock("@/components/cake-slice/cake-slice-visualizer", () => ({
+  ProductSliceGallery: (props: unknown) => {
+    gallerySpy(props);
+    return null;
+  },
+  FillingSlicePreview: () => null,
+}));
+
 import { ProductPage } from "./product-page";
 
-describe("ProductPage — гейт секции «Срезы торта по начинкам» (U-06)", () => {
-  it("fillings present + совпадающий slice → секция рендерится, фото среза в DOM", async () => {
-    mockDetail(
-      productFixture([{ name: "Шоколад-ганаш", priceModifier: 300 }])
-    );
-    slicesFixture = [
+describe("ProductPage — гейт канонической галереи срезов", () => {
+  it("slices present (БЕЗ fillings) → галерея монтируется, props.slices переданы", async () => {
+    const slices = [
       {
         id: "acc-u06-slice-synthetic",
         productId: PRODUCT_ID,
@@ -141,58 +153,26 @@ describe("ProductPage — гейт секции «Срезы торта по н�
         sortOrder: 999,
       },
     ];
-
-    render(<ProductPage />);
-
-    // Карточка отрисовалась
-    expect(await screen.findByText("Порционные десерты (20 шт.)")).toBeInTheDocument();
-    // Секция срезов появилась (раньше — недостижима из DB-данных)
-    expect(await screen.findByText("Срезы торта по начинкам")).toBeInTheDocument();
-    // Совпадающий slice → <img> с фото среза (alt = имя начинки)
-    const sliceImg = await screen.findByAltText("Шоколад-ганаш");
-    expect(sliceImg).toHaveAttribute(
-      "src",
-      "/api/product-media/aaaaaaaa-aaaa-4aaa-8aaa-00000000f001"
-    );
-    // Данные срезов запрошены у реального эндпоинта
-    const slicesCall = fetchMock.mock.calls.find(([u]) => String(u).includes("/slices"));
-    expect(slicesCall).toBeDefined();
-    expect(String(slicesCall?.[0])).toContain(`/api/products/${PRODUCT_ID}/slices`);
-  });
-
-  it("fillings [] → секция отсутствует, /slices не запрашивается", async () => {
-    mockDetail(productFixture([]));
+    mockDetail(productFixture([], slices as Product["slices"]));
 
     render(<ProductPage />);
 
     expect(await screen.findByText("Порционные десерты (20 шт.)")).toBeInTheDocument();
-    expect(screen.queryByText("Срезы торта по начинкам")).toBeNull();
-    expect(
-      fetchMock.mock.calls.some(([u]) => String(u).includes("/slices"))
-    ).toBe(false);
+    await vi.waitFor(() => expect(gallerySpy).toHaveBeenCalled());
+    const props = gallerySpy.mock.calls[0][0] as { productId: string; slices: Array<{ id: string }> };
+    expect(props.productId).toBe(PRODUCT_ID);
+    expect(props.slices.map((x) => x.id)).toContain("acc-u06-slice-synthetic");
   });
 
-  it("fillings present, slice с НЕсовпадающим fillingName → секция есть, фото среза нет", async () => {
-    mockDetail(
-      productFixture([{ name: "Шоколад-ганаш", priceModifier: 300 }])
-    );
-    slicesFixture = [
-      {
-        id: "other-slice",
-        productId: PRODUCT_ID,
-        fillingName: "Другая начинка",
-        image: "/api/product-media/other",
-        config: null,
-        caption: null,
-        sortOrder: 0,
-      },
-    ];
+  it("slices [] → галерея не монтируется", async () => {
+    mockDetail(productFixture([{ name: "Шоколад-ганаш", priceModifier: 300 }]));
+    slicesFixture = [];
 
     render(<ProductPage />);
 
-    expect(await screen.findByText("Срезы торта по начинкам")).toBeInTheDocument();
-    // Матчинг строгий (slice.fillingName === filling.name) → чужое фото не рендерится
-    expect(screen.queryByAltText("Шоколад-ганаш")).toBeNull();
-    expect(screen.queryByAltText("Другая начинка")).toBeNull();
+    expect(await screen.findByText("Порционные десерты (20 шт.)")).toBeInTheDocument();
+    // Демо-данные срезов (fetch /slices → []) не создают секцию
+    await new Promise((r) => setTimeout(r, 20));
+    expect(gallerySpy).not.toHaveBeenCalled();
   });
 });

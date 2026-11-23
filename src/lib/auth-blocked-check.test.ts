@@ -4,17 +4,16 @@
 // этой проблемы нет; здесь тот же node-контекст.
 // @vitest-environment node
 /**
- * Тесты src/lib/auth.ts — R3/P1-2: fail-closed blocked-check.
+ * Тесты src/lib/auth.ts — канонический fail-closed контракт
+ * (коммит f92478a2 «port fail-closed auth hardening», слияние 2026-11-23).
  *
- * Контракт getUserFromRequest при ошибке чтения profiles.is_blocked:
- *   • мутирующие методы (POST/PUT/PATCH/DELETE) → null (роут вернёт 401 —
- *     контролируемый отказ; сбой БД не открывает заблокированному доступ к мутациям);
- *   • GET/HEAD → fail-open (чтение остаётся доступным при сбое БД —
- *     минимальное исправление из ENGINEERING_RISKS.md R3);
- *   • валидный not-blocked пользователь → тот же AuthenticatedUser для всех методов;
- *   • заблокированный → null для всех методов;
- *   • результат блокировки кэшируется (60с) — повторный запрос не бьёт в БД;
- *   • при ошибке БД кэш НЕ заполняется (следующий запрос снова проверяет).
+ * Контракт getUserFromRequest:
+ *   • профиль читается из БД на КАЖДЫЙ запрос (кеша в globalThis больше нет);
+ *   • профиль отсутствует / is_blocked / deleted_at → null;
+ *   • ошибка БД или исключение — ЛЮБОГО метода → null (fail-closed без
+ *     исключений для GET/HEAD: прежний fail-open для чтения superseded);
+ *   • роли читаются из user_roles на каждый запрос (JWT-claims не источник);
+ *   • ошибка чтения ролей → null.
  *
  * JWT — настоящие (jose round-trip через экспортированный createAccessToken),
  * мок — только граница supabaseAdmin. Без сети и БД.
@@ -25,18 +24,28 @@ import { NextRequest } from "next/server";
 // --- Мок границы supabaseAdmin (единственная внешняя зависимость) ---
 
 const profilesMaybeSingleMock = vi.fn();
+const userRolesSelectMock = vi.fn();
 
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
     from: (table: string) => {
-      if (table !== "profiles") {
-        throw new Error(`[test] неожиданная таблица: ${table}`);
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: profilesMaybeSingleMock }),
+          }),
+        };
       }
-      return {
-        select: () => ({
-          eq: () => ({ maybeSingle: profilesMaybeSingleMock }),
-        }),
-      };
+      if (table === "user_roles") {
+        return {
+          select: () => ({
+            // .eq("user_id", ...).eq("is_active", true) — двухшаговая цепочка;
+            // финальное звено — ВЫЗОВ мока: await исполняет thenable, а не fn
+            eq: () => ({ eq: () => userRolesSelectMock() }),
+          }),
+        };
+      }
+      throw new Error(`[test] неожиданная таблица: ${table}`);
     },
   },
 }));
@@ -69,6 +78,8 @@ async function makeRequest(
 function makeDbResult(options: {
   error?: { message: string };
   blocked?: boolean;
+  deleted?: boolean;
+  missing?: boolean;
   throw?: boolean;
 }) {
   return async () => {
@@ -78,10 +89,14 @@ function makeDbResult(options: {
     if (options.error) {
       return { data: null, error: options.error };
     }
+    if (options.missing) {
+      return { data: null, error: null };
+    }
     return {
       data: {
-        id: "x",
+        id: USER_ID,
         is_blocked: options.blocked === true,
+        deleted_at: options.deleted === true ? "2026-11-01T00:00:00Z" : null,
         name: "Тест Блокировок",
         email: "blocked-check@example.com",
       },
@@ -90,19 +105,43 @@ function makeDbResult(options: {
   };
 }
 
+function makeRolesResult(options: {
+  error?: { message: string };
+  roles?: string[];
+}) {
+  return async () => {
+    if (options.error) {
+      return { data: null, error: options.error };
+    }
+    return { data: (options.roles ?? ["CUSTOMER"]).map((role) => ({ role })), error: null };
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  // Кэш blocked-проверки живёт в globalThis — чистим между тестами
-  delete (globalThis as Record<string, unknown>)[`__blocked_check_${USER_ID}`];
+  userRolesSelectMock.mockImplementation(makeRolesResult({ roles: ["CUSTOMER"] }));
 });
 
-describe("getUserFromRequest — blocked-check при ошибке БД (R3 fail-closed)", () => {
-  it("POST + ошибка БД → null (fail-closed: мутация отклоняется)", async () => {
+describe("getUserFromRequest — ошибка БД: fail-closed на любом методе", () => {
+  it("POST + ошибка БД → null", async () => {
     profilesMaybeSingleMock.mockImplementation(
       makeDbResult({ error: { message: "PostgREST 503" } })
     );
-    const user = await getUserFromRequest(await makeRequest("POST"));
-    expect(user).toBeNull();
+    expect(await getUserFromRequest(await makeRequest("POST"))).toBeNull();
+  });
+
+  it("GET + ошибка БД → null (fail-closed без исключений для чтения)", async () => {
+    profilesMaybeSingleMock.mockImplementation(
+      makeDbResult({ error: { message: "PostgREST 503" } })
+    );
+    expect(await getUserFromRequest(await makeRequest("GET"))).toBeNull();
+  });
+
+  it("HEAD + ошибка БД → null", async () => {
+    profilesMaybeSingleMock.mockImplementation(
+      makeDbResult({ error: { message: "PostgREST 503" } })
+    );
+    expect(await getUserFromRequest(await makeRequest("HEAD"))).toBeNull();
   });
 
   it("PUT/PATCH/DELETE + ошибка БД → null (все мутирующие методы)", async () => {
@@ -115,43 +154,22 @@ describe("getUserFromRequest — blocked-check при ошибке БД (R3 fail
     }
   });
 
-  it("GET + ошибка БД → пользователь возвращён (fail-open для чтения)", async () => {
-    profilesMaybeSingleMock.mockImplementation(
-      makeDbResult({ error: { message: "PostgREST 503" } })
-    );
-    const user = await getUserFromRequest(await makeRequest("GET"));
-    expect(user).not.toBeNull();
-    expect(user?.userId).toBe(USER_ID);
-    expect(user?.roles).toEqual(["CUSTOMER"]);
-  });
-
-  it("HEAD + ошибка БД → fail-open (безопасный метод)", async () => {
-    profilesMaybeSingleMock.mockImplementation(
-      makeDbResult({ error: { message: "PostgREST 503" } })
-    );
-    const user = await getUserFromRequest(await makeRequest("HEAD"));
-    expect(user).not.toBeNull();
-  });
-
-  it("POST + исключение при запросе БД → null (fail-closed на throw-пути)", async () => {
+  it("GET + исключение при запросе БД → null (throw-путь)", async () => {
     profilesMaybeSingleMock.mockImplementation(makeDbResult({ throw: true }));
-    const user = await getUserFromRequest(await makeRequest("POST"));
-    expect(user).toBeNull();
+    expect(await getUserFromRequest(await makeRequest("GET"))).toBeNull();
   });
 
-  it("GET + исключение при запросе БД → fail-open (чтение)", async () => {
+  it("POST + исключение при запросе БД → null (throw-путь)", async () => {
     profilesMaybeSingleMock.mockImplementation(makeDbResult({ throw: true }));
-    const user = await getUserFromRequest(await makeRequest("GET"));
-    expect(user).not.toBeNull();
+    expect(await getUserFromRequest(await makeRequest("POST"))).toBeNull();
   });
 
-  it("при ошибке БД кэш НЕ заполняется: последующий GET снова ходит в БД", async () => {
-    profilesMaybeSingleMock.mockImplementation(
-      makeDbResult({ error: { message: "PostgREST 503" } })
+  it("ошибка чтения ролей → null (роли — источник истины полномочий)", async () => {
+    profilesMaybeSingleMock.mockImplementation(makeDbResult({ blocked: false }));
+    userRolesSelectMock.mockImplementation(
+      makeRolesResult({ error: { message: "roles lookup failed" } })
     );
-    await getUserFromRequest(await makeRequest("GET"));
-    await getUserFromRequest(await makeRequest("GET"));
-    expect(profilesMaybeSingleMock).toHaveBeenCalledTimes(2);
+    expect(await getUserFromRequest(await makeRequest("GET"))).toBeNull();
   });
 });
 
@@ -159,11 +177,20 @@ describe("getUserFromRequest — штатная блокировка и допу
   it("заблокированный пользователь → null и для GET, и для POST", async () => {
     profilesMaybeSingleMock.mockImplementation(makeDbResult({ blocked: true }));
     expect(await getUserFromRequest(await makeRequest("GET"))).toBeNull();
-    delete (globalThis as Record<string, unknown>)[`__blocked_check_${USER_ID}`];
     expect(await getUserFromRequest(await makeRequest("POST"))).toBeNull();
   });
 
-  it("незаблокированный пользователь → AuthenticatedUser для всех методов", async () => {
+  it("отсутствующий профиль → null", async () => {
+    profilesMaybeSingleMock.mockImplementation(makeDbResult({ missing: true }));
+    expect(await getUserFromRequest(await makeRequest("GET"))).toBeNull();
+  });
+
+  it("профиль с deleted_at → null (soft-delete закрывает сессию)", async () => {
+    profilesMaybeSingleMock.mockImplementation(makeDbResult({ deleted: true }));
+    expect(await getUserFromRequest(await makeRequest("GET"))).toBeNull();
+  });
+
+  it("незаблокированный пользователь → AuthenticatedUser с ролями из БД", async () => {
     profilesMaybeSingleMock.mockImplementation(makeDbResult({ blocked: false }));
     const get = await getUserFromRequest(await makeRequest("GET"));
     const post = await getUserFromRequest(await makeRequest("POST"));
@@ -171,13 +198,24 @@ describe("getUserFromRequest — штатная блокировка и допу
     expect(post?.userId).toBe(USER_ID);
     expect(post?.email).toBe("blocked-check@example.com");
     expect(post?.accountType).toBe("individual");
+    expect(post?.roles).toEqual(["CUSTOMER"]);
   });
 
-  it("результат кэшируется (60с): два запроса — один поход в БД", async () => {
+  it("профиль читается на каждый запрос — кеша нет, два запроса = два похода в БД", async () => {
     profilesMaybeSingleMock.mockImplementation(makeDbResult({ blocked: false }));
     await getUserFromRequest(await makeRequest("GET"));
     await getUserFromRequest(await makeRequest("GET"));
-    expect(profilesMaybeSingleMock).toHaveBeenCalledTimes(1);
+    expect(profilesMaybeSingleMock).toHaveBeenCalledTimes(2);
+    expect(userRolesSelectMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("отзыв роли отражается сразу (claims не источник полномочий)", async () => {
+    profilesMaybeSingleMock.mockImplementation(makeDbResult({ blocked: false }));
+    const first = await getUserFromRequest(await makeRequest("GET"));
+    expect(first?.roles).toEqual(["CUSTOMER"]);
+    userRolesSelectMock.mockImplementation(makeRolesResult({ roles: [] }));
+    const second = await getUserFromRequest(await makeRequest("GET"));
+    expect(second?.roles).toEqual([]);
   });
 });
 

@@ -37,8 +37,22 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Целевой production-хост — локальный Windows ПК владельца.
+  # Этот исторический workflow подключается по SSH к удалённому VPS.
+  # Он намеренно блокируется до создания и проверки локального release workflow.
+  release-target-guard:
+    name: Block unapproved remote deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop — remote VPS is not the approved production target
+        run: |
+          echo "::error::Production Conditera размещается на локальном ПК владельца. Этот workflow разворачивает удалённый VPS и не должен использоваться."
+          echo "::error::Сначала реализуйте и проверьте Docker Desktop runtime и локальную процедуру выпуска."
+          exit 78
+
   # ===== 1. Build & Push (образ = точный коммит) =====
   build-and-push:
+    needs: release-target-guard
     name: Build & Push (sha tag)
     runs-on: ubuntu-latest
     permissions:
@@ -47,7 +61,7 @@ jobs:
     outputs:
       sha_tag: ${{ steps.tag.outputs.sha_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Compute immutable sha tag
         id: tag
@@ -64,7 +78,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push runner image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -82,7 +96,7 @@ jobs:
             NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_APP_URL }}
 
       - name: Build and push migrator image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -125,6 +139,17 @@ jobs:
             docker pull ${{ env.REGISTRY }}/$IMAGE_NAME:$SHA_TAG
             docker pull ${{ env.REGISTRY }}/$IMAGE_NAME:migrator-$SHA_TAG
 
+            # Пока приложение и Supabase указывают на разные PostgreSQL,
+            # автоматический деплой запрещён: миграции в одной БД не обновляют другую.
+            if docker inspect conditera-supabase-db >/dev/null 2>&1; then
+              echo "ERROR: найден контейнер conditera-supabase-db (в том числе остановленный). Пока в проекте два независимых PostgreSQL, деплой и миграции запрещены."
+              exit 1
+            fi
+            if ! docker inspect conditera-db >/dev/null 2>&1 || [ "$(docker inspect -f '{{.State.Running}}' conditera-db)" != "true" ]; then
+              echo "ERROR: канонический PostgreSQL conditera-db отсутствует или не запущен."
+              exit 1
+            fi
+
             # --- 1. МИГРАЦИИ: one-shot ledger-migrator из ТОГО ЖЕ SHA ---
             # Скрипт 01-apply-migrations.sh применяет только неотмеченные в
             # schema_migrations файлы, fail-fast (ON_ERROR_STOP=1).
@@ -132,8 +157,9 @@ jobs:
             docker run --rm \
               --network conditera-net \
               -e PGHOST=db \
-              -e PGDATABASE=postgres \
-              -e PGUSER=postgres \
+              -e PGPORT=5432 \
+              -e PGDATABASE=conditera \
+              -e PGUSER=conditera \
               -e PGPASSWORD="$POSTGRES_PASSWORD" \
               ${{ env.REGISTRY }}/$IMAGE_NAME:migrator-$SHA_TAG
 

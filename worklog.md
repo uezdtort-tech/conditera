@@ -10431,3 +10431,32 @@ notifications, write:network_configurations, copilot). Владелец
 целевому минимуму). Финальный набор: repo, workflow, write:packages.
 Запись (git push) после ужатия подтверждена этим коммитом. Токен
 хранится только в ~/.git-credentials (600), в контенте отсутствует.
+
+## [merge] 2026-11-23 — слияние линий: origin/main (2fdc2524) × sandbox main (46fe7559)
+
+Публикация в main по сигналу владельца. Инфраструктурный блок (10
+файлов: CI/e2e workflows, compose, Caddyfile, Dockerfile.simplex-bridge,
+gitignore, env-пример, setup.mjs, api-v2.spec, vitest.setup) — субагент
+2-a по правилам «theirs канон + ours sandbox-ops добавки»; src-блок
+(15 файлов) — вручную. Ключевые решения: auth.ts/oauth/session — их
+fail-closed контракт (супersedes наш R3-кэш и GoTrue-handoff; их VK ID
+OAuth 2.1+PKCE superseded нашу fail-closed заглушку); inquiries — их
+PG-контракт (withClaims + канонический SQL) + перенос нашего
+ZV33-4b D3-фикса (accepted-заявки кондитера) OR-оговоркой в их SQL +
+тесты переписаны на PG-мок; product-card/catalog-page — их поколение
+(quick-action, cutaway, compare) + перенос наших PR-4 (маркер «от»,
+hasRealDiscount, клавиатурная a11y); cake-builder-dialog — их submit
++ наш undo/redo; proxy.ts — union (наши импорты jwtVerify/upload-guard,
+их CSRF-энфорсмент, наш request-id). Разбор 37+21 тестовых расхождений:
+register — моку добавлен user_consent_events (их шаг 9.5, 152-ФЗ);
+auth-blocked-check переписан под fail-closed-без-кеша (15 тестов);
+product-page gate-тесты — под каноническую ProductSliceGallery
+(superseded fillingName-гейт); server-only — пакет + vitest-алиас
+(их edge-functions.ts импортирует, в package.json отсутствовал);
+cart-sync.test.ts — сирота удалена (mergeServerCart не существует,
+у theirs задокументированное удаление e7da5998); ingress-trust — порог
+8→7 блоков (Kong занял supabase-auth, @api_auth сложился в handle /api/*,
+инвариант «ни одного блока без X-Real-IP» сохранён); найден и снят
+skip-worktree на 4 «защищённых» upload-файлах (после recycle они
+отсутствовали на диске, git был слеп — redline-guard восстановлен).
+Итог: vitest 2000/2000 (154 файла), tsc clean, lint 0 errors.
