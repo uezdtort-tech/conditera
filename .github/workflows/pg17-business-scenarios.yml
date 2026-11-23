@@ -27,6 +27,8 @@ on:
       - "supabase/compat/**"
       - "scripts/db/**"
       - "scripts/verify/**"
+      - "scripts/n8n-entrypoint.mjs"
+      - "n8n-workflows/**"
       - "src/app/api/**"
       - "src/lib/**"
       - "tests/e2e/**"
