@@ -124,6 +124,21 @@ for key in ("POSTGRES_PASSWORD", "JWT_SECRET", "JWT_REFRESH_SECRET", "CRON_SECRE
     if value and len(value) < 32:
         errors.append(f".env.production: {key} must contain at least 32 characters")
 
+# JWT signing secrets must be 256-bit random hex values, never the legacy demo
+# key or deterministic CI fixtures. The bootstrap script rotates weak values.
+weak_jwt_values = {
+    "your-super-secret-jwt-token-with-at-least-32-characters-long",
+    "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa",
+    "ci-only-conditera-jwt-secret-32-bytes-minimum",
+    "0123456789abcdef" * 4,
+}
+for key in ("JWT_SECRET", "JWT_REFRESH_SECRET"):
+    value = app.get(key, "")
+    if value and not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        errors.append(f".env.production: {key} must be a 64-character random hexadecimal secret")
+    elif value in weak_jwt_values:
+        errors.append(f".env.production: {key} is a known demo/test secret and must be rotated")
+
 if app.get("JWT_SECRET") == app.get("JWT_REFRESH_SECRET"):
     errors.append("JWT_REFRESH_SECRET must be different from JWT_SECRET")
 tfa_key = app.get("TFA_ENCRYPTION_KEY", "")
