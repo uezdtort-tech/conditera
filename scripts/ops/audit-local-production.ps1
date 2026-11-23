@@ -82,6 +82,7 @@ SELECT jsonb_build_object(
   'requiredRoles', jsonb_build_object(
     'supabase_admin', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_admin'),
     'conditera_app', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_app'),
+    'conditera_backup', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup'),
     'anon', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon'),
     'authenticated', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated'),
     'service_role', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role')
