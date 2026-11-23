@@ -16,8 +16,9 @@ const production = {
   IP_HASH_SALT: "i".repeat(64), CRON_SECRET: "c".repeat(64), BOT_SECRET: "b".repeat(64),
   TELEGRAM_WEBHOOK_SECRET: "w".repeat(64), TELEGRAM_BOT_TOKEN: "123456:" + "T".repeat(32),
   YOOKASSA_SHOP_ID: "123456", YOOKASSA_SECRET_KEY: "y".repeat(64),
-  N8N_ADMIN_PASSWORD: "n".repeat(64), N8N_ENCRYPTION_KEY: "e".repeat(32),
+  N8N_ADMIN_EMAIL: "admin@conditera.ru", N8N_ADMIN_PASSWORD: "N8n-Owner-Password-2026-" + "x".repeat(40), N8N_ENCRYPTION_KEY: "e".repeat(32),
   N8N_WEBHOOK_SECRET: "h".repeat(64), N8N_WEBHOOK_URL: "https://conditera.ru/n8n/",
+  VAPID_PUBLIC_KEY: "v".repeat(87), VAPID_PRIVATE_KEY: "k".repeat(43),
   EXTERNAL_YANDEX_ENABLED: "true", EXTERNAL_VK_ENABLED: "true",
   YANDEX_CLIENT_ID: "yandex-client-id", YANDEX_CLIENT_SECRET: "Y".repeat(64),
   VK_CLIENT_ID: "vk-client-id", VK_CLIENT_SECRET: "V".repeat(64),
@@ -45,6 +46,9 @@ try {
   assert.ok(getErrors({ YOOKASSA_SECRET_KEY: "CHANGE_ME" }).some((error) => error.includes("YOOKASSA_SECRET_KEY")));
   assert.ok(getErrors({ SMTP_TLS_REJECT_UNAUTHORIZED: "false" }).some((error) => error.includes("SMTP_TLS_REJECT_UNAUTHORIZED")));
   assert.ok(getErrors({ N8N_WEBHOOK_URL: "https://n8n.conditera.ru" }).some((error) => error.includes("N8N_WEBHOOK_URL")));
+  assert.ok(getErrors({ N8N_ADMIN_EMAIL: "not-an-email" }).some((error) => error.includes("N8N_ADMIN_EMAIL")));
+  assert.ok(getErrors({ N8N_ADMIN_PASSWORD: "lowercase-password-2026" }).some((error) => error.includes("N8N_ADMIN_PASSWORD")));
+  assert.ok(getErrors({ VAPID_PUBLIC_KEY: "CHANGE_ME" }).some((error) => error.includes("VAPID_PUBLIC_KEY")));
   const runtimeWithoutBackup = { ...runtime };
   delete runtimeWithoutBackup.BACKUP_DATABASE_PASSWORD;
   assert.ok(getErrors({}, runtimeWithoutBackup).some((error) => error.includes("BACKUP_DATABASE_PASSWORD")));

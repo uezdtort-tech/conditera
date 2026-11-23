@@ -360,6 +360,8 @@ services:
     image: n8nio/n8n:1.95.0
     container_name: conditera-n8n
     <<: *default-restart
+    entrypoint: ["node"]
+    command: ["/usr/local/bin/conditera-n8n-entrypoint.mjs"]
     environment:
       - N8N_HOST=n8n
       - N8N_PORT=5678
@@ -368,16 +370,18 @@ services:
       - GENERIC_TIMEZONE=Europe/Moscow
       - APP_URL=http://web:3000
       - CRON_SECRET=${CRON_SECRET:?CRON_SECRET required}
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_ADMIN_PASSWORD:?N8N_ADMIN_PASSWORD required}
+      - N8N_ADMIN_EMAIL=${N8N_ADMIN_EMAIL:?N8N_ADMIN_EMAIL required}
+      - N8N_ADMIN_PASSWORD=${N8N_ADMIN_PASSWORD:?N8N_ADMIN_PASSWORD required}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY required}
       - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:?N8N_WEBHOOK_SECRET required}
       - N8N_PROXY_HOPS=1
       - N8N_SECURE_COOKIE=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n-workflows:/imports:ro
+      - ./scripts/n8n-entrypoint.mjs:/usr/local/bin/conditera-n8n-entrypoint.mjs:ro
     depends_on:
       web:
         condition: service_healthy

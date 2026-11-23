@@ -38,31 +38,61 @@ function readExport(path) {
 }
 
 async function bootstrapDatabase() {
-  if (existsSync(databasePath)) return;
+  const port = Number(process.env.N8N_PORT || 5678);
+  const email = (process.env.N8N_ADMIN_EMAIL || "").trim();
+  const password = process.env.N8N_ADMIN_PASSWORD || "";
+  if (!email || !password) {
+    throw new Error("N8N_ADMIN_EMAIL and N8N_ADMIN_PASSWORD are required to initialize the n8n owner account");
+  }
+
   mkdirSync(userFolder, { recursive: true });
-  console.info("[n8n] Initializing the persistent workflow database...");
   const child = spawn("n8n", ["start"], { stdio: "ignore" });
   let ready = false;
-  const port = Number(process.env.N8N_PORT || 5678);
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    if (child.exitCode !== null) throw new Error("n8n exited before becoming healthy");
-    try {
-      const response = await fetch("http://127.0.0.1:" + port + "/healthz");
-      if (response.ok && existsSync(databasePath)) { ready = true; break; }
-    } catch {}
-    await delay(1000);
-  }
-  if (!ready) {
-    child.kill("SIGTERM");
-    throw new Error("Timed out waiting for n8n health and SQLite database initialization");
-  }
-  if (child.exitCode === null && child.signalCode === null) {
-    const exitPromise = once(child, "exit");
-    child.kill("SIGTERM");
-    await exitPromise;
+  try {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error("n8n exited before becoming healthy");
+      }
+      try {
+        const response = await fetch("http://127.0.0.1:" + port + "/healthz");
+        if (response.ok && existsSync(databasePath)) {
+          ready = true;
+          break;
+        }
+      } catch {}
+      await delay(1000);
+    }
+    if (!ready) throw new Error("Timed out waiting for n8n health and SQLite database initialization");
+
+    const ownerResponse = await fetch("http://127.0.0.1:" + port + "/rest/owner/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        firstName: process.env.N8N_ADMIN_FIRST_NAME || "Conditera",
+        lastName: process.env.N8N_ADMIN_LAST_NAME || "Administrator",
+        password,
+      }),
+    });
+    const ownerBodyText = await ownerResponse.text();
+    let ownerBody = {};
+    try { ownerBody = JSON.parse(ownerBodyText); } catch {}
+    const ownerMessage = String(ownerBody.message || ownerBody.error || ownerBodyText || "");
+    if (ownerResponse.ok) {
+      console.info("[n8n] Initial owner account created.");
+    } else if (ownerResponse.status === 400 && /instance owner already setup/i.test(ownerMessage)) {
+      console.info("[n8n] Existing owner account detected.");
+    } else {
+      throw new Error("n8n owner setup failed (HTTP " + ownerResponse.status + "): " + ownerMessage.slice(0, 300));
+    }
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exitPromise = once(child, "exit");
+      child.kill("SIGTERM");
+      await exitPromise;
+    }
   }
 }
-
 function loadSourceWorkflows() {
   if (!existsSync(importDir)) throw new Error("n8n workflow source directory is missing: " + importDir);
   const files = readdirSync(importDir).filter((name) => name.endsWith(".json")).sort();

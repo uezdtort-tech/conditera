@@ -47,13 +47,21 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
     ["JWT_SECRET", 32], ["JWT_REFRESH_SECRET", 32], ["TFA_ENCRYPTION_KEY", 32], ["IP_HASH_SALT", 32],
     ["CRON_SECRET", 32], ["BOT_SECRET", 32], ["TELEGRAM_WEBHOOK_SECRET", 32], ["TELEGRAM_BOT_TOKEN", 20],
     ["YOOKASSA_SHOP_ID", 1], ["YOOKASSA_SECRET_KEY", 16],
-    ["N8N_ADMIN_PASSWORD", 24], ["N8N_ENCRYPTION_KEY", 32], ["N8N_WEBHOOK_SECRET", 32], ["N8N_WEBHOOK_URL", 1],
+    ["N8N_ADMIN_EMAIL", 6], ["N8N_ADMIN_PASSWORD", 24], ["N8N_ENCRYPTION_KEY", 32], ["N8N_WEBHOOK_SECRET", 32], ["N8N_WEBHOOK_URL", 1],
+    ["VAPID_PUBLIC_KEY", 80], ["VAPID_PRIVATE_KEY", 32],
     ["YANDEX_CLIENT_ID", 1], ["YANDEX_CLIENT_SECRET", 16], ["VK_CLIENT_ID", 1], ["VK_CLIENT_SECRET", 16],
     ["LLM_PROVIDER", 1], ["LLM_MODEL", 1], ["LLM_API_BASE", 1],
     ["APP_DATABASE_PASSWORD", 32], ["BACKUP_DATABASE_PASSWORD", 32], ["SUPABASE_SECRET_KEY_BASE", 32],
     ["PG_META_CRYPTO_KEY", 32], ["REALTIME_DB_ENC_KEY", 16], ["REALTIME_DB_ENC_KEY_GCM", 32],
   ];
   for (const [key, minimumLength] of required) requireValue(key, minimumLength);
+
+  const n8nAdminEmail = values.get("N8N_ADMIN_EMAIL") || "";
+  if (n8nAdminEmail && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(n8nAdminEmail)) errors.push("N8N_ADMIN_EMAIL: требуется корректный email владельца n8n");
+  const n8nAdminPassword = values.get("N8N_ADMIN_PASSWORD") || "";
+  if (n8nAdminPassword && (!/[A-Z]/.test(n8nAdminPassword) || !/[a-z]/.test(n8nAdminPassword) || !/[0-9]/.test(n8nAdminPassword))) {
+    errors.push("N8N_ADMIN_PASSWORD: требуется минимум одна заглавная, одна строчная буква и одна цифра для первоначальной настройки владельца n8n");
+  }
 
   requireTrue("EXTERNAL_YANDEX_ENABLED");
   requireTrue("EXTERNAL_VK_ENABLED");
