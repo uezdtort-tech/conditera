@@ -53,3 +53,7 @@ COMMENT ON TYPE public.maintenancetype IS
   'Lowercase PostgreSQL identifier for PostgREST-compatible maintenance log types.';
 COMMENT ON TYPE public.maintenancestatus IS
   'Lowercase PostgreSQL identifier for PostgREST-compatible maintenance log statuses.';
+
+-- PostgREST starts before the application migrations in the single-container
+-- runtime. Force a schema-cache refresh after changing the enum OIDs.
+NOTIFY pgrst, 'reload schema';
