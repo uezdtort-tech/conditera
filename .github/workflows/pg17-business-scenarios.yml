@@ -10,7 +10,11 @@ on:
       - "supabase/compat/**"
       - "scripts/db/**"
       - "scripts/start-standalone.mjs"
+      - "scripts/n8n-entrypoint.mjs"
+      - "n8n-workflows/**"
       - "scripts/verify/**"
+      - "scripts/n8n-entrypoint.mjs"
+      - "n8n-workflows/**"
       - "src/app/api/**"
       - "src/lib/**"
       - "tests/e2e/**"
@@ -85,6 +89,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Проверить все JSON-сценарии n8n и production allowlist
+        run: node scripts/verify/n8n-production-workflows-verify.mjs
 
       - name: Установить Bun
         uses: oven-sh/setup-bun@v2
