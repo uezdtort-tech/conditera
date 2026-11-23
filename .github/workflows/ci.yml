@@ -491,10 +491,51 @@ jobs:
           SVC="${{ job.services.postgres.id }}"
           docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
             | tee rerun.log
-          if grep -qiE "Applying|applying" rerun.log; then
+          if grep -q "Применяю:" rerun.log; then
             echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
           fi
           echo "OK: rerun no-op"
+
+      - name: Legacy migration ledger filename compatibility
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          DELETE FROM public.schema_migrations
+          WHERE filename IN (
+            '0061a_user_consent_events.sql',
+            '0062a_reference_catalog.sql',
+            '0063a_cake_project_spec.sql',
+            '0064a_product_slices_rls.sql',
+            '0066a_service_role_default_grants.sql',
+            '0067a_repair_updated_at_triggers.sql'
+          );
+          INSERT INTO public.schema_migrations(filename) VALUES
+            ('0061_user_consent_events.sql'),
+            ('0062_reference_catalog.sql'),
+            ('0063_cake_project_spec.sql'),
+            ('0064_product_slices_rls.sql'),
+            ('0066_service_role_default_grants.sql'),
+            ('0067_repair_updated_at_triggers.sql')
+          ON CONFLICT (filename) DO NOTHING;
+          COMMIT;
+          SQL
+          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh | tee legacy-alias-rerun.log
+          if grep -q "Применяю:" legacy-alias-rerun.log; then
+            echo "FAIL: renamed migrations were re-executed instead of mapped through the ledger"
+            exit 1
+          fi
+          ALIASES=$(docker exec "$SVC" psql -U postgres -d conditera -tAc "
+            SELECT count(*) FROM public.schema_migrations WHERE filename IN (
+              '0061a_user_consent_events.sql',
+              '0062a_reference_catalog.sql',
+              '0063a_cake_project_spec.sql',
+              '0064a_product_slices_rls.sql',
+              '0066a_service_role_default_grants.sql',
+              '0067a_repair_updated_at_triggers.sql'
+            )")
+          test "$ALIASES" -eq 6 || { echo "FAIL: expected 6 canonical ledger aliases, got $ALIASES"; exit 1; }
+          echo "PASS: legacy migration ledger names map to canonical filenames without re-running SQL"
 
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
