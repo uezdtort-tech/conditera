@@ -69,6 +69,11 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
   requireTrue("SMTP_TLS_REJECT_UNAUTHORIZED");
   if ((values.get("NODE_ENV") || "").trim() !== "production") errors.push("NODE_ENV: должен быть production");
   if ((values.get("LLM_PROVIDER") || "").trim().toLowerCase() === "none") errors.push("LLM_PROVIDER: AI-функции отключены; production-конфигурация должна указывать работающего провайдера");
+  const demoMode = (values.get("NEXT_PUBLIC_DEMO_MODE") || "").trim();
+  const demoSeed = (values.get("NEXT_PUBLIC_DEMO_SEED") || "").trim().toLowerCase();
+  if (demoMode === "1") errors.push("NEXT_PUBLIC_DEMO_MODE: demo-витрина запрещена в production");
+  if (demoSeed === "true") errors.push("NEXT_PUBLIC_DEMO_SEED: mock-сид запрещён в production");
+
   const provider = (values.get("LLM_PROVIDER") || "").trim().toLowerCase();
   const domain = (values.get("DOMAIN") || "").trim().toLowerCase();
   if (provider && !["none", "ollama", "local", "lmstudio"].includes(provider)) requireValue("LLM_API_KEY", 16);
