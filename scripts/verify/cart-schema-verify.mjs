@@ -82,13 +82,73 @@ async function main() {
     t("db:setup на чистой БД — exit 0", false, String(e.stderr || e.message).slice(-300));
   }
   const ledgerFiles = (setupOut.match(/(\d+) total in ledger/) || [])[1];
-  t("все миграции в леджере", !!ledgerFiles && Number(ledgerFiles) > 0, `total=${ledgerFiles}`);
+  const expectedMigrationFiles = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).length;
+  t("все миграции в леджере", !!ledgerFiles && Number(ledgerFiles) === expectedMigrationFiles,
+    `applied=${ledgerFiles}; expected=${expectedMigrationFiles}`);
   t("в установке нет 0062_cart_custom_items", !setupOut.includes("0062_cart_custom_items"));
   t("0080_cart_remove_zombie_check применён", setupOut.includes("0080_cart_remove_zombie_check"));
 
   // 2. Каталог схемы
   const c = new Client({ connectionString: DB_URL });
   await c.connect();
+
+  console.log("\n─── PostgreSQL 17, extensions и повторный запуск ───");
+  const version = await c.query("SELECT current_setting('server_version_num')::int AS n, version() AS v");
+  const versionNum = Number(version.rows[0].n);
+  t("используется PostgreSQL 17", versionNum >= 170000 && versionNum < 180000, version.rows[0].v);
+  const extensions = await c.query(
+    "SELECT extname FROM pg_extension WHERE extname = ANY($1)",
+    [["pgcrypto", "uuid-ossp", "pg_trgm"]]
+  );
+  const installedExtensions = new Set(extensions.rows.map((r) => r.extname));
+  const missingExtensions = ["pgcrypto", "uuid-ossp", "pg_trgm"].filter((name) => !installedExtensions.has(name));
+  t("базовые расширения PostgreSQL доступны", missingExtensions.length === 0,
+    missingExtensions.length ? `missing=${missingExtensions.join(",")}` : "pgcrypto, uuid-ossp, pg_trgm");
+
+  const ledgerBeforeRerun = Number((await c.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
+  let rerunOk = true;
+  try {
+    execSync(`DATABASE_URL="${DB_URL}" bun scripts/db/setup.mjs`, {
+      cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    rerunOk = false;
+    t("повторный db:setup не падает", false, String(e.stderr || e.message).slice(-300));
+  }
+  const ledgerAfterRerun = Number((await c.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
+  t("повторный db:setup идемпотентен", rerunOk && ledgerBeforeRerun === ledgerAfterRerun,
+    `before=${ledgerBeforeRerun}; after=${ledgerAfterRerun}`);
+
+  console.log("\n─── RLS и права клиентских ролей ───");
+  const rlsTables = [
+    "app_error_events", "app_incidents", "app_incident_history", "ops_tasks",
+    "orders", "payments", "recipe_purchases", "inventory_items",
+  ];
+  const rls = await c.query(
+    "SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename = ANY($1)",
+    [rlsTables]
+  );
+  const rlsState = new Map(rls.rows.map((r) => [r.tablename, r.rowsecurity]));
+  const rlsMissing = rlsTables.filter((name) => rlsState.get(name) !== true);
+  t("RLS включён на всех критичных таблицах", rlsMissing.length === 0,
+    rlsMissing.length ? `missing/disabled=${rlsMissing.join(",")}` : `${rlsTables.length} tables`);
+
+  const writeTables = [
+    "inventory_items", "stock_movements", "recipe_purchases",
+    "recipes", "recipe_marketplace", "financial_ledger",
+  ];
+  const clientWrites = await c.query(
+    `SELECT table_name, grantee, privilege_type
+       FROM information_schema.role_table_grants
+      WHERE table_schema='public'
+        AND table_name = ANY($1)
+        AND grantee = ANY($2)
+        AND privilege_type = ANY($3)`,
+    [writeTables, ["anon", "authenticated"], ["INSERT", "UPDATE", "DELETE"]]
+  );
+  t("anon/authenticated не имеют прямых write-grants", clientWrites.rowCount === 0,
+    clientWrites.rowCount ? clientWrites.rows.map((r) => `${r.grantee}:${r.table_name}:${r.privilege_type}`).join(", ") : "no client write grants");
+
   console.log("\n─── Схема cart_items (каталоги PG) ───");
   {
     const ck = await c.query(
