@@ -17,7 +17,6 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const importDir = process.env.N8N_WORKFLOWS_DIR || "/imports";
 const userFolder = process.env.N8N_USER_FOLDER || "/home/node/.n8n";
-const databasePath = join(userFolder, "database.sqlite");
 const markerPath = join(userFolder, ".conditera-workflow-hash");
 const idsMarkerPath = join(userFolder, ".conditera-workflow-ids");
 // Only the backup workflow has a verified server-side contract and restore-tested execution.
@@ -46,7 +45,7 @@ async function bootstrapDatabase() {
   }
 
   mkdirSync(userFolder, { recursive: true });
-  const child = spawn("n8n", ["start"], { stdio: "ignore" });
+  const child = spawn("n8n", ["start"], { stdio: "inherit" });
   let ready = false;
   try {
     for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -55,14 +54,14 @@ async function bootstrapDatabase() {
       }
       try {
         const response = await fetch("http://127.0.0.1:" + port + "/healthz");
-        if (response.ok && existsSync(databasePath)) {
+        if (response.ok) {
           ready = true;
           break;
         }
       } catch {}
       await delay(1000);
     }
-    if (!ready) throw new Error("Timed out waiting for n8n health and SQLite database initialization");
+    if (!ready) throw new Error("Timed out waiting for n8n health endpoint; check the n8n startup logs above");
 
     const ownerResponse = await fetch("http://127.0.0.1:" + port + "/rest/owner/setup", {
       method: "POST",
