@@ -91,6 +91,17 @@ const cleanupIds = { orders: [], drafts: [] };
 
 async function main() {
   await client.connect();
+  const maintenanceTypes = await client.query(
+    `SELECT
+       (SELECT typname FROM pg_type WHERE oid = (SELECT atttypid FROM pg_attribute WHERE attrelid = 'public.maintenance_logs'::regclass AND attname = 'type' AND NOT attisdropped)) AS type_name,
+       (SELECT typname FROM pg_type WHERE oid = (SELECT atttypid FROM pg_attribute WHERE attrelid = 'public.maintenance_logs'::regclass AND attname = 'status' AND NOT attisdropped)) AS status_name`
+  );
+  assert(
+    "maintenance enum identifiers are PostgREST-compatible lowercase names",
+    maintenanceTypes.rows[0]?.type_name === "maintenancetype" &&
+      maintenanceTypes.rows[0]?.status_name === "maintenancestatus",
+    JSON.stringify(maintenanceTypes.rows[0])
+  );
   // Верификационный сброс engine-задач review-request (после resolve движок
   // корректно НЕ переоткрывает вручную закрытые — для повторных прогонов
   // пересоздаём их честным путём: условие живо → скан материализует заново)
@@ -292,7 +303,7 @@ async function main() {
         typeof backupResult.databaseBackupPath === "string" && backupResult.databaseBackupPath.endsWith(".sql.gz") &&
         typeof backupResult.productMediaBackupPath === "string" && backupResult.productMediaBackupPath.endsWith(".product-media.tar.gz") &&
         typeof backupResult.supabaseStorageBackupPath === "string" && backupResult.supabaseStorageBackupPath.endsWith(".supabase-storage.tar.gz"),
-      JSON.stringify(backupResult).slice(0, 240)
+      JSON.stringify(backupResult ?? null).slice(0, 240)
     );
     if (backup.json?.logId) {
       const log = await client.query(
