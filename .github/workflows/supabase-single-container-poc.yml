@@ -1,6 +1,19 @@
 name: Supabase single-container runtime POC
 
 on:
+  push:
+    branches:
+      - feat/pg17-full-scenarios-current
+    paths:
+      - "Dockerfile"
+      - "Dockerfile.supabase-runtime-poc"
+      - "docker-compose.supabase-single-container.yml"
+      - "scripts/supabase-runtime-poc/**"
+      - "scripts/compose-single-runtime.mjs"
+      - "supabase/init-scripts/**"
+      - "supabase/migrations/**"
+      - ".env.supabase-runtime.example"
+      - ".github/workflows/supabase-single-container-poc.yml"
   pull_request:
     paths:
       - "Dockerfile.supabase-runtime-poc"
@@ -97,6 +110,10 @@ jobs:
           if node scripts/compose-single-runtime.mjs --profile legacy-supabase config; then echo "Launcher must reject legacy profiles" >&2; exit 1; fi
           if node scripts/compose-single-runtime.mjs down --volumes; then echo "Launcher must protect named volumes" >&2; exit 1; fi
 
+      - name: Verify PostgreSQL 17 client package in the production Node Alpine base
+        run: |
+          set -Eeuo pipefail
+          docker run --rm node:26-alpine sh -ec 'apk add --no-cache postgresql17-client && pg_dump --version && pg_restore --version && pg_dump --version | grep -Eq " 17[.]"'
       - name: Build one-container Supabase runtime
         run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
 
