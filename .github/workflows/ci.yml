@@ -449,137 +449,58 @@ jobs:
         # core-маршрут = FAIL (иначе инцидент не создастся).
         run: node scripts/verify/route-error-coverage.mjs
 
-  # ===== 8. Миграции на чистой PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация =====
-  # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI
-  # = PG17, embedded db:setup = PG17 (см. scripts/verify/pg-version-gate.mjs).
-  # Реальный ledger-мигратор прод-пайплайна (supabase/init-scripts/
-  # 01-apply-migrations.sh) против чистой PG17: прогон + идемпотентный
-  # повторный прогон + проверка RLS-политик/GRANT критичных таблиц.
+  # ===== 8. Миграции на чистой embedded PostgreSQL 17 =====
+  # Реальный local runtime и db:setup используют один и тот же embedded PG17.
+  # Полный Supabase PG17 (Auth/Storage + production migrator) отдельно
+  # проверяется workflow postgres17-compose-validation.yml.
   migrations-pg17:
-    name: Migrations on clean PostgreSQL 17
+    name: Migrations on clean embedded PostgreSQL 17
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: conditera
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: PG version gate — все пути запуска/проверки БД на PG17
         run: node scripts/verify/pg-version-gate.mjs
         timeout-minutes: 2
 
-      - name: Copy migrations + migrator into service container
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" mkdir -p /migrations /init-scripts
-          docker cp supabase/migrations/. "$SVC":/migrations/
-          docker cp supabase/init-scripts/01-apply-migrations.sh "$SVC":/init-scripts/
-
-      - name: Apply all migrations (ledger, fail-fast)
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
-            "SELECT count(*) FROM public.schema_migrations" > applied.txt
-          APPLIED=$(cat applied.txt)
-          TOTAL=$(ls supabase/migrations/*.sql | wc -l)
-          echo "applied=$APPLIED total=$TOTAL"
-          test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
-
-      - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
-            | tee rerun.log
-          if grep -qiE "Applying|applying" rerun.log; then
-            echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
-          fi
-          echo "OK: rerun no-op"
-
-      - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          DECLARE
-            missing text := '';
-            t text;
-          BEGIN
-            FOR t IN SELECT unnest(ARRAY[
-              'app_error_events','app_incidents','app_incident_history',
-              'ops_tasks','orders','payments','recipe_purchases','inventory_items'
-            ])
-            LOOP
-              IF NOT EXISTS (
-                SELECT 1 FROM pg_tables WHERE tablename = t AND schemaname = 'public' AND rowsecurity
-              ) THEN
-                missing := missing || t || ' ';
-              END IF;
-            END LOOP;
-            IF missing <> '' THEN
-              RAISE EXCEPTION 'FAIL: RLS не включён для: %', missing;
-            END IF;
-          END $$;
-          SELECT 'RLS CHECK OK' AS status;
-          SQL
-
-      - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          DECLARE
-            t text;
-            has_write boolean;
-            offenders text := '';
-          BEGIN
-            FOR t IN SELECT unnest(ARRAY[
-              'inventory_items','stock_movements','recipe_purchases',
-              'recipes','recipe_marketplace','financial_ledger'
-            ])
-            LOOP
-              SELECT count(*) > 0 INTO has_write
-                FROM information_schema.role_table_grants
-               WHERE table_schema='public' AND table_name = t
-                 AND grantee IN ('anon','authenticated')
-                 AND privilege_type IN ('INSERT','UPDATE','DELETE');
-              IF has_write THEN offenders := offenders || t || ' '; END IF;
-            END LOOP;
-            IF offenders <> '' THEN
-              RAISE EXCEPTION 'FAIL: write-grants для клиентских ролей у: %', offenders;
-            END IF;
-          END $$;
-          SELECT 'WRITE-PATH CHECK OK' AS status;
-          SQL
-
-      - name: Setup Bun for isolated migration scenarios
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies for migration scenario
-        run: bun install --frozen-lockfile
-
-      - name: Cart schema migration scenario — clean PostgreSQL 17
-        run: bun scripts/verify/cart-schema-verify.mjs
+      - name: Start clean embedded PostgreSQL 17
+        run: node scripts/db/runtime.mjs start
         env:
-          ZV24_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
+
+      - name: Apply all migrations on clean PostgreSQL 17
+        run: |
+          TFA_ENCRYPTION_KEY="$(printf 'a%.0s' {1..64})" bun run db:setup
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
           JWT_SECRET: "ci_test_jwt_secret_32_chars_aaaaaaaaaa"
           JWT_REFRESH_SECRET: "ci_test_refresh_secret_32_chars_aaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           CRON_SECRET: "ci_test_cron_secret"
+          SEED_MODE: none
           NODE_ENV: test
+
+      - name: Verify full migration chain, idempotency, RLS, grants and cart behavior
+        run: |
+          TFA_ENCRYPTION_KEY="$(printf 'a%.0s' {1..64})" bun scripts/verify/cart-schema-verify.mjs
+        env:
+          ZV24_ADMIN_URL: postgresql://postgres@127.0.0.1:54329/postgres
+          JWT_SECRET: "ci_test_jwt_secret_32_chars_aaaaaaaaaa"
+          JWT_REFRESH_SECRET: "ci_test_refresh_secret_32_chars_aaaaaaaaaa"
+          CRON_SECRET: "ci_test_cron_secret"
+          SEED_MODE: none
+          NODE_ENV: test
+
+      - name: Stop embedded PostgreSQL
+        if: always()
+        run: node scripts/db/runtime.mjs stop || true
 
   # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
   # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,
