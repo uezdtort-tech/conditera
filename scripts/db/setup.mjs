@@ -728,6 +728,16 @@ console.log("\n─── Seeds ───");
     // 8. env-ключи
     ensureEnvKeys();
 
+    // Migrations may be applied while PostgREST is already running (local and
+    // CI cutovers). Ask it to rebuild relationships/column metadata so fresh
+    // foreign keys are immediately available to embedded-resource queries.
+    try {
+      await client.query("NOTIFY pgrst, 'reload schema'");
+      console.log("  ✔ PostgREST schema reload notification queued");
+    } catch (error) {
+      console.warn("  ⚠ PostgREST schema reload notification unavailable:", error instanceof Error ? error.message : String(error));
+    }
+
     // 9. Итог
     console.log("\n─── Summary ───");
     console.log(`  DATABASE_URL: ${maskUrl(DATABASE_URL)}`);
