@@ -57,7 +57,7 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
   for (const [key, minimumLength] of required) requireValue(key, minimumLength);
 
   const n8nAdminEmail = values.get("N8N_ADMIN_EMAIL") || "";
-  if (n8nAdminEmail && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$/.test(n8nAdminEmail)) errors.push("N8N_ADMIN_EMAIL: требуется корректный email владельца n8n");
+  if (n8nAdminEmail && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(n8nAdminEmail)) errors.push("N8N_ADMIN_EMAIL: требуется корректный email владельца n8n");
   const n8nAdminPassword = values.get("N8N_ADMIN_PASSWORD") || "";
   if (n8nAdminPassword && (!/[A-Z]/.test(n8nAdminPassword) || !/[a-z]/.test(n8nAdminPassword) || !/[0-9]/.test(n8nAdminPassword))) {
     errors.push("N8N_ADMIN_PASSWORD: требуется минимум одна заглавная, одна строчная буква и одна цифра для первоначальной настройки владельца n8n");
