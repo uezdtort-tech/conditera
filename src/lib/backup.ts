@@ -77,6 +77,9 @@ function parsePgDumpConnection(databaseUrl: string): {
   }
 
   const password = decodeURIComponent(parsed.password);
+  if (!password) {
+    throw new Error("Backup connection URL must include a non-empty password");
+  }
   parsed.password = "";
 
   // Prisma/pooler-only options are not valid libpq connection parameters.
@@ -200,7 +203,10 @@ async function pgDumpBackup(
   const { connectionString, password } = parsePgDumpConnection(databaseUrl);
   const db = new Client({
     connectionString,
-    ...(password ? { password } : {}),
+    // Always pass a concrete string. Omitting an empty/undefined password lets
+    // node-postgres defer to its async password callback and can fail with
+    // "client password must be a string" instead of a clear configuration error.
+    password,
     connectionTimeoutMillis: 10_000,
   });
 
