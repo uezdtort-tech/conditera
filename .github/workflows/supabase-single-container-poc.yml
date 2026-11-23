@@ -30,8 +30,8 @@ jobs:
       - name: Validate production single-container Compose overlay
         env:
           POSTGRES_PASSWORD: ci-only-postgres-password
-          APP_DATABASE_PASSWORD: ci-only-app-db-password
-          JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
+          APP_DATABASE_PASSWORD: ci-app
+          
           ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
           ANON_KEY: ci-only-anon-key
@@ -42,12 +42,13 @@ jobs:
           PG_META_CRYPTO_KEY: ci-only-pg-meta-crypto-key-32
           REALTIME_DB_ENC_KEY: ci-only-key-16
           REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
-          MEILI_MASTER_KEY: ci-only-meili-master-key
-          CRON_SECRET: ci-only-cron-secret
-          N8N_ADMIN_PASSWORD: ci-only-n8n-password
-          SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
+          MEILI_MASTER_KEY: ci-meili
+          CRON_SECRET: ci-cron
+          N8N_ADMIN_PASSWORD: ci-n8n
+          SIMPLEX_BRIDGE_API_KEY: ci-simplex
         run: |
           set -Eeuo pipefail
+          export JWT_SECRET="$(openssl rand -hex 32)"
           touch .env.production
           trap 'rm -f .env.production' EXIT
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
