@@ -172,9 +172,12 @@ function importAllowlistedWorkflows(source) {
 }
 
 async function main() {
+  // A persistent volume can survive restarts; never trust a stale bootstrap marker.
+  rmSync(join(userFolder, ".conditera-bootstrap-complete"), { force: true });
   await bootstrapDatabase();
   const source = loadSourceWorkflows();
   importAllowlistedWorkflows(source);
+  writeFileSync(join(userFolder, ".conditera-bootstrap-complete"), new Date().toISOString() + "\n", { mode: 0o600 });
   console.info("[n8n] Production workflow allowlist verified; starting n8n.");
   const child = spawn("n8n", ["start"], { stdio: "inherit" });
   process.on("SIGTERM", () => child.kill("SIGTERM"));
