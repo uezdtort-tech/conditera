@@ -364,6 +364,11 @@ jobs:
           fi
           echo "✓ Secret files check complete"
 
+      - name: Validate E2E workflow syntax and expressions
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          "$(go env GOPATH)/bin/actionlint" .github/workflows/e2e.yml
+
       - name: Red-line drift guard (mandatory upload paths)
         # v4.8: структурная проверка красной зоны. За историю релиза 4 раза
         # фиксировался один класс drift (#8/#10/#11/#12): удаление upload-
