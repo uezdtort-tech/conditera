@@ -9,6 +9,7 @@ on:
       - "supabase/migrations/**"
       - "supabase/compat/**"
       - "scripts/db/**"
+      - "scripts/start-standalone.mjs"
       - "scripts/verify/**"
       - "src/app/api/**"
       - "src/lib/**"
