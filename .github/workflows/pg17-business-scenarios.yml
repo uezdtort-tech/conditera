@@ -317,7 +317,7 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from "node:fs";
           const xml = fs.readFileSync("test-results/junit.xml", "utf8");
-          const root = xml.match(/<testsuites\\b([^>]*)>/);
+          const root = xml.match(/<testsuites\b([^>]*)>/);
           if (!root) throw new Error("JUnit root <testsuites> not found");
           const attrs = Object.fromEntries([...root[1].matchAll(/([a-zA-Z]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
           const tests = Number(attrs.tests || 0);
