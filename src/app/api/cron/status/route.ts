@@ -12,6 +12,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getUserFromRequest } from "@/lib/auth";
+import { requireAnyRole } from "@/lib/role-guards";
 import { verifyCronSecret, cronUnauthorized } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
@@ -82,17 +84,23 @@ async function saveCronRuns(runs: CronRun[]): Promise<void> {
  * GET /api/cron/status — вернуть список последних cron runs.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  // Allow both CRON_SECRET and admin JWT for this endpoint
-  const isCron = verifyCronSecret(req);
-  if (!isCron) {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+  // Cron secret is reserved for automation. Human access requires a
+  // verified application session and an explicit administrator role.
+  if (!verifyCronSecret(req)) {
+    const user = await getUserFromRequest(req);
+    if (!user) {
       return new NextResponse(cronUnauthorized().body, {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
     }
-    // TODO: verify admin JWT and check role IN ('ADMIN', 'SUPER_ADMIN')
+    const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
+    if (guard) {
+      return new NextResponse(guard.body, {
+        status: guard.status,
+        headers: guard.headers,
+      });
+    }
   }
 
   try {

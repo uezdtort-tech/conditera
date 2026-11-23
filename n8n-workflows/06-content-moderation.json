@@ -1,6 +1,6 @@
 {
   "name": "🛡️ Модерация контента — авто-проверка отзывов и постов",
-  "active": true,
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -69,7 +69,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -101,7 +100,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

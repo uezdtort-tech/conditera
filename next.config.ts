@@ -1,7 +1,5 @@
 import type { NextConfig } from "next";
 
-// Домен из env (для CSP и других заголовков)
-const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_URL?.replace(/^https?:\/\//, "") || "conditera.ru";
 const IS_PROD = process.env.NODE_ENV === "production";
 
 const nextConfig: NextConfig = {
@@ -65,35 +63,33 @@ const nextConfig: NextConfig = {
   },
 
   // ===== Security headers =====
-  // Полная защита: CSP, HSTS, Permissions-Policy, COOP/CORP/COEP
+  // CSP, HSTS, Permissions-Policy and cross-origin response policies
   async headers() {
     const csp = [
       "default-src 'self'",
-      // Next.js требует 'unsafe-inline' для стилей в dev; в prod — nonce-based (см. ниже)
-      // Для скриптов: только 'self' + whitelist внешних доменов
-      `script-src 'self' 'unsafe-inline' 'unsafe-eval' https://yookassa.ru https://*.yoomoney.ru`,
+      // Inline scripts/styles are still required by the current App Router rendering path.
+      // unsafe-eval is restricted to development and is never emitted in production.
+      `script-src 'self' 'unsafe-inline' ${IS_PROD ? "" : "'unsafe-eval'"} https://yookassa.ru https://*.yoomoney.ru https://mc.yandex.ru https://mc.yandex.com`,
       // Стили — только self + inline (Next.js инлайнит критичные стили)
       `style-src 'self' 'unsafe-inline'`,
       // Шрифты — только локальные (self-hosted через next/font)
       `font-src 'self' data:`,
       // Изображения — широкий whitelist для каталога
-      `img-src 'self' data: blob: http://localhost:8000 http://127.0.0.1:8000 https: https://images.unsplash.com https://i.pravatar.cc`,
+      `img-src 'self' data: blob: ${IS_PROD ? "" : "http://localhost:8000 http://127.0.0.1:8000"} https: https://images.unsplash.com https://i.pravatar.cc`,
       // Медиа (голосовые сообщения в чате)
       `media-src 'self' data: blob:`,
       // WebSocket (Socket.IO чат) + fetch к API
       // localhost:8000 — self-hosted Supabase (GoTrue/Storage через mini-kong) для браузерных signInWithPassword/Storage-upload
-      `connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https: wss: ws:`,
+      `connect-src 'self' ${IS_PROD ? "" : "http://localhost:8000 http://127.0.0.1:8000"} https: wss: ${IS_PROD ? "" : "ws:"} https://mc.yandex.ru https://mc.yandex.com https://api-metrika.yandex.net`,
       // iframe — только свои + preview-платформа
-      `frame-src 'self' https://www.google.com`,
-      `frame-ancestors 'self' https://*.space-z.ai https://space-z.ai http://localhost:*`,
+      `frame-src 'self' https://www.google.com https://yookassa.ru https://*.yoomoney.ru`,
+      `frame-ancestors 'self' ${IS_PROD ? "" : "https://*.space-z.ai https://space-z.ai http://localhost:*"}`,
       // Запрещаем<object>, <embed> (Flash и т.п.)
       `object-src 'none'`,
       // base-uri — только свой домен (защита от base-tag injection)
       `base-uri 'self'`,
       // form-action — ограничиваем отправку форм
       `form-action 'self' https://yookassa.ru https://*.yoomoney.ru`,
-      // Запрещаем preflight для beacon API
-      `navigate-to 'self'`,
       // Upgrade insecure requests (HTTP → HTTPS)
       `upgrade-insecure-requests`,
     ].join("; ");
@@ -103,8 +99,8 @@ const nextConfig: NextConfig = {
         source: "/(.*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
-          // SAMEORIGIN разрешает встраивание в iframe (нужно для preview-платформы)
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // CSP frame-ancestors is authoritative; production permits only same-origin framing.
+          ...(IS_PROD ? [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] : []),
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           // Permissions-Policy — отключаем всё лишнее
           {

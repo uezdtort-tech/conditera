@@ -9,10 +9,12 @@
  */
 import { RouteFallback } from "@/components/route-fallback";
 
-export const metadata = {
-  title: "Товар — Уездный кондитер",
-  description: "Карточка кондитерского изделия: состав, цена, отзывы и заказ у частного кондитера.",
-};
+import { noIndexRouteMetadata } from "@/lib/route-metadata";
+
+export const metadata = noIndexRouteMetadata(
+  "Карточка товара",
+  "Страница товара с параметром идентификатора; публичная индексация будет включена после перехода на канонические URL товаров.",
+);
 
 export default function Page() {
   return <RouteFallback view="product" />;

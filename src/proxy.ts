@@ -20,6 +20,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/session-cookies";
 
+const IS_PROD = process.env.NODE_ENV === "production";
+
 // Список путей, для которых CSRF-проверка пропускается.
 // Это endpoints куда стучатся внешние сервисы (YooKassa, n8n, SimpleX, cron).
 // Эти endpoints должны валидировать webhook signature / API key / IP allowlist
@@ -82,12 +84,9 @@ function timingSafeEqual(a: string, b: string): boolean {
   return result === 0;
 }
 
-const ALLOWED_FRAME_ANCESTORS = [
-  "'self'",
-  "https://*.space-z.ai",
-  "https://space-z.ai",
-  "http://localhost:*",
-];
+const ALLOWED_FRAME_ANCESTORS = IS_PROD
+  ? ["'self'"]
+  : ["'self'", "https://*.space-z.ai", "https://space-z.ai", "http://localhost:*"];
 
 export async function middleware(request: NextRequest) {
   return proxy(request);
@@ -179,29 +178,26 @@ export async function proxy(request: NextRequest) {
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
 
-  // CSP — с разрешением iframe для preview-платформы
+  // CSP: production не наследует dev/preview разрешения.
+  // Единственный production frame ancestor — собственный origin.
   if (!pathname.startsWith("/api/")) {
-    response.headers.set(
-      "Content-Security-Policy",
-      [
-        "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://yookassa.ru https://*.yoomoney.ru",
-        "style-src 'self' 'unsafe-inline'",
-        "font-src 'self' data:",
-        "img-src 'self' data: blob: http://localhost:8000 http://127.0.0.1:8000 https: https://images.unsplash.com https://i.pravatar.cc",
-        "media-src 'self' data: blob:",
-        // localhost:8000 — self-hosted Supabase (GoTrue/Storage) для браузерных запросов
-        "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https: wss: ws:",
-        "frame-src 'self' https://www.google.com",
-        `frame-ancestors ${ALLOWED_FRAME_ANCESTORS.join(" ")}`,
-        "form-action 'self' https://yookassa.ru https://*.yoomoney.ru",
-        "base-uri 'self'",
-        "object-src 'none'",
-        "upgrade-insecure-requests",
-      ].join("; ")
-    );
+    const csp = [
+      "default-src 'self'",
+      `script-src 'self' 'unsafe-inline' ${IS_PROD ? "" : "'unsafe-eval'"} https://yookassa.ru https://*.yoomoney.ru https://mc.yandex.ru https://mc.yandex.com`,
+      "style-src 'self' 'unsafe-inline'",
+      "font-src 'self' data:",
+      `img-src 'self' data: blob: ${IS_PROD ? "" : "http://localhost:8000 http://127.0.0.1:8000"} https: https://images.unsplash.com https://i.pravatar.cc`,
+      "media-src 'self' data: blob:",
+      `connect-src 'self' ${IS_PROD ? "" : "http://localhost:8000 http://127.0.0.1:8000"} https: wss: ${IS_PROD ? "" : "ws:"} https://mc.yandex.ru https://mc.yandex.com https://api-metrika.yandex.net`,
+      "frame-src 'self' https://www.google.com https://yookassa.ru https://*.yoomoney.ru",
+      `frame-ancestors ${ALLOWED_FRAME_ANCESTORS.join(" ")}`,
+      "form-action 'self' https://yookassa.ru https://*.yoomoney.ru",
+      "base-uri 'self'",
+      "object-src 'none'",
+      "upgrade-insecure-requests",
+    ].join("; ");
+    response.headers.set("Content-Security-Policy", csp);
   } else {
-    // Для API — строгий CSP
     response.headers.set(
       "Content-Security-Policy",
       `default-src 'none'; frame-ancestors ${ALLOWED_FRAME_ANCESTORS.join(" ")}`

@@ -1,31 +1,65 @@
 /**
- * Backup service — full database backup.
+ * Полный PostgreSQL + file-storage backup.
  *
- * Two modes:
- *   1. PostgreSQL (production): runs `pg_dump` via child_process, saves .sql.gz
- *   2. PGlite (dev): exports all tables as JSON to a .json.gz file
+ * Production archive consists of:
+ *  - pg_dump of the complete database;
+ *  - product-media filesystem volume;
+ *  - Supabase Storage volume;
+ *  - JSON manifest with SHA-256 checksums.
  *
- * Backups are saved to BACKUP_DIR (default: ./backups/ relative to project root).
- * Old backups are automatically cleaned up (keep last 30 days).
- *
- * Each backup is recorded in MaintenanceLog table.
+ * Every component is streamed to a temporary file and atomically renamed.
+ * A partial backup is removed and is never reported as successful.
  */
-import { db } from "./db";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
-import { join } from "path";
-import { createGzip } from "zlib";
-import { pipeline } from "stream/promises";
-
-const execAsync = promisify(exec);
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { createGzip } from "node:zlib";
+import { pipeline } from "node:stream/promises";
+import { Client } from "pg";
 
 const BACKUP_DIR = process.env.BACKUP_DIR || join(process.cwd(), "backups");
+const PRODUCT_MEDIA_ROOT =
+  process.env.PRODUCT_MEDIA_ROOT || join(process.cwd(), "storage");
+const SUPABASE_STORAGE_BACKUP_ROOT = process.env.SUPABASE_STORAGE_BACKUP_ROOT || "";
 const BACKUP_RETENTION_DAYS = 30;
+const COMMAND_TIMEOUT_MS = 300_000;
+
+interface BackupArtifact {
+  path: string;
+  filename: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+interface BackupManifest {
+  version: 1;
+  createdAt: string;
+  database: BackupArtifact;
+  productMedia: BackupArtifact;
+  supabaseStorage: BackupArtifact | null;
+  tablesCount: number;
+  backupSizeBytes: number;
+}
 
 interface BackupResult {
   success: boolean;
   backupPath: string;
+  databaseBackupPath: string;
+  productMediaBackupPath: string;
+  supabaseStorageBackupPath: string | null;
   backupSizeBytes: number;
   tablesCount: number;
   recordsExported: number;
@@ -33,201 +67,350 @@ interface BackupResult {
   errorMessage?: string;
 }
 
+function parsePgDumpConnection(databaseUrl: string): {
+  connectionString: string;
+  password: string;
+} {
+  const parsed = new URL(databaseUrl);
+  if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
+    throw new Error("Backup connection URL must use postgres:// or postgresql://");
+  }
+
+  const password = decodeURIComponent(parsed.password);
+  if (!password) {
+    throw new Error("Backup connection URL must include a non-empty password");
+  }
+  parsed.password = "";
+
+  // Prisma/pooler-only options are not valid libpq connection parameters.
+  for (const key of ["schema", "pgbouncer", "connection_limit", "pool_timeout"]) {
+    parsed.searchParams.delete(key);
+  }
+
+  return { connectionString: parsed.toString(), password };
+}
+
+async function streamCommandToGzip(
+  command: string,
+  args: string[],
+  targetPath: string,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<void> {
+  const tempPath = `${targetPath}.tmp`;
+  const child = spawn(command, args, {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  if (!child.stdout || !child.stderr) {
+    child.kill("SIGTERM");
+    throw new Error(`Unable to open ${command} output streams`);
+  }
+
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    stderr = (stderr + chunk).slice(-8000);
+  });
+
+  let timedOut = false;
+  const processResult = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if (timedOut) {
+        reject(new Error(`${command} exceeded ${COMMAND_TIMEOUT_MS}ms timeout`));
+      } else if (code !== 0) {
+        reject(
+          new Error(
+            `${command} exited with code ${code ?? "unknown"} signal ${signal ?? "none"}: ${stderr || "no stderr"}`
+          )
+        );
+      } else {
+        resolve();
+      }
+    });
+  });
+
+  const outputResult = pipeline(
+    child.stdout,
+    createGzip(),
+    createWriteStream(/*turbopackIgnore: true*/ tempPath, {
+      flags: "wx",
+      mode: 0o600,
+    })
+  );
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+  }, COMMAND_TIMEOUT_MS);
+
+  try {
+    await Promise.all([outputResult, processResult]);
+    renameSync(/*turbopackIgnore: true*/ tempPath, /*turbopackIgnore: true*/ targetPath);
+  } catch (error) {
+    child.kill("SIGTERM");
+    await Promise.allSettled([outputResult, processResult]);
+    try {
+      unlinkSync(/*turbopackIgnore: true*/ tempPath);
+    } catch {
+      // Temporary output may not have been created.
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (statSync(/*turbopackIgnore: true*/ targetPath).size <= 0) {
+    try {
+      unlinkSync(/*turbopackIgnore: true*/ targetPath);
+    } catch {
+      // Preserve the original empty-archive error.
+    }
+    throw new Error(`${command} produced an empty archive`);
+  }
+}
+
+async function sha256File(filepath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(/*turbopackIgnore: true*/ filepath);
+    stream.on("data", (chunk: Buffer) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function makeArtifact(
+  filepath: string,
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env
+): Promise<BackupArtifact> {
+  await streamCommandToGzip(command, args, filepath, env);
+  const stats = statSync(/*turbopackIgnore: true*/ filepath);
+  return {
+    path: filepath,
+    filename: filepath.split(/[\\/]/).pop() || filepath,
+    sizeBytes: stats.size,
+    sha256: await sha256File(filepath),
+  };
+}
+
+async function pgDumpBackup(
+  databaseUrl: string,
+  filename: string
+): Promise<{ artifact: BackupArtifact; tablesCount: number }> {
+  const { connectionString, password } = parsePgDumpConnection(databaseUrl);
+  // Keep the original credential-bearing URL for node-postgres. The
+  // sanitized URL returned by parsePgDumpConnection intentionally has an
+  // empty password for libpq/pg_dump; feeding it back into node-postgres can
+  // override the explicit password option during connection-string parsing
+  // and trigger SCRAM's "client password must be a string" error.
+  const db = new Client({
+    connectionString: databaseUrl,
+    connectionTimeoutMillis: 10_000,
+  });
+
+  let tablesCount = 0;
+  try {
+    await db.connect();
+    const result = await db.query<{ count: number }>(
+      `SELECT count(*)::int AS count
+       FROM information_schema.tables
+       WHERE table_type = 'BASE TABLE'
+         AND table_schema NOT IN ('pg_catalog', 'information_schema')`
+    );
+    tablesCount = Number(result.rows[0]?.count || 0);
+    if (tablesCount < 1) {
+      throw new Error("Backup database has no user tables; refusing to create an empty archive");
+    }
+  } finally {
+    await db.end().catch(() => undefined);
+  }
+
+  const filepath = join(/*turbopackIgnore: true*/ BACKUP_DIR, filename);
+  const artifact = await makeArtifact(
+    filepath,
+    "pg_dump",
+    [connectionString, "--no-owner", "--no-privileges"],
+    {
+      ...process.env,
+      ...(password ? { PGPASSWORD: password } : {}),
+      PGAPPNAME: "conditera-production-backup",
+    }
+  );
+  return { artifact, tablesCount };
+}
+
+async function tarDirectory(
+  sourceDirectory: string,
+  filename: string
+): Promise<BackupArtifact> {
+  if (!existsSync(/*turbopackIgnore: true*/ sourceDirectory)) {
+    throw new Error(`Required backup storage directory does not exist: ${sourceDirectory}`);
+  }
+  if (!statSync(/*turbopackIgnore: true*/ sourceDirectory).isDirectory()) {
+    throw new Error(`Backup storage path is not a directory: ${sourceDirectory}`);
+  }
+
+  const filepath = join(/*turbopackIgnore: true*/ BACKUP_DIR, filename);
+  return makeArtifact(filepath, "tar", ["-cf", "-", "-C", sourceDirectory, "."]);
+}
+
 /**
- * Run a full database backup.
- * Uses pg_dump for PostgreSQL, JSON export for PGlite.
+ * Create a consistent database + file-storage backup.
+ * In production, both the product-media volume and Supabase Storage volume
+ * are mandatory; a database-only archive is not considered a full backup.
  */
 export async function runFullBackup(): Promise<BackupResult> {
   const startTime = Date.now();
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const prefix = `backup-${timestamp}`;
   const isProd = process.env.NODE_ENV === "production";
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = isProd
+    ? process.env.BACKUP_DATABASE_URL
+    : process.env.BACKUP_DATABASE_URL || process.env.DATABASE_URL;
 
-  // Ensure backup directory exists
-  if (!existsSync(BACKUP_DIR)) {
-    mkdirSync(BACKUP_DIR, { recursive: true });
+  if (!databaseUrl) {
+    throw new Error(
+      isProd
+        ? "BACKUP_DATABASE_URL is required in production"
+        : "A PostgreSQL DATABASE_URL is required to create a backup"
+    );
+  }
+  if (!/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
+    throw new Error("Database backup requires PostgreSQL; JSON/Prisma fallback is disabled");
+  }
+  if (isProd && new URL(databaseUrl).username !== "conditera_backup") {
+    throw new Error("Production BACKUP_DATABASE_URL must use the dedicated read-only conditera_backup role");
+  }
+  if (isProd && !SUPABASE_STORAGE_BACKUP_ROOT) {
+    throw new Error("SUPABASE_STORAGE_BACKUP_ROOT is required for complete production backups");
   }
 
-  // Try pg_dump for real PostgreSQL
-  if (isProd && databaseUrl && databaseUrl.startsWith("postgresql://")) {
-    try {
-      return await pgDumpBackup(databaseUrl, timestamp, startTime);
-    } catch (e) {
-      console.error("[backup] pg_dump failed, falling back to JSON export:", e);
+  if (!existsSync(/*turbopackIgnore: true*/ BACKUP_DIR)) {
+    mkdirSync(/*turbopackIgnore: true*/ BACKUP_DIR, { recursive: true, mode: 0o700 });
+  }
+  chmodSync(/*turbopackIgnore: true*/ BACKUP_DIR, 0o700);
+
+  const artifacts: BackupArtifact[] = [];
+  let manifestTempPath: string | null = null;
+  try {
+    const { artifact: database, tablesCount } = await pgDumpBackup(
+      databaseUrl,
+      `${prefix}.sql.gz`
+    );
+    artifacts.push(database);
+
+    const productMedia = await tarDirectory(
+      PRODUCT_MEDIA_ROOT,
+      `${prefix}.product-media.tar.gz`
+    );
+    artifacts.push(productMedia);
+
+    const supabaseStorage = SUPABASE_STORAGE_BACKUP_ROOT
+      ? await tarDirectory(
+          SUPABASE_STORAGE_BACKUP_ROOT,
+          `${prefix}.supabase-storage.tar.gz`
+        )
+      : null;
+    if (supabaseStorage) artifacts.push(supabaseStorage);
+
+    const backupSizeBytes = artifacts.reduce((sum, item) => sum + item.sizeBytes, 0);
+    const manifest: BackupManifest = {
+      version: 1,
+      createdAt: new Date().toISOString(),
+      database,
+      productMedia,
+      supabaseStorage,
+      tablesCount,
+      backupSizeBytes,
+    };
+    const manifestPath = join(/*turbopackIgnore: true*/ BACKUP_DIR, `${prefix}.json`);
+    manifestTempPath = `${manifestPath}.tmp`;
+    writeFileSync(
+      /*turbopackIgnore: true*/ manifestTempPath,
+      JSON.stringify(manifest, null, 2),
+      { flag: "wx", mode: 0o600 }
+    );
+    renameSync(
+      /*turbopackIgnore: true*/ manifestTempPath,
+      /*turbopackIgnore: true*/ manifestPath
+    );
+
+    const durationMs = Date.now() - startTime;
+    console.info(
+      `[backup] ✓ complete: ${prefix} (${(backupSizeBytes / 1024 / 1024).toFixed(2)} MB, ${tablesCount} tables, ${artifacts.length} components, ${durationMs}ms)`
+    );
+
+    return {
+      success: true,
+      backupPath: manifestPath,
+      databaseBackupPath: database.path,
+      productMediaBackupPath: productMedia.path,
+      supabaseStorageBackupPath: supabaseStorage?.path || null,
+      backupSizeBytes,
+      tablesCount,
+      recordsExported: 0,
+      durationMs,
+    };
+  } catch (error) {
+    if (manifestTempPath) {
+      try {
+        unlinkSync(/*turbopackIgnore: true*/ manifestTempPath);
+      } catch {
+        // Ignore a missing partial manifest.
+      }
     }
-  }
-
-  // Fallback: JSON export (works with PGlite and any Prisma-compatible DB)
-  return await jsonExportBackup(timestamp, startTime);
-}
-
-/**
- * PostgreSQL backup via pg_dump.
- */
-async function pgDumpBackup(
-  databaseUrl: string,
-  timestamp: string,
-  startTime: number
-): Promise<BackupResult> {
-  const filename = `backup-${timestamp}.sql.gz`;
-  const filepath = join(BACKUP_DIR, filename);
-
-  // pg_dump with custom format, piped through gzip
-  const cmd = `pg_dump "${databaseUrl}" --no-owner --no-privileges | gzip > "${filepath}"`;
-  console.info(`[backup] Running pg_dump → ${filepath}`);
-
-  await execAsync(cmd, { timeout: 300000 }); // 5 min timeout
-
-  const stats = statSync(filepath);
-  const durationMs = Date.now() - startTime;
-
-  // Count tables
-  const { stdout } = await execAsync(
-    `pg_dump "${databaseUrl}" --list | grep -c "^- "`
-  );
-  const tablesCount = parseInt(stdout.trim()) || 0;
-
-  console.info(
-    `[backup] ✓ pg_dump completed: ${filename} (${(stats.size / 1024 / 1024).toFixed(2)} MB, ${durationMs}ms)`
-  );
-
-  return {
-    success: true,
-    backupPath: filepath,
-    backupSizeBytes: stats.size,
-    tablesCount,
-    recordsExported: 0, // pg_dump doesn't report this
-    durationMs,
-  };
-}
-
-/**
- * JSON export backup — works with PGlite and any Prisma DB.
- * Exports all tables as a JSON object, gzipped.
- */
-async function jsonExportBackup(
-  timestamp: string,
-  startTime: number
-): Promise<BackupResult> {
-  const filename = `backup-${timestamp}.json.gz`;
-  const filepath = join(BACKUP_DIR, filename);
-
-  console.info(`[backup] Starting JSON export → ${filepath}`);
-
-  // Get the Prisma client
-  const client = await getDbSafe();
-  if (!client) {
-    throw new Error("Database client not available");
-  }
-
-  // Export each table
-  const tables: Record<string, unknown[]> = {};
-  let totalRecords = 0;
-
-  const tableExporters: Array<{ name: string; query: () => Promise<unknown[]> }> = [
-    { name: "users", query: () => client.user.findMany() },
-    { name: "confectioners", query: () => client.confectioner.findMany() },
-    { name: "products", query: () => client.product.findMany() },
-    { name: "orders", query: () => client.order.findMany({ include: { items: true } }) },
-    { name: "order_items", query: () => client.orderItem.findMany() },
-    { name: "cart_items", query: () => client.cartItem.findMany() },
-    { name: "reviews", query: () => client.review.findMany() },
-    { name: "video_reviews", query: () => client.videoReview.findMany() },
-    { name: "promotions", query: () => client.promotion.findMany() },
-    { name: "recipes", query: () => client.recipe.findMany() },
-    { name: "chat_rooms", query: () => client.chatRoom.findMany() },
-    { name: "chat_messages", query: () => client.chatMessage.findMany() },
-    { name: "referrals", query: () => client.referral.findMany() },
-    { name: "gift_certificates", query: () => client.giftCertificate.findMany() },
-    { name: "user_holidays", query: () => client.userHoliday.findMany() },
-    { name: "payments", query: () => client.payment.findMany() },
-    { name: "blacklist", query: () => client.blacklistEntry.findMany() },
-    { name: "semaphores", query: () => client.semaphore.findMany() },
-    { name: "inventory_items", query: () => client.inventoryItem.findMany() },
-    { name: "stock_movements", query: () => client.stockMovement.findMany() },
-    { name: "cms_pages", query: () => client.cmsPage.findMany({ include: { blocks: true } }) },
-    { name: "cms_blocks", query: () => client.cmsBlock.findMany() },
-    { name: "banners", query: () => client.banner.findMany() },
-    { name: "site_settings", query: () => client.siteSetting.findMany() },
-    { name: "nav_menu_items", query: () => client.navMenuItem.findMany() },
-    { name: "loyalty_transactions", query: () => client.loyaltyTransaction.findMany() },
-    { name: "notifications", query: () => client.notification.findMany() },
-    { name: "notification_preferences", query: () => client.notificationPreferences.findMany() },
-    { name: "organization_verifications", query: () => client.organizationVerification.findMany() },
-    { name: "maintenance_logs", query: () => client.maintenanceLog.findMany() },
-  ];
-
-  for (const { name, query } of tableExporters) {
-    try {
-      const records = await query();
-      tables[name] = records;
-      totalRecords += records.length;
-      console.info(`  ✓ ${name}: ${records.length} records`);
-    } catch (e) {
-      console.warn(`  ⚠ ${name}: skipped (${(e as Error).message})`);
-      tables[name] = [];
+    for (const artifact of artifacts) {
+      try {
+        unlinkSync(/*turbopackIgnore: true*/ artifact.path);
+      } catch {
+        // Continue removing other partial components.
+      }
     }
+    throw error;
   }
-
-  // Write gzipped JSON
-  const jsonData = JSON.stringify({
-    metadata: {
-      timestamp: new Date().toISOString(),
-      version: "1.0",
-      tablesCount: tableExporters.length,
-      totalRecords,
-      databaseType: isProd ? "postgresql" : "pglite",
-    },
-    tables,
-  });
-
-  const gzip = createGzip();
-  const writeStream = createWriteStream(filepath);
-  // Write JSON data through gzip to file
-  const { Readable } = await import("stream");
-  await pipeline(Readable.from(jsonData), gzip, writeStream);
-
-  const stats = statSync(filepath);
-  const durationMs = Date.now() - startTime;
-
-  console.info(
-    `[backup] ✓ JSON export completed: ${filename} (${(stats.size / 1024).toFixed(1)} KB, ${totalRecords} records, ${durationMs}ms)`
-  );
-
-  return {
-    success: true,
-    backupPath: filepath,
-    backupSizeBytes: stats.size,
-    tablesCount: tableExporters.length,
-    recordsExported: totalRecords,
-    durationMs,
-  };
 }
 
 /**
- * Delete backups older than BACKUP_RETENTION_DAYS.
- * Returns count of deleted files.
+ * Delete backup sets older than BACKUP_RETENTION_DAYS.
+ * Every manifest and all component archives sharing its prefix are removed.
  */
 export async function cleanupOldBackups(): Promise<number> {
-  if (!existsSync(BACKUP_DIR)) return 0;
+  if (!existsSync(/*turbopackIgnore: true*/ BACKUP_DIR)) return 0;
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - BACKUP_RETENTION_DAYS);
 
-  const files = readdirSync(BACKUP_DIR);
+  const files = readdirSync(/*turbopackIgnore: true*/ BACKUP_DIR);
   let deleted = 0;
 
-  for (const file of files) {
-    const filepath = join(BACKUP_DIR, file);
+  for (const manifestName of files.filter(
+    (file) => file.startsWith("backup-") && file.endsWith(".json")
+  )) {
+    const manifestPath = join(/*turbopackIgnore: true*/ BACKUP_DIR, manifestName);
     try {
-      const stats = statSync(filepath);
-      if (stats.mtime < cutoff) {
-        unlinkSync(filepath);
-        deleted++;
-        console.info(`[backup] deleted old backup: ${file}`);
+      const stats = statSync(/*turbopackIgnore: true*/ manifestPath);
+      if (!stats.isFile() || stats.mtime >= cutoff) continue;
+
+      const prefix = manifestName.slice(0, -".json".length);
+      for (const file of files.filter((candidate) => candidate.startsWith(`${prefix}.`))) {
+        try {
+          unlinkSync(join(/*turbopackIgnore: true*/ BACKUP_DIR, file));
+        } catch {
+          // Continue cleanup of the remaining components.
+        }
       }
-    } catch (e) {
-      // skip
+      try {
+        unlinkSync(/*turbopackIgnore: true*/ manifestPath);
+      } catch {
+        // Ignore a concurrently removed manifest.
+      }
+      deleted++;
+      console.info(`[backup] deleted old backup set: ${prefix}`);
+    } catch {
+      // Skip manifests that disappear or become inaccessible during cleanup.
     }
   }
 
@@ -235,7 +418,7 @@ export async function cleanupOldBackups(): Promise<number> {
 }
 
 /**
- * List all existing backups (for admin panel display).
+ * List only complete backup sets (manifest + required component files).
  */
 export async function listBackups(): Promise<
   Array<{
@@ -244,65 +427,35 @@ export async function listBackups(): Promise<
     createdAt: Date;
   }>
 > {
-  if (!existsSync(BACKUP_DIR)) return [];
+  if (!existsSync(/*turbopackIgnore: true*/ BACKUP_DIR)) return [];
 
-  const files = readdirSync(BACKUP_DIR);
-  return files
-    .filter((f) => f.startsWith("backup-"))
-    .map((file) => {
-      const filepath = join(BACKUP_DIR, file);
-      const stats = statSync(filepath);
-      return {
-        filename: file,
-        sizeBytes: stats.size,
-        createdAt: stats.mtime,
-      };
-    })
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-}
-
-// ===== Helper: safely get the DB client =====
-async function getDbSafe(): Promise<
-  | {
-      user: { findMany: () => Promise<unknown[]> };
-      confectioner: { findMany: () => Promise<unknown[]> };
-      product: { findMany: () => Promise<unknown[]> };
-      order: { findMany: (opts?: unknown) => Promise<unknown[]> };
-      orderItem: { findMany: () => Promise<unknown[]> };
-      cartItem: { findMany: () => Promise<unknown[]> };
-      review: { findMany: () => Promise<unknown[]> };
-      videoReview: { findMany: () => Promise<unknown[]> };
-      promotion: { findMany: () => Promise<unknown[]> };
-      recipe: { findMany: () => Promise<unknown[]> };
-      chatRoom: { findMany: () => Promise<unknown[]> };
-      chatMessage: { findMany: () => Promise<unknown[]> };
-      referral: { findMany: () => Promise<unknown[]> };
-      giftCertificate: { findMany: () => Promise<unknown[]> };
-      userHoliday: { findMany: () => Promise<unknown[]> };
-      payment: { findMany: () => Promise<unknown[]> };
-      blacklistEntry: { findMany: () => Promise<unknown[]> };
-      semaphore: { findMany: () => Promise<unknown[]> };
-      inventoryItem: { findMany: () => Promise<unknown[]> };
-      stockMovement: { findMany: () => Promise<unknown[]> };
-      cmsPage: { findMany: (opts?: unknown) => Promise<unknown[]> };
-      cmsBlock: { findMany: () => Promise<unknown[]> };
-      banner: { findMany: () => Promise<unknown[]> };
-      siteSetting: { findMany: () => Promise<unknown[]> };
-      navMenuItem: { findMany: () => Promise<unknown[]> };
-      loyaltyTransaction: { findMany: () => Promise<unknown[]> };
-      notification: { findMany: () => Promise<unknown[]> };
-      notificationPreferences: { findMany: () => Promise<unknown[]> };
-      organizationVerification: { findMany: () => Promise<unknown[]> };
-      maintenanceLog: { findMany: () => Promise<unknown[]> };
+  const files = readdirSync(/*turbopackIgnore: true*/ BACKUP_DIR);
+  const backups: Array<{ filename: string; sizeBytes: number; createdAt: Date }> = [];
+  for (const filename of files.filter(
+    (file) => file.startsWith("backup-") && file.endsWith(".json")
+  )) {
+    const manifestPath = join(/*turbopackIgnore: true*/ BACKUP_DIR, filename);
+    try {
+      const manifest = JSON.parse(
+        readFileSync(/*turbopackIgnore: true*/ manifestPath, "utf8")
+      ) as BackupManifest;
+      const required = [manifest.database, manifest.productMedia];
+      if (manifest.supabaseStorage) required.push(manifest.supabaseStorage);
+      const complete = required.every((artifact) => {
+        const artifactPath = join(/*turbopackIgnore: true*/ BACKUP_DIR, artifact.filename);
+        return existsSync(/*turbopackIgnore: true*/ artifactPath) &&
+          statSync(/*turbopackIgnore: true*/ artifactPath).size === artifact.sizeBytes;
+      });
+      if (!complete) continue;
+      const stats = statSync(/*turbopackIgnore: true*/ manifestPath);
+      backups.push({
+        filename,
+        sizeBytes: Number(manifest.backupSizeBytes || 0),
+        createdAt: manifest.createdAt ? new Date(manifest.createdAt) : stats.mtime,
+      });
+    } catch {
+      // An incomplete/corrupt backup set is not advertised as restorable.
     }
-  | null
-> {
-  try {
-    const { getDb } = await import("./db");
-    return (await getDb()) as never;
-  } catch {
-    return null;
   }
+  return backups.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
-
-const isProd = process.env.NODE_ENV === "production";

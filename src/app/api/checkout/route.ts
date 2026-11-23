@@ -167,7 +167,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .from("orders")
         .select("id, number, total, subtotal, delivery_cost, discount, created_at")
         .eq("user_id", user.id)
-        .eq("metadata->>idempotency_key", idempotencyKey)
+        .contains("metadata", { idempotency_key: idempotencyKey })
         .gte("created_at", since)
         .order("created_at", { ascending: false })
         .limit(1)

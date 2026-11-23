@@ -2,7 +2,7 @@
  * n8n.ts — fail-safe эмиттер событий в n8n (fire-and-forget).
  *
  * Контракт:
- *  - базовый URL: N8N_WEBHOOK_BASE_URL || N8N_BASE_URL; не задан → no-op
+ *  - URL событий: только N8N_WEBHOOK_BASE_URL; не задан → no-op
  *    (лог «выключено» максимум один раз на процесс, без спама);
  *  - POST `${base}/conditera-${type}` с JSON {type, payload, occurredAt, source};
  *  - заголовок X-N8N-Secret если задан N8N_WEBHOOK_SECRET;
@@ -36,7 +36,9 @@ export async function emitEvent(
   type: ConditeraEvent,
   payload: Record<string, unknown>
 ): Promise<void> {
-  const base = (process.env.N8N_WEBHOOK_BASE_URL || process.env.N8N_BASE_URL || "").trim();
+  // N8N_BASE_URL is used only for health/admin API checks. Event delivery stays
+  // disabled until a corresponding authenticated webhook workflow is imported and active.
+  const base = (process.env.N8N_WEBHOOK_BASE_URL || "").trim();
 
   if (!base) {
     // Fail-safe: n8n не сконфигурирован — событие молча теряется (лог 1 раз/процесс)
@@ -52,7 +54,7 @@ export async function emitEvent(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    await fetch(`${base.replace(/\/+$/, "")}/conditera-${type}`, {
+    const response = await fetch(`${base.replace(/\/+$/, "")}/conditera-${type}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -68,6 +70,9 @@ export async function emitEvent(
       }),
       signal: controller.signal,
     });
+    if (!response.ok) {
+      throw new Error(`n8n webhook returned HTTP ${response.status}`);
+    }
   } catch (err) {
     // Никогда не бросаем: сбой n8n не должен влиять на бизнес-путь
     const msg = (err as Error)?.message || String(err);

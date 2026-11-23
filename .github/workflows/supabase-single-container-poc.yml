@@ -1,5 +1,9 @@
 name: Supabase single-container runtime POC
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     paths:
@@ -10,6 +14,12 @@ on:
       - "docker-compose.yml"
       - "Caddyfile"
       - "scripts/supabase-runtime-poc/**"
+      - "scripts/n8n-entrypoint.sh"
+      - "scripts/prepare-production-env.sh"
+      - "scripts/deploy-single-container.sh"
+      - ".env.production.example"
+      - "scripts/verify/n8n-workflows-verify.mjs"
+      - "n8n-workflows/**"
       - "supabase/kong.yml"
       - "supabase/init-scripts/**"
       - "supabase/migrations/**"
@@ -27,15 +37,137 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Validate and smoke-test source-controlled n8n workflows
+        env:
+          N8N_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          CRON_SECRET: ci-only-cron-secret
+          APP_URL: http://127.0.0.1:3000
+          GENERIC_TIMEZONE: Europe/Moscow
+        run: |
+          set -Eeuo pipefail
+          sh -n scripts/n8n-entrypoint.sh
+          node scripts/verify/n8n-workflows-verify.mjs
+          printf '%s\n' "$N8N_ENCRYPTION_KEY" > /tmp/conditera-n8n-encryption-key
+          chmod 644 /tmp/conditera-n8n-encryption-key
+          docker volume create conditera-n8n-bootstrap-test >/dev/null
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if [ "$status" -ne 0 ] && docker inspect conditera-n8n-bootstrap-test >/dev/null 2>&1; then
+              mkdir -p /tmp/supabase-runtime-diagnostics
+              docker inspect conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-inspect-before-cleanup.json 2>&1 || true
+              docker inspect -f 'status={{.State.Status}} exit_code={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} error={{.State.Error}}' conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-exit.txt 2>&1 || true
+              docker logs --timestamps conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap.log 2>&1 || true
+              docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'id; echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ps -ef; ls -la "$HOME/.n8n"; cat "$HOME/.n8n/n8nEventLog.log" 2>/dev/null || true; n8n list:workflow' > /tmp/supabase-runtime-diagnostics/n8n-workflows.txt 2>&1 || true
+            fi
+            docker rm -f conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
+            docker volume rm conditera-n8n-bootstrap-test >/dev/null 2>&1 || true
+            rm -f /tmp/conditera-n8n-encryption-key
+            exit "$status"
+          }
+          trap cleanup EXIT
+          docker run -d --name conditera-n8n-bootstrap-test \
+            -p 127.0.0.1:15678:5678 \
+            -e N8N_ENCRYPTION_KEY_FILE=/run/secrets/n8n_encryption_key \
+            -e NODE_OPTIONS=--max-old-space-size=1024 \
+            -e N8N_BLOCK_ENV_ACCESS_IN_NODE=false \
+            -e N8N_USER_FOLDER=/home/node \
+            -e N8N_HOST=127.0.0.1 \
+            -e N8N_PORT=5678 \
+            -e N8N_PROTOCOL=http \
+            -e WEBHOOK_URL=http://127.0.0.1:15678/ \
+            -e N8N_EDITOR_BASE_URL=http://127.0.0.1:15678/ \
+            -e GENERIC_TIMEZONE="$GENERIC_TIMEZONE" \
+            -e N8N_DIAGNOSTICS_ENABLED=false \
+            -e N8N_PERSONALIZATION_ENABLED=false \
+            -e N8N_VERSION_NOTIFICATIONS_ENABLED=false \
+            -e N8N_USE_WORKFLOW_PUBLICATION_SERVICE=true \
+            -e APP_URL="$APP_URL" \
+            -e CRON_SECRET="$CRON_SECRET" \
+            -v conditera-n8n-bootstrap-test:/home/node/.n8n \
+            -v /tmp/conditera-n8n-encryption-key:/run/secrets/n8n_encryption_key:ro \
+            -v "$PWD/n8n-workflows:/imports:ro" \
+            -v "$PWD/scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro" \
+            --entrypoint tini \
+            n8nio/n8n:2.48.7 -- /bin/sh /usr/local/bin/conditera-n8n-entrypoint.sh
+          ready=0
+          for attempt in $(seq 1 120); do
+            if docker exec conditera-n8n-bootstrap-test test -s /home/node/.n8n/.conditera-workflows.ready && curl -fsS http://127.0.0.1:15678/healthz/readiness >/dev/null; then ready=1; break; fi
+            state="$(docker inspect -f '{{.State.Status}}' conditera-n8n-bootstrap-test 2>/dev/null || true)"
+            if [ "$state" != "running" ]; then
+              docker logs conditera-n8n-bootstrap-test
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs conditera-n8n-bootstrap-test
+            exit 1
+          fi
+          docker logs --tail 200 conditera-n8n-bootstrap-test
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test sh -c 'echo "HOME=$HOME N8N_USER_FOLDER=$N8N_USER_FOLDER"; ls -la "$HOME/.n8n"; n8n list:workflow'
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test mkdir -p /tmp/conditera-n8n-export
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test n8n export:workflow --all --published --separate --output=/tmp/conditera-n8n-export
+          mkdir -p /tmp/conditera-n8n-export
+          docker cp conditera-n8n-bootstrap-test:/tmp/conditera-n8n-export/. /tmp/conditera-n8n-export/
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const sourceDir = "n8n-workflows";
+          const exportDir = "/tmp/conditera-n8n-export";
+          const source = fs.readdirSync(sourceDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(sourceDir, name), "utf8"))).filter((workflow) => workflow.active === true);
+          const exported = fs.readdirSync(exportDir).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join(exportDir, name), "utf8")));
+          const actual = new Map(exported.map((workflow) => [workflow.id, workflow]));
+          const missing = source.filter((workflow) => !actual.has(workflow.id)).map((workflow) => workflow.id);
+          const tagNames = (workflow) => (workflow.tags || []).map((tag) => tag.name).sort();
+          const wrongTags = source.filter((workflow) => actual.has(workflow.id) && JSON.stringify(tagNames(workflow)) !== JSON.stringify(tagNames(actual.get(workflow.id)))).map((workflow) => ({ id: workflow.id, expected: tagNames(workflow), actual: tagNames(actual.get(workflow.id)) }));
+          if (missing.length || wrongTags.length || exported.length !== source.length) {
+            throw new Error(JSON.stringify({ expectedPublished: source.length, exported: exported.length, missing, wrongTags }));
+          }
+          console.log(`PASS: ${exported.length} n8n workflows have published versions matching source-controlled IDs and shared tags`);
+          NODE
+
+          docker restart conditera-n8n-bootstrap-test >/dev/null
+          ready=0
+          for attempt in $(seq 1 120); do
+            if docker exec conditera-n8n-bootstrap-test test -s /home/node/.n8n/.conditera-workflows.ready && curl -fsS http://127.0.0.1:15678/healthz/readiness >/dev/null; then ready=1; break; fi
+            state="$(docker inspect -f '{{.State.Status}}' conditera-n8n-bootstrap-test 2>/dev/null || true)"
+            if [ "$state" != "running" ]; then
+              docker logs conditera-n8n-bootstrap-test
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs conditera-n8n-bootstrap-test
+            exit 1
+          fi
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test rm -rf /tmp/conditera-n8n-export
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test mkdir -p /tmp/conditera-n8n-export
+          docker exec -u node -e HOME=/home/node -e N8N_USER_FOLDER=/home/node conditera-n8n-bootstrap-test n8n export:workflow --all --published --separate --output=/tmp/conditera-n8n-export
+          rm -rf /tmp/conditera-n8n-export && mkdir -p /tmp/conditera-n8n-export
+          docker cp conditera-n8n-bootstrap-test:/tmp/conditera-n8n-export/. /tmp/conditera-n8n-export/
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+          const source = fs.readdirSync("n8n-workflows").filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join("n8n-workflows", name), "utf8"))).filter((workflow) => workflow.active === true).map((workflow) => workflow.id).sort();
+          const actual = fs.readdirSync("/tmp/conditera-n8n-export").filter((name) => name.endsWith(".json")).map((name) => JSON.parse(fs.readFileSync(path.join("/tmp/conditera-n8n-export", name), "utf8")).id).sort();
+          if (JSON.stringify(actual) !== JSON.stringify(source)) throw new Error(JSON.stringify({ expected: source, actual }));
+          console.log(`PASS: n8n restart preserved all ${actual.length} published workflows without duplicate or inactive imports`);
+          NODE
+
       - name: Validate production single-container Compose overlay
         env:
           POSTGRES_PASSWORD: ci-only-postgres-password
           APP_DATABASE_PASSWORD: ci-only-app-db-password
+          BACKUP_DATABASE_PASSWORD: ci-only-backup-db-password
           JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
           ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
           ANON_KEY: ci-only-anon-key
           SERVICE_ROLE_KEY: ci-only-service-role-key
+          NEXT_PUBLIC_APP_URL: https://conditera.ru
+          NEXT_PUBLIC_SUPABASE_URL: https://conditera.ru/api
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key
           SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key
           SUPABASE_SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
@@ -44,12 +176,16 @@ jobs:
           REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
           MEILI_MASTER_KEY: ci-only-meili-master-key
           CRON_SECRET: ci-only-cron-secret
-          N8N_ADMIN_PASSWORD: ci-only-n8n-password
+          N8N_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          N8N_WEBHOOK_SECRET: ci-only-n8n-webhook-secret
           SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
         run: |
           set -Eeuo pipefail
           touch .env.production
-          trap 'rm -f .env.production' EXIT
+          mkdir -p .secrets
+          printf '%s\n' "$N8N_ENCRYPTION_KEY" > .secrets/n8n_encryption_key
+          chmod 644 .secrets/n8n_encryption_key
+          trap 'rm -f .env.production .secrets/n8n_encryption_key; rmdir .secrets 2>/dev/null || true' EXIT
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
           python3 - <<'PY'
           import json
@@ -81,6 +217,63 @@ jobs:
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
 
+      - name: Exercise the real production deploy preflight with synthetic provider credentials
+        run: |
+          set -Eeuo pipefail
+          cleanup() {
+            rm -f .env.production .env.supabase-runtime .secrets/n8n_encryption_key
+            rmdir .secrets 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          cp .env.production.example .env.production
+          cp .env.supabase-runtime.example .env.supabase-runtime
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def set_values(path, updates):
+              lines = Path(path).read_text(encoding="utf-8").splitlines()
+              seen = set()
+              output = []
+              for line in lines:
+                  if "=" not in line or line.lstrip().startswith("#"):
+                      output.append(line)
+                      continue
+                  key = line.split("=", 1)[0].strip()
+                  if key in updates:
+                      output.append(f"{key}={updates[key]}")
+                      seen.add(key)
+                  else:
+                      output.append(line)
+              for key, value in updates.items():
+                  if key not in seen:
+                      output.append(f"{key}={value}")
+              Path(path).write_text("\n".join(output) + "\n", encoding="utf-8")
+
+          set_values(".env.production", {
+              "SMTP_USER": "ci@noreply.conditera.ru",
+              "SMTP_PASSWORD": "ci-only-smtp-password",
+              "YOOKASSA_SHOP_ID": "ci-shop-id",
+              "YOOKASSA_SECRET_KEY": "live_ci_only_yookassa_key",
+              "YANDEX_CLIENT_ID": "ci-yandex-client-id",
+              "YANDEX_CLIENT_SECRET": "ci-yandex-client-secret",
+              "YANDEX_OAUTH_REDIRECT": "https://conditera.ru/api/auth/oauth/yandex/callback",
+              "VK_CLIENT_ID": "ci-vk-client-id",
+              "VK_OAUTH_REDIRECT": "https://conditera.ru/api/auth/oauth/vk/callback",
+              "TELEGRAM_BOT_TOKEN": "123456789:ci-only-telegram-token",
+              "TELEGRAM_CHANNEL_ID": "@conditera",
+              "NEXT_PUBLIC_SUPPORT_EMAIL": "ci-support@conditera.ru",
+              "NEXT_PUBLIC_PRIVACY_EMAIL": "ci-privacy@conditera.ru",
+              "CONTACT_NOTIFICATION_EMAIL": "ci-contact@conditera.ru",
+              "NEXT_PUBLIC_LEGAL_NAME": "ООО «Уездный кондитер» (CI only)",
+              "NEXT_PUBLIC_COMPANY_INN": "7701234567",
+              "NEXT_PUBLIC_COMPANY_OGRN": "1234567890123",
+              "NEXT_PUBLIC_LEGAL_ADDRESS": "CI test value — not a real address",
+          })
+          PY
+          # Populate all synthetic CI provider/legal fields before running the real production preflight.
+          bash scripts/prepare-production-env.sh
+          bash scripts/deploy-single-container.sh --config
+
       - name: Build one-container Supabase runtime
         run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
 
@@ -91,6 +284,7 @@ jobs:
           export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
           export POSTGRES_PASSWORD="ci-only-postgres-password"
           export APP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
           export REALTIME_DB_ENC_KEY="0123456789abcdef"
@@ -115,6 +309,7 @@ jobs:
           values = {
               "POSTGRES_PASSWORD":os.environ["POSTGRES_PASSWORD"],
               "APP_DATABASE_PASSWORD":os.environ["APP_DATABASE_PASSWORD"],
+              "BACKUP_DATABASE_PASSWORD":os.environ["BACKUP_DATABASE_PASSWORD"],
               "JWT_SECRET":os.environ["JWT_SECRET"],
               "ANON_KEY":jwt("anon"),
               "SERVICE_ROLE_KEY":jwt("service_role"),
@@ -165,6 +360,21 @@ jobs:
           docker logs conditera-supabase-runtime-poc
           docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status || true
           exit 1
+
+      - name: Verify read-only backup role can dump the Supabase PostgreSQL database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          BACKUP_DATABASE_PASSWORD="$(grep '^BACKUP_DATABASE_PASSWORD=' /tmp/runtime.env | cut -d= -f2-)"
+          docker exec -e PGPASSWORD="$BACKUP_DATABASE_PASSWORD" conditera-supabase-runtime-poc \
+            /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 pg_dump \
+              --host 127.0.0.1 --port 5432 --username conditera_backup \
+              --dbname supabase --no-owner --no-privileges > /tmp/supabase-runtime-backup.sql
+          test -s /tmp/supabase-runtime-backup.sql
+          grep -q 'CREATE TABLE auth.users' /tmp/supabase-runtime-backup.sql
+          grep -q 'CREATE TABLE storage.objects' /tmp/supabase-runtime-backup.sql
+          grep -q 'CREATE TABLE public.profiles' /tmp/supabase-runtime-backup.sql
+          echo "PASS: conditera_backup dumped auth, storage and application schemas"
 
       - name: Verify runtime processes and gateway endpoints
         run: |
@@ -244,7 +454,7 @@ jobs:
           docker exec conditera-supabase-runtime-poc \
             /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
             /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase \
-            -Atqc "SELECT to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 60 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
+            -Atqc "SELECT current_setting('server_version_num')::int BETWEEN 170000 AND 179999 AND to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 60 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication) AND pg_has_role('conditera_backup','pg_read_all_data','member') AND has_table_privilege('conditera_backup','auth.users','SELECT') AND has_table_privilege('conditera_backup','storage.objects','SELECT') AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND NOT has_table_privilege('conditera_backup','public.profiles','INSERT') AND NOT has_table_privilege('conditera_backup','public.profiles','UPDATE') AND NOT has_table_privilege('conditera_backup','public.profiles','DELETE') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
             | grep -qx t
 
       - name: Collect runtime diagnostics on failure
@@ -253,6 +463,9 @@ jobs:
         run: |
           set +e
           mkdir -p /tmp/supabase-runtime-diagnostics
+          if docker inspect conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-inspect-after-cleanup.json 2>&1; then
+            docker logs --timestamps conditera-n8n-bootstrap-test > /tmp/supabase-runtime-diagnostics/n8n-bootstrap-after-cleanup.log 2>&1 || true
+          fi
           if docker inspect conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container-inspect.json 2>&1; then
             docker logs --timestamps conditera-supabase-runtime-poc > /tmp/supabase-runtime-diagnostics/container.log 2>&1 || true
             docker exec conditera-supabase-runtime-poc supervisorctl -c /etc/supervisord.conf status > /tmp/supabase-runtime-diagnostics/supervisor-status.txt 2>&1 || true

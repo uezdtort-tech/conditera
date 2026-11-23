@@ -36,7 +36,7 @@ export default function robots(): MetadataRoute.Robots {
       },
       // Социальные краулеры — полный доступ (для OG-превью)
       {
-        userAgent: ["Googlebot", "Bingbot", "Twitterbot", "facebookexternalhit", "LinkedInBot", "TelegramBot", "SkypeUriPreview"],
+        userAgent: ["Twitterbot", "facebookexternalhit", "LinkedInBot", "TelegramBot", "SkypeUriPreview"],
         allow: "/",
       },
     ],

@@ -1,26 +1,22 @@
 /**
- * GET  /api/cron/abandoned-cart — find users with abandoned carts (>2h old, not ordered)
- * PATCH /api/cron/abandoned-cart — mark a cart as notified (so we don't send twice)
+ * GET /api/cron/abandoned-cart — register and return unsent abandoned-cart snapshots.
+ * PATCH /api/cron/abandoned-cart — persist the notification delivery result.
  *
- * Called by n8n every hour. Returns the list of users whose carts have been
- * sitting untouched for ≥2 hours and who haven't placed an order yet.
- *
- * Auth: X-Cron-Secret header (CRON_SECRET env var)
- *
- * Соответствует таблицам:
- *  - cart_items (агрегация по user_id)
- *  - profiles (получение email/name)
- *  - orders (проверка что нет заказов за последние 24ч)
- *  - notification_preferences (opt-out для abandonedCart)
+ * Called by the source-controlled n8n workflow. Every cart snapshot is
+ * fingerprinted and stored before it is returned, so concurrent cron retries
+ * cannot create duplicate notifications.
  */
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyCronSecret, cronUnauthorized } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const ABANDONED_HOURS = 2;
 const RECENT_ORDER_HOURS = 24;
+const REMINDER_CHANNELS = new Set(["email", "push", "telegram", "in_app"]);
 
 interface AbandonedCartInfo {
   id: string;
@@ -33,113 +29,202 @@ interface AbandonedCartInfo {
   notifiedAt: null;
 }
 
+function unauthorized(): NextResponse {
+  const response = cronUnauthorized();
+  return new NextResponse(response.body, {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function isOptedOut(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const prefs = raw as Record<string, unknown>;
+  return prefs.abandonedCart === false || prefs.abandoned_cart === false;
+}
+
+function hasAnyDeliveryChannel(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
+  const prefs = raw as Record<string, unknown>;
+  return prefs.emailEnabled !== false || prefs.pushEnabled !== false || prefs.inAppEnabled !== false;
+}
+
 /**
- * GET /api/cron/abandoned-cart — список пользователей с брошенными корзинами.
+ * GET /api/cron/abandoned-cart — register eligible snapshots and return only
+ * those whose reminder has not been delivered yet.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  if (!verifyCronSecret(req)) {
-    return new NextResponse(cronUnauthorized().body, {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  if (!verifyCronSecret(req)) return unauthorized();
 
   try {
-    const cutoff = new Date(Date.now() - ABANDONED_HOURS * 60 * 60 * 1000);
-    const recentOrderCutoff = new Date(Date.now() - RECENT_ORDER_HOURS * 60 * 60 * 1000);
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - ABANDONED_HOURS * 60 * 60 * 1000);
+    const recentOrderCutoff = new Date(now.getTime() - RECENT_ORDER_HOURS * 60 * 60 * 1000);
 
-    // 1. Найти все cart_items старше 2 часов.
-    // ВАЖНО: у cart_items нет колонки price — цену берём из products вторым запросом.
-    const { data: cartItems, error: cartErr } = await supabaseAdmin
+    // First identify users with at least one stale item, then load their
+    // complete cart. A recently changed item means the cart as a whole is not
+    // abandoned, even if another line has been sitting untouched for hours.
+    const { data: staleRows, error: staleErr } = await supabaseAdmin
       .from("cart_items")
-      .select("user_id, product_id, quantity, created_at")
-      .lt("created_at", cutoff.toISOString())
-      .order("created_at", { ascending: false });
+      .select("user_id")
+      .not("user_id", "is", null)
+      .lt("updated_at", cutoff.toISOString());
 
-    if (cartErr) {
-      console.error("[cron/abandoned-cart] cart query error:", cartErr.message);
-      return NextResponse.json(
-        { error: "Database query failed", details: cartErr.message },
-        { status: 500 }
-      );
+    if (staleErr) {
+      console.error("[cron/abandoned-cart] stale cart lookup failed:", staleErr.message);
+      return NextResponse.json({ error: "Database query failed" }, { status: 500 });
     }
-
-    if (!cartItems || cartItems.length === 0) {
+    const candidateUserIds = [...new Set((staleRows || []).map((row) => row.user_id).filter((id): id is string => Boolean(id)))];
+    if (!candidateUserIds.length) {
       return NextResponse.json({ carts: [], total: 0, cutoff: cutoff.toISOString() });
     }
 
-    // 1a. Обогащаем ценами из products (id, price)
-    const productIds = [...new Set(cartItems.map((i: any) => i.product_id).filter(Boolean))];
+    const { data: cartItems, error: cartErr } = await supabaseAdmin
+      .from("cart_items")
+      .select("user_id, product_id, quantity, selected_attributes, created_at, updated_at")
+      .in("user_id", candidateUserIds)
+      .order("updated_at", { ascending: false });
+
+    if (cartErr) {
+      console.error("[cron/abandoned-cart] full cart lookup failed:", cartErr.message);
+      return NextResponse.json({ error: "Database query failed" }, { status: 500 });
+    }
+    if (!cartItems?.length) {
+      return NextResponse.json({ carts: [], total: 0, cutoff: cutoff.toISOString() });
+    }
+
+    const productIds = [...new Set(cartItems.map((item) => item.product_id).filter(Boolean))];
     const priceByProduct = new Map<string, number>();
-    if (productIds.length > 0) {
-      const { data: products } = await supabaseAdmin
+    if (productIds.length) {
+      const { data: products, error: productsErr } = await supabaseAdmin
         .from("products")
         .select("id, price")
         .in("id", productIds);
-      for (const p of products || []) {
-        priceByProduct.set((p as { id: string }).id, Number((p as { price: number | null }).price) || 0);
+      if (productsErr) {
+        console.error("[cron/abandoned-cart] product price lookup failed:", productsErr.message);
+        return NextResponse.json({ error: "Product price lookup failed" }, { status: 500 });
+      }
+      for (const product of products || []) {
+        priceByProduct.set(product.id, Number(product.price) || 0);
       }
     }
 
-    // 2. Агрегировать по user_id
-    const byUser = new Map<string, { count: number; total: number; lastActivity: Date }>();
+    type SnapshotItem = {
+      product_id: string;
+      quantity: number;
+      unit_price: number;
+      line_total: number;
+      selected_attributes: unknown;
+      updated_at: string;
+    };
+    const byUser = new Map<string, {
+      items: SnapshotItem[];
+      total: number;
+      lastActivity: Date;
+    }>();
+
     for (const item of cartItems) {
-      const userId = item.user_id as string;
-      const unitPrice = priceByProduct.get(item.product_id as string) || 0;
+      if (!item.user_id) continue;
+      const unitPrice = priceByProduct.get(item.product_id) || 0;
       const quantity = Number(item.quantity) || 1;
-      const price = unitPrice * quantity;
-      const createdAt = new Date(item.created_at);
-      const existing = byUser.get(userId);
+      const updatedAt = new Date(item.updated_at || item.created_at || now.toISOString());
+      const snapshotItem: SnapshotItem = {
+        product_id: item.product_id,
+        quantity,
+        unit_price: unitPrice,
+        line_total: unitPrice * quantity,
+        selected_attributes: item.selected_attributes ?? null,
+        updated_at: updatedAt.toISOString(),
+      };
+      const existing = byUser.get(item.user_id);
       if (existing) {
-        existing.count++;
-        existing.total += price;
-        if (createdAt > existing.lastActivity) {
-          existing.lastActivity = createdAt;
-        }
+        existing.items.push(snapshotItem);
+        existing.total += snapshotItem.line_total;
+        if (updatedAt > existing.lastActivity) existing.lastActivity = updatedAt;
       } else {
-        byUser.set(userId, { count: 1, total: price, lastActivity: createdAt });
+        byUser.set(item.user_id, {
+          items: [snapshotItem],
+          total: snapshotItem.line_total,
+          lastActivity: updatedAt,
+        });
       }
     }
 
-    // 3. Для каждого пользователя — проверить заказы и prefs
-    const cartsWithUserInfo: (AbandonedCartInfo | null)[] = await Promise.all(
-      Array.from(byUser.entries()).map(async ([userId, info]) => {
-        // Получить профиль пользователя
+    const cartsWithUserInfo = await Promise.all(
+      Array.from(byUser.entries()).map(async ([userId, info]): Promise<AbandonedCartInfo | null> => {
         const { data: profile, error: profileErr } = await supabaseAdmin
           .from("profiles")
-          .select("id, email, name, is_blocked")
+          .select("id, email, name, is_blocked, notify_prefs")
           .eq("id", userId)
           .maybeSingle();
 
-        if (profileErr || !profile) return null;
-        if (profile.is_blocked) return null;
+        if (profileErr) throw new Error(`Profile lookup failed: ${profileErr.message}`);
+        if (!profile || profile.is_blocked) return null;
+        if (info.lastActivity >= cutoff) return null;
+        if (isOptedOut(profile.notify_prefs) || !hasAnyDeliveryChannel(profile.notify_prefs)) return null;
 
-        // Проверить, есть ли заказы за последние 24 часа
-        const { data: recentOrders } = await supabaseAdmin
+        const { data: legacyPrefs, error: prefsErr } = await supabaseAdmin
+          .from("notification_preferences")
+          .select("abandoned_cart")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (prefsErr) throw new Error(`Notification preference lookup failed: ${prefsErr.message}`);
+        if (legacyPrefs?.abandoned_cart === false) return null;
+
+        const { data: recentOrders, error: ordersErr } = await supabaseAdmin
           .from("orders")
           .select("id")
           .eq("user_id", userId)
           .gt("created_at", recentOrderCutoff.toISOString())
           .limit(1);
+        if (ordersErr) throw new Error(`Recent order lookup failed: ${ordersErr.message}`);
+        if (recentOrders?.length) return null;
 
-        if (recentOrders && recentOrders.length > 0) return null; // уже заказал
+        const snapshot = info.items.sort((a, b) =>
+          a.product_id.localeCompare(b.product_id) ||
+          a.updated_at.localeCompare(b.updated_at) ||
+          a.quantity - b.quantity
+        );
+        const fingerprint = createHash("sha256")
+          .update(JSON.stringify(snapshot))
+          .digest("hex");
 
-        // Получить notification preferences
-        const { data: prefs } = await supabaseAdmin
-          .from("notification_preferences")
-          .select("promotions, email_enabled")
+        const { error: registerErr } = await supabaseAdmin
+          .from("abandoned_cart_logs")
+          .upsert({
+            user_id: userId,
+            cart_fingerprint: fingerprint,
+            cart_items: snapshot,
+            cart_total: Math.round(info.total * 100),
+            cart_items_count: snapshot.length,
+            abandoned_at: info.lastActivity.toISOString(),
+            metadata: { source: "n8n", currency: "RUB", fingerprint },
+          }, {
+            onConflict: "user_id,cart_fingerprint",
+            ignoreDuplicates: true,
+          });
+
+        if (registerErr) throw new Error(`Abandoned cart registration failed: ${registerErr.message}`);
+
+        const { data: log, error: logErr } = await supabaseAdmin
+          .from("abandoned_cart_logs")
+          .select("id, reminder_sent_at, reminder_status")
           .eq("user_id", userId)
+          .eq("cart_fingerprint", fingerprint)
           .maybeSingle();
 
-        // Если пользователь отключил промо-уведомления — пропускаем
-        if (prefs && prefs.promotions === false) return null;
+        if (logErr) throw new Error(`Abandoned cart log lookup failed: ${logErr.message}`);
+        if (!log || log.reminder_sent_at ||
+            ["sent", "clicked", "converted"].includes(log.reminder_status || "")) {
+          return null;
+        }
 
         return {
-          id: `cart_${userId}`,
+          id: log.id,
           userId: profile.id,
           userName: profile.name,
-          userEmail: profile.email,
-          itemsCount: info.count,
+          userEmail: profile.email || "",
+          itemsCount: snapshot.length,
           total: Number(info.total.toFixed(2)),
           lastActivity: info.lastActivity.toISOString(),
           notifiedAt: null,
@@ -147,59 +232,77 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       })
     );
 
-    const validCarts = cartsWithUserInfo.filter((c): c is AbandonedCartInfo => c !== null);
-
+    const validCarts = cartsWithUserInfo.filter((cart): cart is AbandonedCartInfo => cart !== null);
     return NextResponse.json({
       carts: validCarts,
       total: validCarts.length,
       cutoff: cutoff.toISOString(),
     });
-  } catch (error: any) {
-    console.error("GET /api/cron/abandoned-cart error:", error?.message);
-    return NextResponse.json(
-      { error: "Internal error", detail: error?.message },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error("[cron/abandoned-cart] GET failed:", error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }
 
 /**
- * PATCH /api/cron/abandoned-cart — отметить корзину как обработанную.
- * В проде должно сохраняться в отдельную таблицу abandoned_cart_logs.
- * Пока просто логируем.
+ * PATCH /api/cron/abandoned-cart — persist the n8n delivery outcome.
+ * Failed/skipped attempts remain eligible for an idempotent retry.
  */
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
-  if (!verifyCronSecret(req)) {
-    return new NextResponse(cronUnauthorized().body, {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  if (!verifyCronSecret(req)) return unauthorized();
 
   try {
-    const body = await req.json();
-    const { cartId, action } = body;
-
-    if (action !== "mark_notified" || !cartId) {
-      return NextResponse.json(
-        { error: "Invalid action or cartId" },
-        { status: 400 }
-      );
+    const body = await req.json() as {
+      cartId?: string;
+      action?: string;
+      skipped?: boolean;
+      channel?: string;
+    };
+    if (body.action !== "mark_notified" ||
+        typeof body.cartId !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.cartId)) {
+      return NextResponse.json({ error: "Invalid action or cartId" }, { status: 400 });
     }
 
-    // В прод-окружении здесь должна быть запись в abandoned_cart_logs:
-    //   await supabaseAdmin.from('abandoned_cart_logs').insert({
-    //     cart_id: cartId, notified_at: new Date().toISOString(),
-    //   });
-    // Пока логируем
-    console.info(`[cron/abandoned-cart] cart ${cartId} marked as notified`);
+    const skipped = body.skipped === true;
+    const channel = body.channel && REMINDER_CHANNELS.has(body.channel) ? body.channel : "email";
+    const update = skipped
+      ? { reminder_status: "failed" as const, reminder_sent_at: null, reminder_channel: null }
+      : { reminder_status: "sent" as const, reminder_sent_at: new Date().toISOString(), reminder_channel: channel };
 
-    return NextResponse.json({ success: true, cartId, action });
-  } catch (error: any) {
-    console.error("PATCH /api/cron/abandoned-cart error:", error?.message);
-    return NextResponse.json(
-      { error: "Internal error", detail: error?.message },
-      { status: 500 }
-    );
+    const { data: updated, error } = await supabaseAdmin
+      .from("abandoned_cart_logs")
+      .update(update)
+      .eq("id", body.cartId)
+      .is("reminder_sent_at", null)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      console.error("[cron/abandoned-cart] reminder state update failed:", error.message);
+      return NextResponse.json({ error: "Failed to persist reminder state" }, { status: 500 });
+    }
+    if (!updated) {
+      const { data: existing, error: lookupErr } = await supabaseAdmin
+        .from("abandoned_cart_logs")
+        .select("id, reminder_sent_at")
+        .eq("id", body.cartId)
+        .maybeSingle();
+      if (lookupErr) return NextResponse.json({ error: "Failed to confirm reminder state" }, { status: 500 });
+      if (!existing) return NextResponse.json({ error: "Abandoned cart log not found" }, { status: 404 });
+      if (existing.reminder_sent_at) {
+        return NextResponse.json({ success: true, alreadyNotified: true, cartId: body.cartId });
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      skipped,
+      cartId: body.cartId,
+      status: skipped ? "failed" : "sent",
+    });
+  } catch (error) {
+    console.error("[cron/abandoned-cart] PATCH failed:", error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

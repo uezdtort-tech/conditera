@@ -49,7 +49,8 @@ const VIEW_META: Record<string, SeoMeta> = {
   product: {
     title: `Карточка товара — ${APP_NAME}`,
     description: "Закажите кондитерское изделие напрямую у частного кондитера с безопасной оплатой через эскроу.",
-    path: "/catalog",
+    path: "/product",
+    noindex: true,
   },
   confectioners: {
     title: `Кондитеры России — каталог мастеров — ${APP_NAME}`,
@@ -66,51 +67,66 @@ const VIEW_META: Record<string, SeoMeta> = {
     title: `Акции и скидки на торты — ${APP_NAME}`,
     description: "Акции, промокоды и скидки от кондитеров России. Выгодные предложения на торты и десерты.",
     path: "/promotions",
+    noindex: true,
   },
   recipes: {
     title: `Рецепты тортов и десертов — ${APP_NAME}`,
     description: "Бесплатные и платные рецепты тортов, пирожных, печенья. Пошаговые инструкции, КБЖУ, советы от кондитеров.",
     path: "/recipes",
+    noindex: true,
   },
   "recipe-detail": {
     title: `Рецепт — ${APP_NAME}`,
     description: "Пошаговый рецепт кондитерского изделия с фото и КБЖУ.",
     path: "/recipes",
+    noindex: true,
   },
   "ready-made": {
     title: `Готовая продукция к доставке — ${APP_NAME}`,
     description: "Торты и десерты, готовые к отправке сегодня. Доставка по России.",
     path: "/ready-made",
   },
+  "cake-builder": {
+    title: `Конструктор торта — ${APP_NAME}`,
+    description: "Инструмент создания индивидуального торта.",
+    path: "/cake-builder",
+    noindex: true,
+  },
   "corporate-events": {
     title: `Корпоративные мероприятия — ${APP_NAME}`,
     description: "Торты и фуршетные десерты для корпоративов, конференций, юбилеев. Безналичная оплата, договор, НДС.",
     path: "/corporate-events",
+    noindex: true,
   },
   "decor-shop": {
     title: `Декор для тортов — магазин — ${APP_NAME}`,
     description: "Кондитерский декор: фигурки, цветы, топперы, упаковка, сахарная бумага. От студий декора России.",
     path: "/decor-shop",
+    noindex: true,
   },
   "services-shop": {
     title: `Кондитерские услуги — ${APP_NAME}`,
     description: "Аренда форм, дегустации, мастер-классы, доставка, упаковка — услуги от кондитеров и партнёров.",
     path: "/services-shop",
+    noindex: true,
   },
   "venues": {
     title: `Площадки для праздников — ${APP_NAME}`,
     description: "Лофты, банкетные залы, детские студии и веранды для дня рождения и корпоратива. Бронирование площадок на платформе.",
     path: "/venues",
+    noindex: true,
   },
   "supplier-shop": {
     title: `Поставщики ингредиентов и оборудования — ${APP_NAME}`,
     description: "Оптовые и розничные поставки муки, сахара, масла, шоколада, оборудования для кондитеров.",
     path: "/supplier-shop",
+    noindex: true,
   },
   "gift-certificates": {
     title: `Подарочные сертификаты — ${APP_NAME}`,
     description: "Подарочный сертификат на торт или десерт от кондитеров России. Идеальный подарок на любой повод.",
     path: "/gift-certificates",
+    noindex: true,
   },
   "for-confectioners": {
     title: `Кондитерам — присоединиться к платформе — ${APP_NAME}`,
@@ -126,11 +142,13 @@ const VIEW_META: Record<string, SeoMeta> = {
     title: `Тендеры на торты — ${APP_NAME}`,
     description: "Размещение тендеров на торты для свадеб, корпоративов, дней рождения. Конкурсные предложения от кондитеров.",
     path: "/tenders",
+    noindex: true,
   },
   blog: {
     title: `Блог о кондитерском искусстве — ${APP_NAME}`,
     description: "Статьи о тортах, десертах, трендах, рецептах и бизнесе для кондитеров. Советы от экспертов.",
     path: "/blog",
+    noindex: true,
   },
   about: {
     title: `О платформе — ${APP_NAME}`,
@@ -145,7 +163,7 @@ const VIEW_META: Record<string, SeoMeta> = {
   help: {
     title: `Помощь и поддержка — ${APP_NAME}`,
     description: "Часто задаваемые вопросы, инструкции, поддержка покупателей и кондитеров.",
-    path: "/help",
+    path: "/faq",
   },
   faq: {
     title: `Вопросы и ответы — ${APP_NAME}`,
@@ -156,11 +174,19 @@ const VIEW_META: Record<string, SeoMeta> = {
     title: `Отзывы покупателей — ${APP_NAME}`,
     description: "Реальные отзывы покупателей о тортах и кондитерах платформы.",
     path: "/reviews",
+    noindex: true,
   },
   "telegram-bot": {
     title: `Telegram-бот — ${APP_NAME}`,
     description: "Заказывайте торты и отслеживайте заказы через Telegram-бот «Уездного кондитера».",
     path: "/telegram-bot",
+    noindex: true,
+  },
+  telegram: {
+    title: `Telegram — ${APP_NAME}`,
+    description: "Служебная страница интеграции Telegram.",
+    path: "/telegram",
+    noindex: true,
   },
   legal: {
     title: `Правовая информация — ${APP_NAME}`,

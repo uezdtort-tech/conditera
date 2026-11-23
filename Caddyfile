@@ -11,7 +11,7 @@
 #      НЕ напрямую к web:3000 — иначе при рестарте Next.js будет 502.
 
 # Основной домен + www-редирект
-conditera.ru, www.conditera.ru {
+conditera.ru {
         # Редирект www → корень (если зашли на www.conditera.ru)
         # (Caddy автоматически делает это через 'www.conditera.ru' в сертификате)
 
@@ -72,9 +72,9 @@ conditera.ru, www.conditera.ru {
                 }
         }
 
-        # n8n (вебхуки автоматизации) — защищён basic auth внутри n8n
+        # n8n UI/API не публикуется наружу. Локальный доступ владельца — 127.0.0.1:5678.
         handle /n8n/* {
-                reverse_proxy n8n:5678
+                respond "Not Found" 404
         }
 
         # Health-check endpoint для Cloudflare Tunnel / UptimeRobot
@@ -154,18 +154,14 @@ conditera.ru, www.conditera.ru {
         # }
 }
 
-# SimpleX SMP сервер — отдельный блок (порт 5223 проксируем в Caddy)
-# Альтернатива: открываем порт 5223 напрямую (см. docker-compose)
+# Единственный канонический host — без www (совпадает с canonical URL приложения).
+www.conditera.ru {
+        redir https://conditera.ru{uri} permanent
+}
+
+# SimpleX SMP — опциональный профиль. Публичный endpoint не включается в первом production-релизе.
 smp.conditera.ru {
-        reverse_proxy smp-server:5223 {
-                transport http {
-                        # SimpleX использует TCP+TLS, не HTTP — этот блок только если проксируем
-                        # через Caddy. Обычно SMP-сервер открывается напрямую на 5223.
-                }
-        }
-        header {
-                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        }
+        respond "Not Found" 404
 }
 
 # Для localhost (разработка без домена)

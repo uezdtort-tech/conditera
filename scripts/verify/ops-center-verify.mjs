@@ -72,12 +72,17 @@ async function api(method, path, { token, body } = {}) {
   return { status: res.status, json };
 }
 
+const sessionTokens = [];
+let adminToken = null;
+
 async function login(email) {
   const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
-  return res.json.accessToken;
+  const token = res.json.accessToken;
+  sessionTokens.push(token);
+  return token;
 }
 
 // P1.1: единый паттерн с order-lifecycle-verify — PGURL окружением переопределяется
@@ -87,15 +92,36 @@ const cleanupIds = { orders: [], drafts: [] };
 
 async function main() {
   await client.connect();
+  const maintenanceTypes = await client.query(
+    `SELECT
+       (SELECT typname FROM pg_type WHERE oid = (SELECT atttypid FROM pg_attribute WHERE attrelid = 'public.maintenance_logs'::regclass AND attname = 'type' AND NOT attisdropped)) AS type_name,
+       (SELECT typname FROM pg_type WHERE oid = (SELECT atttypid FROM pg_attribute WHERE attrelid = 'public.maintenance_logs'::regclass AND attname = 'status' AND NOT attisdropped)) AS status_name`
+  );
+  assert(
+    "maintenance enum identifiers are PostgREST-compatible lowercase names",
+    maintenanceTypes.rows[0]?.type_name === "maintenancetype" &&
+      maintenanceTypes.rows[0]?.status_name === "maintenancestatus",
+    JSON.stringify(maintenanceTypes.rows[0])
+  );
   // Верификационный сброс engine-задач review-request (после resolve движок
   // корректно НЕ переоткрывает вручную закрытые — для повторных прогонов
   // пересоздаём их честным путём: условие живо → скан материализует заново)
   await client.query(`DELETE FROM public.ops_tasks WHERE source='engine' AND type='ORDER_REVIEW_REQUEST'`);
   section("Подготовка");
   const admin = await login("admin@demo.ru");
+  adminToken = admin;
   const owner = await login("confectioner@demo.ru");
   const customer = await login("customer@demo.ru");
   assert("логины admin/confectioner/customer", Boolean(admin && owner && customer));
+  const maintenanceForCustomer = await api("GET", "/api/maintenance/history?limit=50", { token: customer });
+  assert(
+    "maintenance history не раскрывает backup-логи покупателю",
+    maintenanceForCustomer.status === 200 &&
+      Array.isArray(maintenanceForCustomer.json?.logs) &&
+      maintenanceForCustomer.json.logs.length === 0 &&
+      Number.isFinite(maintenanceForCustomer.json?.total),
+    `got ${maintenanceForCustomer.status}`
+  );
 
   // Демо-заказ DEMO-1048 (создан скриптом demo-data): recipe-товар ×2
   const demo = await client.query(
@@ -158,7 +184,7 @@ async function main() {
   if (target) {
     const custTry = await api("POST", `/api/ops/tasks/${target.id}`, { token: customer, body: { action: "resolve" } });
     assert("покупатель не может resolve чужую задачу → 404/403", custTry.status === 404 || custTry.status === 403, `got ${custTry.status}`);
-    const ok = await api("POST", `/api/ops/tasks/${target.id}`, { token: admin, body: { action: "resolve", comment: "verify" } });
+    const ok = await api("POST", `/api/ops/tasks/${target.id}`, { token: adminToken, body: { action: "resolve", comment: "verify" } });
     assert("админ resolve → 200 resolved", ok.status === 200 && ok.json?.task?.status === "resolved", `got ${ok.status}`);
     const again = await api("POST", `/api/ops/tasks/${target.id}`, { token: admin, body: { action: "resolve" } });
     assert("повторный resolve → 409 NOT_OPEN", again.status === 409, `got ${again.status}`);
@@ -257,20 +283,17 @@ async function main() {
     typesList.join(",")
   );
 
-  section("Итог");
-  console.log(`\n  ИТОГО: PASS ${passed}  FAIL ${failed}`);
-  if (failed > 0) {
-    console.log("  Проваленные проверки:");
-    for (const f of failures) console.log(`   - ${f}`);
-  }
+
   return failed === 0;
 }
 
 async function cleanup() {
+  let cleanupSucceeded = true;
   try {
     if (cleanupIds.orders.length > 0) {
       await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanupIds.orders]);
       await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanupIds.orders]);
       await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanupIds.orders]);
     }
     if (cleanupIds.drafts.length > 0) {
@@ -281,12 +304,66 @@ async function cleanup() {
     await client.query(
       `UPDATE public.orders SET status='CONFIRMED', updated_at=now() WHERE number='DEMO-1048' AND status <> 'CONFIRMED'`
     );
-    console.log(`\n  cleanup: удалено черновиков верификации: ${cleanupIds.drafts.length}, заказов: ${cleanupIds.orders.length}`);
+    console.log(`\ncleanup: удалено черновиков верификации: ${cleanupIds.drafts.length}, заказов: ${cleanupIds.orders.length}`);
+
+  if (process.env.VERIFY_BACKUP === "1") {
+    section("Production PostgreSQL backup");
+    const backup = await api("POST", "/api/maintenance/history", {
+      token: admin,
+      body: { action: "backup" },
+    });
+    assert(
+      "POST /api/maintenance/history backup → 200",
+      backup.status === 200,
+      `got ${backup.status} ${JSON.stringify(backup.json).slice(0, 240)}`
+    );
+    const backupResult = backup.json?.result;
+    assert(
+      "pg_dump archive is confirmed and non-empty",
+      backup.json?.success === true &&
+        backupResult?.success === true &&
+        Number(backupResult.backupSizeBytes) > 0 &&
+        typeof backupResult.backupPath === "string" &&
+        backupResult.backupPath.endsWith(".json") &&
+        typeof backupResult.databaseBackupPath === "string" && backupResult.databaseBackupPath.endsWith(".sql.gz") &&
+        typeof backupResult.productMediaBackupPath === "string" && backupResult.productMediaBackupPath.endsWith(".product-media.tar.gz") &&
+        typeof backupResult.supabaseStorageBackupPath === "string" && backupResult.supabaseStorageBackupPath.endsWith(".supabase-storage.tar.gz"),
+      JSON.stringify(backupResult ?? null).slice(0, 240)
+    );
+    if (backup.json?.logId) {
+      const log = await client.query(
+        `SELECT status, "backupPath" AS backup_path, "backupSizeBytes" AS backup_size_bytes
+         FROM public.maintenance_logs WHERE id = $1`,
+        [backup.json.logId]
+      );
+      assert(
+        "maintenance log confirms the same successful archive",
+        log.rows[0]?.status === "success" &&
+          log.rows[0]?.backup_path === backupResult?.backupPath &&
+          Number(log.rows[0]?.backup_size_bytes) > 0,
+        JSON.stringify(log.rows[0] || null)
+      );
+    } else {
+      assert("backup maintenance log id returned", false);
+    }
+  }
+
+
+    // Сессии тестовых пользователей отзываем после backup: backup-проверка
+    // должна выполняться на очищенном наборе данных и с действующей admin-сессией.
+    for (const token of sessionTokens) {
+      const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
+      if (logout && logout.status !== 200) {
+        console.warn("[verify] test session cleanup returned", logout.status);
+      }
+    }
   } catch (err) {
-    console.log(`\n  cleanup warning: ${err.message}`);
+    cleanupSucceeded = false;
+    console.log(`\ncleanup warning: ${err.message}`);
   } finally {
     await client.end().catch(() => {});
   }
+  return cleanupSucceeded && failed === 0;
 }
 
 let ok = false;
@@ -299,6 +376,12 @@ main()
     ok = false;
   })
   .finally(async () => {
-    await cleanup();
-    process.exit(ok ? 0 : 1);
+    const cleanupOk = await cleanup();
+    section("Итог");
+    console.log(`\n  ИТОГО: PASS ${passed}  FAIL ${failed}`);
+    if (failed > 0) {
+      console.log("  Проваленные проверки:");
+      for (const failure of failures) console.log(`   - ${failure}`);
+    }
+    process.exit(ok && cleanupOk ? 0 : 1);
   });

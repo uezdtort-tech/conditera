@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { hasAnyRole } from "@/lib/role-guards";
@@ -29,6 +30,7 @@ type MediaRow = {
   mime_type: string;
   file_size: number;
   status: string;
+  content_sha256: string | null;
   customer_id: string;
   confectioner_id: string | null;
 };
@@ -54,7 +56,7 @@ export async function GET(
     const pool = getPool();
     const { rows } = await pool.query<MediaRow>(
       `SELECT m.id, m.order_id, m.kind, m.storage_path, m.mime_type,
-              m.file_size, m.status,
+              m.file_size, m.status, m.content_sha256,
               o.user_id::text AS customer_id, o.confectioner_id::text AS confectioner_id
        FROM public.order_media m
        JOIN public.orders o ON o.id = m.order_id
@@ -78,13 +80,25 @@ export async function GET(
     }
 
     if (!authorized && await hasAnyRole(user.id, ["SUPPORT"])) {
-      const assigned = await pool.query(
-        `SELECT 1 FROM public.support_tickets
-         WHERE order_id = $1::uuid AND assigned_to = $2::uuid
-         LIMIT 1`,
-        [media.order_id, user.id]
-      );
-      authorized = assigned.rows.length > 0;
+      if (media.kind === "dispute_evidence") {
+        const assigned = await pool.query(
+          `SELECT 1
+           FROM public.order_dispute_evidence e
+           JOIN public.order_disputes d ON d.id = e.dispute_id
+           WHERE e.order_media_id = $1::uuid AND d.assigned_to = $2::uuid
+           LIMIT 1`,
+          [media.id, user.id]
+        );
+        authorized = assigned.rows.length > 0;
+      } else {
+        const assigned = await pool.query(
+          `SELECT 1 FROM public.support_tickets
+           WHERE order_id = $1::uuid AND assigned_to = $2::uuid
+           LIMIT 1`,
+          [media.order_id, user.id]
+        );
+        authorized = assigned.rows.length > 0;
+      }
     }
 
     if (!authorized && await hasAnyRole(user.id, ["COURIER"])) {
@@ -129,6 +143,13 @@ export async function GET(
     if (file.length !== Number(media.file_size)) {
       console.error("[order-media] stored file size differs from PG metadata:", media.id);
       return NextResponse.json({ error: "MEDIA_INTEGRITY_ERROR" }, { status: 500 });
+    }
+    if (media.kind === "dispute_evidence" && media.content_sha256) {
+      const actualSha256 = createHash("sha256").update(file).digest("hex");
+      if (actualSha256 !== media.content_sha256) {
+        console.error("[order-media] dispute evidence SHA-256 mismatch:", media.id);
+        return NextResponse.json({ error: "MEDIA_INTEGRITY_ERROR" }, { status: 500 });
+      }
     }
 
     const body = file.buffer.slice(

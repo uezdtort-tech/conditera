@@ -100,15 +100,20 @@ async function verifyEventWithProvider(
     if (!res.success || !res.refund) return { ok: false };
     if (res.refund.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
     if (res.refund.status !== "succeeded") return { ok: true, skip: "provider_mismatch" };
-    if (object.payment_id && res.refund.payment_id && res.refund.payment_id !== object.payment_id) {
+
+    // Refunds have no order metadata: the provider's refund object must bind
+    // the refund to the exact payment, and both copies of the amount must exist.
+    // Missing provider fields are not evidence of a valid refund; fail closed
+    // so YooKassa retries instead of allowing an unverifiable ledger mutation.
+    if (!object.payment_id || !res.refund.payment_id) return { ok: false };
+    if (res.refund.payment_id !== object.payment_id) {
       return { ok: true, skip: "provider_mismatch" };
     }
-    if (wireKop !== null) {
-      const refundKop = res.refund.amount?.value
-        ? Math.round(Number(res.refund.amount.value) * 100)
-        : null;
-      if (refundKop !== null && refundKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
+    const providerRefundKop = wireAmountToKop(res.refund.amount);
+    if (wireKop === null || providerRefundKop === null || providerRefundKop <= 0) {
+      return { ok: false };
     }
+    if (providerRefundKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
     return { ok: true };
   }
 
@@ -157,6 +162,20 @@ export async function POST(request: NextRequest) {
     const wireKop = wireAmountToKop(object.amount);
     const dbStatus = yookassaStatusToDb(object.status ?? "");
 
+    // PAY-1 MUST run before any write to the financial ledger.
+    // A forged/mismatched webhook must not claim an unbound pending payment.
+    const pv = await verifyEventWithProvider(event, object, wireKop);
+    if (!pv.ok) {
+      console.error(
+        `[webhook] provider verification failed (event=${event}, object=${object.id}) — fail-closed 500`
+      );
+      return NextResponse.json({ error: "Provider verification failed" }, { status: 500 });
+    }
+    if (pv.skip) {
+      console.warn(`[webhook] provider mismatch (event=${event}, object=${object.id}) — skipped`);
+      return NextResponse.json({ success: true, skipped: pv.skip });
+    }
+
     // === 1. Матчинг платежа по provider id (точный) ===
     // Для refund.* объект — возврат, платёж ищем по object.payment_id.
     const providerPaymentId = object.payment_id || object.id;
@@ -176,6 +195,10 @@ export async function POST(request: NextRequest) {
     // Никогда не выбираем «последний платёж» с другим provider ID: это могло
     // записать статус новой оплаты в чужую попытку после повторного checkout.
     const metaOrderId = object.metadata?.orderId;
+    // Validate the only value used by legacy linking before touching payments.
+    if (metaOrderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metaOrderId)) {
+      return NextResponse.json({ error: "Invalid orderId in webhook metadata" }, { status: 400 });
+    }
     if (!payment && metaOrderId && event.startsWith("payment.")) {
       const { data: legacyRows, error: legacyLookupError } = await supabaseAdmin
         .from("payments")
@@ -215,26 +238,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid orderId in webhook metadata" }, { status: 400 });
     }
 
-    // === PAY-1: СВЕРКА СОБЫТИЯ С ПРОВАЙДЕРОМ ===
-    const pv = await verifyEventWithProvider(event, object, wireKop);
-    if (!pv.ok) {
-      console.error(
-        `[webhook] provider verification failed (event=${event}, object=${object.id}) — fail-closed 500`
-      );
-      return NextResponse.json({ error: "Provider verification failed" }, { status: 500 });
-    }
-    if (pv.skip) {
-      console.warn(`[webhook] provider mismatch (event=${event}, object=${object.id}) — skipped`);
-      return NextResponse.json({ success: true, skipped: pv.skip });
-    }
-
     // === IDEMPOTENCY CHECK ===
     // Платёж уже в финальном статусе — не обрабатываем повторно
     // (защита от двойных бонусов/писем при retry со стороны YooKassa).
     // pay4: refund.succeeded НЕ гейтится этим чеком — gейт с dbStatus="succeeded"
     // проглатывал ВСЕ refund-события по оплаченному платежу (payment.status
     // "succeeded" === dbStatus). Дедуп возвратов — по refund id в RPC 0039.
-    if (event !== "refund.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
+    // payment.succeeded нельзя завершать ранним idempotency-skip:
+    // после предыдущей попытки order CAS мог проиграть гонку отмене, и
+    // повторный webhook обязан повторно проверить заказ/инициировать возврат.
+    if (event !== "refund.succeeded" && event !== "payment.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
       const alreadyDone =
         payment.status === dbStatus ||
         (event === "refund.succeeded" && payment.status === "refunded");
@@ -469,7 +482,41 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "DB error" }, { status: 500 });
         }
         if (!escrowWinner || escrowWinner.length === 0) {
-          console.info(`[webhook] Order ${orderId} already in escrow (CAS), skipping side-effects.`);
+          // CAS мог проиграть не повторному webhook, а конкурентной отмене.
+          // Не считать это безопасной идемпотентностью: перечитываем заказ и,
+          // если он стал terminal, компенсируем уже подтверждённое списание.
+          const { data: latestOrder, error: latestOrderError } = await supabaseAdmin
+            .from("orders")
+            .select("id, number, status")
+            .eq("id", orderId)
+            .maybeSingle();
+          if (latestOrderError) {
+            console.error("[webhook] order re-read after escrow CAS failed:", latestOrderError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!latestOrder) {
+            return NextResponse.json({ error: "Order not found after escrow CAS" }, { status: 500 });
+          }
+          if (["CANCELLED", "REFUNDED", "COMPLETED"].includes(latestOrder.status)) {
+            const refundAmount = Math.max(
+              0,
+              Number(payment.amount) - Number(payment.refund_amount ?? 0)
+            );
+            if (refundAmount > 0) {
+              const lateRefund = await refundPayment(
+                providerPaymentId,
+                refundAmount,
+                `Автоматический возврат по отменённому заказу ${latestOrder.number || orderId}`,
+                `uezd_konditer:refund:late:${orderId}`
+              );
+              if (!lateRefund.success) {
+                console.error("[webhook] concurrent-cancel refund failed; YooKassa retry required:", lateRefund.error);
+                return NextResponse.json({ error: "Late cancellation refund failed" }, { status: 500 });
+              }
+            }
+            return NextResponse.json({ success: true, refundInitiated: refundAmount > 0 });
+          }
+          console.info(`[webhook] Order ${orderId} already transitioned (CAS), skipping side-effects.`);
           return NextResponse.json({ success: true, idempotent: true });
         }
 

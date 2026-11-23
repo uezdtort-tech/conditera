@@ -1,11 +1,25 @@
 name: PostgreSQL 17 migration Compose validation
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
       - work/pg17-compose-validation-and-import
     paths:
       - "docker-compose.supabase.yml"
+      - "docker-compose.yml"
+      - "docker-compose.dev.yml"
+      - "Caddyfile"
+      - "docker-compose.supabase-single-container.yml"
+      - "Dockerfile"
+      - "Dockerfile.supabase-runtime-poc"
+      - "scripts/deploy-single-container.sh"
+      - "scripts/prepare-production-env.sh"
+      - ".env.production.example"
+      - ".env.supabase-runtime.example"
       - "docker-compose.pg17-migration.yml"
       - "supabase/config.toml"
       - "supabase/migrations/**"
@@ -16,6 +30,16 @@ on:
   pull_request:
     paths:
       - "docker-compose.supabase.yml"
+      - "docker-compose.yml"
+      - "docker-compose.dev.yml"
+      - "Caddyfile"
+      - "docker-compose.supabase-single-container.yml"
+      - "Dockerfile"
+      - "Dockerfile.supabase-runtime-poc"
+      - "scripts/deploy-single-container.sh"
+      - "scripts/prepare-production-env.sh"
+      - ".env.production.example"
+      - ".env.supabase-runtime.example"
       - "docker-compose.pg17-migration.yml"
       - "supabase/config.toml"
       - "supabase/migrations/**"
@@ -31,16 +55,231 @@ jobs:
   validate-compose:
     runs-on: ubuntu-latest
     env:
-      POSTGRES_PASSWORD: ci-only-postgres-password
-      JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
-      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
-      SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
+      POSTGRES_PASSWORD: ci-only-postgres-password-at-least-32-characters
       ENCRYPTOR_KEY: 0123456789abcdef0123456789abcdef
       SECRET_KEY_BASE: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      PG_META_CRYPTO_KEY: 0123456789abcdef0123456789abcdef
+      REALTIME_DB_ENC_KEY: 0123456789abcdef
+      REALTIME_DB_ENC_KEY_GCM: 0123456789abcdef0123456789abcdef
+      N8N_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - name: Проверить доступность Docker Compose
         run: docker compose version
+      - name: Generate ephemeral 256-bit CI JWT secrets
+        shell: bash
+        run: |
+          echo "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
+          echo "JWT_REFRESH_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
+      - name: Проверить безопасный production overlay и deploy gate
+        run: |
+          set -Eeuo pipefail
+          trap 'rm -f .env.production .env.supabase-runtime .secrets/n8n_encryption_key; rmdir .secrets 2>/dev/null || true' EXIT
+          make_test_jwt() {
+            python3 - "$JWT_SECRET" "$1" <<'PY'
+          import base64, hashlib, hmac, json, sys, time
+          secret, role = sys.argv[1], sys.argv[2]
+          def b64(value):
+              return base64.urlsafe_b64encode(value).decode().rstrip("=")
+          header = b64(json.dumps({"alg":"HS256","typ":"JWT"}, separators=(",",":")).encode())
+          now = int(time.time())
+          payload = b64(json.dumps({"iss":"supabase-demo","role":role,"iat":now,"exp":now+315360000}, separators=(",",":")).encode())
+          message = f"{header}.{payload}"
+          signature = b64(hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest())
+          print(f"{message}.{signature}")
+          PY
+          }
+          ANON_KEY="$(make_test_jwt anon)"
+          SERVICE_ROLE_KEY="$(make_test_jwt service_role)"
+          echo "::add-mask::$ANON_KEY"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+          echo "ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+          VAPID_KEYS="$(node -e 'const {createECDH}=require("node:crypto"); const e=createECDH("prime256v1"); e.generateKeys(); console.log(e.getPublicKey(null,"uncompressed").toString("base64url")); console.log(e.getPrivateKey().toString("base64url"));')"
+          VAPID_PUBLIC_KEY="$(printf '%s\n' "$VAPID_KEYS" | sed -n '1p')"
+          VAPID_PRIVATE_KEY="$(printf '%s\n' "$VAPID_KEYS" | sed -n '2p')"
+          cat > .env.production <<EOF
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          JWT_SECRET=$JWT_SECRET
+          JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
+          TFA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          CRON_SECRET=ci-cron-secret-for-compose-validation
+          N8N_WEBHOOK_SECRET=ci-n8n-webhook-secret-for-compose-validation
+          BOT_SECRET=ci-bot-secret-for-compose-validation
+          IP_HASH_SALT=ci-ip-hash-salt
+          MEILI_MASTER_KEY=ci-meili-master-key-32-characters-long
+          SMTP_HOST=localhost
+          SMTP_PORT=587
+          SMTP_FROM=noreply@conditera.ru
+          SMTP_USER=ci-smtp-user
+          SMTP_PASSWORD=ci-smtp-password
+          SMTP_TLS_REJECT_UNAUTHORIZED=true
+          YOOKASSA_SHOP_ID=ci-shop-id
+          YOOKASSA_SECRET_KEY=live_ci_yookassa_secret
+          YANDEX_CLIENT_ID=ci-yandex-client
+          YANDEX_CLIENT_SECRET=ci-yandex-secret
+          YANDEX_OAUTH_REDIRECT=https://conditera.ru/api/auth/oauth/yandex/callback
+          VK_CLIENT_ID=ci-vk-client
+          VK_OAUTH_REDIRECT=https://conditera.ru/api/auth/oauth/vk/callback
+          TELEGRAM_BOT_TOKEN=123456:ci-telegram-token
+          TELEGRAM_CHANNEL_ID=@conditera-ci
+          TELEGRAM_WEBHOOK_SECRET=ci-telegram-webhook-secret
+          VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY
+          VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY
+          NEXT_PUBLIC_APP_URL=https://conditera.ru
+          NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
+          NEXT_PUBLIC_SUPPORT_EMAIL=ci-support@example.com
+          NEXT_PUBLIC_PRIVACY_EMAIL=ci-privacy@example.com
+          CONTACT_NOTIFICATION_EMAIL=ci-contact@example.com
+          NEXT_PUBLIC_LEGAL_NAME=CI ONLY — NOT A REAL LEGAL ENTITY
+          NEXT_PUBLIC_COMPANY_INN=0000000000
+          NEXT_PUBLIC_COMPANY_OGRN=0000000000000
+          NEXT_PUBLIC_LEGAL_ADDRESS=CI ONLY — NOT A REAL ADDRESS
+          SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
+          EXTERNAL_YANDEX_ENABLED=false
+          EXTERNAL_VK_ENABLED=false
+          ENCRYPTOR_KEY=$ENCRYPTOR_KEY
+          SECRET_KEY_BASE=$SECRET_KEY_BASE
+          SIMPLEX_BRIDGE_API_KEY=ci-simplex-bridge-key
+          EOF
+          cat > .env.supabase-runtime <<EOF
+          APP_DATABASE_PASSWORD=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          BACKUP_DATABASE_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+          N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY
+          SUPABASE_SECRET_KEY_BASE=$SECRET_KEY_BASE
+          PG_META_CRYPTO_KEY=$PG_META_CRYPTO_KEY
+          REALTIME_DB_ENC_KEY=$REALTIME_DB_ENC_KEY
+          REALTIME_DB_ENC_KEY_GCM=$REALTIME_DB_ENC_KEY_GCM
+          EOF
+          mkdir -p .secrets
+          printf '%s\n' "$N8N_ENCRYPTION_KEY" > .secrets/n8n_encryption_key
+          chmod 644 .secrets/n8n_encryption_key
+          bash -n scripts/deploy-single-container.sh
+          bash -n scripts/prepare-production-env.sh
+          tmpdir="$(mktemp -d)"
+          mkdir -p "$tmpdir/scripts"
+          cp scripts/prepare-production-env.sh "$tmpdir/scripts/"
+          cp .env.production.example .env.supabase-runtime.example .gitignore "$tmpdir/"
+          git -C "$tmpdir" init -q
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          first_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime" "$tmpdir/.secrets/n8n_encryption_key")"
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          second_hash="$(sha256sum "$tmpdir/.env.production" "$tmpdir/.env.supabase-runtime" "$tmpdir/.secrets/n8n_encryption_key")"
+          test "$first_hash" = "$second_hash"
+          python3 - "$tmpdir" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          root = Path(sys.argv[1])
+          runtime = {}
+          for line in (root / ".env.supabase-runtime").read_text().splitlines():
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  runtime[key] = value
+          secret_path = root / ".secrets/n8n_encryption_key"
+          secret = secret_path.read_bytes()
+          expected = runtime["N8N_ENCRYPTION_KEY"].encode() + b"\n"
+          if secret != expected:
+              raise SystemExit("n8n encryption secret file must contain exactly the generated key followed by one newline")
+          if not re.fullmatch(r"[0-9a-f]{64}", runtime["N8N_ENCRYPTION_KEY"]):
+              raise SystemExit("generated n8n encryption key must be 64 lowercase hex characters")
+          if (root / ".env.production").stat().st_mode & 0o777 != 0o600:
+              raise SystemExit(".env.production must be mode 0600")
+          if (root / ".env.supabase-runtime").stat().st_mode & 0o777 != 0o600:
+              raise SystemExit(".env.supabase-runtime must be mode 0600")
+          print("Production env bootstrap PASS: idempotent secrets, exact n8n key-file bytes, and restrictive permissions.")
+          PY
+          rm -rf "$tmpdir"
+
+          bash scripts/deploy-single-container.sh --config
+          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
+          docker compose -f docker-compose.dev.yml config --format json > /tmp/conditera-dev-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          services = json.loads(Path("/tmp/conditera-dev-compose.json").read_text())["services"]
+          assert services["db-dev"]["image"] == "postgres:17-alpine"
+          assert services["n8n-dev"]["image"] == "n8nio/n8n:2.48.7"
+          ports = services["n8n-dev"]["ports"]
+          assert len(ports) == 1 and ports[0].get("host_ip") == "127.0.0.1"
+          print("Development Compose PASS: PostgreSQL 17 and local-only n8n.")
+          PY
+      - name: Verify legacy demo JWT secrets are rotated and dependent keys are re-signed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          mkdir -p "$tmpdir/scripts"
+          cp scripts/prepare-production-env.sh .env.production.example .env.supabase-runtime.example .gitignore "$tmpdir/"
+          cp scripts/prepare-production-env.sh "$tmpdir/scripts/"
+          git -C "$tmpdir" init -q
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          python3 - "$tmpdir/.env.production" <<'PY'
+          import base64, hashlib, hmac, json, sys, time
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          values = {}
+          for line in path.read_text().splitlines():
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  values[key] = value
+
+          weak_access = "your-super-secret-jwt-token-with-at-least-32-characters-long"
+          weak_refresh = "ci-refresh-secret-which-is-not-used-for-real-auth"
+          def b64(data):
+              return base64.urlsafe_b64encode(data).decode().rstrip("=")
+          def jwt(role, secret):
+              header = b64(json.dumps({"alg":"HS256","typ":"JWT"}, separators=(",",":")).encode())
+              payload = b64(json.dumps({"iss":"supabase","role":role,"iat":int(time.time()),"exp":int(time.time())+315360000}, separators=(",",":")).encode())
+              message = header + "." + payload
+              signature = b64(hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest())
+              return message + "." + signature
+
+          values["JWT_SECRET"] = weak_access
+          values["JWT_REFRESH_SECRET"] = weak_refresh
+          values["NEXT_PUBLIC_SUPABASE_ANON_KEY"] = jwt("anon", weak_access)
+          values["SUPABASE_SERVICE_ROLE_KEY"] = jwt("service_role", weak_access)
+          path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+          PY
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          python3 - "$tmpdir/.env.production" <<'PY'
+          import base64, hashlib, hmac, json, re, sys
+          from pathlib import Path
+
+          values = {}
+          for line in Path(sys.argv[1]).read_text().splitlines():
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  values[key] = value
+
+          secret = values["JWT_SECRET"]
+          refresh = values["JWT_REFRESH_SECRET"]
+          if not re.fullmatch(r"[0-9a-fA-F]{64}", secret) or not re.fullmatch(r"[0-9a-fA-F]{64}", refresh):
+              raise SystemExit("legacy JWT secrets were not replaced with 256-bit hex values")
+          if secret == refresh:
+              raise SystemExit("rotated JWT access and refresh secrets must be distinct")
+
+          def decode(part):
+              return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+          def verify(token, expected_role):
+              header, payload, signature = token.split(".")
+              if decode(header).get("alg") != "HS256":
+                  raise SystemExit("rotated Supabase JWT has an unexpected algorithm")
+              message = header + "." + payload
+              expected = base64.urlsafe_b64encode(hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+              if not hmac.compare_digest(expected, signature):
+                  raise SystemExit("Supabase role JWT was not re-signed with the rotated JWT_SECRET")
+              if decode(payload).get("role") != expected_role:
+                  raise SystemExit(f"Supabase JWT role mismatch: expected {expected_role}")
+          verify(values["NEXT_PUBLIC_SUPABASE_ANON_KEY"], "anon")
+          verify(values["SUPABASE_SERVICE_ROLE_KEY"], "service_role")
+          print("PASS: legacy access/refresh secrets rotated; anon/service_role JWTs re-signed with the new access secret.")
+          PY
       - name: Проверить объединённую конфигурацию Supabase + PG17
         run: |
           docker compose \

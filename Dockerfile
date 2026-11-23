@@ -13,24 +13,17 @@
 # ====================================================================
 
 # --- Этап 1: Dependencies (all, including dev) ---
-FROM node:26-alpine AS deps
+FROM oven/bun:1.4.5-alpine AS deps
 WORKDIR /app
 
 # Копируем package файлы
-COPY package.json bun.lock* package-lock.json* ./
-COPY .npmrc* ./
+COPY package.json bun.lock ./.npmrc ./
 
 # Устанавливаем ВСЕ зависимости (нужны dev для build)
-RUN if [ -f package-lock.json ]; then \
-      npm ci --legacy-peer-deps; \
-    elif [ -f bun.lock ]; then \
-      npm install --legacy-peer-deps --no-package-lock; \
-    else \
-      npm install --legacy-peer-deps; \
-    fi
+RUN bun install --frozen-lockfile
 
 # --- Этап 2: Build ---
-FROM node:26-alpine AS builder
+FROM oven/bun:1.4.5-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -40,14 +33,70 @@ COPY . .
 ARG GIT_SHA=unknown
 ENV APP_VERSION=${GIT_SHA}
 
+# Next.js встраивает NEXT_PUBLIC_* значения в клиентские чанки ВО ВРЕМЯ build.
+# Runtime env_file не может исправить уже собранный JS, поэтому все публичные
+# production-параметры передаются отдельными build args через Compose.
+# Здесь нет серверных секретов: anon key является публичным RLS-ключом.
+ARG NEXT_PUBLIC_APP_URL=https://conditera.ru
+ARG NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=
+ARG NEXT_PUBLIC_YANDEX_METRIKA_ID=111432662
+ARG NEXT_PUBLIC_APP_NAME
+ARG NEXT_PUBLIC_APP_DESCRIPTION
+ARG NEXT_PUBLIC_SUPPORT_EMAIL=support@conditera.ru
+ARG NEXT_PUBLIC_INFO_EMAIL=info@conditera.ru
+ARG NEXT_PUBLIC_PRIVACY_EMAIL=privacy@conditera.ru
+ARG NEXT_PUBLIC_SUPPORT_PHONE
+ARG NEXT_PUBLIC_SUPPORT_PHONE_HREF=+78000000000
+ARG NEXT_PUBLIC_COMPANY_ADDRESS=
+ARG NEXT_PUBLIC_COMPANY_INN=
+ARG NEXT_PUBLIC_COMPANY_OGRN=
+ARG NEXT_PUBLIC_TELEGRAM_CHANNEL=@conditera
+ARG NEXT_PUBLIC_TELEGRAM_URL=https://t.me/conditera
+ARG NEXT_PUBLIC_VK_URL=
+ARG NEXT_PUBLIC_INSTAGRAM_URL=
+ARG NEXT_PUBLIC_LEGAL_NAME=
+ARG NEXT_PUBLIC_LEGAL_ADDRESS=
+ARG NEXT_PUBLIC_FOUNDED_YEAR=2024
+ARG NEXT_PUBLIC_CHAT_URL="/?XTransformPort=3030"
+ARG NEXT_PUBLIC_SENTRY_DSN=
+ARG SUPABASE_STORAGE_HOSTNAME=
+ARG SUPABASE_STORAGE_PROTOCOL=https
+
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
+    NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} \
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY} \
+    NEXT_PUBLIC_YANDEX_METRIKA_ID=${NEXT_PUBLIC_YANDEX_METRIKA_ID} \
+    NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME} \
+    NEXT_PUBLIC_APP_DESCRIPTION=${NEXT_PUBLIC_APP_DESCRIPTION} \
+    NEXT_PUBLIC_SUPPORT_EMAIL=${NEXT_PUBLIC_SUPPORT_EMAIL} \
+    NEXT_PUBLIC_INFO_EMAIL=${NEXT_PUBLIC_INFO_EMAIL} \
+    NEXT_PUBLIC_PRIVACY_EMAIL=${NEXT_PUBLIC_PRIVACY_EMAIL} \
+    NEXT_PUBLIC_SUPPORT_PHONE=${NEXT_PUBLIC_SUPPORT_PHONE} \
+    NEXT_PUBLIC_SUPPORT_PHONE_HREF=${NEXT_PUBLIC_SUPPORT_PHONE_HREF} \
+    NEXT_PUBLIC_COMPANY_ADDRESS=${NEXT_PUBLIC_COMPANY_ADDRESS} \
+    NEXT_PUBLIC_COMPANY_INN=${NEXT_PUBLIC_COMPANY_INN} \
+    NEXT_PUBLIC_COMPANY_OGRN=${NEXT_PUBLIC_COMPANY_OGRN} \
+    NEXT_PUBLIC_TELEGRAM_CHANNEL=${NEXT_PUBLIC_TELEGRAM_CHANNEL} \
+    NEXT_PUBLIC_TELEGRAM_URL=${NEXT_PUBLIC_TELEGRAM_URL} \
+    NEXT_PUBLIC_VK_URL=${NEXT_PUBLIC_VK_URL} \
+    NEXT_PUBLIC_INSTAGRAM_URL=${NEXT_PUBLIC_INSTAGRAM_URL} \
+    NEXT_PUBLIC_LEGAL_NAME=${NEXT_PUBLIC_LEGAL_NAME} \
+    NEXT_PUBLIC_LEGAL_ADDRESS=${NEXT_PUBLIC_LEGAL_ADDRESS} \
+    NEXT_PUBLIC_FOUNDED_YEAR=${NEXT_PUBLIC_FOUNDED_YEAR} \
+    NEXT_PUBLIC_CHAT_URL=${NEXT_PUBLIC_CHAT_URL} \
+    NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN} \
+    SUPABASE_STORAGE_HOSTNAME=${SUPABASE_STORAGE_HOSTNAME} \
+    SUPABASE_STORAGE_PROTOCOL=${SUPABASE_STORAGE_PROTOCOL}
+
 # Собираем Next.js со standalone-выходом (см. next.config.ts: output: "standalone")
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN bun run build
 
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
-# Использует postgres:16-alpine чтобы был psql клиент.
-FROM postgres:18-alpine AS migrator
+# Использует postgres:17-alpine чтобы версия клиентских утилит совпадала с целевой БД PG17.
+FROM postgres:17-alpine AS migrator
 WORKDIR /migrations
 
 # Копируем все SQL миграции
@@ -77,7 +126,7 @@ ENV HOSTNAME="0.0.0.0"
 # Создаём непривилегированного пользователя
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs && \
-    apk add --no-cache dumb-init openssl wget
+    apk add --no-cache dumb-init openssl wget postgresql17-client
 
 # Standalone-сборка Next.js содержит только нужные node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
@@ -102,7 +151,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/jose ./node_modules/
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
 
 # Создаём директорию для upload/backup
-RUN mkdir -p /app/upload /app/backups && chown -R nextjs:nodejs /app/upload /app/backups
+RUN mkdir -p /app/upload /app/backups /app/storage /app/supabase-storage && chown -R nextjs:nodejs /app/upload /app/backups /app/storage
 
 USER nextjs
 

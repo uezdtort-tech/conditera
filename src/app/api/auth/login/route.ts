@@ -27,7 +27,7 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
-import { createUserSession, setSessionRefreshJti } from "@/lib/session-registry";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 import { findDevFallbackUser } from "@/lib/dev-auth";
 import { isAdminConfigured } from "@/lib/supabase/admin";
 
@@ -316,6 +316,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // читающие getUserFromRequest(), работают без ручного Bearer-заголовка.
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json(
+        { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
+        { status: 403 }
+      );
+    }
+    if (error?.message === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json(
+        { error: "Не удалось безопасно проверить активные устройства. Повторите попытку позже." },
+        { status: 503 }
+      );
+    }
+    if (error?.message === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+      return NextResponse.json(
+        { error: "Вход с другого устройства завершился одновременно. Повторите вход." },
+        { status: 409 }
+      );
+    }
     console.error("Login error:", error?.message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },

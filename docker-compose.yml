@@ -1,6 +1,6 @@
 # ===== Docker Compose для "Уездного кондитера" (production) =====
 # Запуск: docker-compose up -d
-# Требует .env.production со всеми секретами (см. .env.example)
+# Требует .env.production и .env.supabase-runtime (см. соответствующие .example-файлы)
 # ====================================================================
 
 # Общие настройки логирования (ротация логов)
@@ -89,7 +89,7 @@ services:
       - SMTP_FROM=${SMTP_FROM:-Кондитера <noreply@conditera.ru>}
       - SMTP_REPLY_TO=${SMTP_REPLY_TO:-support@conditera.ru}
       - SMTP_SECURE=${SMTP_SECURE:-false}
-      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-false}
+      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
       - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
       - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
       # Контакты сайта (NEXT_PUBLIC_ — видны на клиенте)
@@ -143,7 +143,7 @@ services:
   # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
   # с резервной копией и контрольной сверкой данных.
   db:
-    image: postgres:18-alpine
+    image: postgres:17-alpine
     container_name: conditera-db
     <<: *default-restart
     environment:
@@ -154,7 +154,7 @@ services:
     expose:
       - "5432"
     volumes:
-      - postgres_data_v18:/var/lib/postgresql/data
+      - postgres_data_v17:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U conditera -d conditera"]
       interval: 10s
@@ -345,28 +345,42 @@ services:
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, сгорание бонусов) =====
   n8n:
-    image: n8nio/n8n:1.95.0
+    image: n8nio/n8n:2.48.7
     container_name: conditera-n8n
     <<: *default-restart
+    entrypoint: ["tini", "--", "/bin/sh", "/usr/local/bin/conditera-n8n-entrypoint.sh"]
     environment:
       - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - WEBHOOK_URL=https://${DOMAIN:-conditera.ru}/n8n/
+      - N8N_USER_FOLDER=/home/node
+      - N8N_ENCRYPTION_KEY_FILE=/run/secrets/n8n_encryption_key
+      - NODE_OPTIONS=--max-old-space-size=1024
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_NODES_EXCLUDE=["n8n-nodes-base.code","n8n-nodes-base.executeCommand","n8n-nodes-base.readWriteFile","n8n-nodes-base.readBinaryFiles","n8n-nodes-base.ssh"]
+      - N8N_COMMUNITY_PACKAGES_ENABLED=false
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_LOG_LEVEL=info
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - N8N_USE_WORKFLOW_PUBLICATION_SERVICE=true
+      - WEBHOOK_URL=http://n8n:5678/
+      - N8N_EDITOR_BASE_URL=http://127.0.0.1:5678/
       - GENERIC_TIMEZONE=Europe/Moscow
       - APP_URL=http://web:3000
       - CRON_SECRET=${CRON_SECRET:?CRON_SECRET required}
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_ADMIN_PASSWORD:?N8N_ADMIN_PASSWORD required}
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./n8n-workflows:/imports
+      - ./n8n-workflows:/imports:ro
+      - ./scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro
+    secrets:
+      - n8n_encryption_key
     depends_on:
       web:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      test: ["CMD-SHELL", "test -s /home/node/.n8n/.conditera-workflows.ready && wget -qO- http://localhost:5678/healthz/readiness || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -375,10 +389,10 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 1536M
         reservations:
           cpus: '0.25'
-          memory: 256M
+          memory: 384M
     logging: *default-logging
     networks:
       - conditera-net
@@ -511,7 +525,9 @@ services:
     container_name: conditera-mailu
     <<: *default-restart
     profiles: ["mail", "full"]
-    env_file: mailu.env
+    env_file:
+      - path: ./mailu.env
+        required: false
     environment:
       - DOMAIN=conditera.ru
       - HOSTNAMES=mail.conditera.ru
@@ -546,7 +562,7 @@ services:
       - conditera-net
 
 volumes:
-  postgres_data_v18:
+  postgres_data_v17:
   redis_data:
   caddy_data:
   caddy_config:
@@ -556,6 +572,10 @@ volumes:
   meili_data:
   mailu_data:
   mailu_mail:
+
+secrets:
+  n8n_encryption_key:
+    file: ./.secrets/n8n_encryption_key
 
 networks:
   conditera-net:

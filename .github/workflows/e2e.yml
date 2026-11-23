@@ -17,6 +17,10 @@
 
 name: E2E Tests
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 on:
   schedule:
     # Nightly в 03:00 UTC — полный smoke для всех браузеров
@@ -45,8 +49,18 @@ on:
       - main
       - develop
       - release/first-production-hardening
+      - fix/webhook-verify-before-ledger
     paths:
-      # Запускать только при изменениях в коде, который тестируется e2e
+      # Запускать при изменениях API, миграций, сценария полного заказа или самого workflow.
+      - ".github/workflows/e2e.yml"
+      - "supabase/migrations/**"
+      - "scripts/verify/order-lifecycle-verify.mjs"
+      - "scripts/verify/refund-concurrency-pg.mjs"
+      - "scripts/verify/p11-hardening-verify.mjs"
+      - "scripts/verify/ops-center-verify.mjs"
+      - "scripts/verify/product-media-verify.mjs"
+      - "scripts/verify/abandoned-cart-verify.mjs"
+      - "src/app/**"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
@@ -54,6 +68,13 @@ on:
       - "src/middleware.test.ts"
       - "src/lib/postgrest/**"
       - "tests/e2e/**"
+      - "n8n-workflows/**"
+      - "scripts/verify/n8n-workflows-verify.mjs"
+      - "scripts/n8n-entrypoint.sh"
+      - "scripts/prepare-production-env.sh"
+      - "scripts/deploy-single-container.sh"
+      - "docker-compose.yml"
+      - ".env.production.example"
       - "playwright.config.ts"
       - "package.json"
       - "bun.lock"
@@ -62,8 +83,17 @@ on:
     branches:
       - main
       - develop
+      - release/first-production-hardening
     paths:
       - ".github/workflows/e2e.yml"
+      - "scripts/verify/refund-concurrency-pg.mjs"
+      - "scripts/verify/order-lifecycle-verify.mjs"
+      - "scripts/verify/p11-hardening-verify.mjs"
+      - "scripts/verify/ops-center-verify.mjs"
+      - "scripts/verify/product-media-verify.mjs"
+      - "scripts/verify/abandoned-cart-verify.mjs"
+      - "supabase/migrations/**"
+      - "src/app/**"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
@@ -71,6 +101,13 @@ on:
       - "src/middleware.test.ts"
       - "src/lib/postgrest/**"
       - "tests/e2e/**"
+      - "n8n-workflows/**"
+      - "scripts/verify/n8n-workflows-verify.mjs"
+      - "scripts/n8n-entrypoint.sh"
+      - "scripts/prepare-production-env.sh"
+      - "scripts/deploy-single-container.sh"
+      - "docker-compose.yml"
+      - ".env.production.example"
       - "playwright.config.ts"
       - ".github/workflows/e2e.yml"
 
@@ -109,10 +146,22 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.5
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Verify n8n retention workflow contracts
+        run: bun scripts/verify/n8n-workflows-verify.mjs
+
+      - name: Run the complete Vitest unit and integration-test suite
+        run: bun run test
+
+      - name: Run ESLint with zero-warning budget
+        run: bun run lint --max-warnings=0
+
+      - name: Run TypeScript type checking
+        run: bun run typecheck
 
       - name: Cache Next.js build
         uses: actions/cache@v6
@@ -135,7 +184,7 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          NODE_ENV: ${{ env.NODE_ENV }}
+          NODE_ENV: production
 
       - name: Cache build for downstream
         uses: actions/cache@v6
@@ -148,11 +197,27 @@ jobs:
     name: Playwright (${{ matrix.browser }})
     runs-on: ubuntu-latest
     needs: setup
+    services:
+      postgres:
+        image: postgres:17.12
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: conditera
+          POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d conditera"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 30s
     strategy:
       fail-fast: false
       matrix:
         # По умолчанию только chromium, для nightly — все 3 браузера
-        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit"]')) || fromJson('["chromium"]') }}
+        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit","mobile-chrome"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit","mobile-chrome"]')) || fromJson('["chromium","mobile-chrome"]') }}
 
     steps:
       - uses: actions/checkout@v7
@@ -160,7 +225,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.5
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -171,16 +236,40 @@ jobs:
           path: .next
           key: nextjs-build-${{ github.sha }}
 
-      - name: Start embedded PostgreSQL, apply migrations and seed E2E data
+      - name: Provision Supabase compatibility administrator on PostgreSQL 17
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='supabase_admin'");
+            if (exists.rowCount === 0) await db.query("CREATE ROLE supabase_admin WITH LOGIN SUPERUSER");
+            const role = await db.query("SELECT rolsuper FROM pg_roles WHERE rolname='supabase_admin'");
+            if (role.rows[0]?.rolsuper !== true) throw new Error("supabase_admin must be a superuser in the vanilla PostgreSQL compatibility test");
+            console.log("PASS: Supabase compatibility administrator exists on PostgreSQL 17");
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
+
+      - name: Start PostgreSQL 17, apply migrations and seed E2E data
         run: bun run db:setup
         env:
           SEED_MODE: demo
-          DATABASE_URL: ${{ env.DATABASE_URL }}
+          DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NODE_ENV: ${{ env.NODE_ENV }}
+
+      - name: Verify concurrent YooKassa refunds on independent PostgreSQL sessions
+        run: node scripts/verify/refund-concurrency-pg.mjs
+        env:
+          PGURL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
 
       - name: Export generated Supabase service-role key to CI runtime
         shell: bash
@@ -194,7 +283,12 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Install Playwright browsers
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          if [ "${{ matrix.browser }}" = "mobile-chrome" ]; then
+            bunx playwright install --with-deps chromium
+          else
+            bunx playwright install --with-deps ${{ matrix.browser }}
+          fi
 
       - name: Start application
         run: |
@@ -218,7 +312,7 @@ jobs:
             exit 1
           fi
         env:
-          DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
+          DATABASE_URL: "postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
@@ -226,13 +320,31 @@ jobs:
           NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          NODE_ENV: ${{ env.NODE_ENV }}
+          NODE_ENV: production
 
       - name: Run full order lifecycle regression (registration → production → handoff)
         run: node scripts/verify/order-lifecycle-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          PGURL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
+
+      - name: Verify payment, checkout, idempotency, reviews and chat scenarios
+        run: node scripts/verify/p11-hardening-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
+
+      - name: Verify ops center, recipe breakdown and stock scenarios
+        run: node scripts/verify/ops-center-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
+
+      - name: Verify product media, moderation and storage scenarios
+        run: node scripts/verify/product-media-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera
 
       - name: Run Playwright tests
         run: bun run test:e2e -- --project=${{ matrix.browser }} ${{ github.event.inputs.grep && format('--grep "{0}"', github.event.inputs.grep) || '' }}
@@ -240,7 +352,7 @@ jobs:
           # Сервер уже запущен предыдущим шагом — запрещаем playwright
           # поднимать собственный webServer (иначе конфликт порта 3000)
           E2E_BASE_URL: http://localhost:3000
-          DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
+          DATABASE_URL: "postgresql://postgres:ci-postgres-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/conditera"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
@@ -290,7 +402,685 @@ jobs:
           path: test-results/**/test-video.webm
           retention-days: 7
 
-  # ===== 3. Отчёт в Slack/Telegram (опционально) =====
+  # ===== 3. Полный сценарный прогон на PostgreSQL 15 (временная совместимость) =====
+  pg15-scenarios:
+    name: PostgreSQL 15 — полный набор сценариев
+    runs-on: ubuntu-latest
+    needs: setup
+    services:
+      postgres:
+        image: postgres:15.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: conditera
+          POSTGRES_PORT: 5432
+          POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+          SEED_MODE: none
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d conditera"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 30s
+    env:
+      NODE_VERSION: "20"
+      DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:54322/conditera
+      JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
+      JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
+      TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
+      CRON_SECRET: e2e_test_cron_secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
+      SUPABASE_INTERNAL_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+      NODE_ENV: test
+      LOCAL_AUTH_STUB_ENABLED: "true"
+      E2E_PAYMENT_STUB_ENABLED: "true"
+      YANDEX_CLIENT_ID: e2e-yandex-client
+      YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
+      VK_CLIENT_ID: e2e-vk-client
+      VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
+      GOOGLE_CLIENT_ID: e2e-google-client
+      GOOGLE_CLIENT_SECRET: e2e-google-secret
+      GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Restore application build
+        uses: actions/cache@v6
+        with:
+          path: .next
+          key: nextjs-build-${{ github.sha }}
+
+      - name: Provision Supabase compatibility administrator on PostgreSQL 15
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='supabase_admin'");
+            if (exists.rowCount === 0) {
+              await db.query("CREATE ROLE supabase_admin WITH LOGIN SUPERUSER");
+            }
+            const role = await db.query("SELECT rolsuper FROM pg_roles WHERE rolname='supabase_admin'");
+            if (role.rows[0]?.rolsuper !== true) throw new Error("supabase_admin must be a superuser in the vanilla PostgreSQL compatibility test");
+            console.log("PASS: Supabase compatibility administrator exists");
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Apply all migrations and seed isolated PostgreSQL 15
+        run: bun run db:setup
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          SEED_MODE: demo
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NODE_ENV: test
+
+      - name: Assert PostgreSQL 15 version and complete migration ledger
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const version = (await db.query("SHOW server_version")).rows[0].server_version;
+            const migrations = await db.query("SELECT count(*)::int AS n FROM public.schema_migrations");
+            const count = migrations.rows[0].n;
+            console.log(`PostgreSQL server_version=${version}; applied app migrations=${count}`);
+            if (!version.startsWith("15.")) throw new Error(`Expected PostgreSQL 15, got ${version}`);
+            if (count < 81) throw new Error(`Expected at least 81 app migrations, got ${count}`);
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Create least-privilege PostgreSQL 15 backup role
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export BACKUP_DATABASE_PASSWORD
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const password = process.env.BACKUP_DATABASE_PASSWORD;
+          if (!/^[a-f0-9]{64}$/.test(password || "")) throw new Error("Invalid generated backup password");
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup'");
+            if (exists.rowCount === 0) await db.query("CREATE ROLE conditera_backup LOGIN");
+            await db.query(`ALTER ROLE conditera_backup WITH LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS`);
+            await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_backup");
+            await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_backup");
+            await db.query("GRANT pg_read_all_data TO conditera_backup");
+          } finally {
+            await db.end();
+          }
+          NODE
+          echo "BACKUP_DATABASE_PASSWORD=$BACKUP_DATABASE_PASSWORD" >> "$GITHUB_ENV"
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Export generated Supabase service-role key
+        shell: bash
+        run: |
+          KEY="$(sed -n 's/^SUPABASE_SERVICE_ROLE_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$KEY" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY was not generated by db:setup"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Start application on PostgreSQL 15
+        run: |
+          bun run start > /tmp/conditera-pg15-next.log 2>&1 &
+          echo $! > /tmp/conditera-pg15-next.pid
+          READY=0
+          for i in {1..30}; do
+            STATUS="$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health || true)"
+            if [ "$STATUS" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            tail -n 250 /tmp/conditera-pg15-next.log || true
+            exit 1
+          fi
+        env:
+          NODE_ENV: production
+
+      - name: Verify concurrent refunds on PostgreSQL 15
+        run: node scripts/verify/refund-concurrency-pg.mjs
+        env:
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify complete order lifecycle on PostgreSQL 15
+        run: node scripts/verify/order-lifecycle-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify checkout, idempotency, reviews and chat on PostgreSQL 15
+        run: node scripts/verify/p11-hardening-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify operations, recipes and stock on PostgreSQL 15
+        run: node scripts/verify/ops-center-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify product media and moderation on PostgreSQL 15
+        run: node scripts/verify/product-media-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Run Playwright suite on PostgreSQL 15
+        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium --project=mobile-chrome
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NODE_ENV: test
+          CI: "true"
+
+      - name: Print PostgreSQL 15 E2E logs on failure
+        if: failure() || cancelled()
+        run: tail -n 500 /tmp/conditera-pg15-next.log || true
+
+  pg17-scenarios:
+    name: PostgreSQL 17 — полный набор сценариев
+    runs-on: ubuntu-latest
+    needs: setup
+    services:
+      postgres:
+        image: postgres:17.12
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: conditera
+          POSTGRES_PORT: 5432
+          POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+          SEED_MODE: none
+        ports:
+          - 54323:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d conditera"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 30s
+    env:
+      NODE_VERSION: "20"
+      DATABASE_URL: postgresql://postgres:ci-postgres-password@127.0.0.1:54323/conditera
+      APP_DATABASE_PASSWORD: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+      BACKUP_DATABASE_PASSWORD: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
+      JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
+      TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
+      CRON_SECRET: e2e_test_cron_secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
+      SUPABASE_INTERNAL_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+      NODE_ENV: test
+      LOCAL_AUTH_STUB_ENABLED: "true"
+      E2E_PAYMENT_STUB_ENABLED: "true"
+      YANDEX_CLIENT_ID: e2e-yandex-client
+      YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
+      VK_CLIENT_ID: e2e-vk-client
+      VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
+      GOOGLE_CLIENT_ID: e2e-google-client
+      GOOGLE_CLIENT_SECRET: e2e-google-secret
+      GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Restore application build
+        uses: actions/cache@v6
+        with:
+          path: .next
+          key: nextjs-build-${{ github.sha }}
+
+      - name: Provision Supabase compatibility administrator on PostgreSQL 17
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='supabase_admin'");
+            if (exists.rowCount === 0) await db.query("CREATE ROLE supabase_admin WITH LOGIN SUPERUSER");
+            const role = await db.query("SELECT rolsuper FROM pg_roles WHERE rolname='supabase_admin'");
+            if (role.rows[0]?.rolsuper !== true) throw new Error("supabase_admin must be a superuser in the vanilla PostgreSQL compatibility test");
+            console.log("PASS: Supabase compatibility administrator exists on PostgreSQL 17");
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Apply all migrations and seed isolated PostgreSQL 17
+        run: bun run db:setup
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          SEED_MODE: demo
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NODE_ENV: test
+
+      - name: Assert PostgreSQL 17 version and exact migration ledger
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          import { readdirSync } from "node:fs";
+          const expected = readdirSync("supabase/migrations").filter((name) => name.endsWith(".sql")).sort();
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const version = (await db.query("SHOW server_version")).rows[0].server_version;
+            const rows = await db.query("SELECT filename FROM public.schema_migrations ORDER BY filename");
+            const actual = rows.rows.map((row) => row.filename).sort();
+            const missing = expected.filter((name) => !actual.includes(name));
+            const unexpected = actual.filter((name) => !expected.includes(name));
+            console.log(`PostgreSQL server_version=${version}; applied app migrations=${actual.length}; repository migrations=${expected.length}`);
+            if (!version.startsWith("17.")) throw new Error(`Expected PostgreSQL 17, got ${version}`);
+            if (missing.length || unexpected.length || actual.length !== expected.length) {
+              throw new Error(JSON.stringify({ missing, unexpected, expected: expected.length, actual: actual.length }));
+            }
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Provision the production-equivalent conditera_app role on PostgreSQL 17
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='conditera_app'");
+            const statement = exists.rowCount
+              ? "ALTER ROLE conditera_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD %L"
+              : "CREATE ROLE conditera_app WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS PASSWORD %L";
+            const roleSql = (await db.query("SELECT format($1::text, $2::text)", [statement, process.env.APP_DATABASE_PASSWORD])).rows[0].format;
+            await db.query(roleSql);
+            await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_app");
+            // The Next.js PostgREST shim connects as conditera_app and uses
+            // SET LOCAL ROLE according to the verified JWT role claim.
+            await db.query("GRANT anon, authenticated, service_role TO conditera_app");
+            await db.query("GRANT USAGE ON SCHEMA public TO conditera_app");
+            await db.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera_app");
+            await db.query("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app");
+            await db.query("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO conditera_app");
+            await db.query("ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO conditera_app");
+            const result = await db.query(
+              "SELECT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND rolbypassrls AS valid FROM pg_roles WHERE rolname='conditera_app'"
+            );
+            if (result.rows[0]?.valid !== true) throw new Error("conditera_app does not match production role attributes");
+            console.log("PASS: conditera_app is non-superuser, BYPASSRLS, and has production-equivalent public-schema grants");
+            const appUrl = new URL(process.env.DATABASE_URL);
+            appUrl.username = "conditera_app";
+            appUrl.password = process.env.APP_DATABASE_PASSWORD;
+            const appDb = new Client({ connectionString: appUrl.toString() });
+            await appDb.connect();
+            try {
+              const access = await appDb.query("SELECT current_user, has_schema_privilege(current_user, 'public', 'USAGE') AS schema_usage, has_table_privilege(current_user, 'public.schema_migrations', 'SELECT') AS ledger_select");
+              if (access.rows[0]?.current_user !== "conditera_app" || !access.rows[0]?.schema_usage || !access.rows[0]?.ledger_select) {
+                throw new Error("conditera_app cannot connect and read the migrated public schema");
+              }
+              for (const role of ["anon", "authenticated", "service_role"]) {
+                await appDb.query(`SET ROLE ${role}`);
+                const current = await appDb.query("SELECT current_user");
+                if (current.rows[0]?.current_user !== role) throw new Error(`conditera_app cannot SET ROLE ${role}`);
+                await appDb.query("RESET ROLE");
+              }
+              console.log("PASS: conditera_app authenticates, reads public schema and can SET ROLE anon/authenticated/service_role");
+            } finally {
+              await appDb.end();
+            }
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          APP_DATABASE_PASSWORD: ${{ env.APP_DATABASE_PASSWORD }}
+
+      - name: Provision isolated read-only backup role on PostgreSQL 17
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const exists = await db.query("SELECT 1 FROM pg_roles WHERE rolname='conditera_backup'");
+            const statement = exists.rowCount
+              ? "ALTER ROLE conditera_backup WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L"
+              : "CREATE ROLE conditera_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT BYPASSRLS CONNECTION LIMIT 3 PASSWORD %L";
+            const roleSql = (await db.query("SELECT format($1::text, $2::text)", [statement, process.env.BACKUP_DATABASE_PASSWORD])).rows[0].format;
+            await db.query(roleSql);
+            await db.query("GRANT CONNECT ON DATABASE conditera TO conditera_backup");
+            await db.query("GRANT pg_read_all_data TO conditera_backup");
+            const role = await db.query(
+              "SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls FROM pg_roles WHERE rolname='conditera_backup'"
+            );
+            const r = role.rows[0];
+            if (!r?.rolcanlogin || r.rolsuper || r.rolcreatedb || r.rolcreaterole || !r.rolbypassrls) {
+              throw new Error("Backup role does not satisfy the least-privilege login/BYPASSRLS contract");
+            }
+            console.log("PASS: dedicated backup role provisioned with pg_read_all_data and no elevated admin privileges");
+            const backupUrl = new URL(process.env.DATABASE_URL);
+            backupUrl.username = "conditera_backup";
+            backupUrl.password = process.env.BACKUP_DATABASE_PASSWORD;
+            const backupDb = new Client({ connectionString: backupUrl.toString() });
+            await backupDb.connect();
+            try {
+              const readCheck = await backupDb.query("SELECT count(*)::int AS n FROM public.schema_migrations");
+              const writeCheck = await backupDb.query("SELECT has_table_privilege(current_user, 'public.profiles', 'INSERT') AS can_insert");
+              if (!Number.isInteger(readCheck.rows[0]?.n) || writeCheck.rows[0]?.can_insert !== false) {
+                throw new Error("conditera_backup does not satisfy read-only database access");
+              }
+              console.log("PASS: conditera_backup connects, reads migration ledger and cannot insert");
+            } finally {
+              await backupDb.end();
+            }
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          BACKUP_DATABASE_PASSWORD: ${{ env.BACKUP_DATABASE_PASSWORD }}
+
+      - name: Verify migration setup is repeatable on clean PG17
+        run: |
+          bun run db:setup
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          import { readdirSync } from "node:fs";
+          const expected = readdirSync("supabase/migrations").filter((name) => name.endsWith(".sql")).sort();
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const version = (await db.query("SHOW server_version")).rows[0].server_version;
+            const rows = await db.query("SELECT filename FROM public.schema_migrations ORDER BY filename");
+            const actual = rows.rows.map((row) => row.filename).sort();
+            if (!version.startsWith("17.")) throw new Error(`Expected PostgreSQL 17 after repeat setup, got ${version}`);
+            if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("Migration ledger changed or is incomplete after second db:setup");
+            console.log(`PASS: repeat setup on PostgreSQL ${version}; ${actual.length} migrations remain consistent`);
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          SEED_MODE: none
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NODE_ENV: test
+
+      - name: Export generated Supabase service-role key
+        shell: bash
+        run: |
+          KEY="$(sed -n 's/^SUPABASE_SERVICE_ROLE_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$KEY" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY was not generated by db:setup"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Build the production Docker image for PostgreSQL 17 acceptance
+        run: |
+          set -Eeuo pipefail
+          docker build --target runner --tag conditera-web:pg17-ci \
+            --build-arg GIT_SHA="$GITHUB_SHA" \
+            --build-arg NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            --build-arg NEXT_PUBLIC_YANDEX_METRIKA_ID=111432662 .
+
+      - name: Start production container against PostgreSQL 17
+        run: |
+          set -Eeuo pipefail
+          docker rm -f conditera-web-pg17-ci >/dev/null 2>&1 || true
+          mkdir -p "$GITHUB_WORKSPACE/storage/backup-smoke" "$GITHUB_WORKSPACE/supabase-storage/backup-smoke"
+          chmod 0777 "$GITHUB_WORKSPACE/storage" "$GITHUB_WORKSPACE/supabase-storage"
+          printf 'conditera-product-media-backup-smoke\n' > "$GITHUB_WORKSPACE/storage/backup-smoke/sentinel.txt"
+          printf 'conditera-supabase-storage-backup-smoke\n' > "$GITHUB_WORKSPACE/supabase-storage/backup-smoke/sentinel.txt"
+          chmod 0644 "$GITHUB_WORKSPACE/storage/backup-smoke/sentinel.txt" "$GITHUB_WORKSPACE/supabase-storage/backup-smoke/sentinel.txt"
+          docker run -d --name conditera-web-pg17-ci --network host \
+            -e NODE_ENV=production \
+            -e PORT=3000 \
+            -e HOSTNAME=0.0.0.0 \
+            -e DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
+            -e DIRECT_DATABASE_URL="postgresql://conditera_app:${APP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
+            -e BACKUP_DATABASE_PASSWORD="$BACKUP_DATABASE_PASSWORD" \
+            -e BACKUP_DATABASE_URL="postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@127.0.0.1:54323/conditera" \
+            -e BACKUP_DIR=/app/backups \
+            -e PRODUCT_MEDIA_ROOT=/app/storage \
+            -e SUPABASE_STORAGE_BACKUP_ROOT=/app/supabase-storage \
+            -e NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
+            -e NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+            -e NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            -e SUPABASE_INTERNAL_URL="$SUPABASE_INTERNAL_URL" \
+            -e SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
+            -e JWT_SECRET="$JWT_SECRET" \
+            -e JWT_REFRESH_SECRET="$JWT_REFRESH_SECRET" \
+            -e TFA_ENCRYPTION_KEY="$TFA_ENCRYPTION_KEY" \
+            -e CRON_SECRET="$CRON_SECRET" \
+            -e LOCAL_AUTH_STUB_ENABLED=true \
+            -e E2E_PAYMENT_STUB_ENABLED=true \
+            -e YANDEX_CLIENT_ID="$YANDEX_CLIENT_ID" \
+            -e YANDEX_OAUTH_REDIRECT="$YANDEX_OAUTH_REDIRECT" \
+            -e VK_CLIENT_ID="$VK_CLIENT_ID" \
+            -e VK_OAUTH_REDIRECT="$VK_OAUTH_REDIRECT" \
+            -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+            -e GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+            -e GOOGLE_OAUTH_REDIRECT="$GOOGLE_OAUTH_REDIRECT" \
+            -e NEXT_PUBLIC_YANDEX_METRIKA_ID=111432662 \
+            -e CI=true \
+            -v "$GITHUB_WORKSPACE/storage:/app/storage" \
+            -v "$GITHUB_WORKSPACE/supabase-storage:/app/supabase-storage:ro" \
+            conditera-web:pg17-ci
+          READY=0
+          for i in {1..45}; do
+            STATUS="$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health || true)"
+            if [ "$STATUS" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            docker logs --tail 300 conditera-web-pg17-ci || true
+            exit 1
+          fi
+          PG_DUMP_VERSION="$(docker exec conditera-web-pg17-ci pg_dump --version)"
+          echo "$PG_DUMP_VERSION"
+          echo "$PG_DUMP_VERSION" | grep -Eq 'PostgreSQL\) 17\.'
+
+      - name: Verify concurrent refunds on PostgreSQL 17
+        run: node scripts/verify/refund-concurrency-pg.mjs
+        env:
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify complete order lifecycle on PostgreSQL 17
+        run: node scripts/verify/order-lifecycle-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify abandoned-cart persistence, retries and opt-out on PostgreSQL 17
+        run: node scripts/verify/abandoned-cart-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+
+      - name: Verify checkout, idempotency, reviews and chat on PostgreSQL 17
+        run: node scripts/verify/p11-hardening-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify product media and moderation on PostgreSQL 17
+        run: node scripts/verify/product-media-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Run Playwright suite on PostgreSQL 17
+        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium --project=mobile-chrome
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NODE_ENV: test
+          CI: "true"
+
+      - name: Verify operations, recipes, stock and production backup on PostgreSQL 17
+        run: node scripts/verify/ops-center-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+          VERIFY_BACKUP: "1"
+
+      - name: Verify complete PostgreSQL and media backup set
+        run: |
+          set -Eeuo pipefail
+          MANIFEST_PATH="$(docker exec conditera-web-pg17-ci sh -c 'find /app/backups -maxdepth 1 -type f -name "backup-*.json" | head -n 1')"
+          test -n "$MANIFEST_PATH"
+          PREFIX="$(basename "$MANIFEST_PATH" .json)"
+          DB_BACKUP_PATH="/app/backups/$PREFIX.sql.gz"
+          PRODUCT_MEDIA_BACKUP_PATH="/app/backups/$PREFIX.product-media.tar.gz"
+          SUPABASE_STORAGE_BACKUP_PATH="/app/backups/$PREFIX.supabase-storage.tar.gz"
+          docker exec conditera-web-pg17-ci gzip -t "$DB_BACKUP_PATH"
+          docker exec conditera-web-pg17-ci tar -tzf "$PRODUCT_MEDIA_BACKUP_PATH" >/dev/null
+          docker exec conditera-web-pg17-ci tar -tzf "$SUPABASE_STORAGE_BACKUP_PATH" >/dev/null
+          echo "PASS: database, product-media and Supabase Storage archives are valid"
+
+      - name: Restore PostgreSQL 17 and media backups into clean shadow locations
+        run: |
+          set -Eeuo pipefail
+          MANIFEST_PATH="$(docker exec conditera-web-pg17-ci sh -c 'find /app/backups -maxdepth 1 -type f -name "backup-*.json" | head -n 1')"
+          test -n "$MANIFEST_PATH"
+          PREFIX="$(basename "$MANIFEST_PATH" .json)"
+          DB_BACKUP_PATH="/app/backups/$PREFIX.sql.gz"
+          PRODUCT_MEDIA_BACKUP_PATH="/app/backups/$PREFIX.product-media.tar.gz"
+          SUPABASE_STORAGE_BACKUP_PATH="/app/backups/$PREFIX.supabase-storage.tar.gz"
+          # Restore is intentionally performed by the database administrator, not the
+          # production application role (conditera_app has NOCREATEDB by design).
+          DB_USER=postgres
+          DB_PASSWORD=ci-postgres-password
+          docker exec -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
+            createdb -h 127.0.0.1 -p 54323 -U "$DB_USER" -T template0 conditera_restore_smoke
+          docker exec conditera-web-pg17-ci sh -c "gzip -dc '$DB_BACKUP_PATH'" |
+            docker exec -i -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
+              psql -h 127.0.0.1 -p 54323 -U "$DB_USER" -d conditera_restore_smoke \
+                -v ON_ERROR_STOP=1 --single-transaction
+          docker exec conditera-web-pg17-ci mkdir -p /tmp/restore-product-media /tmp/restore-supabase-storage
+          docker exec conditera-web-pg17-ci tar -xzf "$PRODUCT_MEDIA_BACKUP_PATH" -C /tmp/restore-product-media
+          docker exec conditera-web-pg17-ci tar -xzf "$SUPABASE_STORAGE_BACKUP_PATH" -C /tmp/restore-supabase-storage
+          docker exec conditera-web-pg17-ci sh -c 'test "$(cat /tmp/restore-product-media/backup-smoke/sentinel.txt)" = "conditera-product-media-backup-smoke"'
+          docker exec conditera-web-pg17-ci sh -c 'test "$(cat /tmp/restore-supabase-storage/backup-smoke/sentinel.txt)" = "conditera-supabase-storage-backup-smoke"'
+          RESTORE_DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:54323/conditera_restore_smoke" \
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const source = new Client({ connectionString: process.env.DATABASE_URL });
+          const restored = new Client({ connectionString: process.env.RESTORE_DATABASE_URL });
+          const tables = ["profiles", "orders", "products", "maintenance_logs", "schema_migrations"];
+          await Promise.all([source.connect(), restored.connect()]);
+          try {
+            for (const table of tables) {
+              const [a, b] = await Promise.all([
+                source.query(`SELECT count(*)::int AS n FROM public."${table}"`),
+                restored.query(`SELECT count(*)::int AS n FROM public."${table}"`),
+              ]);
+              if (a.rows[0].n !== b.rows[0].n) {
+                throw new Error(`Restore row-count mismatch for ${table}: ${a.rows[0].n} != ${b.rows[0].n}`);
+              }
+              console.log(`PASS: restored ${table}: ${b.rows[0].n} rows`);
+            }
+            const [sourceVersion, restoredVersion] = await Promise.all([
+              source.query("SHOW server_version"),
+              restored.query("SHOW server_version"),
+            ]);
+            if (!sourceVersion.rows[0].server_version.startsWith("17.") ||
+                !restoredVersion.rows[0].server_version.startsWith("17.")) {
+              throw new Error("Backup restore did not remain on PostgreSQL 17");
+            }
+          } finally {
+            await Promise.all([source.end(), restored.end()]);
+          }
+          NODE
+
+      - name: Print PostgreSQL 17 production container logs on failure
+        if: failure() || cancelled()
+        run: docker logs --tail 500 conditera-web-pg17-ci || true
+
+      - name: Remove PostgreSQL 17 production container
+        if: always()
+        run: docker rm -f conditera-web-pg17-ci >/dev/null 2>&1 || true
+
+  # ===== 4. Отчёт в Slack/Telegram (опционально) =====
   notify:
     name: Notify on failure
     runs-on: ubuntu-latest

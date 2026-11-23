@@ -96,13 +96,16 @@ export async function GET(
     const offset =
       Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
 
+    // Do not rely on a PostgREST embedded relationship here: schema-cache
+    // refresh can lag immediately after a clean migration. Load media and
+    // product snapshots independently, then join by the explicit FK value.
     let query = supabaseAdmin
       .from("product_media")
-      .select("product_id, *, product:products(id,title,slug,status)");
+      .select("*");
     if (status !== "all") {
       query = query.eq("status", status);
     }
-    const { data, error } = await query
+    const { data: mediaRows, error } = await query
       .order("uploaded_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -110,6 +113,26 @@ export async function GET(
       console.error("[admin/product-media] query error:", error.message);
       return jsonError(500, "INTERNAL_ERROR", "Не удалось получить очередь");
     }
+
+    const productIds = [...new Set((mediaRows || []).map((row) => row.product_id).filter(Boolean))];
+    const productsById = new Map<string, EmbeddedProduct>();
+    if (productIds.length > 0) {
+      const { data: products, error: productsError } = await supabaseAdmin
+        .from("products")
+        .select("id, title, slug, status")
+        .in("id", productIds);
+      if (productsError) {
+        console.error("[admin/product-media] product snapshot query error:", productsError.message);
+        return jsonError(500, "INTERNAL_ERROR", "Не удалось получить товары очереди");
+      }
+      for (const product of products || []) {
+        productsById.set(product.id, product as EmbeddedProduct);
+      }
+    }
+    const items = (mediaRows || []).map((row) => ({
+      ...row,
+      product: productsById.get(row.product_id) || null,
+    }));
 
     // total — отдельным count-запросом (тот же фильтр статуса)
     const pool = getPool();
@@ -124,7 +147,7 @@ export async function GET(
           );
 
     return NextResponse.json({
-      items: (data as AdminMediaItem[]) ?? [],
+      items: (items as AdminMediaItem[]) ?? [],
       total: countResult.rows[0]?.n ?? 0,
       limit,
       offset,

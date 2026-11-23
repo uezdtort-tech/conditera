@@ -75,12 +75,16 @@ async function api(method, path, { token, body, headers: extraHeaders } = {}) {
   return { status: res.status, json };
 }
 
+const sessionTokens = [];
+
 async function login(email) {
   const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
-  return res.json.accessToken;
+  const token = res.json.accessToken;
+  sessionTokens.push(token);
+  return token;
 }
 
 const rand = () => Math.floor(Math.random() * 1e9).toString(36);
@@ -92,6 +96,9 @@ const cleanup = {
   notificationDedupKeys: [],
   chatRoomIds: [],
   productPriceOriginal: null,
+  productRecipeOriginal: null,
+  inventoryOriginal: null,
+  recipeId: null,
 };
 
 /** Создать тестовый заказ напрямую в БД (для webhook-кейсов) */
@@ -102,7 +109,7 @@ async function seedOrderWithPayment({ total, paymentAmount, number }) {
         status, payment_status, payment_method, delivery_address, delivery_city,
         delivery_date, delivery_type, metadata, paid_at)
      VALUES ($1, $2::uuid, $3::uuid, $4, 0, 0, $4, 'PENDING', 'pending', 'card',
-             'ул. P11verify, 1', 'Москва', CURRENT_DATE + 2, 'delivery',
+             'ул. P11verify, 1', 'Москва', CURRENT_DATE + 30, 'delivery',
              jsonb_build_object('test','p11-verify'), NULL)
      RETURNING id::text`,
     [number, CUSTOMER_USER_ID, CONFECTIONER_USER_ID, total]
@@ -252,13 +259,72 @@ async function main() {
     JSON.stringify({ webhook: cancelledLedgerWebhook.json, state: cancelledLedgerState })
   );
 
+  // Для checkout нужен реальный рецепт и доступный складской ингредиент.
+  // Демонстрационный Napoleon намеренно не связан с рецептом, поэтому не должен
+  // приниматься в заказ без настройки кондитера. Создаём изолированный fixture.
+  const productBefore = await client.query(
+    `SELECT recipe_id::text, production_time_hours FROM public.products WHERE id = $1::uuid`,
+    [PRODUCT_ID]
+  );
+  if (productBefore.rowCount !== 1) throw new Error(`checkout fixture product missing: ${PRODUCT_ID}`);
+  cleanup.productRecipeOriginal = {
+    id: PRODUCT_ID,
+    recipeId: productBefore.rows[0].recipe_id,
+    productionTimeHours: productBefore.rows[0].production_time_hours,
+  };
+  const stockIngredient = await client.query(
+    `SELECT id::text, name, unit, quantity
+       FROM public.inventory_items
+      WHERE owner_id = $1::uuid AND is_active IS TRUE AND quantity > 0
+      ORDER BY id
+      LIMIT 1`,
+    [CONFECTIONER_USER_ID]
+  );
+  if (stockIngredient.rowCount !== 1) throw new Error("checkout fixture requires one active in-stock ingredient");
+  const ingredient = stockIngredient.rows[0];
+  const unitText = String(ingredient.unit ?? "");
+  const ingredientQty = /^(кг|kg)$/i.test(unitText) ? 0.001 : 1;
+  // Checkout requests 12 pieces. The demo seed may contain a positive but
+  // insufficient quantity (e.g. 5 l), which makes an idempotency test fail
+  // before reaching the idempotency contract. Isolate the fixture stock and
+  // restore the exact original quantity in cleanup.
+  cleanup.inventoryOriginal = { id: ingredient.id, quantity: ingredient.quantity };
+  await client.query(
+    `UPDATE public.inventory_items
+        SET quantity = GREATEST(quantity, $2::numeric)
+      WHERE id = $1::uuid`,
+    [ingredient.id, ingredientQty * 12 + 1],
+  );
+  const recipe = await client.query(
+    `INSERT INTO public.recipes
+       (author_id, title, description, content, difficulty, servings, slug, status,
+        published_at, prep_time_minutes, cook_time_minutes)
+     VALUES ($1::uuid, 'P11 checkout fixture', 'Изолированный рецепт для проверки checkout',
+             'Тестовая рецептура', 'easy', 1, $2, 'published', now(), 60, 60)
+     RETURNING id::text`,
+    [CONFECTIONER_USER_ID, `p11-checkout-${rand()}`]
+  );
+  cleanup.recipeId = recipe.rows[0].id;
+  await client.query(
+    `INSERT INTO public.recipe_ingredients
+       (recipe_id, name, qty, unit, inventory_item_id, sort_order)
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid, 1)`,
+    [cleanup.recipeId, ingredient.name, ingredientQty, ingredient.unit, ingredient.id]
+  );
+  await client.query(
+    `UPDATE public.products
+        SET recipe_id = $2::uuid, updated_at = now()
+      WHERE id = $1::uuid`,
+    [PRODUCT_ID, cleanup.recipeId]
+  );
+
   // === 2. CHECKOUT IDEMPOTENCY (§8) ===
   section("Checkout: параллельные POST с одним Idempotency-Key");
-  const today = new Date(Date.now() + 2 * 86400_000);
+  const today = new Date(Date.now() + 14 * 86400_000);
   const deliveryDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const idemKey = `p11-verify-${rand()}`;
   const checkoutBody = {
-    cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
+    cartItems: [{ product_id: PRODUCT_ID, quantity: 12 }],
     deliveryCity: "Москва",
     deliveryAddress: "ул. Тестовая, 5, кв 1",
     deliveryType: "delivery",
@@ -270,8 +336,8 @@ async function main() {
     api("POST", "/api/checkout", { token: customer, body: checkoutBody, headers: { "Idempotency-Key": idemKey } }),
     api("POST", "/api/checkout", { token: customer, body: checkoutBody, headers: { "Idempotency-Key": idemKey } }),
   ]);
-  assert("checkout #1 → 200/201", [200, 201].includes(c1.status), `got ${c1.status} ${JSON.stringify(c1.json).slice(0, 140)}`);
-  assert("checkout #2 → 200/201 (replay, не ошибка)", [200, 201].includes(c2.status), `got ${c2.status} ${JSON.stringify(c2.json).slice(0, 140)}`);
+  assert("checkout #1 → 200/201", [200, 201].includes(c1.status), `got ${c1.status} ${JSON.stringify(c1.json).slice(0, 600)}`);
+  assert("checkout #2 → 200/201 (replay, не ошибка)", [200, 201].includes(c2.status), `got ${c2.status} ${JSON.stringify(c2.json).slice(0, 600)}`);
   const sameOrder = c1.json?.orderId && c1.json.orderId === c2.json.orderId;
   assert("оба ответа вернули ОДИН orderId", Boolean(sameOrder), `${c1.json?.orderId} vs ${c2.json?.orderId}`);
   if (c1.json?.orderId) cleanup.orderIds.push(c1.json.orderId);
@@ -365,6 +431,12 @@ async function main() {
       reviewDupBlocked = e.code === "23505";
     }
     assert("второй отзыв на тот же заказ → 23505 (uq_product_reviews_order)", reviewDupBlocked);
+    // The DB uniqueness contract is verified above; remove its fixture so the
+    // HTTP path can independently prove a valid delivered-order review.
+    await client.query(
+      "DELETE FROM public.product_reviews WHERE order_id = $1::uuid AND user_id = $2::uuid",
+      [verifyOrderId, CUSTOMER_USER_ID],
+    );
   }
   const orderDedupKey = `p11-order-key-${rand()}`;
   const insOrder = () =>
@@ -395,6 +467,18 @@ async function main() {
     assert("отзыв за ЧУЖОЙ заказ → 403", alien.status === 403, `got ${alien.status}`);
     const ownPending = await api("POST", "/api/reviews", { token: customer, body: { orderId: verifyOrderId, rating: 5, text: "ещё не доставлен" } });
     assert("отзыв на недоставленный заказ → 422", ownPending.status === 422, `got ${ownPending.status}`);
+    const originalStatus = (await client.query(
+      "SELECT status FROM public.orders WHERE id = $1::uuid",
+      [verifyOrderId],
+    )).rows[0]?.status;
+    await client.query("UPDATE public.orders SET status = 'DELIVERED' WHERE id = $1::uuid", [verifyOrderId]);
+    const ownDelivered = await api("POST", "/api/reviews", { token: customer, body: { orderId: verifyOrderId, rating: 5, text: "доставленный заказ" } });
+    assert("отзыв за доставленный собственный заказ → 201", ownDelivered.status === 201 && ownDelivered.json?.review?.productId === PRODUCT_ID, `got ${ownDelivered.status}`);
+    const duplicateReview = await api("POST", "/api/reviews", { token: customer, body: { orderId: verifyOrderId, rating: 4, text: "повторный отзыв" } });
+    assert("повторный HTTP-отзыв на заказ → 409", duplicateReview.status === 409, `got ${duplicateReview.status}`);
+    if (originalStatus) {
+      await client.query("UPDATE public.orders SET status = $2 WHERE id = $1::uuid", [verifyOrderId, originalStatus]);
+    }
   }
 
   // === 7. CHAT: один order = одна комната (§12) ===
@@ -434,6 +518,14 @@ async function main() {
 
 async function cleanupAll() {
   try {
+    // Освобождаем демо-аккаунты после сценария: следующий E2E-контур
+    // не должен принимать оставшийся тестовый сеанс за передачу аккаунта.
+    for (const token of sessionTokens) {
+      const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
+      if (logout && logout.status !== 200) {
+        console.warn("[verify] test session cleanup returned", logout.status);
+      }
+    }
     // Уникальные строки product_reviews verify-заказов удалятся каскадом с заказами? — удаляем явно
     for (const oid of cleanup.orderIds) {
       await client.query(`DELETE FROM public.product_reviews WHERE order_id = $1::uuid`, [oid]).catch(() => {});
@@ -447,8 +539,10 @@ async function cleanupAll() {
     }
     if (cleanup.orderIds.length > 0) {
       await client.query(`DELETE FROM public.order_items WHERE order_id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
-      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[]) AND metadata->>'test' = 'p11-verify'`, [cleanup.orderIds]).catch(() => {});
+      // ops_tasks использует payload, не metadata; entity_id ограничен только тестовыми order IDs.
+      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanup.orderIds]).catch(() => {});
       await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanup.orderIds]).catch(() => {});
+      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
       await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
     }
     if (cleanup.eventDedupKeys.length > 0) {
@@ -456,6 +550,24 @@ async function cleanupAll() {
     }
     if (cleanup.notificationDedupKeys.length > 0) {
       await client.query(`DELETE FROM public.notifications WHERE metadata->>'dedup_key' = ANY($1)`, [cleanup.notificationDedupKeys]).catch(() => {});
+    }
+    if (cleanup.productRecipeOriginal) {
+      await client.query(
+        `UPDATE public.products
+            SET recipe_id = $2::uuid, production_time_hours = $3, updated_at = now()
+          WHERE id = $1::uuid`,
+        [cleanup.productRecipeOriginal.id, cleanup.productRecipeOriginal.recipeId, cleanup.productRecipeOriginal.productionTimeHours]
+      ).catch(() => {});
+    }
+    if (cleanup.recipeId) {
+      await client.query(`DELETE FROM public.recipe_ingredients WHERE recipe_id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
+      await client.query(`DELETE FROM public.recipes WHERE id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
+    }
+    if (cleanup.inventoryOriginal) {
+      await client.query(
+        `UPDATE public.inventory_items SET quantity = $2::numeric WHERE id = $1::uuid`,
+        [cleanup.inventoryOriginal.id, cleanup.inventoryOriginal.quantity],
+      ).catch(() => {});
     }
     if (cleanup.productPriceOriginal) {
       await client

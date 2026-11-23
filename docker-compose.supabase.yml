@@ -272,8 +272,8 @@ services:
     container_name: conditera-supabase-storage
     restart: unless-stopped
     environment:
-      ANON_KEY: ${ANON_KEY:?ANON_KEY required}
-      SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
+      ANON_KEY: ${ANON_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}}
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=storage
@@ -416,8 +416,8 @@ services:
       DEFAULT_PROJECT_NAME: "Conditera Production"
       SUPABASE_URL: http://supabase-kong:8000
       SUPABASE_PUBLIC_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
-      ANON_KEY: ${ANON_KEY:?ANON_KEY required}
-      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
+      ANON_KEY: ${ANON_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}}
       AUTH_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       LOGFLARE_LOGGER_BACKEND_API_KEY: ${LOGFLARE_LOGGER_BACKEND_API_KEY:-}
       LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-}

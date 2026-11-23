@@ -42,6 +42,15 @@ ALTER ROLE service_role BYPASSRLS;
 
 GRANT USAGE ON SCHEMA public, auth, storage, extensions TO anon, authenticated, service_role;
 GRANT ALL ON SCHEMA auth, storage TO service_role;
+-- service_role must be able to create/read/update auth.users through the local
+-- PostgREST compatibility layer, just as it can in Supabase. Schema privileges
+-- alone do not grant privileges on tables created inside the schema.
+GRANT ALL ON ALL TABLES IN SCHEMA auth TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO service_role;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT EXECUTE ON FUNCTIONS TO service_role;
 
 -- ===== 3. Стаб auth.users =====
 -- Состав колонок = супerset того, что использует seed_vitrine.sql (INSERT INTO
