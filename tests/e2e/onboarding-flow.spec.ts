@@ -141,7 +141,6 @@ test.describe("Полный онбординг кондитера — PostgreSQL
           consentOffer: true,
           consentMarketing: false,
         },
-        headers: { "x-real-ip": "10.251.10.10" },
       });
       expect(adminRegister.status(), await adminRegister.text()).toBe(200);
       const admin = await adminRegister.json() as {
