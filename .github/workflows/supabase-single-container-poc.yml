@@ -1,27 +1,11 @@
 name: Supabase single-container runtime POC
 
 on:
-  push:
-    branches:
-      - feat/pg17-full-scenarios-current
-    paths:
-      - "Dockerfile"
-      - "docker-compose.yml"
-      - ".env.production.example"
-      - "Dockerfile.supabase-runtime-poc"
-      - "docker-compose.supabase-single-container.yml"
-      - "scripts/supabase-runtime-poc/**"
-      - "scripts/compose-single-runtime.mjs"
-      - "scripts/n8n-entrypoint.mjs"
-      - "scripts/verify/n8n-production-workflows-verify.mjs"
-      - "n8n-workflows/**"
-      - "supabase/init-scripts/**"
-      - "supabase/migrations/**"
-      - ".env.supabase-runtime.example"
-      - ".github/workflows/supabase-single-container-poc.yml"
   pull_request:
     paths:
       - "Dockerfile.supabase-runtime-poc"
+      - "Dockerfile"
+      - ".env.production.example"
       - "docker-compose.supabase-runtime-poc.yml"
       - "docker-compose.supabase-single-container.yml"
       - "docker-compose.supabase.yml"
