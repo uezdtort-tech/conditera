@@ -19,6 +19,7 @@ const importDir = process.env.N8N_WORKFLOWS_DIR || "/imports";
 const userFolder = process.env.N8N_USER_FOLDER || "/home/node/.n8n";
 const databasePath = join(userFolder, "database.sqlite");
 const markerPath = join(userFolder, ".conditera-workflow-hash");
+const idsMarkerPath = join(userFolder, ".conditera-workflow-ids");
 // Only the backup workflow has a verified server-side contract and restore-tested execution.
 // Other repository workflows remain deliberately unimported until their API/auth contracts pass.
 const activeWorkflowFiles = new Set(["04-backup.json"]);
@@ -42,17 +43,24 @@ async function bootstrapDatabase() {
   console.info("[n8n] Initializing the persistent workflow database...");
   const child = spawn("n8n", ["start"], { stdio: "ignore" });
   let ready = false;
+  const port = Number(process.env.N8N_PORT || 5678);
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    if (existsSync(databasePath)) { ready = true; break; }
-    if (child.exitCode !== null) throw new Error("n8n exited before creating its SQLite database");
+    if (child.exitCode !== null) throw new Error("n8n exited before becoming healthy");
+    try {
+      const response = await fetch("http://127.0.0.1:" + port + "/healthz");
+      if (response.ok && existsSync(databasePath)) { ready = true; break; }
+    } catch {}
     await delay(1000);
   }
   if (!ready) {
     child.kill("SIGTERM");
-    throw new Error("Timed out waiting for n8n SQLite database initialization");
+    throw new Error("Timed out waiting for n8n health and SQLite database initialization");
   }
-  child.kill("SIGTERM");
-  await once(child, "exit");
+  if (child.exitCode === null && child.signalCode === null) {
+    const exitPromise = once(child, "exit");
+    child.kill("SIGTERM");
+    await exitPromise;
+  }
 }
 
 function loadSourceWorkflows() {
@@ -90,6 +98,7 @@ function importAllowlistedWorkflows(source) {
     const currentHash = hash.digest("hex");
     const allowlistedIds = new Set([...activeWorkflowFiles].map((name) => String(source.byFile.get(name).id)));
     const previousHash = existsSync(markerPath) ? readFileSync(markerPath, "utf8").trim() : "";
+    const previousIds = existsSync(idsMarkerPath) ? readFileSync(idsMarkerPath, "utf8").split(/\\r?\\n/).filter(Boolean) : [];
     if (currentHash !== previousHash) {
       console.info("[n8n] Importing only explicitly allowlisted production workflows...");
       runCli(["import:workflow", "--separate", "--input", stageDir]);
@@ -101,7 +110,8 @@ function importAllowlistedWorkflows(source) {
     runCli(["export:workflow", "--all", "--output", afterImportPath]);
     const afterImport = readExport(afterImportPath);
     const currentById = new Map(afterImport.map((workflow) => [String(workflow.id), workflow]));
-    for (const id of source.sourceIds) {
+    const knownProjectIds = new Set([...source.sourceIds, ...previousIds]);
+    for (const id of knownProjectIds) {
       const workflow = currentById.get(id);
       if (!workflow) continue;
       const shouldBeActive = allowlistedIds.has(id);
@@ -117,7 +127,7 @@ function importAllowlistedWorkflows(source) {
       const workflow = verifiedById.get(id);
       if (!workflow || workflow.active !== true) throw new Error("Allowlisted backup workflow is not active after import: " + id);
     }
-    for (const id of source.sourceIds) {
+    for (const id of knownProjectIds) {
       const workflow = verifiedById.get(id);
       if (workflow && !allowlistedIds.has(id) && workflow.active === true) {
         throw new Error("Unverified repository workflow is active in production n8n: " + workflow.name);
