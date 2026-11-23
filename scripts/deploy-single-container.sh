@@ -138,7 +138,7 @@ for key in ("NEXT_PUBLIC_SUPPORT_EMAIL", "NEXT_PUBLIC_PRIVACY_EMAIL", "CONTACT_N
 inn = re.sub(r"\D", "", app.get("NEXT_PUBLIC_COMPANY_INN", ""))
 if inn and len(inn) not in (10, 12):
     errors.append("NEXT_PUBLIC_COMPANY_INN must contain 10 or 12 digits")
-ogrn = re.sub(r"\\D", "", app.get("NEXT_PUBLIC_COMPANY_OGRN", ""))
+ogrn = re.sub(r"\D", "", app.get("NEXT_PUBLIC_COMPANY_OGRN", ""))
 if ogrn and len(ogrn) not in (13, 15):
     errors.append("NEXT_PUBLIC_COMPANY_OGRN must contain 13 or 15 digits")
 
