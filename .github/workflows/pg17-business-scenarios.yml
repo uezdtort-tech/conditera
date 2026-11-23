@@ -1,23 +1,6 @@
 name: PostgreSQL 17 — полный прогон бизнес-сценариев
 
 on:
-  push:
-    branches:
-      - feat/pg17-full-scenarios-current
-    paths:
-      - ".github/workflows/pg17-business-scenarios.yml"
-      - "supabase/migrations/**"
-      - "supabase/compat/**"
-      - "scripts/db/**"
-      - "scripts/start-standalone.mjs"
-      - "scripts/n8n-entrypoint.mjs"
-      - "n8n-workflows/**"
-      - "scripts/verify/**"
-      - "src/app/api/**"
-      - "src/lib/**"
-      - "tests/e2e/**"
-      - "package.json"
-      - "bun.lock"
   pull_request:
     paths:
       - ".github/workflows/pg17-business-scenarios.yml"
