@@ -10403,3 +10403,20 @@ money-path (payment/webhook, checkout, auth). Решение fail-soft:
 коммит) → origin ветка work/sandbox-main-20261123. Свержение линий —
 отдельная задача с полным прогоном (vitest + матрица) до любого
 push в main.
+
+## ops(github) 2026-11-23 #2 — снапшот запушен: work/sandbox-main-20261123 (d29e1781)
+
+Fine-grained PAT (1-й токен) не дал запись: 403 на git push и
+"Resource not accessible by personal access token" на contents API —
+классический случай отсутствия Repository access/Contents:write у
+fine-grained токена. Владелец выдал classic PAT (repo+workflow,
+срок 2026-12-23 UTC) — пуш прошёл. По пути GitHub push protection
+заблокировал пуш: SLACK API Token, локации = тест-фикстуры
+secrets-scan.test.ts:67/69 в коммитах 2026-11-12 (Z-v32 пакеты A и
+B2a; в HEAD строка уже [REDACTED:slack_token], сырой fixture был
+только в ранних блобах). Разблокировано штатным REST API
+(push-protection-bypasses, reason=used_in_tests, окно 1ч). Итог:
+origin/work/sandbox-main-20261123 = d29e1781 = local main, 348
+коммитов линии песочницы сохранены в GitHub. Канонический main
+(origin/main, 2fdc2524) не тронут. Свержение линий — отдельная задача
+(vitest 240 + матрица 50 до merge в main).
