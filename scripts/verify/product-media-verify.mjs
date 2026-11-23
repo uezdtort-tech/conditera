@@ -454,6 +454,12 @@ async function cleanup() {
     }
     const ids = createdProducts.map((p) => p.id).filter(Boolean);
     if (ids.length > 0) {
+      // moderation_queue intentionally has no FK to polymorphic content_id;
+      // remove the snapshot explicitly to keep repeated CI runs isolated.
+      await client.query(
+        `DELETE FROM moderation_queue WHERE content_type = 'product' AND content_id = ANY($1::uuid[])`,
+        [ids]
+      );
       await client.query(`DELETE FROM products WHERE id = ANY($1)`, [ids]);
       const { rmSync } = await import("node:fs");
       for (const id of ids) {
