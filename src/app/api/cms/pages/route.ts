@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { validateCmsPageInput } from "@/lib/cms-validation";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -50,47 +51,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return forbiddenResponse("Только admin/copywriter могут создавать страницы");
     }
 
-    const body = await request.json();
-    const { slug, title, description, content, seoTitle, seoDescription, seoKeywords, isInMenu, menuOrder, status = "draft" } = body as {
-      slug: string;
-      title: string;
-      description?: string;
-      content: string;
-      seoTitle?: string;
-      seoDescription?: string;
-      seoKeywords?: string[];
-      isInMenu?: boolean;
-      menuOrder?: number;
-      status?: string;
+    const body: unknown = await request.json();
+    const validationError = validateCmsPageInput(body);
+    if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
+    const input = body as {
+      slug: string; title: string; content: string; description?: string | null;
+      seoTitle?: string | null; seoDescription?: string | null; seoKeywords?: string[] | null;
+      isInMenu?: boolean; menuOrder?: number; status?: "draft" | "published";
     };
-
-    if (!slug || !title || !content) {
-      return NextResponse.json(
-        { error: "Slug, title и content обязательны" },
-        { status: 400 }
-      );
-    }
-
+    const status = input.status ?? "draft";
     const { data: page, error } = await supabaseAdmin
       .from("cms_pages")
       .insert({
-        slug,
-        title,
-        description: description || null,
-        content,
-        seo_title: seoTitle || null,
-        seo_description: seoDescription || null,
-        seo_keywords: seoKeywords || null,
-        is_in_menu: isInMenu || false,
-        menu_order: menuOrder || 0,
+        slug: input.slug,
+        title: input.title.trim(),
+        description: input.description || null,
+        content: input.content,
+        seo_title: input.seoTitle || null,
+        seo_description: input.seoDescription || null,
+        seo_keywords: input.seoKeywords || null,
+        is_in_menu: input.isInMenu ?? false,
+        menu_order: input.menuOrder ?? 0,
         status,
         published_at: status === "published" ? new Date().toISOString() : null,
       })
       .select()
       .single();
 
+    if (error?.code === "23505") {
+      return NextResponse.json({ error: "Страница с таким slug уже существует" }, { status: 409 });
+    }
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[cms/pages] create failed:", error.message);
+      return NextResponse.json({ error: "Не удалось создать страницу" }, { status: 500 });
     }
 
     return NextResponse.json({ page }, { status: 201 });
