@@ -174,6 +174,7 @@ describe("isPlaceholderValue / hasSecretStrength", () => {
     expect(isPlaceholderValue("CHANGE_ME_24CHARS", false)).toBe(true);
     expect(isPlaceholderValue("dev_n8n_key_32_chars", false)).toBe(true);
     expect(isPlaceholderValue("conditera", false)).toBe(true);
+    expect(isPlaceholderValue("ci-only-password", false)).toBe(true);
     expect(isPlaceholderValue("secret", true)).toBe(true);
     expect(isPlaceholderValue("secret", false)).toBe(false);
   });
