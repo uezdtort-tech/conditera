@@ -340,8 +340,10 @@ jobs:
           # Wait for workflow import/allowlist verification and the final n8n process.
           bootstrapped=0
           for attempt in $(seq 1 90); do
+            running="$(docker inspect -f '{{.State.Running}}' conditera-n8n-poc 2>/dev/null || echo false)"
+            if [ "$running" != "true" ]; then docker logs conditera-n8n-poc; exit 1; fi
             if docker exec conditera-n8n-poc test -f /home/node/.n8n/.conditera-bootstrap-complete \
-              && docker exec conditera-n8n-poc wget -qO- http://127.0.0.1:5678/healthz >/dev/null 2>&1; then
+              && docker exec conditera-n8n-poc node -e 'fetch("http://127.0.0.1:5678/healthz").then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'; then
               bootstrapped=1
               break
             fi
