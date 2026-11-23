@@ -77,9 +77,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Поиск
     if (search) {
-      query = query.or(
-        `title.ilike.%${search}%,content.ilike.%${search}%,author_name.ilike.%${search}%`
-      );
+      // Moderation content is stored in content_snapshot JSONB. The legacy
+      // title/content/author_name columns do not exist in moderation_queue.
+      // Strip PostgREST filter delimiters from user input before composing OR.
+      const safeSearch = search
+        .normalize("NFKC")
+        .replace(/[^\\p{L}\\p{N}\\s-]/gu, " ")
+        .replace(/\\s+/g, " ")
+        .trim()
+        .slice(0, 100);
+      if (safeSearch) {
+        query = query.or(
+          `content_snapshot->>title.ilike.%${safeSearch}%,content_snapshot->>content.ilike.%${safeSearch}%,content_snapshot->>author_name.ilike.%${safeSearch}%`
+        );
+      }
     }
 
     const { data: items, count, error } = await query;
