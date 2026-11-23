@@ -276,23 +276,30 @@ jobs:
             -Atqc "SELECT floor(current_setting('server_version_num')::integer / 10000) = 17 AND to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 81 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.inventory_items') IS NOT NULL AND to_regclass('public.recipe_ingredients') IS NOT NULL AND to_regclass('public.chat_channels') IS NOT NULL AND to_regclass('public.oauth_identity_links') IS NOT NULL AND to_regclass('public.moderation_queue') IS NOT NULL AND (SELECT count(*) = 6 FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue' AND column_name IN ('author_name','title','content','images','auto_score','violations')) AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
             | grep -qx t
 
-      - name: Verify PG17 backup archive and full restore using the restricted backup role
+      - name: Verify PG17 application backup restore with the restricted backup role
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec conditera-supabase-runtime-poc /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 /bin/bash -c '
             set -Eeuo pipefail
             export PGPASSWORD="$BACKUP_DATABASE_PASSWORD"
-            pg_dump -h 127.0.0.1 -p 5432 -U conditera_backup -d supabase -Fc --no-owner --no-privileges -f /tmp/conditera-pg17-backup.dump
+            # pg_cron is bound to cron.database_name (supabase). Exclude only
+            # this database-bound scheduler extension/schema from the disposable
+            # cross-database restore rehearsal; the production backup remains full.
+            pg_dump -h 127.0.0.1 -p 5432 -U conditera_backup -d supabase -Fc --no-owner --no-privileges --exclude-extension=pg_cron --exclude-schema=cron -f /tmp/conditera-pg17-backup.dump
             test -s /tmp/conditera-pg17-backup.dump
             pg_restore --list /tmp/conditera-pg17-backup.dump > /tmp/conditera-pg17-backup.list
             grep -q "TABLE public schema_migrations" /tmp/conditera-pg17-backup.list
+            if grep -Eq "EXTENSION - pg_cron|SCHEMA - cron" /tmp/conditera-pg17-backup.list; then
+              echo "Database-bound pg_cron objects unexpectedly present in cross-database restore archive" >&2
+              exit 1
+            fi
             export PGPASSWORD="$POSTGRES_PASSWORD"
             psql -h 127.0.0.1 -p 5432 -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE conditera_backup_restore_test"
             pg_restore -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera_backup_restore_test --no-owner --no-privileges /tmp/conditera-pg17-backup.dump
             restored="$(psql -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera_backup_restore_test -Atqc "SELECT count(*) FROM public.schema_migrations")"
             test "$restored" -ge 81
-            echo "PASS: pg_dump archive restored into a separate disposable PostgreSQL 17 database ($restored migrations)."
+            echo "PASS: restricted-role application archive restored into a separate PostgreSQL 17 database ($restored migrations); pg_cron remains bound to the source database."
           '
       - name: Validate n8n workflow definitions and production allowlist
         run: node scripts/verify/n8n-production-workflows-verify.mjs
