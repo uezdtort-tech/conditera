@@ -68,6 +68,27 @@ jobs:
           done
           test "$READY" = 1
 
+          # The Supabase image may briefly expose the initdb bootstrap postmaster.
+          # Wait until the same final postmaster remains up across multiple probes.
+          POSTMASTER_START=""
+          STABLE_PROBES=0
+          FINAL_READY=0
+          for attempt in $(seq 1 30); do
+            CURRENT_START="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d supabase -c 'SELECT pg_postmaster_start_time()' 2>/dev/null || true)"
+            if [ -n "$CURRENT_START" ] && [ "$CURRENT_START" = "$POSTMASTER_START" ]; then
+              STABLE_PROBES=$((STABLE_PROBES + 1))
+            else
+              STABLE_PROBES=0
+            fi
+            POSTMASTER_START="$CURRENT_START"
+            if [ "$STABLE_PROBES" -ge 2 ]; then
+              FINAL_READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "$FINAL_READY" = 1
+
           docker exec -i "$RUNTIME" psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase <<'SQL'
           CREATE SCHEMA IF NOT EXISTS auth;
           CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY);
