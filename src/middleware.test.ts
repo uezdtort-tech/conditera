@@ -131,7 +131,7 @@ describe('CSRF middleware', () => {
     })
 
     it('allows PUT when header == cookie', async () => {
-      const token = 'matching-put-token-456'
+      const token = 'test-matching-put-token-456'
       const req = makeRequest({
         method: 'PUT',
         path: '/api/products/123',
