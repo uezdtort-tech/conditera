@@ -132,12 +132,19 @@ jobs:
             const required = [
               "profiles","user_roles","products","orders","inventory_items","inventory_movements",
               "chat_channels","oauth_identity_links","user_consent_events","moderation_queue",
-              "order_disputes","order_dispute_messages","user_session_registry","quote_project_media",
-              "cake_project_specs","product_slices"
+              "order_disputes","order_dispute_messages","user_sessions","quote_request_media",
+              "product_slices"
             ];
             for (const table of required) {
               const found = (await db.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${table}`])).rows[0].ok;
               if (!found) throw new Error(`Missing required table public.${table}`);
+            }
+
+            const cakeDraftColumns = new Set((await db.query(
+              "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='cake_builder_drafts'"
+            )).rows.map(x => x.column_name));
+            for (const column of ["product_type","tiers","shape","quantity","address","project_spec"]) {
+              if (!cakeDraftColumns.has(column)) throw new Error(`Missing cake_builder_drafts.${column}`);
             }
             const moderationColumns = new Set((await db.query(
               "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue'"
