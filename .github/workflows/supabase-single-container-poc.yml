@@ -10,6 +10,12 @@ on:
       - "docker-compose.supabase-single-container.yml"
       - "scripts/supabase-runtime-poc/**"
       - "scripts/compose-single-runtime.mjs"
+      - "scripts/n8n-entrypoint.mjs"
+      - "scripts/verify/n8n-production-workflows-verify.mjs"
+      - "n8n-workflows/**"
+      - "scripts/n8n-entrypoint.mjs"
+      - "scripts/verify/n8n-production-workflows-verify.mjs"
+      - "n8n-workflows/**"
       - "supabase/init-scripts/**"
       - "supabase/migrations/**"
       - ".env.supabase-runtime.example"
@@ -302,6 +308,34 @@ jobs:
             test "$restored" -ge 81
             echo "PASS: pg_dump archive restored into a separate disposable PostgreSQL 17 database ($restored migrations)."
           '
+      - name: Validate n8n workflow definitions and production allowlist
+        run: node scripts/verify/n8n-production-workflows-verify.mjs
+
+      - name: Smoke test n8n bootstrap, import and activation allowlist
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run -d --name conditera-n8n-poc \
+            -e N8N_USER_FOLDER=/home/node/.n8n \
+            -e N8N_ENCRYPTION_KEY=ci-n8n-encryption-key-32-chars-long \
+            -e N8N_WEBHOOK_SECRET=ci-n8n-webhook-secret-for-smoke-test \
+            -e CRON_SECRET=ci-n8n-cron-secret \
+            -e APP_URL=http://127.0.0.1:3000 \
+            -e N8N_HOST=127.0.0.1 -e N8N_PORT=5678 -e N8N_PROTOCOL=http \
+            -e N8N_BASIC_AUTH_ACTIVE=false -e N8N_SECURE_COOKIE=false \
+            -e N8N_DIAGNOSTICS_ENABLED=false -e N8N_PERSONALIZATION_ENABLED=false \
+            -v "$GITHUB_WORKSPACE/n8n-workflows:/imports:ro" \
+            -v "$GITHUB_WORKSPACE/scripts/n8n-entrypoint.mjs:/usr/local/bin/conditera-n8n-entrypoint.mjs:ro" \
+            n8nio/n8n:1.95.0 node /usr/local/bin/conditera-n8n-entrypoint.mjs
+          healthy=0
+          for attempt in $(seq 1 90); do
+            if docker exec conditera-n8n-poc wget -qO- http://127.0.0.1:5678/healthz >/dev/null 2>&1; then healthy=1; break; fi
+            sleep 2
+          done
+          if [ "$healthy" != "1" ]; then docker logs conditera-n8n-poc; exit 1; fi
+          docker exec conditera-n8n-poc n8n export:workflow --all --output=/tmp/conditera-workflows.json
+          docker exec conditera-n8n-poc node -e 'const fs=require("node:fs");const raw=JSON.parse(fs.readFileSync("/tmp/conditera-workflows.json","utf8"));const workflows=Array.isArray(raw)?raw:(raw.workflows||raw.data||[]);if(workflows.length!==1)throw new Error("Expected exactly one imported production workflow; got "+workflows.length);if(workflows[0].id!=="7b775b04-7f7f-5fb3-b532-a5b80e75b10b"||workflows[0].active!==true)throw new Error("Backup workflow was not activated with the expected stable id");console.log("PASS: only the verified daily backup workflow is imported and active.")'
+          docker logs conditera-n8n-poc
       - name: Collect runtime diagnostics on failure
         if: failure()
         shell: bash
@@ -330,5 +364,6 @@ jobs:
       - name: Cleanup disposable POC runtime
         if: always()
         run: |
+          docker rm -fv conditera-n8n-poc || true
           docker rm -fv conditera-supabase-runtime-poc || true
           docker volume rm supabase-runtime-pgdata-ci supabase-runtime-storage-ci supabase-runtime-deno-cache-ci || true
