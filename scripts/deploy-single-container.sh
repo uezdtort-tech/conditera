@@ -76,6 +76,9 @@ def read_env(path):
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
+        else:
+            # Match dotenv semantics: an unquoted inline comment starts at " #".
+            value = value.split(" #", 1)[0].rstrip()
         values[key.strip()] = value
     return values
 
