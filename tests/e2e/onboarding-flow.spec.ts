@@ -16,7 +16,7 @@ const CONFECTIONER = {
   email: `e2e-conf-${RUN_ID}@e2e.conditera.ru`,
   password: "E2e-Str0ng-Pass!2026",
   name: `E2E Тестовая Кондитерская ${RUN_ID.slice(0, 8)}`,
-  phone: `+7${RUN_ID.replace(/\\D/g, "").slice(0, 10)}`,
+  phone: `+7${RUN_ID.replace(/\D/g, "").slice(0, 10)}`,
 };
 const PORTFOLIO_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -134,7 +134,7 @@ test.describe("Полный онбординг кондитера — PostgreSQL
           email: `e2e-admin-${adminRunId}@e2e.conditera.ru`,
           password: "E2e-Admin-Str0ng!2026",
           name: `E2E Администратор ${adminRunId.slice(0, 8)}`,
-          phone: `+7${adminRunId.replace(/\\D/g, "").slice(0, 10)}`,
+          phone: `+7${adminRunId.replace(/\D/g, "").slice(0, 10)}`,
           role: "CUSTOMER",
           consentPd: true,
           consentTerms: true,
