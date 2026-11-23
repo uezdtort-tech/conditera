@@ -17,8 +17,11 @@ import { ProductCard } from "@/components/marketplace/product-card";
 import { ConfectionerCard } from "@/components/marketplace/confectioner-card";
 import { ConfectionersMarquee } from "@/components/marketplace/confectioners-marquee";
 import { RecentlyViewed } from "@/components/ui/enhanced-components";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedCounter, GlassCard, FloatWrapper, GradientBorderCard, TiltCard } from "@/components/ui/modern-effects";
 import { CATEGORIES } from "@/lib/mock-data";
+import { useLiveProducts } from "@/lib/supabase/use-marketplace";
+import { isDemoVitrineMode, selectVitrineProducts } from "@/lib/vitrine-products";
 import { formatCurrency } from "@/lib/finance";
 import Image from "next/image";
 import { OrnamentDivider, Eyebrow } from "@/components/ui/ornaments";
@@ -39,9 +42,11 @@ import {
   TrendingUp,
   Clock,
   Check,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
 
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
@@ -79,8 +84,30 @@ function useRealReviews(limit = 6) {
 export function HomePage() {
   const navigate = useAppStore((s) => s.navigate);
   const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
-  const products = useAppStore((s) => s.products);
+  const storeProducts = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
+
+  // Публичная витрина использует только live-товары; demo-сид включается
+  // исключительно явным флагом и не маскирует ошибки API.
+  const demoMode = isDemoVitrineMode();
+  const {
+    data: liveProducts,
+    isPending: livePending,
+    isError: liveError,
+    refetch: refetchLive,
+  } = useLiveProducts();
+  const products = useMemo(
+    () => selectVitrineProducts({
+      demoMode,
+      isError: liveError,
+      live: liveProducts,
+      storeProducts,
+    }),
+    [demoMode, liveError, liveProducts, storeProducts]
+  );
+  const isProductsLoading = livePending && products.length === 0;
+  const hasProductsError = liveError && products.length === 0;
+  const isCatalogEmpty = !livePending && !liveError && products.length === 0;
 
   // Реальные данные платформы для честных счётчиков (не выдуманные цифры):
   // кондитеры — из публичного API, товары — hydrated store (live-источник).
@@ -105,6 +132,13 @@ export function HomePage() {
 
   const popularProducts = products.filter((p) => p.isPopular || p.isHit).slice(0, 8);
   const newProducts = products.filter((p) => p.isNew).slice(0, 4);
+  const categoryCounts = useMemo(() => {
+    const counts = {} as Record<string, number>;
+    for (const category of CATEGORIES) {
+      counts[category.slug] = products.filter((product) => product.category === category.slug).length;
+    }
+    return counts;
+  }, [products]);
 
   // P2.2: анкета «Помочь выбрать» на главной (ТЗ §5) — результат можно
   // перенести в каталог («Показать в каталоге»)
@@ -408,7 +442,7 @@ export function HomePage() {
                     {cat.icon}
                   </div>
                   <div className="text-sm font-medium text-center">{cat.name}</div>
-                  <div className="text-xs text-muted-foreground">{cat.count} тов.</div>
+                  <div className="text-xs text-muted-foreground">{categoryCounts[cat.slug] ?? 0} тов.</div>
                 </button>
               </TiltCard>
             </motion.div>
@@ -438,11 +472,48 @@ export function HomePage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {popularProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        {isProductsLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" role="status" aria-label="Загрузка популярных товаров" aria-busy="true">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="overflow-hidden p-0">
+                <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : hasProductsError ? (
+          <Card className="p-10 text-center" role="alert">
+            <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-destructive" />
+            <h3 className="font-semibold mb-1">Не удалось загрузить товары</h3>
+            <p className="text-sm text-muted-foreground mb-4">Сервис каталога недоступен. Попробуйте ещё раз.</p>
+            <Button onClick={() => void refetchLive()} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Повторить
+            </Button>
+          </Card>
+        ) : isCatalogEmpty ? (
+          <Card className="p-12 text-center">
+            <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+              <Cake className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="font-semibold mb-1">Каталог пока пуст</h3>
+            <p className="text-sm text-muted-foreground">Кондитеры ещё не опубликовали товары — загляните позже.</p>
+          </Card>
+        ) : popularProducts.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {popularProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : (
+          <Card className="p-8 text-center">
+            <p className="text-sm text-muted-foreground mb-3">Пока нет отмеченных популярных товаров.</p>
+            <Button variant="outline" onClick={() => navigate("catalog")}>Открыть каталог</Button>
+          </Card>
+        )}
       </section>
 
       {/* P2.3: персональные рекомендации (только при якорях избранное/
