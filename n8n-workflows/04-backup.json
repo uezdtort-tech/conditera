@@ -8,7 +8,9 @@
           "interval": [
             {
               "field": "days",
-              "daysInterval": 1
+              "daysInterval": 1,
+              "triggerAtHour": 3,
+              "triggerAtMinute": 0
             }
           ]
         }
