@@ -190,8 +190,11 @@ CREATE POLICY "profiles_select_own" ON public.profiles
 
 ### Запуск/остановка
 ```bash
-# Запуск всего стека
-docker-compose -f docker-compose.supabase.yml up -d
+# Канонический запуск единого Supabase Runtime / PostgreSQL 17:
+# node scripts/compose-single-runtime.mjs config
+# После проверенного переноса данных и отдельного разрешения на cutover:
+# $env:CONDITERA_PG17_CUTOVER_APPROVED = "1"; npm run compose:single-runtime -- up -d
+# Старый многоконтейнерный PG15 стек оставлен только для rollback/inventory и профиля legacy-supabase.
 
 # Остановка
 docker-compose -f docker-compose.supabase.yml down
