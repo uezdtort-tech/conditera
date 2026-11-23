@@ -6,6 +6,8 @@ on:
       - feat/pg17-full-scenarios-current
     paths:
       - "Dockerfile"
+      - "docker-compose.yml"
+      - ".env.production.example"
       - "Dockerfile.supabase-runtime-poc"
       - "docker-compose.supabase-single-container.yml"
       - "scripts/supabase-runtime-poc/**"
