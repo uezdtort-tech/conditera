@@ -184,7 +184,7 @@ async function main() {
   if (target) {
     const custTry = await api("POST", `/api/ops/tasks/${target.id}`, { token: customer, body: { action: "resolve" } });
     assert("покупатель не может resolve чужую задачу → 404/403", custTry.status === 404 || custTry.status === 403, `got ${custTry.status}`);
-    const ok = await api("POST", `/api/ops/tasks/${target.id}`, { token: admin, body: { action: "resolve", comment: "verify" } });
+    const ok = await api("POST", `/api/ops/tasks/${target.id}`, { token: adminToken, body: { action: "resolve", comment: "verify" } });
     assert("админ resolve → 200 resolved", ok.status === 200 && ok.json?.task?.status === "resolved", `got ${ok.status}`);
     const again = await api("POST", `/api/ops/tasks/${target.id}`, { token: admin, body: { action: "resolve" } });
     assert("повторный resolve → 409 NOT_OPEN", again.status === 409, `got ${again.status}`);
