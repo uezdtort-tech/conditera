@@ -77,6 +77,7 @@ function loadSourceWorkflows() {
 
 function importAllowlistedWorkflows(source) {
   const stageDir = mkdtempSync(join(tmpdir(), "conditera-n8n-import-"));
+  const stateDir = mkdtempSync(join(tmpdir(), "conditera-n8n-state-"));
   try {
     const hash = createHash("sha256").update("conditera-production-allowlist-v1\n");
     for (const name of [...activeWorkflowFiles].sort()) {
@@ -87,21 +88,16 @@ function importAllowlistedWorkflows(source) {
       writeFileSync(join(stageDir, name), JSON.stringify(staged, null, 2) + "\n", { mode: 0o600 });
     }
     const currentHash = hash.digest("hex");
-    const exportPath = join(stageDir, "existing-workflows.json");
-    runCli(["export:workflow", "--all", "--output", exportPath]);
-    const existing = readExport(exportPath);
-    const existingIds = new Set(existing.map((workflow) => String(workflow.id)));
     const allowlistedIds = new Set([...activeWorkflowFiles].map((name) => String(source.byFile.get(name).id)));
-    const missingAllowlisted = [...allowlistedIds].some((id) => !existingIds.has(id));
     const previousHash = existsSync(markerPath) ? readFileSync(markerPath, "utf8").trim() : "";
-    if (currentHash !== previousHash || missingAllowlisted) {
+    if (currentHash !== previousHash) {
       console.info("[n8n] Importing only explicitly allowlisted production workflows...");
       runCli(["import:workflow", "--separate", "--input", stageDir]);
     } else {
       console.info("[n8n] Verified workflow source is unchanged; import skipped.");
     }
 
-    const afterImportPath = join(stageDir, "after-import.json");
+    const afterImportPath = join(stateDir, "after-import.json");
     runCli(["export:workflow", "--all", "--output", afterImportPath]);
     const afterImport = readExport(afterImportPath);
     const currentById = new Map(afterImport.map((workflow) => [String(workflow.id), workflow]));
@@ -113,7 +109,7 @@ function importAllowlistedWorkflows(source) {
         runCli(["update:workflow", "--id", id, "--active=" + String(shouldBeActive)]);
       }
     }
-    const verifiedPath = join(stageDir, "verified-workflows.json");
+    const verifiedPath = join(stateDir, "verified-workflows.json");
     runCli(["export:workflow", "--all", "--output", verifiedPath]);
     const verified = readExport(verifiedPath);
     const verifiedById = new Map(verified.map((workflow) => [String(workflow.id), workflow]));
@@ -130,6 +126,7 @@ function importAllowlistedWorkflows(source) {
     writeFileSync(markerPath, currentHash + "\n", { mode: 0o600 });
   } finally {
     rmSync(stageDir, { recursive: true, force: true });
+    rmSync(stateDir, { recursive: true, force: true });
   }
 }
 
