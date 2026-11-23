@@ -34,9 +34,9 @@ const runtimePath = join(temp, ".env.supabase-runtime");
 function writeEnv(path, values) {
   writeFileSync(path, Object.entries(values).map(([key, value]) => key + "=" + value).join("\n") + "\n");
 }
-function getErrors(productionOverrides = {}, runtimeOverrides = {}) {
+function getErrors(productionOverrides = {}, runtimeValues = runtime) {
   writeEnv(productionPath, { ...production, ...productionOverrides });
-  writeEnv(runtimePath, { ...runtime, ...runtimeOverrides });
+  writeEnv(runtimePath, runtimeValues);
   return validateProductionEnv(productionPath, runtimePath);
 }
 try {
