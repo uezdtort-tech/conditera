@@ -158,11 +158,12 @@ async function main() {
   // ─────────────────────────────────────────────────────────────────────────
   section("Создание тестового товара (админ, владелец — демо-кондитер)");
   const uniq = Date.now().toString(36);
+  const productTitle = `Verify media product ${uniq}`;
   const created = await api("POST", "/api/products", {
     token: admin,
     body: {
       confectionerId: OWNER_USER_ID,
-      title: `Verify media product ${uniq}`,
+      title: productTitle,
       description: "Технологический товар для регрессионной проверки медиа",
       price: 1999,
       status: "draft",
@@ -184,10 +185,21 @@ async function main() {
     assert(
       "moderation record persisted in the real content_snapshot schema",
       moderation.rowCount === 1 &&
-        snapshot.title === created.json?.product?.title &&
+        snapshot.title === productTitle &&
         typeof snapshot.content === "string" &&
         Array.isArray(snapshot.images),
       JSON.stringify({ rows: moderation.rowCount, snapshotKeys: Object.keys(snapshot) })
+    );
+    const moderationQueue = await api(
+      "GET",
+      `/api/moderation/queue?contentType=product&search=${encodeURIComponent(productTitle)}`,
+      { token: admin }
+    );
+    assert(
+      "moderation search uses JSON snapshot and returns the new product",
+      moderationQueue.status === 200 &&
+        (moderationQueue.json?.items || []).some((item) => item.content_snapshot?.title === productTitle),
+      `got ${moderationQueue.status}`
     );
   }
 
