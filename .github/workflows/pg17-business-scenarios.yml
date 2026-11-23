@@ -114,9 +114,27 @@ jobs:
           try {
             const version = Number((await db.query("SHOW server_version_num")).rows[0].server_version_num);
             if (version < 170000 || version >= 180000) throw new Error(`Expected PostgreSQL 17, got ${version}`);
-            const migrations = Number((await db.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
-            if (migrations < 81) throw new Error(`Expected at least 81 applied app migrations, got ${migrations}`);
-            const required = ["profiles","user_roles","products","orders","inventory_items","chat_channels","oauth_identity_links","user_consent_events","moderation_queue"];
+            const migrationFiles = (await import("node:fs")).readdirSync("supabase/migrations")
+              .filter(name => /^\\d+.*\\.sql$/.test(name))
+              .sort();
+            const appliedRows = (await db.query(
+              "SELECT filename FROM public.schema_migrations ORDER BY filename"
+            )).rows;
+            const appliedFiles = new Set(appliedRows.map(row => row.filename));
+            const missingMigrations = migrationFiles.filter(name => !appliedFiles.has(name));
+            const unexpectedMigrations = [...appliedFiles].filter(name => !migrationFiles.includes(name));
+            if (missingMigrations.length || unexpectedMigrations.length) {
+              throw new Error(
+                `Migration ledger mismatch: expected=${migrationFiles.length}, applied=${appliedRows.length}, missing=${missingMigrations.join(",")}, unexpected=${unexpectedMigrations.join(",")}`
+              );
+            }
+            const migrations = appliedRows.length;
+            const required = [
+              "profiles","user_roles","products","orders","inventory_items","inventory_movements",
+              "chat_channels","oauth_identity_links","user_consent_events","moderation_queue",
+              "order_disputes","order_dispute_messages","user_session_registry","quote_project_media",
+              "cake_project_specs","product_slices"
+            ];
             for (const table of required) {
               const found = (await db.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${table}`])).rows[0].ok;
               if (!found) throw new Error(`Missing required table public.${table}`);
