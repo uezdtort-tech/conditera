@@ -24,6 +24,7 @@ import json
 import secrets
 import time
 import subprocess
+import re
 
 def read_lines(path):
     return Path(path).read_text(encoding="utf-8").splitlines()
@@ -41,7 +42,7 @@ def parse(lines):
 def needs_value(value):
     return not value or "CHANGE_ME" in value or value.startswith("stub_")
 
-def upsert(path, generated):
+def upsert(path, generated, force_keys=()):
     lines = read_lines(path)
     seen = set()
     output = []
@@ -54,7 +55,7 @@ def upsert(path, generated):
         key = key.strip()
         seen.add(key)
         current = parse([line]).get(key, "")
-        if key in generated and needs_value(current):
+        if key in generated and (key in force_keys or needs_value(current)):
             output.append(f"{key}={generated[key]}")
         else:
             output.append(line)
@@ -67,6 +68,23 @@ def upsert(path, generated):
 
 def random_hex(size):
     return secrets.token_hex(size)
+
+# A production JWT signing secret must be a full 256-bit random hex value.
+# Older local deployments used a human-readable demo secret; rotate it automatically
+# and re-sign the dependent Supabase anon/service-role JWTs in the same operation.
+existing_app = parse(read_lines(".env.production"))
+previous_jwt_secret = existing_app.get("JWT_SECRET", "")
+weak_jwt_values = {
+    "your-super-secret-jwt-token-with-at-least-32-characters-long",
+    "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa",
+    "ci-only-conditera-jwt-secret-32-bytes-minimum",
+    "0123456789abcdef" * 4,
+}
+invalid_jwt_keys = {
+    key for key in ("JWT_SECRET", "JWT_REFRESH_SECRET")
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", existing_app.get(key, ""))
+       or existing_app.get(key, "") in weak_jwt_values
+}
 
 app_generated = {
     "POSTGRES_PASSWORD": random_hex(32),
@@ -83,7 +101,8 @@ app_generated = {
     "SECRET_KEY_BASE": random_hex(32),
     "SIMPLEX_BRIDGE_API_KEY": random_hex(32),
 }
-app = upsert(".env.production", app_generated)
+app = upsert(".env.production", app_generated, force_keys=invalid_jwt_keys)
+rotated_jwt_secret = app.get("JWT_SECRET", "") != previous_jwt_secret
 
 def b64url(data):
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
@@ -105,7 +124,8 @@ jwt_generated = {
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": sign_jwt("anon", app["JWT_SECRET"]),
     "SUPABASE_SERVICE_ROLE_KEY": sign_jwt("service_role", app["JWT_SECRET"]),
 }
-app = upsert(".env.production", jwt_generated)
+force_jwt_keys = {"NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"} if rotated_jwt_secret else set()
+app = upsert(".env.production", jwt_generated, force_keys=force_jwt_keys)
 
 if needs_value(app.get("VAPID_PUBLIC_KEY", "")) or needs_value(app.get("VAPID_PRIVATE_KEY", "")):
     vapid_code = """
