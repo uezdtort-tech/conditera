@@ -29,6 +29,7 @@ const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "wee
   { path: "for-confectioners", priority: 0.6, changeFreq: "monthly" },
   { path: "for-suppliers", priority: 0.6, changeFreq: "monthly" },
   { path: "faq", priority: 0.5, changeFreq: "monthly" },
+  { path: "help", priority: 0.5, changeFreq: "monthly" },
   { path: "about", priority: 0.5, changeFreq: "monthly" },
   { path: "contacts", priority: 0.5, changeFreq: "monthly" },
 ];
