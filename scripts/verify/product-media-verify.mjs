@@ -173,6 +173,24 @@ async function main() {
   assert("товар создан, id получен", Boolean(productId));
   createdProducts.push({ id: productId, storageRoot: null });
 
+  if (productId) {
+    const moderation = await client.query(
+      `SELECT content_snapshot FROM public.moderation_queue
+       WHERE content_type = 'product' AND content_id = $1::uuid
+       ORDER BY created_at DESC LIMIT 1`,
+      [productId]
+    );
+    const snapshot = moderation.rows[0]?.content_snapshot || {};
+    assert(
+      "moderation record persisted in the real content_snapshot schema",
+      moderation.rowCount === 1 &&
+        snapshot.title === created.json?.product?.title &&
+        typeof snapshot.content === "string" &&
+        Array.isArray(snapshot.images),
+      JSON.stringify({ rows: moderation.rowCount, snapshotKeys: Object.keys(snapshot) })
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   section("Фотографии: 1 → PASS, 10 → PASS, 11 → REJECT");
   const photoIds = [];
