@@ -32,7 +32,7 @@ import { invokeInternalEdgeFunction } from "@/lib/supabase/edge-functions";
 import { getUserFromRequest } from "@/lib/auth";
 import { calculateDelivery } from "@/lib/finance";
 import { checkAcceptance } from "@/lib/ops/acceptance"; // P0.5 §29: capacity/inventory/deadline gate
-import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
+import { createPayment, isYookassaConfigured, isLocalE2EPaymentStubEnabled } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import {
   validatePromoCode,
@@ -76,7 +76,9 @@ const CheckoutSchema = z
     promoCode: z.string().max(40).optional(),
     customerName: z.string().min(2).max(100),
     customerPhone: z.string().min(10).max(20),
-    paymentMethod: z.string().max(30).optional(),
+    // Первый production поддерживает только online card/SBP через YooKassa.
+    // cash/split без отдельного контура инкассации/эскроу нельзя принимать.
+    paymentMethod: z.enum(["yookassa", "card", "sbp"]).optional(),
   })
   .superRefine((val, ctx) => {
     // Каждая позиция: либо товар, либо custom-конфигурация конструктора
@@ -197,8 +199,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       notes,
       customerName,
       customerPhone,
-      paymentMethod,
     } = parsed.data;
+
+    // В первый оплачиваемый production-путь допускаются только позиции,
+    // для которых складской расход полностью описан recipe_ingredients.
+    // Конструктор и модификаторы начинки/покрытия/декора пока не имеют
+    // производственной спецификации, поэтому их нельзя принимать как
+    // гарантированно исполнимый оплаченный заказ.
+    const unsupportedProductionItems = cartItems.filter((item) =>
+      Boolean(item.custom) ||
+      Object.entries(item.selected_attributes ?? {}).some(
+        ([key, value]) => key !== "inscription" && typeof value === "string" && value.trim().length > 0
+      )
+    );
+    if (unsupportedProductionItems.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Некоторые позиции требуют производственной спецификации",
+          message: "Оплачиваемый заказ пока доступен для товаров с настроенным рецептом без изменений состава, размера, начинки, покрытия и декора. Для индивидуального торта отправьте запрос на согласование с кондитером.",
+          code: "PRODUCTION_SPEC_REQUIRED",
+        },
+        { status: 422 }
+      );
+    }
 
     // Контакт получателя — серверная валидация (P1-A7)
     const name = customerName.trim();
@@ -254,6 +277,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
       for (const p of products) productsMap.set(p.id, p);
+
+      // Один заказ — один производственный исполнитель. Смешанная корзина
+      // нескольких кондитеров не должна целиком назначаться владельцу первой
+      // позиции: это приводит к неверной себестоимости, рецептурам и выплатам.
+      const sellerIds = new Set(products.map((p) => p.confectioner_id).filter((id): id is string => Boolean(id)));
+      const hasUnassignedProduct = products.some((p) => !p.confectioner_id);
+      if (sellerIds.size > 1 || (sellerIds.size === 1 && hasUnassignedProduct)) {
+        return NextResponse.json(
+          {
+            error: "В одной оплате могут быть товары только одного кондитера. Разделите корзину на отдельные заказы.",
+            code: "MULTIPLE_CONFECTIONERS",
+          },
+          { status: 422 }
+        );
+      }
+    }
+
+    // Конструкторская позиция не несёт идентификатор продавца.
+    // Не смешиваем её с товарами конкретного кондитера в одном заказе:
+    // иначе назначение и производственная ответственность будут выдуманы.
+    if (productItems.length > 0 && customItems.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Заказ из конструктора оформляется отдельно от товаров витрины.",
+          code: "MIXED_CUSTOM_AND_MARKETPLACE_ITEMS",
+        },
+        { status: 422 }
+      );
     }
 
     // 3a. Начинки конструктора: DB (APPROVED) + mock — единый справочник с клиентом
@@ -439,12 +490,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           );
         }
       } catch (accErr) {
-        // Движок недоступен/ошибка — НЕ блокируем checkout (fail-open,
-        // документировано): заказ создаётся, риск пересчитается при назначении.
-        console.warn(
-          "[checkout] acceptance check failed (fail-open):",
+        // В production нельзя принимать оплату и обещать срок, если движок
+        // не смог проверить рецептуру/склад/мощность. Fail-closed защищает
+        // покупателя и кондитера от заведомо невыполнимого заказа.
+        console.error(
+          "[checkout] acceptance check failed:",
           accErr instanceof Error ? accErr.message : accErr
         );
+        if (process.env.NODE_ENV === "production") {
+          return NextResponse.json(
+            { error: "Не удалось проверить возможность изготовления заказа. Повторите попытку позже.", code: "ACCEPTANCE_UNAVAILABLE" },
+            { status: 503 }
+          );
+        }
       }
     }
 
@@ -454,7 +512,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // неоплачиваемым. Теперь незавершённая payment-конфигурация в
     // production — безопасная ошибка конфигурации ДО создания заказа;
     // dev/test сохраняют stub-поток.
-    if (!isYookassaConfigured() && process.env.NODE_ENV === "production") {
+    if (!isYookassaConfigured() && process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error(
         "[checkout] payment gateway not configured in production — refusing to create order (safe config error)"
       );
@@ -519,7 +577,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         delivery_date: deliveryDate,
         delivery_type: deliveryType,
         notes,
-        payment_method: paymentMethod || "card",
+        payment_method: "yookassa",
         promo_code: appliedPromoCode,
         promo_discount: discount,
         metadata: {
@@ -647,31 +705,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let paymentUrl = `/checkout/success?orderId=${order.id}&demo=true`;
     let yookassaPaymentId: string | null = null;
 
-    if (!isYookassaConfigured()) {
-      console.warn(
-        "[checkout] YooKassa не настроена (YOOKASSA_SHOP_ID/YOOKASSA_SECRET_KEY) — stub payment URL"
+    const paymentResult = await createPayment({
+      amount: total, // рубли
+      description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
+      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${order.id}`,
+      orderId: order.id,
+    });
+
+    if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
+      console.error("[checkout] Yookassa error:", paymentResult.error);
+      // Заказ оставляем (можно повторить оплату через /api/payment/create),
+      // корзину НЕ чистим.
+      return NextResponse.json(
+        { error: "Ошибка создания платежа в Yookassa" },
+        { status: 502 }
       );
-    } else {
-      const paymentResult = await createPayment({
-        amount: total, // рубли
-        description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
-        returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${order.id}`,
-        orderId: order.id,
-      });
-
-      if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
-        console.error("[checkout] Yookassa error:", paymentResult.error);
-        // Заказ оставляем (можно повторить оплату через /api/payment/create),
-        // корзину НЕ чистим
-        return NextResponse.json(
-          { error: "Ошибка создания платежа в Yookassa" },
-          { status: 502 }
-        );
-      }
-
-      yookassaPaymentId = paymentResult.payment.id;
-      paymentUrl = paymentResult.payment.confirmation.confirmation_url;
     }
+
+    // В dev/E2E это mock_ ID, но он тоже обязателен в локальном ledger:
+    // webhook должен найти конкретную попытку оплаты, а не только order_id.
+    yookassaPaymentId = paymentResult.payment.id;
+    paymentUrl = paymentResult.payment.confirmation.confirmation_url;
 
     // 7. Запись в payments (существующие колонки 0002) + проверка ошибки
     const { error: paymentError } = await supabaseAdmin
@@ -687,9 +741,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
 
     if (paymentError) {
-      // Платёж у провайдера уже создан; webhook найдёт заказ по
-      // metadata.orderId (fallback), поэтому не откатываем — но логируем.
-      console.error("[checkout] Payment create error:", paymentError.message);
+      // Confirmation URL ещё не возвращаем и корзину не очищаем, пока
+      // локальный ledger не подтверждён. Иначе capture может прийти без
+      // payment row, по которой можно сверить сумму и инициировать refund.
+      console.error("[checkout] Payment ledger insert failed:", paymentError.message);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать платёж. Повторите попытку оплаты." },
+        { status: 503 }
+      );
     }
 
     // 8. Корзину чистим только после успешного создания платежа
@@ -776,7 +835,11 @@ async function buildReplayResponse(existing: {
   const paymentRow = payments?.[0] || null;
   const storedUrl = (paymentRow?.metadata as { confirmation_url?: string } | null)
     ?.confirmation_url;
-  const isStub = !paymentRow?.yookassa_payment_id;
+  // Отсутствующая строка payments НЕ означает demo-оплату: платёж мог
+  // быть создан у YooKassa, а запись в БД — временно не сохраниться.
+  // В этом случае возвращаем обычную success-страницу: она покажет pending
+  // и позволит повторить /api/payment/create с тем же orderId/idempotency.
+  const isStub = Boolean(paymentRow) && !paymentRow?.yookassa_payment_id;
 
   return {
     orderId: existing.id,

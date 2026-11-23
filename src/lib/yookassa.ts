@@ -13,6 +13,18 @@ const YOOKASSA_SECRET_KEY =
 const YOOKASSA_API_URL =
   process.env.YOOKASSA_API_URL || "https://api.yookassa.ru/v3";
 
+// Явный mock-платёж разрешён только в E2E-стенде с loopback URL.
+// Один флаг без локального адреса не может отключить production-защиту.
+export const isLocalE2EPaymentStubEnabled = (): boolean => {
+  if (process.env.E2E_PAYMENT_STUB_ENABLED !== "true") return false;
+  try {
+    const hostname = new URL(process.env.NEXT_PUBLIC_APP_URL || "").hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+};
+
 // Проверка, настроена ли YooKassa
 // P3: «test_shop»/«test_secret» — это mock-заглушка, реальные платежи не пройдут.
 export const isYookassaConfigured = (): boolean => {
@@ -97,7 +109,7 @@ export async function createPayment(
   // PAY-1: в production отсутствие конфигурации — ошибка: фиктивный
   // «успешный» платёж не должен существовать в боевом контуре.
   if (!isYookassaConfigured()) {
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error("[yookassa] createPayment: шлюз не настроен (production) — mock отключён");
       return { success: false, error: "Платёжный шлюз не настроен" };
     }
@@ -409,7 +421,7 @@ export function ipInRange(ip: string, range: string): boolean {
 
 export function verifyWebhook(request: Request): boolean {
   // P0 FIX: In production, verify that the request comes from YooKassa IPs
-  const isProd = process.env.NODE_ENV === "production";
+  const isProd = process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled();
 
   if (isProd) {
     // PAY-1: доверенный прокси — как в anti-fraud/rate-limit. Первый элемент

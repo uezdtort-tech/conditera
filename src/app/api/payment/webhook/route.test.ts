@@ -62,14 +62,14 @@ describe("payment/webhook: типизация", () => {
 
 describe("payment/webhook: идемпотентность по статусам", () => {
   // Имитируем логику из route.ts: проверка финальных статусов.
-  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "canceled", "refunded"]);
+  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
 
   it("содержит succeeded", () => {
     expect(FINAL_PAYMENT_STATUSES.has("succeeded")).toBe(true);
   });
 
-  it("содержит canceled", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("canceled")).toBe(true);
+  it("содержит cancelled", () => {
+    expect(FINAL_PAYMENT_STATUSES.has("cancelled")).toBe(true);
   });
 
   it("содержит refunded", () => {
@@ -90,7 +90,7 @@ describe("payment/webhook: идемпотентность по статусам"
 });
 
 describe("payment/webhook: идемпотентность — edge cases", () => {
-  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "canceled", "refunded"]);
+  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
 
   it("повторный запрос с succeeded → idempotent", () => {
     // Если payment.status === 'succeeded' и пришёл ещё раз с тем же status →
@@ -107,7 +107,7 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
 
   it("разный status для уже обработанного платежа → НЕ idempotent", () => {
     const existing = { id: "pay-1", status: "succeeded" };
-    const incoming = { event: "payment.canceled", status: "canceled" };
+    const incoming = { event: "payment.canceled", status: "cancelled" };
 
     // Статус изменился — нужно обновить (не idempotent skip)
     const isIdempotent =
@@ -117,12 +117,12 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
     expect(isIdempotent).toBe(false);
   });
 
-  it("succeeded → canceled → refunded: последовательные переходы", () => {
+  it("succeeded → cancelled → refunded: последовательные переходы", () => {
     // Сначала succeeded, потом canceled, потом refunded
     const transitions = [
       { from: null, to: "succeeded" },
-      { from: "succeeded", to: "canceled" },
-      { from: "canceled", to: "refunded" },
+      { from: "succeeded", to: "cancelled" },
+      { from: "cancelled", to: "refunded" },
     ];
 
     for (const t of transitions) {
@@ -135,9 +135,9 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
     }
   });
 
-  it("повторный canceled → idempotent", () => {
-    const existing = { id: "pay-1", status: "canceled" };
-    const incoming = { event: "payment.canceled", status: "canceled" };
+  it("повторный cancelled → idempotent", () => {
+    const existing = { id: "pay-1", status: "cancelled" };
+    const incoming = { event: "payment.canceled", status: "cancelled" };
 
     const isIdempotent =
       FINAL_PAYMENT_STATUSES.has(existing.status) &&

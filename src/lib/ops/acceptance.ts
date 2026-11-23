@@ -385,6 +385,32 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
     );
     const shortages = needs.shortages;
 
+    // Нельзя принимать заказ, который невозможно провести через штатный
+    // recipe-driven write-off: отсутствие рецепта/ингредиентов и несовместимые
+    // единицы должны блокировать checkout, а не обнаруживаться у печи.
+    if (group.items.some((item) => !item.recipeId) || needs.ingredients.length === 0) {
+      reasons.push({
+        code: "MISSING_RECIPE",
+        message: `Для «${group.items.filter((item) => !item.recipeId).map((item) => item.title).join(", ") || group.items[0]?.title}» не настроен рецепт с ингредиентами.`,
+      });
+      suggestions.push({
+        code: "CONFIGURE_PRODUCT_TIME",
+        message: "Привяжите к товару рецепт и заполните его ингредиенты до приёма заказа.",
+      });
+    }
+
+    const unitMismatches = needs.ingredients.filter((ingredient) => ingredient.status === "unit_mismatch");
+    if (unitMismatches.length > 0) {
+      reasons.push({
+        code: "UNIT_MISMATCH",
+        message: `Несовместимые единицы измерения: ${unitMismatches.map((ingredient) => ingredient.name).join(", ")}. Исправьте единицы рецепта или склада.`,
+      });
+      suggestions.push({
+        code: "CONFIGURE_PRODUCT_TIME",
+        message: "Согласуйте единицы измерения в рецепте и складских позициях.",
+      });
+    }
+
     // --- Закупки: ETA (ТЗ §20) ---
     let earliestEta: Date | null = null;
     let etaBeforeProductionStart: boolean | null = null;
@@ -574,6 +600,8 @@ const BLOCKING_CODES = new Set<string>([
   "PURCHASE_ETA_AFTER_DEADLINE",
   "PURCHASE_ETA_MISSING",
   "DEADLINE_TOO_CLOSE",
+  "MISSING_RECIPE",
+  "UNIT_MISMATCH",
 ]);
 
 function dedupeReasons(reasons: AcceptanceReason[]): AcceptanceReason[] {

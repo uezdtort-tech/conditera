@@ -168,7 +168,10 @@ export async function GET(
         { status: 404 }
       );
     }
-    if (!(await canOperateOrder(order, user.id))) {
+    // Фото готового изделия — часть заказа и доказательство исполнения:
+    // владелец-покупатель должен иметь возможность просматривать их.
+    // SUPPORT/COURIER не получают доступ только по наличию глобальной роли.
+    if (order.user_id !== user.id && !(await canOperateOrder(order, user.id))) {
       return NextResponse.json(
         { error: "FORBIDDEN", message: "Нет доступа" },
         { status: 403 }

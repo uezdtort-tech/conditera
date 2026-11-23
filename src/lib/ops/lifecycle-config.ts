@@ -113,7 +113,9 @@ export type RiskReasonCode =
   | "DEADLINE_TOO_CLOSE"
   | "DELIVERY_RISK"
   | "PAYMENT_NOT_CONFIRMED"
-  | "MISSING_PRODUCT_DATA";
+  | "MISSING_PRODUCT_DATA"
+  | "MISSING_RECIPE"
+  | "UNIT_MISMATCH";
 
 /** Запас до latest safe start, при котором риск становится YELLOW (минуты). */
 export const RISK_YELLOW_MARGIN_MINUTES = 180;

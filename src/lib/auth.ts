@@ -15,6 +15,7 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isUserSessionActive } from "@/lib/session-registry";
 
 // === КРИТИЧНО: секреты fail-closed ===
 //
@@ -95,6 +96,8 @@ export interface JwtPayload extends JWTPayload {
   name?: string;
   roles?: string[];
   accountType?: string;
+  sid?: string;
+  jti?: string;
 }
 
 export interface AuthenticatedUser {
@@ -267,6 +270,19 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   //     payload.sub, JWT-claims как у Supabase (role/email в top-level)
   const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
   if (!payload || !userId) return null;
+
+  // Production app-JWT must be bound to an active server-side session.
+  // Legacy sid-less tokens are tolerated only in non-production environments.
+  if (!payload.sid) {
+    if (process.env.NODE_ENV === "production") return null;
+  } else {
+    try {
+      if (!(await isUserSessionActive(payload.sid, userId))) return null;
+    } catch (sessionError) {
+      console.error("[auth] session validation threw; rejecting request:", sessionError);
+      return null;
+    }
+  }
 
   try {
     const profileResult = await supabaseAdmin

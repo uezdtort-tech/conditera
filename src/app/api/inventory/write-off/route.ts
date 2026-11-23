@@ -4,10 +4,12 @@
  * POST { order_id?, items: [{ item_id, quantity }], reason? }
  *   → 201 { applied: [...], failed: [...] }
  *
- * Назначение: кондитер при готовке (заказ в PREPARING) списывает реальные
- * ингредиенты со своего склада. Рецепт→заказ НЕ линкуется автоматически
- * (в БД нет связи order↔recipe) — кондитер передаёт список позиций сам;
- * в будущем UI может подставлять ингредиенты выбранного рецепта.
+ * Назначение:
+ *   • штатный путь: { order_id, mode: "recipe" } — сервер получает рецептуру
+ *     через order_items → products.recipe_id → recipe_ingredients, проверяет
+ *     остатки, конвертирует единицы и списывает ингредиенты автоматически;
+ *   • ручной путь: { order_id?, items: [{ item_id, quantity }] } — для
+ *     корректировок и нестандартных списаний.
  *
  * Каждая позиция проходит через applyInventoryMovement (src/lib/inventory.ts)
  * как обычное OUT-движение: владение (owner_id === user.id, админ — обход),
@@ -17,15 +19,18 @@
  * списка (applied/failed). Если не применилось НИЧЕГО — ошибка с HTTP-статусом
  * первой причины (403/404/409/500).
  *
- * Идемпотентность (миграция 0049, реестр inventory_write_offs): повторная
- * или параллельная отправка того же батча с тем же order_id возвращает
- * сохранённый результат (200, idempotent:true) — двойное списание невозможно.
+ * Идемпотентность (миграция 0049, реестр inventory_write_offs): batch claim
+ * создаётся ДО движений. Повторная/параллельная отправка того же батча
+ * возвращает сохранённый результат или 409 processing — двойное списание
+ * невозможно.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
 import { unauthorizedResponse } from "@/lib/supabase/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
+import { writeOffOrderRecipe } from "@/lib/ops/recipe-writeoff";
 import {
   applyInventoryMovement,
   parseMovementQuantity,
@@ -116,11 +121,49 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ? body.reason.trim().slice(0, 500)
         : `Списание по заказу${orderId ? ` ${orderId.slice(0, 8)}` : ""}`;
 
-    // items: [{ item_id, quantity }]
-    const rawItems = Array.isArray(body.items) ? body.items : null;
+    // Привязанный к заказу write-off разрешён только назначенному
+    // кондитеру/администратору и только в PREPARING.
+    let order: Awaited<ReturnType<typeof loadOrderLite>> | null = null;
+    if (orderId) {
+      order = await loadOrderLite(orderId);
+      if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+      if (!(await canOperateOrder(order, user.id))) {
+        return NextResponse.json({ error: "Нет доступа к производству этого заказа" }, { status: 403 });
+      }
+      if (order.status !== "PREPARING") {
+        return NextResponse.json({ error: "Списание возможно только во время производства" }, { status: 409 });
+      }
+    }
+
+    // Основной производственный сценарий — единый сервис автоматически
+    // рассчитывает и списывает рецепт. Он же используется этапом
+    // ingredients_prepared, поэтому оба входа разделяют один idempotency key.
+    let rawItems = Array.isArray(body.items) ? body.items : null;
+    if (orderId && (body.mode === "recipe" || !rawItems)) {
+      const result = await writeOffOrderRecipe(
+        { id: user.id, roles: (user.roles as string[]) || [] },
+        orderId
+      );
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.error, details: result.details },
+          { status: result.status }
+        );
+      }
+      return NextResponse.json(
+        {
+          applied: result.applied,
+          failed: result.failed,
+          order_id: orderId,
+          idempotent: result.idempotent,
+        },
+        { status: result.idempotent ? 200 : 201 }
+      );
+    }
+
     if (!rawItems || rawItems.length === 0) {
       return NextResponse.json(
-        { error: "items обязателен (непустой массив { item_id, quantity })" },
+        { error: "Передайте items[] или order_id для автоматического списания по рецепту" },
         { status: 400 }
       );
     }
@@ -146,19 +189,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const actor: InventoryActor = { id: user.id, roles: (user.roles as string[]) || [] };
+    const writeOffOwnerId = orderId ? (order?.confectioner_id || user.id) : user.id;
 
-    // === Идемпотентность (миграция 0049): ретрай/двойная отправка того же
-    // батча по заказу возвращает сохранённый результат — движения не пишутся
-    // второй раз. Списания без order_id не дедуплицируются (нет ключа).
+    // Захватываем уникальный batch-key ДО изменения остатков. Старый порядок
+    // (сперва движения, потом INSERT реестра) допускал двойное списание при
+    // двух параллельных запросах: оба успевали пройти pre-check.
     const signature = orderId ? batchSignature(parsed) : null;
     if (orderId && signature) {
-      const existing = await findExistingWriteOff(user.id, orderId, signature);
-      if (existing) {
-        const saved = (existing.result ?? {}) as { applied?: AppliedItem[]; failed?: unknown[] };
+      const { error: claimError } = await supabaseAdmin.from("inventory_write_offs").insert({
+        owner_id: writeOffOwnerId,
+        order_id: orderId,
+        signature,
+        items: parsed,
+        result: { state: "processing" },
+      });
+      if (claimError) {
+        if ((claimError as { code?: string }).code !== "23505") {
+          console.error("[inventory/write-off] batch claim failed:", claimError.message);
+          return NextResponse.json({ error: "Не удалось зарезервировать списание. Повторите позже." }, { status: 503 });
+        }
+        const existing = await findExistingWriteOff(writeOffOwnerId, orderId, signature);
+        if (!existing) return NextResponse.json({ error: "Списание уже выполняется; повторите позже." }, { status: 409 });
+        const saved = (existing.result ?? {}) as { state?: string; applied?: AppliedItem[]; failed?: unknown[] };
+        if (!Array.isArray(saved.applied) || !Array.isArray(saved.failed)) {
+          return NextResponse.json({ error: "Списание уже выполняется; повторите позже." }, { status: 409 });
+        }
         return NextResponse.json(
           {
-            applied: saved.applied ?? [],
-            failed: saved.failed ?? [],
+            applied: saved.applied,
+            failed: saved.failed,
             order_id: orderId,
             idempotent: true,
             duplicate: true,
@@ -206,43 +265,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Ни одна позиция не списана — возвращаем ошибку первой причины
+    // Ни одна позиция не списана — освобождаем batch claim, чтобы после
+    // пополнения склада/исправления прав пользователь мог повторить запрос.
     if (applied.length === 0 && firstError) {
+      if (orderId && signature) {
+        await supabaseAdmin.from("inventory_write_offs").delete()
+           .eq("owner_id", writeOffOwnerId).eq("order_id", orderId).eq("signature", signature);
+      }
       const { status, message } = errorToResponse(firstError);
       return NextResponse.json({ error: message, failed }, { status });
     }
 
-    // Фиксируем выполненный батч в реестре (0049): повторные отправки
-    // получат сохранённый результат. 23505 — параллельный запрос успел
-    // первым: возвращаем его результат вместо ошибки.
+    // Сохраняем итог в уже захваченном batch-реестре. Если запись результата
+    // не прошла, claim остаётся processing: повторное списание блокируется.
     if (orderId && signature) {
-      const { error: regErr } = await supabaseAdmin.from("inventory_write_offs").insert({
-        owner_id: user.id,
-        order_id: orderId,
-        signature,
-        items: parsed,
-        result: { applied, failed },
-      });
-      if (regErr && (regErr as { code?: string }).code === "23505") {
-        const raced = await findExistingWriteOff(user.id, orderId, signature);
-        if (raced) {
-          const saved = (raced.result ?? {}) as { applied?: AppliedItem[]; failed?: unknown[] };
-          return NextResponse.json(
-            {
-              applied: saved.applied ?? [],
-              failed: saved.failed ?? [],
-              order_id: orderId,
-              idempotent: true,
-              duplicate: true,
-              message: "Списание по этому заказу уже было выполнено ранее",
-            },
-            { status: 200 }
-          );
-        }
-      } else if (regErr) {
-        // Батч уже применён; не откатываем — журнал в inventory_movements полон.
-        // Логируем и возвращаем обычный успех (реестр — оптимизация, не источник истины).
-        console.error("[inventory/write-off] registry insert failed:", regErr.message);
+      const { error: resultError } = await supabaseAdmin
+        .from("inventory_write_offs")
+        .update({ result: { state: "completed", applied, failed } })
+        .eq("owner_id", writeOffOwnerId)
+        .eq("order_id", orderId)
+        .eq("signature", signature);
+      if (resultError) {
+        console.error("[inventory/write-off] batch result persistence failed:", resultError.message);
+        return NextResponse.json({ error: "Списание применено, но не удалось сохранить результат. Обратитесь в поддержку." }, { status: 503 });
       }
     }
 
