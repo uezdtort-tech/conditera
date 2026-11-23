@@ -38,7 +38,6 @@ jobs:
           POSTGRES_PASSWORD: ci-only-postgres-password
           APP_DATABASE_PASSWORD: ci-only-app-db-password
           BACKUP_DATABASE_PASSWORD: ci-only-backup-db-password
-          BACKUP_DATABASE_PASSWORD: ci-only-backup-db-password
           JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
           ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
@@ -92,9 +91,6 @@ jobs:
           assert "conditera_backup_data" in config["volumes"]
           assert "conditera_backup:" in web["environment"]["BACKUP_DATABASE_URL"]
           assert any(v.get("target") == "/app/backups" and "conditera_backup_data" in v.get("source", "") for v in web.get("volumes", []))
-          assert "conditera_backup_data" in config["volumes"]
-          assert "conditera_backup:" in web["environment"]["BACKUP_DATABASE_URL"]
-          assert any(v.get("target") == "/app/backups" and "conditera_backup_data" in v.get("source", "") for v in web.get("volumes", []))
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
           node scripts/compose-single-runtime.mjs config
@@ -111,7 +107,6 @@ jobs:
           export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
           export POSTGRES_PASSWORD="ci-only-postgres-password"
           export APP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-          export BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
@@ -137,7 +132,6 @@ jobs:
           values = {
               "POSTGRES_PASSWORD":os.environ["POSTGRES_PASSWORD"],
               "APP_DATABASE_PASSWORD":os.environ["APP_DATABASE_PASSWORD"],
-              "BACKUP_DATABASE_PASSWORD":os.environ["BACKUP_DATABASE_PASSWORD"],
               "BACKUP_DATABASE_PASSWORD":os.environ["BACKUP_DATABASE_PASSWORD"],
               "JWT_SECRET":os.environ["JWT_SECRET"],
               "ANON_KEY":jwt("anon"),
