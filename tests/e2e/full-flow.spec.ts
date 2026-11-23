@@ -114,10 +114,12 @@ test.describe("API endpoints", () => {
     expect(response.ok()).toBeTruthy();
   });
 
-  test("GET /api/products returns 200 or 500 (no DB in test)", async ({ request }) => {
+  test("GET /api/products returns 200 with the PG17-backed catalog", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/products`);
-    // 200 если БД есть, 500 если нет — оба варианта допустимы
-    expect([200, 500]).toContain(response.status());
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(Array.isArray(body.products)).toBe(true);
+    expect(typeof body.total).toBe("number");
   });
 
   test("GET /api/csrf-token returns 200", async ({ request }) => {
