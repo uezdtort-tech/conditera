@@ -76,6 +76,9 @@ jobs:
       - name: Проверить все JSON-сценарии n8n и production allowlist
         run: node scripts/verify/n8n-production-workflows-verify.mjs
 
+      - name: Проверить production env preflight на валидных и небезопасных конфигурациях
+        run: node scripts/verify/production-env-preflight-test.mjs
+
       - name: Установить Bun
         uses: oven-sh/setup-bun@v2
         with:
