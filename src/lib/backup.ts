@@ -46,7 +46,7 @@ export async function runFullBackup(): Promise<BackupResult> {
   if (!existsSync(BACKUP_DIR)) mkdirSync(BACKUP_DIR, { recursive: true });
 
   if (isProd) {
-    if (!databaseUrl || !/^postgres(?:ql)?:\\/\\//.test(databaseUrl)) {
+    if (!databaseUrl || !(databaseUrl.startsWith("postgresql://") || databaseUrl.startsWith("postgres://"))) {
       throw new Error("BACKUP_DATABASE_URL must point to the dedicated PostgreSQL backup role");
     }
     // Production fails closed: never report a partial JSON export as a full database backup.
