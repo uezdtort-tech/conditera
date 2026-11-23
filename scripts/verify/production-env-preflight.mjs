@@ -70,6 +70,7 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
   if ((values.get("NODE_ENV") || "").trim() !== "production") errors.push("NODE_ENV: должен быть production");
   if ((values.get("LLM_PROVIDER") || "").trim().toLowerCase() === "none") errors.push("LLM_PROVIDER: AI-функции отключены; production-конфигурация должна указывать работающего провайдера");
   const provider = (values.get("LLM_PROVIDER") || "").trim().toLowerCase();
+  const domain = (values.get("DOMAIN") || "").trim().toLowerCase();
   if (provider && !["none", "ollama", "local", "lmstudio"].includes(provider)) requireValue("LLM_API_KEY", 16);
 
   const yookassaSecret = values.get("YOOKASSA_SECRET_KEY") || "";
@@ -77,11 +78,11 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
     errors.push("YOOKASSA_SECRET_KEY: production принимает только live_-ключ YooKassa, sandbox/test-ключ запрещён");
   }
   const telegramToken = values.get("TELEGRAM_BOT_TOKEN") || "";
-  if (telegramToken && !/^\\d{5,}:[A-Za-z0-9_-]{20,}$/.test(telegramToken)) {
+  if (telegramToken && !/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(telegramToken)) {
     errors.push("TELEGRAM_BOT_TOKEN: некорректный формат токена Bot API");
   }
   const telegramChannel = values.get("TELEGRAM_CHANNEL_ID") || "";
-  if (telegramChannel && !/^(?:@[A-Za-z0-9_]{5,}|-100\\d{5,})$/.test(telegramChannel)) {
+  if (telegramChannel && !/^(?:@[A-Za-z0-9_]{5,}|-100\d{5,})$/.test(telegramChannel)) {
     errors.push("TELEGRAM_CHANNEL_ID: требуется @имя канала или числовой ID вида -100...");
   }
   for (const [key, providerName] of [
@@ -98,7 +99,6 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
   const port = Number(values.get("SMTP_PORT"));
   if (!Number.isInteger(port) || port < 1 || port > 65535) errors.push("SMTP_PORT: некорректный TCP-порт");
 
-  const domain = (values.get("DOMAIN") || "").trim().toLowerCase();
   if (domain && (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain) || domain.includes(".."))) errors.push("DOMAIN: требуется корректный публичный домен");
   const checkUrl = (key, expectedPath) => {
     const raw = values.get(key) || "";
