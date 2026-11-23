@@ -18,10 +18,6 @@ const CONFECTIONER = {
   name: `E2E Тестовая Кондитерская ${RUN_ID.slice(0, 8)}`,
   phone: `+7${RUN_ID.replace(/\\D/g, "").slice(0, 10)}`,
 };
-const ADMIN = {
-  email: process.env.E2E_ADMIN_EMAIL || "admin@demo.ru",
-  password: process.env.E2E_ADMIN_PASSWORD || "Demo123!",
-};
 const PORTFOLIO_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
@@ -130,11 +126,46 @@ test.describe("Полный онбординг кондитера — PostgreSQL
     expect(["pending", "approved"]).toContain(initialStatus.verificationStatus);
 
     if (initialStatus.verificationStatus === "pending") {
-      const adminLogin = await post(`${APP}/api/auth/login`, {
-        data: { email: ADMIN.email, password: ADMIN.password },
+      // Изолированный администратор на каждый проект (desktop/mobile): не
+      // используем общий seed-аккаунт и не ослабляем защиту новых устройств.
+      const adminRunId = randomUUID();
+      const adminRegister = await post(`${APP}/api/auth/register`, {
+        data: {
+          email: `e2e-admin-${adminRunId}@e2e.conditera.ru`,
+          password: "E2e-Admin-Str0ng!2026",
+          name: `E2E Администратор ${adminRunId.slice(0, 8)}`,
+          phone: `+7${adminRunId.replace(/\\D/g, "").slice(0, 10)}`,
+          role: "CUSTOMER",
+          consentPd: true,
+          consentTerms: true,
+          consentOffer: true,
+          consentMarketing: false,
+        },
+        headers: { "x-real-ip": "10.251.10.10" },
       });
-      expect(adminLogin.status(), await adminLogin.text()).toBe(200);
-      const admin = await adminLogin.json() as { accessToken: string };
+      expect(adminRegister.status(), await adminRegister.text()).toBe(200);
+      const admin = await adminRegister.json() as {
+        user: { id: string };
+        accessToken: string;
+      };
+
+      const adminDb = new Client({ connectionString: databaseUrl });
+      await adminDb.connect();
+      try {
+        await adminDb.query(
+          "INSERT INTO public.user_roles (user_id, role, is_active) VALUES ($1::uuid, 'ADMIN', true) ON CONFLICT (user_id, role) DO UPDATE SET is_active = true",
+          [admin.user.id],
+        );
+        const adminRole = await adminDb.query(
+          "SELECT is_active FROM public.user_roles WHERE user_id=$1::uuid AND role='ADMIN'",
+          [admin.user.id],
+        );
+        expect(adminRole.rowCount).toBe(1);
+        expect(adminRole.rows[0].is_active).toBe(true);
+      } finally {
+        await adminDb.end();
+      }
+
       const adminAuth = { Authorization: `Bearer ${admin.accessToken}` };
 
       const pendingResponse = await request.get(`${APP}/api/admin/confectioners/pending`, {
