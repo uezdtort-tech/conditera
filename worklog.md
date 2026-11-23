@@ -10383,3 +10383,23 @@ S12-A: classifyBackupFreshness (порог 36ч, tz-толерантность, 
 матрица 50/50 (4-й UUID-расклад). Бандл
 backups/conditera-v2-S12-ad65081.bundle (1705611 B, verify OK,
 clone-test -b main OK), origin → bundle.
+
+## ops(github) 2026-11-23 — PAT-доступ к origin, скан секретов, фиксация дивергенции
+
+Владелец выдал fine-grained PAT (срок до 2026-12-23 UTC, аккаунт
+uezdtort-tech). Токен хранится только вне репо (~/.git-credentials,
+chmod 600, глобальный credential.helper=store); в git-контенте
+отсутствует — скан HEAD, unpushed- и remote-only диффов отрицательный.
+Секреты: git grep паттерны (ghp_/github_pat_/sk-/AKIA/JWT) по HEAD —
+только тест-фикстуры сканера и канонические docs-примеры; supabase
+JWT в .env.local.example / RUNNING_MIXED.md — стандартные
+supabase-demo ключи локального стека (не прод). .env* в гитигноре,
+в трекинге только .example. Дивергенция main: origin/main ушёл на
+615 коммитов (линия 11-05…11-22: pg17, supabase runtime, n8n startup,
+pwa), локально 347 (линия песочницы, реставрированная история,
+merge-base 8a31081 2026-11-04). Пересечение 48 файлов, включая
+money-path (payment/webhook, checkout, auth). Решение fail-soft:
+канонический main не тронут; снапшот local main (ab79d95 + этот
+коммит) → origin ветка work/sandbox-main-20261123. Свержение линий —
+отдельная задача с полным прогоном (vitest + матрица) до любого
+push в main.
