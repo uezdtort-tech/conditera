@@ -517,6 +517,7 @@ jobs:
           BEGIN;
           DELETE FROM public.schema_migrations
           WHERE filename IN (
+            '0012a_new_roles_recipes_loyalty_ai.sql',
             '0061a_user_consent_events.sql',
             '0062a_reference_catalog.sql',
             '0063a_cake_project_spec.sql',
@@ -525,6 +526,7 @@ jobs:
             '0067a_repair_updated_at_triggers.sql'
           );
           INSERT INTO public.schema_migrations(filename) VALUES
+            ('0012_new_roles_recipes_loyalty_ai.sql'),
             ('0061_user_consent_events.sql'),
             ('0062_reference_catalog.sql'),
             ('0063_cake_project_spec.sql'),
@@ -542,6 +544,7 @@ jobs:
           grep -q "Откладываю 0026_storage_buckets_and_confectioners_rls.sql" legacy-alias-rerun.log
           ALIASES=$(docker exec "$SVC" psql -U supabase_admin -d supabase -tAc "
             SELECT count(*) FROM public.schema_migrations WHERE filename IN (
+              '0012a_new_roles_recipes_loyalty_ai.sql',
               '0061a_user_consent_events.sql',
               '0062a_reference_catalog.sql',
               '0063a_cake_project_spec.sql',
@@ -549,7 +552,7 @@ jobs:
               '0066a_service_role_default_grants.sql',
               '0067a_repair_updated_at_triggers.sql'
             )")
-          test "$ALIASES" -eq 6 || { echo "FAIL: expected 6 canonical ledger aliases, got $ALIASES"; exit 1; }
+          test "$ALIASES" -eq 7 || { echo "FAIL: expected 6 canonical ledger aliases, got $ALIASES"; exit 1; }
           echo "PASS: legacy migration ledger names map to canonical filenames without re-running SQL"
 
       - name: RLS/GRANT sanity — policies and client write privileges
