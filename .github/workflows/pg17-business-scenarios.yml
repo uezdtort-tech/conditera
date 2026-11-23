@@ -94,6 +94,9 @@ jobs:
       - name: Установить зависимости
         run: bun install --frozen-lockfile
 
+      - name: Регрессия точных имён PostgreSQL enum
+        run: bun run test -- src/lib/postgrest/introspect.test.ts
+
       - name: Применить все миграции к чистому PostgreSQL 17 и создать E2E-данные
         run: bun run db:setup
         env:
