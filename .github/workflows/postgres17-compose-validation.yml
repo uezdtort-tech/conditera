@@ -193,6 +193,80 @@ jobs:
           print("Production env bootstrap PASS: idempotent secrets, exact n8n key-file bytes, and restrictive permissions.")
           PY
           rm -rf "$tmpdir"
+
+      - name: Verify legacy demo JWT secrets are rotated and dependent keys are re-signed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          mkdir -p "$tmpdir/scripts"
+          cp scripts/prepare-production-env.sh .env.production.example .env.supabase-runtime.example .gitignore "$tmpdir/"
+          cp scripts/prepare-production-env.sh "$tmpdir/scripts/"
+          git -C "$tmpdir" init -q
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          python3 - "$tmpdir/.env.production" <<'PY'
+          import base64, hashlib, hmac, json, sys, time
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          values = {}
+          for line in path.read_text().splitlines():
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  values[key] = value
+
+          weak_access = "your-super-secret-jwt-token-with-at-least-32-characters-long"
+          weak_refresh = "ci-refresh-secret-which-is-not-used-for-real-auth"
+          def b64(data):
+              return base64.urlsafe_b64encode(data).decode().rstrip("=")
+          def jwt(role, secret):
+              header = b64(json.dumps({"alg":"HS256","typ":"JWT"}, separators=(",",":")).encode())
+              payload = b64(json.dumps({"iss":"supabase","role":role,"iat":int(time.time()),"exp":int(time.time())+315360000}, separators=(",",":")).encode())
+              message = header + "." + payload
+              signature = b64(hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest())
+              return message + "." + signature
+
+          values["JWT_SECRET"] = weak_access
+          values["JWT_REFRESH_SECRET"] = weak_refresh
+          values["NEXT_PUBLIC_SUPABASE_ANON_KEY"] = jwt("anon", weak_access)
+          values["SUPABASE_SERVICE_ROLE_KEY"] = jwt("service_role", weak_access)
+          path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+          PY
+          (cd "$tmpdir" && bash scripts/prepare-production-env.sh >/dev/null)
+          python3 - "$tmpdir/.env.production" <<'PY'
+          import base64, hashlib, hmac, json, re, sys
+          from pathlib import Path
+
+          values = {}
+          for line in Path(sys.argv[1]).read_text().splitlines():
+              if line and not line.startswith("#") and "=" in line:
+                  key, value = line.split("=", 1)
+                  values[key] = value
+
+          secret = values["JWT_SECRET"]
+          refresh = values["JWT_REFRESH_SECRET"]
+          if not re.fullmatch(r"[0-9a-fA-F]{64}", secret) or not re.fullmatch(r"[0-9a-fA-F]{64}", refresh):
+              raise SystemExit("legacy JWT secrets were not replaced with 256-bit hex values")
+          if secret == refresh:
+              raise SystemExit("rotated JWT access and refresh secrets must be distinct")
+
+          def decode(part):
+              return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+          def verify(token, expected_role):
+              header, payload, signature = token.split(".")
+              if decode(header).get("alg") != "HS256":
+                  raise SystemExit("rotated Supabase JWT has an unexpected algorithm")
+              message = header + "." + payload
+              expected = base64.urlsafe_b64encode(hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+              if not hmac.compare_digest(expected, signature):
+                  raise SystemExit("Supabase role JWT was not re-signed with the rotated JWT_SECRET")
+              if decode(payload).get("role") != expected_role:
+                  raise SystemExit(f"Supabase JWT role mismatch: expected {expected_role}")
+          verify(values["NEXT_PUBLIC_SUPABASE_ANON_KEY"], "anon")
+          verify(values["SUPABASE_SERVICE_ROLE_KEY"], "service_role")
+          print("PASS: legacy access/refresh secrets rotated; anon/service_role JWTs re-signed with the new access secret.")
+          PY
           bash scripts/deploy-single-container.sh --config
           docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
           docker compose -f docker-compose.dev.yml config --format json > /tmp/conditera-dev-compose.json
