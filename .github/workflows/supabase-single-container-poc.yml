@@ -217,6 +217,55 @@ jobs:
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
 
+      - name: Exercise the real production deploy preflight with synthetic provider credentials
+        run: |
+          set -Eeuo pipefail
+          cleanup() {
+            rm -f .env.production .env.supabase-runtime .secrets/n8n_encryption_key
+            rmdir .secrets 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          cp .env.production.example .env.production
+          cp .env.supabase-runtime.example .env.supabase-runtime
+          bash scripts/prepare-production-env.sh
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def set_values(path, updates):
+              lines = Path(path).read_text(encoding="utf-8").splitlines()
+              seen = set()
+              output = []
+              for line in lines:
+                  if "=" not in line or line.lstrip().startswith("#"):
+                      output.append(line)
+                      continue
+                  key = line.split("=", 1)[0].strip()
+                  if key in updates:
+                      output.append(f"{key}={updates[key]}")
+                      seen.add(key)
+                  else:
+                      output.append(line)
+              for key, value in updates.items():
+                  if key not in seen:
+                      output.append(f"{key}={value}")
+              Path(path).write_text("\n".join(output) + "\n", encoding="utf-8")
+
+          set_values(".env.production", {
+              "SMTP_USER": "ci@noreply.conditera.ru",
+              "SMTP_PASSWORD": "ci-only-smtp-password",
+              "YOOKASSA_SHOP_ID": "ci-shop-id",
+              "YOOKASSA_SECRET_KEY": "live_ci_only_yookassa_key",
+              "YANDEX_CLIENT_ID": "ci-yandex-client-id",
+              "YANDEX_CLIENT_SECRET": "ci-yandex-client-secret",
+              "YANDEX_OAUTH_REDIRECT": "https://conditera.ru/api/auth/oauth/yandex/callback",
+              "VK_CLIENT_ID": "ci-vk-client-id",
+              "VK_OAUTH_REDIRECT": "https://conditera.ru/api/auth/oauth/vk/callback",
+              "TELEGRAM_BOT_TOKEN": "123456789:ci-only-telegram-token",
+              "TELEGRAM_CHANNEL_ID": "@conditera",
+          })
+          PY
+          bash scripts/deploy-single-container.sh --config
+
       - name: Build one-container Supabase runtime
         run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
 
