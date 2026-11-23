@@ -29,6 +29,7 @@
  *         storage.buckets: avatars, covers, portfolio (migration 0026)
  */
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -403,6 +404,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     autoApproveReason = result.reason ?? "";
     if (autoApproved) {
       console.info(`[onboarding] Auto-approved: ${businessName}`);
+      revalidatePath("/sitemap.xml");
+      revalidatePath("/confectioners");
+      if (inserted.slug) revalidatePath(`/confectioners/${inserted.slug}`);
     }
   } catch (e: any) {
     console.warn("[onboarding] Auto-approve failed (non-blocking):", e?.message);
