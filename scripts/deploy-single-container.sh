@@ -96,6 +96,9 @@ required_app = [
     "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY",
     "NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
+    "NEXT_PUBLIC_SUPPORT_EMAIL", "NEXT_PUBLIC_PRIVACY_EMAIL", "CONTACT_NOTIFICATION_EMAIL",
+    "NEXT_PUBLIC_LEGAL_NAME", "NEXT_PUBLIC_COMPANY_INN", "NEXT_PUBLIC_COMPANY_OGRN",
+    "NEXT_PUBLIC_LEGAL_ADDRESS",
 ]
 required_runtime = [
     "APP_DATABASE_PASSWORD", "BACKUP_DATABASE_PASSWORD", "N8N_ENCRYPTION_KEY", "SUPABASE_SECRET_KEY_BASE", "PG_META_CRYPTO_KEY",
@@ -126,6 +129,18 @@ if app.get("JWT_SECRET") == app.get("JWT_REFRESH_SECRET"):
 tfa_key = app.get("TFA_ENCRYPTION_KEY", "")
 if tfa_key and (len(tfa_key) != 64 or not re.fullmatch(r"[0-9a-fA-F]{64}", tfa_key)):
     errors.append("TFA_ENCRYPTION_KEY must be 64 hexadecimal characters")
+
+for key in ("NEXT_PUBLIC_SUPPORT_EMAIL", "NEXT_PUBLIC_PRIVACY_EMAIL", "CONTACT_NOTIFICATION_EMAIL"):
+    value = app.get(key, "").strip()
+    if value and not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", value):
+        errors.append(f".env.production: {key} must be a valid email address")
+
+inn = re.sub(r"\\D", "", app.get("NEXT_PUBLIC_COMPANY_INN", ""))
+if inn and len(inn) not in (10, 12):
+    errors.append("NEXT_PUBLIC_COMPANY_INN must contain 10 or 12 digits")
+ogrn = re.sub(r"\\D", "", app.get("NEXT_PUBLIC_COMPANY_OGRN", ""))
+if ogrn and len(ogrn) not in (13, 15):
+    errors.append("NEXT_PUBLIC_COMPANY_OGRN must contain 13 or 15 digits")
 
 def decode_jwt(token):
     parts = token.split(".")
