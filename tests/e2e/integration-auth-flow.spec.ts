@@ -8,13 +8,16 @@
  * Запуск:
  *   npx playwright test tests/e2e/integration-auth-flow.spec.ts --project=chromium
  */
+import { randomUUID } from 'node:crypto'
 import { test, expect, type APIRequestContext } from '@playwright/test'
 
 // Уникальный email для каждого запуска (чтобы не конфликтовать с предыдущими)
-const uniqueEmail = `e2e-test-${Date.now()}@example.com`
+const uniqueId = randomUUID()
+const uniqueEmail = `e2e-test-${uniqueId}@example.com`
 const testPassword = 'TestPassword123!'
 const testName = 'E2E Test User'
-const testPhone = '+79990000000'
+const testPhone = `+7${uniqueId.replace(/\\D/g, '').slice(0, 10)}`
+const testIp = `10.240.${Math.floor(Math.random() * 200) + 20}.${Math.floor(Math.random() * 200) + 20}`
 
 test.describe.serial('Integration: full auth flow', () => {
   let accessToken: string | null = null
@@ -23,6 +26,7 @@ test.describe.serial('Integration: full auth flow', () => {
 
   test('1. Register → creates user + returns tokens', async ({ request }) => {
     const response = await request.post('/api/auth/register', {
+      headers: { 'x-real-ip': testIp },
       data: {
         email: uniqueEmail,
         password: testPassword,
@@ -36,84 +40,57 @@ test.describe.serial('Integration: full auth flow', () => {
       },
     })
 
-    // Контракт /api/auth/register: 200 (успешная регистрация), 409/429/500 — ожидаемые отказы.
-    if (response.status() === 200 || response.status() === 201) {
-      const json = await response.json()
-      expect(json.user).toBeDefined()
-      expect(json.accessToken).toBeDefined()
-      expect(json.refreshToken).toBeDefined()
-      accessToken = json.accessToken
-      refreshToken = json.refreshToken
-      userId = json.user.id
-    } else if (response.status() === 409) {
-      // Email уже существует — пропускаем (возможно от предыдущего запуска)
-      test.skip(true, 'Email уже зарегистрирован — тест регистрации пропущен')
-    } else if (response.status() === 429) {
-      test.skip(true, 'Rate limit достигнут — слишком много регистраций')
-    } else if (response.status() === 500) {
-      test.skip(true, 'БД недоступна — нужен Supabase для интеграционных тестов')
-    } else {
-      throw new Error(`Unexpected status: ${response.status()}`)
-    }
+    expect(response.status(), await response.text()).toBe(200)
+    const json = await response.json()
+    expect(json.user).toBeDefined()
+    expect(json.user.roles).toContain('CUSTOMER')
+    expect(json.accessToken).toBeDefined()
+    expect(json.refreshToken).toBeDefined()
+    accessToken = json.accessToken
+    refreshToken = json.refreshToken
+    userId = json.user.id
   })
 
   test('2. Login → returns tokens', async ({ request }) => {
-    if (!refreshToken) {
-      // Попытаться логин
-    }
-
+    expect(refreshToken, 'регистрация обязана вернуть refresh token').toBeTruthy()
     const response = await request.post('/api/auth/login', {
+      headers: { 'x-real-ip': testIp },
       data: { email: uniqueEmail, password: testPassword },
     })
 
-    if (response.status() === 200) {
-      const json = await response.json()
-      expect(json.user).toBeDefined()
-      expect(json.accessToken).toBeDefined()
-      accessToken = json.accessToken
-      refreshToken = json.refreshToken
-      userId = json.user.id
-    } else if (response.status() === 401) {
-      test.skip(true, 'Login failed — пользователь не найден (register не создал запись)')
-    } else if (response.status() === 500) {
-      test.skip(true, 'БД недоступна')
-    } else {
-      // Может быть 403 (CSRF) если login не exempt
-      expect([200, 401, 403, 429, 500]).toContain(response.status())
-    }
+    expect(response.status(), await response.text()).toBe(200)
+    const json = await response.json()
+    expect(json.user).toBeDefined()
+    expect(json.accessToken).toBeDefined()
+    expect(json.refreshToken).toBeDefined()
+    accessToken = json.accessToken
+    refreshToken = json.refreshToken
+    userId = json.user.id
   })
 
   test('3. Refresh token → new access token', async ({ request }) => {
-    if (!refreshToken) {
-      test.skip(true, 'Нет refresh token — предыдущие шаги пропущены')
-      return
-    }
-
+    expect(refreshToken).toBeTruthy()
     const response = await request.post('/api/auth/refresh', {
+      headers: { 'x-real-ip': testIp },
       data: { refreshToken },
     })
 
-    if (response.status() === 200) {
-      const json = await response.json()
-      expect(json.accessToken).toBeDefined()
-      accessToken = json.accessToken
-    } else {
-      // Может упасть если token недействителен
-      expect([200, 401, 500]).toContain(response.status())
-    }
+    expect(response.status(), await response.text()).toBe(200)
+    const json = await response.json()
+    expect(json.accessToken).toBeTruthy()
+    expect(json.refreshToken).toBeTruthy()
+    accessToken = json.accessToken
+    refreshToken = json.refreshToken
   })
 
   test('4. 2FA setup → returns QR code', async ({ request }) => {
-    if (!accessToken) {
-      test.skip(true, 'Нет access token — предыдущие шаги пропущены')
-      return
-    }
-
-    // 2FA setup требует CSRF — попробуем без (ожидаем 403)
-    const response = await request.post('/api/auth/2fa/setup')
-
-    // 403 (CSRF) или 401 (не авторизован)
-    expect([403, 401]).toContain(response.status())
+    expect(accessToken).toBeTruthy()
+    // Авторизованный запрос без CSRF должен быть отклонён middleware.
+    const response = await request.post('/api/auth/2fa/setup', {
+      headers: { 'x-real-ip': testIp },
+    })
+    expect(response.status()).toBe(403)
+    expect((await response.json()).error).toContain('CSRF')
   })
 
   test('5. Health check → status ok or degraded', async ({ request }) => {
@@ -138,11 +115,32 @@ test.describe.serial('Integration: full auth flow', () => {
   })
 
   test('7. Rate limiting — health endpoint always 200', async ({ request }) => {
-    // Health не rate-limited
     for (let i = 0; i < 5; i++) {
       const response = await request.get('/api/health')
       expect(response.status()).toBe(200)
     }
+  })
+
+  test('8. Logout revokes the current session', async ({ request }) => {
+    expect(accessToken).toBeTruthy()
+    const csrfResponse = await request.get('/api/csrf-token', {
+      headers: { 'x-real-ip': testIp },
+    })
+    expect(csrfResponse.status()).toBe(200)
+    const csrf = (await csrfResponse.json()).token
+    const logout = await request.post('/api/auth/logout', {
+      headers: {
+        'x-real-ip': testIp,
+        Authorization: `Bearer ${accessToken}`,
+        'x-csrf-token': csrf,
+      },
+    })
+    expect(logout.status()).toBe(200)
+    const session = await request.get('/api/auth/session', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    expect(session.status()).toBe(200)
+    expect((await session.json()).user).toBeNull()
   })
 })
 
