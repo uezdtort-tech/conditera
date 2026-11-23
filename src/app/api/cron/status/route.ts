@@ -70,7 +70,7 @@ async function saveCronRuns(runs: CronRun[]): Promise<void> {
   }
 }
 
-async function authorizeRead(req: NextRequest): Promise<NextResponse | null> {
+async function authorizeRead(req: NextRequest): Promise<Response | null> {
   if (verifyCronSecret(req)) return null;
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
@@ -80,7 +80,7 @@ async function authorizeRead(req: NextRequest): Promise<NextResponse | null> {
   return null;
 }
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<Response> {
   const denied = await authorizeRead(req);
   if (denied) return denied;
   try {
