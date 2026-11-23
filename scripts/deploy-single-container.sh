@@ -130,6 +130,7 @@ weak_jwt_values = {
     "your-super-secret-jwt-token-with-at-least-32-characters-long",
     "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa",
     "ci-only-conditera-jwt-secret-32-bytes-minimum",
+    "ci-refresh-secret-which-is-not-used-for-real-auth",
     "0123456789abcdef" * 4,
 }
 for key in ("JWT_SECRET", "JWT_REFRESH_SECRET"):
