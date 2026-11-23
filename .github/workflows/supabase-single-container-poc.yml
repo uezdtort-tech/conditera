@@ -286,7 +286,7 @@ jobs:
             pg_dump -h 127.0.0.1 -p 5432 -U conditera_backup -d supabase -Fc --no-owner --no-privileges -f /tmp/conditera-pg17-backup.dump
             test -s /tmp/conditera-pg17-backup.dump
             pg_restore --list /tmp/conditera-pg17-backup.dump > /tmp/conditera-pg17-backup.list
-            grep -q "TABLE public.schema_migrations" /tmp/conditera-pg17-backup.list
+            grep -q "TABLE public schema_migrations" /tmp/conditera-pg17-backup.list
             export PGPASSWORD="$POSTGRES_PASSWORD"
             psql -h 127.0.0.1 -p 5432 -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE conditera_backup_restore_test"
             pg_restore -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera_backup_restore_test --no-owner --no-privileges /tmp/conditera-pg17-backup.dump
