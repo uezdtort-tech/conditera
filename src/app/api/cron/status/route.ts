@@ -95,7 +95,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 }
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<Response> {
   if (!verifyCronSecret(req)) return cronUnauthorized();
 
   let body: unknown;
