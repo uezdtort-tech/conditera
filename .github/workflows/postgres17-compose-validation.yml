@@ -47,7 +47,7 @@ jobs:
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration config --quiet
-      - name: Проверить изоляцию целевого кластера и сохранность действующего PG15
+      - name: Проверить изоляцию целевого PG17 и сохранность действующего PG17 runtime
         run: |
           docker compose \
             -f docker-compose.supabase.yml \
@@ -77,13 +77,13 @@ jobs:
           storage_named_volumes = [volume["source"] for volume in storage.get("volumes", []) if volume.get("type") == "volume"]
           current_named_volumes = [volume["source"] for volume in current.get("volumes", []) if volume.get("type") == "volume"]
           assert "supabase_pg17_migration_data" in target_named_volumes, target_named_volumes
-          assert current["image"] == "supabase/postgres:15.6.1.141", current.get("image")
+          assert current["image"] == "supabase/postgres:17.11.0.017", current.get("image")
           assert "supabase_db_data" in current_named_volumes, current_named_volumes
           assert set(current_named_volumes).isdisjoint(target_named_volumes), (current_named_volumes, target_named_volumes)
           assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data"
           assert "supabase_pg17_migration_storage_data" in storage_named_volumes, storage_named_volumes
           assert config["volumes"]["supabase_pg17_migration_storage_data"]["name"] == "conditera_supabase_pg17_migration_storage_data"
-          print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
+          print("OK: PG17 target is profile-isolated, has a separate volume, and current PG17 runtime remains unchanged.")
           PY
       - name: Запустить PG17 и Supabase Storage, затем применить отложенную миграцию
         run: |
