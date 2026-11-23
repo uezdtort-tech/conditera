@@ -123,26 +123,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const notificationEmail = process.env.CONTACT_NOTIFICATION_EMAIL?.trim();
     let notificationStatus: "sent" | "failed" | "not_configured" = "not_configured";
     if (notificationEmail) {
-      const notification = await sendEmail({
-        to: notificationEmail,
-        subject: `Новое обращение с сайта: ${TOPIC_LABELS[input.topic]}`,
-        text: [
-          "Новое обращение зарегистрировано в CRM Conditera.",
-          `Номер: ${lead.id}`,
-          `Имя: ${input.name}`,
-          `Email: ${email}`,
-          `Телефон: ${input.phone.trim() || "не указан"}`,
-          `Тема: ${TOPIC_LABELS[input.topic]}`,
-          "",
-          input.message,
-        ].join("\n"),
-        replyTo: email,
-        leadId: lead.id,
-        template: "contact_inquiry",
-      });
-      notificationStatus = notification.success ? "sent" : "failed";
-      if (!notification.success) {
-        console.error("[contact] notification email failed:", notification.error || "unknown error");
+      try {
+        const notification = await sendEmail({
+          to: notificationEmail,
+          subject: `Новое обращение с сайта: ${TOPIC_LABELS[input.topic]}`,
+          text: [
+            "Новое обращение зарегистрировано в CRM Conditera.",
+            `Номер: ${lead.id}`,
+            `Имя: ${input.name}`,
+            `Email: ${email}`,
+            `Телефон: ${input.phone.trim() || "не указан"}`,
+            `Тема: ${TOPIC_LABELS[input.topic]}`,
+            "",
+            input.message,
+          ].join("\n"),
+          replyTo: email,
+          leadId: lead.id,
+          template: "contact_inquiry",
+        });
+        notificationStatus = notification.success ? "sent" : "failed";
+        if (!notification.success) {
+          console.error("[contact] notification email failed:", notification.error || "unknown error");
+        }
+      } catch (notificationError) {
+        notificationStatus = "failed";
+        console.error("[contact] notification email threw:", notificationError instanceof Error ? notificationError.message : String(notificationError));
       }
     } else if (process.env.NODE_ENV === "production") {
       console.error("[contact] CONTACT_NOTIFICATION_EMAIL is missing; lead stored without email notification");
