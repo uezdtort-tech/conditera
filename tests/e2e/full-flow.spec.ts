@@ -10,6 +10,27 @@ import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
 
+// ===== Production static assets =====
+test.describe("Production static assets", () => {
+  test("Next.js client chunks and stylesheets load successfully", async ({ page }) => {
+    const failedAssets: string[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/_next/static/") && response.status() >= 400) {
+        failedAssets.push(`${response.status()} ${response.url()}`);
+      }
+    });
+
+    await page.goto(BASE_URL, { waitUntil: "load" });
+    await expect(page.locator("body")).toBeVisible();
+
+    const runtimeAssets = await page.locator(
+      'script[src*="/_next/static/"], link[rel="stylesheet"][href*="/_next/static/"]'
+    ).count();
+    expect(runtimeAssets).toBeGreaterThan(0);
+    expect(failedAssets).toEqual([]);
+  });
+});
+
 // ===== Группа: Public pages =====
 test.describe("Public pages — должны возвращать 200", () => {
   test("homepage loads", async ({ page }) => {
@@ -72,14 +93,12 @@ test.describe("Auth flow", () => {
 
   test("login page has auth form", async ({ page }) => {
     await page.goto(`${BASE_URL}/login`);
-    // Должна быть форма с email/password или OAuth кнопки
     const body = await page.locator("body").textContent();
     expect(body).toBeTruthy();
   });
 
   test("dashboard redirects unauthenticated user", async ({ page }) => {
     await page.goto(`${BASE_URL}/dashboard`);
-    // Должен редиректить на /login или показать страницу входа
     await page.waitForTimeout(2000);
     const url = page.url();
     expect(url).toContain("login");
@@ -95,7 +114,6 @@ test.describe("API endpoints", () => {
 
   test("GET /api/products returns 200 or 500 (no DB in test)", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/products`);
-    // 200 если БД есть, 500 если нет — оба варианта допустимы
     expect([200, 500]).toContain(response.status());
   });
 
@@ -129,55 +147,47 @@ test.describe("API endpoints", () => {
 test.describe("Security headers", () => {
   test("X-Content-Type-Options is nosniff", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/`);
-    const headers = response.headers();
-    expect(headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers()["x-content-type-options"]).toBe("nosniff");
   });
 
   test("X-Frame-Options is SAMEORIGIN", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/`);
-    const headers = response.headers();
-    expect(headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(response.headers()["x-frame-options"]).toBe("SAMEORIGIN");
   });
 
   test("Referrer-Policy is strict-origin-when-cross-origin", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/`);
-    const headers = response.headers();
-    expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+    expect(response.headers()["referrer-policy"]).toBe("strict-origin-when-cross-origin");
   });
 
   test("Permissions-Policy is set", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/`);
-    const headers = response.headers();
-    expect(headers["permissions-policy"]).toContain("geolocation=()");
+    expect(response.headers()["permissions-policy"]).toContain("geolocation=()");
   });
 
   test("CSP header is present", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/`);
-    const headers = response.headers();
-    const csp = headers["content-security-policy"];
+    const csp = response.headers()["content-security-policy"];
     expect(csp).toBeTruthy();
     expect(csp).toContain("default-src");
   });
 
   test("Cross-Origin-Opener-Policy is same-origin", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/`);
-    const headers = response.headers();
-    expect(headers["cross-origin-opener-policy"]).toBe("same-origin");
+    expect(response.headers()["cross-origin-opener-policy"]).toBe("same-origin");
   });
 
   test("Cross-Origin-Resource-Policy is same-origin", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/`);
-    const headers = response.headers();
-    expect(headers["cross-origin-resource-policy"]).toBe("same-origin");
+    expect(response.headers()["cross-origin-resource-policy"]).toBe("same-origin");
   });
 });
 
 // ===== Группа: Sensitive endpoints (no-store) =====
 test.describe("Sensitive endpoints — Cache-Control no-store", () => {
-  test("/api/auth/* has no-store", async ({ request }) => {
+  test(" /api/auth/* has no-store", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/auth/session`);
-    const cacheControl = response.headers()["cache-control"];
-    expect(cacheControl).toContain("no-store");
+    expect(response.headers()["cache-control"]).toContain("no-store");
   });
 });
 
@@ -186,15 +196,13 @@ test.describe("SEO", () => {
   test("robots.txt is accessible", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/robots.txt`);
     expect(response.ok()).toBeTruthy();
-    const body = await response.text();
-    expect(body.toLowerCase()).toContain("user-agent");
+    expect((await response.text()).toLowerCase()).toContain("user-agent");
   });
 
   test("sitemap.xml is accessible", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/sitemap.xml`);
     expect(response.ok()).toBeTruthy();
-    const body = await response.text();
-    expect(body).toContain("xml");
+    expect(await response.text()).toContain("xml");
   });
 });
 
@@ -213,14 +221,12 @@ test.describe("Mobile responsive", () => {
 test.describe("Navigation", () => {
   test("homepage has header navigation", async ({ page }) => {
     await page.goto(BASE_URL);
-    const header = page.locator("header, nav").first();
-    await expect(header).toBeVisible();
+    await expect(page.locator("header, nav").first()).toBeVisible();
   });
 
   test("homepage has footer", async ({ page }) => {
     await page.goto(BASE_URL);
-    const footer = page.locator("footer").first();
-    await expect(footer).toBeVisible();
+    await expect(page.locator("footer").first()).toBeVisible();
   });
 });
 
@@ -234,40 +240,8 @@ test.describe("Cake builder", () => {
     await expect(builderButton).toBeVisible();
     await builderButton.click();
     const dialog = page.getByRole("dialog").first();
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-  });
-});
-
-// ===== Группа: Login page =====
-test.describe("Login page (Supabase Auth)", () => {
-  test("login page has email and password fields", async ({ page }) => {
-    await page.goto(`${BASE_URL}/login`);
-    await page.waitForTimeout(2000);
-
-    // Ищем email input
-    const emailInput = page.locator("input[type='email'], input#auth-email").first();
-    if (await emailInput.isVisible().catch(() => false)) {
-      await expect(emailInput).toBeVisible();
-    }
-
-    // Ищем password input
-    const passwordInput = page.locator("input[type='password']").first();
-    if (await passwordInput.isVisible().catch(() => false)) {
-      await expect(passwordInput).toBeVisible();
-    }
-  });
-
-  test("login page has OAuth buttons", async ({ page }) => {
-    await page.goto(`${BASE_URL}/login`);
-    await page.waitForTimeout(2000);
-
-    // Ищем кнопки OAuth (Google, Яндекс, VK)
-    const body = await page.locator("body").textContent();
-    if (body) {
-      // Хотя бы один из провайдеров должен быть упомянут
-      const hasOAuth = body.includes("Google") || body.includes("Яндекс") || body.includes("VK");
-      // В stub-mode OAuth может быть недоступен — не блокируем тест
-      expect(true).toBe(true);
-    }
+    await expect(dialog).toBeVisible({ timeout: 10000 });
+    await expect(dialog).toContainText("Шаг 1 / 9");
+    await expect(dialog).toContainText("Тип изделия");
   });
 });
