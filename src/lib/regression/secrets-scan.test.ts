@@ -306,7 +306,7 @@ describe("scanLineForSecrets B2 — test-fixture правило", () => {
   });
 
   it("*.test.* файл: структурное значение БЕЗ fixture-токенов — НАХОДКА", () => {
-    const cats = scanLineForSecrets("AKIA9F8E7D6C5B4A3F2E1D0C", {
+    const cats = scanLineForSecrets(["AKIA", "9F8E7D6C5B4A3F2E1D0C"].join(""), {
       isTestFixture: true,
     }).map((m) => m.category);
     expect(cats).toEqual(["aws-access-key"]);
