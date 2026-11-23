@@ -201,12 +201,13 @@ async function pgDumpBackup(
   filename: string
 ): Promise<{ artifact: BackupArtifact; tablesCount: number }> {
   const { connectionString, password } = parsePgDumpConnection(databaseUrl);
+  // Keep the original credential-bearing URL for node-postgres. The
+  // sanitized URL returned by parsePgDumpConnection intentionally has an
+  // empty password for libpq/pg_dump; feeding it back into node-postgres can
+  // override the explicit password option during connection-string parsing
+  // and trigger SCRAM's "client password must be a string" error.
   const db = new Client({
-    connectionString,
-    // Always pass a concrete string. Omitting an empty/undefined password lets
-    // node-postgres defer to its async password callback and can fail with
-    // "client password must be a string" instead of a clear configuration error.
-    password,
+    connectionString: databaseUrl,
     connectionTimeoutMillis: 10_000,
   });
 
