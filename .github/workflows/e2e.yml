@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       browser:
-        description: "Браузер (chromium, firefox, webkit, или all)"
+        description: "Браузер (chromium, mobile-chrome, firefox, webkit или all)"
         required: false
         default: "chromium"
         type: choice
@@ -33,6 +33,7 @@ on:
           - chromium
           - firefox
           - webkit
+          - mobile-chrome
           - all
       grep:
         description: "Фильтр тестов (regex, пусто = все)"
@@ -171,7 +172,8 @@ jobs:
       fail-fast: false
       matrix:
         # По умолчанию только chromium, для nightly — все 3 браузера
-        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit"]')) || fromJson('["chromium"]') }}
+        # Desktop Chromium и реальный мобильный viewport Pixel 5 проверяются на каждом релизном прогоне.
+        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","mobile-chrome","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","mobile-chrome","firefox","webkit"]')) || fromJson('["chromium","mobile-chrome"]') }}
 
     steps:
       - uses: actions/checkout@v7
@@ -218,7 +220,13 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Install Playwright browsers
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.browser }}" = "mobile-chrome" ]; then
+            bunx playwright install --with-deps chromium
+          else
+            bunx playwright install --with-deps "${{ matrix.browser }}"
+          fi
 
       - name: Start application
         run: |
