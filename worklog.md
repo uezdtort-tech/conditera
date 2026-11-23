@@ -10340,3 +10340,46 @@ restore и квота под backups/. Секреты нигде не печат
 Для владельца: перед апдейтом прод-стека на PG17 — том supabase_db_data (PG15) несовместим:
 pg_dumpall/рестор или свежая инициализация (прод-таблицы пусты по PI-аудиту — свежий init
 безопасен); шаг заблокирован в комментарии compose и будет гардован pg-version-gate в CI.
+
+## [checkpoint] conditera-v2 S10B3R3 (a98c685) — восстановление после recycle #4
+
+Recycle отбросил песочницу к S10B1 (бандлы S10B2/S10B3R2 утеряны).
+Восстановлено из бандла S10B1-docs + повторно применено: S10B2
+(пять путей → PG17: local/prod/ci/embedded, v1 уже 17), S10B3 (гард
+tests/pg17-target.test.ts, 6 тестов — сразу поймал устаревший
+комментарий prod compose), S10B3-R2 (seed lgr-demo-05) и НОВОЕ
+S10B3-R3: lgr-demo-06 topup второго кондитера — product-available
+берёт первый товар по id ASC (случайные UUID свежего initdb), владелец
+недетерминирован, прошлый 50/50 был «счастливым». Гейты: lint 0,
+tsc 0, vitest 231/231, verify-ledger 4/4, матрица на свежей PG17 БД
+PASS=50 FAIL=0, PG_VERSION=17. Бандл backups/conditera-v2-S10B3R3-
+a98c685.bundle (1697726 B, verify OK, clone-test -b main OK),
+origin → bundle. production-watch 21:04Z: прод лежит (TCP/443), P1.
+
+## [checkpoint] conditera-v2 S11 (5202940) — pg_dump в cron + release-dry-run аудит
+
+S11-A: backup.sh --summary → реальный дамп 28688 B (sha 10293584da40…),
+restore-drill --yes → журнал 6/6 OK (counts, import, verify-ledger,
+health=200); .pgtools (PGDG 18.7) восстановлены install-pgtools.sh;
+платформенный cron backup-daily Job 543340 (08:00 +08, fail-soft при
+recycle). S11-B: release.sh --dry-run на .env.prod-шаблоне (плейсхолдеры,
+gitignored): preflight 10/10 + новый compose_env_audit (yaml.safe_load +
+покрытие ${VAR:?}-гвардов) — audit OK, docker в песочнице отсутствует
+(deploy только на хосте владельца). vitest 231/231. Бандл
+backups/conditera-v2-S11-5202940.bundle (1699732 B, verify OK,
+clone-test -b main OK), origin → bundle.
+
+## [checkpoint] conditera-v2 S12 (ad65081) — backup-freshness в watch + 2 дефекта drill pgdata-lost
+
+S12-A: classifyBackupFreshness (порог 36ч, tz-толерантность, битые
+штампы не маскируют stale) + CLI + интеграция в runtime-watch (checks
++= backup=fresh|stale|none, stale → OK→WARN) + 9 тестов → vitest
+240/240. S12-B: живой drill pgdata-lost (--auto ×3) поймал latent
+дефекты S9B2: (1) runtime.mjs без CONDITERA_PG_PORT → кластер на
+:54329 при migrate на :54330 → P1001 (фикс: export порта в recover.sh);
+(2) гранулярные migrate+seed не пересобирают привязку shim-user↔Profile
+→ password_update_failed 502 → матрица 15/50 (фикс: db:setup целиком
+в шаге drill). Финальный прогон: EXIT=0, журнал 7/7 OK, health=200,
+матрица 50/50 (4-й UUID-расклад). Бандл
+backups/conditera-v2-S12-ad65081.bundle (1705611 B, verify OK,
+clone-test -b main OK), origin → bundle.
