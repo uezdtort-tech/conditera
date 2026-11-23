@@ -245,6 +245,7 @@ test.describe("SEO", () => {
     const body = await response.text();
     expect(body).toContain("/catalog");
     expect(body).toContain("/confectioners");
+    expect(body).toContain("/help");
     expect(body).not.toContain("/recipes?id=");
     expect(body).not.toContain("?category=");
     expect(body).not.toContain("/dashboard");
