@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/pg17-business-scenarios.yml"
+      - ".github/workflows/supabase-single-container-poc.yml"
       - "supabase/migrations/**"
       - "supabase/compat/**"
       - "scripts/db/**"
