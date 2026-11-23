@@ -300,8 +300,6 @@ jobs:
         env:
           E2E_BASE_URL: http://localhost:3000
           E2E_APP_URL: http://localhost:3000
-          E2E_ADMIN_EMAIL: admin@demo.ru
-          E2E_ADMIN_PASSWORD: Demo123!
           PGURL: ${{ env.DATABASE_URL }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
