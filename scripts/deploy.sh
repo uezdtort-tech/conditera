@@ -23,13 +23,19 @@ node scripts/verify/production-env-preflight.mjs
 
 echo "== Conditera local production deploy / PostgreSQL 17 =="
 echo "1/7 Protect existing production data before any startup..."
-for legacy_container in conditera-db conditera-supabase-db; do
+for legacy_container in conditera-db conditera-supabase-db supabase-db; do
   if docker inspect "$legacy_container" >/dev/null 2>&1; then
     echo "ERROR: legacy PostgreSQL container exists ($legacy_container). Data migration and verified backup are required before switching to the new PG17 runtime."
     exit 10
   fi
 done
-for legacy_volume in postgres_data_v18 supabase_db_data supabase_pg17_migration_data; do
+for legacy_data_path in "/mnt/c/www/supabase/docker/volumes/db/data" "C:/www/supabase/docker/volumes/db/data"; do
+  if [ -d "$legacy_data_path" ]; then
+    echo "ERROR: legacy Supabase PostgreSQL bind-mount data still exists at $legacy_data_path. The new runtime must not start against an empty database while legacy data remains unreviewed."
+    exit 12
+  fi
+done
+for legacy_volume in postgres_data_v18 supabase_db_data supabase_pg17_migration_data supabase_db-config; do
   if docker volume ls -q --filter "name=$legacy_volume" | grep -q .; then
     echo "ERROR: legacy/migration volume exists ($legacy_volume). Refusing to start a new empty production database."
     exit 11
