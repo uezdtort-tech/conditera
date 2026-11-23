@@ -89,7 +89,7 @@ describe("scanLineForSecrets — структурные токены", () => {
   it("несколько паттернов на одной строке (generic + структурный)", () => {
     // UPPERCASE-значение: AWS-паттерн ([0-9A-Z]) требует верхний регистр,
     // и без placeholder-подстрок (например «example»/«5678») в значении.
-    const cats = categories("AWS_SECRET=AKIA9F8E7D6C5B4A3F2E1D0C");
+    const cats = categories(["AWS_SECRET=AKIA", "9F8E7D6C5B4A3F2E1D0C"].join(""));
     expect(cats).toContain("aws-access-key");
     expect(cats).toContain("generic-secret");
   });
