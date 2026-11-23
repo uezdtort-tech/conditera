@@ -14,14 +14,18 @@ const production = {
   SMTP_PASSWORD: "smtp-password-".repeat(3), SMTP_FROM: "noreply@conditera.ru", SMTP_TLS_REJECT_UNAUTHORIZED: "true",
   JWT_SECRET: "j".repeat(64), JWT_REFRESH_SECRET: "r".repeat(64), TFA_ENCRYPTION_KEY: "t".repeat(64),
   IP_HASH_SALT: "i".repeat(64), CRON_SECRET: "c".repeat(64), BOT_SECRET: "b".repeat(64),
-  TELEGRAM_WEBHOOK_SECRET: "w".repeat(64), TELEGRAM_BOT_TOKEN: "123456:" + "T".repeat(32),
-  YOOKASSA_SHOP_ID: "123456", YOOKASSA_SECRET_KEY: "y".repeat(64),
+  TELEGRAM_WEBHOOK_SECRET: "w".repeat(64), TELEGRAM_BOT_TOKEN: "123456:" + "T".repeat(32), TELEGRAM_CHANNEL_ID: "-1001234567890",
+  YOOKASSA_SHOP_ID: "123456", YOOKASSA_SECRET_KEY: "live_" + "y".repeat(64),
   N8N_ADMIN_EMAIL: "admin@conditera.ru", N8N_ADMIN_PASSWORD: "N8n-Owner-Password-2026-" + "x".repeat(40), N8N_ENCRYPTION_KEY: "e".repeat(32),
   N8N_WEBHOOK_SECRET: "h".repeat(64), N8N_WEBHOOK_URL: "https://conditera.ru/n8n/",
   VAPID_PUBLIC_KEY: "v".repeat(87), VAPID_PRIVATE_KEY: "k".repeat(43),
-  EXTERNAL_YANDEX_ENABLED: "true", EXTERNAL_VK_ENABLED: "true",
+  EXTERNAL_YANDEX_ENABLED: "true", EXTERNAL_GOOGLE_ENABLED: "true", EXTERNAL_VK_ENABLED: "true",
   YANDEX_CLIENT_ID: "yandex-client-id", YANDEX_CLIENT_SECRET: "Y".repeat(64),
+  YANDEX_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/yandex/callback",
+  GOOGLE_CLIENT_ID: "google-client-id", GOOGLE_CLIENT_SECRET: "G".repeat(64),
+  GOOGLE_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/google/callback",
   VK_CLIENT_ID: "vk-client-id", VK_CLIENT_SECRET: "V".repeat(64),
+  VK_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/vk/callback",
   LLM_PROVIDER: "ollama", LLM_MODEL: "qwen2.5:7b", LLM_API_BASE: "http://host.docker.internal:11434/v1",
 };
 const runtime = {
@@ -43,6 +47,11 @@ function getErrors(productionOverrides = {}, runtimeValues = runtime) {
 try {
   assert.deepEqual(getErrors(), [], "A complete valid production configuration must pass");
   assert.ok(getErrors({ EXTERNAL_VK_ENABLED: "false" }).some((error) => error.includes("EXTERNAL_VK_ENABLED")));
+  assert.ok(getErrors({ EXTERNAL_GOOGLE_ENABLED: "false" }).some((error) => error.includes("EXTERNAL_GOOGLE_ENABLED")));
+  assert.ok(getErrors({ GOOGLE_CLIENT_SECRET: "" }).some((error) => error.includes("GOOGLE_CLIENT_SECRET")));
+  assert.ok(getErrors({ TELEGRAM_CHANNEL_ID: "" }).some((error) => error.includes("TELEGRAM_CHANNEL_ID")));
+  assert.ok(getErrors({ YOOKASSA_SECRET_KEY: "test_" + "y".repeat(64) }).some((error) => error.includes("live_")));
+  assert.ok(getErrors({ VK_OAUTH_REDIRECT: "https://evil.example/callback" }).some((error) => error.includes("VK_OAUTH_REDIRECT")));
   assert.ok(getErrors({ YOOKASSA_SECRET_KEY: "CHANGE_ME" }).some((error) => error.includes("YOOKASSA_SECRET_KEY")));
   assert.ok(getErrors({ SMTP_TLS_REJECT_UNAUTHORIZED: "false" }).some((error) => error.includes("SMTP_TLS_REJECT_UNAUTHORIZED")));
   assert.ok(getErrors({ N8N_WEBHOOK_URL: "https://n8n.conditera.ru" }).some((error) => error.includes("N8N_WEBHOOK_URL")));
