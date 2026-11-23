@@ -1,7 +1,7 @@
 # ============================================================
 # CI/CD для «Уездный кондитер» (v2.0 — Supabase, bun)
 # ============================================================
-# Запускается на каждый push в main и на каждый PR.
+# Запускается на push в release-ветки и на PR в main, develop и release/first-production-hardening.
 # Pipeline: lint → typecheck → test → build → docker-build → security.
 # Все шаги — строгие (БЕЗ continue-on-error, кроме coverage). Любая ошибка ломает CI.
 #
@@ -18,7 +18,7 @@ on:
   push:
     branches: [main, develop, release/first-production-hardening]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, release/first-production-hardening]
 
 permissions:
   contents: read
