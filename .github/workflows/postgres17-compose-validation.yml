@@ -56,9 +56,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       POSTGRES_PASSWORD: ci-only-postgres-password-at-least-32-characters
-      JWT_SECRET: your-super-secret-jwt-token-with-at-least-32-characters-long
-      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
-      SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
       ENCRYPTOR_KEY: 0123456789abcdef0123456789abcdef
       SECRET_KEY_BASE: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       PG_META_CRYPTO_KEY: 0123456789abcdef0123456789abcdef
@@ -69,6 +66,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Проверить доступность Docker Compose
         run: docker compose version
+      - name: Generate ephemeral 256-bit CI JWT secrets
+        shell: bash
+        run: |
+          echo "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
+          echo "JWT_REFRESH_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
       - name: Проверить безопасный production overlay и deploy gate
         run: |
           set -Eeuo pipefail
@@ -95,7 +97,7 @@ jobs:
           cat > .env.production <<EOF
           POSTGRES_PASSWORD=$POSTGRES_PASSWORD
           JWT_SECRET=$JWT_SECRET
-          JWT_REFRESH_SECRET=ci-refresh-secret-which-is-not-used-for-real-auth
+          JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
           TFA_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
           CRON_SECRET=ci-cron-secret-for-compose-validation
           N8N_WEBHOOK_SECRET=ci-n8n-webhook-secret-for-compose-validation
