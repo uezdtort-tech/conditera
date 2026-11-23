@@ -93,7 +93,7 @@ env:
   VK_CLIENT_ID: e2e-vk-client
   VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
   GOOGLE_CLIENT_ID: e2e-google-client
-  GOOGLE_CLIENT_SECRET: e2e-google-secret
+  GOOGLE_CLIENT_SECRET: e2e
   GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
   CI: "true"
 
