@@ -1005,8 +1005,10 @@ jobs:
           DB_BACKUP_PATH="/app/backups/$PREFIX.sql.gz"
           PRODUCT_MEDIA_BACKUP_PATH="/app/backups/$PREFIX.product-media.tar.gz"
           SUPABASE_STORAGE_BACKUP_PATH="/app/backups/$PREFIX.supabase-storage.tar.gz"
-          DB_USER="$(node -e 'console.log(new URL(process.env.DATABASE_URL).username)')"
-          DB_PASSWORD="$(node -e 'console.log(new URL(process.env.DATABASE_URL).password)')"
+          # Restore is intentionally performed by the database administrator, not the
+          # production application role (conditera_app has NOCREATEDB by design).
+          DB_USER=postgres
+          DB_PASSWORD=ci-postgres-password
           docker exec -e PGPASSWORD="$DB_PASSWORD" conditera-web-pg17-ci \
             createdb -h 127.0.0.1 -p 54323 -U "$DB_USER" -T template0 conditera_restore_smoke
           docker exec conditera-web-pg17-ci sh -c "gzip -dc '$DB_BACKUP_PATH'" |
