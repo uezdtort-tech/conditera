@@ -307,6 +307,10 @@ jobs:
 
       - name: Smoke test n8n bootstrap, import and activation allowlist
         shell: bash
+        env:
+          # Disposable owner credentials for this isolated CI-only n8n instance.
+          N8N_ADMIN_EMAIL: ci-admin@conditera.invalid
+          N8N_ADMIN_PASSWORD: ci-only-not-a-production-secret-2026
         run: |
           set -Eeuo pipefail
           docker run -d --name conditera-n8n-poc \
