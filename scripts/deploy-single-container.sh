@@ -132,10 +132,10 @@ if tfa_key and (len(tfa_key) != 64 or not re.fullmatch(r"[0-9a-fA-F]{64}", tfa_k
 
 for key in ("NEXT_PUBLIC_SUPPORT_EMAIL", "NEXT_PUBLIC_PRIVACY_EMAIL", "CONTACT_NOTIFICATION_EMAIL"):
     value = app.get(key, "").strip()
-    if value and not re.fullmatch(r"[^\\s@]+@[^\\s@]+\\.[^\\s@]+", value):
+    if value and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
         errors.append(f".env.production: {key} must be a valid email address")
 
-inn = re.sub(r"\\D", "", app.get("NEXT_PUBLIC_COMPANY_INN", ""))
+inn = re.sub(r"\D", "", app.get("NEXT_PUBLIC_COMPANY_INN", ""))
 if inn and len(inn) not in (10, 12):
     errors.append("NEXT_PUBLIC_COMPANY_INN must contain 10 or 12 digits")
 ogrn = re.sub(r"\\D", "", app.get("NEXT_PUBLIC_COMPANY_OGRN", ""))
