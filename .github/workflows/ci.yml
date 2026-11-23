@@ -449,15 +449,15 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: supabase/postgres:17.12.0.001
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
+          POSTGRES_USER: supabase_admin
           POSTGRES_DB: conditera
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U supabase_admin -d conditera"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -479,7 +479,7 @@ jobs:
         run: |
           SVC="${{ job.services.postgres.id }}"
           docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
+          docker exec "$SVC" psql -U supabase_admin -d conditera -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(ls supabase/migrations/*.sql | wc -l)
@@ -499,7 +499,7 @@ jobs:
       - name: Legacy migration ledger filename compatibility
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           BEGIN;
           DELETE FROM public.schema_migrations
           WHERE filename IN (
@@ -525,7 +525,7 @@ jobs:
             echo "FAIL: renamed migrations were re-executed instead of mapped through the ledger"
             exit 1
           fi
-          ALIASES=$(docker exec "$SVC" psql -U postgres -d conditera -tAc "
+          ALIASES=$(docker exec "$SVC" psql -U supabase_admin -d conditera -tAc "
             SELECT count(*) FROM public.schema_migrations WHERE filename IN (
               '0061a_user_consent_events.sql',
               '0062a_reference_catalog.sql',
@@ -540,7 +540,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -567,7 +567,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
