@@ -52,6 +52,8 @@ try {
   assert.ok(getErrors({ TELEGRAM_CHANNEL_ID: "" }).some((error) => error.includes("TELEGRAM_CHANNEL_ID")));
   assert.ok(getErrors({ YOOKASSA_SECRET_KEY: "test_" + "y".repeat(64) }).some((error) => error.includes("live_")));
   assert.ok(getErrors({ VK_OAUTH_REDIRECT: "https://evil.example/callback" }).some((error) => error.includes("VK_OAUTH_REDIRECT")));
+  assert.ok(getErrors({ NEXT_PUBLIC_DEMO_MODE: "1" }).some((error) => error.includes("NEXT_PUBLIC_DEMO_MODE")));
+  assert.ok(getErrors({ NEXT_PUBLIC_DEMO_SEED: "true" }).some((error) => error.includes("NEXT_PUBLIC_DEMO_SEED")));
   assert.ok(getErrors({ YOOKASSA_SECRET_KEY: "CHANGE_ME" }).some((error) => error.includes("YOOKASSA_SECRET_KEY")));
   assert.ok(getErrors({ SMTP_TLS_REJECT_UNAUTHORIZED: "false" }).some((error) => error.includes("SMTP_TLS_REJECT_UNAUTHORIZED")));
   assert.ok(getErrors({ N8N_WEBHOOK_URL: "https://n8n.conditera.ru" }).some((error) => error.includes("N8N_WEBHOOK_URL")));
