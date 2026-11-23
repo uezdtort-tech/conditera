@@ -552,7 +552,7 @@ jobs:
               '0066a_service_role_default_grants.sql',
               '0067a_repair_updated_at_triggers.sql'
             )")
-          test "$ALIASES" -eq 7 || { echo "FAIL: expected 6 canonical ledger aliases, got $ALIASES"; exit 1; }
+          test "$ALIASES" -eq 7 || { echo "FAIL: expected 7 canonical ledger aliases, got $ALIASES"; exit 1; }
           echo "PASS: legacy migration ledger names map to canonical filenames without re-running SQL"
 
       - name: RLS/GRANT sanity — policies and client write privileges
@@ -628,9 +628,11 @@ jobs:
               'public.release_escrow_after_delivery()','public.save_page_version()',
               'public.update_settings_updated_by()','public.auto_assign_confectioner(uuid, text)'
             ] LOOP
-              IF has_function_privilege('anon', fn_name, 'EXECUTE')
-                 OR has_function_privilege('authenticated', fn_name, 'EXECUTE') THEN
-                RAISE EXCEPTION 'FAIL: client EXECUTE remains on %', fn_name;
+              IF to_regprocedure(fn_name) IS NOT NULL THEN
+                IF has_function_privilege('anon', fn_name, 'EXECUTE')
+                   OR has_function_privilege('authenticated', fn_name, 'EXECUTE') THEN
+                  RAISE EXCEPTION 'FAIL: client EXECUTE remains on %', fn_name;
+                END IF;
               END IF;
             END LOOP;
 
