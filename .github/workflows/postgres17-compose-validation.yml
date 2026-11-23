@@ -45,6 +45,8 @@ jobs:
       MEILI_MASTER_KEY: ci-only-meili-master-key
       CRON_SECRET: ci-only-cron-secret
       N8N_ADMIN_PASSWORD: ci-only-n8n-password
+      N8N_ENCRYPTION_KEY: ci-only-n8n-encryption-key-32
+      N8N_WEBHOOK_SECRET: ci-only-n8n-webhook-secret-64-characters-long
       SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
     steps:
       - uses: actions/checkout@v7
