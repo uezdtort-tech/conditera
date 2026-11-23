@@ -18,8 +18,11 @@ done
 command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker Desktop/CLI not found."; exit 2; }
 command -v node >/dev/null 2>&1 || { echo "ERROR: Node.js 20+ not found."; exit 2; }
 
+echo "0/7 Validate production secrets and external integrations before changing containers..."
+node scripts/verify/production-env-preflight.mjs
+
 echo "== Conditera local production deploy / PostgreSQL 17 =="
-echo "0/6 Protect existing production data before any startup..."
+echo "1/7 Protect existing production data before any startup..."
 for legacy_container in conditera-db conditera-supabase-db; do
   if docker inspect "$legacy_container" >/dev/null 2>&1; then
     echo "ERROR: legacy PostgreSQL container exists ($legacy_container). Data migration and verified backup are required before switching to the new PG17 runtime."
@@ -32,10 +35,10 @@ for legacy_volume in postgres_data_v18 supabase_db_data supabase_pg17_migration_
     exit 11
   fi
 done
-echo "1/6 Validate canonical single-runtime Compose graph..."
+echo "2/7 Validate canonical single-runtime Compose graph..."
 node scripts/compose-single-runtime.mjs config
 
-echo "2/6 Build and start unified Supabase Runtime + application..."
+echo "3/7 Build and start unified Supabase Runtime + application..."
 node scripts/compose-single-runtime.mjs up -d --build
 
 RUNTIME_CONTAINER="conditera-supabase-runtime"
@@ -47,7 +50,7 @@ if [ -z "$WEB_ID" ]; then
   exit 3
 fi
 
-echo "3/5 Wait for PostgreSQL 17..."
+echo "4/7 Wait for PostgreSQL 17..."
 READY=0
 for attempt in $(seq 1 90); do
   if docker exec "$RUNTIME_CONTAINER" pg_isready -U supabase_admin -d supabase >/dev/null 2>&1; then
@@ -91,7 +94,7 @@ case "$BACKUP_MOUNT" in
   *) echo "ERROR: /app/backups is not backed by the persistent conditera_backup_data volume."; exit 5 ;;
 esac
 
-echo "4/6 Wait for Next.js readiness endpoint..."
+echo "5/7 Wait for Next.js readiness endpoint..."
 WEB_HEALTHY=0
 for attempt in $(seq 1 60); do
   if docker exec "$WEB_ID" node -e 'fetch("http://127.0.0.1:3000/api/health").then(async r => { const j = await r.json(); process.exit(r.ok && j.status === "ok" && j.database === "ok" ? 0 : 1); }).catch(() => process.exit(1))' >/dev/null 2>&1; then
@@ -106,13 +109,13 @@ if [ "$WEB_HEALTHY" != "1" ]; then
   exit 6
 fi
 
-echo "5/6 Run a real PostgreSQL backup through the production API..."
+echo "6/7 Run a real PostgreSQL backup through the production API..."
 BACKUP_PATH="$(docker exec "$WEB_ID" node -e '(async()=>{const secret=process.env.CRON_SECRET;if(!secret)throw new Error("CRON_SECRET missing");const r=await fetch("http://127.0.0.1:3000/api/cron/backup",{headers:{"X-Cron-Secret":secret}});const j=await r.json();if(!r.ok||!j.success||!j.backupPath||!(j.backupSizeBytes>0))throw new Error(JSON.stringify({status:r.status,result:j}));process.stdout.write(j.backupPath)})().catch(e=>{console.error(e.message);process.exit(1)})' )"
 if [ -z "$BACKUP_PATH" ]; then echo "ERROR: backup endpoint returned no archive path."; exit 7; fi
 docker exec "$WEB_ID" pg_restore --list "$BACKUP_PATH" >/dev/null
 echo "PASS: PostgreSQL 17 backup archive is present, non-empty and readable by pg_restore."
 
-echo "6/6 Runtime status..."
+echo "7/7 Runtime status..."
 node scripts/compose-single-runtime.mjs ps
 echo
 echo "PASS: Conditera is running on PostgreSQL 17 (server_version_num=$VERSION_NUM); migration ledger exactly matches repository; verified backup archive created."
