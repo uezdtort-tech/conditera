@@ -85,6 +85,9 @@ async function fetchSocketToken(): Promise<string | null> {
 
 export function useSocketIO() {
   const socketRef = useRef<SocketLike | null>(null);
+  // React state is the render-safe public snapshot; the ref remains the
+  // imperative handle used by event handlers and socket callbacks.
+  const [socket, setSocket] = useState<SocketLike | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [typingUsers, setTypingUsers] = useState<Map<string, TypingUser[]>>(new Map());
@@ -136,6 +139,7 @@ export function useSocketIO() {
         }) as unknown as SocketLike;
 
         socketRef.current = socket;
+        setSocket(socket);
 
         socket.on("connect", () => {
           setIsConnected(true);
@@ -262,8 +266,13 @@ export function useSocketIO() {
       if (socket) {
         socket.disconnect();
       }
-      socketRef.current = null;
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+        setSocket(null);
+      }
       setIsConnected(false);
+      setOnlineUsers(new Set());
+      setTypingUsers(new Map());
     };
   }, [user]);
 
@@ -361,7 +370,7 @@ export function useSocketIO() {
   }, []);
 
   return {
-    socket: socketRef.current,
+    socket,
     isConnected,
     isEnabled: IS_ENABLED,
     onlineUsers,
