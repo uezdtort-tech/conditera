@@ -58,6 +58,11 @@ fi
 
 APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 
+# Bootstrap PostgreSQL extension namespace before the first application migration.
+# Supabase images may create it themselves; vanilla PG17 and embedded PG17 may not.
+PSQL -c "CREATE SCHEMA IF NOT EXISTS extensions"
+
+
 # Z-v26: preserve old filename ledger entries when duplicate IDs are renamed
 # to lettered variants. This adds aliases only; it never deletes migration history.
 PSQL -c "
