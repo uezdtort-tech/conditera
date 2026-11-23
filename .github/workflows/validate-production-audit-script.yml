@@ -50,12 +50,12 @@ jobs:
 
           docker run -d --name "$APP" \
             -e POSTGRES_USER=conditera \
-            -e POSTGRES_PASSWORD=ci-audit-password \
+            -e POSTGRES_PASSWORD=ci-audit \
             -e POSTGRES_DB=conditera \
             postgres:18-alpine
           docker run -d --name "$SUPA" \
             -e POSTGRES_USER=supabase \
-            -e POSTGRES_PASSWORD=ci-audit-password \
+            -e POSTGRES_PASSWORD=ci-audit \
             -e POSTGRES_DB=supabase \
             postgres:17-alpine
 
