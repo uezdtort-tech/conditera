@@ -975,6 +975,27 @@ jobs:
           VERIFY_BASE: http://localhost:3000
           PGURL: ${{ env.DATABASE_URL }}
 
+      - name: Verify product media and moderation on PostgreSQL 17
+        run: node scripts/verify/product-media-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Run Playwright suite on PostgreSQL 17
+        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium --project=mobile-chrome
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NODE_ENV: test
+          CI: "true"
+
       - name: Verify operations, recipes, stock and production backup on PostgreSQL 17
         run: node scripts/verify/ops-center-verify.mjs
         env:
@@ -1050,27 +1071,6 @@ jobs:
             await Promise.all([source.end(), restored.end()]);
           }
           NODE
-
-      - name: Verify product media and moderation on PostgreSQL 17
-        run: node scripts/verify/product-media-verify.mjs
-        env:
-          VERIFY_BASE: http://localhost:3000
-          PGURL: ${{ env.DATABASE_URL }}
-
-      - name: Run Playwright suite on PostgreSQL 17
-        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium --project=mobile-chrome
-        env:
-          E2E_BASE_URL: http://localhost:3000
-          DATABASE_URL: ${{ env.DATABASE_URL }}
-          JWT_SECRET: ${{ env.JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
-          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
-          CRON_SECRET: ${{ env.CRON_SECRET }}
-          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          NODE_ENV: test
-          CI: "true"
 
       - name: Print PostgreSQL 17 production container logs on failure
         if: failure() || cancelled()
