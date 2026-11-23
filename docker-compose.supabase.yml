@@ -329,7 +329,10 @@ services:
   # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
   # только после того, как Storage API создал свои таблицы.
   supabase-app-migrator:
-    image: supabase/postgres:15.6.1.141
+    # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.11.0.017).
+    # Мигратор client-only (bash+psql, без volume/initdb) — образ серверных
+    # расширений не влияет на применяемые SQL, но версия клиента = версия сервера.
+    image: supabase/postgres:17.11.0.017
     container_name: conditera-supabase-app-migrator
     restart: "no"
     command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]

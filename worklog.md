@@ -10460,3 +10460,17 @@ cart-sync.test.ts — сирота удалена (mergeServerCart не суще
 skip-worktree на 4 «защищённых» upload-файлах (после recycle они
 отсутствовали на диске, git был слеп — redline-guard восстановлен).
 Итог: vitest 2000/2000 (154 файла), tsc clean, lint 0 errors.
+
+### 2026-11-23 (Z.ai) — ops(compose): остаток PG15 у мигратора погашен
+Аудит после сведения: docker-compose.supabase.yml — сервис supabase-app-migrator
+(одноразовый bash+psql раннер прикладных миграций, restart:"no") остался на
+supabase/postgres:15.6.1.141, тогда как supabase-db уже 17.11.0.017, overlay
+pg17-migration — 17.12.0.001, CI migrations-pg17 — postgres:17-alpine (шаг
+«15.6.1.141 → 17.11.0.017» из плана сведения был применён только к supabase-db).
+Замена тега → 17.11.0.017 (клиент = версия сервера, минус второй образ в пулле);
+контейнер client-only (без volume/initdb) — серверные расширения не задействованы.
+Прочие упоминания PG15 — не хвосты: сценарный CI-профиль (pg-version-gate),
+исторические docs/worklog, react-syntax-highlighter ^15.6.1 (совпадение версий).
+Отмечено владельцу: postgres17-compose-validation.yml:80 ассертит supabase-db=PG15 —
+устарел после сведения, workflow ветко-скопирован (work/pg17-compose-validation-and-import),
+на main не запускается. YAML валидирован (js-yaml), docker в песочнице недоступен.
