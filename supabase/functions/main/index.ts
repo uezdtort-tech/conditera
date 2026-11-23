@@ -175,7 +175,7 @@ function extractBearerToken(authHeader: string | null): string | null {
   if (bearer.toLowerCase() !== 'bearer' || tokenParts.length !== 2 || !token) {
     return null
   }
-  return token
+  return resolvedJwt
 }
 
 function getAuthToken(req: Request): string | AuthFailure {
