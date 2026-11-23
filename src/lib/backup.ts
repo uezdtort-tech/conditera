@@ -11,14 +11,14 @@
  * Each backup is recorded in MaintenanceLog table.
  */
 import { db } from "./db";
-import { exec } from "child_process";
+import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 import { createGzip } from "zlib";
 import { pipeline } from "stream/promises";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const BACKUP_DIR = process.env.BACKUP_DIR || join(process.cwd(), "backups");
 const BACKUP_RETENTION_DAYS = 30;
@@ -41,66 +41,68 @@ export async function runFullBackup(): Promise<BackupResult> {
   const startTime = Date.now();
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const isProd = process.env.NODE_ENV === "production";
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.BACKUP_DATABASE_URL;
 
-  // Ensure backup directory exists
-  if (!existsSync(BACKUP_DIR)) {
-    mkdirSync(BACKUP_DIR, { recursive: true });
-  }
+  if (!existsSync(BACKUP_DIR)) mkdirSync(BACKUP_DIR, { recursive: true });
 
-  // Try pg_dump for real PostgreSQL
-  if (isProd && databaseUrl && databaseUrl.startsWith("postgresql://")) {
-    try {
-      return await pgDumpBackup(databaseUrl, timestamp, startTime);
-    } catch (e) {
-      console.error("[backup] pg_dump failed, falling back to JSON export:", e);
+  if (isProd) {
+    if (!databaseUrl || !/^postgres(?:ql)?:\\/\\//.test(databaseUrl)) {
+      throw new Error("BACKUP_DATABASE_URL must point to the dedicated PostgreSQL backup role");
     }
+    // Production fails closed: never report a partial JSON export as a full database backup.
+    return await pgDumpBackup(databaseUrl, timestamp, startTime);
   }
 
-  // Fallback: JSON export (works with PGlite and any Prisma-compatible DB)
+  // PGlite/legacy JSON export is development-only.
   return await jsonExportBackup(timestamp, startTime);
 }
-
 /**
  * PostgreSQL backup via pg_dump.
  */
-async function pgDumpBackup(
-  databaseUrl: string,
-  timestamp: string,
-  startTime: number
-): Promise<BackupResult> {
-  const filename = `backup-${timestamp}.sql.gz`;
-  const filepath = join(BACKUP_DIR, filename);
-
-  // pg_dump with custom format, piped through gzip
-  const cmd = `pg_dump "${databaseUrl}" --no-owner --no-privileges | gzip > "${filepath}"`;
-  console.info(`[backup] Running pg_dump → ${filepath}`);
-
-  await execAsync(cmd, { timeout: 300000 }); // 5 min timeout
-
-  const stats = statSync(filepath);
-  const durationMs = Date.now() - startTime;
-
-  // Count tables
-  const { stdout } = await execAsync(
-    `pg_dump "${databaseUrl}" --list | grep -c "^- "`
-  );
-  const tablesCount = parseInt(stdout.trim()) || 0;
-
-  console.info(
-    `[backup] ✓ pg_dump completed: ${filename} (${(stats.size / 1024 / 1024).toFixed(2)} MB, ${durationMs}ms)`
-  );
-
-  return {
-    success: true,
-    backupPath: filepath,
-    backupSizeBytes: stats.size,
-    tablesCount,
-    recordsExported: 0, // pg_dump doesn't report this
-    durationMs,
-  };
+async function dumpPostgresArchive(databaseUrl: string, filepath: string): Promise<void> {
+  const child = spawn("pg_dump", [databaseUrl, "--format=custom", "--no-owner", "--no-privileges"], {
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 300000,
+    killSignal: "SIGTERM",
+  });
+  const stderr: Buffer[] = [];
+  child.stderr?.on("data", (chunk: Buffer) => stderr.push(Buffer.from(chunk)));
+  const exit = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error("pg_dump failed (code=" + code + ", signal=" + (signal || "none") + "): " + Buffer.concat(stderr).toString("utf8").slice(-4000)));
+    });
+  });
+  try {
+    if (!child.stdout) throw new Error("pg_dump stdout pipe was not created");
+    await pipeline(child.stdout, createWriteStream(filepath, { mode: 0o600 }));
+    await exit;
+  } catch (error) {
+    child.kill("SIGTERM");
+    if (existsSync(filepath)) unlinkSync(filepath);
+    throw error;
+  }
 }
 
+async function pgDumpBackup(databaseUrl: string, timestamp: string, startTime: number): Promise<BackupResult> {
+  const filename = "backup-" + timestamp + ".dump";
+  const filepath = join(BACKUP_DIR, filename);
+  console.info("[backup] Running pg_dump custom archive → " + filepath);
+  await dumpPostgresArchive(databaseUrl, filepath);
+
+  const stats = statSync(filepath);
+  if (!stats.isFile() || stats.size === 0) throw new Error("pg_dump produced an empty backup archive");
+  const { stdout } = await execFileAsync("pg_restore", ["--list", filepath], {
+    timeout: 300000,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  const tablesCount = stdout.split("\n").filter((line: string) => /\bTABLE\b/.test(line) && !/\bTABLE DATA\b/.test(line)).length;
+  if (tablesCount === 0) throw new Error("pg_restore found no table definitions in the backup archive");
+  const durationMs = Date.now() - startTime;
+  console.info("[backup] ✓ pg_dump completed: " + filename + " (" + (stats.size / 1024 / 1024).toFixed(2) + " MB, " + durationMs + "ms)");
+  return { success: true, backupPath: filepath, backupSizeBytes: stats.size, tablesCount, recordsExported: 0, durationMs };
+}
 /**
  * JSON export backup — works with PGlite and any Prisma DB.
  * Exports all tables as a JSON object, gzipped.
@@ -221,7 +223,7 @@ export async function cleanupOldBackups(): Promise<number> {
     const filepath = join(BACKUP_DIR, file);
     try {
       const stats = statSync(filepath);
-      if (stats.mtime < cutoff) {
+      if (file.startsWith("backup-") && stats.isFile() && stats.mtime < cutoff) {
         unlinkSync(filepath);
         deleted++;
         console.info(`[backup] deleted old backup: ${file}`);
