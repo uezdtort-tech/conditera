@@ -70,7 +70,7 @@ PSQL -c "
   SELECT aliases.canonical_name
   FROM (VALUES
     ('0061_user_consent_events.sql', '0061a_user_consent_events.sql'),
-    ('0062a_reference_catalog.sql', '0062a_reference_catalog.sql'),
+    ('0062_reference_catalog.sql', '0062a_reference_catalog.sql'),
     ('0063_cake_project_spec.sql', '0063a_cake_project_spec.sql'),
     ('0064_product_slices_rls.sql', '0064a_product_slices_rls.sql'),
     ('0066_service_role_default_grants.sql', '0066a_service_role_default_grants.sql'),
