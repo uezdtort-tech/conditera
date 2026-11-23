@@ -447,20 +447,6 @@ jobs:
   migrations-pg17:
     name: Migrations on clean PostgreSQL 17
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: supabase/postgres:17.12.0.001
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: supabase_admin
-          POSTGRES_DB: conditera
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U supabase_admin -d conditera"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 
@@ -468,38 +454,66 @@ jobs:
         run: node scripts/verify/pg-version-gate.mjs
         timeout-minutes: 2
 
+      - name: Start isolated Supabase PostgreSQL 17 (cron.database_name=supabase)
+        run: |
+          set -Eeuo pipefail
+          SVC=conditera-ci-pg17
+          docker run -d --name "$SVC" \
+            -e POSTGRES_USER=supabase_admin \
+            -e POSTGRES_PASSWORD=ci-only-postgres-password \
+            -e POSTGRES_DB=supabase \
+            supabase/postgres:17.12.0.001 \
+            postgres -c config_file=/etc/postgresql/postgresql.conf -c cron.database_name=supabase
+          READY=0
+          for i in $(seq 1 60); do
+            if docker exec "$SVC" pg_isready -U supabase_admin -d supabase >/dev/null 2>&1; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            docker logs "$SVC" || true
+            exit 1
+          fi
+          docker exec "$SVC" psql -U supabase_admin -d supabase -Atc "SHOW server_version"
+
       - name: Copy migrations + migrator into service container
         run: |
-          SVC="${{ job.services.postgres.id }}"
+          SVC=conditera-ci-pg17
           docker exec "$SVC" mkdir -p /migrations /init-scripts
           docker cp supabase/migrations/. "$SVC":/migrations/
           docker cp supabase/init-scripts/01-apply-migrations.sh "$SVC":/init-scripts/
 
-      - name: Apply all migrations (ledger, fail-fast)
+      - name: Apply non-Storage migrations (Storage migration is tested with Storage API below)
         run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U supabase_admin -d conditera -tAc \
-            "SELECT count(*) FROM public.schema_migrations" > applied.txt
-          APPLIED=$(cat applied.txt)
-          TOTAL=$(ls supabase/migrations/*.sql | wc -l)
-          echo "applied=$APPLIED total=$TOTAL"
-          test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
+          set -Eeuo pipefail
+          SVC=conditera-ci-pg17
+          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh | tee migration-apply.log
+          APPLIED=$(docker exec "$SVC" psql -U supabase_admin -d supabase -tAc \
+            "SELECT count(*) FROM public.schema_migrations")
+          TOTAL=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
+          DEFERRED=$(grep -c "Откладываю 0026_storage_buckets_and_confectioners_rls.sql" migration-apply.log || true)
+          EXPECTED=$((TOTAL - DEFERRED))
+          echo "applied=$APPLIED total=$TOTAL deferred=$DEFERRED expected=$EXPECTED"
+          test "$DEFERRED" -eq 1 || { echo "FAIL: expected exactly one Storage migration to be deferred"; exit 1; }
+          test "$APPLIED" -eq "$EXPECTED" || { echo "FAIL: applied migration count mismatch"; exit 1; }
 
-      - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
+      - name: Idempotency — повторный прогон (все доступные файлы пропускаются)
         run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
-            | tee rerun.log
+          SVC=conditera-ci-pg17
+          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh | tee rerun.log
           if grep -q "Применяю:" rerun.log; then
             echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
           fi
-          echo "OK: rerun no-op"
+          grep -q "Откладываю 0026_storage_buckets_and_confectioners_rls.sql" rerun.log
+          echo "OK: rerun no-op; only the Storage migration remains deferred"
 
       - name: Legacy migration ledger filename compatibility
         run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          set -Eeuo pipefail
+          SVC=conditera-ci-pg17
+          docker exec -i "$SVC" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 <<'SQL'
           BEGIN;
           DELETE FROM public.schema_migrations
           WHERE filename IN (
@@ -525,7 +539,8 @@ jobs:
             echo "FAIL: renamed migrations were re-executed instead of mapped through the ledger"
             exit 1
           fi
-          ALIASES=$(docker exec "$SVC" psql -U supabase_admin -d conditera -tAc "
+          grep -q "Откладываю 0026_storage_buckets_and_confectioners_rls.sql" legacy-alias-rerun.log
+          ALIASES=$(docker exec "$SVC" psql -U supabase_admin -d supabase -tAc "
             SELECT count(*) FROM public.schema_migrations WHERE filename IN (
               '0061a_user_consent_events.sql',
               '0062a_reference_catalog.sql',
@@ -537,10 +552,10 @@ jobs:
           test "$ALIASES" -eq 6 || { echo "FAIL: expected 6 canonical ledger aliases, got $ALIASES"; exit 1; }
           echo "PASS: legacy migration ledger names map to canonical filenames without re-running SQL"
 
-      - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
+      - name: RLS/GRANT sanity — policies and client write privileges
         run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          SVC=conditera-ci-pg17
+          docker exec -i "$SVC" psql -U supabase_admin -d supabase -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -558,16 +573,11 @@ jobs:
               END IF;
             END LOOP;
             IF missing <> '' THEN
-              RAISE EXCEPTION 'FAIL: RLS не включён для: %', missing;
+              RAISE EXCEPTION 'FAIL: RLS not enabled for: %', missing;
             END IF;
           END $$;
           SELECT 'RLS CHECK OK' AS status;
-          SQL
 
-      - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
@@ -587,15 +597,51 @@ jobs:
               IF has_write THEN offenders := offenders || t || ' '; END IF;
             END LOOP;
             IF offenders <> '' THEN
-              RAISE EXCEPTION 'FAIL: write-grants для клиентских ролей у: %', offenders;
+              RAISE EXCEPTION 'FAIL: client write grants remain for: %', offenders;
             END IF;
           END $$;
           SELECT 'WRITE-PATH CHECK OK' AS status;
+
+          DO $$
+          DECLARE
+            view_name text;
+            fn_name text;
+          BEGIN
+            FOREACH view_name IN ARRAY ARRAY[
+              'analytics_delivery_performance','analytics_financial_summary',
+              'analytics_popular_fillings','analytics_sales_by_day','analytics_top_confectioners'
+            ] LOOP
+              IF has_table_privilege('anon', format('public.%I', view_name), 'SELECT')
+                 OR has_table_privilege('authenticated', format('public.%I', view_name), 'SELECT') THEN
+                RAISE EXCEPTION 'FAIL: client SELECT remains on public.%', view_name;
+              END IF;
+              IF NOT has_table_privilege('service_role', format('public.%I', view_name), 'SELECT') THEN
+                RAISE EXCEPTION 'FAIL: service_role SELECT missing on public.%', view_name;
+              END IF;
+            END LOOP;
+
+            FOREACH fn_name IN ARRAY ARRAY[
+              'public.handle_new_user()','public.log_order_status_change()',
+              'public.release_escrow_after_delivery()','public.save_page_version()',
+              'public.update_settings_updated_by()','public.auto_assign_confectioner(uuid, text)'
+            ] LOOP
+              IF has_function_privilege('anon', fn_name, 'EXECUTE')
+                 OR has_function_privilege('authenticated', fn_name, 'EXECUTE') THEN
+                RAISE EXCEPTION 'FAIL: client EXECUTE remains on %', fn_name;
+              END IF;
+            END LOOP;
+
+            IF NOT has_function_privilege('anon', 'public.search_products(text, integer)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'FAIL: public marketplace search RPC was unintentionally closed';
+            END IF;
+          END $$;
+          SELECT 'ANALYTICS/TRIGGER/RPC PRIVILEGE CHECK OK' AS status;
           SQL
 
-  # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
-  # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,
-  # известные (baseline) → WARN + remediation backlog (OWNER_DECISIONS D-8).
+      - name: Cleanup isolated PostgreSQL container
+        if: always()
+        run: docker rm -f conditera-ci-pg17 >/dev/null 2>&1 || true
+
   deps-audit:
     name: Dependency security audit (osv-scanner)
     runs-on: ubuntu-latest
