@@ -1,4 +1,4 @@
--- Isolated PostgreSQL 17 fixture for 0064_product_slices_rls.sql.
+-- Isolated PostgreSQL 17 fixture for 0064a_product_slices_rls.sql.
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE service_role NOLOGIN BYPASSRLS;
