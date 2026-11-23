@@ -82,8 +82,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Strip PostgREST filter delimiters from user input before composing OR.
       const safeSearch = search
         .normalize("NFKC")
-        .replace(/[^\\p{L}\\p{N}\\s-]/gu, " ")
-        .replace(/\\s+/g, " ")
+        .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+        .replace(/\s+/g, " ")
         .trim()
         .slice(0, 100);
       if (safeSearch) {
