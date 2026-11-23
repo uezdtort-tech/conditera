@@ -91,6 +91,10 @@ jobs:
           }
           ANON_KEY="$(make_test_jwt anon)"
           SERVICE_ROLE_KEY="$(make_test_jwt service_role)"
+          echo "::add-mask::$ANON_KEY"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
           VAPID_KEYS="$(node -e 'const {createECDH}=require("node:crypto"); const e=createECDH("prime256v1"); e.generateKeys(); console.log(e.getPublicKey(null,"uncompressed").toString("base64url")); console.log(e.getPrivateKey().toString("base64url"));')"
           VAPID_PUBLIC_KEY="$(printf '%s\n' "$VAPID_KEYS" | sed -n '1p')"
           VAPID_PRIVATE_KEY="$(printf '%s\n' "$VAPID_KEYS" | sed -n '2p')"
