@@ -94,6 +94,7 @@ export const PLACEHOLDER_TOKENS: readonly string[] = [
   "{{",
   "placeholder",
   "test",
+  "ci-only",
   "demo",
   "sample",
   "xxx",
