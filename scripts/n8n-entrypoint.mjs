@@ -98,7 +98,7 @@ function importAllowlistedWorkflows(source) {
     const currentHash = hash.digest("hex");
     const allowlistedIds = new Set([...activeWorkflowFiles].map((name) => String(source.byFile.get(name).id)));
     const previousHash = existsSync(markerPath) ? readFileSync(markerPath, "utf8").trim() : "";
-    const previousIds = existsSync(idsMarkerPath) ? readFileSync(idsMarkerPath, "utf8").split(/\\r?\\n/).filter(Boolean) : [];
+    const previousIds = existsSync(idsMarkerPath) ? readFileSync(idsMarkerPath, "utf8").split(/\r?\n/).filter(Boolean) : [];
     if (currentHash !== previousHash) {
       console.info("[n8n] Importing only explicitly allowlisted production workflows...");
       runCli(["import:workflow", "--separate", "--input", stageDir]);
@@ -134,6 +134,7 @@ function importAllowlistedWorkflows(source) {
       }
     }
     writeFileSync(markerPath, currentHash + "\n", { mode: 0o600 });
+    writeFileSync(idsMarkerPath, [...source.sourceIds].sort().join("\\n") + "\\n", { mode: 0o600 });
   } finally {
     rmSync(stageDir, { recursive: true, force: true });
     rmSync(stateDir, { recursive: true, force: true });
