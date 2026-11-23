@@ -219,11 +219,17 @@ test.describe("Runtime quality and performance", () => {
 
 // ===== Группа: SEO =====
 test.describe("SEO", () => {
-  test("robots.txt is accessible", async ({ request }) => {
+  test("robots.txt blocks private routes for search crawlers while allowing social previews", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/robots.txt`);
     expect(response.ok()).toBeTruthy();
     const body = await response.text();
-    expect(body.toLowerCase()).toContain("user-agent");
+    expect(body).toContain("User-Agent: *");
+    expect(body).toContain("Disallow: /dashboard");
+    expect(body).toContain("Disallow: /checkout");
+    expect(body).toContain("Disallow: /admin");
+    expect(body).not.toMatch(/User-Agent: (Googlebot|Bingbot)/i);
+    expect(body).toContain("User-Agent: Twitterbot");
+    expect(body).toContain("User-Agent: facebookexternalhit");
   });
 
   test("sitemap.xml is accessible", async ({ request }) => {
