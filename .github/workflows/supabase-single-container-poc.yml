@@ -227,7 +227,6 @@ jobs:
           trap cleanup EXIT
           cp .env.production.example .env.production
           cp .env.supabase-runtime.example .env.supabase-runtime
-          bash scripts/prepare-production-env.sh
           python3 - <<'PY'
           from pathlib import Path
 
@@ -271,6 +270,8 @@ jobs:
               "NEXT_PUBLIC_LEGAL_ADDRESS": "CI test value — not a real address",
           })
           PY
+          # Populate all synthetic CI provider/legal fields before running the real production preflight.
+          bash scripts/prepare-production-env.sh
           bash scripts/deploy-single-container.sh --config
 
       - name: Build one-container Supabase runtime
