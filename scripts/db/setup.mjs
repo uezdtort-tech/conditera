@@ -695,6 +695,10 @@ async function main() {
       }
     }
 
+    // PostgreSQL 17 vanilla/embedded may not pre-create Supabase's extensions namespace.
+    // On Supabase-managed images this is an idempotent no-op.
+    await client.query("CREATE SCHEMA IF NOT EXISTS extensions");
+
     // 5. Миграции + ledger
     console.log("\n─── Migrations ───");
     await client.query(
