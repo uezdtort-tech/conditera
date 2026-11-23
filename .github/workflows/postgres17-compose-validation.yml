@@ -8,6 +8,7 @@ on:
       - "docker-compose.supabase-single-container.yml"
       - "docker-compose.dev.yml"
       - "scripts/compose-single-runtime.mjs"
+      - "scripts/supabase-runtime-poc/start-app-migrations.sh"
       - "scripts/deploy.sh"
       - "scripts/init-db.sh"
       - ".env.supabase-runtime.example"
@@ -29,6 +30,7 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci-only-postgres-password
       APP_DATABASE_PASSWORD: ci-only-app-db-password
+      BACKUP_DATABASE_PASSWORD: ci-only-backup-db-password
       JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
       ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
       SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
@@ -98,6 +100,9 @@ jobs:
           assert "supabase_runtime_pg17_data" in config["volumes"]
           assert "supabase_runtime_storage_data" in config["volumes"]
           assert "supabase_runtime_deno_cache" in config["volumes"]
+          assert "conditera_backup_data" in config["volumes"]
+          assert "conditera_backup:" in web["environment"]["BACKUP_DATABASE_URL"]
+          assert any(v.get("target") == "/app/backups" and "conditera_backup_data" in v.get("source", "") for v in web.get("volumes", []))
           runtime = services["supabase-runtime"]
           assert "postgres:17" in runtime["image"] or "17.12" in runtime["image"] or runtime.get("build")
           print("PASS: unified Supabase Runtime / PostgreSQL 17 is the only active database; app and Supabase API use the same cluster.")
