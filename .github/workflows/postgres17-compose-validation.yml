@@ -123,6 +123,13 @@ jobs:
           NEXT_PUBLIC_APP_URL=https://conditera.ru
           NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
           NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
+          NEXT_PUBLIC_SUPPORT_EMAIL=ci-support@conditera.invalid
+          NEXT_PUBLIC_PRIVACY_EMAIL=ci-privacy@conditera.invalid
+          CONTACT_NOTIFICATION_EMAIL=ci-contact@conditera.invalid
+          NEXT_PUBLIC_LEGAL_NAME=CI ONLY — NOT A REAL LEGAL ENTITY
+          NEXT_PUBLIC_COMPANY_INN=0000000000
+          NEXT_PUBLIC_COMPANY_OGRN=0000000000000
+          NEXT_PUBLIC_LEGAL_ADDRESS=CI ONLY — NOT A REAL ADDRESS
           SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
           EXTERNAL_YANDEX_ENABLED=false
           EXTERNAL_VK_ENABLED=false
