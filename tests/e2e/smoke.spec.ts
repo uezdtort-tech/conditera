@@ -71,12 +71,12 @@ test.describe('Smoke tests — базовая работоспособность
     expect(headers['content-security-policy']).toContain('frame-ancestors')
   })
 
-  test('API products endpoint returns JSON', async ({ request }) => {
+  test('API products endpoint returns the PostgreSQL 17 catalog', async ({ request }) => {
     const response = await request.get('/api/products')
-    // Может быть 200 (с БД) или 500 (без БД в dev) — главное что это JSON
-    expect([200, 500]).toContain(response.status())
-    const body = await response.json().catch(() => null)
-    expect(body).toBeTruthy()
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(Array.isArray(body.products)).toBe(true)
+    expect(typeof body.total).toBe('number')
   })
 
   test('404 page works', async ({ page }) => {
