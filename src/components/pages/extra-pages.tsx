@@ -12,6 +12,7 @@ export { PromotionsPage } from "./promotions-page";
 export { TelegramBotPage } from "@/components/dashboard/customer-features-tabs";
 
 import { useAppStore } from "@/lib/store";
+import { siteConfig } from "@/lib/site-config";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -2095,364 +2096,264 @@ export function ContactsPage() {
     topic: "general",
     message: "",
   });
-  const [submitted, setSubmitted] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [website, setWebsite] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [reference, setReference] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.name || !form.email || !form.message) {
-      toast.error("Заполните имя, email и сообщение");
-      return;
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!consent || submitting) return;
+    setSubmitting(true);
+    setError("");
+    setReference(null);
+
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, consent: true, website }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = typeof result.error === "string"
+          ? result.error
+          : "Не удалось отправить обращение. Попробуйте позже.";
+        setError(message);
+        toast.error(message);
+        return;
+      }
+
+      setReference(typeof result.reference === "string" ? result.reference : "Принято");
+      setForm({ name: "", email: "", phone: "", topic: "general", message: "" });
+      setConsent(false);
+      setWebsite("");
+      toast.success("Обращение зарегистрировано");
+    } catch {
+      const message = "Не удалось связаться с сервером. Проверьте соединение и повторите попытку.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
     }
-    // In a real app this would POST to /api/inquiries
-    toast.success("Сообщение отправлено!", {
-      description: "Ответим в течение 24 часов на " + form.email,
-    });
-    setSubmitted(true);
-    setForm({ name: "", email: "", phone: "", topic: "general", message: "" });
-    setTimeout(() => setSubmitted(false), 5000);
   };
 
+  const hasOperatorDetails = Boolean(
+    siteConfig.legalName || siteConfig.inn || siteConfig.ogrn || siteConfig.legalAddress
+  );
+
   return (
-    <div className="container mx-auto px-4 py-6 lg:py-10 max-w-5xl">
-      {/* ===== HERO ===== */}
-      <div className="text-center mb-10">
-        <Badge className="mb-3 bg-primary/10 text-primary border-primary/20">
-          <Mail className="h-3 w-3 mr-1" />
-          Связаться с нами
-        </Badge>
-        <h1 className="font-display text-3xl lg:text-5xl font-bold mb-3">
-          Контакты
-        </h1>
-        <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-          Мы всегда на связи — выберите удобный способ связаться с нами.
-          Поддержка работает ежедневно с 10:00 до 22:00 по МСК.
+    <div className="container mx-auto max-w-5xl px-4 py-8 lg:py-12">
+      <div className="mb-8">
+        <Badge className="mb-3">Контакты</Badge>
+        <h1 className="text-3xl font-bold tracking-tight">Связаться с командой Conditera</h1>
+        <p className="mt-3 max-w-2xl text-muted-foreground">
+          Напишите нам по вопросам заказов, возвратов, работы платформы или сотрудничества.
+          Обращение будет зарегистрировано в системе поддержки.
         </p>
       </div>
 
-      {/* ===== QUICK CONTACT METHODS ===== */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        <Card className="p-6 text-center hover:shadow-lg transition-shadow">
-          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-            <Phone className="h-6 w-6 text-primary" />
-          </div>
-          <h3 className="font-semibold mb-1">Телефон</h3>
-          <p className="text-sm text-muted-foreground mb-2">Ежедневно 10:00–22:00 (МСК)</p>
-          <a href="tel:+78001234567" className="text-primary font-medium hover:underline">
-            8 (800) 123-45-67
-          </a>
-          <p className="text-xs text-muted-foreground mt-1">Бесплатно по России</p>
-        </Card>
-
-        <Card className="p-6 text-center hover:shadow-lg transition-shadow">
-          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-            <Mail className="h-6 w-6 text-primary" />
-          </div>
-          <h3 className="font-semibold mb-1">Email</h3>
-          <p className="text-sm text-muted-foreground mb-2">Ответим в течение 24 часов</p>
-          <a href="mailto:hello@conditera.ru" className="text-primary font-medium hover:underline">
-            hello@conditera.ru
-          </a>
-          <p className="text-xs text-muted-foreground mt-1">Для общих вопросов</p>
-        </Card>
-
-        <Card className="p-6 text-center hover:shadow-lg transition-shadow">
-          <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-            <MessageCircle className="h-6 w-6 text-primary" />
-          </div>
-          <h3 className="font-semibold mb-1">Чат на сайте</h3>
-          <p className="text-sm text-muted-foreground mb-2">Виджет в правом нижнем углу</p>
-          <p className="text-primary font-medium">Онлайн 24/7</p>
-          <p className="text-xs text-muted-foreground mt-1">Среднее время ответа: 5 минут</p>
-        </Card>
-      </div>
-
-      {/* ===== CONTACT FORM + DEPARTMENTS ===== */}
-      <div className="grid lg:grid-cols-2 gap-6 mb-8">
-        {/* Contact Form */}
-        <Card className="p-6">
-          <h2 className="font-display text-xl font-bold mb-2">Напишите нам</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            Заполните форму, и мы перезвоним или напишем на email в течение 24 часов.
-          </p>
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div>
-              <Label htmlFor="name" className="text-sm font-medium">Имя *</Label>
-              <Input
-                id="name"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Как к вам обращаться?"
-                className="mt-1"
-              />
+      <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+        <div className="space-y-4">
+          <Card className="p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <MessageCircle className="h-5 w-5 text-primary" />
+              <h2 className="font-semibold">Вопрос по заказу</h2>
             </div>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="email" className="text-sm font-medium">Email *</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  placeholder="you@example.com"
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label htmlFor="phone" className="text-sm font-medium">Телефон</Label>
-                <Input
-                  id="phone"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  placeholder="+7 (___) ___-__-__"
-                  className="mt-1"
-                />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="topic" className="text-sm font-medium">Тема обращения</Label>
-              <select
-                id="topic"
-                value={form.topic}
-                onChange={(e) => setForm({ ...form, topic: e.target.value })}
-                className="mt-1 w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
-              >
-                <option value="general">Общий вопрос</option>
-                <option value="order">Проблема с заказом</option>
-                <option value="dispute">Спор и возврат</option>
-                <option value="partnership">Сотрудничество</option>
-                <option value="press">Пресса и медиа</option>
-                <option value="investor">Инвесторам</option>
-                <option value="confectioner">Хочу стать кондитером</option>
-              </select>
-            </div>
-            <div>
-              <Label htmlFor="message" className="text-sm font-medium">Сообщение *</Label>
-              <Textarea
-                id="message"
-                value={form.message}
-                onChange={(e) => setForm({ ...form, message: e.target.value })}
-                placeholder="Опишите ваш вопрос или предложение..."
-                rows={4}
-                className="mt-1"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={submitted}>
-              {submitted ? "Сообщение отправлено ✓" : "Отправить сообщение"}
-            </Button>
-            <p className="text-xs text-muted-foreground text-center">
-              Нажимая «Отправить», вы соглашаетесь с обработкой персональных данных
-              по 152-ФЗ.
+            <p className="text-sm text-muted-foreground">
+              Если вы уже зарегистрированы, откройте чат поддержки в личном кабинете —
+              там можно приложить номер заказа и историю переписки.
             </p>
+          </Card>
+
+          {siteConfig.supportEmail && (
+            <Card className="p-6">
+              <div className="mb-3 flex items-center gap-3">
+                <Mail className="h-5 w-5 text-primary" />
+                <h2 className="font-semibold">Электронная почта</h2>
+              </div>
+              <a
+                href={`mailto:${siteConfig.supportEmail}`}
+                className="text-sm text-primary underline-offset-4 hover:underline"
+              >
+                {siteConfig.supportEmail}
+              </a>
+            </Card>
+          )}
+
+          {siteConfig.phone && siteConfig.phoneHref && (
+            <Card className="p-6">
+              <div className="mb-3 flex items-center gap-3">
+                <Phone className="h-5 w-5 text-primary" />
+                <h2 className="font-semibold">Телефон</h2>
+              </div>
+              <a
+                href={`tel:${siteConfig.phoneHref}`}
+                className="text-sm text-primary underline-offset-4 hover:underline"
+              >
+                {siteConfig.phone}
+              </a>
+            </Card>
+          )}
+
+          {siteConfig.telegramUrl && (
+            <Card className="p-6">
+              <div className="mb-3 flex items-center gap-3">
+                <MessageCircle className="h-5 w-5 text-primary" />
+                <h2 className="font-semibold">Telegram</h2>
+              </div>
+              <a
+                href={siteConfig.telegramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-primary underline-offset-4 hover:underline"
+              >
+                {siteConfig.telegram || "Открыть канал"}
+              </a>
+            </Card>
+          )}
+        </div>
+
+        <Card className="p-6">
+          <h2 className="text-xl font-semibold">Отправить обращение</h2>
+          <p className="mt-1 mb-6 text-sm text-muted-foreground">
+            Заполните форму. Поля со звёздочкой обязательны.
+          </p>
+
+          {reference && (
+            <div role="status" className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+              <p className="font-semibold">Обращение зарегистрировано</p>
+              <p className="mt-1">Номер обращения: <span className="font-mono">{reference}</span></p>
+              <p className="mt-1">Сохраните номер — он поможет найти обращение при повторном контакте.</p>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="contact-name">Имя *</Label>
+                <Input
+                  id="contact-name"
+                  name="name"
+                  autoComplete="name"
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  maxLength={100}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="contact-email">Email *</Label>
+                <Input
+                  id="contact-email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  value={form.email}
+                  onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+                  maxLength={254}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="contact-phone">Телефон (необязательно)</Label>
+                <Input
+                  id="contact-phone"
+                  name="phone"
+                  type="tel"
+                  autoComplete="tel"
+                  value={form.phone}
+                  onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+                  maxLength={40}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="contact-topic">Тема обращения *</Label>
+                <select
+                  id="contact-topic"
+                  name="topic"
+                  value={form.topic}
+                  onChange={(event) => setForm((current) => ({ ...current, topic: event.target.value }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  required
+                >
+                  <option value="general">Общий вопрос</option>
+                  <option value="order">Вопрос по заказу</option>
+                  <option value="dispute">Спор или возврат</option>
+                  <option value="partnership">Сотрудничество</option>
+                  <option value="press">Пресса и медиа</option>
+                  <option value="investor">Инвесторам</option>
+                  <option value="confectioner">Регистрация кондитера</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="contact-message">Сообщение *</Label>
+              <Textarea
+                id="contact-message"
+                name="message"
+                value={form.message}
+                onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
+                minLength={10}
+                maxLength={5000}
+                rows={6}
+                required
+                placeholder="Опишите ваш вопрос. Если речь о заказе, укажите его номер."
+              />
+            </div>
+
+            <div aria-hidden="true" className="absolute -left-[10000px] h-px w-px overflow-hidden">
+              <Label htmlFor="contact-website">Не заполняйте это поле</Label>
+              <Input
+                id="contact-website"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                value={website}
+                onChange={(event) => setWebsite(event.target.value)}
+              />
+            </div>
+
+            <label className="flex items-start gap-3 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+                required
+                className="mt-1 h-4 w-4 shrink-0 accent-primary"
+              />
+              <span>
+                Я согласен(на) на обработку персональных данных в целях рассмотрения обращения
+                согласно <a href="/about?legal=privacy" className="text-primary underline">Политике конфиденциальности</a>.
+              </span>
+            </label>
+
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+
+            <Button type="submit" className="w-full sm:w-auto" disabled={submitting || !consent}>
+              {submitting ? "Отправляем…" : "Отправить обращение"}
+            </Button>
           </form>
         </Card>
-
-        {/* Departments */}
-        <div className="space-y-6">
-          <Card className="p-6">
-            <h2 className="font-display text-xl font-bold mb-4">Для покупателей</h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Phone className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Поддержка покупателей</div>
-                  <div className="text-muted-foreground">8 (800) 123-45-67</div>
-                  <div className="text-xs text-muted-foreground">Ежедневно 10:00–22:00</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Mail className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Вопросы по заказам</div>
-                  <div className="text-muted-foreground">orders@conditera.ru</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Споры и возвраты</div>
-                  <div className="text-muted-foreground">disputes@conditera.ru</div>
-                  <div className="text-xs text-muted-foreground">Срок рассмотрения: 24 часа</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <h2 className="font-display text-xl font-bold mb-4">Для кондитеров</h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Phone className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Поддержка кондитеров</div>
-                  <div className="text-muted-foreground">8 (800) 123-45-68</div>
-                  <div className="text-xs text-muted-foreground">Пн–Пт 9:00–21:00</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Mail className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Регистрация и верификация</div>
-                  <div className="text-muted-foreground">partners@conditera.ru</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <CreditCard className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Выплаты и финансы</div>
-                  <div className="text-muted-foreground">payouts@conditera.ru</div>
-                  <div className="text-xs text-muted-foreground">Выплаты: 1–3 рабочих дня</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <h2 className="font-display text-xl font-bold mb-4">Для бизнеса и прессы</h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Mail className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Партнёрство и B2B</div>
-                  <div className="text-muted-foreground">b2b@conditera.ru</div>
-                  <div className="text-xs text-muted-foreground">Корпоративные заказы, тендеры</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Mail className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Пресса и медиа</div>
-                  <div className="text-muted-foreground">press@conditera.ru</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Mail className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <div className="font-medium">Инвесторам</div>
-                  <div className="text-muted-foreground">invest@conditera.ru</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
       </div>
 
-      {/* ===== REGIONAL OFFICES ===== */}
-      <Card className="p-6 mb-8">
-        <h2 className="font-display text-xl font-bold mb-2">Региональные пункты выдачи</h2>
-        <p className="text-muted-foreground text-sm mb-4">
-          Пункты выдачи «Уездного кондитера» в 28 городах России. Здесь можно
-          забрать заказ самовывозом, получить консультацию или сдать торт при споре.
-        </p>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-          {[
-            { city: "Москва", address: "ул. Печная, д. 1", phone: "+7 (495) 123-45-67", hours: "10–22" },
-            { city: "Санкт-Петербург", address: "Лиговский пр., д. 50", phone: "+7 (812) 345-67-89", hours: "10–22" },
-            { city: "Казань", address: "ул. Баумана, д. 33", phone: "+7 (843) 234-56-78", hours: "10–20" },
-            { city: "Екатеринбург", address: "ул. Малышева, д. 5", phone: "+7 (343) 345-67-89", hours: "10–20" },
-            { city: "Новосибирск", address: "Красный пр., д. 17", phone: "+7 (383) 234-56-78", hours: "10–20" },
-            { city: "Краснодар", address: "ул. Красная, д. 88", phone: "+7 (861) 234-56-78", hours: "10–20" },
-            { city: "Нижний Новгород", address: "ул. Большая Покровская, д. 60", phone: "+7 (831) 234-56-78", hours: "10–20" },
-            { city: "Самара", address: "ул. Куйбышева, д. 88", phone: "+7 (846) 234-56-78", hours: "10–20" },
-          ].map((office, i) => (
-            <div key={i} className="p-3 border border-border rounded-lg">
-              <div className="flex items-center gap-1.5 mb-1">
-                <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                <div className="font-semibold text-sm">{office.city}</div>
-              </div>
-              <div className="text-xs text-muted-foreground">{office.address}</div>
-              <div className="text-xs text-muted-foreground mt-1">{office.phone}</div>
-              <div className="text-xs text-primary mt-1">{office.hours} МСК</div>
-            </div>
-          ))}
-        </div>
-        <div className="text-center mt-4">
-          <a href="/catalog" className="text-sm text-primary hover:underline">
-            Смотреть все 28 пунктов выдачи →
-          </a>
-        </div>
-      </Card>
-
-      {/* ===== SOCIAL LINKS ===== */}
-      <Card className="p-6 mb-8">
-        <h2 className="font-display text-xl font-bold mb-4">Мы в социальных сетях</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { name: "Telegram", handle: "@conditera", url: "https://t.me/conditera", desc: "Канал с работами кондитеров" },
-            { name: "ВКонтакте", handle: "vk.com/conditera", url: "https://vk.com/conditera", desc: "Сообщество, акции, конкурсы" },
-            { name: "YouTube", handle: "Уездный кондитер", url: "https://youtube.com/@conditera", desc: "Видеоуроки и обзоры" },
-            { name: "Дзен", handle: "Уездный кондитер", url: "https://dzen.ru/conditera", desc: "Статьи и рецепты" },
-          ].map((social, i) => (
-            <a
-              key={i}
-              href={social.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-4 border border-border rounded-lg hover:border-primary/40 hover:bg-accent/30 transition-all"
-            >
-              <div className="font-semibold text-sm mb-1">{social.name}</div>
-              <div className="text-xs text-primary">{social.handle}</div>
-              <div className="text-xs text-muted-foreground mt-1">{social.desc}</div>
-            </a>
-          ))}
-        </div>
-      </Card>
-
-      {/* ===== COMPANY DETAILS ===== */}
-      <Card className="p-6 mb-8">
-        <h2 className="font-display text-xl font-bold mb-4">Реквизиты компании</h2>
-        <div className="grid sm:grid-cols-2 gap-6 text-sm">
-          <div className="space-y-2">
-            <div className="font-semibold mb-2">Юридическое лицо</div>
-            <div><span className="text-muted-foreground">Наименование:</span> ООО «Уездный кондитер»</div>
-            <div><span className="text-muted-foreground">ИНН:</span> 7701234567</div>
-            <div><span className="text-muted-foreground">КПП:</span> 770101001</div>
-            <div><span className="text-muted-foreground">ОГРН:</span> 1234567890123</div>
-            <div><span className="text-muted-foreground">ОКПО:</span> 12345678</div>
-          </div>
-          <div className="space-y-2">
-            <div className="font-semibold mb-2">Адрес и контакты</div>
-            <div><span className="text-muted-foreground">Юр. адрес:</span> 101000, г. Москва, ул. Печная, д. 1</div>
-            <div><span className="text-muted-foreground">Почтовый адрес:</span> 101000, г. Москва, а/я 123</div>
-            <div><span className="text-muted-foreground">Телефон:</span> 8 (800) 123-45-67</div>
-            <div><span className="text-muted-foreground">Email:</span> hello@conditera.ru</div>
-            <div><span className="text-muted-foreground">Сайт:</span> conditera.ru</div>
-          </div>
-        </div>
-        <div className="mt-4 p-3 bg-muted/50 rounded-lg text-xs text-muted-foreground">
-          <strong className="font-medium">Банковские реквизиты:</strong> р/с 40702810400000012345
-          в ПАО «Сбербанк», БИК 044525225, к/с 30101810400000000225.
-          Для получения полного пакета документов напишите на b2b@conditera.ru.
-        </div>
-      </Card>
-
-      {/* ===== WORKING HOURS ===== */}
-      <Card className="p-6 text-center bg-primary/5 border-primary/20">
-        <Clock className="h-10 w-10 text-primary mx-auto mb-2" />
-        <h3 className="font-display font-semibold mb-1">Режим работы</h3>
-        <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          Платформа работает 24/7 — заказы принимаются круглосуточно.
-          Поддержка отвечает ежедневно с 10:00 до 22:00 по московскому времени.
-          Региональные пункты выдачи — с 10:00 до 20:00 по местному времени.
-        </p>
-      </Card>
+      {hasOperatorDetails && (
+        <Card className="mt-6 p-6">
+          <h2 className="font-semibold">Сведения об операторе платформы</h2>
+          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            {siteConfig.legalName && <div><dt className="text-muted-foreground">Наименование</dt><dd>{siteConfig.legalName}</dd></div>}
+            {siteConfig.inn && <div><dt className="text-muted-foreground">ИНН</dt><dd>{siteConfig.inn}</dd></div>}
+            {siteConfig.ogrn && <div><dt className="text-muted-foreground">ОГРН / ОГРНИП</dt><dd>{siteConfig.ogrn}</dd></div>}
+            {siteConfig.legalAddress && <div className="sm:col-span-2"><dt className="text-muted-foreground">Юридический адрес</dt><dd>{siteConfig.legalAddress}</dd></div>}
+            {siteConfig.privacyEmail && <div><dt className="text-muted-foreground">Вопросы о персональных данных</dt><dd>{siteConfig.privacyEmail}</dd></div>}
+          </dl>
+        </Card>
+      )}
     </div>
   );
 }
