@@ -262,6 +262,13 @@ jobs:
               "VK_OAUTH_REDIRECT": "https://conditera.ru/api/auth/oauth/vk/callback",
               "TELEGRAM_BOT_TOKEN": "123456789:ci-only-telegram-token",
               "TELEGRAM_CHANNEL_ID": "@conditera",
+              "NEXT_PUBLIC_SUPPORT_EMAIL": "ci-support@conditera.ru",
+              "NEXT_PUBLIC_PRIVACY_EMAIL": "ci-privacy@conditera.ru",
+              "CONTACT_NOTIFICATION_EMAIL": "ci-contact@conditera.ru",
+              "NEXT_PUBLIC_LEGAL_NAME": "ООО «Уездный кондитер» (CI only)",
+              "NEXT_PUBLIC_COMPANY_INN": "7701234567",
+              "NEXT_PUBLIC_COMPANY_OGRN": "1234567890123",
+              "NEXT_PUBLIC_LEGAL_ADDRESS": "CI test value — not a real address",
           })
           PY
           bash scripts/deploy-single-container.sh --config
