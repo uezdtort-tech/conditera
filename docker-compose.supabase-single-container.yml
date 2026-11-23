@@ -79,6 +79,9 @@ services:
     profiles: !override []
   n8n:
     profiles: !override []
+    command: ["node", "/usr/local/bin/conditera-n8n-entrypoint.mjs"]
+    volumes:
+      - ./scripts/n8n-entrypoint.mjs:/usr/local/bin/conditera-n8n-entrypoint.mjs:ro
   caddy:
     profiles: !override []
 
