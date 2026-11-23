@@ -134,7 +134,7 @@ function importAllowlistedWorkflows(source) {
       }
     }
     writeFileSync(markerPath, currentHash + "\n", { mode: 0o600 });
-    writeFileSync(idsMarkerPath, [...source.sourceIds].sort().join("\\n") + "\\n", { mode: 0o600 });
+    writeFileSync(idsMarkerPath, [...source.sourceIds].sort().join("\n") + "\n", { mode: 0o600 });
   } finally {
     rmSync(stageDir, { recursive: true, force: true });
     rmSync(stateDir, { recursive: true, force: true });
