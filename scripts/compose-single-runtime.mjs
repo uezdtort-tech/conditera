@@ -114,7 +114,7 @@ if (runtime.build?.dockerfile !== "Dockerfile.supabase-runtime-poc") {
 
 const runtimeEnvValues = runtime.environment || {};
 const requiredSecrets = [
-  "POSTGRES_PASSWORD", "APP_DATABASE_PASSWORD", "JWT_SECRET",
+  "POSTGRES_PASSWORD", "APP_DATABASE_PASSWORD", "BACKUP_DATABASE_PASSWORD", "JWT_SECRET",
   "SECRET_KEY_BASE", "PG_META_CRYPTO_KEY", "REALTIME_DB_ENC_KEY",
   "REALTIME_DB_ENC_KEY_GCM", "ANON_KEY", "SERVICE_ROLE_KEY",
 ];
@@ -127,6 +127,14 @@ for (const key of requiredSecrets) {
 }
 
 const webEnv = services.web.environment || {};
+const backupDatabaseUrl = String(webEnv.BACKUP_DATABASE_URL || "");
+if (!backupDatabaseUrl.includes("conditera_backup:") || !backupDatabaseUrl.includes("@supabase-runtime:5432/supabase")) {
+  fail("web.BACKUP_DATABASE_URL должен использовать отдельную роль conditera_backup в едином PostgreSQL 17.");
+}
+const backupMount = (services.web.volumes || []).find((mount) => mount.target === "/app/backups");
+if (!backupMount || !String(backupMount.source || "").includes("conditera_backup_data")) {
+  fail("Не найден отдельный постоянный Docker volume conditera_backup_data для резервных копий.");
+}
 for (const key of ["DATABASE_URL", "DIRECT_DATABASE_URL"]) {
   if (!String(webEnv[key] || "").includes("@supabase-runtime:5432/supabase")) {
     fail("web." + key + " не направлен в единый PostgreSQL 17 runtime.");
