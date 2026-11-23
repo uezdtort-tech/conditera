@@ -45,11 +45,11 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
     ["MEILI_URL", 1], ["MEILI_MASTER_KEY", 32], ["SMTP_HOST", 1], ["SMTP_PORT", 1],
     ["SMTP_USER", 1], ["SMTP_PASSWORD", 12], ["SMTP_FROM", 1],
     ["JWT_SECRET", 32], ["JWT_REFRESH_SECRET", 32], ["TFA_ENCRYPTION_KEY", 32], ["IP_HASH_SALT", 32],
-    ["CRON_SECRET", 32], ["BOT_SECRET", 32], ["TELEGRAM_WEBHOOK_SECRET", 32], ["TELEGRAM_BOT_TOKEN", 20],
+    ["CRON_SECRET", 32], ["BOT_SECRET", 32], ["TELEGRAM_WEBHOOK_SECRET", 32], ["TELEGRAM_BOT_TOKEN", 20], ["TELEGRAM_CHANNEL_ID", 2],
     ["YOOKASSA_SHOP_ID", 1], ["YOOKASSA_SECRET_KEY", 16],
     ["N8N_ADMIN_EMAIL", 6], ["N8N_ADMIN_PASSWORD", 24], ["N8N_ENCRYPTION_KEY", 32], ["N8N_WEBHOOK_SECRET", 32], ["N8N_WEBHOOK_URL", 1],
     ["VAPID_PUBLIC_KEY", 80], ["VAPID_PRIVATE_KEY", 32],
-    ["YANDEX_CLIENT_ID", 1], ["YANDEX_CLIENT_SECRET", 16], ["VK_CLIENT_ID", 1], ["VK_CLIENT_SECRET", 16],
+    ["YANDEX_CLIENT_ID", 1], ["YANDEX_CLIENT_SECRET", 16], ["GOOGLE_CLIENT_ID", 1], ["GOOGLE_CLIENT_SECRET", 16], ["VK_CLIENT_ID", 1], ["VK_CLIENT_SECRET", 16],
     ["LLM_PROVIDER", 1], ["LLM_MODEL", 1], ["LLM_API_BASE", 1],
     ["APP_DATABASE_PASSWORD", 32], ["BACKUP_DATABASE_PASSWORD", 32], ["SUPABASE_SECRET_KEY_BASE", 32],
     ["PG_META_CRYPTO_KEY", 32], ["REALTIME_DB_ENC_KEY", 16], ["REALTIME_DB_ENC_KEY_GCM", 32],
@@ -64,12 +64,37 @@ export function validateProductionEnv(productionEnvPath, runtimeEnvPath) {
   }
 
   requireTrue("EXTERNAL_YANDEX_ENABLED");
+  requireTrue("EXTERNAL_GOOGLE_ENABLED");
   requireTrue("EXTERNAL_VK_ENABLED");
   requireTrue("SMTP_TLS_REJECT_UNAUTHORIZED");
   if ((values.get("NODE_ENV") || "").trim() !== "production") errors.push("NODE_ENV: должен быть production");
   if ((values.get("LLM_PROVIDER") || "").trim().toLowerCase() === "none") errors.push("LLM_PROVIDER: AI-функции отключены; production-конфигурация должна указывать работающего провайдера");
   const provider = (values.get("LLM_PROVIDER") || "").trim().toLowerCase();
   if (provider && !["none", "ollama", "local", "lmstudio"].includes(provider)) requireValue("LLM_API_KEY", 16);
+
+  const yookassaSecret = values.get("YOOKASSA_SECRET_KEY") || "";
+  if (yookassaSecret && !yookassaSecret.startsWith("live_")) {
+    errors.push("YOOKASSA_SECRET_KEY: production принимает только live_-ключ YooKassa, sandbox/test-ключ запрещён");
+  }
+  const telegramToken = values.get("TELEGRAM_BOT_TOKEN") || "";
+  if (telegramToken && !/^\\d{5,}:[A-Za-z0-9_-]{20,}$/.test(telegramToken)) {
+    errors.push("TELEGRAM_BOT_TOKEN: некорректный формат токена Bot API");
+  }
+  const telegramChannel = values.get("TELEGRAM_CHANNEL_ID") || "";
+  if (telegramChannel && !/^(?:@[A-Za-z0-9_]{5,}|-100\\d{5,})$/.test(telegramChannel)) {
+    errors.push("TELEGRAM_CHANNEL_ID: требуется @имя канала или числовой ID вида -100...");
+  }
+  for (const [key, providerName] of [
+    ["YANDEX_OAUTH_REDIRECT", "yandex"],
+    ["GOOGLE_OAUTH_REDIRECT", "google"],
+    ["VK_OAUTH_REDIRECT", "vk"],
+  ]) {
+    const expected = domain ? "https://" + domain + "/api/auth/oauth/" + providerName + "/callback" : "";
+    if ((values.get(key) || "").trim() !== expected) {
+      errors.push(key + ": должен точно совпадать с " + expected);
+    }
+  }
+
   const port = Number(values.get("SMTP_PORT"));
   if (!Number.isInteger(port) || port < 1 || port > 65535) errors.push("SMTP_PORT: некорректный TCP-порт");
 
