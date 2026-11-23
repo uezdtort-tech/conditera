@@ -81,7 +81,7 @@ describe("scanLineForSecrets — структурные токены", () => {
     expect(
       categories("live_0123456789abcdefghijklmnopqrstuv")
     ).toEqual(["payment-provider-token"]);
-    expect(categories("sk_live_abcdefghijklmnopqrs")).toEqual([
+    expect(categories(["sk_live_", "abcdefghijklmnopqrs"].join(""))).toEqual([
       "payment-provider-token",
     ]);
   });
