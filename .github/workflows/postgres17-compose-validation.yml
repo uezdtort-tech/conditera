@@ -194,6 +194,19 @@ jobs:
           PY
           rm -rf "$tmpdir"
 
+          bash scripts/deploy-single-container.sh --config
+          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
+          docker compose -f docker-compose.dev.yml config --format json > /tmp/conditera-dev-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          services = json.loads(Path("/tmp/conditera-dev-compose.json").read_text())["services"]
+          assert services["db-dev"]["image"] == "postgres:17-alpine"
+          assert services["n8n-dev"]["image"] == "n8nio/n8n:2.48.7"
+          ports = services["n8n-dev"]["ports"]
+          assert len(ports) == 1 and ports[0].get("host_ip") == "127.0.0.1"
+          print("Development Compose PASS: PostgreSQL 17 and local-only n8n.")
+          PY
       - name: Verify legacy demo JWT secrets are rotated and dependent keys are re-signed
         shell: bash
         run: |
@@ -266,19 +279,6 @@ jobs:
           verify(values["NEXT_PUBLIC_SUPABASE_ANON_KEY"], "anon")
           verify(values["SUPABASE_SERVICE_ROLE_KEY"], "service_role")
           print("PASS: legacy access/refresh secrets rotated; anon/service_role JWTs re-signed with the new access secret.")
-          PY
-          bash scripts/deploy-single-container.sh --config
-          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile
-          docker compose -f docker-compose.dev.yml config --format json > /tmp/conditera-dev-compose.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          services = json.loads(Path("/tmp/conditera-dev-compose.json").read_text())["services"]
-          assert services["db-dev"]["image"] == "postgres:17-alpine"
-          assert services["n8n-dev"]["image"] == "n8nio/n8n:2.48.7"
-          ports = services["n8n-dev"]["ports"]
-          assert len(ports) == 1 and ports[0].get("host_ip") == "127.0.0.1"
-          print("Development Compose PASS: PostgreSQL 17 and local-only n8n.")
           PY
       - name: Проверить объединённую конфигурацию Supabase + PG17
         run: |
