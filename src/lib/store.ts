@@ -691,7 +691,7 @@ export const useAppStore = create<AppState>()(
       giftCertificates: demoSeed(MOCK_GIFT_CERTIFICATES),
       referral: MOCK_REFERRAL,
       videoReviews: demoSeed(MOCK_VIDEO_REVIEWS),
-      courierTracking: demoSeed(MOCK_COURIER_TRACKING),
+      courierTracking: MOCK_COURIER_TRACKING,
       // CMS
       cmsPages: demoSeed(MOCK_CMS_PAGES),
       cmsBlocks: demoSeed(MOCK_CMS_BLOCKS),
