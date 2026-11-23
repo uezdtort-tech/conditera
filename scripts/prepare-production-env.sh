@@ -152,6 +152,10 @@ required_external = [
     ("VK_CLIENT_ID", app), ("YOOKASSA_SHOP_ID", app),
     ("YOOKASSA_SECRET_KEY", app), ("TELEGRAM_BOT_TOKEN", app),
     ("TELEGRAM_CHANNEL_ID", app),
+    ("NEXT_PUBLIC_SUPPORT_EMAIL", app), ("NEXT_PUBLIC_PRIVACY_EMAIL", app),
+    ("CONTACT_NOTIFICATION_EMAIL", app), ("NEXT_PUBLIC_LEGAL_NAME", app),
+    ("NEXT_PUBLIC_COMPANY_INN", app), ("NEXT_PUBLIC_COMPANY_OGRN", app),
+    ("NEXT_PUBLIC_LEGAL_ADDRESS", app),
 ]
 missing = [key for key, values in required_external if needs_value(values.get(key, ""))]
 print("Production env files prepared with generated secrets:")
