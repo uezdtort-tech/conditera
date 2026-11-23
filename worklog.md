@@ -10420,3 +10420,14 @@ origin/work/sandbox-main-20261123 = d29e1781 = local main, 348
 коммитов линии песочницы сохранены в GitHub. Канонический main
 (origin/main, 2fdc2524) не тронут. Свержение линий — отдельная задача
 (vitest 240 + матрица 50 до merge в main).
+
+## ops(github) 2026-11-23 #3 — PAT ужат владельцем до repo+workflow(+write:packages)
+
+Классический PAT, использованный для снапшота (#2), изначально имел
+широкий набор (admin:org, admin:gpg_key, delete:packages, user, gist,
+notifications, write:network_configurations, copilot). Владелец
+перетасовал скоупы в два захода (первый Update token, вопреки цели,
+добавил gist/notifications/user и снял copilot; второй привёл к
+целевому минимуму). Финальный набор: repo, workflow, write:packages.
+Запись (git push) после ужатия подтверждена этим коммитом. Токен
+хранится только в ~/.git-credentials (600), в контенте отсутствует.
