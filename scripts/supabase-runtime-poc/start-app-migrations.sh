@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+: "${BACKUP_DATABASE_PASSWORD:?BACKUP_DATABASE_PASSWORD is required}"
+
 marker=/run/supabase-app-migrations.done
 rm -f "$marker"
 
@@ -41,5 +44,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO conditera_app;
 SQL
 
+/usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
+  /bin/bash -c 'psql -X -v ON_ERROR_STOP=1 --username "$PGUSER" --dbname "$PGDATABASE" --set=backup_password="$BACKUP_DATABASE_PASSWORD"' <<'SQL'
+SELECT 'CREATE ROLE conditera_backup LOGIN'
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \\gexec
+ALTER ROLE conditera_backup WITH LOGIN PASSWORD :'backup_password' BYPASSRLS;
+GRANT pg_read_all_data TO conditera_backup;
+GRANT CONNECT ON DATABASE supabase TO conditera_backup;
+SQL
 touch "$marker"
 echo "Conditera application migrations completed successfully."
