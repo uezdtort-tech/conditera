@@ -73,6 +73,7 @@ async function api(method, path, { token, body } = {}) {
 }
 
 const sessionTokens = [];
+let adminToken = null;
 
 async function login(email) {
   const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
@@ -108,6 +109,7 @@ async function main() {
   await client.query(`DELETE FROM public.ops_tasks WHERE source='engine' AND type='ORDER_REVIEW_REQUEST'`);
   section("Подготовка");
   const admin = await login("admin@demo.ru");
+  adminToken = admin;
   const owner = await login("confectioner@demo.ru");
   const customer = await login("customer@demo.ru");
   assert("логины admin/confectioner/customer", Boolean(admin && owner && customer));
@@ -281,6 +283,29 @@ async function main() {
     typesList.join(",")
   );
 
+
+  return failed === 0;
+}
+
+async function cleanup() {
+  let cleanupSucceeded = true;
+  try {
+    if (cleanupIds.orders.length > 0) {
+      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanupIds.orders]);
+    }
+    if (cleanupIds.drafts.length > 0) {
+      await client.query(`DELETE FROM public.purchase_drafts WHERE id = ANY($1)`, [cleanupIds.drafts]);
+    }
+    // P1.1 §4: verify мутировал демо-фикстуру (PATCH → PREPARING) —
+    // восстанавливаем, чтобы повторный прогон стартовал из известного состояния.
+    await client.query(
+      `UPDATE public.orders SET status='CONFIRMED', updated_at=now() WHERE number='DEMO-1048' AND status <> 'CONFIRMED'`
+    );
+    console.log(`\ncleanup: удалено черновиков верификации: ${cleanupIds.drafts.length}, заказов: ${cleanupIds.orders.length}`);
+
   if (process.env.VERIFY_BACKUP === "1") {
     section("Production PostgreSQL backup");
     const backup = await api("POST", "/api/maintenance/history", {
@@ -323,45 +348,22 @@ async function main() {
     }
   }
 
-  section("Итог");
-  console.log(`\n  ИТОГО: PASS ${passed}  FAIL ${failed}`);
-  if (failed > 0) {
-    console.log("  Проваленные проверки:");
-    for (const f of failures) console.log(`   - ${f}`);
-  }
-  return failed === 0;
-}
 
-async function cleanup() {
-  try {
-    // Освобождаем демо-аккаунты после сценария: следующий E2E-контур
-    // не должен принимать оставшийся тестовый сеанс за передачу аккаунта.
+    // Сессии тестовых пользователей отзываем после backup: backup-проверка
+    // должна выполняться на очищенном наборе данных и с действующей admin-сессией.
     for (const token of sessionTokens) {
       const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
       if (logout && logout.status !== 200) {
         console.warn("[verify] test session cleanup returned", logout.status);
       }
     }
-    if (cleanupIds.orders.length > 0) {
-      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanupIds.orders]);
-      await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanupIds.orders]);
-      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanupIds.orders]);
-      await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanupIds.orders]);
-    }
-    if (cleanupIds.drafts.length > 0) {
-      await client.query(`DELETE FROM public.purchase_drafts WHERE id = ANY($1)`, [cleanupIds.drafts]);
-    }
-    // P1.1 §4: verify мутировал демо-фикстуру (PATCH → PREPARING) —
-    // восстанавливаем, чтобы повторный прогон стартовал из известного состояния.
-    await client.query(
-      `UPDATE public.orders SET status='CONFIRMED', updated_at=now() WHERE number='DEMO-1048' AND status <> 'CONFIRMED'`
-    );
-    console.log(`\n  cleanup: удалено черновиков верификации: ${cleanupIds.drafts.length}, заказов: ${cleanupIds.orders.length}`);
   } catch (err) {
-    console.log(`\n  cleanup warning: ${err.message}`);
+    cleanupSucceeded = false;
+    console.log(`\ncleanup warning: ${err.message}`);
   } finally {
     await client.end().catch(() => {});
   }
+  return cleanupSucceeded && failed === 0;
 }
 
 let ok = false;
@@ -374,6 +376,12 @@ main()
     ok = false;
   })
   .finally(async () => {
-    await cleanup();
-    process.exit(ok ? 0 : 1);
+    const cleanupOk = await cleanup();
+    section("Итог");
+    console.log(`\n  ИТОГО: PASS ${passed}  FAIL ${failed}`);
+    if (failed > 0) {
+      console.log("  Проваленные проверки:");
+      for (const failure of failures) console.log(`   - ${failure}`);
+    }
+    process.exit(ok && cleanupOk ? 0 : 1);
   });
