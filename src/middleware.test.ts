@@ -117,7 +117,7 @@ describe('CSRF middleware', () => {
 
   describe('allows requests with matching token', () => {
     it('allows POST when header == cookie', async () => {
-      const token = 'abc123matching-token-xyz789'
+      const token = 'test-csrf-matching-token-xyz789'
       const req = makeRequest({
         method: 'POST',
         path: '/api/orders',
