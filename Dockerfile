@@ -40,9 +40,18 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# pay4: идентификация версии образа (передаётся из CI как GIT_SHA=${{ github.sha }})
+# Build-time public variables are embedded into the Next.js browser bundle.
+# Production builds must receive real values from .env.production via Compose build args.
 ARG GIT_SHA=unknown
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG NEXT_PUBLIC_APP_URL
+ARG CI=false
 ENV APP_VERSION=${GIT_SHA}
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV CI=${CI}
 
 # Собираем Next.js со standalone-выходом (см. next.config.ts: output: "standalone")
 ENV NEXT_TELEMETRY_DISABLED=1
