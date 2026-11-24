@@ -82,7 +82,11 @@ ENV HOSTNAME="0.0.0.0"
 # Создаём непривилегированного пользователя
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs && \
-    apk add --no-cache dumb-init openssl wget postgresql-client
+    apk add --no-cache dumb-init openssl wget postgresql-client && \
+    PG_DUMP_MAJOR="$(pg_dump --version | awk '{print $NF}' | cut -d. -f1)" && \
+    PSQL_MAJOR="$(psql --version | awk '{print $NF}' | cut -d. -f1)" && \
+    test "$PG_DUMP_MAJOR" -ge 18 && \
+    test "$PSQL_MAJOR" -ge 18
 
 # Standalone-сборка Next.js содержит только нужные node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
