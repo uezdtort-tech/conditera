@@ -39,7 +39,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "26"
 
 jobs:
   # ===== 1. Lint + Type-check =====
@@ -424,7 +424,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 26
 
       - name: Scan tracked evidence for real secrets/PII
         run: node scripts/scan-evidence.mjs
@@ -583,7 +583,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "26"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
