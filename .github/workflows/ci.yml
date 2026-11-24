@@ -197,7 +197,8 @@ jobs:
 
       - name: Build web image
         uses: docker/build-push-action@v7
-        with:          context: .
+        with:
+          context: .
           file: ./Dockerfile
           push: false
           load: true
@@ -396,6 +397,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
       - name: Validate Caddyfile syntax
         run: |
           if [ ! -f Caddyfile ]; then
@@ -571,28 +573,6 @@ jobs:
 
       - name: Scan bun.lock with baseline diff (new advisories fail)
         run: node scripts/verify/osv-audit.mjs
-
-  # Temporary lockfile regeneration helper for the security patch.
-  # It prints generated lockfile diffs only; it never commits or pushes.
-  lock-refresh-preview:
-    name: Temporary lockfile refresh preview
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Regenerate Bun lock
-        run: bun install
-      - name: Regenerate npm lock
-        run: npm install --package-lock-only --ignore-scripts --legacy-peer-deps
-      - name: Print lockfile changes
-        run: |
-          git diff --stat -- bun.lock package-lock.json
-          git diff --no-ext-diff --unified=2 -- bun.lock package-lock.json
 
   # Temporary lockfile regeneration helper for the security patch.
   # It prints generated lockfile diffs only; it never commits or pushes.
