@@ -349,17 +349,13 @@ jobs:
           grep -Fq 'PGDATABASE=conditera' docker-compose.yml
           echo "Database bootstrap configuration checks passed"
 
-      - name: Check for secrets in code
-        run: |
-          # Проверка на закоммиченные секреты
-          if grep -rEn "(sk_live_|pk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-)" \
-            --include="*.ts" --include="*.tsx" --include="*.json" \
-            --exclude-dir=node_modules src/ scripts/ mini-services/ 2>/dev/null; then
-            echo "❌ Found potential secrets in code"
-            exit 1
-          fi
-          echo "✓ No secrets found in code"
+      - name: Setup Node for full tracked-files secret scan
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.18.0"
 
+      - name: Check for secrets in code (full tracked scan with explicit fixture rules)
+        run: node scripts/regression/secrets-scan.mjs --mode=full
       - name: Check for .env files in repo
         run: |
           # Проверка что нет закоммиченных .env файлов с секретами
@@ -462,15 +458,14 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # Supabase image includes the extensions/auth schemas required by project migrations.
+        image: supabase/postgres:17.11.0.017
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: conditera
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U supabase_admin -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
