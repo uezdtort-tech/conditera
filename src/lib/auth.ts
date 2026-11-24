@@ -29,7 +29,7 @@ function getRequiredEnv(name: string): string {
   const normalized = value?.toLowerCase() || "";
   const isStub =
     !value ||
-    /^(change_me|fallback-|stub_|build-placeholder|dummy|your_|example)/.test(normalized) ||
+    /^(change_me|fallback-|stub[-_]|build-placeholder|dummy|your_|example)/.test(normalized) ||
     (process.env.NODE_ENV === "production" && /^dev[-_]/.test(normalized));
 
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
