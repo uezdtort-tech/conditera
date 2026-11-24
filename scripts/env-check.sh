@@ -140,7 +140,7 @@ SUPABASE_URL_VALUE=$(get_env "NEXT_PUBLIC_SUPABASE_URL")
 if is_filled "$SUPABASE_URL_VALUE" && ! [[ "$SUPABASE_URL_VALUE" =~ ^https?:// ]]; then
   err "NEXT_PUBLIC_SUPABASE_URL должен быть абсолютным http(s) URL"
 fi
-if [ "$MODE_LABEL" = "production" ] && [[ "$SUPABASE_URL_VALUE" =~ ^http://(localhost|127\\.0\\.0\\.1)(:|/|$) ]]; then
+if [ "$MODE_LABEL" = "production" ] && [[ "$SUPABASE_URL_VALUE" =~ ^http://(localhost|127\.0\.0\.1)(:|/|$) ]]; then
   err "Production NEXT_PUBLIC_SUPABASE_URL не может указывать на localhost"
 fi
 check_required "NEXT_PUBLIC_SUPABASE_ANON_KEY" "Anon key (клиент, RLS)"
@@ -167,6 +167,10 @@ check_required "CRON_SECRET" "секрет для cron-задач"
 JWT=$(get_env "JWT_SECRET")
 JWT_REFRESH=$(get_env "JWT_REFRESH_SECRET")
 TFA=$(get_env "TFA_ENCRYPTION_KEY")
+
+if is_filled "$JWT" && is_filled "$JWT_REFRESH" && [ "$JWT" = "$JWT_REFRESH" ]; then
+  err "JWT_SECRET и JWT_REFRESH_SECRET должны быть разными значениями"
+fi
 
 for secret_name in JWT_SECRET JWT_REFRESH_SECRET; do
   secret_value="$(get_env "$secret_name")"
