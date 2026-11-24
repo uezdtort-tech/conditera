@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "./route";
 
-const originalNodeEnv = process.env.NODE_ENV;
-const originalCi = process.env.CI;
-const originalShimFlag = process.env.SUPABASE_STORAGE_SHIM_ENABLED;
+const mutableEnv = process.env as Record<string, string | undefined>;
+const originalNodeEnv = mutableEnv.NODE_ENV;
+const originalCi = mutableEnv.CI;
+const originalShimFlag = mutableEnv.SUPABASE_STORAGE_SHIM_ENABLED;
 
 afterEach(() => {
-  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+  if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
   else process.env.NODE_ENV = originalNodeEnv;
 
   if (originalCi === undefined) delete process.env.CI;
