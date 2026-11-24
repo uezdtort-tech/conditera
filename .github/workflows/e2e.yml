@@ -68,6 +68,7 @@ env:
   GOOGLE_CLIENT_SECRET: e2e-google-secret
   GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
   CI: "true"
+  SUPABASE_STORAGE_SHIM_ENABLED: "true"
 
 jobs:
   # ===== 1. Установка и сборка =====
