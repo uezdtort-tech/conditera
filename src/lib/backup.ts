@@ -132,8 +132,8 @@ async function pgDumpBackup(
   });
 
   try {
-    await pipeline(child.stdout, createGzip(), createWriteStream(filepath));
-    await exitPromise;
+    const outputPromise = pipeline(child.stdout, createGzip(), createWriteStream(filepath));
+    await Promise.all([outputPromise, exitPromise]);
 
     const { getPool } = await import("@/lib/postgrest/pool");
     const pool = getPool();
