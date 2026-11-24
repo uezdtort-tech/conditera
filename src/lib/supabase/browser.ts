@@ -23,7 +23,7 @@ const _isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 const _allowCiFixture = _isBuildPhase && process.env.CI === "true";
 const _isStub =
   !supabaseAnonKey ||
-  /^(CHANGE_ME|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(supabaseAnonKey);
+  /^(CHANGE_ME|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(supabaseAnonKey);
 
 if (_isStub && process.env.NODE_ENV === "production" && !_allowCiFixture) {
   throw new Error(
