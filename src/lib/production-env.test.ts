@@ -55,12 +55,17 @@ describe("assertProductionEnvironment", () => {
     "YOOKASSA_SHOP_ID",
     "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID",
-    "YANDEX_CLIENT_SECRET",
     "EXTERNAL_YANDEX_ENABLED",
   ])("rejects a missing required variable: %s", (name) => {
     const env = validEnv();
     delete env[name];
     expect(() => assertProductionEnvironment(env)).toThrow(new RegExp(name));
+  });
+
+  it("allows a public Yandex OAuth client without a client secret", () => {
+    const env = validEnv();
+    delete env.YANDEX_CLIENT_SECRET;
+    expect(() => assertProductionEnvironment(env)).not.toThrow();
   });
 
   it("requires Yandex OAuth to be enabled for production", () => {
