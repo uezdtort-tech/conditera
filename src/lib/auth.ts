@@ -56,6 +56,9 @@ function getRequiredEnv(name: string): string {
     console.warn(`⚠️  [auth] ${name} не задана — используется dev-значение. НЕ для production!`);
     return `dev-${name}-${"0".repeat(32)}`;
   }
+  if (/^dev[-_]/.test(normalized)) {
+    console.warn(`[auth] ${name} использует development-only значение; не переносить в production.`);
+  }
   return value;
 }
 
