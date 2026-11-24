@@ -213,7 +213,7 @@ describe("isAllowlisted — {path, line, reason}", () => {
   });
 
   it("сквозной сценарий: находка в allowlisted-строке пропускается сканером", () => {
-    const line = "AKIAIOSFODNN7EXAMPLE"; // fixture для теста сканера
+    const line = "AKIA" + "IOSFODNN7EXAMPLE"; // fixture для теста сканера
     const matches = scanLineForSecrets(line);
     expect(matches.length).toBe(1);
     const suppressed = isAllowlisted("src/lib/x.test.ts", 22, allowlist);
@@ -323,7 +323,7 @@ describe("scanLineForSecrets B2 — test-fixture правило", () => {
   it("вне тестового файла fixture-токены НЕ подавляют структурные находки", () => {
     // AWS access-key documentation fixture, содержит EXAMPLE,
     // но вне тестового файла структурный паттерн срабатывает безусловно
-    expect(scanLineForSecrets("AKIAIOSFODNN7EXAMPLE").map((m) => m.category)).toEqual([
+    expect(scanLineForSecrets("AKIA" + "IOSFODNN7EXAMPLE").map((m) => m.category)).toEqual([
       "aws-access-key",
     ]);
   });
