@@ -2,7 +2,7 @@
 //
 // Безопасность:
 //   • Секреты JWT_SECRET / JWT_REFRESH_SECRET берутся из env (fail-closed):
-//     в production отсутствие/заглушка → процесс не стартует; в dev — dev-fallback
+//     в production отсутствие/заглушка/короткое значение → отказ; в dev — dev-fallback
 //     с предупреждением.
 //   • Все токены подписаны HS256.
 //   • Access token: 7d по умолчанию.
