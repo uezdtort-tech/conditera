@@ -181,7 +181,7 @@ jobs:
       GOOGLE_CLIENT_SECRET: e2e-google-secret
       GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
       CI: "true"
-      SUPABASE_STORAGE_SHIM_ENABLED: "true"
+      SUPABASE_LOCAL_SHIMS_ENABLED: "true"
     steps:
       - uses: actions/checkout@v7
 
