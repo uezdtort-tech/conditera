@@ -62,24 +62,61 @@ export function base32Decode(str: string): Buffer {
 import { createCipheriv, createDecipheriv, scryptSync } from "crypto";
 
 // === КРИТИЧНО: ключ шифрования TOTP-секретов ===
-function getTfaKey(): string {
-  const value = process.env.TFA_ENCRYPTION_KEY;
-  if (!value) {
-    console.warn("⚠️ TFA_ENCRYPTION_KEY не задана — dev-ключ. НЕ для production!");
-    return "dev_tfa_key_change_me_in_production_aaaaaaaaaaaaaaaaaaaaaaaa";
-  }
-  if (process.env.NODE_ENV === "production" &&
-      (value.startsWith("CHANGE_ME") || value.startsWith("dev_"))) {
-    console.error("⚠️ КРИТИЧНО: TFA_ENCRYPTION_KEY содержит заглушку в production!");
-  }
-  return value;
-}
+let cachedTfaKey: Buffer | null = null;
 
-const TFA_KEY = scryptSync(getTfaKey(), "conditera-salt", 32);
+/**
+ * Ключ TOTP никогда не должен подменяться dev-значением в production.
+ * Во время next build допускается только временный ключ для пререндера:
+ * он не используется приложением после запуска и не позволяет расшифровать
+ * production-секреты. В runtime production неверная конфигурация — hard fail.
+ *
+ * Production-контракт: ровно 32 случайных байта в hex (64 символа).
+ */
+function getTfaKey(): Buffer {
+  if (cachedTfaKey) return cachedTfaKey;
+
+  const value = process.env.TFA_ENCRYPTION_KEY?.trim();
+  const validProductionKey = /^[a-f0-9]{64}$/i.test(value || "");
+  const isProduction = process.env.NODE_ENV === "production";
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+  if (isProduction && !validProductionKey) {
+    if (isBuildPhase) {
+      console.warn(
+        "[totp] TFA_ENCRYPTION_KEY отсутствует или некорректен во время сборки; " +
+        "используется одноразовый build-key. Runtime production требует 64 hex-символа."
+      );
+      return (cachedTfaKey = scryptSync(
+        "conditera-build-only-tfa-placeholder-never-use-at-runtime",
+        "conditera-salt",
+        32
+      ));
+    }
+
+    throw new Error(
+      "[totp] Некорректный TFA_ENCRYPTION_KEY в production. " +
+      "Задайте отдельный случайный ключ из 64 hex-символов (32 байта)."
+    );
+  }
+
+  if (!value || /^(stub_|change_me|fallback-|dev[-_]|dummy|your_)/i.test(value)) {
+    if (isProduction) {
+      throw new Error("[totp] TFA_ENCRYPTION_KEY не задан или содержит заглушку.");
+    }
+    console.warn("[totp] TFA_ENCRYPTION_KEY не задан — используется dev-only ключ.");
+    return (cachedTfaKey = scryptSync(
+      "conditera-development-only-tfa-key-never-use-in-production",
+      "conditera-salt",
+      32
+    ));
+  }
+
+  return (cachedTfaKey = scryptSync(value, "conditera-salt", 32));
+}
 
 export function encryptSecret(base32Secret: string): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", TFA_KEY, iv);
+  const cipher = createCipheriv("aes-256-gcm", getTfaKey(), iv);
   const encrypted = Buffer.concat([
     cipher.update(base32Secret, "utf8"),
     cipher.final(),
@@ -97,7 +134,7 @@ export function decryptSecret(encrypted: string): string {
   const iv = Buffer.from(ivB64, "base64");
   const tag = Buffer.from(tagB64, "base64");
   const data = Buffer.from(dataB64, "base64");
-  const decipher = createDecipheriv("aes-256-gcm", TFA_KEY, iv);
+  const decipher = createDecipheriv("aes-256-gcm", getTfaKey(), iv);
   decipher.setAuthTag(tag);
   const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
   return decrypted.toString("utf8");
@@ -197,7 +234,7 @@ export function generateBackupCodes(): { codes: string[]; hashes: string[] } {
 }
 
 export function hashBackupCode(code: string): string {
-  return createHmac("sha256", TFA_KEY).update(code).digest("hex");
+  return createHmac("sha256", getTfaKey()).update(code).digest("hex");
 }
 
 export function verifyBackupCode(
