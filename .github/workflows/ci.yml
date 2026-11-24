@@ -325,6 +325,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Validate Kong 2.8 Compose contract
+        run: node scripts/verify/kong-compose-contract.mjs
+
       - name: Validate database bootstrap and preflight scripts
         run: |
           bash -n supabase/init-scripts/01-apply-migrations.sh
