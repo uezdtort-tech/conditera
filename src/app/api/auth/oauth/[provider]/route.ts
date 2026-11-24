@@ -95,7 +95,7 @@ function buildAuthorizationUrl(
     }
     case "vk": {
       // Современный VK ID (OAuth 2.1), не legacy oauth.vk.com.
-      params.set("scope", "email");
+      params.set("scope", "vkid.personal_info email");
       params.set("code_challenge", codeChallenge);
       params.set("code_challenge_method", "s256");
       return `https://id.vk.ru/authorize?${params.toString()}`;
