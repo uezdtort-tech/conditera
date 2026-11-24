@@ -241,6 +241,17 @@ jobs:
             exit 1
           fi
 
+      - name: Critical order, checkout and inventory integration (real API + PostgreSQL)
+        if: matrix.project == 'chromium'
+        env:
+          VERIFY_BASE: http://127.0.0.1:3000
+          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          ACC_DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
+        run: |
+          node scripts/verify/order-lifecycle-verify.mjs
+          node scripts/verify/checkout-idempotency-verify.mjs
+          node scripts/verify/inventory-concurrency-verify.mjs
+
       - name: Run Playwright E2E
         run: bun run test:e2e -- --project="${{ matrix.project }}"
         env:
