@@ -16,7 +16,7 @@
 # v3 (registry-hardening): oven/bun публичных зеркал не имеет, а Docker Hub ловит
 # 429 в GH Actions — берём node из public.ecr.aws и ставим bun CLI из npm
 # (musl-бинарь @oven/bun-linux-x64-musl; в runtime работает так же, как oven/bun).
-FROM public.ecr.aws/docker/library/node:20-alpine
+FROM public.ecr.aws/docker/library/node:26-alpine
 WORKDIR /app
 
 # dumb-init для корректной обработки сигналов (SIGTERM, SIGINT) + bun CLI из npm
