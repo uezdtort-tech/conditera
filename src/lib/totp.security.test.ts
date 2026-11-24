@@ -35,6 +35,17 @@ describe("TOTP encryption key production contract", () => {
     );
   });
 
+  it("rejects a TOTP key reused as either JWT signing secret", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("JWT_SECRET", "a".repeat(64));
+    vi.stubEnv("JWT_REFRESH_SECRET", "b".repeat(64));
+    process.env.NEXT_PHASE = "phase-production-server";
+    process.env.TFA_ENCRYPTION_KEY = "a".repeat(64);
+
+    const totp = await import("./totp");
+    expect(() => totp.encryptSecret("JBSWY3DPEHPK3PXP")).toThrow(/independent from JWT_SECRET/);
+  });
+
   it("round-trips encrypted secrets with a valid 32-byte production key", async () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PHASE = "phase-production-server";
