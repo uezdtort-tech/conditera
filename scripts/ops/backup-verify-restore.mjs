@@ -67,7 +67,7 @@ async function createDisposableDatabase() {
 }
 
 async function dropDisposableDatabase() {
-  const admin = new pg.Client({ connectionString: ADMIN_URL });
+  const admin = new pg.Client({ connectionString: RESTORE_ADMIN_URL });
   await admin.connect();
   try {
     await admin.query("DROP DATABASE IF EXISTS " + quoteIdent(RESTORE_DB) + " WITH (FORCE)");
