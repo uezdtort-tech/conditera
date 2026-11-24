@@ -19,6 +19,7 @@
 set -euo pipefail
 
 MODE="${1:-dev}"
+BACKUP=""
 if [ "$MODE" = "--check" ]; then
   bash scripts/env-check.sh
   exit 0
@@ -122,9 +123,30 @@ ask_value() {
   fi
 }
 
+# Безопасно обновить значение без порчи &, | и обратных слешей.
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  local escaped_value
+  if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    err "Недопустимое имя переменной окружения: $key"
+    return 1
+  fi
+  escaped_value=$(printf '%s' "$value" | sed -e 's/[\\&|]/\\&/g')
+  if grep -qE "^$key=" "$ENV_FILE"; then
+    sed -i.bak "s|^$key=.*|$key=$escaped_value|" "$ENV_FILE"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+  fi
+}
+
 # === Start from template ===
 log "Создаём $ENV_FILE из $TEMPLATE"
 cp "$TEMPLATE" "$ENV_FILE"
+if [ -n "$BACKUP" ] && [ -f "$BACKUP" ]; then
+  bash scripts/restore-env-values.sh "$BACKUP" "$ENV_FILE"
+  log "Существующие непустые значения сохранены из бэкапа."
+fi
 
 echo ""
 echo -e "${BOLD}=== КРИТИЧЕСКИЕ ЗНАЧЕНИЯ ===${NC}"
@@ -135,7 +157,7 @@ info "Яндекс.Метрика — ID счётчика проекта: 111432
 METRIKA_ID=$(ask_value "Yandex Metrika ID" "NEXT_PUBLIC_YANDEX_METRIKA_ID" "111432662")
 # Убираем возможные trailing newlines/whitespace (защита от sed injection)
 METRIKA_ID=$(echo "$METRIKA_ID" | tr -d '\n' | xargs)
-sed -i.bak "s|^NEXT_PUBLIC_YANDEX_METRIKA_ID=.*|NEXT_PUBLIC_YANDEX_METRIKA_ID=${METRIKA_ID}|" "$ENV_FILE"
+set_env_value NEXT_PUBLIC_YANDEX_METRIKA_ID "$METRIKA_ID"
 log "NEXT_PUBLIC_YANDEX_METRIKA_ID = ${METRIKA_ID}"
 
 # YANDEX METRIKA OAuth token (server-side tracking)
@@ -143,7 +165,7 @@ info "Yandex Metrika OAuth token — для server-side tracking (необяза
 echo "  Получить: https://oauth.yandex.ru/ → выдать права metrica:write"
 METRIKA_TOKEN=$(ask_value "Yandex Metrika OAuth token (Enter=пропустить)" "YANDEX_METRIKA_OAUTH_TOKEN" "")
 if [ -n "$METRIKA_TOKEN" ]; then
-  sed -i.bak "s|^YANDEX_METRIKA_OAUTH_TOKEN=.*|YANDEX_METRIKA_OAUTH_TOKEN=${METRIKA_TOKEN}|" "$ENV_FILE"
+  set_env_value YANDEX_METRIKA_OAUTH_TOKEN "$METRIKA_TOKEN"
   log "YANDEX_METRIKA_OAUTH_TOKEN = [hidden]"
 fi
 
@@ -152,7 +174,7 @@ info "Yandex Geocoder API key — для определения координа
 echo "  Получить: https://developer.tech.yandex.ru/services/ → Геокодер"
 GEO_KEY=$(ask_value "Yandex Geocoder API key (Enter=пропустить)" "YANDEX_GEOCODER_API_KEY" "")
 if [ -n "$GEO_KEY" ]; then
-  sed -i.bak "s|^YANDEX_GEOCODER_API_KEY=.*|YANDEX_GEOCODER_API_KEY=${GEO_KEY}|" "$ENV_FILE"
+  set_env_value YANDEX_GEOCODER_API_KEY "$GEO_KEY"
   log "YANDEX_GEOCODER_API_KEY = [hidden]"
 fi
 
@@ -163,9 +185,9 @@ echo "  Создать приложение: https://oauth.yandex.ru/client/new"
 echo "  Redirect URI для $MODE: ${APP_URL}/api/auth/oauth/yandex/callback"
 YANDEX_CID=$(ask_value "Yandex OAuth Client ID (Enter=пропустить)" "YANDEX_CLIENT_ID" "")
 if [ -n "$YANDEX_CID" ]; then
-  sed -i.bak "s|^YANDEX_CLIENT_ID=.*|YANDEX_CLIENT_ID=${YANDEX_CID}|" "$ENV_FILE"
+  set_env_value YANDEX_CLIENT_ID "$YANDEX_CID"
   log "YANDEX_CLIENT_ID = [hidden]"
-  sed -i.bak "s|^YANDEX_OAUTH_REDIRECT=.*|YANDEX_OAUTH_REDIRECT=${APP_URL}/api/auth/oauth/yandex/callback|" "$ENV_FILE"
+  set_env_value YANDEX_OAUTH_REDIRECT "${APP_URL}/api/auth/oauth/yandex/callback"
   log "YANDEX_OAUTH_REDIRECT = ${APP_URL}/api/auth/oauth/yandex/callback"
 fi
 
@@ -175,8 +197,8 @@ info "Google OAuth — для кнопки «Войти через Google» в a
 echo "  Создать: https://console.cloud.google.com/apis/credentials"
 GOOGLE_CID=$(ask_value "Google OAuth Client ID (Enter=пропустить)" "GOOGLE_CLIENT_ID" "")
 if [ -n "$GOOGLE_CID" ]; then
-  sed -i.bak "s|^GOOGLE_CLIENT_ID=.*|GOOGLE_CLIENT_ID=${GOOGLE_CID}|" "$ENV_FILE"
-  sed -i.bak "s|^GOOGLE_OAUTH_REDIRECT=.*|GOOGLE_OAUTH_REDIRECT=${APP_URL}/api/auth/oauth/google/callback|" "$ENV_FILE"
+  set_env_value GOOGLE_CLIENT_ID "$GOOGLE_CID"
+  set_env_value GOOGLE_OAUTH_REDIRECT "${APP_URL}/api/auth/oauth/google/callback"
   log "Google OAuth настроен"
 fi
 
@@ -186,8 +208,8 @@ info "VK OAuth — для кнопки «Войти через VK» в auth-moda
 echo "  Создать: https://dev.vk.com/"
 VK_CID=$(ask_value "VK OAuth Client ID (Enter=пропустить)" "VK_CLIENT_ID" "")
 if [ -n "$VK_CID" ]; then
-  sed -i.bak "s|^VK_CLIENT_ID=.*|VK_CLIENT_ID=${VK_CID}|" "$ENV_FILE"
-  sed -i.bak "s|^VK_OAUTH_REDIRECT=.*|VK_OAUTH_REDIRECT=${APP_URL}/api/auth/oauth/vk/callback|" "$ENV_FILE"
+  set_env_value VK_CLIENT_ID "$VK_CID"
+  set_env_value VK_OAUTH_REDIRECT "${APP_URL}/api/auth/oauth/vk/callback"
   log "VK OAuth настроен"
 fi
 
@@ -196,12 +218,12 @@ echo ""
 info "Telegram — бот + Login Widget"
 TG_TOKEN=$(ask_value "Telegram Bot Token (Enter=пропустить)" "TELEGRAM_BOT_TOKEN" "")
 if [ -n "$TG_TOKEN" ]; then
-  sed -i.bak "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${TG_TOKEN}|" "$ENV_FILE"
+  set_env_value TELEGRAM_BOT_TOKEN "$TG_TOKEN"
   log "TELEGRAM_BOT_TOKEN = [hidden]"
 fi
 TG_CHANNEL=$(ask_value "Telegram Channel ID (Enter=пропустить)" "TELEGRAM_CHANNEL_ID" "")
 if [ -n "$TG_CHANNEL" ]; then
-  sed -i.bak "s|^TELEGRAM_CHANNEL_ID=.*|TELEGRAM_CHANNEL_ID=${TG_CHANNEL}|" "$ENV_FILE"
+  set_env_value TELEGRAM_CHANNEL_ID "$TG_CHANNEL"
 fi
 
 # YooKassa
@@ -210,10 +232,10 @@ info "YooKassa — для приёма платежей"
 echo "  https://yookassa.ru/my-account/settings"
 YK_SHOP=$(ask_value "YooKassa Shop ID (Enter=пропустить)" "YOOKASSA_SHOP_ID" "")
 if [ -n "$YK_SHOP" ]; then
-  sed -i.bak "s|^YOOKASSA_SHOP_ID=.*|YOOKASSA_SHOP_ID=${YK_SHOP}|" "$ENV_FILE"
+  set_env_value YOOKASSA_SHOP_ID "$YK_SHOP"
   YK_KEY=$(ask_value "YooKassa Secret Key (Enter=пропустить)" "YOOKASSA_SECRET_KEY" "")
   if [ -n "$YK_KEY" ]; then
-    sed -i.bak "s|^YOOKASSA_SECRET_KEY=.*|YOOKASSA_SECRET_KEY=${YK_KEY}|" "$ENV_FILE"
+    set_env_value YOOKASSA_SECRET_KEY "$YK_KEY"
   fi
   log "YooKassa настроена"
 fi
