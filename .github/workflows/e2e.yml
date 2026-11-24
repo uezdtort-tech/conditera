@@ -41,6 +41,10 @@ on:
         type: string
 
   push:
+    branches:
+      - main
+      - develop
+      - fix/production-release-gates-20261125
 
   pull_request:
     branches:
