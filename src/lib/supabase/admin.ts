@@ -21,26 +21,23 @@ import { resolveSupabaseServerUrl } from "./url";
 const supabaseUrl = resolveSupabaseServerUrl();
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Lazy warning — не падаем в build (next build запускается в production-mode,
-// но env могут отсутствовать в build-окружении). Runtime-проверка
-// делается в запросах, использующих admin operations.
-const _isStub = !supabaseUrl || !serviceRoleKey;
+// На этапе сборки допускается временный ключ для пререндера. В production
+// runtime отсутствие URL/service-role key — фатальная ошибка, а не отложенный
+// сбой отдельных административных запросов.
+const _isStub = !process.env.NEXT_PUBLIC_SUPABASE_URL || !serviceRoleKey;
+const _isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+if (_isStub && process.env.NODE_ENV === "production" && !_isBuildPhase) {
+  throw new Error(
+    "[supabase/admin] NEXT_PUBLIC_SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY обязательны в production."
+  );
+}
 if (_isStub) {
-  if (process.env.NODE_ENV === "production") {
-    console.warn(
-      "[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. " +
-      "Admin operations will fail at runtime. Set the env var before deploy."
-    );
-  } else {
-    console.warn(
-      "[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail."
-    );
-  }
+  console.warn("[supabase/admin] Supabase admin credentials are not configured for this build/runtime.");
 }
 
 export const supabaseAdmin = createClient(
   supabaseUrl,
-  serviceRoleKey || "stub-service-key",
+  serviceRoleKey || "build-only-stub-service-key",
   {
     auth: {
       autoRefreshToken: false,
