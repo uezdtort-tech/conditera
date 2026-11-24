@@ -53,6 +53,12 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
+      args:
+        # Next.js встраивает эти публичные значения в клиентский bundle при build.
+        # Service role key и остальные секреты передавать в build args запрещено.
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL required}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL required}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}
     # pay4: образ по SHA-тегу из CI (immutable). WEB_IMAGE задаётся деплоем;
     # локально (без CI) образ собирается из build: ниже
     image: ${WEB_IMAGE:-conditera:local}
