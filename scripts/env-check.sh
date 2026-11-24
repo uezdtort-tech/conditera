@@ -308,6 +308,17 @@ if [ "$MODE_LABEL" = "production" ]; then
   check_required "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
   check_required "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
   check_required "VK_OAUTH_REDIRECT" "VK OAuth — redirect URI"
+  if is_filled "$APP_URL"; then
+    APP_URL_BASE="${APP_URL%/}"
+    YANDEX_REDIRECT_VALUE=$(get_env "YANDEX_OAUTH_REDIRECT")
+    VK_REDIRECT_VALUE=$(get_env "VK_OAUTH_REDIRECT")
+    if is_filled "$YANDEX_REDIRECT_VALUE" && [ "$YANDEX_REDIRECT_VALUE" != "$APP_URL_BASE/api/auth/oauth/yandex/callback" ]; then
+      err "YANDEX_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/yandex/callback"
+    fi
+    if is_filled "$VK_REDIRECT_VALUE" && [ "$VK_REDIRECT_VALUE" != "$APP_URL_BASE/api/auth/oauth/vk/callback" ]; then
+      err "VK_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/vk/callback"
+    fi
+  fi
 else
   check_optional "YANDEX_CLIENT_ID" "Yandex OAuth — кнопка «Войти через Яндекс»"
   check_optional "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
