@@ -59,7 +59,31 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
   }
 
   const databaseUrl = requireValue(env, "DATABASE_URL");
-  if (!/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
-    throw new Error("[production-env] DATABASE_URL должен быть PostgreSQL URL.");
+  let parsedDatabaseUrl: URL;
+  try {
+    parsedDatabaseUrl = new URL(databaseUrl);
+  } catch {
+    throw new Error("[production-env] DATABASE_URL должен быть корректным PostgreSQL URL.");
+  }
+  if (
+    !/^postgres(?:ql)?:$/i.test(parsedDatabaseUrl.protocol) ||
+    !parsedDatabaseUrl.hostname ||
+    !parsedDatabaseUrl.username ||
+    !parsedDatabaseUrl.password
+  ) {
+    throw new Error("[production-env] DATABASE_URL должен содержать PostgreSQL host, user и password.");
+  }
+
+  let databasePassword = parsedDatabaseUrl.password;
+  try {
+    databasePassword = decodeURIComponent(databasePassword);
+  } catch {
+    throw new Error("[production-env] DATABASE_URL содержит некорректно закодированный пароль.");
+  }
+  if (
+    databasePassword.length < 16 ||
+    PLACEHOLDER_PREFIX.test(databasePassword)
+  ) {
+    throw new Error("[production-env] Пароль в DATABASE_URL пустой, слишком короткий или является заглушкой.");
   }
 }
