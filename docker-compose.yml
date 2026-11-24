@@ -127,6 +127,8 @@ services:
         condition: service_healthy
       meilisearch:
         condition: service_healthy
+    volumes:
+      - conditera_backups:/app/backups
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s
@@ -575,6 +577,9 @@ volumes:
   meili_data:
   mailu_data:
   mailu_mail:
+  # Persistent local backup artifacts; offsite replication remains a separate requirement.
+  conditera_backups:
+    name: conditera_backups
 
 networks:
   conditera-net:
