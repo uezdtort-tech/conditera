@@ -326,7 +326,13 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Validate Kong 2.8 Compose contract
-        run: node scripts/verify/kong-compose-contract.mjs
+        run: |
+          node scripts/verify/kong-compose-contract.mjs
+          docker run --rm \
+            -v "$PWD/supabase/kong.yml:/kong.yml:ro" \
+            -e KONG_DATABASE=off \
+            -e KONG_PLUGINS=request-transformer,cors,key-auth,acl,basic-auth,rate-limiting \
+            library/kong:2.8.1 kong config parse /kong.yml
 
       - name: Validate database bootstrap and preflight scripts
         run: |
