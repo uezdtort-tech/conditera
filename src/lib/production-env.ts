@@ -77,7 +77,7 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
   }
   requireValue(env, "YANDEX_CLIENT_ID");
   const yandexRedirect = requireHttpsUrlValue(env, "YANDEX_OAUTH_REDIRECT");
-  const expectedYandexRedirect = new URL("/api/auth/oauth/yandex/callback", env.NEXT_PUBLIC_APP_URL).toString();
+  const expectedYandexRedirect = new URL("/api/auth/oauth/yandex/callback", requireValue(env, "NEXT_PUBLIC_APP_URL")).toString();
   if (yandexRedirect !== expectedYandexRedirect) {
     throw new Error("[production-env] YANDEX_OAUTH_REDIRECT должен совпадать с публичным callback URL.");
   }
