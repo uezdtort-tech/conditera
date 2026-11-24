@@ -8,7 +8,7 @@
 type RuntimeEnv = Record<string, string | undefined>;
 
 const PLACEHOLDER_PREFIX =
-  /^(CHANGE_ME|change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i;
+  /^(CHANGE_ME|change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i;
 
 function requireValue(env: RuntimeEnv, name: string, minLength = 1): string {
   const value = env[name]?.trim();
