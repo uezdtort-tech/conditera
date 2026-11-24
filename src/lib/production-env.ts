@@ -52,6 +52,18 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
   const tfaKey = requireValue(env, "TFA_ENCRYPTION_KEY", 32);
   requireValue(env, "CRON_SECRET", 24);
 
+  // Core production flows must not silently boot without mail, payments or Yandex OAuth.
+  requireValue(env, "SMTP_HOST");
+  requireValue(env, "SMTP_USER");
+  requireValue(env, "SMTP_PASSWORD", 16);
+  requireValue(env, "YOOKASSA_SHOP_ID");
+  requireValue(env, "YOOKASSA_SECRET_KEY", 16);
+  if (env.EXTERNAL_YANDEX_ENABLED !== "true") {
+    throw new Error("[production-env] EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза.");
+  }
+  requireValue(env, "YANDEX_CLIENT_ID");
+  requireValue(env, "YANDEX_CLIENT_SECRET");
+
   if (jwtSecret === refreshSecret) {
     throw new Error("[production-env] JWT_SECRET и JWT_REFRESH_SECRET должны различаться.");
   }
