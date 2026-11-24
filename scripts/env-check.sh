@@ -70,15 +70,18 @@ get_env() {
 # Проверка что значение не пустое и не stub
 is_filled() {
   local val="$1"
-  if [ -z "$val" ] || [ "$val" = "" ]; then
-    return 1
-  fi
-  if [[ "$val" == stub_* ]]; then
-    return 1
-  fi
-  if [[ "$val" == CHANGE_ME* ]]; then
-    return 1
-  fi
+  local normalized
+  normalized="$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')"
+  [ -n "$normalized" ] || return 1
+
+  case "$normalized" in
+    stub_*|change_me*|fallback-*|build-placeholder*|dummy*|your_*|example*)
+      return 1
+      ;;
+    dev_*|dev-*)
+      [ "$MODE_LABEL" != "production" ] || return 1
+      ;;
+  esac
   return 0
 }
 
@@ -133,6 +136,13 @@ echo ""
 echo -e "${BOLD}[DATABASE]${NC}"
 check_required "DATABASE_URL" "URL подключения к PostgreSQL"
 check_required "NEXT_PUBLIC_SUPABASE_URL" "URL Kong/Supabase (клиент)"
+SUPABASE_URL_VALUE=$(get_env "NEXT_PUBLIC_SUPABASE_URL")
+if is_filled "$SUPABASE_URL_VALUE" && ! [[ "$SUPABASE_URL_VALUE" =~ ^https?:// ]]; then
+  err "NEXT_PUBLIC_SUPABASE_URL должен быть абсолютным http(s) URL"
+fi
+if [ "$MODE_LABEL" = "production" ] && [[ "$SUPABASE_URL_VALUE" =~ ^http://(localhost|127\\.0\\.0\\.1)(:|/|$) ]]; then
+  err "Production NEXT_PUBLIC_SUPABASE_URL не может указывать на localhost"
+fi
 check_required "NEXT_PUBLIC_SUPABASE_ANON_KEY" "Anon key (клиент, RLS)"
 check_required "SUPABASE_SERVICE_ROLE_KEY" "Service role key (server-only, обход RLS)"
 if [ "$MODE_LABEL" = "production" ]; then
@@ -149,12 +159,34 @@ echo ""
 
 # ===== Auth / Security =====
 echo -e "${BOLD}[AUTH / SECURITY]${NC}"
-check_required "JWT_SECRET" "секрет для подписи JWT (мин. 32 символа)"
+check_required "JWT_SECRET" "секрет для подписи JWT"
+check_required "JWT_REFRESH_SECRET" "отдельный секрет для refresh-токенов"
 check_required "TFA_ENCRYPTION_KEY" "ключ шифрования 2FA backup codes"
 check_required "CRON_SECRET" "секрет для cron-задач"
+
 JWT=$(get_env "JWT_SECRET")
-if [ ${#JWT} -lt 32 ] && [ ${#JWT} -gt 0 ]; then
-  warn "JWT_SECRET короче 32 символов — рекомендуется openssl rand -hex 32"
+JWT_REFRESH=$(get_env "JWT_REFRESH_SECRET")
+TFA=$(get_env "TFA_ENCRYPTION_KEY")
+
+for secret_name in JWT_SECRET JWT_REFRESH_SECRET; do
+  secret_value="$(get_env "$secret_name")"
+  if is_filled "$secret_value" && [ "${#secret_value}" -lt 32 ]; then
+    err "$secret_name короче 32 символов"
+  fi
+done
+
+if [ "$MODE_LABEL" = "production" ] && is_filled "$TFA"; then
+  if ! [[ "$TFA" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+    err "TFA_ENCRYPTION_KEY должен содержать ровно 64 hex-символа (32 байта)"
+  fi
+fi
+
+if [ "$MODE_LABEL" = "production" ]; then
+  APP_URL=$(get_env "NEXT_PUBLIC_APP_URL")
+  check_required "NEXT_PUBLIC_APP_URL" "публичный HTTPS URL приложения"
+  if is_filled "$APP_URL" && [[ "$APP_URL" != https://* ]]; then
+    err "NEXT_PUBLIC_APP_URL должен начинаться с https:// в production"
+  fi
 fi
 echo ""
 
