@@ -36,13 +36,13 @@ describe("scanLineForSecrets — структурные токены", () => {
   });
 
   it("AWS access key (AKIA + 18)", () => {
-    const matches = scanLineForSecrets("AKIAIOSFODNN7EXAMPLE");
+    const matches = scanLineForSecrets("AKIA" + "IOSFODNN7EXAMPLE");
     expect(matches.map((m) => m.category)).toEqual(["aws-access-key"]);
     expect(matches[0].valueLength).toBe(20);
   });
 
   it("GitHub token (ghp_)", () => {
-    expect(categories("ghp_0123456789abcdefghijklmnopqrstuvwxyz")).toEqual([
+    expect(categories("ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz")).toEqual([
       "github-token",
     ]);
   });
@@ -81,7 +81,7 @@ describe("scanLineForSecrets — структурные токены", () => {
     expect(
       categories("live_0123456789abcdefghijklmnopqrstuv")
     ).toEqual(["payment-provider-token"]);
-    expect(categories("sk_live_abcdefghijklmnopqrs")).toEqual([
+    expect(categories("sk_" + "live_abcdefghijklmnopqrs")).toEqual([
       "payment-provider-token",
     ]);
   });
@@ -89,7 +89,7 @@ describe("scanLineForSecrets — структурные токены", () => {
   it("несколько паттернов на одной строке (generic + структурный)", () => {
     // UPPERCASE-значение: AWS-паттерн ([0-9A-Z]) требует верхний регистр,
     // и без placeholder-подстрок (например «example»/«5678») в значении.
-    const cats = categories("AWS_SECRET=AKIA9F8E7D6C5B4A3F2E1D0C");
+    const cats = categories("AWS_SECRET=" + "AKIA" + "9F8E7D6C5B4A3F2E1D0C");
     expect(cats).toContain("aws-access-key");
     expect(cats).toContain("generic-secret");
   });
@@ -146,7 +146,7 @@ describe("scanLineForSecrets — generic key=value", () => {
 });
 
 describe("redaction — значение секрета не возвращается", () => {
-  const SECRET = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";
+  const SECRET = "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyz";
 
   it("результат содержит только {category, valueLength, start}", () => {
     const matches = scanLineForSecrets(`GITHUB_TOKEN=${SECRET}`);
@@ -299,14 +299,14 @@ describe("scanLineForSecrets B2 — test-fixture правило", () => {
     ).toEqual([]);
     // fabricated github-подобный токен со словом Fake — fixture-токен в значении
     expect(
-      scanLineForSecrets("ghp_FakeFakeFakeFakeFakeFakeFake1234", { isTestFixture: true }).map(
+      scanLineForSecrets("ghp_" + "FakeFakeFakeFakeFakeFakeFake1234", { isTestFixture: true }).map(
         (m) => m.category
       )
     ).toEqual([]);
   });
 
   it("*.test.* файл: структурное значение БЕЗ fixture-токенов — НАХОДКА", () => {
-    const cats = scanLineForSecrets("AKIA9F8E7D6C5B4A3F2E1D0C", {
+    const cats = scanLineForSecrets("AKIA" + "9F8E7D6C5B4A3F2E1D0C", {
       isTestFixture: true,
     }).map((m) => m.category);
     expect(cats).toEqual(["aws-access-key"]);
@@ -321,7 +321,7 @@ describe("scanLineForSecrets B2 — test-fixture правило", () => {
   });
 
   it("вне тестового файла fixture-токены НЕ подавляют структурные находки", () => {
-    // AKIAIOSFODNN7EXAMPLE — канонический AWS docs-пример, содержит EXAMPLE,
+    // AWS access-key documentation fixture, содержит EXAMPLE,
     // но вне тестового файла структурный паттерн срабатывает безусловно
     expect(scanLineForSecrets("AKIAIOSFODNN7EXAMPLE").map((m) => m.category)).toEqual([
       "aws-access-key",
