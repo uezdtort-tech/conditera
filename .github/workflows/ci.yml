@@ -486,6 +486,7 @@ jobs:
           bash -n scripts/restore-env-values.sh
           bash -n scripts/tests/test-env-restore.sh
           bash scripts/tests/test-env-restore.sh
+          node --test scripts/tests/env-check.test.mjs
           grep -Fq 'MIGRATIONS_DIR: /conditera-migrations' docker-compose.supabase.yml
           grep -Fq 'zz-conditera-apply-migrations.sh' docker-compose.supabase.yml
           grep -Fq ':/conditera-migrations:ro' docker-compose.supabase.yml
