@@ -14,8 +14,8 @@
 
 ## Фактические блокеры, обнаруженные в репозитории
 
-1. `docker-compose.yml` содержит `conditera-db` на `postgres:18-alpine`, базу `conditera`; приложение и migrator используют этот сервер.
-2. `docker-compose.supabase.yml` содержит отдельный `conditera-supabase-db` на `supabase/postgres:15.6.1.141`, базу `supabase`; GoTrue, PostgREST, Realtime, Storage и другие Supabase-сервисы используют его.
+1. `docker-compose.yml` содержит `conditera-db` на `postgres:17-alpine`, базу `conditera`; приложение и migrator используют этот сервер.
+2. `docker-compose.supabase.yml` содержит отдельный `conditera-supabase-db` на `supabase/postgres:17.11.0.017`, базу `supabase`; GoTrue, PostgREST, Realtime, Storage и другие Supabase-сервисы используют его. Старый volume был инициализирован PG15 и не может подключаться к PG17; новый PG17 volume изолирован отдельно.
 3. Supabase-компоненты сейчас распределены по отдельным Docker-сервисам. Это не соответствует требованию одного Supabase runtime-контейнера.
 4. Исторический `scripts/deploy.sh` поднимал оба Compose-стека, применял только ограниченный список миграций и мог продолжать работу при ошибках отдельных миграций. Этот скрипт заблокирован отдельным safety-изменением до прохождения release gate.
 5. `.github/workflows/deploy.yml` ориентирован на удалённый VPS через SSH и каталог `/opt/conditera`, а не на локальный Windows ПК владельца. Не запускать этот workflow для production Conditera.
