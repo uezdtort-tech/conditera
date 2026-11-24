@@ -595,41 +595,86 @@ jobs:
           SELECT 'WRITE-PATH CHECK OK' AS status;
           SQL
 
-      - name: Setup Bun for full backup restore verification
+
+  backup-restore-pg18:
+    name: Full backup and restore verification on PostgreSQL 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      source:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: conditera
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: conditera
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U conditera -d conditera"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      restore:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: conditera
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U conditera -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies for backup verification
+      - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Verify full pg_dump backup and real restore in a separate PostgreSQL 17 cluster
+      - name: Seed representative application schema and rows
+        env:
+          SOURCE_CONTAINER_ID: ${{ job.services.source.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$SOURCE_CONTAINER_ID" psql -v ON_ERROR_STOP=1 -U conditera -d conditera <<'SQL'
+          CREATE TABLE public.profiles (
+            id uuid PRIMARY KEY,
+            display_name text NOT NULL
+          );
+          CREATE TABLE public.orders (
+            id uuid PRIMARY KEY,
+            user_id uuid NOT NULL REFERENCES public.profiles(id),
+            total_kopecks bigint NOT NULL
+          );
+          CREATE TABLE public.inventory_items (
+            id uuid PRIMARY KEY,
+            quantity numeric NOT NULL
+          );
+          CREATE VIEW public.order_summary AS
+            SELECT user_id, count(*)::int AS order_count, sum(total_kopecks)::bigint AS total_kopecks
+            FROM public.orders GROUP BY user_id;
+          INSERT INTO public.profiles VALUES
+            ('00000000-0000-4000-8000-000000000001', 'Backup Test User');
+          INSERT INTO public.orders VALUES
+            ('00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000001', 12500),
+            ('00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000001', 25000);
+          INSERT INTO public.inventory_items VALUES
+            ('00000000-0000-4000-8000-000000000021', 250.5);
+          SQL
+      - name: Verify full pg_dump and real restore into separate PostgreSQL 18 cluster
         env:
           NODE_ENV: production
           BACKUP_REQUIRE_FULL_RESTORE: "true"
           BACKUP_DIR: ${{ runner.temp }}/conditera-backup-verify
-          BACKUP_RESTORE_DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5433/postgres
-          BACKUP_RESTORE_PSQL_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/conditera_restore_verify
+          DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera
+          DIRECT_DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera
+          BACKUP_RESTORE_DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5433/postgres
+          BACKUP_RESTORE_PSQL_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera_restore_verify
           BACKUP_RESTORE_DB_NAME: conditera_restore_verify
-          DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/postgres
-          DIRECT_DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/postgres
         run: |
           set -euo pipefail
-          SOURCE_CONTAINER="${{ job.services.postgres.id }}"
-          RESTORE_CONTAINER="conditera-backup-restore-${{ github.run_id }}"
-          trap 'docker rm -f "$RESTORE_CONTAINER" >/dev/null 2>&1 || true' EXIT
-          docker run -d --name "$RESTORE_CONTAINER" -p 5433:5432 \
-            -e POSTGRES_USER=supabase_admin \
-            -e POSTGRES_PASSWORD=postgres \
-            supabase/postgres:17.11.0.017 \
-            postgres -c cron.database_name=conditera_restore_verify -c cron.username=supabase_admin
-          ready=false
-          for attempt in $(seq 1 60); do
-            if docker exec "$RESTORE_CONTAINER" pg_isready -U supabase_admin -d postgres; then
-              ready=true
-              break
-            fi
-            sleep 2
-          done
-          test "$ready" = true
           mkdir -p "$RUNNER_TEMP/pgtools" "$BACKUP_DIR"
           cat > "$RUNNER_TEMP/pgtools/pg_dump" <<'SH'
           #!/usr/bin/env bash
@@ -642,8 +687,8 @@ jobs:
           exec docker exec -i -e "PGPASSWORD=${PGPASSWORD:-}" "$RESTORE_CONTAINER_ID" psql "$@"
           SH
           chmod +x "$RUNNER_TEMP/pgtools/pg_dump" "$RUNNER_TEMP/pgtools/psql"
-          export SOURCE_CONTAINER_ID="$SOURCE_CONTAINER"
-          export RESTORE_CONTAINER_ID="$RESTORE_CONTAINER"
+          export SOURCE_CONTAINER_ID="${{ job.services.source.id }}"
+          export RESTORE_CONTAINER_ID="${{ job.services.restore.id }}"
           export PATH="$RUNNER_TEMP/pgtools:$PATH"
           bun run ops:restore-verify
 
