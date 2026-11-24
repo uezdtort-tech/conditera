@@ -546,9 +546,7 @@ services:
       - conditera-net
 
 volumes:
-  # Legacy PG15 data volume is retained for rollback/restore source; never mount it into PG17.
-  supabase_db_data:
-    name: conditera_supabase_db_data
+  # New PG17 data volume. The legacy PG15 volume is intentionally not declared or mounted here.
   supabase_db_data_v17:
     name: conditera_supabase_db_data_v17
   supabase_storage_data:
