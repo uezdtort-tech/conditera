@@ -1,0 +1,41 @@
+name: Temporary npm lock security refresh
+
+on:
+  push:
+    branches:
+      - fix/production-release-gates-20261125
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lock:
+    if: ${{ !contains(github.event.head_commit.message, '[npm-audit-refresh-complete]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Apply non-breaking npm security updates
+        run: |
+          npm audit fix --package-lock-only --legacy-peer-deps || true
+
+      - name: Commit refreshed lockfile
+        run: |
+          if git diff --quiet -- package-lock.json package.json; then
+            echo "No semver-safe npm lock updates available."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json package.json
+          git commit -m "chore(deps): apply semver-safe npm audit fixes [npm-audit-refresh-complete]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
