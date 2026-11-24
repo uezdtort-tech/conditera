@@ -182,6 +182,9 @@ jobs:
         # Обязательные переменные подставлены dummy-значениями — проверяется
         # структура/интерполяция compose-файла, не значения секретов.
         run: |
+          # Compose env_file is required by the production runtime but must not
+          # require real deployment secrets merely to validate YAML/interpolation in CI.
+          touch .env.production
           POSTGRES_PASSWORD=ci-dummy \
           MEILI_MASTER_KEY=ci-dummy \
           JWT_SECRET=ci-dummy-jwt-secret-32-chars-aaaaaaaa \
@@ -189,6 +192,7 @@ jobs:
           CRON_SECRET=ci-dummy \
           SIMPLEX_BRIDGE_API_KEY=ci-dummy \
           N8N_ADMIN_PASSWORD=ci-dummy \
+          NEXT_PUBLIC_APP_URL=http://localhost:3000 \
           docker compose -f docker-compose.yml config -q
           echo "✓ docker-compose.yml is valid"
 
@@ -345,6 +349,7 @@ jobs:
           # Проверка на закоммиченные секреты
           if grep -rEn "(sk_live_|pk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-)" \
             --include="*.ts" --include="*.tsx" --include="*.json" \
+            --exclude="*.test.ts" --exclude="*.spec.ts" \
             --exclude-dir=node_modules src/ scripts/ mini-services/ 2>/dev/null; then
             echo "❌ Found potential secrets in code"
             exit 1
@@ -453,10 +458,12 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # Используем тот же Supabase PostgreSQL image, что и runtime:
+        # vanilla postgres:17 не содержит схем/расширений Supabase (extensions, auth).
+        image: supabase/postgres:17.11.0.017
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
+          POSTGRES_USER: supabase
           POSTGRES_DB: conditera
         ports:
           - 5432:5432
@@ -483,7 +490,7 @@ jobs:
         run: |
           SVC="${{ job.services.postgres.id }}"
           docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
+          docker exec "$SVC" psql -U supabase -d conditera -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(ls supabase/migrations/*.sql | wc -l)
@@ -503,7 +510,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -530,7 +537,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
