@@ -4,7 +4,7 @@
 # Запуск: docker-compose -f docker-compose.supabase.yml up -d
 #
 # Включает 10 сервисов Supabase (mini-stack):
-#   - supabase-db (PostgreSQL 15 с расширениями: pgsodium, pg_cron, pg_trgm)
+#   - supabase-db (PostgreSQL 17 с расширениями: pgsodium, pg_cron, pg_trgm)
 #   - supabase-kong (API gateway на :8000)
 #   - supabase-auth (GoTrue — auth сервис)
 #   - supabase-rest (PostgREST — auto REST API)
@@ -61,11 +61,11 @@ services:
     expose:
       - "5432"
     volumes:
-      # ВНИМАНИЕ (PG15→PG17): старый том supabase_db_data инициализирован
-      # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
-      # («database files are incompatible with server»). Переход только через
-      # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
-      - supabase_db_data:/var/lib/postgresql/data
+      # ВАЖНО: не подключать сюда старый supabase_db_data (PG15).
+      # Для PG17 используется новый пустой volume. Старый volume остаётся
+      # нетронутым для резервного копирования/логического переноса и rollback.
+      # Не удалять старый volume до завершения миграции и сверки данных.
+      - supabase_db_data_v17:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
       # Подключаем только наш скрипт отдельным файлом, после системного migrate.sh.
@@ -546,7 +546,8 @@ services:
       - conditera-net
 
 volumes:
-  supabase_db_data:
+  # Новый чистый volume для PostgreSQL 17. Не переиспользует бинарные файлы PG15.
+  supabase_db_data_v17:
   supabase_storage_data:
   supabase_vector_data:
 
