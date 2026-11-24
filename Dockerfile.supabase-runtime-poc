@@ -1,6 +1,6 @@
 # Experimental all-in-one Supabase runtime proof of concept.
 # Every Supabase process runs inside this one container; no sibling Supabase containers.
-FROM supabase/postgres:17.6.1.136 AS postgres
+FROM supabase/postgres:17.11.0.017 AS postgres
 FROM supabase/gotrue:v2.197.0 AS gotrue
 FROM postgrest/postgrest:v14.18 AS postgrest
 FROM supabase/realtime:v2.148.3 AS realtime
@@ -10,7 +10,7 @@ FROM darthsim/imgproxy:v4.0.21 AS imgproxy
 FROM kong:3.9.3 AS kong
 FROM supabase/edge-runtime:v1.77.9 AS edge-runtime
 
-FROM alpine:3.20 AS runtime
+FROM alpine:3.24.4 AS runtime
 
 RUN apk add --no-cache bash coreutils curl ca-certificates openssl supervisor
 
