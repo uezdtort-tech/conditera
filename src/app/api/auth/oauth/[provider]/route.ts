@@ -7,6 +7,7 @@
 // configured), constructs and returns the provider's authorization URL.
 
 import { NextRequest, NextResponse } from "next/server";
+import { isPlaceholderValue } from "@/lib/placeholder-value";
 import { createHash, randomBytes } from "crypto";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
@@ -19,7 +20,7 @@ const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk", "telegram"];
  * skeleton .env without accidentally hitting real OAuth endpoints.
  */
 function isStubValue(value: string | undefined): boolean {
-  return !value || value.trim() === "" || value.startsWith("stub_");
+  return isPlaceholderValue(value);
 }
 
 /**
