@@ -595,3 +595,11 @@ jobs:
         run: |
           git diff --stat -- bun.lock package-lock.json
           git diff --no-ext-diff --unified=2 -- bun.lock package-lock.json
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: generated-lockfiles
+          path: |
+            bun.lock
+            package-lock.json
+          retention-days: 1
