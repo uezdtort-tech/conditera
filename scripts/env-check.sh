@@ -303,12 +303,19 @@ echo ""
 
 # ===== OAuth =====
 echo -e "${BOLD}[OAUTH — вход через соцсети]${NC}"
-check_optional "YANDEX_CLIENT_ID" "Yandex OAuth — кнопка «Войти через Яндекс»"
-check_optional "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
+if [ "$MODE_LABEL" = "production" ]; then
+  check_required "YANDEX_CLIENT_ID" "Yandex OAuth — кнопка «Войти через Яндекс»"
+  check_required "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
+  check_required "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
+  check_required "VK_OAUTH_REDIRECT" "VK OAuth — redirect URI"
+else
+  check_optional "YANDEX_CLIENT_ID" "Yandex OAuth — кнопка «Войти через Яндекс»"
+  check_optional "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
+  check_optional "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
+  check_optional "VK_OAUTH_REDIRECT" "VK OAuth — redirect URI"
+fi
 check_optional "GOOGLE_CLIENT_ID" "Google OAuth — кнопка «Войти через Google»"
 check_optional "GOOGLE_OAUTH_REDIRECT" "Google OAuth — redirect URI"
-check_optional "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
-check_optional "VK_OAUTH_REDIRECT" "VK OAuth — redirect URI"
 echo ""
 
 # ===== Telegram =====
@@ -320,8 +327,13 @@ echo ""
 
 # ===== YooKassa =====
 echo -e "${BOLD}[YOOKASSA — платежи]${NC}"
-check_optional "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
-check_optional "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
+if [ "$MODE_LABEL" = "production" ]; then
+  check_required "YOOKASSA_SHOP_ID" "Shop ID от YooKassa — приём платежей"
+  check_required "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa — приём платежей"
+else
+  check_optional "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
+  check_optional "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
+fi
 echo ""
 
 # ===== SMTP =====
@@ -329,8 +341,13 @@ echo -e "${BOLD}[SMTP — почта]${NC}"
 check_required "SMTP_HOST" "SMTP-сервер"
 check_required "SMTP_FROM" "адрес отправителя"
 if [ "$MODE_LABEL" = "production" ]; then
+  check_required "SMTP_USER" "учётная запись SMTP"
+  check_required "SMTP_PASSWORD" "пароль SMTP"
   check_required "SMTP_PORT" "порт SMTP"
   check_required "SMTP_SECURE" "true для 465, false для 587"
+else
+  check_optional "SMTP_USER" "учётная запись SMTP (для внешнего SMTP)"
+  check_optional "SMTP_PASSWORD" "пароль SMTP (для внешнего SMTP)"
 fi
 echo ""
 
