@@ -483,23 +483,55 @@ jobs:
           docker cp supabase/migrations/. "$SVC":/migrations/
           docker cp supabase/init-scripts/01-apply-migrations.sh "$SVC":/init-scripts/
 
+      - name: Bootstrap minimal Supabase Storage schema for migration contract
+        # The full runtime creates these objects through Storage API.
+        # This isolated migration job creates only the contract needed by migration 0026.
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE TABLE IF NOT EXISTS storage.buckets (
+            id text PRIMARY KEY,
+            name text NOT NULL,
+            public boolean NOT NULL DEFAULT false,
+            allowed_mime_types text[],
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE TABLE IF NOT EXISTS storage.objects (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            bucket_id text NOT NULL REFERENCES storage.buckets(id),
+            name text NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE OR REPLACE FUNCTION storage.foldername(name text)
+          RETURNS text[]
+          LANGUAGE sql IMMUTABLE
+          AS $$
+            SELECT CASE
+              WHEN position('/' in name) = 0 THEN ARRAY[]::text[]
+              ELSE string_to_array(trim(both '/' from regexp_replace(name, '/[^/]*$', '')), '/')
+            END;
+          $$;
+          SQL
+
       - name: Apply all migrations (ledger, fail-fast)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
+          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=postgres bash /init-scripts/01-apply-migrations.sh
+          docker exec "$SVC" psql -U supabase_admin -d postgres -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
-          TOTAL=$(ls supabase/migrations/*.sql | wc -l)
+          TOTAL=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
           echo "applied=$APPLIED total=$TOTAL"
           test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
 
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
+          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=postgres bash /init-scripts/01-apply-migrations.sh \
             | tee rerun.log
-          if grep -qiE "Applying|applying" rerun.log; then
+          if grep -q "Применяю:" rerun.log; then
             echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
           fi
           echo "OK: rerun no-op"
@@ -507,7 +539,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -534,7 +566,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
