@@ -41,39 +41,11 @@ on:
         type: string
 
   push:
-    paths:
-      # Запускать при изменениях приложения, сценариев и production preflight.
-      - ".github/workflows/e2e.yml"
-      - ".env.production.example"
-      - "scripts/env-check.sh"
-      - "scripts/verify/**"
-      - "src/app/**"
-      - "src/components/**"
-      - "src/lib/**"
-      - "src/proxy.ts"
-      - "src/middleware.test.ts"
-      - "tests/e2e/**"
-      - "playwright.config.ts"
-      - "package.json"
-      - "bun.lock"
 
   pull_request:
     branches:
       - main
       - develop
-    paths:
-      - ".github/workflows/e2e.yml"
-      - ".env.production.example"
-      - "scripts/env-check.sh"
-      - "scripts/verify/**"
-      - "src/app/**"
-      - "src/components/**"
-      - "src/lib/**"
-      - "src/proxy.ts"
-      - "src/middleware.test.ts"
-      - "tests/e2e/**"
-      - "playwright.config.ts"
-      - ".github/workflows/e2e.yml"
 
 env:
   NODE_VERSION: "26"
