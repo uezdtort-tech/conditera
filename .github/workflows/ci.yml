@@ -483,6 +483,130 @@ jobs:
           docker cp supabase/migrations/. "$SVC":/migrations/
           docker cp supabase/init-scripts/01-apply-migrations.sh "$SVC":/init-scripts/
 
+      - name: Bootstrap minimal Supabase Storage schema for migration contract
+        # В runtime эти таблицы создаёт Supabase Storage API. В миграционном CI
+        # сервис Storage не поднимается, поэтому готовим только структуру,
+        # необходимую миграции 0026 (не имитируем поведение Storage API).
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE TABLE IF NOT EXISTS storage.buckets (
+            id text PRIMARY KEY,
+            name text NOT NULL,
+            public boolean NOT NULL DEFAULT false,
+            allowed_mime_types text[],
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE TABLE IF NOT EXISTS storage.objects (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            bucket_id text NOT NULL REFERENCES storage.buckets(id),
+            name text NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE OR REPLACE FUNCTION storage.foldername(name text)
+          RETURNS text[]
+          LANGUAGE sql IMMUTABLE
+          AS $
+            SELECT string_to_array(
+              trim(both '/' from regexp_replace(name, '/[^/]*
+          docker exec "$SVC" psql -U supabase_admin -d postgres -tAc \
+            "SELECT count(*) FROM public.schema_migrations" > applied.txt
+          APPLIED=$(cat applied.txt)
+          TOTAL=$(ls supabase/migrations/*.sql | wc -l)
+          echo "applied=$APPLIED total=$TOTAL"
+          test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
+
+      - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
+            | tee rerun.log
+          if grep -qiE "Applying|applying" rerun.log; then
+            echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
+          fi
+          echo "OK: rerun no-op"
+
+      - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            missing text := '';
+            t text;
+          BEGIN
+            FOR t IN SELECT unnest(ARRAY[
+              'app_error_events','app_incidents','app_incident_history',
+              'ops_tasks','orders','payments','recipe_purchases','inventory_items'
+            ])
+            LOOP
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_tables WHERE tablename = t AND schemaname = 'public' AND rowsecurity
+              ) THEN
+                missing := missing || t || ' ';
+              END IF;
+            END LOOP;
+            IF missing <> '' THEN
+              RAISE EXCEPTION 'FAIL: RLS не включён для: %', missing;
+            END IF;
+          END $$;
+          SELECT 'RLS CHECK OK' AS status;
+          SQL
+
+      - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            t text;
+            has_write boolean;
+            offenders text := '';
+          BEGIN
+            FOR t IN SELECT unnest(ARRAY[
+              'inventory_items','stock_movements','recipe_purchases',
+              'recipes','recipe_marketplace','financial_ledger'
+            ])
+            LOOP
+              SELECT count(*) > 0 INTO has_write
+                FROM information_schema.role_table_grants
+               WHERE table_schema='public' AND table_name = t
+                 AND grantee IN ('anon','authenticated')
+                 AND privilege_type IN ('INSERT','UPDATE','DELETE');
+              IF has_write THEN offenders := offenders || t || ' '; END IF;
+            END LOOP;
+            IF offenders <> '' THEN
+              RAISE EXCEPTION 'FAIL: write-grants для клиентских ролей у: %', offenders;
+            END IF;
+          END $$;
+          SELECT 'WRITE-PATH CHECK OK' AS status;
+          SQL
+
+  # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
+  # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,
+  # известные (baseline) → WARN + remediation backlog (OWNER_DECISIONS D-8).
+  deps-audit:
+    name: Dependency security audit (osv-scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download osv-scanner
+        run: |
+          curl -sSfL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+
+      - name: Scan bun.lock with baseline diff (new advisories fail)
+        run: node scripts/verify/osv-audit.mjs
+, '')),
+              '/'
+            );
+          $;
+          SQL
+
       - name: Apply all migrations (ledger, fail-fast)
         run: |
           SVC="${{ job.services.postgres.id }}"
