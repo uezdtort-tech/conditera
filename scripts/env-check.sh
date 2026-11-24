@@ -181,6 +181,8 @@ if [ "$MODE_LABEL" = "production" ]; then
   check_required "REALTIME_DB_ENC_KEY" "ключ шифрования Realtime (16 символов)"
   check_required "REALTIME_DB_ENC_KEY_GCM" "ключ AES-GCM Realtime (32 символа)"
   check_required "MEILI_MASTER_KEY" "ключ доступа Meilisearch"
+  check_required "N8N_ADMIN_PASSWORD" "пароль владельца n8n (Compose interpolation/rollback)"
+  check_required "SIMPLEX_BRIDGE_API_KEY" "ключ SimpleX Bridge (Compose interpolation)"
   check_required "ANON_KEY" "JWT anon key Supabase (копия NEXT_PUBLIC_SUPABASE_ANON_KEY)"
   check_required "SERVICE_ROLE_KEY" "JWT service-role key Supabase (копия SUPABASE_SERVICE_ROLE_KEY)"
   check_required "ENCRYPTOR_KEY" "ключ шифрования legacy Supabase compose"
@@ -223,6 +225,10 @@ if [ "$MODE_LABEL" = "production" ]; then
   META_KEY=$(get_env "PG_META_CRYPTO_KEY")
   REALTIME_KEY=$(get_env "REALTIME_DB_ENC_KEY")
   REALTIME_GCM_KEY=$(get_env "REALTIME_DB_ENC_KEY_GCM")
+  N8N_PASSWORD=$(get_env "N8N_ADMIN_PASSWORD")
+  SIMPLEX_KEY=$(get_env "SIMPLEX_BRIDGE_API_KEY")
+  if is_filled "$N8N_PASSWORD" && [ "${#N8N_PASSWORD}" -lt 24 ]; then err "N8N_ADMIN_PASSWORD короче 24 символов"; fi
+  if is_filled "$SIMPLEX_KEY" && [ "${#SIMPLEX_KEY}" -lt 32 ]; then err "SIMPLEX_BRIDGE_API_KEY короче 32 символов"; fi
   ANON_ALIAS=$(get_env "ANON_KEY")
   ANON_PUBLIC=$(get_env "NEXT_PUBLIC_SUPABASE_ANON_KEY")
   SERVICE_ALIAS=$(get_env "SERVICE_ROLE_KEY")
