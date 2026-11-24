@@ -105,6 +105,9 @@ services:
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: "160k"
+      KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
+      KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE: "320k"
       # Keep proxy buffer overrides unset until the Kong 2.8 runtime contract is verified.
     ports:
       - "8000:8000"  # Главный API gateway
