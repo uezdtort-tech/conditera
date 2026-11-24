@@ -195,6 +195,23 @@ DB_URL=$(get_env "DATABASE_URL")
 if [[ "$DB_URL" == file:* ]]; then
   err "DATABASE_URL начинается с 'file:' — prisma.config.ts отклонит. Замените на postgresql://"
 fi
+
+if [ "$MODE_LABEL" = "production" ] && is_filled "$DB_URL"; then
+  if ! DB_URL="$DB_URL" node -e '
+    try {
+      const url = new URL(process.env.DB_URL || "");
+      const password = decodeURIComponent(url.password);
+      const placeholder = /^(CHANGE_ME|change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i;
+      if (!["postgres:", "postgresql:"].includes(url.protocol) ||
+          !url.hostname || !url.username || password.length < 32 ||
+          placeholder.test(password)) process.exit(1);
+    } catch {
+      process.exit(1);
+    }
+  '; then
+    err "DATABASE_URL должен содержать PostgreSQL host/user и непустой неплейсхолдерный пароль не короче 32 символов (значение скрыто)"
+  fi
+fi
 echo ""
 
 # ===== Auth / Security =====
@@ -227,8 +244,14 @@ if [ "$MODE_LABEL" = "production" ]; then
   REALTIME_GCM_KEY=$(get_env "REALTIME_DB_ENC_KEY_GCM")
   N8N_PASSWORD=$(get_env "N8N_ADMIN_PASSWORD")
   SIMPLEX_KEY=$(get_env "SIMPLEX_BRIDGE_API_KEY")
+  POSTGRES_PASSWORD_VALUE=$(get_env "POSTGRES_PASSWORD")
+  MEILI_KEY=$(get_env "MEILI_MASTER_KEY")
+  CRON_VALUE=$(get_env "CRON_SECRET")
   if is_filled "$N8N_PASSWORD" && [ "${#N8N_PASSWORD}" -lt 24 ]; then err "N8N_ADMIN_PASSWORD короче 24 символов"; fi
   if is_filled "$SIMPLEX_KEY" && [ "${#SIMPLEX_KEY}" -lt 32 ]; then err "SIMPLEX_BRIDGE_API_KEY короче 32 символов"; fi
+  if is_filled "$POSTGRES_PASSWORD_VALUE" && [ "${#POSTGRES_PASSWORD_VALUE}" -lt 32 ]; then err "POSTGRES_PASSWORD короче 32 символов"; fi
+  if is_filled "$MEILI_KEY" && [ "${#MEILI_KEY}" -lt 32 ]; then err "MEILI_MASTER_KEY короче 32 символов"; fi
+  if is_filled "$CRON_VALUE" && [ "${#CRON_VALUE}" -lt 32 ]; then err "CRON_SECRET короче 32 символов"; fi
   ANON_ALIAS=$(get_env "ANON_KEY")
   ANON_PUBLIC=$(get_env "NEXT_PUBLIC_SUPABASE_ANON_KEY")
   SERVICE_ALIAS=$(get_env "SERVICE_ROLE_KEY")
