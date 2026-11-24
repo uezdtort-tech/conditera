@@ -62,7 +62,10 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
     throw new Error("[production-env] EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза.");
   }
   requireValue(env, "YANDEX_CLIENT_ID");
-  requireValue(env, "YANDEX_CLIENT_SECRET");
+  // Yandex public clients may use PKCE without a client secret; if present, reject placeholders.
+  if (env.YANDEX_CLIENT_SECRET?.trim() && PLACEHOLDER_PREFIX.test(env.YANDEX_CLIENT_SECRET.trim())) {
+    throw new Error("[production-env] YANDEX_CLIENT_SECRET содержит заглушку.");
+  }
 
   if (jwtSecret === refreshSecret) {
     throw new Error("[production-env] JWT_SECRET и JWT_REFRESH_SECRET должны различаться.");
