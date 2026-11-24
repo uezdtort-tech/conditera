@@ -12,6 +12,8 @@ export { PromotionsPage } from "./promotions-page";
 export { TelegramBotPage } from "@/components/dashboard/customer-features-tabs";
 
 import { useAppStore } from "@/lib/store";
+import { usePublishedCmsPage } from "@/hooks/use-published-cms-page";
+import { CmsMarkdownPageView } from "@/components/cms/cms-markdown-page";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -810,6 +812,11 @@ export function BlogPage() {
 }
 
 export function AboutPage() {
+  // CMS-переопределение: опубликованная страница slug='about' заменяет
+  // хардкод-дизайн (нет публикации/ошибка → прежний рендер без изменений).
+  const cmsPage = usePublishedCmsPage("about");
+  if (cmsPage) return <CmsMarkdownPageView page={cmsPage} />;
+
   return (
     <div className="container mx-auto px-4 py-6 lg:py-10 max-w-5xl">
       {/* ===== HERO ===== */}
@@ -1190,6 +1197,9 @@ export function AboutPage() {
 
 
 export function FaqPage() {
+  // CMS-переопределение: опубликованная страница slug='faq' заменяет
+  // хардкод-аккордеон (нет публикации/ошибка → прежний рендер без изменений).
+  const cmsPage = usePublishedCmsPage("faq");
   const [activeCategory, setActiveCategory] = useState<string>("all");
 
   const categories = [
@@ -1322,6 +1332,9 @@ export function FaqPage() {
   const filteredFaqs = activeCategory === "all"
     ? faqs
     : faqs.filter(f => f.cat === activeCategory);
+
+  // CMS-страница опубликована → она заменяет хардкод-аккордеон целиком.
+  if (cmsPage) return <CmsMarkdownPageView page={cmsPage} />;
 
   return (
     <div className="container mx-auto px-4 py-6 lg:py-10 max-w-3xl">
@@ -2140,6 +2153,9 @@ export function CheckoutPage() {
 }
 
 export function ContactsPage() {
+  // CMS-переопределение: опубликованная страница slug='contacts' заменяет
+  // хардкод-страницу с формой (нет публикации/ошибка → прежний рендер).
+  const cmsPage = usePublishedCmsPage("contacts");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -2163,6 +2179,8 @@ export function ContactsPage() {
     setForm({ name: "", email: "", phone: "", topic: "general", message: "" });
     setTimeout(() => setSubmitted(false), 5000);
   };
+
+  if (cmsPage) return <CmsMarkdownPageView page={cmsPage} />;
 
   return (
     <div className="container mx-auto px-4 py-6 lg:py-10 max-w-5xl">

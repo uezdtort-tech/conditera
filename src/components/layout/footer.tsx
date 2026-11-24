@@ -2,6 +2,8 @@
 
 import { useAppStore } from "@/lib/store";
 import { siteConfig, getCopyrightYears } from "@/lib/site-config";
+import { usePublishedNavMenu } from "@/hooks/use-published-nav-menu";
+import { isExternalCmsHref, cmsInternalView } from "@/hooks/use-published-cms";
 import { Cake, Mail, Phone, MapPin, Sparkles } from "lucide-react";
 import type { ViewKey } from "@/lib/types";
 
@@ -57,6 +59,17 @@ const FOOTER_COLUMNS: {
 
 export function Footer() {
   const navigate = useAppStore((s) => s.navigate);
+  // Z-brand/CMS: опубликованные пункты меню футера (cms_nav_menu, location=footer).
+  // Нет пунктов → колонка не рендерится, хардкод-колонки без изменений.
+  const cmsFooterItems = usePublishedNavMenu("footer");
+
+  const goToCmsFooterItem = (url: string) => {
+    if (isExternalCmsHref(url)) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    navigate(cmsInternalView(url) as never);
+  };
 
   return (
     <footer className="footer-dark relative mt-auto">
@@ -122,6 +135,37 @@ export function Footer() {
               </ul>
             </div>
           ))}
+          {/* Z-brand/CMS: колонка из опубликованных пунктов (location=footer) */}
+          {cmsFooterItems.length > 0 && (
+            <div>
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em]! text-[oklch(0.92_0.012_80)] mb-4">
+                Меню
+              </h3>
+              <ul className="space-y-2.5">
+                {cmsFooterItems.map((item) => (
+                  <li key={item.id}>
+                    {isExternalCmsHref(item.url) ? (
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="footer-link text-sm"
+                      >
+                        {item.label}
+                      </a>
+                    ) : (
+                      <button
+                        onClick={() => goToCmsFooterItem(item.url)}
+                        className="footer-link text-sm text-left"
+                      >
+                        {item.label}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* Payment & social */}

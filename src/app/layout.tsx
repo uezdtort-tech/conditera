@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/query-provider";
 import { SupabaseAuthSync } from "@/components/layout/supabase-auth-sync";
+import { BrandThemeApplier } from "@/components/cms/brand-theme-applier";
 import { PushNotificationManager } from "@/components/pwa/push-notification-manager";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 
@@ -105,6 +106,10 @@ export default function RootLayout({
         {/* П.24: Schema.org Organization + WebSite — на каждой странице,
             чтобы Google показывал лого, контакты и sitelinks search box в выдаче */}
         <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
+
+        {/* Z-brand: применение бренд-настроек (акцент/лого) из опубликованного
+            CMS-документа на всех маршрутах. Ничего не рендерит. */}
+        <BrandThemeApplier />
 
         {/* Яндекс Метрика — счётчик 111432662 */}
         {process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID && (

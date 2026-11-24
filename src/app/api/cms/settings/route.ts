@@ -225,8 +225,8 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       if (draft) {
         const upd = await client.query(
           `UPDATE cms_versions
-              SET data = $2::jsonb, comment = COALESCE($3, comment), created_by = $4, created_at = now()
-            WHERE id = $5
+              SET data = $1::jsonb, comment = COALESCE($2, comment), created_by = $3, created_at = now()
+            WHERE id = $4
             RETURNING version`,
           [
             JSON.stringify({ settings: nextRows }),

@@ -69,7 +69,13 @@ export type CmsAuditAction =
   | "rollback"
   | "banner_create"
   | "banner_update"
-  | "banner_delete";
+  | "banner_delete"
+  | "block_create"
+  | "block_update"
+  | "block_delete"
+  | "nav_create"
+  | "nav_update"
+  | "nav_delete";
 
 /**
  * Записать событие cms_audit. Best-effort: сбой журнала НЕ ломает основную

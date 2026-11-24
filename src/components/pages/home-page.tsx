@@ -53,6 +53,8 @@ import {
   isExternalCmsHref,
   cmsInternalView,
 } from "@/hooks/use-published-cms";
+import { usePublishedHomeBlocks } from "@/hooks/use-published-home-blocks";
+import type { PublishedHomeBlock } from "@/hooks/use-published-home-blocks";
 import type { ViewKey } from "@/lib/types";
 
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
@@ -129,6 +131,12 @@ export function HomePage() {
   // пусто в CMS) → hero null, banners [] → хардкод-фолбэк без изменений.
   const cms = usePublishedHomeCms();
   const cmsHero = cms.hero;
+  // Z-brand: опубликованные CMS-блоки секций (cms_section_blocks). Пусто →
+  // хардкод-фолбэк без изменений (advantages/steps/cta_confectioner).
+  const cmsBlocksMap = usePublishedHomeBlocks();
+  const cmsAdvantages: PublishedHomeBlock[] = cmsBlocksMap.advantages ?? [];
+  const cmsSteps: PublishedHomeBlock[] = cmsBlocksMap.steps ?? [];
+  const cmsCtaPanel: PublishedHomeBlock | undefined = cmsBlocksMap.cta_confectioner?.[0];
   const cmsCta =
     cmsHero && cmsHero.ctaLabel && cmsHero.ctaHref
       ? { label: cmsHero.ctaLabel, href: cmsHero.ctaHref }
@@ -872,7 +880,37 @@ export function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[
+          {cmsAdvantages.length > 0
+            ? cmsAdvantages.map((adv, i) => (
+                <motion.div
+                  key={adv.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.1 }}
+                >
+                  <div className="card-tint rounded-2xl p-6 h-full hover:shadow-[var(--shadow-lift)] transition-all duration-300 card-3d">
+                    <div className="h-12 w-12 rounded-xl flex items-center justify-center mb-4 text-primary bg-primary/10 shadow-sm overflow-hidden">
+                      {adv.image ? (
+                        <img src={adv.image} alt="" className="h-12 w-12 object-cover" loading="lazy" decoding="async" />
+                      ) : (
+                        <Sparkles className="h-6 w-6" aria-hidden="true" />
+                      )}
+                    </div>
+                    <h3 className="font-semibold text-lg mb-2">{adv.title ?? "Блок"}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{adv.subtitle ?? adv.text ?? ""}</p>
+                    {adv.link && adv.linkText && (
+                      <button
+                        onClick={() => openCmsHref(adv.link!)}
+                        className="text-primary text-sm font-medium mt-3 inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
+                      >
+                        {adv.linkText} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              ))
+            : [
             {
               icon: ShieldCheck,
               title: "Эскроу-система расчётов",
@@ -956,7 +994,31 @@ export function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 steps-rail">
-          {[
+          {cmsSteps.length > 0
+            ? cmsSteps.map((step, i) => (
+                <motion.div
+                  key={step.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.1 }}
+                  className="relative"
+                >
+                  <div className="card-tint rounded-2xl p-6 h-full relative overflow-hidden shadow-[var(--shadow-soft)]">
+                    <div className="absolute top-3 right-4 font-display text-6xl text-primary/15" aria-hidden="true">
+                      {String(i + 1).padStart(2, "0")}
+                    </div>
+                    <div className="relative">
+                      <div className="h-12 w-12 rounded-full bg-primary/10 ring-4 ring-background flex items-center justify-center mb-4">
+                        <Sparkles className="h-6 w-6 text-primary" aria-hidden="true" />
+                      </div>
+                      <h3 className="font-display font-semibold mb-2">{step.title ?? `Шаг ${i + 1}`}</h3>
+                      <p className="text-sm text-muted-foreground">{step.subtitle ?? step.text ?? ""}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))
+            : [
             {
               num: "01",
               title: "Выберите торт",
@@ -1124,22 +1186,30 @@ export function HomePage() {
                 Для кондитеров
               </span>
               <h2 className="font-display text-3xl lg:text-4xl">
-                Продавайте свои торты
-                <br />
-                <span className="text-accent">по всей России</span>
+                {cmsCtaPanel?.title ?? (
+                  <>
+                    Продавайте свои торты
+                    <br />
+                    <span className="text-accent">по всей России</span>
+                  </>
+                )}
               </h2>
               <p className="text-white/85 max-w-lg">
-                Присоединяйтесь к кондитерам платформы. Витрина,
-                CRM, финансовая аналитика, социальный канал, помощь с налогами
-                (НПД). Тарифы от 5% комиссии.
+                {cmsCtaPanel?.subtitle ?? cmsCtaPanel?.text ?? (
+                  "Присоединяйтесь к кондитерам платформы. Витрина, CRM, финансовая аналитика, социальный канал, помощь с налогами (НПД). Тарифы от 5% комиссии."
+                )}
               </p>
               <div className="flex flex-wrap gap-3">
                 <Button
                   size="lg"
-                  onClick={() => useAppStore.getState().setAuthModalOpen(true)}
+                  onClick={() =>
+                    cmsCtaPanel?.link && cmsCtaPanel?.linkText
+                      ? openCmsHref(cmsCtaPanel.link)
+                      : useAppStore.getState().setAuthModalOpen(true)
+                  }
                   className="bg-accent text-accent-foreground hover:bg-accent/85 shadow-lg"
                 >
-                  Стать кондитером
+                  {cmsCtaPanel?.linkText ?? "Стать кондитером"}
                 </Button>
                 <Button
                   size="lg"

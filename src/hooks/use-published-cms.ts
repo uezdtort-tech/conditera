@@ -66,6 +66,14 @@ export interface PublishedHomeCms {
   previewVersion?: number | null;
 }
 
+/** Бренд-настройки из key-value (site_settings), применяются на клиенте. */
+export interface PublishedBrand {
+  /** HEX-цвет акцента (brand_accent_color); null — фолбэк на тему. */
+  accentColor: string | null;
+  /** URL логотипа (brand_logo_url); null — системный /logo.png. */
+  logoUrl: string | null;
+}
+
 // ==================== Внутреннее ====================
 
 const CACHE_TTL_MS = 10_000;
@@ -85,8 +93,8 @@ const HERO_IMAGE_KEYS = ["hero_image", "hero_image_url", "home_hero_image"] as c
 
 const EMPTY_CMS: PublishedHomeCms = { hero: null, banners: [], previewVersion: null };
 
-let cache: { data: PublishedHomeCms; expiresAt: number } | null = null;
-let inFlight: Promise<PublishedHomeCms> | null = null;
+let cache: { data: PublishedHomeCms; settingsMap: Record<string, string>; expiresAt: number } | null = null;
+let inFlight: Promise<{ data: PublishedHomeCms; settingsMap: Record<string, string> }> | null = null;
 
 /** unknown → object (или null), без any. */
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -212,21 +220,22 @@ function parseBanners(json: unknown): PublishedBannerCms[] {
   return result;
 }
 
-async function fetchPublishedHomeCms(): Promise<PublishedHomeCms> {
-  if (cache && cache.expiresAt > Date.now()) return cache.data;
+async function fetchPublishedHomeCms(): Promise<{ data: PublishedHomeCms; settingsMap: Record<string, string> }> {
+  if (cache && cache.expiresAt > Date.now()) return { data: cache.data, settingsMap: cache.settingsMap };
   if (!inFlight) {
     inFlight = (async () => {
       const [settingsJson, bannersJson] = await Promise.all([
         safeGet("/api/cms/settings"),
         safeGet("/api/cms/banners"),
       ]);
+      const settingsMap = parseSettingsMap(settingsJson);
       const data: PublishedHomeCms = {
-        hero: buildHero(parseSettingsMap(settingsJson)),
+        hero: buildHero(settingsMap),
         banners: parseBanners(bannersJson),
         previewVersion: null,
       };
-      cache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
-      return data;
+      cache = { data, settingsMap, expiresAt: Date.now() + CACHE_TTL_MS };
+      return { data, settingsMap };
     })().finally(() => {
       inFlight = null;
     });
@@ -252,7 +261,6 @@ async function fetchPreviewHomeCms(version: number): Promise<PublishedHomeCms | 
     previewVersion: version,
   };
 }
-
 // ==================== Hook ====================
 
 /**
@@ -283,18 +291,18 @@ export function usePublishedHomeCms(): PublishedHomeCms {
       fetchPreviewHomeCms(previewVersion)
         .then((previewed) => {
           if (previewed) apply(previewed);
-          else return fetchPublishedHomeCms().then(apply);
+          else return fetchPublishedHomeCms().then((r) => apply(r.data));
         })
         .catch(() => {
           fetchPublishedHomeCms()
-            .then(apply)
+            .then((r) => apply(r.data))
             .catch(() => {
               // Никогда не бросаем: ошибка → фолбэк (EMPTY_CMS уже стоит).
             });
         });
     } else {
       fetchPublishedHomeCms()
-        .then(apply)
+        .then((r) => apply(r.data))
         .catch(() => {
           // Никогда не бросаем: любая ошибка → фолбэк (EMPTY_CMS уже стоит).
         });
@@ -305,6 +313,45 @@ export function usePublishedHomeCms(): PublishedHomeCms {
     };
   }, []);
   return data;
+}
+
+// ==================== Бренд-настройки (Z-brand) ====================
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const BRAND_ACCENT_KEYS = ["brand_accent_color"] as const;
+const BRAND_LOGO_KEYS = ["brand_logo_url"] as const;
+
+function buildBrand(map: Record<string, string>): PublishedBrand {
+  const accentRaw = firstSetting(map, BRAND_ACCENT_KEYS, 9); // "#rrggbb" = 7 симв + запас
+  const accent = accentRaw && HEX_RE.test(accentRaw) ? accentRaw.toLowerCase() : null;
+  return {
+    accentColor: accent,
+    logoUrl: firstSetting(map, BRAND_LOGO_KEYS, MAX_URL),
+  };
+}
+
+/**
+ * Бренд-настройки из опубликованного документа настроек (общий кэш с
+ * usePublishedHomeCms — один запрос на оба потребителя). Пока не загружено
+ * или ключей нет → { accentColor: null, logoUrl: null } → тема/лого по
+ * умолчанию. Никогда не бросает.
+ */
+export function usePublishedBrand(): PublishedBrand {
+  const [brand, setBrand] = useState<PublishedBrand>({ accentColor: null, logoUrl: null });
+  useEffect(() => {
+    let alive = true;
+    fetchPublishedHomeCms()
+      .then((r) => {
+        if (alive) setBrand(buildBrand(r.settingsMap));
+      })
+      .catch(() => {
+        // Никогда не бросаем: ошибка → дефолт (null уже стоит).
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return brand;
 }
 
 // ==================== Помощники рендера ссылок из CMS ====================

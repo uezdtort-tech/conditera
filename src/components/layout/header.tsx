@@ -39,6 +39,12 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { GlobalSearch } from "@/components/ui/enhanced-components";
 import { VisualSearchButton } from "@/components/visual-search/visual-search-button";
+import { usePublishedNavMenu } from "@/hooks/use-published-nav-menu";
+import {
+  usePublishedBrand,
+  isExternalCmsHref,
+  cmsInternalView,
+} from "@/hooks/use-published-cms";
 import type { ViewKey, Role } from "@/lib/types";
 import { dashboardViewForRole } from "@/lib/primary-role";
 
@@ -187,6 +193,19 @@ export function Header() {
   const cart = useAppStore((s) => s.cart);
   const favorites = useAppStore((s) => s.favorites);
 
+  // Z-brand/CMS: опубликованные пункты меню (cms_nav_menu) и логотип
+  // (site_settings). Пусто/null → системный хардкод без изменений.
+  const cmsNavItems = usePublishedNavMenu("header");
+  const brand = usePublishedBrand();
+
+  const goToCmsNavItem = (url: string) => {
+    if (isExternalCmsHref(url)) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    navigate(cmsInternalView(url) as never);
+  };
+
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
@@ -245,7 +264,7 @@ export function Header() {
           <div className="flex h-16 items-center justify-between gap-1 sm:gap-3">
             {/* Logo */}
             <button onClick={() => navigate("home")} className="flex items-center gap-2 shrink-0 group" aria-label="Уездный кондитер — на главную">
-              <img src="/logo.png" alt="Уездный кондитер" className="h-12 w-12 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform" />
+              <img src={brand.logoUrl ?? "/logo.png"} alt="Уездный кондитер" className="h-12 w-12 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform" />
               <div className="hidden sm:block text-left leading-tight">
                 <div className="logo-text text-lg text-foreground">Уездный кондитер</div>
               </div>
@@ -378,7 +397,7 @@ export function Header() {
                 <SheetContent side="left" className="w-80 p-0 overflow-y-auto">
                   <SheetHeader className="p-4 border-b">
                     <SheetTitle className="flex items-center gap-2">
-                      <img src="/logo.png" alt="" className="h-10 w-10 rounded-full object-cover" />
+                      <img src={brand.logoUrl ?? "/logo.png"} alt="" className="h-10 w-10 rounded-full object-cover" />
                       <div>
                         <div className="logo-text text-base">Уездный кондитер</div>
                         <div className="text-[10px] text-muted-foreground font-normal">маркетплейс кондитеров России</div>
@@ -470,6 +489,22 @@ export function Header() {
                         </div>
                       )}
                     </div>
+
+                    {/* Z-brand/CMS: опубликованные пункты меню (location=header) */}
+                    {cmsNavItems.length > 0 && (
+                      <div className="pt-1">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 mb-1">Меню</div>
+                        {cmsNavItems.map((item) => (
+                          <button
+                            key={item.id}
+                            onClick={() => { goToCmsNavItem(item.url); setMobileMenuOpen(false); }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent rounded-md"
+                          >
+                            <Sparkles className="h-4 w-4 text-muted-foreground" /><span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Auth */}
                     {!isAuthenticated && (
@@ -621,6 +656,35 @@ export function Header() {
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              {/* Z-brand/CMS: опубликованные пункты меню (cms_nav_menu, location=header).
+                  Нет пунктов → группа не рендерится — ноль визуальных изменений. */}
+              {cmsNavItems.length > 0 && (
+                <>
+                  <div className="h-5 w-px bg-border mx-1" />
+                  {cmsNavItems.map((item) =>
+                    isExternalCmsHref(item.url) ? (
+                      <a
+                        key={item.id}
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap text-foreground/80 hover:text-primary hover:bg-accent/50"
+                      >
+                        {item.label}
+                      </a>
+                    ) : (
+                      <button
+                        key={item.id}
+                        onClick={() => goToCmsNavItem(item.url)}
+                        className="px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap text-foreground/80 hover:text-primary hover:bg-accent/50"
+                      >
+                        {item.label}
+                      </button>
+                    )
+                  )}
+                </>
+              )}
 
               {/* Быстрые ссылки справа */}
               <div className="ml-auto flex items-center gap-1">
