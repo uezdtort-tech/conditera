@@ -135,11 +135,11 @@ ask_secret_value() {
   if [ -n "$existing" ] && [ "$existing" != "$default" ]; then
     echo "  Текущее значение уже задано (скрыто)." >&2
     read -r -s -p "  Новое значение (Enter=оставить текущее): " input >&2
-    printf '\\n' >&2
+    printf '\n' >&2
     if [ -z "$input" ]; then echo "$existing"; else echo "$input"; fi
   else
     read -r -s -p "  Значение (Enter=пропустить): " input >&2
-    printf '\\n' >&2
+    printf '\n' >&2
     if [ -z "$input" ]; then echo "$default"; else echo "$input"; fi
   fi
 }
