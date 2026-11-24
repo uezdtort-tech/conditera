@@ -7,7 +7,7 @@
 import { readFileSync, existsSync, createReadStream } from "node:fs";
 import { spawn } from "node:child_process";
 import pg from "pg";
-import { createGunzip } from "node:zlib";
+import { createGunzip, gunzipSync } from "node:zlib";
 import { pipeline } from "node:stream/promises";
 
 function loadDbUrl() {
@@ -226,14 +226,11 @@ async function verifyJsonSnapshot(backupPath) {
 function createGunzipBuffer(backupPath) {
   // JSON fallback is capped to 256 MiB to avoid unbounded memory use in the verifier.
   const compressed = readFileSync(backupPath);
-  const decompressed = requireGunzipSync(compressed);
+  const decompressed = gunzipSync(compressed);
   if (decompressed.length > 256 * 1024 * 1024) throw new Error("JSON snapshot exceeds 256 MiB verification limit");
   return decompressed.toString("utf8");
 }
 
-function requireGunzipSync(buffer) {
-  return require("node:zlib").gunzipSync(buffer);
-}
 
 async function main() {
   console.log("Source DB: " + parsed.host + parsed.pathname);
