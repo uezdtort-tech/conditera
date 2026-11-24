@@ -59,6 +59,8 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
     throw new Error("[production-env] TFA_ENCRYPTION_KEY должен отличаться от JWT-секретов.");
   }
 
+  const databaseUrl = requireValue(env, "DATABASE_URL");
+  const directDatabaseUrl = requireValue(env, "DIRECT_DATABASE_URL");
 
   for (const [name, value] of [["DATABASE_URL", databaseUrl], ["DIRECT_DATABASE_URL", directDatabaseUrl]] as const) {
     let parsedUrl: URL;
