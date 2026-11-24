@@ -99,7 +99,7 @@ function getTfaKey(): Buffer {
     );
   }
 
-  if (!value || /^(stub_|change_me|fallback-|dummy|your_)/i.test(value)) {
+  if (!value || /^(stub[-_]|change_me|fallback-|dummy|your_)/i.test(value)) {
     if (isProduction) {
       throw new Error("[totp] TFA_ENCRYPTION_KEY не задан или содержит заглушку.");
     }
