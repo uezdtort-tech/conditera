@@ -595,6 +595,38 @@ jobs:
           SELECT 'WRITE-PATH CHECK OK' AS status;
           SQL
 
+      - name: Setup Bun for full backup restore verification
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies for backup verification
+        run: bun install --frozen-lockfile
+
+      - name: Verify full pg_dump backup and real restore in disposable database
+        env:
+          NODE_ENV: production
+          BACKUP_REQUIRE_FULL_RESTORE: "true"
+          BACKUP_DIR: ${{ runner.temp }}/conditera-backup-verify
+          DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/postgres
+          DIRECT_DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/postgres
+        run: |
+          set -euo pipefail
+          SVC="${{ job.services.postgres.id }}"
+          mkdir -p "$RUNNER_TEMP/pgtools" "$BACKUP_DIR"
+          cat > "$RUNNER_TEMP/pgtools/pg_dump" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker exec -i "$PG_CONTAINER_ID" pg_dump "$@"
+          SH
+          cat > "$RUNNER_TEMP/pgtools/psql" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker exec -i -e "PGPASSWORD=${PGPASSWORD:-}" "$PG_CONTAINER_ID" psql "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/pgtools/pg_dump" "$RUNNER_TEMP/pgtools/psql"
+          export PG_CONTAINER_ID="$SVC"
+          export PATH="$RUNNER_TEMP/pgtools:$PATH"
+          bun run ops:restore-verify
+
   # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
   # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,
   # известные (baseline) → WARN + remediation backlog (OWNER_DECISIONS D-8).
