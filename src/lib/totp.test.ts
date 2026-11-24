@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const originalNodeEnv = process.env.NODE_ENV;
+const mutableEnv = process.env as Record<string, string | undefined>;
+const originalNodeEnv = mutableEnv.NODE_ENV;
 const originalNextPhase = process.env.NEXT_PHASE;
 const originalTfaKey = process.env.TFA_ENCRYPTION_KEY;
 
 afterEach(() => {
-  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-  else process.env.NODE_ENV = originalNodeEnv;
+  if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
+  else mutableEnv.NODE_ENV = originalNodeEnv;
 
   if (originalNextPhase === undefined) delete process.env.NEXT_PHASE;
   else process.env.NEXT_PHASE = originalNextPhase;
@@ -19,7 +20,7 @@ afterEach(() => {
 
 describe("TOTP encryption key configuration", () => {
   it("rejects a missing key in production runtime", async () => {
-    process.env.NODE_ENV = "production";
+    mutableEnv.NODE_ENV = "production";
     delete process.env.NEXT_PHASE;
     delete process.env.TFA_ENCRYPTION_KEY;
     vi.resetModules();
