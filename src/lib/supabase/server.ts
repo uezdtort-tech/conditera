@@ -13,6 +13,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { resolveSupabaseServerUrl, SUPABASE_COOKIE_NAME } from "./url";
+import { isPlaceholderSupabaseKey } from "./key-validation";
 
 function getServerSupabaseConfig(): { url: string; anonKey: string } {
   const url =
