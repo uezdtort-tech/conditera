@@ -325,7 +325,7 @@ describe("scanLineForSecrets B2 — test-fixture правило", () => {
   });
 
   it("вне тестового файла fixture-токены НЕ подавляют структурные находки", () => {
-    // AKIAIOSFODNN7EXAMPLE — канонический AWS docs-пример, содержит EXAMPLE,
+    // канонический AWS docs-пример — канонический AWS docs-пример, содержит EXAMPLE,
     // но вне тестового файла структурный паттерн срабатывает безусловно
     expect(scanLineForSecrets(fixture("AKIA", "IOSFODNN7", "EXAMPLE")).map((m) => m.category)).toEqual([
       "aws-access-key",
