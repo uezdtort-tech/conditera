@@ -18,6 +18,7 @@ describe("Supabase key validation", () => {
 
   it("always rejects explicit stub keys", () => {
     expect(isPlaceholderSupabaseKey("stub-anon-key", true)).toBe(true);
+    expect(isPlaceholderSupabaseKey("stub_service_role_key", true)).toBe(true);
   });
 
   it("rejects development-only keys in production but accepts them locally", () => {
