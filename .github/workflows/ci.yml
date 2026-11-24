@@ -610,7 +610,7 @@ jobs:
           SQL
 
   # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
-  # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,
+  # osv-scanner по bun.lock и package-lock.json с baseline-диффом: НОВЫЕ advisory → FAIL,
   # известные (baseline) → WARN + remediation backlog (OWNER_DECISIONS D-8).
   deps-audit:
     name: Dependency security audit (osv-scanner)
@@ -624,5 +624,5 @@ jobs:
             -o /usr/local/bin/osv-scanner
           chmod +x /usr/local/bin/osv-scanner
 
-      - name: Scan bun.lock with baseline diff (new advisories fail)
+      - name: Scan bun.lock and package-lock.json with baseline diff (new advisories fail)
         run: node scripts/verify/osv-audit.mjs
