@@ -181,6 +181,10 @@ if [ "$MODE_LABEL" = "production" ]; then
   check_required "REALTIME_DB_ENC_KEY" "ключ шифрования Realtime (16 символов)"
   check_required "REALTIME_DB_ENC_KEY_GCM" "ключ AES-GCM Realtime (32 символа)"
   check_required "MEILI_MASTER_KEY" "ключ доступа Meilisearch"
+  check_required "ANON_KEY" "JWT anon key Supabase (копия NEXT_PUBLIC_SUPABASE_ANON_KEY)"
+  check_required "SERVICE_ROLE_KEY" "JWT service-role key Supabase (копия SUPABASE_SERVICE_ROLE_KEY)"
+  check_required "ENCRYPTOR_KEY" "ключ шифрования legacy Supabase compose"
+  check_required "SECRET_KEY_BASE" "SECRET_KEY_BASE для Compose-интерполяции"
 fi
 echo ""
 
@@ -219,6 +223,16 @@ if [ "$MODE_LABEL" = "production" ]; then
   META_KEY=$(get_env "PG_META_CRYPTO_KEY")
   REALTIME_KEY=$(get_env "REALTIME_DB_ENC_KEY")
   REALTIME_GCM_KEY=$(get_env "REALTIME_DB_ENC_KEY_GCM")
+  ANON_ALIAS=$(get_env "ANON_KEY")
+  ANON_PUBLIC=$(get_env "NEXT_PUBLIC_SUPABASE_ANON_KEY")
+  SERVICE_ALIAS=$(get_env "SERVICE_ROLE_KEY")
+  SERVICE_REAL=$(get_env "SUPABASE_SERVICE_ROLE_KEY")
+  ENCRYPTOR=$(get_env "ENCRYPTOR_KEY")
+  LEGACY_SECRET_BASE=$(get_env "SECRET_KEY_BASE")
+  if is_filled "$ANON_ALIAS" && is_filled "$ANON_PUBLIC" && [ "$ANON_ALIAS" != "$ANON_PUBLIC" ]; then err "ANON_KEY должен совпадать с NEXT_PUBLIC_SUPABASE_ANON_KEY"; fi
+  if is_filled "$SERVICE_ALIAS" && is_filled "$SERVICE_REAL" && [ "$SERVICE_ALIAS" != "$SERVICE_REAL" ]; then err "SERVICE_ROLE_KEY должен совпадать с SUPABASE_SERVICE_ROLE_KEY"; fi
+  if is_filled "$ENCRYPTOR" && [ "${#ENCRYPTOR}" -ne 32 ]; then err "ENCRYPTOR_KEY должен содержать 32 символа"; fi
+  if is_filled "$LEGACY_SECRET_BASE" && [ "${#LEGACY_SECRET_BASE}" -lt 32 ]; then err "SECRET_KEY_BASE короче 32 символов"; fi
   if is_filled "$APP_DB_PASSWORD" && [ "${#APP_DB_PASSWORD}" -lt 32 ]; then err "APP_DATABASE_PASSWORD короче 32 символов"; fi
   if is_filled "$SECRET_KEY_BASE" && [ "${#SECRET_KEY_BASE}" -lt 32 ]; then err "SUPABASE_SECRET_KEY_BASE короче 32 символов"; fi
   if is_filled "$META_KEY" && [ "${#META_KEY}" -ne 32 ]; then err "PG_META_CRYPTO_KEY должен содержать 32 символа"; fi
