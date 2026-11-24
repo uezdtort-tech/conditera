@@ -79,7 +79,6 @@
     "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.82.0",
     "@tanstack/react-table": "^8.21.3",
-    "@types/nodemailer": "^8.0.1",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -95,7 +94,7 @@
     "next": "^16.4.6",
     "next-intl": "^4.3.4",
     "next-themes": "^0.4.6",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^10.6.1",
     "pg": "^8.23.0",
     "react": "^19.0.0",
     "react-day-picker": "^9.8.0",
@@ -103,7 +102,6 @@
     "react-hook-form": "^7.60.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^3.0.3",
-    "react-syntax-highlighter": "^15.6.1",
     "recharts": "^2.15.4",
     "server-only": "^0.0.1",
     "sharp": "^0.35.5",
@@ -116,7 +114,7 @@
     "vaul": "^1.1.2",
     "web-push": "^3.6.7",
     "z-ai-web-dev-sdk": "^0.0.18",
-    "zod": "^4.0.2",
+    "zod": "^4.6.7",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
@@ -143,13 +141,16 @@
     "vitest": "^4.1.10"
   },
   "optionalDependencies": {
-    "@sentry/nextjs": "^10.69.0"
+    "@sentry/nextjs": "^10.78.0"
   },
   "trustedDependencies": [
     "@embedded-postgres/linux-x64"
   ],
   "overrides": {
     "js-yaml": "^4.3.2",
-    "prismjs": "^1.30.0"
+    "prismjs": "^1.30.0",
+    "@sentry/bundler-plugins": {
+      "glob": "^14.0.6"
+    }
   }
 }
