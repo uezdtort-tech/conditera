@@ -252,6 +252,8 @@ if [ "$MODE_LABEL" = "production" ]; then
   if is_filled "$POSTGRES_PASSWORD_VALUE" && [ "${#POSTGRES_PASSWORD_VALUE}" -lt 32 ]; then err "POSTGRES_PASSWORD короче 32 символов"; fi
   if is_filled "$MEILI_KEY" && [ "${#MEILI_KEY}" -lt 32 ]; then err "MEILI_MASTER_KEY короче 32 символов"; fi
   if is_filled "$CRON_VALUE" && [ "${#CRON_VALUE}" -lt 32 ]; then err "CRON_SECRET короче 32 символов"; fi
+  if is_filled "$TFA" && is_filled "$JWT" && [ "$TFA" = "$JWT" ]; then err "TFA_ENCRYPTION_KEY должен отличаться от JWT_SECRET"; fi
+  if is_filled "$TFA" && is_filled "$JWT_REFRESH" && [ "$TFA" = "$JWT_REFRESH" ]; then err "TFA_ENCRYPTION_KEY должен отличаться от JWT_REFRESH_SECRET"; fi
   ANON_ALIAS=$(get_env "ANON_KEY")
   ANON_PUBLIC=$(get_env "NEXT_PUBLIC_SUPABASE_ANON_KEY")
   SERVICE_ALIAS=$(get_env "SERVICE_ROLE_KEY")
@@ -260,6 +262,7 @@ if [ "$MODE_LABEL" = "production" ]; then
   LEGACY_SECRET_BASE=$(get_env "SECRET_KEY_BASE")
   if is_filled "$ANON_ALIAS" && is_filled "$ANON_PUBLIC" && [ "$ANON_ALIAS" != "$ANON_PUBLIC" ]; then err "ANON_KEY должен совпадать с NEXT_PUBLIC_SUPABASE_ANON_KEY"; fi
   if is_filled "$SERVICE_ALIAS" && is_filled "$SERVICE_REAL" && [ "$SERVICE_ALIAS" != "$SERVICE_REAL" ]; then err "SERVICE_ROLE_KEY должен совпадать с SUPABASE_SERVICE_ROLE_KEY"; fi
+  if is_filled "$ANON_PUBLIC" && is_filled "$SERVICE_REAL" && [ "$ANON_PUBLIC" = "$SERVICE_REAL" ]; then err "SUPABASE_SERVICE_ROLE_KEY должен отличаться от NEXT_PUBLIC_SUPABASE_ANON_KEY"; fi
   if is_filled "$ENCRYPTOR" && [ "${#ENCRYPTOR}" -ne 32 ]; then err "ENCRYPTOR_KEY должен содержать 32 символа"; fi
   if is_filled "$LEGACY_SECRET_BASE" && [ "${#LEGACY_SECRET_BASE}" -lt 32 ]; then err "SECRET_KEY_BASE короче 32 символов"; fi
   if is_filled "$APP_DB_PASSWORD" && [ "${#APP_DB_PASSWORD}" -lt 32 ]; then err "APP_DATABASE_PASSWORD короче 32 символов"; fi
