@@ -34,7 +34,7 @@ function getRequiredEnv(name: string): string {
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
   if (process.env.NODE_ENV === "production") {
-    if (isStub) {
+    if (isStub || Buffer.byteLength(value || "", "utf8") < 32) {
       if (isBuildPhase) {
         console.warn(
           `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
@@ -58,16 +58,15 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
-/**
- * Секретные env с фолбэком на альтернативные имена (.env.example декларирует
- * AUTH_SECRET как каноничное имя, исторический код читает JWT_SECRET).
- * Первая непустая незаглушечная переменная побеждает; иначе — обычный
- * getRequiredEnv(primary) со стандартными предупреждениями.
- */
 // Ключи намеренно не имеют альтернативных имён и не подменяют друг друга.
-// JWT_REFRESH_SECRET обязателен и криптографически независим от JWT_SECRET.
-const JWT_SECRET = new TextEncoder().encode(getRequiredEnv("JWT_SECRET"));
-const JWT_REFRESH_SECRET = new TextEncoder().encode(getRequiredEnv("JWT_REFRESH_SECRET"));
+// JWT_REFRESH_SECRET обязателен, не короче 32 байт и независим от JWT_SECRET.
+const jwtSecretValue = getRequiredEnv("JWT_SECRET");
+const jwtRefreshSecretValue = getRequiredEnv("JWT_REFRESH_SECRET");
+if (jwtSecretValue === jwtRefreshSecretValue) {
+  throw new Error("[auth] JWT_SECRET и JWT_REFRESH_SECRET должны быть разными значениями.");
+}
+const JWT_SECRET = new TextEncoder().encode(jwtSecretValue);
+const JWT_REFRESH_SECRET = new TextEncoder().encode(jwtRefreshSecretValue);
 
 export interface JwtPayload extends JWTPayload {
   userId: string;
