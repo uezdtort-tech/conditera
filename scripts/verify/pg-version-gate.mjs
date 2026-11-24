@@ -106,6 +106,7 @@ else {
   if (!/-\s*supabase_db_data_v17:\/var\/lib\/postgresql\/data\b/.test(dbService)) fail("supabase-db должен использовать отдельный volume supabase_db_data_v17.");
   if (/-\s*supabase_db_data:\/var\/lib\/postgresql\/data\b/.test(dbService)) fail("Старый PG15 volume supabase_db_data нельзя подключать к PG17.");
   if (!/^  supabase_db_data_v17:\s*$/m.test(supabaseCompose)) fail("Volume supabase_db_data_v17 не объявлен.");
+  if (!/^    name:\s*conditera_supabase_db_data_v17\s*$/m.test(supabaseCompose)) fail("Volume PG17 должен иметь стабильное имя conditera_supabase_db_data_v17.");
 }
 // 3. Embedded PG17: пакет @embedded-postgres/linux-x64 резолвится и это 17.x.
 try {
