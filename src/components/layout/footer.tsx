@@ -3,6 +3,7 @@
 import { useAppStore } from "@/lib/store";
 import { siteConfig, getCopyrightYears } from "@/lib/site-config";
 import { usePublishedNavMenu } from "@/hooks/use-published-nav-menu";
+import { usePublishedBrand } from "@/hooks/use-published-cms";
 import { isExternalCmsHref, cmsInternalView } from "@/hooks/use-published-cms";
 import { Cake, Mail, Phone, MapPin, Sparkles } from "lucide-react";
 import type { ViewKey } from "@/lib/types";
@@ -62,6 +63,9 @@ export function Footer() {
   // Z-brand/CMS: опубликованные пункты меню футера (cms_nav_menu, location=footer).
   // Нет пунктов → колонка не рендерится, хардкод-колонки без изменений.
   const cmsFooterItems = usePublishedNavMenu("footer");
+  // Z-brand: логотип из настроек (brand_logo_url); null → системный /logo.png
+  // (как в шапке — см. usePublishedBrand()).
+  const brand = usePublishedBrand();
 
   const goToCmsFooterItem = (url: string) => {
     if (isExternalCmsHref(url)) {
@@ -83,7 +87,7 @@ export function Footer() {
               onClick={() => navigate("home")}
               className="flex items-center gap-2 mb-4"
             >
-              <img src="/logo.png" alt={siteConfig.name} className="h-12 w-12 rounded-full object-cover shadow-md ring-1 ring-white/15" />
+              <img src={brand.logoUrl ?? "/logo.png"} alt={siteConfig.name} className="h-12 w-12 rounded-full object-cover shadow-md ring-1 ring-white/15" />
               <div className="text-left leading-tight">
                 <div className="logo-text text-lg text-[oklch(0.92_0.012_80)]">{siteConfig.name}</div>
               </div>

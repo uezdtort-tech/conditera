@@ -928,6 +928,10 @@ export function AdminSettingsTab() {
   const [brandAccent, setBrandAccent] = useState("#7c3f2c");
   const [brandLogo, setBrandLogo] = useState("");
   const [brandSaving, setBrandSaving] = useState(false);
+  // Новый ключ: добавить произвольную настройку (PUT создаёт ключ в черновике)
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [newKeySaving, setNewKeySaving] = useState(false);
 
   const loadSettings = useCallback(async () => {
     setIsLoading(true);
@@ -1106,6 +1110,45 @@ export function AdminSettingsTab() {
   };
 
   const filtered = settings.filter((s) => s.category === activeCategory);
+
+  /** Добавить произвольный ключ: PUT создаёт его в черновике документа. */
+  const handleAddKey = async () => {
+    const key = newKey.trim();
+    if (!key) {
+      toast.error("Укажите ключ (например contact_phone)");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
+      toast.error("Ключ: только латиница, цифры и _ . - (без пробелов)");
+      return;
+    }
+    setNewKeySaving(true);
+    try {
+      const res = await csrfFetch("/api/cms/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: newValue, comment: `Новый ключ ${key}` }),
+      });
+      const data = (await res.json()) as { draft?: { version?: number }; error?: string; currentVersion?: number | null };
+      if (res.status === 409 && data.error === "CMS_CONFLICT") {
+        toast.error(`Конфликт версий (v${data.currentVersion ?? "?"}) — обновите и повторите`);
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast.success(
+        data.draft?.version
+          ? `Ключ «${key}» добавлен в черновик v${data.draft.version} — опубликуйте в «Версиях», чтобы он появился в списке`
+          : `Ключ «${key}» добавлен в черновик`
+      );
+      setNewKey("");
+      setNewValue("");
+      void loadVersions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось добавить ключ");
+    } finally {
+      setNewKeySaving(false);
+    }
+  };
 
   const handleSave = async (key: string) => {
     if (editValues[key] === undefined) return;
@@ -1337,6 +1380,41 @@ export function AdminSettingsTab() {
             ))}
           </div>
         )}
+      </Card>
+
+      {/* Добавить произвольный ключ настройки */}
+      <Card className="p-4 border-dashed">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <Plus className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <div className="font-semibold text-sm">Добавить свой ключ</div>
+            <div className="text-xs text-muted-foreground">
+              Ключ появится в списке после публикации версии. Публичные страницы читают ключи вида hero_* и brand_*
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Input
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            placeholder="Ключ (например support_phone)"
+            className="h-9 flex-1 font-mono text-sm"
+            aria-label="Ключ настройки"
+          />
+          <Input
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            placeholder="Значение"
+            className="h-9 flex-1 text-sm"
+            aria-label="Значение настройки"
+          />
+          <Button onClick={handleAddKey} disabled={newKeySaving} size="sm" className="h-9 shrink-0">
+            {newKeySaving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+            Добавить
+          </Button>
+        </div>
       </Card>
 
       {/* Категории */}
