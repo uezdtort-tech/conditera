@@ -289,7 +289,6 @@ if [ "$MODE_LABEL" = "production" ]; then
   APP_URL=$(get_env "NEXT_PUBLIC_APP_URL")
   SUPABASE_PUBLIC_URL=$(get_env "NEXT_PUBLIC_SUPABASE_URL")
   check_required "NEXT_PUBLIC_APP_URL" "публичный HTTPS URL приложения"
-  check_required "NEXT_PUBLIC_SUPABASE_URL" "публичный HTTPS URL Supabase"
   if is_filled "$APP_URL" && [[ "$APP_URL" != https://* ]]; then
     err "NEXT_PUBLIC_APP_URL должен начинаться с https:// в production"
   fi
