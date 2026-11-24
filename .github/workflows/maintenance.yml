@@ -13,7 +13,7 @@
 # Требуемые секреты (настраивает ВЛАДЕЛЕЦ один раз):
 #   MAINTENANCE_APP_URL      — публичный URL (staging или production)
 #   MAINTENANCE_CRON_SECRET  — значение CRON_SECRET соответствующей среды
-#   STAGING_HOST/STAGING_SSH_KEY — (опционально) для restore-verify на хосте
+#   STAGING_HOST/STAGING_SSH_KEY/STAGING_RESTORE_DATABASE_URL — отдельный restore-кластер PG18; psql >=18 на staging host
 #
 # daily-report (§12): скрипт scripts/ops/daily-report.mjs читает ЛОКАЛЬНЫЕ
 # файлы бэкапов — запускается на хосте приложения по crontab
@@ -95,7 +95,7 @@ jobs:
       STAGING_RESTORE_URL_SET: ${{ secrets.STAGING_RESTORE_DATABASE_URL != '' }}
     steps:
       - name: Skip (honest) — restore host/cluster not configured
-        if: ${{ env.STAGING_HOST_SET != 'true' || env.STAGING_SSH_KEY_SET != 'true' || env.STAGING_RESTORE_URL_SET != 'true' }}
+        if: ${{ needs.http-maintenance.result != 'success' || env.STAGING_HOST_SET != 'true' || env.STAGING_SSH_KEY_SET != 'true' || env.STAGING_RESTORE_URL_SET != 'true' }}
         run: |
           {
             echo "## Restore-verify: SKIPPED — required staging connection details are not configured."
@@ -109,7 +109,7 @@ jobs:
           echo "RESTORE-VERIFY SKIPPED: staging host/restore cluster missing (no fake verification)."
 
       - name: "Restore-verify exact application backup artifact via SSH"
-        if: ${{ env.STAGING_HOST_SET == 'true' && env.STAGING_SSH_KEY_SET == 'true' && env.STAGING_RESTORE_URL_SET == 'true' }}
+        if: ${{ needs.http-maintenance.result == 'success' && env.STAGING_HOST_SET == 'true' && env.STAGING_SSH_KEY_SET == 'true' && env.STAGING_RESTORE_URL_SET == 'true' }}
         uses: appleboy/ssh-action@v1.2.5
         env:
           STAGING_RESTORE_DATABASE_URL: ${{ secrets.STAGING_RESTORE_DATABASE_URL }}
