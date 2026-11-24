@@ -45,8 +45,10 @@ const ANCHORS = [
   },
 ];
 
-// Запрещённые образы в ЛЮБЫХ compose/workflow файлах (major ≠ 17).
-const SCAN_DIRS = ["docker-compose.supabase.yml", "docker-compose.yml", "docker-compose.dev.yml", ".github/workflows"];
+// Сканируем ВСЕ Compose-файлы в корне, включая новые migration/runtime overlays.
+// CI workflow может намеренно запускать PG15/PG18 как одноразовый источник дампа;
+// это не runtime Compose и проверяется отдельными миграционными тестами.
+const COMPOSE_FILE_RE = /^(?:docker-)?compose(?:\.[^.]+)*\.ya?ml$/i;
 
 let failures = 0;
 const fail = (msg) => {
@@ -78,29 +80,26 @@ for (const anchor of ANCHORS) {
   }
 }
 
-// 2. Сканирование compose/workflow: никаких postgres-образов с major ≠ 17.
-const scanTargets = [];
-for (const entry of SCAN_DIRS) {
-  const abs = path.join(ROOT, entry);
-  if (!existsSync(abs)) continue;
-  if (abs.endsWith(".yml")) {
-    scanTargets.push(abs);
-  } else {
-    for (const f of readdirSync(abs)) {
-      if (f.endsWith(".yml") || f.endsWith(".yaml")) scanTargets.push(path.join(abs, f));
-    }
-  }
-}
+// 2. Сканирование ВСЕХ Compose-файлов: любой PostgreSQL image major ≠ 17 — FAIL.
+const scanTargets = readdirSync(ROOT)
+  .filter((name) => COMPOSE_FILE_RE.test(name))
+  .map((name) => path.join(ROOT, name));
+if (scanTargets.length === 0) fail("В корне не найдены Compose-файлы для проверки.");
+
 for (const file of scanTargets) {
   const text = readFileSync(file, "utf8");
   const rel = path.relative(ROOT, file);
   const lines = text.split(/\r?\n/);
   lines.forEach((line, idx) => {
-    const m = line.match(/(?:image:\s*)["']?([^"'\n]*(?:postgres|pgvector)[^"'\n]*)/i);
-    if (!m) return;
+    const m = line.match(/^\s*image:\s*["']?([^"'#\s]+)["']?/i);
+    if (!m || !/(?:postgres|pgvector)/i.test(m[1])) return;
     const image = m[1].trim();
-    const ver = image.match(/:(\d+)(?:\.|-\s|$|["']?)/);
-    if (!ver) return; // тег без major (например, logflare) — вне гарда
+    const tag = image.slice(image.lastIndexOf(":") + 1);
+    const ver = tag.match(/^(\d+)(?:\.|$|-)/);
+    if (!ver) {
+      fail(`${rel}:${idx + 1}: PostgreSQL-образ «${image}» не закреплён явным major-тегом`);
+      return;
+    }
     const major = Number(ver[1]);
     if (major !== TARGET_MAJOR) {
       fail(`${rel}:${idx + 1}: postgres-образ «${image}» major=${major} — ожидается ${TARGET_MAJOR}`);
@@ -108,6 +107,25 @@ for (const file of scanTargets) {
   });
 }
 
+// 2a. Проверяем физический volume: PG17 не должен открывать каталог PG15.
+const supabaseCompose = readFileSync(path.join(ROOT, "docker-compose.supabase.yml"), "utf8");
+const dbService = supabaseCompose.match(/^  supabase-db:\s*\n([\s\S]*?)(?=^  [A-Za-z0-9_-]+:\s*$|^volumes:)/m)?.[1] || "";
+if (!dbService) {
+  fail("docker-compose.supabase.yml: сервис supabase-db не найден.");
+} else {
+  if (!/image:\s*supabase\/postgres:17\./.test(dbService)) {
+    fail("docker-compose.supabase.yml: supabase-db должен использовать Supabase PostgreSQL 17.");
+  }
+  if (!/-\s*supabase_db_data_v17:\/var\/lib\/postgresql\/data\b/.test(dbService)) {
+    fail("docker-compose.supabase.yml: PG17 должен использовать отдельный volume supabase_db_data_v17.");
+  }
+  if (/-\s*supabase_db_data:\/var\/lib\/postgresql\/data\b/.test(dbService)) {
+    fail("docker-compose.supabase.yml: запрещено подключать старый PG15 volume к PG17.");
+  }
+  if (!/^  supabase_db_data_v17:\s*$/m.test(supabaseCompose)) {
+    fail("docker-compose.supabase.yml: volume supabase_db_data_v17 не объявлен.");
+  }
+}
 // 3. Embedded PG17: пакет @embedded-postgres/linux-x64 резолвится и это 17.x.
 try {
   // exports-политика пакета разрешает только ./dist — package.json резолвим
