@@ -137,6 +137,7 @@ jobs:
         with:
           name: next-build
           path: .next/
+          include-hidden-files: true
           retention-days: 3
 
   # ===== 4. Real browser E2E: desktop Chromium + mobile Chrome =====
