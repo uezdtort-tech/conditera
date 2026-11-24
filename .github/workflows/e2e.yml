@@ -40,11 +40,12 @@ on:
         default: ""
         type: string
 
-  push:
-    branches:
-      - main
-      - develop
-      - fix/production-release-gates-20261125
+  workflow_call:
+    inputs:
+      grep:
+        required: false
+        type: string
+        default: ""
 
   pull_request:
     branches:
@@ -131,7 +132,7 @@ jobs:
         # Фиксированная матрица (variant B, решение владельца 2026-10-15):
         # единственный активный проект Playwright. Nightly и ручной запуск —
         # только chromium до активации firefox/webkit (TODO в шапке файла).
-        browser: ["chromium"]
+        browser: ["chromium", "mobile-chrome"]
 
     steps:
       - uses: actions/checkout@v7
@@ -236,7 +237,7 @@ jobs:
           E2E_BASE_URL: http://127.0.0.1:3000
           # Фильтр grep через env вместо inline-подстановки — защита от shell
           # injection/разрыва кавычек при workflow_dispatch.
-          E2E_GREP: ${{ github.event.inputs.grep }}
+          E2E_GREP: ${{ inputs.grep || github.event.inputs.grep || '' }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
