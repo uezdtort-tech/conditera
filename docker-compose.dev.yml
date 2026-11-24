@@ -80,8 +80,10 @@ services:
     restart: unless-stopped
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, бонусы, AI) =====
+  # Пин синхронизирован с prod (docker-compose.yml) — устраняет дрейф схем workflow.
+  # n8n 2.x игнорирует BASIC_AUTH: дев-инстанс при первом старте также просит owner-аккаунт.
   n8n-dev:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.49.5
     container_name: uyezdny-n8n-dev
     ports:
       - "5678:5678"

@@ -359,8 +359,12 @@ services:
       - conditera-net
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, сгорание бонусов) =====
+  # Пин = тот же релиз, что Docker Hub помечает `stable` (на 2026-11-24: 2.49.5).
+  # N8N_BASIC_AUTH_* игнорируются n8n 2.x (deprecated): при первом запуске
+  # настраивается owner-аккаунт через UI; переменные оставлены для отката
+  # на 1.95.0 (git revert вернёт тег и env атомарно). См. docs/N8N_UPGRADE_CHECKLIST.md
   n8n:
-    image: n8nio/n8n:1.95.0
+    image: n8nio/n8n:2.49.5
     container_name: conditera-n8n
     <<: *default-restart
     environment:

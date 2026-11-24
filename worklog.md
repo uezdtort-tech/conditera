@@ -10474,3 +10474,16 @@ pg17-migration — 17.12.0.001, CI migrations-pg17 — postgres:17-alpine (ша�
 Отмечено владельцу: postgres17-compose-validation.yml:80 ассертит supabase-db=PG15 —
 устарел после сведения, workflow ветко-скопирован (work/pg17-compose-validation-and-import),
 на main не запускается. YAML валидирован (js-yaml), docker в песочнице недоступен.
+
+### 2026-11-24 (Z.ai) — ops(n8n): пин образа поднят с 1.95.0 до 2.49.5 (dev+prod синхронно)
+Запрос владельца «зачем устаревший n8n» → аудит: n8n в проекте = только автоматизация
+(10 workflow), в схеме авторизации пользователей НЕ участвует (auth = GoTrue/JWT/CSRF);
+пересечение лишь машинное: X-N8N-Secret webhook (constant-time, fail-closed) + deprecated
+N8N_BASIC_AUTH для UI. Prod-compose пинился на 1.95.0 (~18 мес), dev — на latest → дрейф.
+Версия выбрана по факту Docker Hub API: stable=latest digest=2.49.5 (3.4.0 — свежая мажорная,
+не взята). Изменения: тег 2.49.5 в обоих compose (YAML валидирован), N8N_BASIC_AUTH_* оставлены
+намеренно (нужны при откате на 1.95.0; 2.x их игнорирует), добавлен docs/N8N_UPGRADE_CHECKLIST.md
+(owner-аккаунт вместо basic-auth, backup n8n_data ДО старта 2.x — миграция SQLite необратима,
+смок-тесты webhook/digest/bonuses, процедура отката с восстановлением volume).
+Ограничение: рантайм-проверка n8n в песочнице невозможна (docker отсутствует) — чек-лист
+выполняется на машине владельца при поднятии хоста.
