@@ -11,11 +11,12 @@
 
 import { createBrowserClient } from "@supabase/ssr";
 import { resolveSupabaseBrowserUrl, SUPABASE_COOKIE_NAME } from "./url";
+import { isPlaceholderSupabaseKey } from "./key-validation";
 
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 // Lazy warning — не падаем в build, только в runtime.
-const _isStub = !supabaseAnonKey;
+const _isStub = isPlaceholderSupabaseKey(supabaseAnonKey, process.env.NODE_ENV !== "production");
 if (_isStub) {
   if (process.env.NODE_ENV === "development") {
     console.warn(
@@ -35,7 +36,7 @@ const supabaseUrl = resolveSupabaseBrowserUrl();
 
 export const supabaseBrowser = createBrowserClient(
   supabaseUrl,
-  supabaseAnonKey || "stub-anon-key",
+  _isStub ? "stub-anon-key" : supabaseAnonKey!,
   { cookieOptions: { name: SUPABASE_COOKIE_NAME } }
 );
 
