@@ -228,7 +228,7 @@ echo ""
 echo -e "${BOLD}[OAUTH — вход через соцсети]${NC}"
 if [ "$(get_env "EXTERNAL_YANDEX_ENABLED")" = "true" ]; then
   check_required "YANDEX_CLIENT_ID" "Yandex OAuth client ID"
-  check_required "YANDEX_CLIENT_SECRET" "Yandex OAuth client secret"
+  check_optional "YANDEX_CLIENT_SECRET" "Yandex OAuth client secret (optional for public PKCE clients)"
   check_required "YANDEX_OAUTH_REDIRECT" "Yandex OAuth callback URL"
 else
   err "EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза"
