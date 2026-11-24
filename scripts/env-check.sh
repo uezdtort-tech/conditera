@@ -10,7 +10,7 @@
 #
 # Что проверяет:
 #   1. Существование файла .env.local / .env.production
-#   2. Все REQUIRED-переменные заполнены (не пустые, не начинаются с stub_)
+#   2. Все REQUIRED-переменные заполнены (не пустые, не начинаются с stub[-_])
 #   3. Формат: warnings для опциональных, errors для обязательных
 #   4. Специфичные проверки: формат DATABASE_URL, длина JWT_SECRET и т.д.
 # ============================================================
@@ -74,7 +74,7 @@ is_filled() {
     return 1
   fi
   local normalized="${val,,}"
-  if [[ "$normalized" =~ ^(change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[-_]) ]]; then
+  if [[ "$normalized" =~ ^(change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[-_]) ]]; then
     return 1
   fi
   return 0
@@ -147,7 +147,7 @@ validate_database_url() {
     local password="${BASH_REMATCH[2]}"
     local normalized="${password,,}"
     case "$normalized" in
-      change_me*|stub_*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+      change_me*|stub[-_]*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
         err "Пароль в $name содержит заглушку/dev/test-значение (значение скрыто)"
         ;;
     esac
@@ -189,7 +189,7 @@ check_production_secret() {
 
   local normalized="${val,,}"
   case "$normalized" in
-    change_me*|stub_*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+    change_me*|stub[-_]*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
       err "$var_name содержит заглушку/dev/test-значение (значение скрыто)"
       return
       ;;
