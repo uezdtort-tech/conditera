@@ -92,7 +92,7 @@ for (const file of scanTargets) {
   const lines = text.split(/\r?\n/);
   lines.forEach((line, idx) => {
     const m = line.match(/^\s*image:\s*["']?([^"'#\s]+)["']?/i);
-    if (!m || !/(?:^|\\/)(?:postgres|pgvector)(?:[:/]|$)/i.test(m[1])) return;
+    if (!m || !/(?:^|\/)(?:postgres|pgvector)(?:[:/]|$)/i.test(m[1])) return;
     const image = m[1].trim();
     const tag = image.slice(image.lastIndexOf(":") + 1);
     const ver = tag.match(/^(\d+)(?:\.|$|-)/);
