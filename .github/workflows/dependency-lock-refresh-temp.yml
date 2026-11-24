@@ -1,0 +1,57 @@
+name: Temporary combined dependency lock refresh
+
+on:
+  push:
+    branches:
+      - fix/production-release-gates-20261125
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dependency-lock-refresh-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refresh-locks:
+    if: ${{ !contains(github.event.head_commit.message, '[dep-refresh-complete]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Apply semver-safe npm security updates and synchronize locks
+        run: |
+          npm audit fix --package-lock-only --legacy-peer-deps || true
+          npm install --package-lock-only --legacy-peer-deps
+          bun install
+
+      - name: Report remaining production npm advisories
+        run: npm audit --omit=dev --audit-level=high || true
+
+      - name: Commit refreshed lockfiles
+        run: |
+          if git diff --quiet -- package.json package-lock.json bun.lock; then
+            echo "No lockfile changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json bun.lock
+          git commit -m "chore(deps): refresh patched npm and Bun lockfiles [dep-refresh-complete]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
