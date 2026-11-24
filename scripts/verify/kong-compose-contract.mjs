@@ -14,7 +14,7 @@ assert.match(
 );
 assert.match(
   compose,
-  /^      KONG_PLUGINS: .*\\brate-limiting\\b.*$/m,
+  /^      KONG_PLUGINS: .*\brate-limiting\b.*$/m,
   "KONG_PLUGINS must include rate-limiting because supabase/kong.yml configures that plugin."
 );
 assert.doesNotMatch(
@@ -23,4 +23,4 @@ assert.doesNotMatch(
   "Kong proxy buffer overrides must remain unset until verified against the running Kong 2.8 image."
 );
 
-console.log("Kong Compose contract: PASS (DB-less mode, declarative config, no unverified buffer overrides).");
+console.log("Kong Compose contract: PASS (DB-less mode, declarative config, plugin availability, no unverified buffer overrides).");
