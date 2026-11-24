@@ -40,8 +40,8 @@ export async function runFullBackup(): Promise<BackupResult> {
   const startTime = Date.now();
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   // pg_dump must connect directly to PostgreSQL, never through transaction-pooling PgBouncer.
-  const databaseUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
   const production = process.env.NODE_ENV === "production";
+  const databaseUrl = process.env.DIRECT_DATABASE_URL || (production ? undefined : process.env.DATABASE_URL);
   const allowJsonFallback = process.env.BACKUP_ALLOW_JSON_FALLBACK === "true";
 
   if (!existsSync(BACKUP_DIR)) {
