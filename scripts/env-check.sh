@@ -276,6 +276,13 @@ if [ "$MODE_LABEL" = "production" ] && is_filled "$TFA"; then
 fi
 
 if [ "$MODE_LABEL" = "production" ]; then
+  LOCAL_SHIMS=$(get_env "SUPABASE_LOCAL_SHIMS_ENABLED")
+  if [ "$LOCAL_SHIMS" = "true" ]; then
+    err "SUPABASE_LOCAL_SHIMS_ENABLED запрещён в production — используйте реальный Supabase runtime через Kong"
+  fi
+fi
+
+if [ "$MODE_LABEL" = "production" ]; then
   APP_URL=$(get_env "NEXT_PUBLIC_APP_URL")
   check_required "NEXT_PUBLIC_APP_URL" "публичный HTTPS URL приложения"
   if is_filled "$APP_URL" && [[ "$APP_URL" != https://* ]]; then
