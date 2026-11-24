@@ -33,7 +33,7 @@ export async function createSupabaseServerClient() {
 
   return createServerClient(
     supabaseUrl,
-    supabaseAnonKey || "build-only-stub-anon-key",
+    supabaseAnonKey || "stub_build_only_anon_key",
     {
       cookieOptions: { name: SUPABASE_COOKIE_NAME },
       cookies: {
