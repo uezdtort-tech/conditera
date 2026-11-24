@@ -24,7 +24,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // На этапе сборки допускается временный ключ для пререндера. В production
 // runtime отсутствие URL/service-role key — фатальная ошибка, а не отложенный
 // сбой отдельных административных запросов.
-const _isStub = !process.env.NEXT_PUBLIC_SUPABASE_URL || !serviceRoleKey || /^(CHANGE_ME|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(serviceRoleKey);
+const _isStub = !process.env.NEXT_PUBLIC_SUPABASE_URL || !serviceRoleKey || /^(CHANGE_ME|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(serviceRoleKey);
 const _isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 if (_isStub && process.env.NODE_ENV === "production" && !_isBuildPhase) {
   throw new Error(
@@ -37,7 +37,7 @@ if (_isStub) {
 
 export const supabaseAdmin = createClient(
   supabaseUrl,
-  serviceRoleKey || "stub_build_only_service_role_key",
+  serviceRoleKey || "stub[-_]build_only_service_role_key",
   {
     auth: {
       autoRefreshToken: false,
