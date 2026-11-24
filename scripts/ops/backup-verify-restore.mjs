@@ -92,7 +92,13 @@ function runPsqlRestore(backupPath) {
     child.once("error", reject);
     child.once("close", (code) => code === 0 ? resolve() : reject(new Error("psql restore exited with code " + code)));
   });
-  return pipeline(createReadStream(backupPath), createGunzip(), child.stdin).then(() => exitPromise);
+  const inputPromise = pipeline(createReadStream(backupPath), createGunzip(), child.stdin);
+  try {
+    await Promise.all([inputPromise, exitPromise]);
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
 }
 
 async function tableCounts(client) {
@@ -247,13 +253,22 @@ async function main() {
   if (backupPath.endsWith(".sql.gz")) {
     await verifySqlBackup(backupPath);
   } else if (backupPath.endsWith(".json.gz")) {
+    verificationLevel = "PARTIAL";
     await verifyJsonSnapshot(backupPath);
   } else {
     throw new Error("unsupported backup format: " + backupPath);
   }
 
-  console.log(failures === 0 ? "\nRESTORE-VERIFY: PASSED" : "\nRESTORE-VERIFY: FAILED (" + failures + ")");
-  process.exitCode = failures === 0 ? 0 : 1;
+  if (failures > 0) {
+    console.log("\nRESTORE-VERIFY: FAILED (" + failures + ")");
+    process.exitCode = 1;
+  } else if (verificationLevel === "FULL") {
+    console.log("\nRESTORE-VERIFY: PASSED (full schema + data restore)");
+    process.exitCode = 0;
+  } else {
+    console.log("\nRESTORE-VERIFY: PARTIAL (JSON critical-table snapshot only; not a full database restore)");
+    process.exitCode = 0;
+  }
 }
 
 main().catch((error) => {
