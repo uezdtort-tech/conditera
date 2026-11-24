@@ -220,7 +220,7 @@ function preprocessStatement(stmt) {
   }
 
   // pg_cron is inside a conditional DO block for Supabase PG17; skip it in vanilla PG.
-  if (/CREATE\\s+EXTENSION\\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
+  if (/CREATE\s+EXTENSION\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
     return { skip: true, reason: "pg_cron not available in vanilla PG" };
   }
 
