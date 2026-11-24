@@ -34,14 +34,16 @@ function cleanLibpqUrl(value) {
 
 const DATABASE_URL = cleanLibpqUrl(loadDbUrl()).toString();
 const parsed = new URL(DATABASE_URL);
-const adminUrl = new URL(DATABASE_URL);
-adminUrl.pathname = "/postgres";
-const ADMIN_URL = adminUrl.toString();
+const RESTORE_DATABASE_URL = cleanLibpqUrl(process.env.BACKUP_RESTORE_DATABASE_URL || DATABASE_URL).toString();
+const restoreAdminUrl = new URL(RESTORE_DATABASE_URL);
+restoreAdminUrl.pathname = "/postgres";
+const RESTORE_ADMIN_URL = restoreAdminUrl.toString();
 
-const RESTORE_DB = "conditera_restore_verify_" + Date.now();
-const restoreUrl = new URL(DATABASE_URL);
+const RESTORE_DB = process.env.BACKUP_RESTORE_DB_NAME || ("conditera_restore_verify_" + Date.now());
+const restoreUrl = new URL(RESTORE_DATABASE_URL);
 restoreUrl.pathname = "/" + RESTORE_DB;
 const RESTORE_URL = restoreUrl.toString();
+const RESTORE_PSQL_URL = cleanLibpqUrl(process.env.BACKUP_RESTORE_PSQL_URL || RESTORE_URL).toString();
 
 let failures = 0;
 function check(name, ok, detail = "") {
@@ -54,7 +56,7 @@ function quoteIdent(value) {
 }
 
 async function createDisposableDatabase() {
-  const admin = new pg.Client({ connectionString: ADMIN_URL });
+  const admin = new pg.Client({ connectionString: RESTORE_ADMIN_URL });
   await admin.connect();
   try {
     await admin.query("CREATE DATABASE " + quoteIdent(RESTORE_DB));
@@ -77,7 +79,7 @@ async function dropDisposableDatabase() {
 }
 
 async function runPsqlRestore(backupPath) {
-  const url = new URL(RESTORE_URL);
+  const url = new URL(RESTORE_PSQL_URL);
   const password = decodeURIComponent(url.password);
   url.password = "";
   const env = { ...process.env };
@@ -240,7 +242,16 @@ function createGunzipBuffer(backupPath) {
 
 async function main() {
   let verificationLevel = "FULL";
+  const requireFull = process.env.BACKUP_REQUIRE_FULL_RESTORE === "true" || process.env.NODE_ENV === "production";
+  const restoreHost = new URL(RESTORE_DATABASE_URL).host;
+  if (requireFull && !process.env.BACKUP_RESTORE_DATABASE_URL) {
+    throw new Error("BACKUP_RESTORE_DATABASE_URL is required: full restore verification must use a separate PostgreSQL cluster.");
+  }
+  if (requireFull && restoreHost === parsed.host) {
+    throw new Error("Full restore verification must use a separate PostgreSQL cluster, not another database in the source cluster.");
+  }
   console.log("Source DB: " + parsed.host + parsed.pathname);
+  console.log("Restore cluster: " + restoreHost);
   console.log("Disposable restore DB: " + RESTORE_DB + "\n");
 
   console.log("Creating backup with the real application backup service...");
