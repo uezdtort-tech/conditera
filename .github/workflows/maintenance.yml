@@ -91,25 +91,46 @@ jobs:
     if: ${{ always() }}
     env:
       STAGING_HOST_SET: ${{ secrets.STAGING_HOST != '' }}
+      STAGING_SSH_KEY_SET: ${{ secrets.STAGING_SSH_KEY != '' }}
+      STAGING_RESTORE_URL_SET: ${{ secrets.STAGING_RESTORE_DATABASE_URL != '' }}
     steps:
-      - name: Skip (honest) — staging host not configured
-        if: ${{ env.STAGING_HOST_SET != 'true' }}
+      - name: Skip (honest) — restore host/cluster not configured
+        if: ${{ env.STAGING_HOST_SET != 'true' || env.STAGING_SSH_KEY_SET != 'true' || env.STAGING_RESTORE_URL_SET != 'true' }}
         run: |
-          echo "## Restore-verify: SKIPPED — STAGING_HOST not configured (owner decision D-1)." >> "$GITHUB_STEP_SUMMARY"
-          echo "RESTORE-VERIFY SKIPPED: no staging host (no fake verification)."
+          {
+            echo "## Restore-verify: SKIPPED — required staging connection details are not configured."
+            echo ""
+            echo "| Secret | Configured |"
+            echo "|---|---|"
+            echo "| STAGING_HOST | ${{ env.STAGING_HOST_SET }} |"
+            echo "| STAGING_SSH_KEY | ${{ env.STAGING_SSH_KEY_SET }} |"
+            echo "| STAGING_RESTORE_DATABASE_URL | ${{ env.STAGING_RESTORE_URL_SET }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "RESTORE-VERIFY SKIPPED: staging host/restore cluster missing (no fake verification)."
 
-      - name: "Restore-verify via SSH (§10: proof = successful restore)"
-        if: ${{ env.STAGING_HOST_SET == 'true' }}
+      - name: "Restore-verify exact application backup artifact via SSH"
+        if: ${{ env.STAGING_HOST_SET == 'true' && env.STAGING_SSH_KEY_SET == 'true' && env.STAGING_RESTORE_URL_SET == 'true' }}
         uses: appleboy/ssh-action@v1.2.5
+        env:
+          STAGING_RESTORE_DATABASE_URL: ${{ secrets.STAGING_RESTORE_DATABASE_URL }}
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: deploy
           key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: STAGING_RESTORE_DATABASE_URL
           script: |
-            set -e
+            set -euo pipefail
             cd /opt/conditera-staging
-            # §10: доказательство бэкапа — успешное восстановление в
-            # одноразовую БД + сверка количества строк (fail → exit 1).
-            # Z-v19 §11 fix: скрипт импортирует @/lib/backup — алиас резолвит
-            # только bun; под node падает ERR_MODULE_NOT_FOUND (проверено).
+            command -v psql >/dev/null || { echo "psql client is required on staging host"; exit 1; }
+            PSQL_MAJOR="$(psql --version | awk '{print $NF}' | cut -d. -f1)"
+            test "$PSQL_MAJOR" -ge 18
+            BACKUP_FILE="$(docker compose exec -T web sh -c 'ls -1t /app/backups/backup-*.sql.gz 2>/dev/null | head -1' | tr -d '\r')"
+            test -n "$BACKUP_FILE" || { echo "No full SQL backup artifact found in web backup volume"; exit 1; }
+            BACKUP_VERIFY_PATH="/tmp/conditera-restore-verify-$(basename "$BACKUP_FILE")"
+            trap 'rm -f "$BACKUP_VERIFY_PATH"' EXIT
+            docker compose cp "web:$BACKUP_FILE" "$BACKUP_VERIFY_PATH"
+            test -s "$BACKUP_VERIFY_PATH"
+            export BACKUP_VERIFY_PATH
+            export BACKUP_RESTORE_DATABASE_URL="$STAGING_RESTORE_DATABASE_URL"
+            export BACKUP_REQUIRE_FULL_RESTORE=true
             bun scripts/ops/backup-verify-restore.mjs
