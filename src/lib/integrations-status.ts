@@ -7,9 +7,8 @@
  * и n8n, а OAuth-провайдеры, SMTP и Telegram были невидимы для админа.
  *
  * Правила детекции соответствуют логике самих адаптеров:
- *  - OAuth (/api/auth/oauth/[provider]): value отсутствует ИЛИ начинается
- *    с "stub_" → провайдер считается НЕ настроенным;
- *  - Email (lib/email.ts): SMTP_HOST отсутствует → NOT_CONFIGURED;
+ *  - OAuth: client ID и callback URL должны быть заданы и не быть placeholders;
+ *  - Email: SMTP host, user, password и sender должны быть заданы;
  *  - Telegram (lib/telegram-bot.ts): TELEGRAM_BOT_TOKEN отсутствует → NOT_CONFIGURED;
  *  - YooKassa (lib/yookassa.ts): isYookassaConfigured().
  *
