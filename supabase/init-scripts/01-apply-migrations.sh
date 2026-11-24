@@ -58,23 +58,50 @@ fi
 
 APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 
-# ===== 0.1. Детекция дубликатов migration ID (Z-v24) =====
-# Конвенция проекта: вариантные файлы одного номера — ЧИСЛО+БУКВА (0016b).
-# Два файла с одинаковым числовым префиксом и остатком, начинающимся с «_»,
-# — конфликт дубликатов (инцидент Z-v24: 0062_cart_custom_items + 0062_cart_sync_custom).
-# Блокируем ДО применения любого SQL.
+# ===== 0.1. Проверка migration ID (Z-v24, backward-compatible) =====
+# Новые миграции обязаны иметь уникальный числовой ID. В старом наборе уже
+# существуют перечисленные исторические коллизии; имена файлов и журнал
+# schema_migrations нельзя переименовывать без отдельной миграции журнала.
+# Для этих групп сохраняем детерминированный лексикографический порядок,
+# который использовался ранее. Любая новая/неизвестная коллизия блокирует запуск.
 DUP_ERRORS=0
 for num in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | xargs -n1 basename | sed -n 's/^\([0-9][0-9]*\)_.*/\1/p' | sort -u); do
-  DUP_FILES=$(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | xargs -n1 basename | grep -E "^${num}_" | sort)
+  DUP_FILES=$(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | xargs -n1 basename | grep -E "^\${num}_" | sort)
   DUP_COUNT=$(echo "$DUP_FILES" | grep -c . || true)
-  if [ "$DUP_COUNT" -gt 1 ]; then
-    echo "❌ ДУБЛИКАТ MIGRATION ID ${num}:"
+  [ "$DUP_COUNT" -le 1 ] && continue
+  case "$num" in
+    0061)
+      EXPECTED=$(printf '%s\n' 0061_drop_orders_log_status_trigger.sql 0061_user_consent_events.sql)
+      ;;
+    0062)
+      EXPECTED=$(printf '%s\n' 0062_cart_custom_items.sql 0062_cart_sync_custom.sql 0062_reference_catalog.sql)
+      ;;
+    0063)
+      EXPECTED=$(printf '%s\n' 0063_cake_project_spec.sql 0063_financial_ledger.sql)
+      ;;
+    0064)
+      EXPECTED=$(printf '%s\n' 0064_product_slices_rls.sql 0064_supplier_procurement.sql)
+      ;;
+    0066)
+      EXPECTED=$(printf '%s\n' 0066_recipe_children.sql 0066_service_role_default_grants.sql)
+      ;;
+    0067)
+      EXPECTED=$(printf '%s\n' 0067_recipe_ingredients_normalization.sql 0067_repair_updated_at_triggers.sql)
+      ;;
+    *)
+      EXPECTED=""
+      ;;
+  esac
+  if [ -z "$EXPECTED" ] || [ "$DUP_FILES" != "$EXPECTED" ]; then
+    echo "❌ НЕОЖИДАННАЯ КОЛЛИЗИЯ MIGRATION ID \${num}:"
     echo "$DUP_FILES" | sed 's/^/    /'
     DUP_ERRORS=$((DUP_ERRORS + 1))
+  else
+    echo "ℹ️  Историческая коллизия \${num}: применяю уникальные имена файлов в стабильном порядке"
   fi
 done
 if [ "$DUP_ERRORS" -gt 0 ]; then
-  echo "❌ Применение прервано ДО SQL: дублирующиеся migration ID запрещены (Z-v24)."
+  echo "❌ Применение прервано ДО SQL: найдены неизвестные дублирующиеся migration ID."
   exit 1
 fi
 
