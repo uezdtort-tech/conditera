@@ -73,11 +73,13 @@ async function restoreProductionTimeFixture() {
 // Фиксированный UUID (aaaaaaaa-…-…9f1) — только для verify-фикстуры,
 // idempotent INSERT/RESTORE, реальные данные demo-склада не изменяются.
 const BERRIES_ITEM_ID = "aaaaaaaa-0000-4000-8000-0000000009f1";
-let berriesOriginal; // undefined = не трогали; null = не существовала; number = исходный остаток
+let berriesOriginal; // undefined = не трогали; null = не существовала; object = исходные quantity/is_active
 async function stockBerries(kg = 5) {
   const cur = await client.query(`SELECT quantity FROM public.inventory_items WHERE id = $1::uuid`, [BERRIES_ITEM_ID]);
   if (berriesOriginal === undefined) {
-    berriesOriginal = cur.rows.length ? Number(cur.rows[0].quantity) : null;
+    berriesOriginal = cur.rows.length
+      ? { quantity: Number(cur.rows[0].quantity), isActive: Boolean(cur.rows[0].is_active) }
+      : null;
   }
   if (cur.rows.length === 0) {
     await client.query(
@@ -99,7 +101,10 @@ async function restoreBerries() {
   if (berriesOriginal === null) {
     await client.query(`DELETE FROM public.inventory_items WHERE id = $1::uuid`, [BERRIES_ITEM_ID]);
   } else {
-    await client.query(`UPDATE public.inventory_items SET quantity = $2::numeric WHERE id = $1::uuid`, [BERRIES_ITEM_ID, berriesOriginal]);
+    await client.query(
+      `UPDATE public.inventory_items SET quantity = $2::numeric, is_active = $3 WHERE id = $1::uuid`,
+      [BERRIES_ITEM_ID, berriesOriginal.quantity, berriesOriginal.isActive]
+    );
   }
   berriesOriginal = undefined;
 }
