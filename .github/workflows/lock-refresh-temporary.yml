@@ -1,0 +1,32 @@
+name: Temporary lockfile refresh
+
+on:
+  push:
+    branches:
+      - fix/production-secrets-env-20261125
+    paths:
+      - package.json
+      - bun.lock
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Refresh Bun lockfile
+        run: bun install
+      - name: Refresh npm lockfile
+        run: npm install --package-lock-only --ignore-scripts --legacy-peer-deps
+      - name: Print generated lockfile diff for review
+        run: |
+          git diff --stat -- bun.lock package-lock.json
+          git diff --no-ext-diff --unified=3 -- bun.lock package-lock.json
