@@ -53,6 +53,18 @@ describe("assertProductionEnvironment", () => {
     expect(() => assertProductionEnvironment(env)).toThrow(/должны различаться/);
   });
 
+  it("rejects a placeholder password embedded in DATABASE_URL", () => {
+    const env = validEnv();
+    env.DATABASE_URL = "postgresql://app:CHANGE_ME_STRONG_PASSWORD@db:5432/postgres";
+    expect(() => assertProductionEnvironment(env)).toThrow(/Пароль в DATABASE_URL/);
+  });
+
+  it("rejects a weak database password", () => {
+    const env = validEnv();
+    env.DATABASE_URL = "postgresql://app:short@db:5432/postgres";
+    expect(() => assertProductionEnvironment(env)).toThrow(/Пароль в DATABASE_URL/);
+  });
+
   it("requires HTTPS public URLs", () => {
     const env = validEnv();
     env.NEXT_PUBLIC_APP_URL = "http://conditera.ru";
