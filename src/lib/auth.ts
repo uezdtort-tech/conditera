@@ -26,12 +26,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 // Development: dev-значение с явным предупреждением.
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
+  const normalized = value?.toLowerCase() || "";
   const isStub =
     !value ||
-    value.startsWith("CHANGE_ME") ||
-    value.startsWith("fallback-") ||
-    value.startsWith("dev-") ||
-    value.startsWith("dev_");
+    /^(change_me|fallback-|dev[-_]|stub_|build-placeholder|dummy|your_|example)/.test(normalized);
 
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
@@ -66,24 +64,10 @@ function getRequiredEnv(name: string): string {
  * Первая непустая незаглушечная переменная побеждает; иначе — обычный
  * getRequiredEnv(primary) со стандартными предупреждениями.
  */
-function getSecretEnv(primary: string, fallbacks: string[]): string {
-  for (const name of [primary, ...fallbacks]) {
-    const v = process.env[name]?.trim();
-    if (v && !v.startsWith("CHANGE_ME") && !v.startsWith("fallback-") && !v.startsWith("dev-") && !v.startsWith("dev_")) {
-      return v;
-    }
-  }
-  return getRequiredEnv(primary);
-}
-
-const JWT_SECRET = new TextEncoder().encode(getSecretEnv("JWT_SECRET", ["AUTH_SECRET"]));
-
-// Refresh-секрет — отдельная env-переменная (НЕ производная от JWT_SECRET).
-// ВНИМАНИЕ: после перехода на JWT_REFRESH_SECRET все прежние refresh-токены
-// инвалидируются — пользователи один раз перелогинятся.
-const JWT_REFRESH_SECRET = new TextEncoder().encode(
-  getSecretEnv("JWT_REFRESH_SECRET", ["AUTH_REFRESH_SECRET", "AUTH_SECRET"])
-);
+// Ключи намеренно не имеют альтернативных имён и не подменяют друг друга.
+// JWT_REFRESH_SECRET обязателен и криптографически независим от JWT_SECRET.
+const JWT_SECRET = new TextEncoder().encode(getRequiredEnv("JWT_SECRET"));
+const JWT_REFRESH_SECRET = new TextEncoder().encode(getRequiredEnv("JWT_REFRESH_SECRET"));
 
 export interface JwtPayload extends JWTPayload {
   userId: string;
