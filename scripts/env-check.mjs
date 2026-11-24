@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 
 const ROOT = process.cwd();
 const modeArg = (process.argv[2] || "dev").toLowerCase();
