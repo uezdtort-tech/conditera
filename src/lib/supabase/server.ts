@@ -17,11 +17,14 @@ import { resolveSupabaseServerUrl, SUPABASE_COOKIE_NAME } from "./url";
 const supabaseUrl = resolveSupabaseServerUrl();
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseAnonKey) {
-  console.warn(
-    "[supabase/server] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
-    "Auth will not work."
+const _isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+if (!supabaseAnonKey && process.env.NODE_ENV === "production" && !_isBuildPhase) {
+  throw new Error(
+    "[supabase/server] NEXT_PUBLIC_SUPABASE_ANON_KEY is required in production."
   );
+}
+if (!supabaseAnonKey) {
+  console.warn("[supabase/server] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. Auth will not work.");
 }
 
 export async function createSupabaseServerClient() {
@@ -29,7 +32,7 @@ export async function createSupabaseServerClient() {
 
   return createServerClient(
     supabaseUrl,
-    supabaseAnonKey || "stub-anon-key",
+    supabaseAnonKey || "build-only-stub-anon-key",
     {
       cookieOptions: { name: SUPABASE_COOKIE_NAME },
       cookies: {
