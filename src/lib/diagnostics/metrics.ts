@@ -109,7 +109,7 @@ export function collectProcessAndSystemMetrics(): {
   const statfs = (fs as unknown as { statfs?: (p: string, cb: (err: NodeJS.ErrnoException | null, stats: { blocks: number; bsize: number; bavail: number }) => void) => void }).statfs;
   if (typeof statfs === "function") {
     try {
-      const s = fs.statfsSync(process.cwd());
+      const s = fs.statfsSync(/* turbopackIgnore: true */ process.cwd());
       const bsize = s.bsize;
       disk = {
         path: process.cwd(),
