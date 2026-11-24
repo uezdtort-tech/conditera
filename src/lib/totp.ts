@@ -80,6 +80,16 @@ function getTfaKey(): Buffer {
   const isProduction = process.env.NODE_ENV === "production";
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
+  if (
+    isProduction &&
+    value &&
+    (value === process.env.JWT_SECRET || value === process.env.JWT_REFRESH_SECRET)
+  ) {
+    throw new Error(
+      "[totp] TFA_ENCRYPTION_KEY must be independent from JWT_SECRET and JWT_REFRESH_SECRET."
+    );
+  }
+
   if (isProduction && !validProductionKey) {
     if (isBuildPhase) {
       console.warn(
