@@ -40,13 +40,6 @@ on:
         default: ""
         type: string
 
-  workflow_call:
-    inputs:
-      grep:
-        required: false
-        type: string
-        default: ""
-
   pull_request:
     branches:
       - main
