@@ -53,7 +53,7 @@ env:
   DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
   JWT_SECRET: "e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa"
   JWT_REFRESH_SECRET: "e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa"
-  TFA_ENCRYPTION_KEY: "e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+  TFA_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   CRON_SECRET: "e2e_test_cron_secret"
   NEXT_PUBLIC_APP_URL: "http://localhost:3000"
   NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3000"
@@ -223,7 +223,6 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: ${{ env.NODE_ENV }}
 
       - name: Run Playwright tests
@@ -253,7 +252,6 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: ${{ env.NODE_ENV }}
           CI: "true"
 
