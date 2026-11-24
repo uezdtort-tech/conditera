@@ -361,7 +361,6 @@ export function useSocketIO() {
   }, []);
 
   return {
-    socket: socketRef.current,
     isConnected,
     isEnabled: IS_ENABLED,
     onlineUsers,
