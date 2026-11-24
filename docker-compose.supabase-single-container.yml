@@ -19,7 +19,7 @@ services:
       - DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
       - DIRECT_DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
       - REDIS_URL=redis://redis:6379
-      - MEILISearch_URL=http://meilisearch:7700
+      - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:?MEILI_MASTER_KEY required}
       - SUPABASE_INTERNAL_URL=http://supabase-kong:8000
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET required}
