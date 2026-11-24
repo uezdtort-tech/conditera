@@ -39,7 +39,7 @@ function getRequiredEnv(name: string): string {
           `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
             `используется placeholder. РАНТАЙМ всё равно потребует реальное значение!`
         );
-        return `build-placeholder-${name}-${"0".repeat(24)}`;
+        return `stub_build_only_${name}_${"0".repeat(24)}`;
       }
       throw new Error(
         `[auth] ${name} отсутствует или содержит заглушку в production. ` +
