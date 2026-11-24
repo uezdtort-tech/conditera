@@ -20,20 +20,7 @@ function requireValue(env: RuntimeEnv, name: string, minLength = 1): string {
   return value;
 }
 
-function requireHttpsUrl(env: RuntimeEnv, name: string): void {
-  const value = requireValue(env, name);
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`[production-env] ${name} должен быть корректным HTTPS URL.`);
-  }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`[production-env] ${name} должен использовать HTTPS в production.`);
-  }
-}
-
-function requireHttpsUrlValue(env: RuntimeEnv, name: string): string {
+function requireHttpsUrl(env: RuntimeEnv, name: string): string {
   const value = requireValue(env, name);
   let parsed: URL;
   try {
@@ -76,7 +63,7 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
     throw new Error("[production-env] EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза.");
   }
   requireValue(env, "YANDEX_CLIENT_ID");
-  const yandexRedirect = requireHttpsUrlValue(env, "YANDEX_OAUTH_REDIRECT");
+  const yandexRedirect = requireHttpsUrl(env, "YANDEX_OAUTH_REDIRECT");
   const expectedYandexRedirect = new URL("/api/auth/oauth/yandex/callback", requireValue(env, "NEXT_PUBLIC_APP_URL")).toString();
   if (yandexRedirect !== expectedYandexRedirect) {
     throw new Error("[production-env] YANDEX_OAUTH_REDIRECT должен совпадать с публичным callback URL.");
@@ -121,5 +108,4 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
       throw new Error("[production-env] Пароль в " + name + " пустой, слишком короткий или является заглушкой.");
     }
   }
-
 }
