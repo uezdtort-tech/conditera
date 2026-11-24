@@ -14,6 +14,14 @@ function validEnv(): Record<string, string | undefined> {
     JWT_REFRESH_SECRET: "d".repeat(64),
     TFA_ENCRYPTION_KEY: "e".repeat(64),
     CRON_SECRET: "f".repeat(32),
+    SMTP_HOST: "smtp.conditera.test",
+    SMTP_USER: "noreply@conditera.test",
+    SMTP_PASSWORD: "smtp-password-".padEnd(32, "x"),
+    YOOKASSA_SHOP_ID: "123456",
+    YOOKASSA_SECRET_KEY: "live_test_secret_key_123456789",
+    EXTERNAL_YANDEX_ENABLED: "true",
+    YANDEX_CLIENT_ID: "yandex-client-id",
+    YANDEX_CLIENT_SECRET: "yandex-client-secret",
   };
 }
 
@@ -41,10 +49,29 @@ describe("assertProductionEnvironment", () => {
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_APP_URL",
     "CRON_SECRET",
+    "SMTP_HOST",
+    "SMTP_USER",
+    "SMTP_PASSWORD",
+    "YOOKASSA_SHOP_ID",
+    "YOOKASSA_SECRET_KEY",
+    "YANDEX_CLIENT_ID",
+    "YANDEX_CLIENT_SECRET",
   ])("rejects a missing required variable: %s", (name) => {
     const env = validEnv();
     delete env[name];
     expect(() => assertProductionEnvironment(env)).toThrow(new RegExp(name));
+  });
+
+  it("requires Yandex OAuth to be enabled for production", () => {
+    const env = validEnv();
+    env.EXTERNAL_YANDEX_ENABLED = "false";
+    expect(() => assertProductionEnvironment(env)).toThrow(/EXTERNAL_YANDEX_ENABLED/);
+  });
+
+  it("rejects placeholder payment and SMTP credentials", () => {
+    const env = validEnv();
+    env.YOOKASSA_SECRET_KEY = "CHANGE_ME_YOOKASSA";
+    expect(() => assertProductionEnvironment(env)).toThrow(/YOOKASSA_SECRET_KEY/);
   });
 
   it("rejects placeholder secrets", () => {
