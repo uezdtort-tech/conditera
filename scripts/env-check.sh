@@ -329,8 +329,17 @@ else
   check_optional "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
   check_optional "VK_OAUTH_REDIRECT" "VK OAuth — redirect URI"
 fi
-check_optional "GOOGLE_CLIENT_ID" "Google OAuth — кнопка «Войти через Google»"
-check_optional "GOOGLE_OAUTH_REDIRECT" "Google OAuth — redirect URI"
+GOOGLE_CLIENT_ID_VALUE=$(get_env "GOOGLE_CLIENT_ID")
+if is_filled "$GOOGLE_CLIENT_ID_VALUE"; then
+  check_required "GOOGLE_CLIENT_SECRET" "Google OAuth client secret"
+  check_required "GOOGLE_OAUTH_REDIRECT" "Google OAuth — redirect URI"
+else
+  GOOGLE_SECRET_VALUE=$(get_env "GOOGLE_CLIENT_SECRET")
+  GOOGLE_REDIRECT_VALUE=$(get_env "GOOGLE_OAUTH_REDIRECT")
+  if is_filled "$GOOGLE_SECRET_VALUE" || is_filled "$GOOGLE_REDIRECT_VALUE"; then
+    err "Google OAuth настроен частично: задайте client ID, client secret и redirect URI или очистите все три"
+  fi
+fi
 echo ""
 
 # ===== Telegram =====
