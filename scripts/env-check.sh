@@ -75,7 +75,7 @@ is_filled() {
   [ -n "$normalized" ] || return 1
 
   case "$normalized" in
-    stub_*|change_me*|fallback-*|build-placeholder*|dummy*|your_*|example*)
+    stub_*|stub-*|change_me*|fallback-*|build-placeholder*|dummy*|your_*|example*)
       return 1
       ;;
     dev_*|dev-*)
