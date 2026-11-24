@@ -73,10 +73,8 @@ is_filled() {
   if [ -z "$val" ] || [ "$val" = "" ]; then
     return 1
   fi
-  if [[ "$val" == stub_* ]]; then
-    return 1
-  fi
-  if [[ "$val" == CHANGE_ME* ]]; then
+  local normalized="${val,,}"
+  if [[ "$normalized" =~ ^(change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[-_]) ]]; then
     return 1
   fi
   return 0
@@ -131,7 +129,8 @@ echo ""
 
 # ===== Database & Supabase =====
 echo -e "${BOLD}[DATABASE]${NC}"
-check_required "DATABASE_URL" "URL подключения к PostgreSQL"
+check_required "DATABASE_URL" "URL подключения к PostgreSQL через runtime pool"
+check_required "DIRECT_DATABASE_URL" "прямой PostgreSQL URL для pg_dump/backup и миграций"
 check_required "NEXT_PUBLIC_SUPABASE_URL" "URL Kong/Supabase (клиент)"
 check_required "NEXT_PUBLIC_SUPABASE_ANON_KEY" "Anon key (клиент, RLS)"
 check_required "SUPABASE_SERVICE_ROLE_KEY" "Service role key (server-only, обход RLS)"
@@ -140,27 +139,34 @@ if [ "$MODE_LABEL" = "production" ]; then
 fi
 echo ""
 
-# Специфичная проверка: DATABASE_URL не должен быть file: (prisma.config.ts бросит)
+# DATABASE_URL и DIRECT_DATABASE_URL должны быть полноценными PostgreSQL URLs.
+validate_database_url() {
+  local name="$1"
+  local value="$2"
+  if [[ "$value" =~ ^postgres(ql)?://[^:/@]+:([^@]+)@[^/]+/.+ ]]; then
+    local password="${BASH_REMATCH[2]}"
+    local normalized="${password,,}"
+    case "$normalized" in
+      change_me*|stub_*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+        err "Пароль в $name содержит заглушку/dev/test-значение (значение скрыто)"
+        ;;
+    esac
+    if [ ${#password} -lt 16 ]; then
+      err "Пароль в $name короче 16 символов (значение скрыто)"
+    fi
+  else
+    err "$name должен иметь формат postgresql://user:password@host/database"
+  fi
+}
+
 DB_URL=$(get_env "DATABASE_URL")
+DIRECT_DB_URL=$(get_env "DIRECT_DATABASE_URL")
 if [[ "$DB_URL" == file:* ]]; then
   err "DATABASE_URL начинается с 'file:' — требуется PostgreSQL URL."
 fi
-
 if [ "$MODE_LABEL" = "production" ]; then
-  if [[ "$DB_URL" =~ ^postgres(ql)?://[^:/@]+:([^@]+)@[^/]+/.+ ]]; then
-    DB_PASSWORD="${BASH_REMATCH[2]}"
-    DB_PASSWORD_NORMALIZED="${DB_PASSWORD,,}"
-    case "$DB_PASSWORD_NORMALIZED" in
-      change_me*|stub_*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
-        err "Пароль в DATABASE_URL содержит заглушку/dev/test-значение (значение скрыто)"
-        ;;
-    esac
-    if [ ${#DB_PASSWORD} -lt 16 ]; then
-      err "Пароль в DATABASE_URL короче 16 символов (значение скрыто)"
-    fi
-  else
-    err "DATABASE_URL должен иметь формат postgresql://user:password@host/database"
-  fi
+  validate_database_url "DATABASE_URL" "$DB_URL"
+  validate_database_url "DIRECT_DATABASE_URL" "$DIRECT_DB_URL"
 fi
 echo ""
 
@@ -197,6 +203,18 @@ check_production_secret() {
 check_production_secret "JWT_SECRET"
 check_production_secret "JWT_REFRESH_SECRET"
 check_production_secret "TFA_ENCRYPTION_KEY"
+check_production_secret "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+check_production_secret "SUPABASE_SERVICE_ROLE_KEY"
+
+JWT_VALUE=$(get_env "JWT_SECRET")
+REFRESH_VALUE=$(get_env "JWT_REFRESH_SECRET")
+TFA_VALUE=$(get_env "TFA_ENCRYPTION_KEY")
+if [ -n "$JWT_VALUE" ] && [ "$JWT_VALUE" = "$REFRESH_VALUE" ]; then
+  err "JWT_SECRET и JWT_REFRESH_SECRET должны быть разными"
+fi
+if [ -n "$TFA_VALUE" ] && { [ "$TFA_VALUE" = "$JWT_VALUE" ] || [ "$TFA_VALUE" = "$REFRESH_VALUE" ]; }; then
+  err "TFA_ENCRYPTION_KEY должен отличаться от JWT-секретов"
+fi
 echo ""
 
 # ===== Yandex Metrika =====
@@ -208,8 +226,13 @@ echo ""
 
 # ===== OAuth =====
 echo -e "${BOLD}[OAUTH — вход через соцсети]${NC}"
-check_optional "YANDEX_CLIENT_ID" "Yandex OAuth — кнопка «Войти через Яндекс»"
-check_optional "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
+if [ "$(get_env "EXTERNAL_YANDEX_ENABLED")" = "true" ]; then
+  check_required "YANDEX_CLIENT_ID" "Yandex OAuth client ID"
+  check_required "YANDEX_CLIENT_SECRET" "Yandex OAuth client secret"
+  check_required "YANDEX_OAUTH_REDIRECT" "Yandex OAuth callback URL"
+else
+  err "EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза"
+fi
 check_optional "GOOGLE_CLIENT_ID" "Google OAuth — кнопка «Войти через Google»"
 check_optional "GOOGLE_OAUTH_REDIRECT" "Google OAuth — redirect URI"
 check_optional "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
@@ -225,13 +248,15 @@ echo ""
 
 # ===== YooKassa =====
 echo -e "${BOLD}[YOOKASSA — платежи]${NC}"
-check_optional "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
-check_optional "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
+check_required "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
+check_required "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
 echo ""
 
 # ===== SMTP =====
 echo -e "${BOLD}[SMTP — почта]${NC}"
 check_required "SMTP_HOST" "SMTP-сервер"
+check_required "SMTP_USER" "учётная запись SMTP"
+check_required "SMTP_PASSWORD" "пароль SMTP"
 check_required "SMTP_FROM" "адрес отправителя"
 if [ "$MODE_LABEL" = "production" ]; then
   check_required "SMTP_PORT" "порт SMTP"
