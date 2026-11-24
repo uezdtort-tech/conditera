@@ -14,19 +14,28 @@ import { resolveSupabaseBrowserUrl, SUPABASE_COOKIE_NAME } from "./url";
 
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Lazy warning — не падаем в build, только в runtime.
-const _isStub = !supabaseAnonKey;
+// В production нельзя собирать клиентский bundle с фиктивным anon key:
+// такой ключ будет встроен в JS и не исправится добавлением env при запуске.
+const _isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+// CI intentionally builds with non-production fixtures; a real production
+// build must have the actual public anon key because NEXT_PUBLIC values are
+// embedded into the browser bundle and cannot be supplied later at runtime.
+const _allowCiFixture = _isBuildPhase && process.env.CI === "true";
+const _isStub =
+  !supabaseAnonKey ||
+  /^(CHANGE_ME|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(supabaseAnonKey);
+
+if (_isStub && process.env.NODE_ENV === "production" && !_allowCiFixture) {
+  throw new Error(
+    "[supabase/browser] NEXT_PUBLIC_SUPABASE_ANON_KEY отсутствует или содержит заглушку. " +
+    "Нужен настоящий anon key уже на этапе production-сборки."
+  );
+}
 if (_isStub) {
-  if (process.env.NODE_ENV === "development") {
-    console.warn(
-      "[supabase/browser] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
-      "Auth will not work. Using stub client."
-    );
-  } else if (process.env.NODE_ENV === "production") {
-    console.warn(
-      "[supabase/browser] Supabase env not set. Auth will fail at runtime."
-    );
-  }
+  console.warn(
+    "[supabase/browser] NEXT_PUBLIC_SUPABASE_ANON_KEY не настроен; " +
+    "клиентский Supabase Auth не будет работать."
+  );
 }
 
 // Браузерный URL: для локального стека — same-origin (см. url.ts),
