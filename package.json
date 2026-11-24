@@ -145,5 +145,9 @@
   },
   "trustedDependencies": [
     "@embedded-postgres/linux-x64"
-  ]
+  ],
+  "overrides": {
+    "js-yaml": "^4.3.2",
+    "prismjs": "^1.30.0"
+  }
 }
