@@ -21,6 +21,7 @@ function validEnv(): Record<string, string | undefined> {
     YOOKASSA_SECRET_KEY: "live_test_secret_key_123456789",
     EXTERNAL_YANDEX_ENABLED: "true",
     YANDEX_CLIENT_ID: "yandex-client-id",
+    YANDEX_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/yandex/callback",
     YANDEX_CLIENT_SECRET: "yandex-client-secret",
   };
 }
@@ -55,6 +56,7 @@ describe("assertProductionEnvironment", () => {
     "YOOKASSA_SHOP_ID",
     "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID",
+    "YANDEX_OAUTH_REDIRECT",
     "EXTERNAL_YANDEX_ENABLED",
   ])("rejects a missing required variable: %s", (name) => {
     const env = validEnv();
@@ -66,6 +68,12 @@ describe("assertProductionEnvironment", () => {
     const env = validEnv();
     delete env.YANDEX_CLIENT_SECRET;
     expect(() => assertProductionEnvironment(env)).not.toThrow();
+  });
+
+  it("rejects a Yandex OAuth callback that does not match the public app URL", () => {
+    const env = validEnv();
+    env.YANDEX_OAUTH_REDIRECT = "https://attacker.example/callback";
+    expect(() => assertProductionEnvironment(env)).toThrow(/YANDEX_OAUTH_REDIRECT/);
   });
 
   it("requires Yandex OAuth to be enabled for production", () => {
