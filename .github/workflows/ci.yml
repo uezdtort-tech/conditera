@@ -85,7 +85,8 @@ jobs:
         run: bun run test
         env:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          JWT_REFRESH_SECRET: "ci_test_refresh_jwt_secret_32_chars_min_aaaaaaaa"
+          TFA_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
 
       - name: Run tests with coverage
@@ -163,9 +164,9 @@ jobs:
         project: [chromium, mobile-chrome]
     env:
       DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
-      JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
+      JWT_SECRET: ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa
       JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
-      TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars
+      TFA_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       CRON_SECRET: e2e_test_cron_secret
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
