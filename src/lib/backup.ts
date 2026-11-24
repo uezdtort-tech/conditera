@@ -47,8 +47,8 @@ export async function runFullBackup(): Promise<BackupResult> {
   const databaseUrl = process.env.DATABASE_URL;
 
   // Ensure backup directory exists
-  if (!existsSync(BACKUP_DIR)) {
-    mkdirSync(BACKUP_DIR, { recursive: true });
+  if (!existsSync(/* turbopackIgnore: true */ BACKUP_DIR)) {
+    mkdirSync(/* turbopackIgnore: true */ BACKUP_DIR, { recursive: true });
   }
 
   // Try pg_dump for real PostgreSQL (если бинарь доступен)
@@ -83,7 +83,7 @@ async function pgDumpBackup(
   startTime: number
 ): Promise<BackupResult> {
   const filename = `backup-${timestamp}.sql.gz`;
-  const filepath = join(BACKUP_DIR, filename);
+  const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, filename);
 
   // pg_dump with custom format, piped through gzip
   const cmd = `pg_dump "${databaseUrl}" --no-owner --no-privileges | gzip > "${filepath}"`;
@@ -91,7 +91,7 @@ async function pgDumpBackup(
 
   await execAsync(cmd, { timeout: 300000 }); // 5 min timeout
 
-  const stats = statSync(filepath);
+  const stats = statSync(/* turbopackIgnore: true */ filepath);
   const durationMs = Date.now() - startTime;
 
   // Count tables
@@ -165,7 +165,7 @@ async function jsonExportBackup(
   startTime: number
 ): Promise<BackupResult> {
   const filename = `backup-${timestamp}.json.gz`;
-  const filepath = join(BACKUP_DIR, filename);
+  const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, filename);
 
   console.info(`[backup] Starting JSON export → ${filepath}`);
 
@@ -216,11 +216,11 @@ async function jsonExportBackup(
   });
 
   const gzip = createGzip();
-  const writeStream = createWriteStream(filepath);
+  const writeStream = createWriteStream(/* turbopackIgnore: true */ filepath);
   const { Readable } = await import("stream");
   await pipeline(Readable.from(jsonData), gzip, writeStream);
 
-  const stats = statSync(filepath);
+  const stats = statSync(/* turbopackIgnore: true */ filepath);
   const durationMs = Date.now() - startTime;
 
   console.info(
@@ -242,20 +242,20 @@ async function jsonExportBackup(
  * Returns count of deleted files.
  */
 export async function cleanupOldBackups(): Promise<number> {
-  if (!existsSync(BACKUP_DIR)) return 0;
+  if (!existsSync(/* turbopackIgnore: true */ BACKUP_DIR)) return 0;
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - BACKUP_RETENTION_DAYS);
 
-  const files = readdirSync(BACKUP_DIR);
+  const files = readdirSync(/* turbopackIgnore: true */ BACKUP_DIR);
   let deleted = 0;
 
   for (const file of files) {
-    const filepath = join(BACKUP_DIR, file);
+    const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, file);
     try {
-      const stats = statSync(filepath);
+      const stats = statSync(/* turbopackIgnore: true */ filepath);
       if (stats.mtime < cutoff) {
-        unlinkSync(filepath);
+        unlinkSync(/* turbopackIgnore: true */ filepath);
         deleted++;
         console.info(`[backup] deleted old backup: ${file}`);
       }
@@ -277,14 +277,14 @@ export async function listBackups(): Promise<
     createdAt: Date;
   }>
 > {
-  if (!existsSync(BACKUP_DIR)) return [];
+  if (!existsSync(/* turbopackIgnore: true */ BACKUP_DIR)) return [];
 
-  const files = readdirSync(BACKUP_DIR);
+  const files = readdirSync(/* turbopackIgnore: true */ BACKUP_DIR);
   return files
     .filter((f) => f.startsWith("backup-"))
     .map((file) => {
-      const filepath = join(BACKUP_DIR, file);
-      const stats = statSync(filepath);
+      const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, file);
+      const stats = statSync(/* turbopackIgnore: true */ filepath);
       return {
         filename: file,
         sizeBytes: stats.size,
