@@ -31,6 +31,14 @@ function requireHttpsUrl(env: RuntimeEnv, name: string): string {
   if (parsed.protocol !== "https:") {
     throw new Error(`[production-env] ${name} должен использовать HTTPS в production.`);
   }
+  if (
+    parsed.hostname === "localhost" ||
+    parsed.hostname === "example.com" ||
+    parsed.hostname.endsWith(".example") ||
+    parsed.hostname.endsWith(".invalid")
+  ) {
+    throw new Error(`[production-env] ${name} содержит тестовый hostname.`);
+  }
   return value;
 }
 
