@@ -1,9 +1,7 @@
 name: Temporary npm lock security refresh
 
 on:
-  push:
-    branches:
-      - fix/production-release-gates-20261125
+  workflow_dispatch:
 
 permissions:
   contents: write
