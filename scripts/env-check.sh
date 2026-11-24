@@ -230,6 +230,9 @@ if [ "$(get_env "EXTERNAL_YANDEX_ENABLED")" = "true" ]; then
   check_required "YANDEX_CLIENT_ID" "Yandex OAuth client ID"
   check_optional "YANDEX_CLIENT_SECRET" "Yandex OAuth client secret (optional for public PKCE clients)"
   check_required "YANDEX_OAUTH_REDIRECT" "Yandex OAuth callback URL"
+  if [ "$(get_env "YANDEX_OAUTH_REDIRECT")" != "https://conditera.ru/api/auth/oauth/yandex/callback" ]; then
+    err "YANDEX_OAUTH_REDIRECT должен быть https://conditera.ru/api/auth/oauth/yandex/callback"
+  fi
 else
   err "EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза"
 fi
