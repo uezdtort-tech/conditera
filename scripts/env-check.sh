@@ -175,6 +175,12 @@ fi
 
 if [ "$MODE_LABEL" = "production" ]; then
   check_required "POSTGRES_PASSWORD" "пароль PostgreSQL для self-hosted"
+  check_required "APP_DATABASE_PASSWORD" "отдельный пароль роли приложения в Supabase PostgreSQL"
+  check_required "SUPABASE_SECRET_KEY_BASE" "секретная база ключей Supabase runtime"
+  check_required "PG_META_CRYPTO_KEY" "ключ шифрования postgres-meta"
+  check_required "REALTIME_DB_ENC_KEY" "ключ шифрования Realtime (16 символов)"
+  check_required "REALTIME_DB_ENC_KEY_GCM" "ключ AES-GCM Realtime (32 символа)"
+  check_required "MEILI_MASTER_KEY" "ключ доступа Meilisearch"
 fi
 echo ""
 
@@ -206,6 +212,19 @@ for secret_name in JWT_SECRET JWT_REFRESH_SECRET; do
     err "$secret_name короче 32 символов"
   fi
 done
+
+if [ "$MODE_LABEL" = "production" ]; then
+  APP_DB_PASSWORD=$(get_env "APP_DATABASE_PASSWORD")
+  SECRET_KEY_BASE=$(get_env "SUPABASE_SECRET_KEY_BASE")
+  META_KEY=$(get_env "PG_META_CRYPTO_KEY")
+  REALTIME_KEY=$(get_env "REALTIME_DB_ENC_KEY")
+  REALTIME_GCM_KEY=$(get_env "REALTIME_DB_ENC_KEY_GCM")
+  if is_filled "$APP_DB_PASSWORD" && [ "${#APP_DB_PASSWORD}" -lt 32 ]; then err "APP_DATABASE_PASSWORD короче 32 символов"; fi
+  if is_filled "$SECRET_KEY_BASE" && [ "${#SECRET_KEY_BASE}" -lt 32 ]; then err "SUPABASE_SECRET_KEY_BASE короче 32 символов"; fi
+  if is_filled "$META_KEY" && [ "${#META_KEY}" -ne 32 ]; then err "PG_META_CRYPTO_KEY должен содержать 32 символа"; fi
+  if is_filled "$REALTIME_KEY" && [ "${#REALTIME_KEY}" -ne 16 ]; then err "REALTIME_DB_ENC_KEY должен содержать 16 символов"; fi
+  if is_filled "$REALTIME_GCM_KEY" && [ "${#REALTIME_GCM_KEY}" -ne 32 ]; then err "REALTIME_DB_ENC_KEY_GCM должен содержать 32 символа"; fi
+fi
 
 if [ "$MODE_LABEL" = "production" ] && is_filled "$TFA"; then
   if ! [[ "$TFA" =~ ^[A-Fa-f0-9]{64}$ ]]; then
