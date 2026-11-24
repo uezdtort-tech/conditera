@@ -24,7 +24,7 @@ export function isPlaceholderSupabaseKey(
     const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, "=");
     const claims = JSON.parse(atob(padded)) as { iss?: string; ref?: string };
-    return claims.iss === "supabase-demo" || claims.ref === "demo";
+    return !allowDevelopmentKeys && (claims.iss === "supabase-demo" || claims.ref === "demo");
   } catch {
     return false;
   }
