@@ -113,6 +113,9 @@ function getTfaKey(): Buffer {
 
   // В development допускаются существующие dev-ключи из .env.local.example,
   // чтобы не потерять доступ к локальным TOTP-секретам, зашифрованным ими.
+  if (!isProduction && /^dev[-_]/i.test(value)) {
+    console.warn("[totp] Используется development-only TFA_ENCRYPTION_KEY.");
+  }
   return (cachedTfaKey = scryptSync(value, "conditera-salt", 32));
 }
 
