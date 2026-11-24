@@ -489,17 +489,15 @@ jobs:
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(ls supabase/migrations/*.sql | wc -l)
-          MISSING=$(docker exec "$SVC" psql -U supabase_admin -d supabase -tAc \
-            "SELECT filename FROM public.schema_migrations WHERE false" 2>/dev/null || true)
-          DEFERRED=$(docker exec "$SVC" psql -U supabase_admin -d supabase -tAc \
+          STORAGE_TABLES=$(docker exec "$SVC" psql -U supabase_admin -d supabase -tAc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='storage' AND table_name IN ('buckets','objects')")
-          echo "applied=$APPLIED total=$TOTAL storage_tables=$DEFERRED"
+          echo "applied=$APPLIED total=$TOTAL storage_tables=$STORAGE_TABLES"
           # Этот job не поднимает Storage API. Миграция 0026 корректно откладывается
           # до появления storage.buckets/storage.objects; полный сценарий с Storage
           # проверяется отдельным postgres17-compose-validation workflow.
           EXPECTED=$((TOTAL - 1))
           test "$APPLIED" -eq "$EXPECTED" || { echo "FAIL: ожидается ровно одна отложенная Storage-миграция"; exit 1; }
-          test "$DEFERRED" -eq 0 || { echo "FAIL: в изолированном PG job неожиданно появились Storage API tables"; exit 1; }
+          test "$STORAGE_TABLES" -eq 0 || { echo "FAIL: в изолированном PG job неожиданно появились Storage API tables"; exit 1; }
           docker exec "$SVC" psql -U supabase_admin -d supabase -tAc \
             "SELECT count(*) FROM public.schema_migrations WHERE filename='0026_storage_buckets_and_confectioners_rls.sql'" | grep -qx 0
 
