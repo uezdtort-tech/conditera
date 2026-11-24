@@ -74,7 +74,7 @@ on:
       - ".github/workflows/e2e.yml"
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "26"
   # Локальный PostgreSQL (embedded, без Docker) — источник данных для шима
   # /rest/v1 и всех API. Раньше здесь был legacy file:./db/e2e-test.db, а саму
   # БД никто не поднимал — все API-тесты E2E падали (53+ ошибок CI).
