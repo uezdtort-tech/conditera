@@ -705,6 +705,10 @@ jobs:
         run: |
           docker build --target runner \
             --build-arg GIT_SHA="$GITHUB_SHA" \
+            --build-arg CI=true \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL=https://example.invalid/api \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=stub_ci_anon_key_not_for_deploy \
+            --build-arg NEXT_PUBLIC_APP_URL=https://example.invalid \
             --tag conditera-web:ci \
             .
 
