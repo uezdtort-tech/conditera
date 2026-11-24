@@ -78,7 +78,7 @@ function getTfaKey(): string {
         "[totp] TFA_ENCRYPTION_KEY отсутствует/недействителен на этапе сборки; " +
         "используется временный ключ только для build. Runtime потребует настоящий ключ."
       );
-      return "build-only-tfa-key-not-valid-for-runtime-00000000000000000000000000000000";
+      return "stub_build_only_tfa_key_not_valid_for_runtime_00000000000000000000000000000000";
     }
     throw new Error(
       "[totp] TFA_ENCRYPTION_KEY отсутствует, содержит заглушку или короче 32 символов. " +
