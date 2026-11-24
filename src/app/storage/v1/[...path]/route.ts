@@ -56,6 +56,20 @@ async function objectRow(bucket: string, objectPath: string, size: number, mime:
 }
 
 async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
+  // Production Storage API is routed by Caddy to the real single-container
+  // Supabase runtime at /api/storage/v1. This local filesystem shim must not
+  // be reachable at /storage/v1 in production: it does not implement the full
+  // Supabase Storage RLS/signing contract and would otherwise be a policy bypass.
+  const explicitCiShim =
+    process.env.CI === "true" &&
+    process.env.SUPABASE_STORAGE_SHIM_ENABLED === "true";
+  if (process.env.NODE_ENV === "production" && !explicitCiShim) {
+    return NextResponse.json(
+      { code: "NOT_FOUND", message: "Storage endpoint not found" },
+      { status: 404 }
+    );
+  }
+
   const { path: rawPath } = await ctx.params;
   const segments = (rawPath ?? []).map((s) => {
     try {
