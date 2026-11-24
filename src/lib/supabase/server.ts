@@ -21,10 +21,7 @@ function getServerSupabaseConfig(): { url: string; anonKey: string } {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
   const isProduction = process.env.NODE_ENV === "production";
-  const invalid =
-    !url ||
-    !anonKey ||
-    /^(stub_|change_me|fallback-|dev[-_]|build-placeholder|dummy|your_|example)/i.test(anonKey);
+  const invalid = !url || isPlaceholderSupabaseKey(anonKey, !isProduction);
 
   if (invalid && isProduction && !isBuildPhase) {
     throw new Error(
