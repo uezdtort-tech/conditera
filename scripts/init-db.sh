@@ -56,7 +56,7 @@ if [ "$MODE" = "supabase" ]; then
   WAIT_TIME=15
   CONTAINER_NAME="supabase-db"
 else
-  echo "→ Запуск PostgreSQL 18 через docker-compose.dev.yml..."
+  echo "→ Запуск PostgreSQL 17 через docker-compose.dev.yml..."
   docker-compose -f docker-compose.dev.yml up -d db-dev
   DB_HOST="localhost"
   DB_PORT="5433"
