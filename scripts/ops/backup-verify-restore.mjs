@@ -76,7 +76,7 @@ async function dropDisposableDatabase() {
   }
 }
 
-function runPsqlRestore(backupPath) {
+async function runPsqlRestore(backupPath) {
   const url = new URL(RESTORE_URL);
   const password = decodeURIComponent(url.password);
   url.password = "";
