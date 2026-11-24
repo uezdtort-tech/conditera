@@ -34,7 +34,7 @@ function getRequiredEnv(name: string): string {
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
   if (process.env.NODE_ENV === "production") {
-    if (isStub || Buffer.byteLength(value || "", "utf8") < 32) {
+    if (isStub || new TextEncoder().encode(value || "").length < 32) {
       if (isBuildPhase) {
         console.warn(
           `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
