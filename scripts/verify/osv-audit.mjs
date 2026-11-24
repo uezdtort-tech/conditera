@@ -64,7 +64,7 @@ function collectAdvisories() {
   return combined;
 }
 
-function runScan(bin) {
+function runScan(bin, lockfile) {
   let out;
   try {
     out = execFileSync(bin, ["scan", "source", "--lockfile", lockfile, "--format", "json"], {
