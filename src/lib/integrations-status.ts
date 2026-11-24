@@ -17,8 +17,10 @@
  * никогда не возвращаются (правило «в отчёте только факт наличия»).
  */
 
+import { isConfiguredValue } from "@/lib/placeholder-value";
+
 function isConfigured(value: string | undefined | null): boolean {
-  return !!value && value.trim() !== "" && !value.startsWith("stub_");
+  return isConfiguredValue(value);
 }
 
 export interface OAuthProvidersStatus {
@@ -36,16 +38,22 @@ export interface IntegrationsStatus {
 export function getIntegrationsStatus(): IntegrationsStatus {
   return {
     oauth: {
-      yandex: isConfigured(process.env.YANDEX_CLIENT_ID),
-      google: isConfigured(process.env.GOOGLE_CLIENT_ID),
-      // Z-v21 (аудит §A3): VK ID на main не реализован — маршрут /api/auth/oauth/vk
-      // fail-closed 501 независимо от VK_CLIENT_ID (getProviderConfig case "vk"
-      // возвращает null). Честно сообщаем false, чтобы ops-центр не показывал
-      // «настроен» для заведомо неработающего провайдера. Сменить на isConfigured()
-      // одновременно с реализацией VK ID.
-      vk: false,
+      yandex:
+        isConfigured(process.env.YANDEX_CLIENT_ID) &&
+        isConfigured(process.env.YANDEX_OAUTH_REDIRECT),
+      google:
+        isConfigured(process.env.GOOGLE_CLIENT_ID) &&
+        isConfigured(process.env.GOOGLE_CLIENT_SECRET) &&
+        isConfigured(process.env.GOOGLE_OAUTH_REDIRECT),
+      vk:
+        isConfigured(process.env.VK_CLIENT_ID) &&
+        isConfigured(process.env.VK_OAUTH_REDIRECT),
     },
-    email: isConfigured(process.env.SMTP_HOST),
+    email:
+      isConfigured(process.env.SMTP_HOST) &&
+      isConfigured(process.env.SMTP_USER) &&
+      isConfigured(process.env.SMTP_PASSWORD) &&
+      isConfigured(process.env.SMTP_FROM),
     telegram: isConfigured(process.env.TELEGRAM_BOT_TOKEN),
   };
 }
