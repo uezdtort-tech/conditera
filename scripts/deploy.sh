@@ -7,9 +7,12 @@
 # применяла миграции к conditera-supabase-db и могла перезапускать
 # сервисы независимо от основной БД Conditera.
 #
+# POC одного Supabase runtime-контейнера прошёл изолированный CI smoke-test
+# (см. docs/LOCAL_PC_PRODUCTION_READINESS.md), но это НЕ production cutover.
+#
 # Повторное включение допускается только после:
-# 1. реализации согласованного локального Docker runtime;
-# 2. одного Supabase runtime-контейнера согласно требованиям владельца;
+# 1. интеграции POC в фактический локальный Docker runtime владельца;
+# 2. подтверждения одного Supabase runtime-контейнера на Windows/Docker Desktop;
 # 3. одного PostgreSQL-кластера и одной рабочей БД;
 # 4. read-only инвентаризации обеих существующих БД и Storage;
 # 5. резервного копирования с проверенным восстановлением;
@@ -23,7 +26,7 @@ set -Eeuo pipefail
 
 printf '%s\n' \
   'ОШИБКА: старый deploy отключён в целях защиты данных Conditera.' \
-  'Текущая конфигурация не соответствует согласованной production-архитектуре.' \
+  'Supabase POC прошёл CI, но локальная production-интеграция и миграционный gate не завершены.' \
   'Скрипт не выполнял git pull, Docker-команды, миграции или изменения БД.' \
   'Сначала завершите локальный production release gate: docs/LOCAL_PC_PRODUCTION_READINESS.md'
 
