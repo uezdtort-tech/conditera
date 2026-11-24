@@ -13,7 +13,7 @@ import { pipeline } from "node:stream/promises";
 function loadDbUrl() {
   if (process.env.PGURL) return process.env.PGURL;
   if (process.env.DIRECT_DATABASE_URL) return process.env.DIRECT_DATABASE_URL;
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith("postgresql://")) return process.env.DATABASE_URL;
+  if (process.env.DATABASE_URL && /^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL)) return process.env.DATABASE_URL;
   for (const file of [".env.local", ".env", ".env.production"]) {
     if (!existsSync(file)) continue;
     const lines = readFileSync(file, "utf8").split("\n");
