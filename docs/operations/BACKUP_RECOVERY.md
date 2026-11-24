@@ -34,8 +34,8 @@
 
 | Ситуация | Поведение кода |
 |---|---|
-| `pg_dump` не найден в контейнере | автоматический переход на JSON-путь (реальные SELECT из БД) |
-| pg_dump упал (ошибка/таймаут 5 мин) | лог `[backup] pg_dump failed, falling back to JSON export` → JSON-путь |
+| `pg_dump` или `psql` не найден в production runner | `success:false`; JSON fallback запрещён по умолчанию, чтобы не выдавать частичный экспорт за полный backup |
+| pg_dump упал (ошибка/таймаут) | в production — `success:false`; в development допускается JSON fallback |
 | Таблицы нет в схеме (например старая среда) | `warnings: "<t>: skipped (…)"`, таблица пустая в файле, итог не «успех-пустышка» |
 | Ни одна таблица не прочитана | throw → `maintenance_logs.status = failed` → HTTP 500 |
 | Неверный `X-Cron-Secret` | 401 `cronUnauthorized` до любых операций |
@@ -47,7 +47,7 @@
 - сначала запись `maintenance_logs` (`type: BACKUP_FULL`, `status: running`, `triggeredBy: cron`), после выполнения — обновление до `success`/`failed` с `durationMs`, `backup_path`, `backup_size_bytes`, `tables_count`, `recordsAffected`, `details.oldBackupsDeleted`, `error_message`;
 - ответ 200: `{success, backupPath, backupSizeBytes, tablesCount, recordsExported, durationMs, oldBackupsDeleted, logId}`; ошибка → запись `failed` + 500 `{error:"Backup failed", detail}`.
 
-Расписание: `maintenance.yml` вызывает эндпоинт ежедневно в 04:00 UTC — **пока READY FOR OWNER APPROVAL** (`MAINTENANCE_APP_URL`/`MAINTENANCE_CRON_SECRET` не настроены, job честно SKIPPED; OWNER_DECISIONS.md D-EXT-3). Staging-путь — `backup-staging.sh` на хосте перед каждым деплоем (STAGING_DEPLOYMENT.md §3). Где физически лежат бэкапы: `./backups` рабочей директории приложения соответствующей среды (каталог локальный для контейнера/хоста — вынос на внешнее хранилище не реализован и остаётся за владельцем).
+Расписание: `maintenance.yml` вызывает эндпоинт ежедневно в 04:00 UTC — **пока READY FOR OWNER APPROVAL** (`MAINTENANCE_APP_URL`/`MAINTENANCE_CRON_SECRET` не настроены, job честно SKIPPED; OWNER_DECISIONS.md D-EXT-3). Staging-путь — `backup-staging.sh` на хосте перед каждым деплоем (STAGING_DEPLOYMENT.md §3). В production Compose `/app/backups` находится на постоянном named volume `conditera_backups`; offsite-копирование этого тома пока не реализовано и остаётся отдельным обязательным решением владельца.
 
 ## 3. Верификация восстановления (`scripts/ops/backup-verify-restore.mjs`)
 
