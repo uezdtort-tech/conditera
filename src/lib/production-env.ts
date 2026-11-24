@@ -33,6 +33,20 @@ function requireHttpsUrl(env: RuntimeEnv, name: string): void {
   }
 }
 
+function requireHttpsUrlValue(env: RuntimeEnv, name: string): string {
+  const value = requireValue(env, name);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`[production-env] ${name} должен быть корректным HTTPS URL.`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`[production-env] ${name} должен использовать HTTPS в production.`);
+  }
+  return value;
+}
+
 /**
  * Бросает исключение при неполной/небезопасной production-конфигурации.
  * Принимает env аргумент для изолированного unit-тестирования.
@@ -62,6 +76,11 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
     throw new Error("[production-env] EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза.");
   }
   requireValue(env, "YANDEX_CLIENT_ID");
+  const yandexRedirect = requireHttpsUrlValue(env, "YANDEX_OAUTH_REDIRECT");
+  const expectedYandexRedirect = new URL("/api/auth/oauth/yandex/callback", env.NEXT_PUBLIC_APP_URL).toString();
+  if (yandexRedirect !== expectedYandexRedirect) {
+    throw new Error("[production-env] YANDEX_OAUTH_REDIRECT должен совпадать с публичным callback URL.");
+  }
   // Yandex public clients may use PKCE without a client secret; if present, reject placeholders.
   if (env.YANDEX_CLIENT_SECRET?.trim() && PLACEHOLDER_PREFIX.test(env.YANDEX_CLIENT_SECRET.trim())) {
     throw new Error("[production-env] YANDEX_CLIENT_SECRET содержит заглушку.");
