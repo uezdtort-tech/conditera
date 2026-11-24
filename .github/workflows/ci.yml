@@ -192,6 +192,8 @@ jobs:
           SIMPLEX_BRIDGE_API_KEY=ci-dummy \
           N8N_ADMIN_PASSWORD=ci-dummy \
           NEXT_PUBLIC_APP_URL=http://localhost:3000 \
+          NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=stub-anon-key \
           docker compose -f docker-compose.yml config -q
           echo "✓ docker-compose.yml is valid"
 
@@ -210,6 +212,9 @@ jobs:
           # версия деплоя видна в /api/health (version). Без этого APP_VERSION=unknown.
           build-args: |
             GIT_SHA=${{ env.CANDIDATE_SHA }}
+            NEXT_PUBLIC_APP_URL=http://localhost:3000
+            NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=stub-anon-key
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
