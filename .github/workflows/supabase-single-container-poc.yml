@@ -70,6 +70,8 @@ jobs:
           assert "migrator" not in services
           assert "profiles" not in services["supabase-runtime"]
           web = services["web"]
+          assert web["environment"]["MEILI_URL"] == "http://meilisearch:7700"
+          assert "MEILISearch_URL" not in web["environment"]
           assert "supabase-runtime" in web["depends_on"]
           assert "redis" in web["depends_on"] and "meilisearch" in web["depends_on"]
           assert "postgresql://conditera_app:" in web["environment"]["DATABASE_URL"] and "@supabase-runtime:5432/supabase" in web["environment"]["DATABASE_URL"]
