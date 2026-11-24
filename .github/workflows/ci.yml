@@ -332,6 +332,9 @@ jobs:
             -v "$PWD/supabase/kong.yml:/kong.yml:ro" \
             -e KONG_DATABASE=off \
             -e KONG_PLUGINS=request-transformer,cors,key-auth,acl,basic-auth,rate-limiting \
+            -e KONG_NGINX_PROXY_PROXY_BUFFER_SIZE=160k \
+            -e 'KONG_NGINX_PROXY_PROXY_BUFFERS=64 160k' \
+            -e KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE=320k \
             library/kong:2.8.1 kong config parse /kong.yml
 
       - name: Validate database bootstrap and preflight scripts
