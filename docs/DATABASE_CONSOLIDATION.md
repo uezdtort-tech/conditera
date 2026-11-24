@@ -71,10 +71,10 @@
 
 | Путь | Код | Фактическое назначение в production |
 |---|---|---|
-| Supabase JS admin | `src/lib/supabase/admin.ts` → `resolveSupabaseServerUrl()` | `SUPABASE_INTERNAL_URL` (если задан) или Supabase URL → Kong → GoTrue/PostgREST/Storage на кластере PG15, БД `supabase` |
+| Supabase JS admin | `src/lib/supabase/admin.ts` → `resolveSupabaseServerUrl()` | `SUPABASE_INTERNAL_URL` (если задан) или Supabase URL → Kong → GoTrue/PostgREST/Storage на кластере PG17, БД `supabase` (legacy data volume до переноса был в формате PG15) |
 | Supabase browser/SSR | `src/lib/supabase/browser.ts`, `server.ts` | Публичный Supabase URL → Kong → тот же кластер PG17; в локальном режиме URL может быть same-origin |
 | Прямой PostgreSQL | `src/lib/postgrest/pool.ts` → `DATABASE_URL` | В production Compose: PgBouncer → `conditera-db`, PG17, БД `conditera` |
-| Локальный REST shim | `src/app/rest/v1/[...path]/route.ts` | Прямой `getPool()` → PG18; это не тот же сервер, что внешний Kong/PostgREST |
+| Локальный REST shim | `src/app/rest/v1/[...path]/route.ts` | Прямой `getPool()` → PG17; это не тот же сервер, что внешний Kong/PostgREST |
 | Локальный Storage shim | `src/app/storage/v1/[...path]/route.ts` | Файлы в `upload/storage`, метаданные `storage.objects` через PG17; production Supabase Storage использует отдельный Storage volume и PG17 |
 
 ### Подтверждённые пересечения двух кластеров
