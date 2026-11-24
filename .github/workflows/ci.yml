@@ -601,29 +601,49 @@ jobs:
       - name: Install dependencies for backup verification
         run: bun install --frozen-lockfile
 
-      - name: Verify full pg_dump backup and real restore in disposable database
+      - name: Verify full pg_dump backup and real restore in a separate PostgreSQL 17 cluster
         env:
           NODE_ENV: production
           BACKUP_REQUIRE_FULL_RESTORE: "true"
           BACKUP_DIR: ${{ runner.temp }}/conditera-backup-verify
+          BACKUP_RESTORE_DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5433/postgres
+          BACKUP_RESTORE_PSQL_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/conditera_restore_verify
+          BACKUP_RESTORE_DB_NAME: conditera_restore_verify
           DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/postgres
           DIRECT_DATABASE_URL: postgresql://supabase_admin:postgres@127.0.0.1:5432/postgres
         run: |
           set -euo pipefail
-          SVC="${{ job.services.postgres.id }}"
+          SOURCE_CONTAINER="${{ job.services.postgres.id }}"
+          RESTORE_CONTAINER="conditera-backup-restore-${{ github.run_id }}"
+          trap 'docker rm -f "$RESTORE_CONTAINER" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$RESTORE_CONTAINER" -p 5433:5432 \
+            -e POSTGRES_USER=supabase_admin \
+            -e POSTGRES_PASSWORD=postgres \
+            supabase/postgres:17.11.0.017 \
+            postgres -c cron.database_name=conditera_restore_verify -c cron.username=supabase_admin
+          ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec "$RESTORE_CONTAINER" pg_isready -U supabase_admin -d postgres; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = true
           mkdir -p "$RUNNER_TEMP/pgtools" "$BACKUP_DIR"
           cat > "$RUNNER_TEMP/pgtools/pg_dump" <<'SH'
           #!/usr/bin/env bash
           set -euo pipefail
-          exec docker exec -i "$PG_CONTAINER_ID" pg_dump "$@"
+          exec docker exec -i "$SOURCE_CONTAINER_ID" pg_dump "$@"
           SH
           cat > "$RUNNER_TEMP/pgtools/psql" <<'SH'
           #!/usr/bin/env bash
           set -euo pipefail
-          exec docker exec -i -e "PGPASSWORD=${PGPASSWORD:-}" "$PG_CONTAINER_ID" psql "$@"
+          exec docker exec -i -e "PGPASSWORD=${PGPASSWORD:-}" "$RESTORE_CONTAINER_ID" psql "$@"
           SH
           chmod +x "$RUNNER_TEMP/pgtools/pg_dump" "$RUNNER_TEMP/pgtools/psql"
-          export PG_CONTAINER_ID="$SVC"
+          export SOURCE_CONTAINER_ID="$SOURCE_CONTAINER"
+          export RESTORE_CONTAINER_ID="$RESTORE_CONTAINER"
           export PATH="$RUNNER_TEMP/pgtools:$PATH"
           bun run ops:restore-verify
 
