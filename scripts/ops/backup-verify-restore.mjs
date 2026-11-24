@@ -239,6 +239,7 @@ function createGunzipBuffer(backupPath) {
 
 
 async function main() {
+  let verificationLevel = "FULL";
   console.log("Source DB: " + parsed.host + parsed.pathname);
   console.log("Disposable restore DB: " + RESTORE_DB + "\n");
 
