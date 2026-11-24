@@ -14,6 +14,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { getPool } from "@/lib/postgrest/pool";
 import { resolveClaims } from "@/lib/postgrest/jwt";
+import { isLocalSupabaseShimAllowed } from "@/lib/supabase/local-shim";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,10 +61,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   // Supabase runtime at /api/storage/v1. This local filesystem shim must not
   // be reachable at /storage/v1 in production: it does not implement the full
   // Supabase Storage RLS/signing contract and would otherwise be a policy bypass.
-  const explicitCiShim =
-    process.env.CI === "true" &&
-    process.env.SUPABASE_STORAGE_SHIM_ENABLED === "true";
-  if (process.env.NODE_ENV === "production" && !explicitCiShim) {
+  if (!isLocalSupabaseShimAllowed()) {
     return NextResponse.json(
       { code: "NOT_FOUND", message: "Storage endpoint not found" },
       { status: 404 }
