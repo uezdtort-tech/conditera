@@ -151,7 +151,7 @@ services:
   # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
   # с резервной копией и контрольной сверкой данных.
   db:
-    image: public.ecr.aws/docker/library/postgres:17-alpine
+    image: postgres:17-alpine
     container_name: conditera-db
     <<: *default-restart
     environment:
@@ -294,7 +294,7 @@ services:
 
   # ===== Redis (кэш, сессии, Socket.IO adapter, rate-limiting) =====
   redis:
-    image: public.ecr.aws/docker/library/redis:7-alpine
+    image: redis:7-alpine
     container_name: conditera-redis
     <<: *default-restart
     command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -404,7 +404,7 @@ services:
 
   # ===== Caddy (обратный прокси + HTTPS) =====
   caddy:
-    image: public.ecr.aws/docker/library/caddy:2.8-alpine
+    image: caddy:2.11.9-alpine
     container_name: conditera-caddy
     <<: *default-restart
     ports:
