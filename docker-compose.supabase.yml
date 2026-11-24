@@ -61,11 +61,10 @@ services:
     expose:
       - "5432"
     volumes:
-      # ВНИМАНИЕ (PG15→PG17): старый том supabase_db_data инициализирован
-      # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
-      # («database files are incompatible with server»). Переход только через
-      # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
-      - supabase_db_data:/var/lib/postgresql/data
+      # Активный PG17 использует отдельный новый volume.
+      # Старый conditera_supabase_db_data (PG15) сохраняется ниже, но сюда не подключается.
+      # Не развёртывать пустой v17 volume до завершённого logical backup/restore.
+      - supabase_db_data_v17:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
       # Подключаем только наш скрипт отдельным файлом, после системного migrate.sh.
@@ -547,7 +546,11 @@ services:
       - conditera-net
 
 volumes:
+  # Legacy PG15 data volume is retained for rollback/restore source; never mount it into PG17.
   supabase_db_data:
+    name: conditera_supabase_db_data
+  supabase_db_data_v17:
+    name: conditera_supabase_db_data_v17
   supabase_storage_data:
   supabase_vector_data:
 
