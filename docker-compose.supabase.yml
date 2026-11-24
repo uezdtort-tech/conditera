@@ -548,6 +548,7 @@ services:
 volumes:
   # Новый чистый volume для PostgreSQL 17. Не переиспользует бинарные файлы PG15.
   supabase_db_data_v17:
+    name: conditera_supabase_db_data_v17
   supabase_storage_data:
   supabase_vector_data:
 
