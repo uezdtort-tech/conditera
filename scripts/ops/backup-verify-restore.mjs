@@ -255,13 +255,18 @@ async function main() {
   console.log("Restore cluster: " + restoreHost);
   console.log("Disposable restore DB: " + RESTORE_DB + "\n");
 
-  console.log("Creating backup with the real application backup service...");
-  const backupModule = await import("./run-backup.mjs");
-  const backupPath = await backupModule.runBackupToFile();
-  if (!backupPath || !existsSync(backupPath)) {
-    throw new Error("backup was not created");
+  let backupPath = process.env.BACKUP_VERIFY_PATH;
+  if (backupPath) {
+    console.log("Verifying the existing backup artifact created by the application.");
+  } else {
+    console.log("Creating backup with the real application backup service...");
+    const backupModule = await import("./run-backup.mjs");
+    backupPath = await backupModule.runBackupToFile();
   }
-  check("backup file created", true, backupPath);
+  if (!backupPath || !existsSync(backupPath)) {
+    throw new Error("backup file was not created or BACKUP_VERIFY_PATH does not exist");
+  }
+  check("backup file available for verification", true, backupPath);
 
   if (backupPath.endsWith(".sql.gz")) {
     await verifySqlBackup(backupPath);
