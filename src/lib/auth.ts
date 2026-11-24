@@ -28,7 +28,7 @@ function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   const isStub =
     !value ||
-    /^(CHANGE_ME|change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(value);
+    /^(CHANGE_ME|change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(value);
 
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
@@ -39,7 +39,7 @@ function getRequiredEnv(name: string): string {
           `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
             `используется placeholder. РАНТАЙМ всё равно потребует реальное значение!`
         );
-        return `stub_build_only_${name}_${"0".repeat(24)}`;
+        return `stub[-_]build_only_${name}_${"0".repeat(24)}`;
       }
       throw new Error(
         `[auth] ${name} отсутствует или содержит заглушку в production. ` +
@@ -66,7 +66,7 @@ function getRequiredEnv(name: string): string {
 function getSecretEnv(primary: string, fallbacks: string[]): string {
   for (const name of [primary, ...fallbacks]) {
     const v = process.env[name]?.trim();
-    if (v && !/^(CHANGE_ME|change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(v)) {
+    if (v && !/^(CHANGE_ME|change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(v)) {
       return v;
     }
   }
