@@ -17,6 +17,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { resolveSupabaseServerUrl } from "./url";
+import { isPlaceholderSupabaseKey } from "./key-validation";
 
 const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 const isProduction = process.env.NODE_ENV === "production";
@@ -24,9 +25,10 @@ const configuredUrl =
   process.env.SUPABASE_INTERNAL_URL?.trim() ||
   process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const configuredKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-const isPlaceholderKey =
-  !configuredKey ||
-  /^(stub_|change_me|fallback-|dev[-_]|build-placeholder|dummy|your_|example)/i.test(configuredKey);
+const isPlaceholderKey = isPlaceholderSupabaseKey(
+  configuredKey,
+  !isProduction
+);
 const _isStub = !configuredUrl || isPlaceholderKey;
 
 if (_isStub && isProduction && !isBuildPhase) {
