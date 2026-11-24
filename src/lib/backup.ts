@@ -48,7 +48,7 @@ export async function runFullBackup(): Promise<BackupResult> {
     mkdirSync(BACKUP_DIR, { recursive: true });
   }
 
-  if (databaseUrl?.startsWith("postgresql://") && await hasPgDump()) {
+  if (databaseUrl && /^postgres(?:ql)?:\/\//.test(databaseUrl) && await hasPgDump()) {
     try {
       return await pgDumpBackup(databaseUrl, timestamp, startTime);
     } catch (e) {
