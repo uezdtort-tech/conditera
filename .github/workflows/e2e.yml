@@ -25,6 +25,13 @@
 name: E2E Tests
 
 on:
+  workflow_call:
+    inputs:
+      grep:
+        description: "Optional Playwright test-name filter"
+        required: false
+        type: string
+        default: ""
   schedule:
     # Nightly в 03:00 UTC — chromium-only (см. «РЕШЕНИЕ ВЛАДЕЛЬЦА» в шапке)
     - cron: "0 3 * * *"
@@ -264,7 +271,7 @@ jobs:
           E2E_BASE_URL: http://127.0.0.1:3000
           # Фильтр grep через env вместо inline-подстановки — защита от shell
           # injection/разрыва кавычек при workflow_dispatch.
-          E2E_GREP: ${{ github.event.inputs.grep }}
+          E2E_GREP: ${{ inputs.grep }}
           DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
