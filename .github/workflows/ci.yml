@@ -325,8 +325,7 @@ jobs:
           echo "SimpleX CLI and bridge initialized successfully."
 
   # ===== 5. Security checks =====
-  # npm audit убран: в репозитории bun.lock (npm audit требует package-lock).
-  # Сканирование секретов работает без установки зависимостей.
+    # OSV проверяет оба lock-файла; npm audit отдельно проверяет production dependency tree.
   security-checks:
     name: Security checks
     runs-on: ubuntu-latest
@@ -338,6 +337,11 @@ jobs:
           bash -n supabase/init-scripts/01-apply-migrations.sh
           bash -n scripts/deploy.sh
           bash -n scripts/db-preflight.sh
+          bash -n scripts/env-check.sh
+          bash -n scripts/setup-env.sh
+          bash -n scripts/restore-env-values.sh
+          bash -n scripts/tests/test-env-restore.sh
+          bash scripts/tests/test-env-restore.sh
           grep -Fq 'MIGRATIONS_DIR: /conditera-migrations' docker-compose.supabase.yml
           grep -Fq 'zz-conditera-apply-migrations.sh' docker-compose.supabase.yml
           grep -Fq ':/conditera-migrations:ro' docker-compose.supabase.yml
@@ -626,3 +630,11 @@ jobs:
 
       - name: Scan bun.lock and package-lock.json with baseline diff (new advisories fail)
         run: node scripts/verify/osv-audit.mjs
+
+      - name: Setup Node for npm production audit
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Audit npm production dependencies
+        run: npm audit --omit=dev --audit-level=high
