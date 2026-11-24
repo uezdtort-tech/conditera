@@ -412,7 +412,7 @@ jobs:
           # Используем caddy image для валидации (public.ecr.aws — зеркало без
           # rate-limit 429 Docker Hub, см. v3 registry-hardening в Dockerfile)
           docker run --rm -v $(pwd)/Caddyfile:/etc/caddy/Caddyfile \
-            public.ecr.aws/docker/library/caddy:2.8-alpine \
+            caddy:2.11.9-alpine \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   # ===== 7. Evidence hygiene (v4.5, P0-A) =====
