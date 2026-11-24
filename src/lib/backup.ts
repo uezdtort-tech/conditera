@@ -1,10 +1,10 @@
 /**
  * Backup service — full database backup.
  *
- * Two modes:
- *   1. PostgreSQL (pg_dump available): runs `pg_dump` via child_process, saves .sql.gz
- *   2. Any PostgreSQL (dev embedded / Supabase): JSON export of real rows via pg pool
+ * Production: full PostgreSQL plain-SQL dump compressed as .sql.gz.
+ * Development fallback: JSON export of an explicit critical-table allowlist.
  *
+ * Production never silently falls back to the partial JSON snapshot.
  * Backups are saved to BACKUP_DIR (default: ./backups/ relative to project root).
  * Old backups are automatically cleaned up (keep last 30 days).
  *
@@ -32,11 +32,9 @@ interface BackupResult {
 /**
  * Run a full database backup.
  * DEPLOY-01 §10:
- *   1. pg_dump — если доступен бинарь и DATABASE_URL postgresql:// (любая среда);
- *   2. JSON-export через pg-пул — рабочая альтернатива (ранее fallback был
- *      на Prisma-синтаксисе и на supabase-js всегда возвращал пустые таблицы
- *      с status "success" — баг закрыт: записи реально читаются из БД).
- * Итог честный: если ни один путь не смог прочитать данные — success:false.
+ *   1. Production requires DIRECT_DATABASE_URL plus pg_dump and psql.
+ *   2. JSON export is development-only unless BACKUP_ALLOW_JSON_FALLBACK=true.
+ * A partial JSON export is never represented as a full production backup.
  */
 export async function runFullBackup(): Promise<BackupResult> {
   const startTime = Date.now();
@@ -103,6 +101,13 @@ async function hasPgDump(): Promise<boolean> {
  * Full PostgreSQL backup via plain SQL dump + gzip.
  * The dump connects to DIRECT_DATABASE_URL, bypassing PgBouncer.
  */
+function normalizeLibpqUrl(value: string): string {
+  const url = new URL(value);
+  url.searchParams.delete("schema");
+  url.searchParams.delete("pgbouncer");
+  return url.toString();
+}
+
 async function pgDumpBackup(
   databaseUrl: string,
   timestamp: string,
@@ -113,7 +118,7 @@ async function pgDumpBackup(
   const stderr: Buffer[] = [];
   const child = spawn(
     "pg_dump",
-    [databaseUrl, "--no-owner", "--no-privileges"],
+    [normalizeLibpqUrl(databaseUrl), "--no-owner", "--no-privileges"],
     { stdio: ["ignore", "pipe", "pipe"] }
   );
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
