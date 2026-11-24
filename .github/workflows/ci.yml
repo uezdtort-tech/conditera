@@ -322,6 +322,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Generate valid local anon JWT for Docker web bundle
+        id: supabase-anon
+        shell: bash
+        run: |
+          ANON_KEY="$(JWT_SECRET=ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa node scripts/db/print-supabase-jwt.mjs anon)"
+          if [ -z "$ANON_KEY" ]; then
+            echo "Failed to generate CI anon JWT for Docker build"
+            exit 1
+          fi
+          echo "anon_key=$ANON_KEY" >> "$GITHUB_OUTPUT"
+
       - name: Build web image
         uses: docker/build-push-action@v7
         with:
@@ -335,8 +346,8 @@ jobs:
           build-args: |
             GIT_SHA=${{ env.CANDIDATE_SHA }}
             NEXT_PUBLIC_APP_URL=http://localhost:3000
-            NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-            NEXT_PUBLIC_SUPABASE_ANON_KEY=stub-anon-key
+            NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:3000
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ steps.supabase-anon.outputs.anon_key }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
