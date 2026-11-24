@@ -28,10 +28,7 @@ function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   const isStub =
     !value ||
-    value.startsWith("CHANGE_ME") ||
-    value.startsWith("fallback-") ||
-    value.startsWith("dev-") ||
-    value.startsWith("dev_");
+    /^(CHANGE_ME|change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(value);
 
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
@@ -69,7 +66,7 @@ function getRequiredEnv(name: string): string {
 function getSecretEnv(primary: string, fallbacks: string[]): string {
   for (const name of [primary, ...fallbacks]) {
     const v = process.env[name]?.trim();
-    if (v && !v.startsWith("CHANGE_ME") && !v.startsWith("fallback-") && !v.startsWith("dev-") && !v.startsWith("dev_")) {
+    if (v && !/^(CHANGE_ME|change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(v)) {
       return v;
     }
   }
