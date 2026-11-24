@@ -53,6 +53,14 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
+      # NEXT_PUBLIC_* values are compiled into the browser bundle; load them with
+      # docker compose --env-file .env.production when building the production image.
+      args:
+        GIT_SHA: ${WEB_TAG:-dev}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL is required}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY is required}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL is required}
+        CI: "false"
     # pay4: образ по SHA-тегу из CI (immutable). WEB_IMAGE задаётся деплоем;
     # локально (без CI) образ собирается из build: ниже
     image: ${WEB_IMAGE:-conditera:local}
