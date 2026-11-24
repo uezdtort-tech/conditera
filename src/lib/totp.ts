@@ -99,7 +99,7 @@ function getTfaKey(): Buffer {
     );
   }
 
-  if (!value || /^(stub_|change_me|fallback-|dev[-_]|dummy|your_)/i.test(value)) {
+  if (!value || /^(stub_|change_me|fallback-|dummy|your_)/i.test(value)) {
     if (isProduction) {
       throw new Error("[totp] TFA_ENCRYPTION_KEY не задан или содержит заглушку.");
     }
@@ -111,6 +111,8 @@ function getTfaKey(): Buffer {
     ));
   }
 
+  // В development допускаются существующие dev-ключи из .env.local.example,
+  // чтобы не потерять доступ к локальным TOTP-секретам, зашифрованным ими.
   return (cachedTfaKey = scryptSync(value, "conditera-salt", 32));
 }
 
