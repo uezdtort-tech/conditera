@@ -29,12 +29,15 @@ const isPlaceholderKey = isPlaceholderSupabaseKey(
   configuredKey,
   !isProduction
 );
-const _isStub = !configuredUrl || isPlaceholderKey;
+const serviceKeyMatchesAnonKey =
+  Boolean(configuredKey) &&
+  configuredKey === process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+const _isStub = !configuredUrl || isPlaceholderKey || serviceKeyMatchesAnonKey;
 
 if (_isStub && isProduction && !isBuildPhase) {
   throw new Error(
-    "[supabase/admin] Production requires a real SUPABASE_INTERNAL_URL or " +
-    "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. Refusing to start."
+    "[supabase/admin] Production requires a real Supabase URL and an independent " +
+    "SUPABASE_SERVICE_ROLE_KEY (not the public anon key). Refusing to start."
   );
 }
 
