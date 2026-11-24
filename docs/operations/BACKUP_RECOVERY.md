@@ -65,7 +65,7 @@ Production требует полный SQL restore: `NODE_ENV=production` или
 ```
 bun scripts/ops/backup-verify-restore.mjs
 # Source DB: 127.0.0.1:54329/conditera (embedded PostgreSQL)
-# Результат: RESTORE-VERIFY: PASSED (exit code 0)
+# Исторический результат старого скрипта: RESTORE-VERIFY: PARTIAL (JSONB staging; exit code 0)
 # 13 таблиц / 736 записей восстановлено и сверено
 # контрольные сверки: app_incidents   735 = 735 = 735
 #                     app_error_events  1 =  1 =  1
