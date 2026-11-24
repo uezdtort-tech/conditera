@@ -530,7 +530,7 @@ jobs:
       - name: Apply all migrations (ledger, fail-fast)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
+          docker exec -e PGUSER=supabase_admin -e PGDATABASE=postgres "$SVC" bash /init-scripts/01-apply-migrations.sh
           docker exec "$SVC" psql -U supabase_admin -d postgres -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
@@ -541,7 +541,7 @@ jobs:
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
+          docker exec -e PGUSER=supabase_admin -e PGDATABASE=postgres "$SVC" bash /init-scripts/01-apply-migrations.sh \
             | tee rerun.log
           if grep -qiE "Applying|applying" rerun.log; then
             echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
