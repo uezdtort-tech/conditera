@@ -131,6 +131,10 @@ ask_secret_value() {
   local existing="${EXISTING_VALUES[$var_name]:-}"
   local input=""
 
+  if [[ "$existing" =~ ^(CHANGE_ME|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[-_]) ]]; then
+    existing=""
+  fi
+
   echo -e "  ${BLUE}$prompt${NC}" >&2
   if [ -n "$existing" ] && [ "$existing" != "$default" ]; then
     echo "  Текущее значение уже задано (скрыто)." >&2
