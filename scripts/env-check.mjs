@@ -179,7 +179,16 @@ export function validateEnvironment(values, selectedMode = "development", select
   if (production) {
     required("NEXT_PUBLIC_APP_URL", "public HTTPS app URL");
     const appUrl = value("NEXT_PUBLIC_APP_URL");
-    if (isFilled(appUrl) && !appUrl.startsWith("https://")) error("NEXT_PUBLIC_APP_URL должен начинаться с https:// в production");
+    if (isFilled(appUrl)) {
+      try {
+        const parsedAppUrl = new URL(appUrl);
+        if (parsedAppUrl.protocol !== "https:" || !parsedAppUrl.hostname) {
+          error("NEXT_PUBLIC_APP_URL должен быть абсолютным HTTPS URL в production");
+        }
+      } catch {
+        error("NEXT_PUBLIC_APP_URL имеет некорректный URL");
+      }
+    }
   }
 
   // Yandex Metrika
@@ -234,11 +243,20 @@ export function validateEnvironment(values, selectedMode = "development", select
   // SMTP
   required("SMTP_HOST", "SMTP host");
   required("SMTP_FROM", "SMTP sender address");
+  if (isFilled(value("SMTP_FROM")) && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value("SMTP_FROM"))) {
+    error("SMTP_FROM должен быть корректным email-адресом");
+  }
   if (production) {
     required("SMTP_USER", "SMTP user");
     required("SMTP_PASSWORD", "SMTP password");
     required("SMTP_PORT", "SMTP port");
     required("SMTP_SECURE", "SMTP TLS mode");
+    const smtpPort = Number(value("SMTP_PORT"));
+    const smtpSecure = value("SMTP_SECURE").toLowerCase();
+    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) error("SMTP_PORT должен быть целым числом от 1 до 65535");
+    if (!["true", "false"].includes(smtpSecure)) error("SMTP_SECURE должен быть true или false");
+    if (smtpPort === 465 && smtpSecure !== "true") error("Для SMTP_PORT=465 требуется SMTP_SECURE=true");
+    if (smtpPort === 587 && smtpSecure !== "false") error("Для SMTP_PORT=587 требуется SMTP_SECURE=false");
   } else {
     optional("SMTP_USER", "SMTP user");
     optional("SMTP_PASSWORD", "SMTP password");
