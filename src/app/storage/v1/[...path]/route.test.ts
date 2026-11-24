@@ -9,20 +9,20 @@ const originalShimFlag = mutableEnv.SUPABASE_STORAGE_SHIM_ENABLED;
 
 afterEach(() => {
   if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
-  else process.env.NODE_ENV = originalNodeEnv;
+  else mutableEnv.NODE_ENV = originalNodeEnv;
 
-  if (originalCi === undefined) delete process.env.CI;
-  else process.env.CI = originalCi;
+  if (originalCi === undefined) delete mutableEnv.CI;
+  else mutableEnv.CI = originalCi;
 
-  if (originalShimFlag === undefined) delete process.env.SUPABASE_STORAGE_SHIM_ENABLED;
-  else process.env.SUPABASE_STORAGE_SHIM_ENABLED = originalShimFlag;
+  if (originalShimFlag === undefined) delete mutableEnv.SUPABASE_STORAGE_SHIM_ENABLED;
+  else mutableEnv.SUPABASE_STORAGE_SHIM_ENABLED = originalShimFlag;
 });
 
 describe("local Storage compatibility shim exposure", () => {
   it("is not exposed on a production origin by default", async () => {
-    process.env.NODE_ENV = "production";
-    delete process.env.CI;
-    delete process.env.SUPABASE_STORAGE_SHIM_ENABLED;
+    mutableEnv.NODE_ENV = "production";
+    delete mutableEnv.CI;
+    delete mutableEnv.SUPABASE_STORAGE_SHIM_ENABLED;
 
     const request = new NextRequest(
       "http://localhost/storage/v1/object/public/avatars/user/photo.png"
@@ -41,9 +41,9 @@ describe("local Storage compatibility shim exposure", () => {
   });
 
   it("can be explicitly enabled only for CI integration tests", async () => {
-    process.env.NODE_ENV = "production";
-    process.env.CI = "true";
-    process.env.SUPABASE_STORAGE_SHIM_ENABLED = "true";
+    mutableEnv.NODE_ENV = "production";
+    mutableEnv.CI = "true";
+    mutableEnv.SUPABASE_STORAGE_SHIM_ENABLED = "true";
 
     const request = new NextRequest("http://localhost/storage/v1/not-supported");
     const response = await GET(request, {
