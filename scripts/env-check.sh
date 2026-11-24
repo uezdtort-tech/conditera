@@ -143,7 +143,24 @@ echo ""
 # Специфичная проверка: DATABASE_URL не должен быть file: (prisma.config.ts бросит)
 DB_URL=$(get_env "DATABASE_URL")
 if [[ "$DB_URL" == file:* ]]; then
-  err "DATABASE_URL начинается с 'file:' — prisma.config.ts отклонит. Замените на postgresql://"
+  err "DATABASE_URL начинается с 'file:' — требуется PostgreSQL URL."
+fi
+
+if [ "$MODE_LABEL" = "production" ]; then
+  if [[ "$DB_URL" =~ ^postgres(ql)?://[^:/@]+:([^@]+)@[^/]+/.+ ]]; then
+    DB_PASSWORD="${BASH_REMATCH[2]}"
+    DB_PASSWORD_NORMALIZED="${DB_PASSWORD,,}"
+    case "$DB_PASSWORD_NORMALIZED" in
+      change_me*|stub_*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+        err "Пароль в DATABASE_URL содержит заглушку/dev/test-значение (значение скрыто)"
+        ;;
+    esac
+    if [ ${#DB_PASSWORD} -lt 16 ]; then
+      err "Пароль в DATABASE_URL короче 16 символов (значение скрыто)"
+    fi
+  else
+    err "DATABASE_URL должен иметь формат postgresql://user:password@host/database"
+  fi
 fi
 echo ""
 
