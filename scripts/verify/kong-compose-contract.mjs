@@ -17,10 +17,13 @@ assert.match(
   /^      KONG_PLUGINS: .*\brate-limiting\b.*$/m,
   "KONG_PLUGINS must include rate-limiting because supabase/kong.yml configures that plugin."
 );
+assert.match(compose, /^      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: "160k"\s*$/m);
+assert.match(compose, /^      KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"\s*$/m);
+assert.match(compose, /^      KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE: "320k"\s*$/m);
 assert.doesNotMatch(
   compose,
-  /^\s*KONG_NGINX_PROXY_[A-Za-z0-9_]+\s*:/m,
-  "Kong proxy buffer overrides must remain unset until verified against the running Kong 2.8 image."
+  /^\s*KONG_NGINX_PROXY_(?:PROXY_buffers|proxy_busy_buffers_size)\s*:/m,
+  "Kong NGINX environment variable names must use the exact uppercase spelling."
 );
 
-console.log("Kong Compose contract: PASS (DB-less mode, declarative config, plugin availability, no unverified buffer overrides).");
+console.log("Kong Compose contract: PASS (DB-less mode, declarative config, plugin availability, typed proxy buffers).");
