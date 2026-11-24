@@ -143,19 +143,60 @@ echo ""
 # Специфичная проверка: DATABASE_URL не должен быть file: (prisma.config.ts бросит)
 DB_URL=$(get_env "DATABASE_URL")
 if [[ "$DB_URL" == file:* ]]; then
-  err "DATABASE_URL начинается с 'file:' — prisma.config.ts отклонит. Замените на postgresql://"
+  err "DATABASE_URL начинается с 'file:' — требуется PostgreSQL URL."
+fi
+
+if [ "$MODE_LABEL" = "production" ]; then
+  if [[ "$DB_URL" =~ ^postgres(ql)?://[^:/@]+:([^@]+)@[^/]+/.+ ]]; then
+    DB_PASSWORD="${BASH_REMATCH[2]}"
+    DB_PASSWORD_NORMALIZED="${DB_PASSWORD,,}"
+    case "$DB_PASSWORD_NORMALIZED" in
+      change_me*|stub_*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+        err "Пароль в DATABASE_URL содержит заглушку/dev/test-значение (значение скрыто)"
+        ;;
+    esac
+    if [ ${#DB_PASSWORD} -lt 16 ]; then
+      err "Пароль в DATABASE_URL короче 16 символов (значение скрыто)"
+    fi
+  else
+    err "DATABASE_URL должен иметь формат postgresql://user:password@host/database"
+  fi
 fi
 echo ""
 
 # ===== Auth / Security =====
 echo -e "${BOLD}[AUTH / SECURITY]${NC}"
-check_required "JWT_SECRET" "секрет для подписи JWT (мин. 32 символа)"
-check_required "TFA_ENCRYPTION_KEY" "ключ шифрования 2FA backup codes"
+check_required "JWT_SECRET" "секрет для подписи access-токенов (мин. 32 символа)"
+check_required "JWT_REFRESH_SECRET" "ОТДЕЛЬНЫЙ секрет для refresh-токенов (мин. 32 символа)"
+check_required "TFA_ENCRYPTION_KEY" "отдельный ключ шифрования 2FA backup codes (мин. 32 символа)"
 check_required "CRON_SECRET" "секрет для cron-задач"
-JWT=$(get_env "JWT_SECRET")
-if [ ${#JWT} -lt 32 ] && [ ${#JWT} -gt 0 ]; then
-  warn "JWT_SECRET короче 32 символов — рекомендуется openssl rand -hex 32"
-fi
+
+# Production не должен принимать dev/test/fallback-значения даже если они
+# непустые и формально проходят общую проверку обязательных переменных.
+check_production_secret() {
+  local var_name="$1"
+  local val
+  val=$(get_env "$var_name")
+  if [ "$MODE_LABEL" != "production" ] || [ -z "$val" ]; then
+    return
+  fi
+
+  local normalized="${val,,}"
+  case "$normalized" in
+    change_me*|stub_*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+      err "$var_name содержит заглушку/dev/test-значение (значение скрыто)"
+      return
+      ;;
+  esac
+
+  if [ ${#val} -lt 32 ]; then
+    err "$var_name короче 32 символов (значение скрыто)"
+  fi
+}
+
+check_production_secret "JWT_SECRET"
+check_production_secret "JWT_REFRESH_SECRET"
+check_production_secret "TFA_ENCRYPTION_KEY"
 echo ""
 
 # ===== Yandex Metrika =====
