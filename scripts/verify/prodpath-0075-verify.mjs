@@ -88,6 +88,11 @@ function preprocessStatement(stmt) {
   if (extMatch && SKIP_EXTENSIONS.includes(extMatch[1].toLowerCase())) {
     return { skip: true, reason: `${extMatch[1]} not available in vanilla PG` };
   }
+
+  // pg_cron is inside a conditional DO block for Supabase PG17; skip it in vanilla PG.
+  if (/CREATE\\s+EXTENSION\\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
+    return { skip: true, reason: "pg_cron not available in vanilla PG" };
+  }
   s = s.replace(/WITH\s+SCHEMA\s+extensions/gi, "WITH SCHEMA public");
   s = s.replace(/\buuid_generate_v4\s*\(\s*\)/gi, "gen_random_uuid()");
   if (
