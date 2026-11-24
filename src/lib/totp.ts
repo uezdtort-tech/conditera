@@ -69,7 +69,7 @@ function getTfaKey(): string {
   const value = process.env.TFA_ENCRYPTION_KEY?.trim();
   const isStub =
     !value ||
-    /^(CHANGE_ME|change_me|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(value);
+    /^(CHANGE_ME|change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(value);
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
   if (process.env.NODE_ENV === "production" && (isStub || value.length < 32)) {
@@ -78,7 +78,7 @@ function getTfaKey(): string {
         "[totp] TFA_ENCRYPTION_KEY отсутствует/недействителен на этапе сборки; " +
         "используется временный ключ только для build. Runtime потребует настоящий ключ."
       );
-      return "stub_build_only_tfa_key_not_valid_for_runtime_00000000000000000000000000000000";
+      return "stub[-_]build_only_tfa_key_not_valid_for_runtime_00000000000000000000000000000000";
     }
     throw new Error(
       "[totp] TFA_ENCRYPTION_KEY отсутствует, содержит заглушку или короче 32 символов. " +
