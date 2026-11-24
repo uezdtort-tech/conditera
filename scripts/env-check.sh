@@ -145,6 +145,34 @@ if [ "$MODE_LABEL" = "production" ] && [[ "$SUPABASE_URL_VALUE" =~ ^http://(loca
 fi
 check_required "NEXT_PUBLIC_SUPABASE_ANON_KEY" "Anon key (клиент, RLS)"
 check_required "SUPABASE_SERVICE_ROLE_KEY" "Service role key (server-only, обход RLS)"
+
+# Локальные demo JWT из .env.local.example имеют issuer supabase-demo.
+# Они допустимы только для локального Supabase и не должны попасть в production.
+is_supabase_demo_jwt() {
+  local token="$1"
+  local payload
+  local issuer
+  [[ "$token" == *.*.* ]] || return 1
+  payload="${token#*.}"
+  payload="${payload%%.*}"
+  issuer=$(node -e '
+    try {
+      const claims = JSON.parse(Buffer.from(process.argv[1], "base64url").toString("utf8"));
+      process.stdout.write(String(claims.iss || ""));
+    } catch {}
+  ' "$payload" 2>/dev/null || true)
+  [ "$issuer" = "supabase-demo" ]
+}
+
+if [ "$MODE_LABEL" = "production" ]; then
+  for key_name in NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY; do
+    key_value=$(get_env "$key_name")
+    if is_filled "$key_value" && is_supabase_demo_jwt "$key_value"; then
+      err "$key_name содержит локальный Supabase demo JWT (iss=supabase-demo)"
+    fi
+  done
+fi
+
 if [ "$MODE_LABEL" = "production" ]; then
   check_required "POSTGRES_PASSWORD" "пароль PostgreSQL для self-hosted"
 fi
