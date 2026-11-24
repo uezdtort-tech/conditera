@@ -123,6 +123,27 @@ ask_value() {
   fi
 }
 
+# Ввод секрета без отображения значения и без печати сохранённого секрета.
+ask_secret_value() {
+  local prompt="$1"
+  local var_name="$2"
+  local default="$3"
+  local existing="${EXISTING_VALUES[$var_name]:-}"
+  local input=""
+
+  echo -e "  ${BLUE}$prompt${NC}" >&2
+  if [ -n "$existing" ] && [ "$existing" != "$default" ]; then
+    echo "  Текущее значение уже задано (скрыто)." >&2
+    read -r -s -p "  Новое значение (Enter=оставить текущее): " input >&2
+    printf '\\n' >&2
+    if [ -z "$input" ]; then echo "$existing"; else echo "$input"; fi
+  else
+    read -r -s -p "  Значение (Enter=пропустить): " input >&2
+    printf '\\n' >&2
+    if [ -z "$input" ]; then echo "$default"; else echo "$input"; fi
+  fi
+}
+
 # Безопасно обновить значение без порчи &, | и обратных слешей.
 set_env_value() {
   local key="$1"
@@ -163,7 +184,7 @@ log "NEXT_PUBLIC_YANDEX_METRIKA_ID = ${METRIKA_ID}"
 # YANDEX METRIKA OAuth token (server-side tracking)
 info "Yandex Metrika OAuth token — для server-side tracking (необязательно)"
 echo "  Получить: https://oauth.yandex.ru/ → выдать права metrica:write"
-METRIKA_TOKEN=$(ask_value "Yandex Metrika OAuth token (Enter=пропустить)" "YANDEX_METRIKA_OAUTH_TOKEN" "")
+METRIKA_TOKEN=$(ask_secret_value "Yandex Metrika OAuth token (Enter=пропустить)" "YANDEX_METRIKA_OAUTH_TOKEN" "")
 if [ -n "$METRIKA_TOKEN" ]; then
   set_env_value YANDEX_METRIKA_OAUTH_TOKEN "$METRIKA_TOKEN"
   log "YANDEX_METRIKA_OAUTH_TOKEN = [hidden]"
@@ -172,7 +193,7 @@ fi
 # Yandex Geocoder API key
 info "Yandex Geocoder API key — для определения координат по адресу"
 echo "  Получить: https://developer.tech.yandex.ru/services/ → Геокодер"
-GEO_KEY=$(ask_value "Yandex Geocoder API key (Enter=пропустить)" "YANDEX_GEOCODER_API_KEY" "")
+GEO_KEY=$(ask_secret_value "Yandex Geocoder API key (Enter=пропустить)" "YANDEX_GEOCODER_API_KEY" "")
 if [ -n "$GEO_KEY" ]; then
   set_env_value YANDEX_GEOCODER_API_KEY "$GEO_KEY"
   log "YANDEX_GEOCODER_API_KEY = [hidden]"
@@ -198,6 +219,8 @@ echo "  Создать: https://console.cloud.google.com/apis/credentials"
 GOOGLE_CID=$(ask_value "Google OAuth Client ID (Enter=пропустить)" "GOOGLE_CLIENT_ID" "")
 if [ -n "$GOOGLE_CID" ]; then
   set_env_value GOOGLE_CLIENT_ID "$GOOGLE_CID"
+  GOOGLE_SECRET=$(ask_secret_value "Google OAuth Client Secret (Enter=пропустить)" "GOOGLE_CLIENT_SECRET" "")
+  if [ -n "$GOOGLE_SECRET" ]; then set_env_value GOOGLE_CLIENT_SECRET "$GOOGLE_SECRET"; fi
   set_env_value GOOGLE_OAUTH_REDIRECT "${APP_URL}/api/auth/oauth/google/callback"
   log "Google OAuth настроен"
 fi
@@ -216,7 +239,7 @@ fi
 # Telegram
 echo ""
 info "Telegram — бот + Login Widget"
-TG_TOKEN=$(ask_value "Telegram Bot Token (Enter=пропустить)" "TELEGRAM_BOT_TOKEN" "")
+TG_TOKEN=$(ask_secret_value "Telegram Bot Token (Enter=пропустить)" "TELEGRAM_BOT_TOKEN" "")
 if [ -n "$TG_TOKEN" ]; then
   set_env_value TELEGRAM_BOT_TOKEN "$TG_TOKEN"
   log "TELEGRAM_BOT_TOKEN = [hidden]"
@@ -226,6 +249,22 @@ if [ -n "$TG_CHANNEL" ]; then
   set_env_value TELEGRAM_CHANNEL_ID "$TG_CHANNEL"
 fi
 
+# SMTP — обязателен для production-транзакционных писем.
+if [ "$MODE" = "prod" ]; then
+  echo ""
+  info "SMTP — обязательная отправка писем регистрации, заказов и уведомлений"
+  SMTP_HOST_VALUE=$(ask_value "SMTP host" "SMTP_HOST" "mail.conditera.ru")
+  SMTP_USER_VALUE=$(ask_value "SMTP user" "SMTP_USER" "noreply@conditera.ru")
+  SMTP_PASSWORD_VALUE=$(ask_secret_value "SMTP password" "SMTP_PASSWORD" "")
+  SMTP_PORT_VALUE=$(ask_value "SMTP port" "SMTP_PORT" "465")
+  SMTP_SECURE_VALUE=$(ask_value "SMTP secure (true для 465, false для 587)" "SMTP_SECURE" "true")
+  set_env_value SMTP_HOST "$SMTP_HOST_VALUE"
+  set_env_value SMTP_USER "$SMTP_USER_VALUE"
+  if [ -n "$SMTP_PASSWORD_VALUE" ]; then set_env_value SMTP_PASSWORD "$SMTP_PASSWORD_VALUE"; fi
+  set_env_value SMTP_PORT "$SMTP_PORT_VALUE"
+  set_env_value SMTP_SECURE "$SMTP_SECURE_VALUE"
+fi
+
 # YooKassa
 echo ""
 info "YooKassa — для приёма платежей"
@@ -233,7 +272,7 @@ echo "  https://yookassa.ru/my-account/settings"
 YK_SHOP=$(ask_value "YooKassa Shop ID (Enter=пропустить)" "YOOKASSA_SHOP_ID" "")
 if [ -n "$YK_SHOP" ]; then
   set_env_value YOOKASSA_SHOP_ID "$YK_SHOP"
-  YK_KEY=$(ask_value "YooKassa Secret Key (Enter=пропустить)" "YOOKASSA_SECRET_KEY" "")
+  YK_KEY=$(ask_secret_value "YooKassa Secret Key (Enter=пропустить)" "YOOKASSA_SECRET_KEY" "")
   if [ -n "$YK_KEY" ]; then
     set_env_value YOOKASSA_SECRET_KEY "$YK_KEY"
   fi
