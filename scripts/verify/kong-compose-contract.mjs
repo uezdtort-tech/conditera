@@ -12,6 +12,11 @@ assert.match(
   /^      KONG_DECLARATIVE_CONFIG: \/var\/lib\/kong\/kong\.yml\s*$/m,
   "Kong must load the repository declarative configuration."
 );
+assert.match(
+  compose,
+  /^      KONG_PLUGINS: .*\\brate-limiting\\b.*$/m,
+  "KONG_PLUGINS must include rate-limiting because supabase/kong.yml configures that plugin."
+);
 assert.doesNotMatch(
   compose,
   /^\s*KONG_NGINX_PROXY_[A-Za-z0-9_]+\s*:/m,
