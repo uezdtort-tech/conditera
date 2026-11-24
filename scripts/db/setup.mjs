@@ -226,7 +226,7 @@ function preprocessStatement(stmt) {
 
   // pg_cron is conditionally installed inside a DO block for Supabase PG17.
   // It is cluster-scoped to the maintenance database and unavailable in vanilla PG.
-  if (/CREATE\\s+EXTENSION\\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
+  if (/CREATE\s+EXTENSION\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
     return { skip: true, reason: "pg_cron is managed by Supabase in the maintenance database" };
   }
 
