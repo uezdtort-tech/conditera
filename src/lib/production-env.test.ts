@@ -56,6 +56,7 @@ describe("assertProductionEnvironment", () => {
     "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID",
     "YANDEX_CLIENT_SECRET",
+    "EXTERNAL_YANDEX_ENABLED",
   ])("rejects a missing required variable: %s", (name) => {
     const env = validEnv();
     delete env[name];
