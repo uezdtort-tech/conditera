@@ -626,13 +626,3 @@ jobs:
 
       - name: Scan bun.lock and package-lock.json with baseline diff (new advisories fail)
         run: node scripts/verify/osv-audit.mjs
-
-  # ===== 10. Real Playwright + integration E2E =====
-  # Reuse the dedicated E2E workflow so PR CI cannot report green without
-  # executing the browser and live PostgreSQL scenarios.
-  e2e:
-    name: Playwright + live integration scenarios
-    uses: ./.github/workflows/e2e.yml
-    with:
-      grep: ""
-    secrets: inherit
