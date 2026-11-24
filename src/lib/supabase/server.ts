@@ -18,12 +18,13 @@ const supabaseUrl = resolveSupabaseServerUrl();
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const _isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
-if (!supabaseAnonKey && process.env.NODE_ENV === "production" && !_isBuildPhase) {
+const _isStubAnonKey = !supabaseAnonKey || /^(CHANGE_ME|stub_|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(supabaseAnonKey);
+if (_isStubAnonKey && process.env.NODE_ENV === "production" && !_isBuildPhase) {
   throw new Error(
     "[supabase/server] NEXT_PUBLIC_SUPABASE_ANON_KEY is required in production."
   );
 }
-if (!supabaseAnonKey) {
+if (_isStubAnonKey) {
   console.warn("[supabase/server] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. Auth will not work.");
 }
 
