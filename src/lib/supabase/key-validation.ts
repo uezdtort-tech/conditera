@@ -10,7 +10,7 @@ export function isPlaceholderSupabaseKey(
   const key = value?.trim();
   if (!key) return true;
 
-  if (/^(stub_|change_me|fallback-|build-placeholder|dummy|your_|example)/i.test(key)) {
+  if (/^(stub[-_]|change_me|fallback-|build-placeholder|dummy|your_|example)/i.test(key)) {
     return true;
   }
   if (!allowDevelopmentKeys && /^dev[-_]/i.test(key)) {
