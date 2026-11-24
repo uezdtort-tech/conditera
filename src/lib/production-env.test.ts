@@ -6,7 +6,7 @@ function validEnv(): Record<string, string | undefined> {
     NODE_ENV: "production",
     NEXT_PUBLIC_APP_URL: "https://conditera.ru",
     NEXT_PUBLIC_SUPABASE_URL: "https://supabase.conditera.ru",
-    DATABASE_URL: "postgresql://app:password@db:5432/postgres",
+    DATABASE_URL: "postgresql://app:long-random-password-123456@db:5432/postgres",
     NEXT_PUBLIC_SUPABASE_ANON_KEY: "a".repeat(48),
     SUPABASE_SERVICE_ROLE_KEY: "b".repeat(48),
     JWT_SECRET: "c".repeat(64),
