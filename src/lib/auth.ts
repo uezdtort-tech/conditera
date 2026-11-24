@@ -61,8 +61,8 @@ function getRequiredEnv(name: string): string {
 }
 
 /**
- * Секретные env с фолбэком на альтернативные имена (.env.example декларирует
- * AUTH_SECRET как каноничное имя, исторический код читает JWT_SECRET).
+ * Секретные env с фолбэком на исторические отдельные имена. Refresh-секрет
+ * никогда не наследуется от AUTH_SECRET/JWT_SECRET: для него нужен отдельный ключ.
  * Первая непустая незаглушечная переменная побеждает; иначе — обычный
  * getRequiredEnv(primary) со стандартными предупреждениями.
  */
@@ -82,7 +82,7 @@ const JWT_SECRET = new TextEncoder().encode(getSecretEnv("JWT_SECRET", ["AUTH_SE
 // ВНИМАНИЕ: после перехода на JWT_REFRESH_SECRET все прежние refresh-токены
 // инвалидируются — пользователи один раз перелогинятся.
 const JWT_REFRESH_SECRET = new TextEncoder().encode(
-  getSecretEnv("JWT_REFRESH_SECRET", ["AUTH_REFRESH_SECRET", "AUTH_SECRET"])
+  getSecretEnv("JWT_REFRESH_SECRET", ["AUTH_REFRESH_SECRET"])
 );
 
 export interface JwtPayload extends JWTPayload {
