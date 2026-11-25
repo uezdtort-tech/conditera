@@ -21,44 +21,8 @@
 -- ════════════════════════════════════════════════════════════════════
 
 -- ─────────────────────────────────────────────────────────────────────
--- 0. Добавить новые значения в enum user_role (ВЫНЕСЕНО из транзакции:
---    PG 12+ запрещает использовать новое значение enum до коммита)
--- ─────────────────────────────────────────────────────────────────────
-DO $$ BEGIN
-  -- Проверяем, не добавлены ли уже значения
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_enum
-    WHERE enumlabel = 'RECIPE_DEVELOPER'
-      AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'user_role')
-  ) THEN
-    ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'RECIPE_DEVELOPER';
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_enum
-    WHERE enumlabel = 'LOYALTY_PARTNER'
-      AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'user_role')
-  ) THEN
-    ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'LOYALTY_PARTNER';
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_enum
-    WHERE enumlabel = 'AI_ASSISTANT'
-      AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'user_role')
-  ) THEN
-    ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'AI_ASSISTANT';
-  END IF;
-END $$;
-
 BEGIN;
 
--- ─────────────────────────────────────────────────────────────────────
--- 1. Добавить новые значения в enum user_role
--- ─────────────────────────────────────────────────────────────────────
--- ALTER TYPE ... ADD VALUE не может выполняться внутри транзакции в PostgreSQL <12,
--- но в PG 12+ работает. Supabase использует PG 15.
-
-
--- ─────────────────────────────────────────────────────────────────────
 -- 2. recipe_marketplace — каталог авторских рецептов
 -- ─────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.recipe_marketplace (

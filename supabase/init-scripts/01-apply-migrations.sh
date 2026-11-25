@@ -58,6 +58,35 @@ fi
 
 APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 
+# Bootstrap PostgreSQL extension namespace before the first application migration.
+# Supabase images may create it themselves; vanilla PG17 and embedded PG17 may not.
+PSQL -c "CREATE SCHEMA IF NOT EXISTS extensions"
+
+
+# Z-v26: preserve old filename ledger entries when duplicate IDs are renamed
+# to lettered variants. This adds aliases only; it never deletes migration history.
+PSQL -c "
+  INSERT INTO public.schema_migrations(filename)
+  SELECT aliases.canonical_name
+  FROM (VALUES
+    ('0012_new_roles_recipes_loyalty_ai.sql', '0012a_new_roles_recipes_loyalty_ai.sql'),
+    ('0061_user_consent_events.sql', '0061a_user_consent_events.sql'),
+    ('0062_reference_catalog.sql', '0062a_reference_catalog.sql'),
+    ('0062a_cart_sync_custom.sql', '0062_cart_sync_custom.sql'),
+    ('0063_cake_project_spec.sql', '0063a_cake_project_spec.sql'),
+    ('0063a_financial_ledger.sql', '0063_financial_ledger.sql'),
+    ('0064_product_slices_rls.sql', '0064a_product_slices_rls.sql'),
+    ('0064a_supplier_procurement.sql', '0064_supplier_procurement.sql'),
+    ('0066_service_role_default_grants.sql', '0066a_service_role_default_grants.sql'),
+    ('0067_repair_updated_at_triggers.sql', '0067a_repair_updated_at_triggers.sql')
+  ) AS aliases(legacy_name, canonical_name)
+  WHERE EXISTS (
+    SELECT 1 FROM public.schema_migrations applied
+    WHERE applied.filename = aliases.legacy_name
+  )
+  ON CONFLICT (filename) DO NOTHING
+"
+
 # ===== 0.1. Детекция дубликатов migration ID (Z-v24) =====
 # Конвенция проекта: вариантные файлы одного номера — ЧИСЛО+БУКВА (0016b).
 # Два файла с одинаковым числовым префиксом и остатком, начинающимся с «_»,
@@ -123,7 +152,7 @@ echo "✅ Применено: ${MIGRATION_COUNT}, пропущено: ${SKIPPED_
 
 # ===== 2. Seed данные — только явный opt-in для локальной демонстрации =====
 # По умолчанию НИЧЕГО из demo seed не загружается в production.
-# Базовые категории и начинки перенесены в 0062_reference_catalog.sql.
+# Базовые категории и начинки перенесены в 0062a_reference_catalog.sql.
 SEED_MODE="${SEED_MODE:-none}"
 if [ "$SEED_MODE" = "demo" ] && [ "$FRESH_DB" = "1" ] && [ -d "$SEEDS_DIR" ]; then
   echo ""
