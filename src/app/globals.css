@@ -1345,3 +1345,16 @@ h3, h4 {
     radial-gradient(at 55% 85%, oklch(0.45 0.07 35 / 0.20) 0px, transparent 50%);
 }
 
+/* CMS design settings: site-wide layout and motion controls. */
+html[data-cms-layout] .container {
+  max-width: min(var(--cms-max-width, 1280px), calc(100vw - 2rem));
+}
+
+html[data-cms-animations="off"] *,
+html[data-cms-animations="off"] *::before,
+html[data-cms-animations="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
