@@ -88,6 +88,7 @@ jobs:
         run: bun run test
         env:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
+          JWT_REFRESH_SECRET: "ci_test_jwt_refresh_secret_32_chars_min_bbbbbbbbbbb"
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
 
@@ -95,6 +96,7 @@ jobs:
         run: bun run test:coverage
         env:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
+          JWT_REFRESH_SECRET: "ci_test_jwt_refresh_secret_32_chars_min_bbbbbbbbbbb"
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
         continue-on-error: true  # coverage не должен ломать CI, но отчёт нужен
 
@@ -125,12 +127,14 @@ jobs:
       - name: Build Next.js
         env:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
+          JWT_REFRESH_SECRET: "ci_test_jwt_refresh_secret_32_chars_min_bbbbbbbbbbb"
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
           CRON_SECRET: "ci_test_cron_secret"
           NEXT_PUBLIC_APP_URL: "http://localhost:3000"
           NEXT_PUBLIC_APP_NAME: "Уездный кондитер"
           NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-public-anon-key-not-a-secret-1234567890"
+          SUPABASE_SERVICE_ROLE_KEY: "ci-service-role-key-not-a-secret-1234567890"
           DATABASE_URL: "file:./db/ci-test.db"
         run: bun run build
 
