@@ -7,7 +7,7 @@ export function isPlaceholderValue(value: string | null | undefined): boolean {
   const normalized = value?.trim() ?? "";
   return (
     normalized.length === 0 ||
-    /^(stub_|change_me|fallback-|dev[-_]|placeholder|example|dummy|test[-_])/i.test(normalized)
+    /^(stub[-_]|change_me|fallback-|dev[-_]|placeholder|example|dummy|test[-_])/i.test(normalized)
   );
 }
 
