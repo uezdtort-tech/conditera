@@ -15,10 +15,12 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { verifyRefreshToken, createAccessToken } from "@/lib/auth";
+import { verifyRefreshToken, createAccessToken, createRefreshToken } from "@/lib/auth";
+import { isUserSessionActive, rotateSessionRefreshJti } from "@/lib/session-registry";
 import {
   REFRESH_COOKIE,
   clearSessionCookies,
+  setSessionCookies,
 } from "@/lib/session-cookies";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
@@ -63,6 +65,12 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    if (!payload.sid || !payload.jti || !(await isUserSessionActive(payload.sid, payload.userId))) {
+      return clearSessionCookies(
+        NextResponse.json({ error: "Сессия завершена или refresh token уже использован." }, { status: 401 })
+      );
+    }
+
     // 2. Найти пользователя
     const { data: user, error } = await supabaseAdmin
       .from("profiles")
@@ -104,16 +112,31 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     const roles = (rolesData || []).map((r: any) => r.role as string);
 
-    // 4. Создать новый access token
+    // 4. Подготовить новый access/refresh pair и атомарно заменить JTI.
+    // При параллельных refresh-запросах с одним токеном только один CAS пройдёт.
+    const nextJti = crypto.randomUUID();
     const newAccessToken = await createAccessToken({
       userId: user.id,
       email: user.email,
       name: user.name || user.email?.split("@")[0] || "Пользователь",
       roles,
       accountType: user.account_type,
+      sid: payload.sid,
     });
+    const newRefreshToken = await createRefreshToken({
+      userId: user.id,
+      sid: payload.sid,
+      jti: nextJti,
+    });
+    const rotated = await rotateSessionRefreshJti(payload.sid, user.id, payload.jti, nextJti);
+    if (!rotated) {
+      return clearSessionCookies(
+        NextResponse.json({ error: "Refresh token уже использован или сессия завершена. Войдите снова." }, { status: 401 })
+      );
+    }
 
-    return NextResponse.json({ accessToken: newAccessToken });
+    const response = NextResponse.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
+    return setSessionCookies(response, { accessToken: newAccessToken, refreshToken: newRefreshToken });
   } catch (error: any) {
     console.error("Refresh error:", error?.message);
     return NextResponse.json(
