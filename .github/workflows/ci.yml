@@ -454,12 +454,79 @@ jobs:
         # core-маршрут = FAIL (иначе инцидент не создастся).
         run: node scripts/verify/route-error-coverage.mjs
 
-  # ===== 8. Миграции на чистой PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация =====
-  # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI
-  # = PG17, embedded db:setup = PG17 (см. scripts/verify/pg-version-gate.mjs).
-  # Реальный ledger-мигратор прод-пайплайна (supabase/init-scripts/
-  # 01-apply-migrations.sh) против чистой PG17: прогон + идемпотентный
-  # повторный прогон + проверка RLS-политик/GRANT критичных таблиц.
+  # ===== 8. Миграции на активной PG15 и изолированной целевой PG17 =====
+  # Активный Supabase volume остаётся PG15 до подтверждённого backup/restore.
+  # PG17 проверяется только на отдельном migration volume; эти два кластера
+  # нельзя смешивать или переключать без сверки данных и E2E.
+
+  migrations-pg15-active:
+    name: Migrations on active Supabase PostgreSQL 15
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-only-postgres-password
+      JWT_SECRET: ci-only-jwt-secret-at-least-32-characters-long-for-tests
+      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
+      SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
+      ENCRYPTOR_KEY: 0123456789abcdef0123456789abcdef
+      SECRET_KEY_BASE: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate active Supabase PG15 Compose
+        run: docker compose -f docker-compose.supabase.yml config --quiet
+
+      - name: Start active-version Supabase services in isolated CI project
+        run: |
+          COMPOSE="docker compose -p conditera-ci-pg15 -f docker-compose.supabase.yml"
+          $COMPOSE up -d supabase-storage supabase-auth supabase-realtime
+          READY=0
+          for attempt in $(seq 1 90); do
+            DB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-db 2>/dev/null || echo missing)
+            STORAGE_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' conditera-supabase-storage 2>/dev/null || echo missing)
+            AUTH_STATE=$(docker inspect -f '{{.State.Status}}' conditera-supabase-auth 2>/dev/null || echo missing)
+            REALTIME_STATE=$(docker inspect -f '{{.State.Status}}' conditera-supabase-realtime 2>/dev/null || echo missing)
+            if [ "$AUTH_STATE" = "exited" ] || [ "$REALTIME_STATE" = "exited" ] || [ "$AUTH_STATE" = "dead" ] || [ "$REALTIME_STATE" = "dead" ] || [ "$AUTH_STATE" = "restarting" ] || [ "$REALTIME_STATE" = "restarting" ]; then
+              docker logs conditera-supabase-auth || true
+              docker logs conditera-supabase-realtime || true
+              exit 1
+            fi
+            if [ "$DB_HEALTH" = "healthy" ] && [ "$STORAGE_HEALTH" = "healthy" ] && [ "$AUTH_STATE" = "running" ] && [ "$REALTIME_STATE" = "running" ]; then
+              READY=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$READY" != "1" ]; then
+            docker logs conditera-supabase-db || true
+            docker logs conditera-supabase-storage || true
+            docker logs conditera-supabase-auth || true
+            docker logs conditera-supabase-realtime || true
+            exit 1
+          fi
+
+      - name: Apply all migrations on active PG15
+        run: |
+          COMPOSE="docker compose -p conditera-ci-pg15 -f docker-compose.supabase.yml"
+          $COMPOSE run --rm supabase-app-migrator
+          docker exec conditera-supabase-db psql -h 127.0.0.1 -U supabase -d supabase -tAc \
+            "SELECT count(*) FROM public.schema_migrations" > applied.txt
+          APPLIED=$(cat applied.txt)
+          TOTAL=$(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | wc -l)
+          echo "applied=$APPLIED total=$TOTAL"
+          test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции на PG15"; exit 1; }
+
+      - name: Idempotency on active PG15
+        run: |
+          COMPOSE="docker compose -p conditera-ci-pg15 -f docker-compose.supabase.yml"
+          $COMPOSE run --rm supabase-app-migrator | tee rerun.log
+          if grep -q "→ Применяю:" rerun.log; then
+            echo "FAIL: повторный прогон PG15 пытался применять миграции"; exit 1
+          fi
+
+      - name: Stop active PG15 CI stack and remove CI-only volume
+        if: always()
+        run: docker compose -p conditera-ci-pg15 -f docker-compose.supabase.yml down -v --remove-orphans || true
+
   migrations-pg17:
     name: Migrations on isolated Supabase PostgreSQL 17
     runs-on: ubuntu-latest
