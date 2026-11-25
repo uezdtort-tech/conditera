@@ -75,9 +75,9 @@ jobs:
                   config = json.load(stream)
               for name, service in config["services"].items():
                   image = str(service.get("image", ""))
-                  if "postgres" not in image.lower():
+                  if not re.search(r"(?:^|/)postgres:", image.lower()):
                       continue
-                  match = re.search(r"(?:^|/)postgres:(\d+)(?:\.|-|$)", image)
+                  match = re.search(r"(?:^|/)postgres:(\d+)(?:\.|-|$)", image.lower())
                   assert match, f"{path}: unpinned PostgreSQL image for {name}: {image}"
                   assert int(match.group(1)) == 17, f"{path}: PostgreSQL major mismatch for {name}: {image}"
           print("Legacy Compose files are parseable and target PostgreSQL 17 only.")
