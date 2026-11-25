@@ -12,9 +12,9 @@
  * внутренний QC-артефакт, не витринный контент (в модерации не участвует).
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, unlink } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { getPool } from "@/lib/postgrest/pool";
 import {
   STORAGE_ROOT,
@@ -27,7 +27,6 @@ import {
   parseImageMeta,
   PHOTO_MIMES,
   MAX_PHOTO_BYTES,
-  MAX_IMAGE_DIM,
   MediaValidationError,
 } from "@/lib/product-media/validation";
 
@@ -55,6 +54,7 @@ export interface OrderMediaRow {
   height: number | null;
   uploadedBy: string | null;
   uploadedAt: string;
+  contentSha256: string;
 }
 
 /**
@@ -78,7 +78,7 @@ export async function saveOrderReadyPhoto(params: {
   orderId: string;
   file: File;
   uploadedBy: string;
-  kind?: "ready_photo" | "handoff_photo";
+  kind?: "ready_photo" | "handoff_photo" | "dispute_evidence";
 }): Promise<OrderMediaRow> {
   const buffer = Buffer.from(await params.file.arrayBuffer());
 
@@ -106,6 +106,7 @@ export async function saveOrderReadyPhoto(params: {
 
   // Размеры изображения (полное чтение заголовков; формат сверяется со сниффером)
   const meta = await parseImageMeta(buffer, sniffed.mime);
+  const contentSha256 = createHash("sha256").update(buffer).digest("hex");
 
   // Относительный путь с UUID-именем (не оригинальное имя пользователя)
   const ext = EXT_BY_MIME[sniffed.mime] ?? "jpg";
@@ -127,13 +128,14 @@ export async function saveOrderReadyPhoto(params: {
       height: number | null;
       uploaded_by: string | null;
       uploaded_at: Date;
+      content_sha256: string;
     }>(
       `INSERT INTO public.order_media
          (order_id, kind, media_type, storage_path, original_filename,
-          mime_type, file_size, width, height, uploaded_by, status)
-       VALUES ($1::uuid, $2, 'photo', $3, $4, $5, $6, $7, $8, $9::uuid, 'approved')
+          mime_type, file_size, width, height, uploaded_by, content_sha256, status)
+       VALUES ($1::uuid, $2, 'photo', $3, $4, $5, $6, $7, $8, $9::uuid, $10, 'approved')
        RETURNING id::text, order_id::text, kind, storage_path, mime_type,
-                 file_size, width, height, uploaded_by::text, uploaded_at`,
+                 file_size, width, height, uploaded_by::text, uploaded_at, content_sha256`,
       [
         params.orderId,
         params.kind ?? "ready_photo",
@@ -144,6 +146,7 @@ export async function saveOrderReadyPhoto(params: {
         meta.width,
         meta.height,
         params.uploadedBy,
+        contentSha256,
       ]
     );
     const r = res.rows[0];
@@ -158,6 +161,7 @@ export async function saveOrderReadyPhoto(params: {
       height: r.height,
       uploadedBy: r.uploaded_by,
       uploadedAt: new Date(r.uploaded_at).toISOString(),
+      contentSha256: r.content_sha256,
     };
   } catch (err) {
     // Компенсация: удалить файл, если БД-вставка не удалась (DB/FS consistency)
@@ -205,9 +209,10 @@ export async function getOrderMedia(
     height: number | null;
     uploaded_by: string | null;
     uploaded_at: Date;
+    content_sha256: string | null;
   }>(
     `SELECT id::text, order_id::text, kind, storage_path, mime_type,
-            file_size, width, height, uploaded_by::text, uploaded_at
+            file_size, width, height, uploaded_by::text, uploaded_at, content_sha256
      FROM public.order_media
      WHERE id = $1::uuid AND status = 'approved'`,
     [mediaId]
@@ -225,12 +230,13 @@ export async function getOrderMedia(
     height: r.height,
     uploadedBy: r.uploaded_by,
     uploadedAt: new Date(r.uploaded_at).toISOString(),
+    contentSha256: r.content_sha256 ?? "",
   };
 }
 
 /** Путь до физического файла фото. */
 export function orderMediaAbsPath(row: OrderMediaRow): string {
-  return join(STORAGE_ROOT, row.storagePath);
+  return safeAbsOrderMediaPath(row.storagePath);
 }
 
 /** Count approved ready photos (для гейтов/UI). */
