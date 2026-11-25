@@ -8,6 +8,7 @@ import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/query-provider";
 import { SupabaseAuthSync } from "@/components/layout/supabase-auth-sync";
 import { BrandThemeApplier } from "@/components/cms/brand-theme-applier";
+import { DesignSettingsRuntime } from "@/components/layout/design-settings-runtime";
 import { PushNotificationManager } from "@/components/pwa/push-notification-manager";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 
@@ -110,6 +111,7 @@ export default function RootLayout({
         {/* Z-brand: применение бренд-настроек (акцент/лого) из опубликованного
             CMS-документа на всех маршрутах. Ничего не рендерит. */}
         <BrandThemeApplier />
+        <DesignSettingsRuntime />
 
         {/* Яндекс Метрика — счётчик 111432662 */}
         {process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID && (
