@@ -6,7 +6,7 @@ set -euo pipefail
 # SQL dump не включает внешние Storage-объекты и cluster-global роли.
 
 CONTAINER="${SUPABASE_DB_CONTAINER:-conditera-supabase-db}"
-DB_NAME="${SUPABASE_DB_NAME:-supabase}"
+DB_NAME="${SUPABASE_DB_NAME:-conditera}"
 DB_USER="${SUPABASE_DB_USER:-supabase_admin}"
 BACKUP_DIR="${SUPABASE_BACKUP_DIR:-/var/backups/conditera/supabase}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"

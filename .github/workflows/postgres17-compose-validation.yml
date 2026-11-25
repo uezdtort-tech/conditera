@@ -85,8 +85,8 @@ jobs:
           assert services["supabase-storage"]["environment"]["DATABASE_URL"].startswith("postgres://supabase_storage_admin:"), services["supabase-storage"]["environment"].get("DATABASE_URL")
           assert services["supabase-meta"]["environment"]["PG_META_DB_USER"] == "supabase_admin", services["supabase-meta"]["environment"].get("PG_META_DB_USER")
           assert services["supabase-app-migrator"]["environment"]["PGUSER"] == "supabase_admin", services["supabase-app-migrator"]["environment"].get("PGUSER")
-          assert "supabase_db_data_v17" in current_named_volumes, current_named_volumes
-          assert config["volumes"]["supabase_db_data_v17"]["name"] == "conditera_supabase_db_data_v17"
+          assert "supabase_runtime_pg17_data" in current_named_volumes, current_named_volumes
+          assert config["volumes"]["supabase_runtime_pg17_data"]["name"] == "conditera_supabase_runtime_pg17_data"
           assert set(current_named_volumes).isdisjoint(target_named_volumes), (current_named_volumes, target_named_volumes)
           assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data"
           assert "supabase_pg17_migration_storage_data" in storage_named_volumes, storage_named_volumes
@@ -96,7 +96,7 @@ jobs:
       - name: Запустить PG17 и Supabase Storage, затем применить отложенную миграцию
         run: |
           COMPOSE="docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration"
-          if ! $COMPOSE up -d supabase-storage-pg17-migration supabase-auth-pg17-migration supabase-realtime-pg17-migration; then
+          if ! $COMPOSE up -d conditera-storage-pg17-migration supabase-auth-pg17-migration supabase-realtime-pg17-migration; then
             docker logs conditera-supabase-db-pg17-migration || true
             docker logs conditera-supabase-rest-pg17-migration || true
             docker logs conditera-supabase-meta-pg17-migration || true
@@ -154,9 +154,9 @@ jobs:
             docker logs conditera-supabase-realtime-pg17-migration || true
             exit 1
           fi
-          REALTIME_MIGRATIONS=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc "SELECT to_regclass('_realtime.schema_migrations') IS NOT NULL;")
+          REALTIME_MIGRATIONS=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera -Atc "SELECT to_regclass('_realtime.schema_migrations') IS NOT NULL;")
           test "$REALTIME_MIGRATIONS" = "t"
-          if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
+          if ! $COMPOSE up -d conditera-app-migrator-pg17-migration; then
             docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
           fi
@@ -181,27 +181,27 @@ jobs:
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration exec -T supabase-db-pg17-migration \
-            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera -Atc \
             "SELECT current_setting('server_version_num')::int BETWEEN 170000 AND 179999 AND to_regclass('auth.users') IS NOT NULL AND to_regclass('public.schema_migrations') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL;" | grep -qx t
           MIGRATIONS=$(docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration exec -T supabase-db-pg17-migration \
-            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera -Atc \
             "SELECT count(*) FROM public.schema_migrations;")
           test "$MIGRATIONS" -gt 0
           STORAGE_MIGRATION=$(docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration exec -T supabase-db-pg17-migration \
-            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera -Atc \
             "SELECT count(*) FROM public.schema_migrations WHERE filename='0026_storage_buckets_and_confectioners_rls.sql';")
           test "$STORAGE_MIGRATION" = "1"
           BUCKETS=$(docker compose \
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration exec -T supabase-db-pg17-migration \
-            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+            psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera -Atc \
             "SELECT count(*) FROM storage.buckets WHERE id IN ('avatars','covers','portfolio','product_images','documents','messages');")
           test "$BUCKETS" = "6"
           for table in profiles user_roles products orders inventory_items chat_channels oauth_identity_links user_consent_events; do
@@ -209,7 +209,7 @@ jobs:
               -f docker-compose.supabase.yml \
               -f docker-compose.pg17-migration.yml \
               --profile pg17-migration exec -T supabase-db-pg17-migration \
-              psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc \
+              psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera -Atc \
               "SELECT to_regclass('public.$table') IS NOT NULL;" | grep -qx t
           done
           echo "PG17 schema migrations: $MIGRATIONS; Storage migration: $STORAGE_MIGRATION; buckets: $BUCKETS"
