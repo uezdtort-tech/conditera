@@ -142,6 +142,13 @@ export interface OrderNegotiation {
   quotedDeliveryCost: number;
   quotedPrepTime: string;
   quotedAt?: string;
+  /** Выбранный производственный товар и медиа-референсы переговоров. */
+  productionProductId?: string;
+  referenceMedia?: Array<{
+    id: string;
+    url: string;
+    kind: "customer_reference" | "builder_preview";
+  }>;
   // Согласование
   status: NegotiationStatus;
   customerResponse?: "approved" | "rejected";
