@@ -10,15 +10,22 @@ CI smoke проверяет один контейнер, health всех про�
 
 Overlay: `docker-compose.supabase-single-container.yml`.
 
-Запускать только совместно с основными Compose-файлами и production env:
+Запускать только через проверенный launcher из корня репозитория. Он подключает все три Compose-файла, проверяет итоговый граф сервисов, обязательные секреты, маршруты web и отдельный volume PG17. Запуск останавливается, если в активный стек попал legacy PostgreSQL 18/15:
 
 ```bash
-docker compose --env-file .env.production --env-file .env.supabase-runtime \
-  -f docker-compose.yml \
-  -f docker-compose.supabase.yml \
-  -f docker-compose.supabase-single-container.yml \
-  config
+node scripts/compose-single-runtime.mjs config
+
+# Только после подтверждённого backup/restore, сверки данных и rollback rehearsal:
+# PowerShell:
+$env:CONDITERA_PG17_CUTOVER_APPROVED = "1"
+npm run compose:single-runtime -- up -d
+Remove-Item Env:CONDITERA_PG17_CUTOVER_APPROVED
+
+# Linux/macOS:
+# CONDITERA_PG17_CUTOVER_APPROVED=1 node scripts/compose-single-runtime.mjs up -d
 ```
+
+В PowerShell используется та же команда через `node`. Требуются `.env.production` и `.env.supabase-runtime`. Не запускайте `docker compose up` только с `docker-compose.yml` или `docker-compose.supabase.yml`: это исторические конфигурации с раздельными базами. Launcher не выполняет перенос данных и не заменяет backup/restore rehearsal.
 
 Перед запуском после backup/restore и проверки данных нужно остановить старые контейнеры, не удаляя их volumes. Иначе старый контейнер `supabase-kong` может продолжить владеть DNS alias и конфликтовать с новым runtime:
 
