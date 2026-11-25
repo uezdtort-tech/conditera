@@ -17,7 +17,7 @@ RUN apk add --no-cache bash coreutils curl ca-certificates openssl supervisor
 ENV SUPABASE_RUNTIME_ROOT=/opt/supabase/services \
     POSTGRES_PORT=5432 \
     POSTGRES_USER=supabase_admin \
-    POSTGRES_DB=supabase \
+    POSTGRES_DB=conditera \
     GOTRUE_API_HOST=127.0.0.1 \
     GOTRUE_API_PORT=9999 \
     PGRST_SERVER_HOST=127.0.0.1 \

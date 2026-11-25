@@ -2,7 +2,7 @@
 #
 # Запускать ТОЛЬКО вместе с docker-compose.supabase.yml:
 # docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml \
-#   --profile pg17-migration up -d supabase-db-pg17-migration
+#   --profile pg17-migration up -d conditera-db-pg17-migration
 #
 # Сервис не заменяет действующий supabase-db, не подключается к его volume
 # и не принимает трафик приложения. Он создаёт отдельный чистый целевой кластер
@@ -27,7 +27,7 @@ services:
     environment:
       POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      POSTGRES_DB: supabase
+      POSTGRES_DB: conditera
       POSTGRES_PORT: 5432
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
       MIGRATIONS_DIR: /conditera-migrations
@@ -45,7 +45,7 @@ services:
       - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d supabase"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -66,7 +66,7 @@ services:
     profiles: ["pg17-migration"]
     restart: "no"
     environment:
-      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase
+      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/conditera
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -106,7 +106,7 @@ services:
       SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
       POSTGREST_URL: http://supabase-rest-pg17-migration:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
-      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase?search_path=storage
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/conditera?search_path=storage
       PG_META_URL: http://supabase-meta-pg17-migration:8080
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /mnt/storage
@@ -144,7 +144,7 @@ services:
       PGPORT: 5432
       PGUSER: supabase_admin
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      PGDATABASE: supabase
+      PGDATABASE: conditera
       MIGRATIONS_DIR: /conditera-migrations
       SEEDS_DIR: /seeds
       SEED_MODE: none
@@ -171,7 +171,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase?search_path=auth
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/conditera?search_path=auth
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_DISABLE_SIGNUP: "false"
