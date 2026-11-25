@@ -40,17 +40,17 @@ const ANCHORS = [
   },
   {
     file: "docker-compose.pg17-migration.yml",
-    pattern: /supabase\\/postgres:(\\d+)\\./g,
+    pattern: /supabase\/postgres:(\d+)\./g,
     what: "PG17 migration shadow image",
   },
   {
     file: "Dockerfile.supabase-runtime-poc",
-    pattern: /FROM supabase\\/postgres:(\\d+)\\./g,
+    pattern: /FROM supabase\/postgres:(\d+)\./g,
     what: "single-container runtime image",
   },
   {
     file: "package.json",
-    pattern: /"embedded-postgres"\\s*:\\s*"\\^?(\\d+)\\./g,
+    pattern: /"embedded-postgres"\s*:\s*"\^?(\d+)\./g,
     what: "embedded-postgres (db:setup)",
   },
 ];
