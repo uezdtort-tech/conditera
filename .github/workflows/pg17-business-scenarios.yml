@@ -41,7 +41,7 @@ jobs:
           POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
           SEED_MODE: none
         ports:
-          - 54322:5432
+          - 55432:5432
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d supabase"
           --health-interval 10s
@@ -50,7 +50,7 @@ jobs:
           --health-start-period 45s
     env:
       NODE_VERSION: "20"
-      DATABASE_URL: postgresql://supabase_admin:ci-pg17-password@127.0.0.1:54322/supabase
+      DATABASE_URL: postgresql://supabase_admin:ci-pg17-password@127.0.0.1:55432/supabase
       JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
       JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
       TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
