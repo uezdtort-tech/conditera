@@ -58,6 +58,11 @@ fi
 
 APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 
+# Supabase PG17 images do not guarantee that the extensions schema exists
+# before the first application migration. The initial migration installs
+# extensions into this schema, so bootstrap it idempotently before migration 0001.
+PSQL -c "CREATE SCHEMA IF NOT EXISTS extensions"
+
 # ===== 0.1. Детекция дубликатов migration ID (Z-v24) =====
 # Конвенция проекта: вариантные файлы одного номера — ЧИСЛО+БУКВА (0016b).
 # Два файла с одинаковым числовым префиксом и остатком, начинающимся с «_»,
