@@ -91,6 +91,8 @@ export PG_META_DB_PASSWORD="$POSTGRES_PASSWORD"
 export CRYPTO_KEY="$PG_META_CRYPTO_KEY"
 
 export SERVICE_KEY="$SERVICE_ROLE_KEY"
+export SUPABASE_ANON_KEY="$ANON_KEY"
+export SUPABASE_SERVICE_KEY="$SERVICE_ROLE_KEY"
 export AUTH_JWT_SECRET="$JWT_SECRET"
 export STORAGE_PUBLIC_URL="$SUPABASE_PUBLIC_URL"
 export STORAGE_BACKEND=file
@@ -199,5 +201,13 @@ sed \
   -e "s|\${SERVICE_ROLE_KEY}|$SERVICE_ROLE_KEY|g" \
   /opt/supabase/kong.yml.template \
   > /opt/supabase/services/kong/var/lib/kong/kong.yml
+kong_uid="$(awk -F: '$1 == "kong" { print $3 }' "$kong_passwd_file")"
+kong_gid="$(awk -F: '$1 == "kong" { print $4 }' "$kong_passwd_file")"
+if [ -z "$kong_uid" ] || [ -z "$kong_gid" ]; then
+  echo "Could not resolve Kong runtime UID/GID" >&2
+  exit 1
+fi
+chown "$kong_uid:$kong_gid" /opt/supabase/services/kong/var/lib/kong/kong.yml
+chmod 0640 /opt/supabase/services/kong/var/lib/kong/kong.yml
 
 exec /usr/bin/supervisord -n -c /etc/supervisord.conf
