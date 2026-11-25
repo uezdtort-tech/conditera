@@ -1,21 +1,12 @@
 /**
- * GET /api/order-media/[mediaId] — раздача фото готовности (P0.5 §35).
- *
- * Доступ ТОЛЬКО аутентифицированный и связанный с заказом:
- *   владелец-клиент / назначенный кондитер / ADMIN, SUPER_ADMIN, SUPPORT, COURIER.
- * Остальным — 404 (не раскрываем существование).
- *
- * Head-запросы → без тела; ETag + private cache; Content-Type из БД
- * (доверяем своему снифферу, записанному при загрузке).
+ * GET/HEAD /api/order-media/[mediaId] — раздача фото из приватного Supabase Storage.
+ * Доступ: владелец заказа, назначенный кондитер, staff; курьер — только по назначению.
+ * Ни локальная файловая система, ни произвольные storage paths не используются.
  */
-
-import { createReadStream, promises as fsp } from "fs";
-import { Readable } from "stream";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
-import { hasAnyRole } from "@/lib/role-guards";
-import { safeAbsOrderMediaPath } from "@/lib/ops/order-media";
+import { getOrderMedia, downloadOrderMedia, type OrderMediaRow } from "@/lib/ops/order-media";
 import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -23,103 +14,114 @@ export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type MediaRow = {
-  [key: string]: unknown;
-  id: string;
-  order_id: string;
-  kind: string;
-  storage_path: string;
-  mime_type: string;
-  file_size: number;
-  status: string;
-  customer_id: string;
-  confectioner_id: string | null;
+type AuthorizedMedia = {
+  media: OrderMediaRow;
+  buffer: Buffer;
+  etag: string;
 };
 
-export async function GET(
+async function loadAuthorizedMedia(
   request: NextRequest,
-  { params }: { params: Promise<{ mediaId: string }> }
+  mediaId: string
+): Promise<AuthorizedMedia | NextResponse> {
+  if (!UUID_RE.test(mediaId)) {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+
+  const user = await getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json(
+      { error: "UNAUTHORIZED", message: "Требуется аутентификация" },
+      { status: 401 }
+    );
+  }
+
+  const media = await getOrderMedia(mediaId);
+  if (!media) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+
+  const pool = getPool();
+  const { rows: orderRows } = await pool.query<{
+    user_id: string;
+    confectioner_id: string | null;
+  }>(
+    `SELECT user_id::text, confectioner_id::text
+       FROM public.orders
+      WHERE id = $1::uuid
+      LIMIT 1`,
+    [media.orderId]
+  );
+  const order = orderRows[0];
+  if (!order) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+
+  const roles = user.roles ?? [];
+  const isParty =
+    user.id === order.user_id ||
+    (order.confectioner_id !== null && user.id === order.confectioner_id);
+  const isStaff = roles.some((role) => ["ADMIN", "SUPER_ADMIN", "SUPPORT"].includes(role));
+
+  if (!isParty && !isStaff) {
+    if (!roles.includes("COURIER")) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+    const { rows: assignments } = await pool.query<{ id: string }>(
+      `SELECT id::text
+         FROM public.deliveries
+        WHERE order_id = $1::uuid
+          AND courier_id = $2::uuid
+          AND status IN ('assigned', 'picked_up', 'on_the_way', 'delivered')
+        LIMIT 1`,
+      [media.orderId, user.id]
+    );
+    if (!assignments.length) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+  }
+
+  const buffer = await downloadOrderMedia(media.storagePath);
+  const etagValue = media.contentSha256 || `${media.id}-${buffer.length}`;
+  return { media, buffer, etag: `"${etagValue}"` };
+}
+
+async function respond(
+  request: NextRequest,
+  params: Promise<{ mediaId: string }>,
+  headOnly: boolean
 ): Promise<Response> {
   try {
     const { mediaId } = await params;
-    if (!UUID_RE.test(mediaId)) {
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
+    const result = await loadAuthorizedMedia(request, mediaId);
+    if (result instanceof Response) return result;
 
-    const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json(
-        { error: "UNAUTHORIZED", message: "Требуется аутентификация" },
-        { status: 401 }
-      );
-    }
-
-    const pool = getPool();
-    const { rows } = await pool.query<MediaRow>(
-      `SELECT m.id, m.order_id, m.kind, m.storage_path, m.mime_type,
-              m.file_size, m.status,
-              o.user_id::text AS customer_id, o.confectioner_id::text AS confectioner_id
-       FROM public.order_media m
-       JOIN public.orders o ON o.id = m.order_id
-       WHERE m.id = $1::uuid AND m.status = 'approved'`,
-      [mediaId]
-    );
-    const media = rows[0];
-    if (!media) {
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-
-    // Доступ: клиент-владелец, кондитер, стафф
-    const isParty =
-      user.id === media.customer_id || (media.confectioner_id !== null && user.id === media.confectioner_id);
-    if (!isParty) {
-      const staff = await hasAnyRole(user.id, ["ADMIN", "SUPER_ADMIN", "SUPPORT", "COURIER"]);
-      if (!staff) {
-        return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-      }
-    }
-
-    let absPath: string;
-    try {
-      absPath = safeAbsOrderMediaPath(media.storage_path);
-    } catch {
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-
-    let stat: Awaited<ReturnType<typeof fsp.stat>>;
-    try {
-      stat = await fsp.stat(absPath);
-    } catch {
-      console.warn(
-        `[order-media] DB/filesystem desync: строка ${media.id} есть, файла нет: ${media.storage_path}`
-      );
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-    if (!stat.isFile()) {
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-
-    const etag = `"${media.id}-${stat.size}"`;
-    const headers: Record<string, string> = {
-      "Content-Type": media.mime_type,
-      "Content-Length": String(stat.size),
+    const headers = new Headers({
+      "Content-Type": result.media.mimeType,
+      "Content-Length": String(result.buffer.length),
       "X-Content-Type-Options": "nosniff",
-      ETag: etag,
+      ETag: result.etag,
       "Cache-Control": "private, max-age=86400",
-    };
-
-    if (request.headers.get("if-none-match")?.includes(etag)) {
+    });
+    if (request.headers.get("if-none-match")?.split(",").map((value) => value.trim()).includes(result.etag)) {
       return new Response(null, { status: 304, headers });
     }
-
-    const nodeStream = createReadStream(absPath);
-    const body = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
-    return new Response(body, { status: 200, headers });
-  } catch (err) {
-    return handleRouteError(err, {
+    return new Response(headOnly ? null : new Uint8Array(result.buffer), { status: 200, headers });
+  } catch (error) {
+    return handleRouteError(error, {
       route: "/api/order-media/[mediaId]",
       component: "orders",
       requestId: request.headers.get("x-request-id") ?? undefined,
     });
   }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ mediaId: string }> }
+): Promise<Response> {
+  return respond(request, params, false);
+}
+
+export async function HEAD(
+  request: NextRequest,
+  { params }: { params: Promise<{ mediaId: string }> }
+): Promise<Response> {
+  return respond(request, params, true);
 }
