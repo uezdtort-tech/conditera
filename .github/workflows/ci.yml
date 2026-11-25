@@ -497,11 +497,18 @@ jobs:
           # 0026 is intentionally deferred until the Supabase Storage API has
           # created storage.buckets/storage.objects. The full Compose workflow
           # starts Storage and verifies 0026 separately.
-          EXPECTED=$((TOTAL - 1))
-          DEFERRED=$(docker exec "$SVC" psql -U postgres -d conditera -Atc \
+          STORAGE_TABLES=$(docker exec "$SVC" psql -U postgres -d conditera -Atc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='storage' AND table_name IN ('buckets','objects')")
-          echo "applied=$APPLIED expected_before_Storage=$EXPECTED total=$TOTAL storage_tables=$DEFERRED"
-          test "$APPLIED" -eq "$EXPECTED" || { echo "FAIL: миграции кроме отложенной Storage 0026 применены не полностью"; exit 1; }
+          if [ "$STORAGE_TABLES" = "0" ]; then
+            EXPECTED=$((TOTAL - 1))
+          elif [ "$STORAGE_TABLES" = "2" ]; then
+            EXPECTED=$TOTAL
+          else
+            echo "FAIL: Supabase Storage bootstrap is partial (tables=$STORAGE_TABLES)"
+            exit 1
+          fi
+          echo "applied=$APPLIED expected=$EXPECTED total=$TOTAL storage_tables=$STORAGE_TABLES"
+          test "$APPLIED" -eq "$EXPECTED" || { echo "FAIL: applied migration count does not match Storage readiness"; exit 1; }
 
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
