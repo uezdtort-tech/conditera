@@ -4,7 +4,7 @@
  * Покрывает:
  *   1. FINAL_PAYMENT_STATUSES — все ожидаемые финальные статусы
  *   2. Идемпотентность при повторных запросах с тем же orderId и status
- *   3. Обработка разных event types (payment.succeeded, payment.canceled, refund.succeeded)
+ *   3. Обработка разных event types (payment.succeeded, payment.cancelled, refund.succeeded)
  *   4. Idempotency для новых статусов (не финальных)
  *
  * Эти тесты НЕ запускают route handler — они валидируют структуру
@@ -13,6 +13,7 @@
 import { describe, it, expect } from "vitest";
 
 // Импортируем типы из route для проверки структуры
+import { shouldSkipFinalPaymentWebhook } from "@/app/api/payment/webhook/route";
 import type { YooKassaPaymentObject, YooKassaWebhookBody } from "@/app/api/payment/webhook/route";
 
 describe("payment/webhook: типизация", () => {
@@ -62,14 +63,14 @@ describe("payment/webhook: типизация", () => {
 
 describe("payment/webhook: идемпотентность по статусам", () => {
   // Имитируем логику из route.ts: проверка финальных статусов.
-  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "canceled", "refunded"]);
+  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
 
   it("содержит succeeded", () => {
     expect(FINAL_PAYMENT_STATUSES.has("succeeded")).toBe(true);
   });
 
-  it("содержит canceled", () => {
-    expect(FINAL_PAYMENT_STATUSES.has("canceled")).toBe(true);
+  it("содержит cancelled", () => {
+    expect(FINAL_PAYMENT_STATUSES.has("cancelled")).toBe(true);
   });
 
   it("содержит refunded", () => {
@@ -90,7 +91,7 @@ describe("payment/webhook: идемпотентность по статусам"
 });
 
 describe("payment/webhook: идемпотентность — edge cases", () => {
-  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "canceled", "refunded"]);
+  const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
 
   it("повторный запрос с succeeded → idempotent", () => {
     // Если payment.status === 'succeeded' и пришёл ещё раз с тем же status →
@@ -107,7 +108,7 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
 
   it("разный status для уже обработанного платежа → НЕ idempotent", () => {
     const existing = { id: "pay-1", status: "succeeded" };
-    const incoming = { event: "payment.canceled", status: "canceled" };
+    const incoming = { event: "payment.cancelled", status: "cancelled" };
 
     // Статус изменился — нужно обновить (не idempotent skip)
     const isIdempotent =
@@ -117,12 +118,12 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
     expect(isIdempotent).toBe(false);
   });
 
-  it("succeeded → canceled → refunded: последовательные переходы", () => {
-    // Сначала succeeded, потом canceled, потом refunded
+  it("succeeded → cancelled → refunded: последовательные переходы", () => {
+    // Сначала succeeded, потом cancelled, потом refunded
     const transitions = [
       { from: null, to: "succeeded" },
-      { from: "succeeded", to: "canceled" },
-      { from: "canceled", to: "refunded" },
+      { from: "succeeded", to: "cancelled" },
+      { from: "cancelled", to: "refunded" },
     ];
 
     for (const t of transitions) {
@@ -135,9 +136,9 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
     }
   });
 
-  it("повторный canceled → idempotent", () => {
-    const existing = { id: "pay-1", status: "canceled" };
-    const incoming = { event: "payment.canceled", status: "canceled" };
+  it("повторный cancelled → idempotent", () => {
+    const existing = { id: "pay-1", status: "cancelled" };
+    const incoming = { event: "payment.cancelled", status: "cancelled" };
 
     const isIdempotent =
       FINAL_PAYMENT_STATUSES.has(existing.status) &&
@@ -155,5 +156,24 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
       existing.status === incoming.status;
 
     expect(isIdempotent).toBe(true);
+  });
+});
+
+
+describe("payment/webhook: replay race", () => {
+  it("does not skip payment.succeeded before re-checking order state", () => {
+    expect(shouldSkipFinalPaymentWebhook("payment.succeeded", "succeeded", "succeeded")).toBe(false);
+  });
+
+  it("does not skip refund.succeeded based on the payment status", () => {
+    expect(shouldSkipFinalPaymentWebhook("refund.succeeded", "succeeded", "succeeded")).toBe(false);
+  });
+
+  it("skips an already applied cancelled event", () => {
+    expect(shouldSkipFinalPaymentWebhook("payment.canceled", "cancelled", "cancelled")).toBe(true);
+  });
+
+  it("does not skip a transition to a different final status", () => {
+    expect(shouldSkipFinalPaymentWebhook("payment.canceled", "succeeded", "cancelled")).toBe(false);
   });
 });
