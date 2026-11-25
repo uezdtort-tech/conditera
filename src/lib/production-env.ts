@@ -95,6 +95,9 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
   if (jwtSecret === tfaKey || refreshSecret === tfaKey) {
     throw new Error("[production-env] TFA_ENCRYPTION_KEY должен отличаться от JWT-секретов.");
   }
+  if (cronSecret === jwtSecret || cronSecret === refreshSecret || cronSecret === tfaKey) {
+    throw new Error("[production-env] CRON_SECRET должен отличаться от JWT/TFA секретов.");
+  }
 
   const databaseUrl = requireValue(env, "DATABASE_URL");
   const directDatabaseUrl = requireValue(env, "DIRECT_DATABASE_URL");
