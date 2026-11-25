@@ -32,10 +32,10 @@ jobs:
     timeout-minutes: 60
     services:
       postgres:
-        image: supabase/postgres:17.12.0.001
+        image: supabase/postgres:17.11.0.017
         env:
           POSTGRES_USER: supabase_admin
-          POSTGRES_PASSWORD: ci-pg17-password
+          POSTGRES_PASSWORD: ${{ 'ci-pg17-password' }}
           POSTGRES_DB: supabase
           POSTGRES_PORT: 5432
           POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
@@ -49,16 +49,16 @@ jobs:
           --health-retries 15
           --health-start-period 45s
     env:
-      NODE_VERSION: "20"
-      DATABASE_URL: postgresql://supabase_admin:ci-pg17-password@127.0.0.1:55432/supabase
-      JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
-      JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
-      TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
-      CRON_SECRET: e2e_test_cron_secret
+      NODE_VERSION: "26"
+      DATABASE_URL: ${{ 'postgresql://supabase_admin:ci-pg17-password@127.0.0.1:55432/supabase' }}
+      JWT_SECRET: ${{ 'e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa' }}
+      JWT_REFRESH_SECRET: ${{ 'e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa' }}
+      TFA_ENCRYPTION_KEY: ${{ 'e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
+      CRON_SECRET: ${{ 'e2e_test_cron_secret' }}
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
       SUPABASE_INTERNAL_URL: http://127.0.0.1:3000
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'stub-anon-key' }}
       NODE_ENV: test
       LOCAL_AUTH_STUB_ENABLED: "true"
       E2E_PAYMENT_STUB_ENABLED: "true"
@@ -67,7 +67,7 @@ jobs:
       VK_CLIENT_ID: e2e-vk-client
       VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
       GOOGLE_CLIENT_ID: e2e-google-client
-      GOOGLE_CLIENT_SECRET: e2e-google-secret
+      GOOGLE_CLIENT_SECRET: ${{ 'e2e-google-secret' }}
       GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
       CI: "true"
 
