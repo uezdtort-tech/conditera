@@ -567,6 +567,12 @@ async function handleOAuthCallback(
     return finalResponse;
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
+    if (detail === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+      return NextResponse.json(
+        { error: "Выполняется параллельный вход. Повторите попытку." },
+        { status: 409 }
+      );
+    }
     if (detail === NEW_DEVICE_LOGIN_BLOCKED) {
       return NextResponse.json(
         { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
