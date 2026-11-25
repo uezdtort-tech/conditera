@@ -68,6 +68,7 @@ export function AdminCmsHomeTab() {
   const [sectionsData, setSectionsData] = useState<Record<string, CmsBlockApiRow[]>>({});
   const [sectionMeta, setSectionMeta] = useState<CmsSectionMeta[]>([]);
   const [savingSections, setSavingSections] = useState(false);
+  const [reorderingSection, setReorderingSection] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -254,6 +255,31 @@ export function AdminCmsHomeTab() {
     }
   };
 
+  const moveBlock = async (section: string, blockId: string, direction: -1 | 1) => {
+    const blocks = sectionsData[section] || [];
+    const index = blocks.findIndex((block) => block.id === blockId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= blocks.length) return;
+    const nextIds = blocks.map((block) => block.id);
+    [nextIds[index], nextIds[target]] = [nextIds[target], nextIds[index]];
+    setReorderingSection(section);
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/cms/blocks/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectionSlug: section, blockIds: nextIds }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось изменить порядок блоков");
+    } finally {
+      setReorderingSection(null);
+    }
+  };
+
   const renderBlockRow = (block: CmsBlockApiRow) => (
     <div key={block.id} className="border border-border rounded-lg p-3">
       {editingId === block.id ? (
@@ -437,7 +463,23 @@ export function AdminCmsHomeTab() {
                   </Button>
                 </div>
                 <div className="space-y-2">
-                  {blocks.map(renderBlockRow)}
+                  {blocks.map((block, index) => (
+                    <div key={block.id} className="flex items-start gap-1">
+                      <div className="flex flex-col gap-0.5 pt-2">
+                        <Button size="icon" variant="ghost" aria-label="Переместить блок выше"
+                          disabled={index === 0 || reorderingSection === key}
+                          onClick={() => void moveBlock(key, block.id, -1)}>
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" aria-label="Переместить блок ниже"
+                          disabled={index === blocks.length - 1 || reorderingSection === key}
+                          onClick={() => void moveBlock(key, block.id, 1)}>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="min-w-0 flex-1">{renderBlockRow(block)}</div>
+                    </div>
+                  ))}
                   {blocks.length === 0 && (
                     <div className="text-xs text-muted-foreground text-center py-2">
                       Нет блоков — на главной показывается системная секция
