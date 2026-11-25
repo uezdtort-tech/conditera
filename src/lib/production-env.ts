@@ -65,6 +65,14 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
   requireValue(env, "SMTP_HOST");
   requireValue(env, "SMTP_USER");
   requireValue(env, "SMTP_PASSWORD", 16);
+  requireValue(env, "SMTP_FROM");
+  const smtpPort = Number(requireValue(env, "SMTP_PORT"));
+  if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+    throw new Error("[production-env] SMTP_PORT должен быть целым числом от 1 до 65535.");
+  }
+  if (env.SMTP_SECURE !== "true" && env.SMTP_SECURE !== "false") {
+    throw new Error("[production-env] SMTP_SECURE должен быть true или false.");
+  }
   requireValue(env, "YOOKASSA_SHOP_ID");
   requireValue(env, "YOOKASSA_SECRET_KEY", 16);
   if (env.EXTERNAL_YANDEX_ENABLED !== "true") {
