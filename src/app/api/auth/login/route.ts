@@ -6,7 +6,7 @@
  *   2. Валидация: email и password обязательны
  *   3. Найти пользователя в profiles по email (lowercase)
  *   4. Проверка is_blocked — вернуть причину блокировки
- *   5. verifyPassword (bcrypt) — проверить пароль
+ *   5. verifyPassword (Argon2id) — проверить пароль
  *   6. 2FA GATE: если tfa_enabled и tfa_secret — НЕ выдаём access/refresh токены,
  *      возвращаем tfaRequired: true + tfaTempToken для второго шага (POST /api/auth/2fa/login-verify)
  *   7. Без 2FA — выдать access + refresh JWT токены
@@ -27,6 +27,7 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 import { findDevFallbackUser } from "@/lib/dev-auth";
 import { isAdminConfigured } from "@/lib/supabase/admin";
 
@@ -189,7 +190,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 5. verifyPassword (bcryptjs cost 10 — src/lib/auth.ts, см. R4).
+    // 5. verifyPassword (Argon2id).
     // Переходный период (двойная auth-система): у пользователей, зарегистрированных
     // через SupabaseAuthModal (GoTrue signInWithSignUp), password_hash в profiles нет —
     // для них доверяем GoTrue signInWithPassword как источнику истины по паролю.
@@ -252,44 +253,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           password,
         });
         if (gtErr) {
-          // Email не подтверждён в GoTrue (register делает email_confirm: false для prod-флоу
-          // письма-подтверждения). Пароль уже проверен bcrypt по profiles выше — владелец
-          // учётных данных подтверждён, поэтому подтверждаем email через admin API и повторяем.
-          if (gtErr.message === "Email not confirmed") {
-            const { error: upErr } = await supabaseAdmin.auth.admin
-              .updateUserById(user.id, { email_confirm: true });
-            if (!upErr) {
-              await ssr.auth.signInWithPassword({ email: emailLower, password });
-            } else {
-              console.warn("[login] GoTrue email confirm update failed:", upErr.message);
-            }
-          } else if (
-            /invalid login credentials/i.test(gtErr.message) ||
-            /invalid credentials/i.test(gtErr.message)
-          ) {
-            // Пользователь зарегистрирован через fallback (cb42589): строка
-            // auth.users существует, но encrypted_password пуст — пароль канонично
-            // хранится в profiles.password_hash (bcrypt), который УЖЕ проверен выше.
-            // Лечим зеркало GoTrue: записываем проверенный пароль в GoTrue (admin API),
-            // после чего sb-* сессия (Supabase-SSR-роуты, Storage-аплоады) работает
-            // и для таких пользователей. Fail-safe: сбой — non-fatal, app-сессия
-            // выдаётся независимо.
-            const { error: healErr } = await supabaseAdmin.auth.admin
-              .updateUserById(user.id, { password });
-            if (healErr) {
-              console.warn(
-                "[login] GoTrue password sync failed (stub user):",
-                healErr.message,
-              );
-            } else {
-              await ssr.auth.signInWithPassword({ email: emailLower, password });
-            }
-          } else {
-            console.warn(
-              "[login] GoTrue signInWithPassword failed (legacy-only user?):",
-              gtErr.message,
-            );
-          }
+          // Не подтверждаем email через admin API автоматически: знание пароля
+          // не доказывает владение почтовым ящиком. Собственная app-сессия ниже
+          // остаётся рабочей после проверки profiles.password_hash; GoTrue-cookie
+          // не выдаётся до прохождения штатного подтверждения адреса.
+          console.warn(
+            "[login] GoTrue session unavailable; app JWT remains the session source:",
+            gtErr.message,
+          );
         }
       } catch (gtEx) {
         console.warn(
@@ -309,8 +280,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType: user.account_type,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId: user.id });
+    const sessionId = await createUserSession(user.id, request, "password");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, user.id, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId: user.id, sid: sessionId, jti: refreshJti });
 
     // Обновить last_login_at (non-blocking)
     supabaseAdmin
@@ -342,6 +316,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // читающие getUserFromRequest(), работают без ручного Bearer-заголовка.
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json(
+        { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
+        { status: 403 }
+      );
+    }
+    if (error?.message === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json(
+        { error: "Не удалось безопасно проверить активные устройства. Повторите попытку позже." },
+        { status: 503 }
+      );
+    }
+    if (error?.message === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+      return NextResponse.json(
+        { error: "Вход с другого устройства завершился одновременно. Повторите вход." },
+        { status: 409 }
+      );
+    }
     console.error("Login error:", error?.message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
