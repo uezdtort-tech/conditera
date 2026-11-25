@@ -58,6 +58,9 @@ fi
 
 APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 
+# Supabase and embedded PostgreSQL 17 may not create the extension namespace.
+PSQL -c "CREATE SCHEMA IF NOT EXISTS extensions"
+
 # Preserve applied migration history across legacy filename renames. Insert only
 # canonical aliases when the old filename is already in the ledger; never delete
 # ledger rows or replay schema changes on a database that has already applied them.
