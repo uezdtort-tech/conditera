@@ -59,7 +59,7 @@ describe("TOTP encryption key configuration", () => {
     vi.resetModules();
 
     const { encryptSecret, decryptSecret } = await import("./totp");
-    const secret = "JBSWY3DPEHPK3PXP";
+    const secret = "A".repeat(32);
 
     expect(decryptSecret(encryptSecret(secret))).toBe(secret);
   });
@@ -71,7 +71,7 @@ describe("TOTP encryption key configuration", () => {
     vi.resetModules();
 
     const { encryptSecret, decryptSecret } = await import("./totp");
-    const secret = "JBSWY3DPEHPK3PXP";
+    const secret = "A".repeat(32);
 
     expect(decryptSecret(encryptSecret(secret))).toBe(secret);
   });
