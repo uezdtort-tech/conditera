@@ -259,15 +259,17 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
 
   // Production app-JWT must be bound to an active server-side session.
   // Legacy sid-less tokens remain accepted only outside production.
-  if (!payload.sid) {
-    if (process.env.NODE_ENV === "production") return null;
-  } else {
+  if (payload.sid) {
     try {
       if (!(await isUserSessionActive(payload.sid, userId))) return null;
     } catch (sessionError) {
       console.error("[auth] session validation failed; rejecting request:", sessionError);
       return null;
     }
+  } else if (payload.userId && process.env.NODE_ENV === "production") {
+    // Только собственные Conditera app-JWT обязаны иметь sid.
+    // GoTrue JWT использует sub/session_id и проходит отдельную проверку профиля.
+    return null;
   }
 
   try {
