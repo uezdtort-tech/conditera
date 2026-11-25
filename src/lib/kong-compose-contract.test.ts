@@ -27,7 +27,8 @@ describe("Kong 2.8 Compose contract", () => {
     expect(compose).toContain("./scripts/supabase/kong-entrypoint.sh:/usr/local/bin/conditera-kong-entrypoint.sh:ro");
     expect(compose).toContain('entrypoint: ["/bin/sh", "/usr/local/bin/conditera-kong-entrypoint.sh"]');
     expect(entrypoint).toContain("placeholder/test API keys are forbidden");
-    expect(entrypoint).toContain("chown kong:kong");
+    expect(entrypoint).toContain("chown kong");
+    expect(entrypoint).toContain('if [ "$(id -u)" -eq 0 ]; then');
     expect(entrypoint).toContain("chmod 600");
   });
 
