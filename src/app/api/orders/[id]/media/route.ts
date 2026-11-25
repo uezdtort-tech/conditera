@@ -49,7 +49,7 @@ export async function POST(
         { status: 404 }
       );
     }
-    if (!(await canOperateOrder(order, user.id))) {
+    if (order.user_id !== user.id && !(await canOperateOrder(order, user.id))) {
       return NextResponse.json(
         { error: "FORBIDDEN", message: "Нет доступа к производственному контуру заказа" },
         { status: 403 }
