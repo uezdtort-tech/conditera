@@ -51,6 +51,10 @@ const UNIT_ALIASES: Record<string, UnitAlias> = {
   "штук": { unit: "шт", factor: 1 },
   "pcs": { unit: "шт", factor: 1 },
   "piece": { unit: "шт", factor: 1 },
+  "дес": { unit: "шт", factor: 12 },
+  "дюжина": { unit: "шт", factor: 12 },
+  "dozen": { unit: "шт", factor: 12 },
+  "dz": { unit: "шт", factor: 12 },
 
   // десятки (шт × 10): складские позиции вроде «Яйцо куриное С0» хранятся в
   // «дес», рецепты считают в «шт». Без алиаса convertQty возвращает null →

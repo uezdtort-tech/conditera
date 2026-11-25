@@ -120,9 +120,15 @@ export async function setStageDone(
 }
 
 /** Все ли производственные этапы (кроме handoff) выполнены. */
-export function checklistProductionComplete(stages: ChecklistStage[]): boolean {
-  const relevant = stages.filter((s) => s.stage_key !== "handoff");
-  return relevant.length > 0 && relevant.every((s) => s.is_done);
+export function checklistProductionComplete(
+  stages: ChecklistStage[],
+  readyPhotoRequired = true
+): boolean {
+  const relevant = stages.filter(
+    (stage) => stage.stage_key !== "handoff" &&
+      (readyPhotoRequired || stage.stage_key !== "ready_photo")
+  );
+  return relevant.length > 0 && relevant.every((stage) => stage.is_done);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +246,7 @@ export async function getProductionSnapshot(orderId: string): Promise<Production
     completedAt: row?.completed_at ? new Date(row.completed_at).toISOString() : null,
     readyPhotoRequired: row?.ready_photo_required ?? false,
     checklist,
-    checklistComplete: checklistProductionComplete(checklist),
+    checklistComplete: checklistProductionComplete(checklist, row?.ready_photo_required ?? false),
   };
   return base;
 }
