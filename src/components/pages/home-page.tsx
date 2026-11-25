@@ -530,8 +530,6 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* V2: отдельная лента статистики больше не нужна — счётчики
-          переехали в стеклянную ленту внутри hero (см. HERO) */}
     ),
     testimonials: (
 
