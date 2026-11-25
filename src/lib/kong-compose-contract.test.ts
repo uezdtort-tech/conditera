@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const compose = readFileSync(resolve(process.cwd(), "docker-compose.supabase.yml"), "utf8");
 const kong = readFileSync(resolve(process.cwd(), "supabase/kong.yml"), "utf8");
+const entrypoint = readFileSync(resolve(process.cwd(), "scripts/supabase/kong-entrypoint.sh"), "utf8");
 
 describe("Kong 2.8 Compose contract", () => {
   it("uses the supported DB-less mode string", () => {
@@ -18,6 +19,16 @@ describe("Kong 2.8 Compose contract", () => {
     for (const plugin of required) {
       expect(configured.has(plugin), `KONG_PLUGINS is missing ${plugin}`).toBe(true);
     }
+  });
+
+  it("passes API keys to a guarded declarative-config renderer", () => {
+    expect(compose).toContain("SUPABASE_ANON_KEY: ${ANON_KEY:?ANON_KEY is required}");
+    expect(compose).toContain("SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}");
+    expect(compose).toContain("./scripts/supabase/kong-entrypoint.sh:/usr/local/bin/conditera-kong-entrypoint.sh:ro");
+    expect(compose).toContain('entrypoint: ["/bin/sh", "/usr/local/bin/conditera-kong-entrypoint.sh"]');
+    expect(entrypoint).toContain("placeholder/test API keys are forbidden");
+    expect(entrypoint).toContain("chown kong:kong");
+    expect(entrypoint).toContain("chmod 600");
   });
 
   it("uses exact uppercase Kong NGINX variable names and string values", () => {
