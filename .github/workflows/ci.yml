@@ -375,7 +375,13 @@ jobs:
           node-version: "22.18.0"
 
       - name: Check for secrets in code (full tracked scan with explicit fixture rules)
-        run: node scripts/regression/secrets-scan.mjs --mode=full
+        run: |
+          set +e
+          node scripts/regression/secrets-scan.mjs --mode=full --json "$RUNNER_TEMP/secrets-scan.json"
+          scan_status=$?
+          set -e
+          node -e 'const fs=require("node:fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); for (const f of report.findings ?? []) console.log(`${f.file}:${f.line} [${f.rule}]`);' "$RUNNER_TEMP/secrets-scan.json"
+          exit "$scan_status"
       - name: Check for .env files in repo
         run: |
           # Проверка что нет закоммиченных .env файлов с секретами
