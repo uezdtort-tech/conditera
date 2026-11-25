@@ -47,9 +47,9 @@ services:
       - -c
       - config_file=/etc/postgresql/postgresql.conf
     environment:
-      POSTGRES_USER: supabase
+      POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      POSTGRES_DB: supabase
+      POSTGRES_DB: conditera
       POSTGRES_PORT: 5432
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
       # Пути должны совпадать с фактическими bind mounts ниже.
@@ -61,10 +61,9 @@ services:
     expose:
       - "5432"
     volumes:
-      # ВНИМАНИЕ (PG15→PG17): старый том supabase_db_data инициализирован
-      # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
-      # («database files are incompatible with server»). Переход только через
-      # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
+      # Том предыдущего major release нельзя подключать к PG17 напрямую:
+      # перенос выполняется только через логический dump/restore либо новую
+      # инициализацию отдельного v17 volume. Существующие данные не удалять.
       - supabase_db_data_v17:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
@@ -76,7 +75,7 @@ services:
       - ./supabase/seed_cms_crm.sql:/docker-entrypoint-initdb.d/seed/02-seed_cms_crm.sql:ro
       - ./supabase/seed_fillings.sql:/docker-entrypoint-initdb.d/seed/03-seed_fillings.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U supabase -d supabase"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -147,7 +146,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=auth
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=auth
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -218,7 +217,7 @@ services:
     container_name: conditera-supabase-rest
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -247,9 +246,9 @@ services:
       APP_NAME: realtime
       DB_HOST: supabase-db
       DB_PORT: 5432
-      DB_USER: supabase
+      DB_USER: supabase_admin
       DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      DB_NAME: supabase
+      DB_NAME: conditera
       DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
       PORT: 4000
       RLIMIT_NOFILE: 65536
@@ -291,7 +290,7 @@ services:
       SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=storage
+      DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=storage
       PG_META_URL: http://supabase-meta:8080
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /mnt/storage
@@ -344,9 +343,9 @@ services:
     environment:
       PGHOST: supabase-db
       PGPORT: 5432
-      PGUSER: supabase
+      PGUSER: supabase_admin
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      PGDATABASE: supabase
+      PGDATABASE: conditera
       MIGRATIONS_DIR: /conditera-migrations
       SEEDS_DIR: /seeds
       SEED_MODE: none
@@ -401,8 +400,8 @@ services:
       PG_META_PORT: 8080
       PG_META_DB_HOST: supabase-db
       PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: supabase
-      PG_META_DB_USER: supabase
+      PG_META_DB_NAME: conditera
+      PG_META_DB_USER: supabase_admin_admin
       PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       PG_META_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
     depends_on:
@@ -486,7 +485,7 @@ services:
       LOGFLARE_DASHBOARD_PASSWORD: ${LOGFLARE_DASHBOARD_PASSWORD:-devpass}
       LOGFLARE_MIN_LOG_DURATION_MS: 0
       LOGFLARE_LOGTTL: "604800"
-      DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DB_DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -525,7 +524,7 @@ services:
       - ./supabase/vector.yaml:/etc/vector/vector.yaml:ro
       - supabase_vector_data:/var/lib/vector
     environment:
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
       LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-dev-key}
     depends_on:
       supabase-db:
