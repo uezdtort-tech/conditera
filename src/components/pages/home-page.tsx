@@ -315,7 +315,7 @@ export function HomePage() {
       </section>
     ),
     advantages: (
-      {/* ===== ADVANTAGES ===== */}
+
       <section className="relative overflow-hidden py-14">
         <div className="absolute inset-0 bg-secondary/40" aria-hidden="true" />
         <div className="absolute inset-0 grain-overlay" aria-hidden="true" />
@@ -432,7 +432,7 @@ export function HomePage() {
       </section>
     ),
     steps: (
-      {/* ===== STEPS ===== */}
+
       <section className="relative overflow-hidden py-14">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
         <div className="container mx-auto px-4 relative">
@@ -534,7 +534,7 @@ export function HomePage() {
           переехали в стеклянную ленту внутри hero (см. HERO) */}
     ),
     testimonials: (
-      {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
+
       <section className="container mx-auto px-4">
         <div className="text-center mb-12">
           <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
@@ -626,7 +626,7 @@ export function HomePage() {
       </section>
     ),
     cta_confectioner: (
-      {/* ===== CTA BECOME CONFECTIONER (V2: вишнёвая панель) ===== */}
+
       <section className="container mx-auto px-4">
         <div className="panel-dark relative overflow-hidden rounded-3xl shadow-[var(--shadow-pop)]">
           <div className="absolute inset-0 bg-pattern opacity-40" aria-hidden="true" />
