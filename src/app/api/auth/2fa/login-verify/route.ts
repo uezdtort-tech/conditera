@@ -27,6 +27,7 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 import {
   verifyTotp,
   decryptSecret,
@@ -277,8 +278,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType: user.account_type,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId: user.id });
+    const sessionId = await createUserSession(user.id, request, "two_factor");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, user.id, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId: user.id, sid: sessionId, jti: refreshJti });
 
     // Sanitize response
     const safeUser: SanitizedUser = {
@@ -305,6 +309,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return setSessionCookies(verifyResponse, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("POST /api/auth/2fa/login-verify error:", error?.message);
+    if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json({ error: NEW_DEVICE_LOGIN_BLOCKED, message: "Сначала завершите сеанс на прежнем устройстве." }, { status: 409 });
+    }
+    if (error?.message === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json({ error: SESSION_POLICY_UNAVAILABLE }, { status: 503 });
+    }
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера" },
       { status: 500 }

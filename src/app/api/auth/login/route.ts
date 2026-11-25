@@ -347,6 +347,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("Login error:", error?.message);
+    if (error?.message === "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT") {
+      return NextResponse.json({ error: "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT", message: "Сначала завершите сеанс на прежнем устройстве." }, { status: 409 });
+    }
+    if (error?.message === "ACCOUNT_SESSION_POLICY_UNAVAILABLE") {
+      return NextResponse.json({ error: "ACCOUNT_SESSION_POLICY_UNAVAILABLE" }, { status: 503 });
+    }
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
       { status: 500 }
