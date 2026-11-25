@@ -171,7 +171,7 @@ export async function getPaymentStatus(
 ): Promise<{ success: boolean; payment?: YooKassaPaymentResponse; error?: string }> {
   if (paymentId.startsWith("mock_")) {
     // PAY-1: mock-ID не может «подтверждать» оплату в production.
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error("[yookassa] getPaymentStatus: mock paymentId в production — отклонено");
       return { success: false, error: "Mock-платежи отключены в production" };
     }
@@ -214,7 +214,7 @@ export async function getRefund(
   error?: string;
 }> {
   if (refundId.startsWith("mock_")) {
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       return { success: false, error: "Mock-возвраты отключены в production" };
     }
     return {
@@ -247,7 +247,7 @@ export async function refundPayment(
 ): Promise<{ success: boolean; refund?: any; error?: string }> {
   if (paymentId.startsWith("mock_")) {
     // PAY-1: mock-возвраты в production отклонены.
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error("[yookassa] refundPayment: mock paymentId в production — отклонено");
       return { success: false, error: "Mock-возвраты отключены в production" };
     }
