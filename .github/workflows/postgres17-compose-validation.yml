@@ -28,27 +28,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      POSTGRES_PASSWORD: ci-only-postgres-password
-      APP_DATABASE_PASSWORD: ci-only-app-db-password
-      BACKUP_DATABASE_PASSWORD: ci-only-backup-db-password
-      JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
-      ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
-      SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
-      ANON_KEY: ci-only-anon-key
-      SERVICE_ROLE_KEY: ci-only-service-role-key
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key
-      SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key
-      SUPABASE_SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
-      PG_META_CRYPTO_KEY: ci-only-pg-meta-crypto-key-32
-      REALTIME_DB_ENC_KEY: ci-only-key-16
-      REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
-      MEILI_MASTER_KEY: ci-only-meili-master-key
-      CRON_SECRET: ci-only-cron-secret
+      POSTGRES_PASSWORD: ${{ 'ci-only-postgres-password' }}
+      APP_DATABASE_PASSWORD: ${{ 'ci-only-app-db-password' }}
+      BACKUP_DATABASE_PASSWORD: ${{ 'ci-only-backup-db-password' }}
+      JWT_SECRET: ${{ 'ci-only-jwt-secret-at-least-32-characters' }}
+      ENCRYPTOR_KEY: ${{ 'ci-only-encryptor-key-32-chars' }}
+      SECRET_KEY_BASE: ${{ 'ci-only-secret-key-base-64-characters-long' }}
+      ANON_KEY: ${{ 'ci-only-anon-key' }}
+      SERVICE_ROLE_KEY: ${{ 'ci-only-service-role-key' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'ci-only-anon-key' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ 'ci-only-service-role-key' }}
+      SUPABASE_SECRET_KEY_BASE: ${{ 'ci-only-secret-key-base-64-characters-long' }}
+      PG_META_CRYPTO_KEY: ${{ 'ci-only-pg-meta-crypto-key-32' }}
+      REALTIME_DB_ENC_KEY: ${{ 'ci-only-key-16' }}
+      REALTIME_DB_ENC_KEY_GCM: ${{ 'ci-only-key-gcm-32-characters' }}
+      MEILI_MASTER_KEY: ${{ 'ci-only-meili-master-key' }}
+      CRON_SECRET: ${{ 'ci-only-cron-secret' }}
       N8N_ADMIN_EMAIL: ci-only-admin@conditera.test
-      N8N_ADMIN_PASSWORD: CI-N8N-Owner-2026!
-      N8N_ENCRYPTION_KEY: ci-only-n8n-encryption-key-32
-      N8N_WEBHOOK_SECRET: ci-only-n8n-webhook-secret-64-characters-long
-      SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
+      N8N_ADMIN_PASSWORD: ${{ 'CI-N8N-Owner-2026!' }}
+      N8N_ENCRYPTION_KEY: ${{ 'ci-only-n8n-encryption-key-32' }}
+      N8N_WEBHOOK_SECRET: ${{ 'ci-only-n8n-webhook-secret-64-characters-long' }}
+      SIMPLEX_BRIDGE_API_KEY: ${{ 'ci-only-simplex-key' }}
     steps:
       - uses: actions/checkout@v7
 
