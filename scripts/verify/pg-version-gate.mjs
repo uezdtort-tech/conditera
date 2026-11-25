@@ -49,6 +49,11 @@ const ANCHORS = [
     what: "single-container runtime image",
   },
   {
+    file: "Dockerfile",
+    pattern: /FROM .*postgres:(\\d+)-alpine AS migrator/g,
+    what: "application migration client image",
+  },
+  {
     file: "package.json",
     pattern: /"embedded-postgres"\s*:\s*"\^?(\d+)\./g,
     what: "embedded-postgres (db:setup)",

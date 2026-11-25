@@ -50,8 +50,7 @@ RUN npm run build
 
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
-# Использует postgres:18-alpine чтобы был psql клиент (merge с origin/main,
-# Dependabot PR #4: 16 → 18; зеркало ECR сохранено).
+# Использует PostgreSQL 17 client image для согласования с единственным PG17.12 runtime.
 FROM public.ecr.aws/docker/library/postgres:17-alpine AS migrator
 WORKDIR /migrations
 
