@@ -28,11 +28,13 @@ import {
   Mail, ShieldCheck, FileText, CalendarDays, Tags, Globe,
   Zap, Database, Cake, Building2, Navigation, AlertTriangle,
   Utensils, MapPin, Star, Store, UserX,
-  Check, Pencil, Trash2, UserCog, Images, Gauge, BellRing,
+  Check, Pencil, Trash2, UserCog, Images, Gauge, BellRing, Palette, Layers,
 } from "lucide-react";
 import { formatCurrency, ORDER_STATUS_LABELS } from "@/lib/finance";
 import { csrfFetch } from "@/lib/api-client";
 import { BlacklistTab } from "@/components/dashboard/blacklist-tab";
+import { AdminHomepageSectionsTab } from "@/components/dashboard/admin-homepage-sections-tab";
+import { AdminDesignTab } from "@/components/dashboard/admin-design-tab";
 import {
   AdminCmsHomeTab, AdminBannersTab, AdminCmsPagesTab,
   AdminReviewsModerationTab, AdminSettingsTab, AdminNavMenuTab,
@@ -93,6 +95,8 @@ const TAB_GROUPS = [
     title: "CMS",
     tabs: [
       { id: "cms-home", label: "Главная", icon: LayoutDashboard },
+      { id: "cms-home-sections", label: "Секции главной", icon: Layers },
+      { id: "cms-design", label: "Дизайн сайта", icon: Palette },
       { id: "cms-banners", label: "Баннеры", icon: ImageIcon },
       { id: "cms-pages", label: "Страницы", icon: Edit },
       { id: "reviews", label: "Отзывы", icon: MessageSquare },
@@ -450,6 +454,8 @@ export function AdminDashboard() {
       case "media-moderation": return <AdminMediaModerationTab />;
       case "blacklist": return <BlacklistTab />;
       case "cms-home": return <AdminCmsHomeTab />;
+      case "cms-home-sections": return <AdminHomepageSectionsTab />;
+      case "cms-design": return <AdminDesignTab />;
       case "cms-banners": return <AdminBannersTab />;
       case "cms-pages": return <AdminCmsPagesTab />;
       case "reviews": return <AdminReviewsModerationTab />;
