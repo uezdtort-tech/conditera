@@ -18,8 +18,8 @@ assert.match(compose, /^    entrypoint: \["\/bin\/sh", "\/usr\/local\/bin\/condi
 assert.match(template, /\$\{SUPABASE_ANON_KEY\}/);
 assert.match(template, /\$\{SUPABASE_SERVICE_KEY\}/);
 assert.doesNotMatch(template, /\$\{(?:ANON_KEY|SERVICE_ROLE_KEY)\}/);
-assert.match(entrypoint, /chown kong:kong/);
-assert.match(entrypoint, /chmod 600/);
+assert.doesNotMatch(entrypoint, /chown kong:kong/);
+assert.match(entrypoint, /chmod 644/);
 assert.match(entrypoint, /unresolved API-key placeholders remain/);
 assert.match(entrypoint, /placeholder\/test API keys are forbidden/);
 

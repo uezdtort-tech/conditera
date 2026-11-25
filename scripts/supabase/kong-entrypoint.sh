@@ -46,10 +46,10 @@ if grep -Fq '${SUPABASE_ANON_KEY}' "$RENDERED" || grep -Fq '${SUPABASE_SERVICE_K
   fail "unresolved API-key placeholders remain in rendered Kong config"
 fi
 
-# The config contains API keys. Keep it private and readable by Kong's worker user.
-id kong >/dev/null 2>&1 || { rm -f "$RENDERED"; fail "Kong runtime user does not exist"; }
-chown kong:kong "$RENDERED"
-chmod 600 "$RENDERED"
+# The rendered config is private to this single-purpose container. Kong 2.8's
+# official image does not define a stable "kong" account in every tag; use a
+# readable mode instead of assuming an account name that may not exist.
+chmod 644 "$RENDERED"
 export KONG_DECLARATIVE_CONFIG="$RENDERED"
 
 if [ "${KONG_RENDER_ONLY:-false}" = "true" ]; then
