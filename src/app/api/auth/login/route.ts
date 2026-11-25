@@ -27,6 +27,7 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti } from "@/lib/session-registry";
 import { findDevFallbackUser } from "@/lib/dev-auth";
 import { isAdminConfigured } from "@/lib/supabase/admin";
 
@@ -252,21 +253,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           password,
         });
         if (gtErr) {
-          // Email не подтверждён в GoTrue (register делает email_confirm: false для prod-флоу
-          // письма-подтверждения). Пароль уже проверен bcrypt по profiles выше — владелец
-          // учётных данных подтверждён, поэтому подтверждаем email через admin API и повторяем.
-          if (gtErr.message === "Email not confirmed") {
-            const { error: upErr } = await supabaseAdmin.auth.admin
-              .updateUserById(user.id, { email_confirm: true });
-            if (!upErr) {
-              await ssr.auth.signInWithPassword({ email: emailLower, password });
-            } else {
-              console.warn("[login] GoTrue email confirm update failed:", upErr.message);
-            }
-          } else if (
-            /invalid login credentials/i.test(gtErr.message) ||
-            /invalid credentials/i.test(gtErr.message)
-          ) {
+          // Не подтверждаем email через admin API автоматически: знание пароля
+          // не доказывает владение почтовым ящиком. App-сессия ниже остаётся
+          // рабочей после проверки profiles.password_hash; GoTrue-cookie не
+          // выдаётся до прохождения штатного подтверждения адреса.
+          if (/invalid login credentials/i.test(gtErr.message) || /invalid credentials/i.test(gtErr.message)) {
             // Пользователь зарегистрирован через fallback (cb42589): строка
             // auth.users существует, но encrypted_password пуст — пароль канонично
             // хранится в profiles.password_hash (bcrypt), который УЖЕ проверен выше.
@@ -309,8 +300,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType: user.account_type,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId: user.id });
+    const sessionId = await createUserSession(user.id, request, "password");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, user.id, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId: user.id, sid: sessionId, jti: refreshJti });
 
     // Обновить last_login_at (non-blocking)
     supabaseAdmin
