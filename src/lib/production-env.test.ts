@@ -88,6 +88,12 @@ describe("assertProductionEnvironment", () => {
     expect(() => assertProductionEnvironment(env)).toThrow(/EXTERNAL_YANDEX_ENABLED/);
   });
 
+  it("requires CRON_SECRET to be independent from JWT and TFA keys", () => {
+    const env = validEnv();
+    env.CRON_SECRET = env.JWT_SECRET;
+    expect(() => assertProductionEnvironment(env)).toThrow(/CRON_SECRET/);
+  });
+
   it("rejects placeholder payment and SMTP credentials", () => {
     const env = validEnv();
     env.YOOKASSA_SECRET_KEY = "CHANGE_ME_YOOKASSA";
