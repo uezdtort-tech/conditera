@@ -336,7 +336,7 @@ jobs:
 
       - name: Validate Kong 2.8 Compose contract
         run: |
-          node scripts/verify/kong-compose-contract.mjs
+          bun run verify:kong-compose-contract
           SUPABASE_ANON_KEY=ci-anon-key \
           SUPABASE_SERVICE_KEY=ci-service-key \
           KONG_DECLARATIVE_CONFIG="$PWD/supabase/kong.yml" \
