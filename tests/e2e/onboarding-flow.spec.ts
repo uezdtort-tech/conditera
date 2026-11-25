@@ -1,186 +1,261 @@
 /**
- * E2E: Полный onboarding-флоу кондитера (v3 ТЗ, задача High-6).
- *
- * Сценарий:
- *   1. Регистрация CONFECTIONER (POST /api/auth/register с role=CONFECTIONER)
- *   2. Onboarding: POST /api/confectioner/onboarding (multipart, ИНН 7700000123)
- *   3. Проверка /api/confectioner/status → verificationStatus: pending | approved
- *      (approved — если DaData вернула ACTIVE и auto-approve сработал)
- *   4. Если pending — POST /api/admin/confectioners/approve от имени админа
- *   5. GET /api/confectioners содержит нового кондитера (verified)
- *   6. Главная страница: бегущая строка показывает нового кондитера
- *   7. /sitemap.xml содержит /confectioners/<slug>
- *
- * ПРЕДУСЛОВИЯ (запускается только против полного стека):
- *   - docker-compose.supabase.yml поднят (Kong :8000, GoTrue, PostgREST, Storage)
- *   - миграции 0001..0026 применены
- *   - .env.local заполнен (SUPABASE_URL и т.д.)
- *   - для шага 4 нужен админ: регистрация через Studio/seed, роль ADMIN
- *
- * Запуск: npm run test:e2e -- tests/e2e/onboarding-flow.spec.ts
+ * Полный E2E онбординг кондитера на PostgreSQL 17 и локальном Storage runtime.
+ * Регистрация → профиль/роль/согласия → портфолио → заявка → модерация →
+ * публичная витрина → главная страница → sitemap.
  */
+import { randomUUID } from "node:crypto";
+import { readdir } from "node:fs/promises";
+import path from "node:path";
+import { Client } from "pg";
 import { expect, test } from "@playwright/test";
 
-const APP = process.env.E2E_APP_URL || "http://127.0.0.1:3000";
-
-const TS = Date.now();
+const APP = process.env.E2E_APP_URL || process.env.E2E_BASE_URL || "http://127.0.0.1:3000";
+const RUN_ID = randomUUID();
+const RUN_IP = `10.${Math.floor(Math.random() * 200) + 20}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
 const CONFECTIONER = {
-  email: `e2e-conf-${TS}@e2e.conditera.ru`,
+  email: `e2e-conf-${RUN_ID}@e2e.conditera.ru`,
   password: "E2e-Str0ng-Pass!2026",
-  // Уникальное имя: повторные прогоны создают новые строки, approve должен
-  // одобрять строку ИМЕННО этого прогона (иначе marquee-проверка ложно падает).
-  name: `E2E Тестовая Кондитерская ${TS}`,
-  phone: `+7900${String(TS).slice(-7)}`, // register требует phone (обязательное поле)
+  name: `E2E Тестовая Кондитерская ${RUN_ID.slice(0, 8)}`,
+  phone: `+7${RUN_ID.replace(/\D/g, "").slice(0, 10)}`,
 };
-
-const ADMIN = {
-  email: process.env.E2E_ADMIN_EMAIL || "admin@e2e.conditera.ru",
-  password: process.env.E2E_ADMIN_PASSWORD || "Admin-Str0ng-Pass!2026",
-};
-
 const PORTFOLIO_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
 
-test.describe("Onboarding flow кондитера", () => {
-  // Решение владельца 2026-10-17: register-лимит возвращён к исходным 3/час.
-  // Спек реально регистрирует CONFECTIONER (assert regRes.ok()) — выделен
-  // собственный симулированный клиентский IP: в full-stack прогоне регистрация
-  // детерминирована и не выжигает общий 0.0.0.0-бакет. x-real-ip — доверенный
-  // канал reverse-proxy (extractIp, src/lib/anti-fraud.ts); в production
-  // значение перезаписывает Caddy, подделка исключена (docs/DNS_SETUP.md).
-  test.use({ extraHTTPHeaders: { "x-real-ip": "10.20.0.23" } });
-
-  // CSRF (double-submit cookie): GET /api/csrf-token ставит httpOnly-cookie и возвращает токен;
-  // каждый мутирующий запрос должен нести x-csrf-token.
-  async function getCsrf(req: { get: (url: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }> }): Promise<string> {
-    const res = await req.get(`${APP}/api/csrf-token`);
-    expect(res.ok(), "csrf-token fetch failed").toBeTruthy();
-    return ((await res.json()) as { token: string }).token;
+test.describe("Полный онбординг кондитера — PostgreSQL 17", () => {
+  async function csrf(request: { get: (url: string, options?: object) => Promise<{ ok: () => boolean; json: () => Promise<unknown> }> }) {
+    const response = await request.get(`${APP}/api/csrf-token`, { headers: { "x-real-ip": RUN_IP } });
+    expect(response.ok(), "получение CSRF token").toBeTruthy();
+    return ((await response.json()) as { token: string }).token;
   }
 
-  test("register → onboarding → approve → marquee → sitemap", async ({ request, page }) => {
-    const csrf = await getCsrf(request);
-    const post = (url: string, opts: Record<string, unknown> = {}) =>
-      request.post(url, { ...opts, headers: { "x-csrf-token": csrf, ...(opts.headers as object) } });
+  test("register → storage upload → onboarding → approve → listing → home → sitemap", async ({ request, page }) => {
+    const csrfToken = await csrf(request);
+    const post = (url: string, options: Record<string, unknown> = {}) =>
+      request.post(url, {
+        ...options,
+        headers: {
+          "x-real-ip": RUN_IP,
+          "x-csrf-token": csrfToken,
+          ...((options.headers as Record<string, string> | undefined) || {}),
+        },
+      });
 
-    test.skip(
-      process.env.E2E_FULL_STACK !== "1",
-      "Требуется полный Supabase-стек (docker-compose.supabase.yml). Запуск: E2E_FULL_STACK=1 npm run test:e2e",
-    );
-
-    // ── 1. Регистрация CONFECTIONER ──────────────────────────────
-    const regRes = await post(`${APP}/api/auth/register`, {
+    const register = await post(`${APP}/api/auth/register`, {
       data: {
         email: CONFECTIONER.email,
         password: CONFECTIONER.password,
-        name: "E2E Кондитер",
+        name: CONFECTIONER.name,
         phone: CONFECTIONER.phone,
         role: "CONFECTIONER",
+        consentPd: true,
+        consentTerms: true,
+        consentOffer: true,
+        consentMarketing: false,
       },
     });
-    expect(regRes.ok(), `register failed: ${regRes.status()} ${await regRes.text()}`).toBeTruthy();
+    expect(register.status(), await register.text()).toBe(200);
+    const registered = await register.json() as { user: { id: string; roles: string[] }; accessToken: string; refreshToken: string };
+    expect(registered.user?.id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(registered.user.roles).toContain("CONFECTIONER");
+    expect(registered.accessToken).toBeTruthy();
+    expect(registered.refreshToken).toBeTruthy();
+    const userId = registered.user.id;
+    const auth = { Authorization: `Bearer ${registered.accessToken}` };
 
-    // ── 2. Логин (сессия в cookies + legacy JWT accessToken в JSON) ──────
-    const loginRes = await post(`${APP}/api/auth/login`, {
-      data: { email: CONFECTIONER.email, password: CONFECTIONER.password },
-    });
-    expect(loginRes.ok(), "login failed").toBeTruthy();
-    const { accessToken: confToken } = (await loginRes.json()) as { accessToken: string };
-    const confAuth = { Authorization: `Bearer ${confToken}` };
+    const databaseUrl = process.env.PGURL || process.env.DATABASE_URL;
+    expect(databaseUrl, "PGURL/DATABASE_URL обязателен для проверки фактической записи").toBeTruthy();
+    const db = new Client({ connectionString: databaseUrl });
+    await db.connect();
+    try {
+      const profile = await db.query(
+        "SELECT id::text, email, password_hash FROM public.profiles WHERE id=$1::uuid",
+        [userId],
+      );
+      expect(profile.rowCount).toBe(1);
+      expect(profile.rows[0].email).toBe(CONFECTIONER.email);
+      expect(profile.rows[0].password_hash).toBeTruthy();
 
-    // ── 3. Onboarding (multipart) ────────────────────────────────
-    // Web FormData + File — playwright-совместимый способ передачи файлов:
-    // object-multipart playwright НЕ поддерживает массивы значений
-    // (isFilePayload({name,mimeType,buffer}) для массива === false → падение на readStreamToJson).
+      const role = await db.query(
+        "SELECT role, is_active FROM public.user_roles WHERE user_id=$1::uuid AND role='CONFECTIONER'",
+        [userId],
+      );
+      expect(role.rowCount).toBe(1);
+      expect(role.rows[0].is_active).toBe(true);
+
+      const consents = await db.query(
+        "SELECT consent_type FROM public.user_consent_events WHERE user_id=$1::uuid AND event_type='grant'",
+        [userId],
+      );
+      expect(new Set(consents.rows.map((row) => row.consent_type))).toEqual(
+        new Set(["personal_data", "terms", "offer"]),
+      );
+    } finally {
+      await db.end();
+    }
+
     const multipart = new FormData();
     multipart.append("businessName", CONFECTIONER.name);
-    multipart.append("description", "E2E-кондитер: торты на заказ, автотест onboarding-флоу проекта.");
+    multipart.append("description", "E2E-кондитер: изготовление тортов на заказ и проверка полного сценария онбординга.");
     multipart.append("city", "Москва");
-    multipart.append("legalStatus", "IP");
-    multipart.append("inn", "7700000123"); // валидный ИП ИНН → возможен auto-approve через DaData (stub в dev)
-    multipart.append("specialization", JSON.stringify(["Торты"]));
+    multipart.append("legalStatus", "PHYSICAL");
+    multipart.append("specialization", JSON.stringify(["Торты", "Десерты"]));
     multipart.append("selfPickup", "true");
-    multipart.append(
-      "portfolioFiles",
-      new File([PORTFOLIO_PNG], "work.png", { type: "image/png" }),
-    );
-    const onbRes = await post(`${APP}/api/confectioner/onboarding`, { multipart });
-    const onbBody = await onbRes.json().catch(() => ({}));
-    // 409 — уже есть строка (повторный прогон) — считается OK
-    expect([200, 201, 409]).toContain(onbRes.status());
-    if (onbRes.status() === 409) test.info().annotations.push({ type: "note", text: "onboarding 409: профиль уже существует" });
+    multipart.append("portfolioFiles", new File([PORTFOLIO_PNG], "portfolio.png", { type: "image/png" }));
 
-    // ── 4. Статус верификации (legacy Bearer JWT) ──────────────
-    const statusRes = await request.get(`${APP}/api/confectioner/status`, {
-      headers: confAuth,
+    const onboarding = await post(`${APP}/api/confectioner/onboarding`, { multipart, headers: auth });
+    expect(onboarding.status(), await onboarding.text()).toBe(200);
+    const body = await onboarding.json() as {
+      success: boolean;
+      confectionerId: string;
+      slug: string;
+      verificationStatus: string;
+      uploadedImages: { portfolio: number };
+    };
+    expect(body.success).toBe(true);
+    expect(body.confectionerId).toBeTruthy();
+    expect(body.slug).toBeTruthy();
+    expect(body.uploadedImages.portfolio).toBe(1);
+
+    const initialStatusResponse = await request.get(`${APP}/api/confectioner/status`, {
+      headers: { ...auth, "x-real-ip": RUN_IP },
     });
-    expect(statusRes.ok(), "confectioner/status failed").toBeTruthy();
-    const status = await statusRes.json();
-    expect(["pending", "approved"]).toContain(status.verificationStatus);
+    expect(initialStatusResponse.status()).toBe(200);
+    const initialStatus = await initialStatusResponse.json() as { verificationStatus: string };
+    expect(["pending", "approved"]).toContain(initialStatus.verificationStatus);
 
-    // ── 5. Если pending — админ одобряет ─────────────────────────
-    if (status.verificationStatus === "pending") {
-      const adminLogin = await post(`${APP}/api/auth/login`, {
-        data: { email: ADMIN.email, password: ADMIN.password },
+    if (initialStatus.verificationStatus === "pending") {
+      // Изолированный администратор на каждый проект (desktop/mobile): не
+      // используем общий seed-аккаунт и не ослабляем защиту новых устройств.
+      const adminRunId = randomUUID();
+      const adminRegister = await post(`${APP}/api/auth/register`, {
+        data: {
+          email: `e2e-admin-${adminRunId}@e2e.conditera.ru`,
+          password: "E2e-Admin-Str0ng!2026",
+          name: `E2E Администратор ${adminRunId.slice(0, 8)}`,
+          phone: `+7${adminRunId.replace(/\D/g, "").slice(0, 10)}`,
+          role: "CUSTOMER",
+          consentPd: true,
+          consentTerms: true,
+          consentOffer: true,
+          consentMarketing: false,
+        },
       });
-      expect(adminLogin.ok(), "admin login failed").toBeTruthy();
-      const { accessToken: adminToken } = (await adminLogin.json()) as { accessToken: string };
-      const adminAuth = { Authorization: `Bearer ${adminToken}` };
+      expect(adminRegister.status(), await adminRegister.text()).toBe(200);
+      const admin = await adminRegister.json() as {
+        user: { id: string };
+        accessToken: string;
+      };
 
-      const pendingRes = await request.get(`${APP}/api/admin/confectioners/pending`, {
+      const adminDb = new Client({ connectionString: databaseUrl });
+      await adminDb.connect();
+      try {
+        await adminDb.query(
+          "INSERT INTO public.user_roles (user_id, role, is_active) VALUES ($1::uuid, 'ADMIN', true) ON CONFLICT (user_id, role) DO UPDATE SET is_active = true",
+          [admin.user.id],
+        );
+        const adminRole = await adminDb.query(
+          "SELECT is_active FROM public.user_roles WHERE user_id=$1::uuid AND role='ADMIN'",
+          [admin.user.id],
+        );
+        expect(adminRole.rowCount).toBe(1);
+        expect(adminRole.rows[0].is_active).toBe(true);
+      } finally {
+        await adminDb.end();
+      }
+
+      const adminAuth = { Authorization: `Bearer ${admin.accessToken}` };
+
+      const pendingResponse = await request.get(`${APP}/api/admin/confectioners/pending`, {
+        headers: { ...adminAuth, "x-real-ip": RUN_IP },
+      });
+      expect(pendingResponse.status(), await pendingResponse.text()).toBe(200);
+      const pendingBody = await pendingResponse.json() as {
+        items?: Array<{ id: string }>;
+        confectioners?: Array<{ id: string }>;
+      };
+      const pendingItems = pendingBody.items ?? pendingBody.confectioners ?? [];
+      expect(pendingItems.some((item) => item.id === body.confectionerId)).toBe(true);
+
+      const approve = await post(`${APP}/api/admin/confectioners/approve`, {
+        data: { confectionerId: body.confectionerId },
         headers: adminAuth,
       });
-      expect(pendingRes.ok(), "admin/confectioners/pending failed").toBeTruthy();
-      const pending = await pendingRes.json();
-      const row = (pending.items ?? pending.confectioners ?? []).find(
-        (c: { businessName?: string }) => c.businessName === CONFECTIONER.name,
+      expect(approve.status(), await approve.text()).toBe(200);
+      expect((await approve.json()).success).toBe(true);
+    }
+
+    const finalStatusResponse = await request.get(`${APP}/api/confectioner/status`, {
+      headers: { ...auth, "x-real-ip": RUN_IP },
+    });
+    expect(finalStatusResponse.status()).toBe(200);
+    const finalStatus = await finalStatusResponse.json() as { verificationStatus: string; canPublish: boolean };
+    expect(finalStatus.verificationStatus).toBe("approved");
+    expect(finalStatus.canPublish).toBe(true);
+
+    const verifyDb = new Client({ connectionString: databaseUrl });
+    await verifyDb.connect();
+    try {
+      const confectioner = await verifyDb.query(
+        'SELECT id, slug, "verificationStatus", verified, "portfolioImages" FROM public.confectioners WHERE id=$1',
+        [body.confectionerId],
       );
-      expect(row, "новый кондитер в очереди на одобрение").toBeTruthy();
+      expect(confectioner.rowCount).toBe(1);
+      expect(confectioner.rows[0].verified).toBe(true);
+      expect(confectioner.rows[0].verificationStatus).toBe("approved");
+      expect(confectioner.rows[0].slug).toBe(body.slug);
+      expect(Array.isArray(confectioner.rows[0].portfolioImages)).toBe(true);
+      expect(confectioner.rows[0].portfolioImages.length).toBe(1);
 
-      const approveRes = await post(`${APP}/api/admin/confectioners/approve`, {
-        data: { confectionerId: row.id },
-        headers: adminAuth,
-      });
-      expect(approveRes.ok(), `approve failed: ${approveRes.status()}`).toBeTruthy();
+      const storage = await verifyDb.query(
+        "SELECT count(*)::int AS count FROM storage.objects WHERE bucket_id='portfolio' AND name LIKE $1",
+        [`${userId}/%`],
+      );
+      expect(storage.rows[0].count).toBe(1);
+    } finally {
+      await verifyDb.end();
     }
 
-    // ── 6. Публичный список верифицированных ─────────────────────
-    const listRes = await request.get(`${APP}/api/confectioners`);
-    expect(listRes.ok(), "GET /api/confectioners failed").toBeTruthy();
-    const list = await listRes.json();
-    const items = Array.isArray(list) ? list : (list.items ?? list.confectioners ?? []);
-    expect(
-      items.some((c: { businessName?: string }) => c.businessName === CONFECTIONER.name),
-      "новый кондитер в публичном списке verified",
-    ).toBeTruthy();
+    const portfolioDir = path.join(process.cwd(), "upload", "storage", "portfolio", userId);
+    const storedFiles = await readdir(portfolioDir);
+    expect(storedFiles.length).toBe(1);
 
-    // ── 7. Бегущая строка на главной ─────────────────────────────
-    await page.goto(APP, { waitUntil: "networkidle" });
-    const marquee = page.locator("text=" + CONFECTIONER.name).first();
-    await expect(marquee).toBeVisible({ timeout: 15_000 });
-
-    // ── 8. Sitemap содержит slug нового кондитера ────────────────
-    const sitemapRes = await request.get(`${APP}/sitemap.xml`);
-    expect(sitemapRes.ok(), "sitemap.xml failed").toBeTruthy();
-    const sitemap = await sitemapRes.text();
-    const slugRow = items.find((c: { businessName?: string }) => c.businessName === CONFECTIONER.name);
-    if (slugRow?.slug) {
-      expect(sitemap).toContain(slugRow.slug);
-    }
-  });
-
-  test("smoke: публичные страницы отвечают (без стека)", async ({ request, page }) => {
-    // Группа дымовых проверок, работающих и БЕЗ Supabase (mock-fallback):
-    const health = await request.get(`${APP}/api/health`);
-    expect(health.ok(), "health check").toBeTruthy();
-
-    const list = await request.get(`${APP}/api/confectioners`);
-    // 200 (mock-fallback или live) — иначе приложение деградировало
-    expect([200]).toContain(list.status());
+    const publicList = await request.get(`${APP}/api/confectioners?verified_only=true`);
+    expect(publicList.status()).toBe(200);
+    const publicBody = await publicList.json() as { items?: Array<{ id: string; businessName: string }>; confectioners?: Array<{ id: string; businessName: string }> };
+    const publicConfectioner = [...(publicBody.items ?? []), ...(publicBody.confectioners ?? [])].find((item) => item.id === body.confectionerId);
+    expect(publicConfectioner).toBeTruthy();
+    expect(publicConfectioner?.businessName).toBe(CONFECTIONER.name);
 
     await page.goto(APP, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(CONFECTIONER.name, { exact: true }).first()).toBeVisible({ timeout: 15000 });
+
+    const sitemap = await request.get(`${APP}/sitemap.xml`);
+    expect(sitemap.status()).toBe(200);
+    expect(await sitemap.text()).toContain(body.slug);
+  });
+
+  test("неавторизованный запрос онбординга отклоняется", async ({ request }) => {
+    const response = await request.post(`${APP}/api/confectioner/onboarding`, {
+      headers: { "x-real-ip": RUN_IP },
+      multipart: {
+        businessName: "Тестовая заявка",
+        description: "Описание тестовой заявки для проверки отказа без авторизации.",
+        city: "Москва",
+        legalStatus: "PHYSICAL",
+      },
+    });
+    expect(response.status()).toBe(401);
+
+
+  test("smoke: публичные страницы отвечают после production onboarding", async ({ request, page }) => {
+    const health = await request.get(`${APP}/api/health`);
+    expect(health.ok(), "health check").toBeTruthy();
+    const list = await request.get(`${APP}/api/confectioners`);
+    expect(list.status()).toBe(200);
+    await page.goto(APP, { waitUntil: "domcontentloaded" });
     await expect(page).toHaveTitle(/Уездный кондитер/i);
+  });
   });
 });
