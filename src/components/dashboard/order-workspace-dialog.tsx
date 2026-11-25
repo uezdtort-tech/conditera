@@ -352,6 +352,47 @@ export function OrderWorkspaceDialog({
     },
   });
 
+  /** Отдельное подтверждение фактически выполненного этапа производства. */
+  const stageMutation = useMutation({
+    mutationFn: async (input: { stageKey: string; done: boolean }) => {
+      const res = await csrfFetch(`/api/orders/${orderId}/production/stage`, {
+        method: "POST",
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) throw new Error(parseApiError(await readErrorBody(res), `HTTP ${res.status}`));
+      return res.json();
+    },
+    onSuccess: (_data, input) => {
+      toast.success(input.done ? "Этап отмечен выполненным" : "Отметка этапа снята");
+      void queryClient.invalidateQueries({ queryKey: ["order-lifecycle", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["ops-orders-today"] });
+    },
+    onError: (error: Error) => toast.error("Не удалось изменить этап", { description: error.message }),
+  });
+
+  /** Фото готовности загружается как файл; готовность нельзя отметить вручную. */
+  const readyPhotoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await csrfFetch(`/api/orders/${orderId}/media`, {
+        method: "POST",
+        headers: await getSessionAuthHeaders(await getCsrfToken(), { json: false }),
+        body: form,
+      });
+      if (!res.ok) throw new Error(parseApiError(await readErrorBody(res), `HTTP ${res.status}`));
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success("Фото готовности загружено");
+      void queryClient.invalidateQueries({ queryKey: ["order-lifecycle", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+    },
+    onError: (error: Error) => toast.error("Не удалось загрузить фото", { description: error.message }),
+  });
+
   /** Черновик закупки из дефицита (422 NO_SHORTAGES → toast.info). */
   const createDraftMutation = useMutation({
     mutationFn: async (): Promise<PurchaseDraftResponse> => {
@@ -391,6 +432,13 @@ export function OrderWorkspaceDialog({
   const ds = derived?.deliveryStatus;
   const isActionBusy = (kind: OrderActionKind) =>
     actionMutation.isPending && actionMutation.variables === kind;
+  const workStages = lc?.production.checklist.filter(
+    (stage) => stage.stage_key !== "handoff" && stage.stage_key !== "ready_photo"
+  ) ?? [];
+  const workStagesComplete = workStages.length > 0 && workStages.every((stage) => stage.is_done);
+  const readyPhotoComplete =
+    !lc?.production.readyPhotoRequired ||
+    Boolean(lc?.production.checklist.some((stage) => stage.stage_key === "ready_photo" && stage.is_done));
 
   interface ActionDef {
     kind: OrderActionKind;
@@ -412,15 +460,15 @@ export function OrderWorkspaceDialog({
       kind: "production-complete",
       label: "Завершить этапы",
       icon: ListChecks,
-      enabled: bs === "in_production",
-      hint: "Доступно в статусе «В производстве» (PREPARING)",
+      enabled: bs === "in_production" && workStagesComplete,
+      hint: "Сначала подтвердите каждый фактически выполненный этап производства",
     },
     {
       kind: "ready",
       label: "Отметить готов",
       icon: PackageCheck,
-      enabled: bs === "in_production",
-      hint: "Требует завершённого чеклиста и фото готовности (если категория требует)",
+      enabled: bs === "in_production" && workStagesComplete && readyPhotoComplete,
+      hint: "Требует подтверждённых этапов и фото готовности, если оно обязательно",
     },
     {
       kind: "handoff",
@@ -665,8 +713,8 @@ export function OrderWorkspaceDialog({
                   )}
                 </div>
 
-                {/* Чеклист этапов (read-only) */}
-                <div className="rounded-lg border border-border max-h-64 overflow-y-auto">
+                {/* Чеклист этапов: исполнитель подтверждает каждый этап отдельно. */}
+                <div className="rounded-lg border border-border max-h-80 overflow-y-auto">
                   {lc.production.checklist.length === 0 ? (
                     <div className="p-6 text-center text-sm text-muted-foreground">
                       <PackageSearch className="h-5 w-5 mx-auto mb-1" />
@@ -675,19 +723,53 @@ export function OrderWorkspaceDialog({
                   ) : (
                     <ul className="divide-y divide-border">
                       {lc.production.checklist.map((stage) => (
-                        <li key={stage.id} className="flex items-center gap-2.5 px-3 py-2.5">
-                          {stage.is_done ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                        <li key={stage.id} className="flex flex-wrap items-center gap-2.5 px-3 py-2.5">
+                          {stage.stage_key === "handoff" || stage.stage_key === "ready_photo" ? (
+                            stage.is_done ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            )
                           ) : (
-                            <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={stage.is_done ? "secondary" : "outline"}
+                              className="h-8 w-8 p-0 shrink-0"
+                              disabled={stageMutation.isPending}
+                              aria-label={stage.is_done ? `Снять отметку: ${stage.label}` : `Подтвердить этап: ${stage.label}`}
+                              onClick={() => stageMutation.mutate({ stageKey: stage.stage_key, done: !stage.is_done })}
+                            >
+                              {stageMutation.isPending && stageMutation.variables?.stageKey === stage.stage_key
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : stage.is_done
+                                  ? <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                  : <Circle className="h-4 w-4" />}
+                            </Button>
                           )}
-                          <span className={`text-sm min-w-0 truncate ${stage.is_done ? "text-muted-foreground line-through" : ""}`}>
+                          <span className={`text-sm min-w-0 flex-1 ${stage.is_done ? "text-muted-foreground line-through" : ""}`}>
                             {stage.label}
                           </span>
                           {stage.is_done && stage.done_at && (
-                            <span className="ml-auto text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
                               {formatDateTimeShort(stage.done_at)}
                             </span>
+                          )}
+                          {stage.stage_key === "ready_photo" && lc.production.readyPhotoRequired && !stage.is_done && (
+                            <label className="w-full pl-10 text-xs text-muted-foreground">
+                              Загрузите фото готового заказа
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                className="mt-1 block w-full text-xs"
+                                disabled={readyPhotoMutation.isPending}
+                                onChange={(event) => {
+                                  const file = event.currentTarget.files?.[0];
+                                  event.currentTarget.value = "";
+                                  if (file) readyPhotoMutation.mutate(file);
+                                }}
+                              />
+                            </label>
                           )}
                         </li>
                       ))}
