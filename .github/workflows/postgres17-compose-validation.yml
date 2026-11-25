@@ -68,9 +68,24 @@ jobs:
           touch .env.production .env.supabase-runtime
           trap 'rm -f .env.production .env.supabase-runtime' EXIT
 
-          # Legacy-файлы не должны запускать отдельные кластеры самостоятельно.
-          test -z "$(docker compose -f docker-compose.yml config --services)"
-          test -z "$(docker compose -f docker-compose.supabase.yml config --services)"
+          # Старые Compose-файлы оставлены для обратной совместимости.
+          # Они должны разбираться, но любой PostgreSQL-образ в них обязан быть PG17.
+          docker compose -f docker-compose.yml config --format json > /tmp/conditera-legacy-app.json
+          docker compose -f docker-compose.supabase.yml config --format json > /tmp/conditera-legacy-supabase.json
+          python3 - <<'PY'
+          import json, re
+          for path in ("/tmp/conditera-legacy-app.json", "/tmp/conditera-legacy-supabase.json"):
+              with open(path, encoding="utf-8") as stream:
+                  config = json.load(stream)
+              for name, service in config["services"].items():
+                  image = str(service.get("image", ""))
+                  if "postgres" not in image.lower():
+                      continue
+                  match = re.search(r":(\\d+)(?:\\.|-|$)", image)
+                  assert match, f"{path}: unpinned PostgreSQL image for {name}: {image}"
+                  assert int(match.group(1)) == 17, f"{path}: PostgreSQL major mismatch for {name}: {image}"
+          print("PASS: retained Compose files parse and use only PostgreSQL 17 images.")
+          PY
 
           node scripts/compose-single-runtime.mjs config
           docker compose \
