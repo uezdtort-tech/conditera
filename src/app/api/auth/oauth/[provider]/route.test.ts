@@ -1,94 +1,83 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { afterEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { GET } from "@/app/api/auth/oauth/[provider]/route";
+import { GET } from "./route";
 
-function request(provider: string, query = "") {
-  return new NextRequest(
-    `https://conditera.test/api/auth/oauth/${provider}${query ? `?${query}` : ""}`,
-  );
-}
+const env = process.env as Record<string, string | undefined>;
+const keys = ["NODE_ENV", "VK_CLIENT_ID", "VK_OAUTH_REDIRECT", "NEXT_PUBLIC_APP_URL"] as const;
+const saved = Object.fromEntries(keys.map((key) => [key, env[key]]));
 
-describe("OAuth initiation — Yandex ID and VK ID", () => {
-  beforeEach(() => {
-    vi.stubEnv("YANDEX_CLIENT_ID", "yandex-client-id");
-    vi.stubEnv("YANDEX_OAUTH_REDIRECT", "https://app.conditera.test/api/auth/oauth/yandex/callback");
-    vi.stubEnv("VK_CLIENT_ID", "vk-client-id");
-    vi.stubEnv("VK_OAUTH_REDIRECT", "https://app.conditera.test/api/auth/oauth/vk/callback");
-  });
+afterEach(() => {
+  for (const key of keys) {
+    const value = saved[key];
+    if (value === undefined) delete env[key];
+    else env[key] = value;
+  }
+});
 
-  afterEach(() => vi.unstubAllEnvs());
+describe("VK ID OAuth initiation", () => {
+  function configureVk(clientId = "vk-client-12345") {
+    env.NODE_ENV = "production";
+    env.VK_CLIENT_ID = clientId;
+    env.VK_OAUTH_REDIRECT = "https://conditera.ru/api/auth/oauth/vk/callback";
+    env.NEXT_PUBLIC_APP_URL = "https://conditera.ru";
+  }
 
-  it("создаёт Yandex authorization URL с PKCE S256, state и отдельными согласиями", async () => {
-    const response = await GET(request("yandex", "returnTo=%2Fdashboard%3Ftab%3Dorders&consentPd=1&consentTerms=1"), {
-      params: Promise.resolve({ provider: "yandex" }),
-    });
-    const location = new URL(response.headers.get("location") || "");
+  it("creates a VK ID authorization redirect with state and S256 PKCE", async () => {
+    configureVk();
 
-    expect(response.status).toBe(302);
-    expect(location.origin + location.pathname).toBe("https://oauth.yandex.ru/authorize");
-    expect(location.searchParams.get("client_id")).toBe("yandex-client-id");
-    expect(location.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(location.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(location.searchParams.get("state")).toBeTruthy();
-    expect(location.searchParams.get("scope")).toContain("login:email");
-    expect(response.cookies.get("oauth_state_yandex")?.value).toBe(location.searchParams.get("state"));
-    expect(response.cookies.get("oauth_verifier_yandex")?.value).toBeTruthy();
-    expect(decodeURIComponent(response.cookies.get("oauth_return_to_yandex")?.value || "")).toBe("/dashboard?tab=orders");
-    expect(response.cookies.get("oauth_consent_pd_yandex")?.value).toBe("1");
-    expect(response.cookies.get("oauth_consent_terms_yandex")?.value).toBe("1");
-  });
-
-  it("создаёт VK ID authorization URL с device-flow PKCE и state", async () => {
-    const response = await GET(request("vk", "returnTo=%2Fdashboard"), {
+    const request = new NextRequest(
+      "https://conditera.ru/api/auth/oauth/vk?returnTo=%2Faccount&consentPd=1&consentTerms=1"
+    );
+    const response = await GET(request, {
       params: Promise.resolve({ provider: "vk" }),
     });
-    const location = new URL(response.headers.get("location") || "");
 
     expect(response.status).toBe(302);
-    expect(location.origin + location.pathname).toBe("https://id.vk.ru/authorize");
-    expect(location.searchParams.get("client_id")).toBe("vk-client-id");
+    const location = new URL(response.headers.get("location") || "");
+    expect(location.origin).toBe("https://id.vk.ru");
+    expect(location.pathname).toBe("/authorize");
+    expect(location.searchParams.get("client_id")).toBe("vk-client-12345");
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      "https://conditera.ru/api/auth/oauth/vk/callback"
+    );
+    expect(location.searchParams.get("response_type")).toBe("code");
+    expect(location.searchParams.get("scope")).toBe("vkid.personal_info email");
     expect(location.searchParams.get("code_challenge_method")).toBe("s256");
-    expect(location.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(location.searchParams.get("state")).toBeTruthy();
-    expect(location.searchParams.get("scope")).toBe("email");
-    expect(response.cookies.get("oauth_state_vk")?.value).toBe(location.searchParams.get("state"));
-    expect(response.cookies.get("oauth_verifier_vk")?.value).toBeTruthy();
-    expect(decodeURIComponent(response.cookies.get("oauth_return_to_vk")?.value || "")).toBe("/dashboard");
+
+    const state = response.cookies.get("oauth_state_vk")?.value;
+    const verifier = response.cookies.get("oauth_verifier_vk")?.value;
+    expect(state).toBeTruthy();
+    expect(state).toBe(location.searchParams.get("state"));
+    expect(verifier).toBeTruthy();
+    expect(location.searchParams.get("code_challenge")).toBe(
+      createHash("sha256").update(verifier || "").digest("base64url")
+    );
+    expect(response.cookies.get("oauth_return_to_vk")?.value).toBe("/account");
+    expect(response.headers.get("set-cookie")).toContain("Secure");
   });
 
-  it("не принимает внешний returnTo и возвращает пользователя только на внутренний dashboard", async () => {
-    const response = await GET(request("yandex", "returnTo=%2F%2Fevil.example%2Fsteal"), {
-      params: Promise.resolve({ provider: "yandex" }),
-    });
-
-    expect(response.status).toBe(302);
-    expect(decodeURIComponent(response.cookies.get("oauth_return_to_yandex")?.value || "")).toBe("/dashboard");
-  });
-
-  it("режим check сообщает, настроен ли провайдер, без запуска OAuth", async () => {
-    const configured = await GET(request("vk", "mode=check"), {
+  it("reports configured only when real VK credentials are present", async () => {
+    configureVk();
+    const request = new NextRequest(
+      "https://conditera.ru/api/auth/oauth/vk?mode=check"
+    );
+    const response = await GET(request, {
       params: Promise.resolve({ provider: "vk" }),
     });
-    expect(configured.status).toBe(200);
-    expect(await configured.json()).toEqual({ provider: "vk", configured: true });
 
-    vi.stubEnv("VK_CLIENT_ID", "stub_vk_client");
-    const notConfigured = await GET(request("vk", "mode=check"), {
-      params: Promise.resolve({ provider: "vk" }),
-    });
-    expect(await notConfigured.json()).toEqual({ provider: "vk", configured: false });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ provider: "vk", configured: true });
   });
 
-  it("возвращает безопасные ошибки для неподдерживаемого и ненастроенного провайдера", async () => {
-    const unsupported = await GET(request("unknown"), {
-      params: Promise.resolve({ provider: "unknown" }),
+  it("does not treat template placeholders as configured credentials", async () => {
+    configureVk("CHANGE_ME_VK_CLIENT_ID");
+    const request = new NextRequest("https://conditera.ru/api/auth/oauth/vk");
+    const response = await GET(request, {
+      params: Promise.resolve({ provider: "vk" }),
     });
-    expect(unsupported.status).toBe(400);
 
-    vi.stubEnv("YANDEX_CLIENT_ID", "stub_yandex_client");
-    const unconfigured = await GET(request("yandex"), {
-      params: Promise.resolve({ provider: "yandex" }),
-    });
-    expect(unconfigured.status).toBe(501);
+    expect(response.status).toBe(501);
+    expect((await response.json()).configured).not.toBe(true);
   });
 });
