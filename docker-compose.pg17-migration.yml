@@ -2,7 +2,7 @@
 #
 # Запускать ТОЛЬКО вместе с docker-compose.supabase.yml:
 # docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml \
-#   --profile pg17-migration up -d conditera-db-pg17-migration
+#   --profile pg17-migration up -d supabase-db-pg17-migration
 #
 # Сервис не заменяет действующий supabase-db, не подключается к его volume
 # и не принимает трафик приложения. Он создаёт отдельный чистый целевой кластер
@@ -66,7 +66,7 @@ services:
     profiles: ["pg17-migration"]
     restart: "no"
     environment:
-      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/conditera
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/conditera
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}

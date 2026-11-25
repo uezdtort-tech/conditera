@@ -96,7 +96,7 @@ jobs:
       - name: Запустить PG17 и Supabase Storage, затем применить отложенную миграцию
         run: |
           COMPOSE="docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration"
-          if ! $COMPOSE up -d conditera-storage-pg17-migration supabase-auth-pg17-migration supabase-realtime-pg17-migration; then
+          if ! $COMPOSE up -d supabase-storage-pg17-migration supabase-auth-pg17-migration supabase-realtime-pg17-migration; then
             docker logs conditera-supabase-db-pg17-migration || true
             docker logs conditera-supabase-rest-pg17-migration || true
             docker logs conditera-supabase-meta-pg17-migration || true
@@ -156,7 +156,7 @@ jobs:
           fi
           REALTIME_MIGRATIONS=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera -Atc "SELECT to_regclass('_realtime.schema_migrations') IS NOT NULL;")
           test "$REALTIME_MIGRATIONS" = "t"
-          if ! $COMPOSE up -d conditera-app-migrator-pg17-migration; then
+          if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
             docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
           fi
