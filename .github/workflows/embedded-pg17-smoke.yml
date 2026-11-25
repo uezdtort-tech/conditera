@@ -66,7 +66,7 @@ jobs:
 
       - name: Убедиться, что .env.local переключён на порт PG17
         shell: bash
-        run: grep -q '^DATABASE_URL=postgresql://postgres@127.0.0.1:54330/conditera$' .env.local
+        run: grep -q '^DATABASE_URL=postgresql://postgres@127.0.0.1:54329/conditera$' .env.local
 
       - name: Проверить версию, каталог данных и полный журнал миграций
         shell: bash
@@ -75,7 +75,7 @@ jobs:
           import fs from "node:fs";
           import pg from "pg";
           const client = new pg.Client({
-            connectionString: "postgresql://postgres@127.0.0.1:54330/conditera",
+            connectionString: "postgresql://postgres@127.0.0.1:54329/conditera",
             connectionTimeoutMillis: 5000,
           });
           await client.connect();
