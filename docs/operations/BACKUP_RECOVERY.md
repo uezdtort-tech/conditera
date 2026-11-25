@@ -40,6 +40,31 @@
 | Ни одна таблица не прочитана | throw → `maintenance_logs.status = failed` → HTTP 500 |
 | Неверный `X-Cron-Secret` | 401 `cronUnauthorized` до любых операций |
 
+## 1.3. Отдельный backup Supabase PostgreSQL (PG15 → PG17)
+
+Backup приложения из `src/lib/backup.ts` покрывает только БД приложения PG18 (`DIRECT_DATABASE_URL`). Он **не покрывает** self-hosted Supabase database, которая хранит Auth/Storage metadata и работает отдельным PostgreSQL-контейнером.
+
+Для Supabase DB предусмотрен отдельный host-side скрипт:
+
+```bash
+SUPABASE_DB_CONTAINER=conditera-supabase-db \
+SUPABASE_DB_NAME=supabase \
+SUPABASE_DB_USER=supabase \
+SUPABASE_BACKUP_DIR=/var/backups/conditera/supabase \
+bash scripts/ops/backup-supabase-db.sh
+```
+
+Скрипт:
+- проверяет, что исходный контейнер существует и работает;
+- читает server version, pg_dump version и число пользовательских таблиц;
+- выполняет полный plain SQL `pg_dump` внутри исходного контейнера, сжимает gzip;
+- проверяет gzip integrity, сохраняет файл и SHA-256 manifest с правами 0600/0700;
+- не останавливает контейнер и не изменяет исходную БД.
+
+**Перед PG15→PG17 cutover обязательно** выполнить этот backup именно на работающем старом PG15-контейнере, проверить manifest/checksum и восстановить дамп в отдельный PG17 shadow-кластер с совместимыми Supabase extensions/roles. Не переключать active volume до сверки Auth users, public tables, Storage metadata и реальных пользовательских сценариев.
+
+Ограничения: этот dump не включает cluster-global roles/tablespaces и сами файлы объектов Supabase Storage (внешний object storage). Их нужно экспортировать/сохранить отдельно. Локальный backup без зашифрованной offsite-копии не является полноценной защитой от потери сервера.
+
 ## 2. Запуск по cron
 
 `GET /api/cron/backup` (`runtime=nodejs`):
