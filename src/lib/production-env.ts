@@ -65,7 +65,13 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
   requireValue(env, "SMTP_HOST");
   requireValue(env, "SMTP_USER");
   requireValue(env, "SMTP_PASSWORD", 16);
-  requireValue(env, "SMTP_FROM");
+  const smtpFrom = requireValue(env, "SMTP_FROM");
+  const mailbox = smtpFrom.includes("<") && smtpFrom.endsWith(">")
+    ? smtpFrom.slice(smtpFrom.lastIndexOf("<") + 1, -1).trim()
+    : smtpFrom;
+  if (!/^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$/.test(mailbox)) {
+    throw new Error("[production-env] SMTP_FROM должен содержать корректный email (допускается формат Имя <email>).");
+  }
   const smtpPort = Number(requireValue(env, "SMTP_PORT"));
   if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
     throw new Error("[production-env] SMTP_PORT должен быть целым числом от 1 до 65535.");
