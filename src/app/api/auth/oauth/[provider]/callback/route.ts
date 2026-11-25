@@ -20,6 +20,7 @@ import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createAccessToken, createRefreshToken } from "@/lib/auth";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 
 type Provider = "google" | "yandex" | "vk";
 
@@ -556,13 +557,28 @@ async function handleOAuthCallback(
       throw new Error("GoTrue недоступен вне локальной разработки");
     }
 
-    const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
-    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
+    const sessionId = await createUserSession(userId, request, "oauth");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
+    const accessToken = await createAccessToken({ userId, email, name, roles, accountType, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType, sid: sessionId, jti: refreshJti });
     const finalResponse = setSessionCookies(response, { accessToken, refreshToken });
     createdUserForRollback = null;
     return finalResponse;
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
+    if (detail === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json(
+        { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
+        { status: 403 }
+      );
+    }
+    if (detail === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json(
+        { error: "Не удалось безопасно проверить активные устройства. Повторите попытку позже." },
+        { status: 503 }
+      );
+    }
     console.error("[oauth/" + provider + "/callback]", detail);
     if (createdUserForRollback) {
       try {
