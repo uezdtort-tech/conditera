@@ -284,6 +284,36 @@ export function HomePage() {
   };
 
   const cmsSectionNodes = {
+    stats: (
+      <section className="container mx-auto px-4">
+        <div className="mb-5 text-center">
+          <h2 className="font-display text-2xl font-bold sm:text-3xl">{cmsSectionTitle("stats", "О платформе")}</h2>
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {[
+              { icon: Users, value: verifiedCount, label: "Проверенных кондитеров" },
+              { icon: Store, value: productCount, label: "Товаров в каталоге" },
+              { icon: Truck, value: cityCount, label: "Городов с кондитерами" },
+              { icon: Star, value: avgRating, label: "Средний рейтинг товаров", isFloat: true },
+            ].map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <div key={i} className="glass-pill rounded-2xl p-4 text-center">
+                  <Icon className="h-4 w-4 mx-auto text-primary mb-1.5" aria-hidden="true" />
+                  <div className="font-display text-2xl tnum">
+                    {s.isFloat ? (
+                      <span>{s.value > 0 ? `${s.value} / 5` : "—"}</span>
+                    ) : (
+                      <AnimatedCounter value={s.value} />
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
+                </div>
+              );
+            })}
+          </div>
+      </section>
+    ),
     advantages: (
       {/* ===== ADVANTAGES ===== */}
       <section className="relative overflow-hidden py-14">
@@ -846,30 +876,7 @@ export function HomePage() {
             </motion.div>
           </div>
 
-          {/* V2: стеклянная лента реальных счётчиков платформы (без выдуманных цифр) */}
-          <div className="mt-12 lg:mt-16 grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { icon: Users, value: verifiedCount, label: "Проверенных кондитеров" },
-              { icon: Store, value: productCount, label: "Товаров в каталоге" },
-              { icon: Truck, value: cityCount, label: "Городов с кондитерами" },
-              { icon: Star, value: avgRating, label: "Средний рейтинг товаров", isFloat: true },
-            ].map((s, i) => {
-              const Icon = s.icon;
-              return (
-                <div key={i} className="glass-pill rounded-2xl p-4 text-center">
-                  <Icon className="h-4 w-4 mx-auto text-primary mb-1.5" aria-hidden="true" />
-                  <div className="font-display text-2xl tnum">
-                    {s.isFloat ? (
-                      <span>{s.value > 0 ? `${s.value} / 5` : "—"}</span>
-                    ) : (
-                      <AnimatedCounter value={s.value} />
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{s.label}</div>
-                </div>
-              );
-            })}
-          </div>
+
         </div>
       </section>
       )}
@@ -1346,7 +1353,7 @@ export function HomePage() {
       )}
 
       {cmsSections
-        .filter((section) => section.section !== "hero" && section.section !== "stats" && section.is_enabled && section.section in cmsSectionNodes)
+        .filter((section) => section.section !== "hero" && section.is_enabled && section.section in cmsSectionNodes)
         .sort((a, b) => a.sort_order - b.sort_order || a.section.localeCompare(b.section))
         .map((section) => (
           <Fragment key={section.section}>
