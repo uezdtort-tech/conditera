@@ -7,8 +7,10 @@
         "rule": {
           "interval": [
             {
-              "field": "cronExpression",
-              "expression": "0 3 * * *"
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 3,
+              "triggerAtMinute": 0
             }
           ]
         }
@@ -26,6 +28,7 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/cron/backup",
+        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -54,6 +57,7 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
+        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -69,7 +73,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"workflow\": \"backup\",\n  \"status\": \"{{ $json.success ? 'success' : 'failed' }}\",\n  \"duration\": {{ $json.durationMs }},\n  \"errorMessage\": \"{{ $json.error || '' }}\"\n}",
+        "jsonBody": "={\n  \"workflow\": \"backup\",\n  \"status\": \"success\",\n  \"duration\": {{ $json.durationMs }},\n  \"backupSizeBytes\": {{ $json.backupSizeBytes }},\n  \"tablesCount\": {{ $json.tablesCount }},\n  \"recordsExported\": {{ $json.recordsExported }},\n  \"oldBackupsDeleted\": {{ $json.oldBackupsDeleted }}\n}",
         "options": {}
       },
       "id": "log-status",

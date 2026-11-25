@@ -1,25 +1,20 @@
 /**
- * GET  /api/cron/status            — list recent cron run logs
- * POST /api/cron/status            — record a cron run (called by n8n after each workflow)
+ * GET /api/cron/status — list recent cron run logs
+ * POST /api/cron/status — record a cron run (called by n8n after each workflow)
  *
- * Stores the most recent 50 cron run summaries in a `site_settings` row
- * (key: cron_runs), so the admin dashboard can show execution history.
- *
- * Auth: X-Cron-Secret header (CRON_SECRET env var)
- *
- * Соответствует таблице: site_settings (миграция 0001)
- * Использует supabase-js напрямую (v2.0, без Prisma shim).
+ * Machine-to-machine access uses X-Cron-Secret; interactive access requires
+ * a valid application session and an active ADMIN/SUPER_ADMIN role from DB.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
-import { requireAnyRole } from "@/lib/role-guards";
 import { verifyCronSecret, cronUnauthorized } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 
 const SETTING_KEY = "cron_runs";
 const MAX_LOGS = 50;
+const ALLOWED_STATUSES = new Set(["success", "failed", "running"]);
 
 interface CronRun {
   workflow: string;
@@ -32,9 +27,6 @@ interface CronRun {
   errorMessage?: string;
 }
 
-/**
- * Загрузить последние записи cron из site_settings.
- */
 async function loadCronRuns(): Promise<CronRun[]> {
   const { data, error } = await supabaseAdmin
     .from("site_settings")
@@ -42,24 +34,22 @@ async function loadCronRuns(): Promise<CronRun[]> {
     .eq("key", SETTING_KEY)
     .maybeSingle();
 
-  if (error || !data) {
-    return [];
+  if (error) {
+    console.error("[cron/status] load error:", error.message);
+    throw new Error("Cron history is unavailable");
   }
+  if (!data) return [];
 
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(data.value as string);
-    if (Array.isArray(parsed)) {
-      return parsed as CronRun[];
-    }
-    return [];
+    parsed = JSON.parse(String(data.value ?? "[]"));
   } catch {
-    return [];
+    throw new Error("Cron history contains invalid JSON");
   }
+  if (!Array.isArray(parsed)) throw new Error("Cron history has an invalid format");
+  return parsed as CronRun[];
 }
 
-/**
- * Сохранить массив cron-записей в site_settings через upsert.
- */
 async function saveCronRuns(runs: CronRun[]): Promise<void> {
   const { error } = await supabaseAdmin
     .from("site_settings")
@@ -71,98 +61,93 @@ async function saveCronRuns(runs: CronRun[]): Promise<void> {
         description: "Cron workflow execution logs (last 50)",
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "key" }
+      { onConflict: "key" },
     );
 
   if (error) {
     console.error("[cron/status] save error:", error.message);
-    throw error;
+    throw new Error("Cron history could not be saved");
   }
 }
 
-/**
- * GET /api/cron/status — вернуть список последних cron runs.
- */
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  // Cron secret is reserved for automation. Human access requires a
-  // verified application session and an explicit administrator role.
-  if (!verifyCronSecret(req)) {
-    const user = await getUserFromRequest(req);
-    if (!user) {
-      return new NextResponse(cronUnauthorized().body, {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
-    if (guard) {
-      return new NextResponse(guard.body, {
-        status: guard.status,
-        headers: guard.headers,
-      });
-    }
+async function authorizeRead(req: NextRequest): Promise<Response | null> {
+  if (verifyCronSecret(req)) return null;
+  const user = await getUserFromRequest(req);
+  if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+  if (!user.roles.some((role) => role === "ADMIN" || role === "SUPER_ADMIN")) {
+    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
   }
+  return null;
+}
 
+export async function GET(req: NextRequest): Promise<Response> {
+  const denied = await authorizeRead(req);
+  if (denied) return denied;
   try {
     const runs = await loadCronRuns();
-    return NextResponse.json({ runs, total: runs.length });
-  } catch (error: any) {
-    console.error("GET /api/cron/status error:", error?.message);
     return NextResponse.json(
-      { error: "Internal error", details: error?.message },
-      { status: 500 }
+      { runs, total: runs.length },
+      { headers: { "Cache-Control": "no-store" } },
     );
+  } catch (error) {
+    console.error("[cron/status] GET failed:", error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }
 
-/**
- * POST /api/cron/status — записать cron run в лог.
- * Тело запроса:
- *  {
- *    "workflow": "abandoned-cart",
- *    "status": "success",
- *    "duration": 1234,
- *    "sent": 15,
- *    "notified": 14,
- *    "errorMessage": null
- *  }
- */
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (!verifyCronSecret(req)) {
-    return new NextResponse(cronUnauthorized().body, {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+export async function POST(req: NextRequest): Promise<Response> {
+  if (!verifyCronSecret(req)) return cronUnauthorized();
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Некорректный JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Некорректное тело запроса" }, { status: 400 });
   }
 
+  const input = body as Record<string, unknown>;
+  const workflow = typeof input.workflow === "string" ? input.workflow.trim() : "";
+  if (!workflow || workflow.length > 100) {
+    return NextResponse.json({ error: "workflow обязателен и должен быть короче 100 символов" }, { status: 400 });
+  }
+  if (typeof input.status !== "string" || !ALLOWED_STATUSES.has(input.status)) {
+    return NextResponse.json({ error: "status должен быть success, failed или running" }, { status: 400 });
+  }
+
+  const numericFields = ["duration", "sent", "notified", "totalPoints"] as const;
+  for (const field of numericFields) {
+    const value = input[field];
+    if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+      return NextResponse.json({ error: field + " должен быть неотрицательным числом" }, { status: 400 });
+    }
+  }
+  if (input.errorMessage !== undefined && (
+    typeof input.errorMessage !== "string" || input.errorMessage.length > 1000
+  )) {
+    return NextResponse.json({ error: "errorMessage должен быть строкой до 1000 символов" }, { status: 400 });
+  }
+
+  const newRun: CronRun = {
+    workflow,
+    status: input.status as CronRun["status"],
+    timestamp: new Date().toISOString(),
+    ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
+    ...(typeof input.sent === "number" ? { sent: input.sent } : {}),
+    ...(typeof input.notified === "number" ? { notified: input.notified } : {}),
+    ...(typeof input.totalPoints === "number" ? { totalPoints: input.totalPoints } : {}),
+    ...(typeof input.errorMessage === "string" ? { errorMessage: input.errorMessage } : {}),
+  };
+
   try {
-    const body = await req.json();
-    const newRun: CronRun = {
-      workflow: String(body.workflow || "unknown"),
-      status: ["success", "failed", "running"].includes(body.status) ? body.status : "success",
-      timestamp: new Date().toISOString(),
-      duration: typeof body.duration === "number" ? body.duration : undefined,
-      sent: typeof body.sent === "number" ? body.sent : undefined,
-      notified: typeof body.notified === "number" ? body.notified : undefined,
-      totalPoints: typeof body.totalPoints === "number" ? body.totalPoints : undefined,
-      errorMessage: typeof body.errorMessage === "string" ? body.errorMessage : undefined,
-    };
-
-    // Load existing logs
     const runs = await loadCronRuns();
-
-    // Prepend new run and trim to MAX_LOGS
     runs.unshift(newRun);
-    const trimmedRuns = runs.slice(0, MAX_LOGS);
-
-    await saveCronRuns(trimmedRuns);
-
-    return NextResponse.json({ success: true, run: newRun });
-  } catch (error: any) {
-    console.error("POST /api/cron/status error:", error?.message);
-    return NextResponse.json(
-      { error: "Internal error", details: error?.message },
-      { status: 500 }
-    );
+    await saveCronRuns(runs.slice(0, MAX_LOGS));
+    return NextResponse.json({ success: true, run: newRun }, { status: 201 });
+  } catch (error) {
+    console.error("[cron/status] POST failed:", error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

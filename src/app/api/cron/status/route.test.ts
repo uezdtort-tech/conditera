@@ -1,93 +1,97 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest, NextResponse } from "next/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
-const mocks = vi.hoisted(() => ({
-  from: vi.fn(),
-  select: vi.fn(),
-  eq: vi.fn(),
-  maybeSingle: vi.fn(),
-  verifyCronSecret: vi.fn(),
-  getUserFromRequest: vi.fn(),
-  requireAnyRole: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const state = {
+    user: null as null | { id: string; roles: string[] },
+    storedValue: "[]",
+    selectError: null as null | { message: string },
+    upsertError: null as null | { message: string },
+    upsertPayload: null as null | Record<string, unknown>,
+  };
+  const from = vi.fn((_table: string) => {
+    const query: any = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      maybeSingle: vi.fn(async () => ({
+        data: state.selectError ? null : { value: state.storedValue },
+        error: state.selectError,
+      })),
+      upsert: vi.fn((payload: Record<string, unknown>) => {
+        state.upsertPayload = payload;
+        return query;
+      }),
+      then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+        Promise.resolve({ error: state.upsertError }).then(resolve, reject),
+    };
+    return query;
+  });
+  return { state, from };
+});
 
-vi.mock("@/lib/supabase/admin", () => ({
-  supabaseAdmin: { from: mocks.from },
-}));
-vi.mock("@/lib/cron-auth", () => ({
-  verifyCronSecret: mocks.verifyCronSecret,
-  cronUnauthorized: () => ({ body: "Unauthorized" }),
-}));
-vi.mock("@/lib/auth", () => ({
-  getUserFromRequest: mocks.getUserFromRequest,
-}));
-vi.mock("@/lib/role-guards", () => ({
-  requireAnyRole: mocks.requireAnyRole,
-}));
+vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: { from: mocks.from } }));
+vi.mock("@/lib/auth", () => ({ getUserFromRequest: vi.fn(async () => mocks.state.user) }));
 
-import { GET } from "./route";
+import { GET, POST } from "./route";
 
-const ADMIN_ID = "11111111-1111-4111-8111-111111111111";
-
-function request(): NextRequest {
-  return new NextRequest("http://localhost/api/cron/status");
+function request(method: "GET" | "POST", body?: unknown, cronSecret?: string) {
+  return new NextRequest("https://conditera.test/api/cron/status", {
+    method,
+    headers: {
+      ...(cronSecret ? { "X-Cron-Secret": cronSecret } : {}),
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 }
 
-describe("GET /api/cron/status — access control", () => {
+describe("cron status endpoint authorization and validation", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.verifyCronSecret.mockReturnValue(false);
-    mocks.getUserFromRequest.mockResolvedValue(null);
-    mocks.requireAnyRole.mockResolvedValue(null);
-    mocks.select.mockReturnThis();
-    mocks.eq.mockReturnThis();
-    mocks.maybeSingle.mockResolvedValue({ data: { value: "[]" }, error: null });
-    mocks.from.mockReturnValue({
-      select: mocks.select,
-      eq: mocks.eq,
-      maybeSingle: mocks.maybeSingle,
-    });
+    vi.stubEnv("CRON_SECRET", "cron-test-secret");
+    mocks.state.user = null;
+    mocks.state.storedValue = "[]";
+    mocks.state.selectError = null;
+    mocks.state.upsertError = null;
+    mocks.state.upsertPayload = null;
+    mocks.from.mockClear();
   });
+  afterEach(() => vi.unstubAllEnvs());
 
-  it("rejects a request with an arbitrary Authorization header and no valid session", async () => {
-    const req = new NextRequest("http://localhost/api/cron/status", {
-      headers: { authorization: "Bearer attacker-controlled-token" },
-    });
-    const response = await GET(req);
-
-    expect(response.status).toBe(401);
-    expect(mocks.from).not.toHaveBeenCalled();
-    expect(mocks.requireAnyRole).not.toHaveBeenCalled();
+  it("rejects anonymous GET", async () => {
+    expect((await GET(request("GET"))).status).toBe(401);
   });
-
-  it("rejects an authenticated non-admin user", async () => {
-    mocks.getUserFromRequest.mockResolvedValue({ id: ADMIN_ID });
-    mocks.requireAnyRole.mockResolvedValue(new NextResponse("Forbidden", { status: 403 }));
-
-    const response = await GET(request());
-
-    expect(response.status).toBe(403);
-    expect(mocks.requireAnyRole).toHaveBeenCalledWith(ADMIN_ID, ["ADMIN", "SUPER_ADMIN"]);
-    expect(mocks.from).not.toHaveBeenCalled();
+  it("rejects a non-admin authenticated GET", async () => {
+    mocks.state.user = { id: "customer-1", roles: ["CUSTOMER"] };
+    expect((await GET(request("GET"))).status).toBe(403);
   });
-
-  it("allows an authenticated administrator", async () => {
-    mocks.getUserFromRequest.mockResolvedValue({ id: ADMIN_ID });
-
-    const response = await GET(request());
-
+  it("allows an active admin session to read cron history", async () => {
+    mocks.state.user = { id: "admin-1", roles: ["ADMIN"] };
+    const response = await GET(request("GET"));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ runs: [], total: 0 });
-    expect(mocks.from).toHaveBeenCalledWith("site_settings");
+    expect(await response.json()).toMatchObject({ runs: [], total: 0 });
   });
-
-  it("allows a valid cron secret without requiring a user session", async () => {
-    mocks.verifyCronSecret.mockReturnValue(true);
-
-    const response = await GET(request());
-
-    expect(response.status).toBe(200);
-    expect(mocks.getUserFromRequest).not.toHaveBeenCalled();
-    expect(mocks.requireAnyRole).not.toHaveBeenCalled();
+  it("allows the machine cron secret to read cron history", async () => {
+    expect((await GET(request("GET", undefined, "cron-test-secret"))).status).toBe(200);
+  });
+  it("does not silently convert an invalid status into success", async () => {
+    const response = await POST(request("POST", { workflow: "backup", status: "garbage" }, "cron-test-secret"));
+    expect(response.status).toBe(400);
+    expect(mocks.state.upsertPayload).toBeNull();
+  });
+  it("rejects a negative duration", async () => {
+    const response = await POST(request("POST", { workflow: "backup", status: "success", duration: -1 }, "cron-test-secret"));
+    expect(response.status).toBe(400);
+    expect(mocks.state.upsertPayload).toBeNull();
+  });
+  it("records only an explicitly valid status", async () => {
+    const response = await POST(request("POST", { workflow: "backup", status: "success", duration: 10 }, "cron-test-secret"));
+    expect(response.status).toBe(201);
+    expect(mocks.state.upsertPayload).toMatchObject({ key: "cron_runs", category: "cron" });
+    const saved = JSON.parse(String(mocks.state.upsertPayload?.value));
+    expect(saved[0]).toMatchObject({ workflow: "backup", status: "success", duration: 10 });
+  });
+  it("fails closed when the cron history database is unavailable", async () => {
+    mocks.state.selectError = { message: "database unavailable" };
+    expect((await GET(request("GET", undefined, "cron-test-secret"))).status).toBe(500);
   });
 });

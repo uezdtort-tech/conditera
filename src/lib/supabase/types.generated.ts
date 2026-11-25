@@ -50,7 +50,6 @@ export type Database = {
           id: string
           user_id: string | null
           session_id: string | null
-          cart_fingerprint: string | null
           cart_items: Json
           cart_total: number
           cart_items_count: number
@@ -67,7 +66,6 @@ export type Database = {
           id?: string
           user_id?: string | null
           session_id?: string | null
-          cart_fingerprint?: string | null
           cart_items: Json
           cart_total?: number
           cart_items_count?: number
@@ -84,7 +82,6 @@ export type Database = {
           id?: string
           user_id?: string | null
           session_id?: string | null
-          cart_fingerprint?: string | null
           cart_items?: Json
           cart_total?: number
           cart_items_count?: number
@@ -5492,8 +5489,14 @@ export type Database = {
           content_type: string
           content_id: string
           author_id: string | null
+          author_name: string | null
+          title: string | null
+          content: string | null
+          images: string[]
           auto_status: string | null
           auto_reason: string | null
+          auto_score: number
+          violations: string[]
           flagged_keywords: string[] | null
           manual_status: string | null
           moderated_by: string | null
@@ -5508,8 +5511,14 @@ export type Database = {
           content_type: string
           content_id: string
           author_id?: string | null
+          author_name?: string | null
+          title?: string | null
+          content?: string | null
+          images?: string[]
           auto_status?: string | null
           auto_reason?: string | null
+          auto_score?: number
+          violations?: string[]
           flagged_keywords?: string[] | null
           manual_status?: string | null
           moderated_by?: string | null
@@ -5524,8 +5533,14 @@ export type Database = {
           content_type?: string
           content_id?: string
           author_id?: string | null
+          author_name?: string | null
+          title?: string | null
+          content?: string | null
+          images?: string[]
           auto_status?: string | null
           auto_reason?: string | null
+          auto_score?: number
+          violations?: string[]
           flagged_keywords?: string[] | null
           manual_status?: string | null
           moderated_by?: string | null

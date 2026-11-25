@@ -18,7 +18,8 @@ import { resolveClaims } from "@/lib/postgrest/jwt";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const UPLOAD_ROOT = path.join(process.cwd(), "upload", "storage");
+const PROJECT_ROOT = process.env.CONDITERA_PROJECT_ROOT || process.cwd();
+const UPLOAD_ROOT = process.env.SUPABASE_STORAGE_ROOT || path.join(PROJECT_ROOT, "upload", "storage");
 
 const MIME: Record<string, string> = {
   ".png": "image/png",
@@ -94,7 +95,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
           return NextResponse.json({ code: "UNAUTHORIZED", message: "Auth required for non-public objects" }, { status: 401 });
         }
       }
-      const data = await fs.readFile(/*turbopackIgnore: true*/ absPath);
+      const data = await fs.readFile(absPath);
       const ext = path.extname(absPath).toLowerCase();
       const mime = MIME[ext] || "application/octet-stream";
       return new NextResponse(isPublicRead || req.method === "GET" ? new Uint8Array(data) : null, {
@@ -109,8 +110,8 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
         return NextResponse.json({ code: "UNAUTHORIZED", message: "Auth required to upload" }, { status: 401 });
       }
       const buf = Buffer.from(await req.arrayBuffer());
-      await fs.mkdir(/*turbopackIgnore: true*/ path.dirname(absPath), { recursive: true });
-      await fs.writeFile(/*turbopackIgnore: true*/ absPath, buf);
+      await fs.mkdir(path.dirname(absPath), { recursive: true });
+      await fs.writeFile(absPath, buf);
       const ext = path.extname(absPath).toLowerCase();
       const mime = req.headers.get("content-type")?.split(";")[0] || MIME[ext] || "application/octet-stream";
       await objectRow(bucket, objectPath, buf.length, mime);
@@ -123,7 +124,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
         return NextResponse.json({ code: "UNAUTHORIZED", message: "Auth required to delete" }, { status: 401 });
       }
       try {
-        await fs.unlink(/*turbopackIgnore: true*/ absPath);
+        await fs.unlink(absPath);
       } catch {
         /* уже нет — ок для идемпотентности */
       }

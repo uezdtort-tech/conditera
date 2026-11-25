@@ -4,7 +4,7 @@
  * Auth: X-Cron-Secret header (CRON_SECRET env var)
  * Schedule: daily at 03:00 (recommended)
  *
- * Создаёт gzip-бэкап БД, записывает в maintenance_logs,
+ * Создаёт проверяемый PostgreSQL custom-format архив, записывает в maintenance_logs,
  * удаляет бэкапы старше 30 дней.
  *
  * Соответствует таблицам:
@@ -60,9 +60,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         status: result.success ? "success" : "failed",
         finishedAt: new Date().toISOString(),
         durationMs: result.durationMs,
-        backupPath: result.backupPath,
-        backupSizeBytes: result.backupSizeBytes,
-        tablesCount: result.tablesCount,
+        backup_path: result.backupPath,
+        backup_size_bytes: result.backupSizeBytes,
+        tables_count: result.tablesCount,
         recordsAffected: result.recordsExported,
         details: {
           oldBackupsDeleted: oldDeleted,
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           recordsExported: result.recordsExported,
           durationMs: result.durationMs,
         },
-        errorMessage: result.errorMessage || null,
+        error_message: result.errorMessage || null,
       })
       .eq("id", log.id);
 
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .update({
         status: "failed",
         finishedAt: new Date().toISOString(),
-        errorMessage: error?.message ?? "Unknown error",
+        error_message: error?.message ?? "Unknown error",
       })
       .eq("id", log.id);
 
