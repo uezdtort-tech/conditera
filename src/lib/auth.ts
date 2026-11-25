@@ -2,7 +2,7 @@
 //
 // Безопасность:
 //   • Секреты JWT_SECRET / JWT_REFRESH_SECRET берутся из env (fail-closed):
-//     в production отсутствие/заглушка → процесс не стартует; в dev — dev-fallback
+//     в production отсутствие/заглушка/короткое значение → отказ; в dev — dev-fallback
 //     с предупреждением.
 //   • Все токены подписаны HS256.
 //   • Access token: 7d по умолчанию.
@@ -26,17 +26,16 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 // Development: dev-значение с явным предупреждением.
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
+  const normalized = value?.toLowerCase() || "";
   const isStub =
     !value ||
-    value.startsWith("CHANGE_ME") ||
-    value.startsWith("fallback-") ||
-    value.startsWith("dev-") ||
-    value.startsWith("dev_");
+    /^(change_me|fallback-|stub[-_]|build-placeholder|dummy|your_|example)/.test(normalized) ||
+    (process.env.NODE_ENV === "production" && /^dev[-_]/.test(normalized));
 
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
   if (process.env.NODE_ENV === "production") {
-    if (isStub) {
+    if (isStub || new TextEncoder().encode(value || "").length < 32) {
       if (isBuildPhase) {
         console.warn(
           `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
@@ -57,33 +56,21 @@ function getRequiredEnv(name: string): string {
     console.warn(`⚠️  [auth] ${name} не задана — используется dev-значение. НЕ для production!`);
     return `dev-${name}-${"0".repeat(32)}`;
   }
+  if (/^dev[-_]/.test(normalized)) {
+    console.warn(`[auth] ${name} использует development-only значение; не переносить в production.`);
+  }
   return value;
 }
 
-/**
- * Секретные env с фолбэком на альтернативные имена (.env.example декларирует
- * AUTH_SECRET как каноничное имя, исторический код читает JWT_SECRET).
- * Первая непустая незаглушечная переменная побеждает; иначе — обычный
- * getRequiredEnv(primary) со стандартными предупреждениями.
- */
-function getSecretEnv(primary: string, fallbacks: string[]): string {
-  for (const name of [primary, ...fallbacks]) {
-    const v = process.env[name]?.trim();
-    if (v && !v.startsWith("CHANGE_ME") && !v.startsWith("fallback-") && !v.startsWith("dev-") && !v.startsWith("dev_")) {
-      return v;
-    }
-  }
-  return getRequiredEnv(primary);
+// Ключи намеренно не имеют альтернативных имён и не подменяют друг друга.
+// JWT_REFRESH_SECRET обязателен, не короче 32 байт и независим от JWT_SECRET.
+const jwtSecretValue = getRequiredEnv("JWT_SECRET");
+const jwtRefreshSecretValue = getRequiredEnv("JWT_REFRESH_SECRET");
+if (jwtSecretValue === jwtRefreshSecretValue) {
+  throw new Error("[auth] JWT_SECRET и JWT_REFRESH_SECRET должны быть разными значениями.");
 }
-
-const JWT_SECRET = new TextEncoder().encode(getSecretEnv("JWT_SECRET", ["AUTH_SECRET"]));
-
-// Refresh-секрет — отдельная env-переменная (НЕ производная от JWT_SECRET).
-// ВНИМАНИЕ: после перехода на JWT_REFRESH_SECRET все прежние refresh-токены
-// инвалидируются — пользователи один раз перелогинятся.
-const JWT_REFRESH_SECRET = new TextEncoder().encode(
-  getSecretEnv("JWT_REFRESH_SECRET", ["AUTH_REFRESH_SECRET", "AUTH_SECRET"])
-);
+const JWT_SECRET = new TextEncoder().encode(jwtSecretValue);
+const JWT_REFRESH_SECRET = new TextEncoder().encode(jwtRefreshSecretValue);
 
 export interface JwtPayload extends JWTPayload {
   userId: string;
