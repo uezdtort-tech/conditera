@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       return NextResponse.json({ error: "Нет доступа" }, { status: 403 });
     }
 
-    if (order.status === "COMPLETED" || order.status === "CANCELLED") {
+    if (["COMPLETED", "CANCELLED", "REFUNDED"].includes(order.status)) {
       return NextResponse.json({ error: `Нельзя отменить заказ со статусом ${order.status}` }, { status: 400 });
     }
 
@@ -85,11 +85,12 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       })
       .eq("id", orderId)
       .eq("status", order.status)
+      .eq("payment_status", order.payment_status)
       .select("id");
 
     if (updateErr || !updatedRows || updatedRows.length === 0) {
       return NextResponse.json(
-        { error: "Статус заказа изменился, обновите страницу и повторите" },
+        { error: "Статус заказа или платёж изменился параллельно. Обновите страницу и повторите" },
         { status: 409 }
       );
     }
@@ -116,49 +117,43 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       console.error("[orders/:id/cancel] history insert failed:", historyError.message);
     }
 
-    // Refund if paid (non-blocking) — только по реальному платежу провайдера
-    // (статуса "paid" не существует; деньги получены = escrow | succeeded)
-    if (order.payment_status === "paid" || order.payment_status === "escrow" || order.payment_status === "succeeded") {
-      const { data: payment } = await supabaseAdmin
+    // Возврат инициируется по реальной payment-записи. Статусы refunded
+    // выставляет только refund.succeeded webhook: HTTP 200 от YooKassa может
+    // означать pending, а не фактическое поступление возврата.
+    let refundPending = false;
+    {
+      const { data: payment, error: paymentLookupError } = await supabaseAdmin
         .from("payments")
         .select("id, yookassa_payment_id, amount, status")
         .eq("order_id", orderId)
-        .in("status", ["pending", "waiting_for_capture", "succeeded"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (payment?.yookassa_payment_id) {
+      const orderWasPaid = ["paid", "escrow", "succeeded"].includes(order.payment_status);
+      if (paymentLookupError) {
+        refundPending = true;
+        console.error("[orders/:id/cancel] payment lookup failed; manual reconciliation required:", paymentLookupError.message);
+      } else if (payment && (orderWasPaid || payment.status === "succeeded") && payment.yookassa_payment_id) {
         try {
           const { refundPayment } = await import("@/lib/yookassa");
-          // amount в рублях — как хранится payments.amount
           const result = await refundPayment(payment.yookassa_payment_id, Number(payment.amount));
           if (result.success) {
-            // refund_amount здесь НЕ пишем (аудит 18651d4): финальную сумму
-            // пишет один писатель — webhook refund.succeeded через
-            // apply_yookassa_refund (0039). Прежняя прямая запись
-            // refund_amount=amount складывалась с webhook'ом → двойной учёт.
-            await supabaseAdmin
-              .from("payments")
-              .update({ status: "refunded" })
-              .eq("id", payment.id);
-            // refunded — только после фактического успеха возврата
-            await supabaseAdmin
-              .from("orders")
-              .update({ payment_status: "refunded" })
-              .eq("id", orderId);
+            refundPending = result.refund?.status !== "succeeded";
+            if (refundPending) {
+              console.info("[orders/:id/cancel] refund accepted; waiting for refund.succeeded webhook:", result.refund?.id);
+            }
           } else {
-            // Возврат не прошёл — заказ отменён, но payment_status не трогаем:
-            // админ доразберётся (ручной возврат через /api/payment/refund)
+            refundPending = true;
             console.error("[orders/:id/cancel] YooKassa refund failed:", result.error);
           }
         } catch (e: unknown) {
+          refundPending = true;
           console.warn("[orders/:id/cancel] refund failed:", (e as Error)?.message);
         }
-      } else {
-        console.warn(
-          `[orders/:id/cancel] order ${orderId}: нет платежа с yookassa_payment_id — возврат у провайдера невозможен`
-        );
+      } else if (orderWasPaid || payment?.status === "succeeded") {
+        refundPending = true;
+        console.warn("[orders/:id/cancel] confirmed payment without provider payment ID; manual refund reconciliation required");
       }
     }
 
@@ -173,7 +168,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       });
     } catch {}
 
-    return NextResponse.json({ success: true, orderId, status: "CANCELLED" });
+    return NextResponse.json({ success: true, orderId, status: "CANCELLED", refundPending });
   } catch (error: unknown) {
     return handleRouteError(error, {
       route: "/api/orders/[id]/cancel",
