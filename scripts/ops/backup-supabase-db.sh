@@ -5,12 +5,12 @@ set -Eeuo pipefail
 # This script intentionally reports that Storage objects and cluster globals
 # are separate backup artifacts; it must not claim a complete platform backup.
 
-CONTAINER="\${SUPABASE_DB_CONTAINER:-conditera-supabase-db}"
-DB_NAME="\${SUPABASE_DB_NAME:-supabase}"
-DB_USER="\${SUPABASE_DB_USER:-postgres}"
-BACKUP_DIR="\${SUPABASE_BACKUP_DIR:-/var/backups/conditera/supabase}"
+CONTAINER="${SUPABASE_DB_CONTAINER:-conditera-supabase-db}"
+DB_NAME="${SUPABASE_DB_NAME:-supabase}"
+DB_USER="${SUPABASE_DB_USER:-postgres}"
+BACKUP_DIR="${SUPABASE_BACKUP_DIR:-/var/backups/conditera/supabase}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BASENAME="supabase-\${DB_NAME}-\${TIMESTAMP}-\${BASHPID}.sql.gz"
+BASENAME="supabase-${DB_NAME}-${TIMESTAMP}-${BASHPID}.sql.gz"
 FINAL_PATH="$BACKUP_DIR/$BASENAME"
 TMP_PATH="$FINAL_PATH.tmp"
 
@@ -31,7 +31,7 @@ rm -f "$TMP_PATH"
 
 db_query() {
   docker exec "$CONTAINER" sh -c '
-    export PGPASSWORD="\${POSTGRES_PASSWORD:-}"
+    export PGPASSWORD="${POSTGRES_PASSWORD:-}"
     exec psql -X -h 127.0.0.1 -v ON_ERROR_STOP=1 --username "$1" --dbname "$2" -Atqc "$3"
   ' sh "$DB_USER" "$DB_NAME" "$1"
 }
@@ -47,7 +47,7 @@ echo "User tables: $TABLE_COUNT"
 echo "Writing full logical database dump to $FINAL_PATH"
 
 if ! docker exec -i "$CONTAINER" sh -c '
-  export PGPASSWORD="\${POSTGRES_PASSWORD:-}"
+  export PGPASSWORD="${POSTGRES_PASSWORD:-}"
   exec pg_dump --host=127.0.0.1 "$@"
 ' sh \
   --username="$DB_USER" \
