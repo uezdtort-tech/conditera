@@ -148,7 +148,8 @@
     "@sentry/nextjs": "^11.17.0"
   },
   "trustedDependencies": [
-    "@embedded-postgres/linux-x64"
+    "@embedded-postgres/linux-x64",
+    "@embedded-postgres/windows-x64"
   ],
   "overrides": {
     "js-yaml": "^4.3.2",
