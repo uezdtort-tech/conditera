@@ -3,7 +3,7 @@
 # The legacy multi-container Supabase services are disabled unless the
 # explicit "legacy-supabase" profile is selected.
 services:
-  # Disable the duplicate application PostgreSQL 18/PgBouncer path. The only
+  # Disable the duplicate application duplicate PostgreSQL/PgBouncer path. The only
   # application/Supabase database is PostgreSQL 17 inside supabase-runtime.
   migrator:
     profiles: ["legacy-app-db"]
@@ -17,9 +17,9 @@ services:
     profiles: !override []
     environment: !override
       - APP_VERSION=${WEB_TAG:-dev}
-      - DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
-      - DIRECT_DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase?schema=public
-      - BACKUP_DATABASE_URL=postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD:?BACKUP_DATABASE_PASSWORD required}@supabase-runtime:5432/supabase
+      - DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/conditera?schema=public
+      - DIRECT_DATABASE_URL=postgresql://conditera_app:${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}@supabase-runtime:5432/conditera?schema=public
+      - BACKUP_DATABASE_URL=postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD:?BACKUP_DATABASE_PASSWORD required}@supabase-runtime:5432/conditera
       - BACKUP_DIR=/app/backups
       - REDIS_URL=redis://redis:6379
       - MEILISearch_URL=http://meilisearch:7700
@@ -120,7 +120,7 @@ services:
     stop_grace_period: 60s
     environment:
       POSTGRES_USER: supabase_admin
-      POSTGRES_DB: supabase
+      POSTGRES_DB: conditera
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?APP_DATABASE_PASSWORD required}
       BACKUP_DATABASE_PASSWORD: ${BACKUP_DATABASE_PASSWORD:?BACKUP_DATABASE_PASSWORD required}
