@@ -80,9 +80,9 @@ BEGIN
     RAISE EXCEPTION 'QUOTE_ALREADY_ACCEPTED';
   END IF;
 
-  -- Каталог и recipe_ingredients обслуживаются основным PG18 в текущей
-  -- двухкластерной конфигурации. Проверка товара/рецепта выполняется API
-  -- через getPool(); эта RPC хранит только ссылку в Supabase PG15.
+  -- Каталог и recipe_ingredients находятся в едином Conditera PostgreSQL 17.
+  -- Проверка товара/рецепта выполняется API через getPool(); RPC хранит
+  -- ссылку на подтверждённый товар/рецепт и атомарно фиксирует предложение.
   v_subtotal := p_base_cost + p_filling_cost + p_coating_cost +
     p_decoration_cost + p_packaging_cost + p_printing_cost +
     p_storage_cost + p_delivery_cost + p_service_cost + p_custom_design_cost;
