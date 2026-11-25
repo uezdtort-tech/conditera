@@ -174,9 +174,9 @@ async function main() {
     ? ok("контроль: без снятия резерва — 800₽ при возврате 400₽ (именно это чинит reset в роуте)")
     : fail("контрольный двойной учёт", bad.refund_amount);
 
-  console.log("\n=== Миграция 0088: усиленный контракт refund RPC ===");
-  await applyFileStrict(db, MIG("0088_harden_yookassa_refund_rpc.sql"), "0088_harden_yookassa_refund_rpc.sql");
-  ok("0088 применена поверх 0039");
+  console.log("\n=== Миграция 0103: усиленный контракт refund RPC ===");
+  await applyFileStrict(db, MIG("0103_harden_yookassa_refund_rpc.sql"), "0103_harden_yookassa_refund_rpc.sql");
+  ok("0103 применена поверх 0039");
 
   await db.exec(`
     INSERT INTO public.payments (yookassa_payment_id, amount, status)
@@ -187,11 +187,11 @@ async function main() {
 
   const h1 = (await q(`SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_1', 30000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number; fully_refunded: boolean };
   (!h1.already_processed && h1.total_refunded_kopecks === 30000 && !h1.fully_refunded)
-    ? ok("0088: частичный возврат 30000 коп принят") : fail("0088: первый частичный", JSON.stringify(h1));
+    ? ok("0103: частичный возврат 30000 коп принят") : fail("0103: первый частичный", JSON.stringify(h1));
 
   const h1dup = (await q(`SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_1', 30000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number };
   (h1dup.already_processed && h1dup.total_refunded_kopecks === 30000)
-    ? ok("0088: повтор идентичного refund_id идемпотентен") : fail("0088: identical duplicate", JSON.stringify(h1dup));
+    ? ok("0103: повтор идентичного refund_id идемпотентен") : fail("0103: identical duplicate", JSON.stringify(h1dup));
 
   function sqlState(error: unknown): string | undefined {
     if (typeof error === "object" && error !== null && "code" in error) {
@@ -220,34 +220,34 @@ async function main() {
       : fail(label, `ожидался SQLSTATE ${expectedState}, получен ${actualState ?? "неизвестный"}: ${String(caught).split("\n")[0]}`);
   }
 
-  await expectSqlError("0088: тот же refund_id с другой суммой отклонён",
+  await expectSqlError("0103: тот же refund_id с другой суммой отклонён",
     `SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_1', 20000)`, "23505");
-  await expectSqlError("0088: тот же refund_id с другим payment_id отклонён",
+  await expectSqlError("0103: тот же refund_id с другим payment_id отклонён",
     `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_1', 30000)`, "23505");
 
   const h2 = (await q(`SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_2', 70000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number; fully_refunded: boolean };
   (!h2.already_processed && h2.total_refunded_kopecks === 100000 && h2.fully_refunded)
-    ? ok("0088: два разных возврата суммируются ровно до 100%") : fail("0088: cumulative exact limit", JSON.stringify(h2));
+    ? ok("0103: два разных возврата суммируются ровно до 100%") : fail("0103: cumulative exact limit", JSON.stringify(h2));
 
-  await expectSqlError("0088: превышение общей суммы возвратов отклонено",
+  await expectSqlError("0103: превышение общей суммы возвратов отклонено",
     `SELECT * FROM apply_yookassa_refund('${hardenedA.id}'::uuid, 'hard_ref_over', 1)`, "23514");
   const overState = (await q(`SELECT refund_amount, status FROM payments WHERE id='${hardenedA.id}'`))[0] as { refund_amount: string; status: string };
   const overEvents = (await q(`SELECT count(*)::int AS n FROM yookassa_refund_events WHERE refund_id='hard_ref_over'`))[0] as { n: number };
   (Number(overState.refund_amount) === 1000 && overState.status === "refunded" && overEvents.n === 0)
-    ? ok("0088: отказ сверх лимита не меняет платёж и откатывает ledger event")
-    : fail("0088: rollback over-limit", JSON.stringify({ overState, overEvents }));
+    ? ok("0103: отказ сверх лимита не меняет платёж и откатывает ledger event")
+    : fail("0103: rollback over-limit", JSON.stringify({ overState, overEvents }));
 
-  await expectSqlError("0088: NULL payment_id отклонён",
+  await expectSqlError("0103: NULL payment_id отклонён",
     `SELECT * FROM apply_yookassa_refund(NULL::uuid, 'hard_ref_null_payment', 100)`, "22023");
-  await expectSqlError("0088: NULL refund_id отклонён",
+  await expectSqlError("0103: NULL refund_id отклонён",
     `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, NULL::text, 100)`, "22023");
-  await expectSqlError("0088: NULL amount отклонён",
+  await expectSqlError("0103: NULL amount отклонён",
     `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_null_amount', NULL::integer)`, "22023");
-  await expectSqlError("0088: нулевая сумма отклонена",
+  await expectSqlError("0103: нулевая сумма отклонена",
     `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, 'hard_ref_zero', 0)`, "22023");
-  await expectSqlError("0088: пустой refund_id отклонён",
+  await expectSqlError("0103: пустой refund_id отклонён",
     `SELECT * FROM apply_yookassa_refund('${hardenedB.id}'::uuid, '   ', 100)`, "22023");
-  await expectSqlError("0088: отсутствующий платёж отклонён",
+  await expectSqlError("0103: отсутствующий платёж отклонён",
     `SELECT * FROM apply_yookassa_refund('99999999-9999-9999-9999-999999999999'::uuid, 'hard_ref_missing', 100)`, "P0002");
 
   const hPerm = (await q(`
@@ -257,12 +257,12 @@ async function main() {
       has_function_privilege('service_role', 'public.apply_yookassa_refund(uuid,text,integer)', 'EXECUTE') AS service_refund
   `))[0] as { anon_refund: boolean; auth_refund: boolean; service_refund: boolean };
   (!hPerm.anon_refund && !hPerm.auth_refund && hPerm.service_refund)
-    ? ok("0088: EXECUTE только у service_role")
-    : fail("0088: grants", JSON.stringify(hPerm));
+    ? ok("0103: EXECUTE только у service_role")
+    : fail("0103: grants", JSON.stringify(hPerm));
 
   // PGlite-скрипт использует один экземпляр БД и не моделирует независимые конкурентные сессии.
   // Сериализация SELECT ... FOR UPDATE должна быть подтверждена отдельным multi-session тестом на PostgreSQL.
-  ok("0088: конкурентная гонка явно оставлена для multi-session PostgreSQL теста (PGlite не подтверждает её)");
+  ok("0103: конкурентная гонка явно оставлена для multi-session PostgreSQL теста (PGlite не подтверждает её)");
 
   console.log(failed === 0 ? "\n✅ 0039 + контракт возвратов: PASS" : `\n❌ провалов: ${failed}`);
   process.exit(failed === 0 ? 0 : 1);
