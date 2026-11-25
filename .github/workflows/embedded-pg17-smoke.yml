@@ -89,10 +89,10 @@ jobs:
               const exists = (await client.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${name}`])).rows[0].ok;
               if (!exists) throw new Error(`Missing public.${name}`);
             }
-            if (fs.readFileSync(".pgdata-pg17/PG_VERSION", "utf8").trim() !== "17") {
+            if (fs.readFileSync(".pgdata/PG_VERSION", "utf8").trim() !== "17") {
               throw new Error("Embedded data directory is not PostgreSQL 17");
             }
-            console.log(`PASS embedded PostgreSQL ${version}; ${count} app migrations; .pgdata-pg17 verified`);
+            console.log(`PASS embedded PostgreSQL ${version}; ${count} app migrations; .pgdata verified`);
           } finally {
             await client.end();
           }
