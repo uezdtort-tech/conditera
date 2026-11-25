@@ -100,13 +100,13 @@ services:
     container_name: conditera-supabase-kong
     restart: unless-stopped
     environment:
-      KONG_DATABASE: "false"
+      # Kong 2.8 DB-less mode accepts "off" (not boolean-like "false").
+      KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
-      KONG_NGINX_PROXY_PROXY_buffers: 64 160k
-      KONG_NGINX_PROXY_proxy_busy_buffers_size: 320k
+      # Do not override NGINX proxy buffers here: Kong 2.8 validates these
+      # environment values strictly and mixed-case names become invalid keys.
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
