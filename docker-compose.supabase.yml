@@ -550,8 +550,8 @@ services:
       - conditera-net
 
 volumes:
-  # Старый том оставлен как есть для безопасного переноса/rollback.
-  supabase_db_data:
+  # Legacy volume conditera_supabase_db_data намеренно не объявлен здесь:
+  # Compose не должен удалять его при down --volumes. Он остаётся вне runtime.
   supabase_db_data_v17:
     name: conditera_supabase_db_data_v17
   supabase_storage_data:
