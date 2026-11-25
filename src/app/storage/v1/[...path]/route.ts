@@ -14,12 +14,12 @@ import { promises as fs } from "fs";
 import path from "path";
 import { getPool } from "@/lib/postgrest/pool";
 import { resolveClaims } from "@/lib/postgrest/jwt";
+import { isLocalSupabaseShimAllowed } from "@/lib/supabase/local-shim";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PROJECT_ROOT = process.env.CONDITERA_PROJECT_ROOT || process.cwd();
-const UPLOAD_ROOT = process.env.SUPABASE_STORAGE_ROOT || path.join(PROJECT_ROOT, "upload", "storage");
+const UPLOAD_ROOT = path.join(process.cwd(), "upload", "storage");
 
 const MIME: Record<string, string> = {
   ".png": "image/png",
@@ -57,6 +57,17 @@ async function objectRow(bucket: string, objectPath: string, size: number, mime:
 }
 
 async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
+  // Production Storage API is routed by Caddy to the real single-container
+  // Supabase runtime at /api/storage/v1. This local filesystem shim must not
+  // be reachable at /storage/v1 in production: it does not implement the full
+  // Supabase Storage RLS/signing contract and would otherwise be a policy bypass.
+  if (!isLocalSupabaseShimAllowed()) {
+    return NextResponse.json(
+      { code: "NOT_FOUND", message: "Storage endpoint not found" },
+      { status: 404 }
+    );
+  }
+
   const { path: rawPath } = await ctx.params;
   const segments = (rawPath ?? []).map((s) => {
     try {
@@ -83,7 +94,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
     let absPath: string;
     try {
       objectPath = objectParts.join("/");
-      absPath = path.join(UPLOAD_ROOT, safeJoin([bucket, ...objectParts]));
+      absPath = path.join(/* turbopackIgnore: true */ UPLOAD_ROOT, safeJoin([bucket, ...objectParts]));
     } catch {
       return NextResponse.json({ code: "BAD_PATH", message: "Unsafe object path" }, { status: 400 });
     }
@@ -95,7 +106,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
           return NextResponse.json({ code: "UNAUTHORIZED", message: "Auth required for non-public objects" }, { status: 401 });
         }
       }
-      const data = await fs.readFile(absPath);
+      const data = await fs.readFile(/* turbopackIgnore: true */ absPath);
       const ext = path.extname(absPath).toLowerCase();
       const mime = MIME[ext] || "application/octet-stream";
       return new NextResponse(isPublicRead || req.method === "GET" ? new Uint8Array(data) : null, {
@@ -110,8 +121,8 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
         return NextResponse.json({ code: "UNAUTHORIZED", message: "Auth required to upload" }, { status: 401 });
       }
       const buf = Buffer.from(await req.arrayBuffer());
-      await fs.mkdir(path.dirname(absPath), { recursive: true });
-      await fs.writeFile(absPath, buf);
+      await fs.mkdir(/* turbopackIgnore: true */ path.dirname(absPath), { recursive: true });
+      await fs.writeFile(/* turbopackIgnore: true */ absPath, buf);
       const ext = path.extname(absPath).toLowerCase();
       const mime = req.headers.get("content-type")?.split(";")[0] || MIME[ext] || "application/octet-stream";
       await objectRow(bucket, objectPath, buf.length, mime);
@@ -124,7 +135,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
         return NextResponse.json({ code: "UNAUTHORIZED", message: "Auth required to delete" }, { status: 401 });
       }
       try {
-        await fs.unlink(absPath);
+        await fs.unlink(/* turbopackIgnore: true */ absPath);
       } catch {
         /* уже нет — ок для идемпотентности */
       }
