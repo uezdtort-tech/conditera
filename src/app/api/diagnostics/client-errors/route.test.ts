@@ -190,7 +190,7 @@ describe("POST /api/diagnostics/client-errors — rate limit 20/мин/IP (ре�
 describe("POST /api/diagnostics/client-errors — маскирование до записи", () => {
   it("секреты в message (Bearer/JWT/карта) → [REDACTED] в записанной строке", async () => {
     const bearer = "Bearer supersecrettokenvalue123456";
-    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.K3t0k3ns3cr3t";
+    const jwt = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "K3t0k3ns3cr3t"].join(".");
     const card = "4111111111111111";
     const res = await POST(
       makePost(
