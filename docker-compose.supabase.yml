@@ -4,7 +4,7 @@
 # Запуск: docker-compose -f docker-compose.supabase.yml up -d
 #
 # Включает 10 сервисов Supabase (mini-stack):
-#   - supabase-db (PostgreSQL 15 с расширениями: pgsodium, pg_cron, pg_trgm)
+#   - supabase-db (PostgreSQL 17 с расширениями: pgsodium, pg_cron, pg_trgm)
 #   - supabase-kong (API gateway на :8000)
 #   - supabase-auth (GoTrue — auth сервис)
 #   - supabase-rest (PostgREST — auto REST API)
