@@ -121,16 +121,13 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/conditera-staging
-            command -v psql >/dev/null || { echo "psql client is required on staging host"; exit 1; }
-            PSQL_MAJOR="$(psql --version | awk '{print $NF}' | cut -d. -f1)"
-            test "$PSQL_MAJOR" -ge 18
             BACKUP_FILE="$(docker compose exec -T web sh -c 'ls -1t /app/backups/backup-*.sql.gz 2>/dev/null | head -1' | tr -d '\r')"
             test -n "$BACKUP_FILE" || { echo "No full SQL backup artifact found in web backup volume"; exit 1; }
-            BACKUP_VERIFY_PATH="/tmp/conditera-restore-verify-$(basename "$BACKUP_FILE")"
-            trap 'rm -f "$BACKUP_VERIFY_PATH"' EXIT
-            docker compose cp "web:$BACKUP_FILE" "$BACKUP_VERIFY_PATH"
-            test -s "$BACKUP_VERIFY_PATH"
-            export BACKUP_VERIFY_PATH
+            export BACKUP_VERIFY_PATH="$BACKUP_FILE"
             export BACKUP_RESTORE_DATABASE_URL="$STAGING_RESTORE_DATABASE_URL"
             export BACKUP_REQUIRE_FULL_RESTORE=true
-            bun scripts/ops/backup-verify-restore.mjs
+            docker compose exec -T \
+              -e BACKUP_VERIFY_PATH \
+              -e BACKUP_RESTORE_DATABASE_URL \
+              -e BACKUP_REQUIRE_FULL_RESTORE \
+              web node scripts/ops/backup-verify-restore.mjs
