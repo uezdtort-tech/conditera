@@ -15,11 +15,17 @@ fail() {
 [ -n "$ANON_KEY_VALUE" ] || fail "SUPABASE_ANON_KEY is required"
 [ -n "$SERVICE_KEY_VALUE" ] || fail "SUPABASE_SERVICE_KEY is required"
 
-case "$ANON_KEY_VALUE:$SERVICE_KEY_VALUE" in
-  *CHANGE_ME*|*change_me*|*stub[-_]*|*fallback-*|*dev-*|*dev_*|*placeholder*|*example*|*dummy*|*test[-_]*)
-    fail "placeholder/test API keys are forbidden in the Kong runtime"
-    ;;
-esac
+is_placeholder_key() {
+  case "$1" in
+    CHANGE_ME*|change_me*|stub[-_]*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test[-_]*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+if is_placeholder_key "$ANON_KEY_VALUE" || is_placeholder_key "$SERVICE_KEY_VALUE"; then
+  fail "placeholder/test API keys are forbidden in the Kong runtime"
+fi
 
 # Kong API keys are JWT/base64url strings. Restrict characters so sed replacement
 # cannot reinterpret a key as a replacement expression.
