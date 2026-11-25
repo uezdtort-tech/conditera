@@ -212,6 +212,7 @@ export type LifecycleErrorCode =
   | "QC_GATE_FAILED"
   | "READY_PHOTO_REQUIRED"
   | "DELIVERY_ASSIGNMENT_REQUIRED"
+  | "DELIVERY_INVARIANT_VIOLATION"
   | "ORDER_NOT_FOUND";
 
 export class LifecycleError extends Error {
@@ -371,6 +372,7 @@ export async function applyOrderTransition(
   let from = "";
   let def: TransitionDef | null = null;
   let order: OrderRow | null = null;
+  let deliverySync: "ok" | "skipped_no_delivery" = "skipped_no_delivery";
 
   try {
     await client.query("BEGIN");
@@ -481,7 +483,6 @@ export async function applyOrderTransition(
     // При подтверждении доставки курьером одновременно закрываем его
     // delivery assignment в той же транзакции. Если назначения нет, статус
     // заказа не изменится и запись доставки не потеряется.
-    let deliverySync: "ok" | "skipped_no_delivery" = "skipped_no_delivery";
     const courierCompleting =
       input.to === "DELIVERED" &&
       input.actorRoles.includes("COURIER") &&
