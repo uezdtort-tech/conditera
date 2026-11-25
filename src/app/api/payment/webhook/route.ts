@@ -371,8 +371,8 @@ export async function POST(request: NextRequest) {
         const orderKop = Math.round(Number(order.total) * 100);
         const terminalOrder =
           ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status) ||
-          payment.status === "cancelled" ||
-          payment.status === "refunded";
+          ["cancelled", "refunded"].includes(payment.status) ||
+          ["cancelled", "refunded", "released"].includes(order.payment_status);
         const amountMismatch =
           (wireKop !== null && wireKop !== expectedKop) ||
           (!terminalOrder && orderKop !== expectedKop);
@@ -383,8 +383,20 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Payment amount mismatch" }, { status: 500 });
         }
 
+        // Уже завершённый/возвращённый заказ не должен получать повторный возврат.
+        if (order.status === "REFUNDED" || payment.status === "refunded" || order.payment_status === "refunded") {
+          return NextResponse.json({ success: true, skipped: "already_refunded" });
+        }
+        if (order.status === "COMPLETED") {
+          if (payment.status === "cancelled" || order.payment_status === "cancelled") {
+            console.error("[webhook] completed order has a cancelled payment; manual reconciliation required");
+            return NextResponse.json({ error: "Completed order payment state conflict" }, { status: 500 });
+          }
+          return NextResponse.json({ success: true, skipped: "order_completed" });
+        }
+
         // Поздний succeeded после отмены требует возврата, а не escrow.
-        if (order.status === "CANCELLED" || payment.status === "cancelled") {
+        if (order.status === "CANCELLED" || order.payment_status === "cancelled" || payment.status === "cancelled") {
           if (order.status !== "CANCELLED") {
             const { data: cancelledOrder, error: cancelOrderError } = await supabaseAdmin
               .from("orders")
@@ -392,7 +404,7 @@ export async function POST(request: NextRequest) {
               .eq("id", orderId)
               .eq("status", order.status)
               .eq("payment_status", order.payment_status)
-              .in("payment_status", ["pending", "waiting_for_capture", "cancelled"])
+              .in("payment_status", ["pending", "waiting_for_capture", "succeeded", "paid", "cancelled"])
               .select("id");
             if (cancelOrderError) {
               console.error("[webhook] cancelled payment order reconciliation failed:", cancelOrderError.message);
@@ -473,7 +485,7 @@ export async function POST(request: NextRequest) {
           .from("orders")
           .update({ payment_status: "escrow" })
           .eq("id", orderId)
-          .neq("payment_status", "escrow")
+          .in("payment_status", ["pending", "waiting_for_capture", "succeeded", "paid"])
           .neq("status", "CANCELLED")
           .neq("status", "REFUNDED")
           .neq("status", "COMPLETED")
@@ -485,7 +497,7 @@ export async function POST(request: NextRequest) {
         if (!escrowWinner || escrowWinner.length === 0) {
           const { data: latestOrder, error: latestOrderError } = await supabaseAdmin
             .from("orders")
-            .select("id, number, status")
+            .select("id, number, status, payment_status")
             .eq("id", orderId)
             .maybeSingle();
           if (latestOrderError) {
@@ -495,7 +507,13 @@ export async function POST(request: NextRequest) {
           if (!latestOrder) {
             return NextResponse.json({ error: "Order not found after escrow CAS" }, { status: 500 });
           }
-          if (latestOrder.status === "CANCELLED") {
+          if (latestOrder.status === "REFUNDED" || latestOrder.payment_status === "refunded") {
+            return NextResponse.json({ success: true, skipped: "already_refunded" });
+          }
+          if (latestOrder.status === "COMPLETED") {
+            return NextResponse.json({ success: true, skipped: "order_completed" });
+          }
+          if (latestOrder.status === "CANCELLED" || latestOrder.payment_status === "cancelled") {
             const refundAmount = Math.max(
               0,
               Number(payment.amount) - Number(payment.refund_amount ?? 0)
