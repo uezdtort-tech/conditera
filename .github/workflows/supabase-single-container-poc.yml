@@ -65,9 +65,23 @@ jobs:
           set -Eeuo pipefail
           touch .env.production .env.supabase-runtime
           trap 'rm -f .env.production .env.supabase-runtime' EXIT
-          # Старые Compose-файлы без overlay больше не должны запускать ни PG18, ни PG15.
-          test -z "$(docker compose -f docker-compose.yml config --services)"
-          test -z "$(docker compose -f docker-compose.supabase.yml config --services)"
+          # Legacy Compose-файлы валидны как конфигурации, но не могут содержать PG15/18.
+          docker compose -f docker-compose.yml config --format json > /tmp/conditera-legacy-app.json
+          docker compose -f docker-compose.supabase.yml config --format json > /tmp/conditera-legacy-supabase.json
+          python3 - <<'PY'
+          import json, re
+          for path in ("/tmp/conditera-legacy-app.json", "/tmp/conditera-legacy-supabase.json"):
+              with open(path, encoding="utf-8") as stream:
+                  config = json.load(stream)
+              for name, service in config["services"].items():
+                  image = str(service.get("image", ""))
+                  if "postgres" not in image.lower():
+                      continue
+                  match = re.search(r":(\\d+)(?:\\.|-|$)", image)
+                  assert match, f"{path}: unpinned PostgreSQL image for {name}: {image}"
+                  assert int(match.group(1)) == 17, f"{path}: PostgreSQL major mismatch for {name}: {image}"
+          print("Legacy Compose files are parseable and target PostgreSQL 17 only.")
+          PY
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
           python3 - <<'PY'
           import json
