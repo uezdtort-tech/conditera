@@ -57,6 +57,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: PostgreSQL and migration version contracts
+        run: bun run verify:release-contract
+
       - name: Type-check
         run: bun run typecheck
         # СТРОГО: любая TS-ошибка ломает CI. Никаких continue-on-error.
