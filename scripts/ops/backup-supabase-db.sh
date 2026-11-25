@@ -29,12 +29,11 @@ mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 rm -f "$TMP_PATH"
 
-SERVER_VERSION="$(docker exec "$CONTAINER" psql -X -U "$DB_USER" -d "$DB_NAME" -Atqc 'SHOW server_version' 2>/dev/null)" \
+SERVER_VERSION="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec psql -X -U "$1" -d "$2" -Atqc "SHOW server_version"' sh "$DB_USER" "$DB_NAME" 2>/dev/null)" \
   || fail "cannot query PostgreSQL server version"
 PG_DUMP_VERSION="$(docker exec "$CONTAINER" pg_dump --version 2>/dev/null)" \
   || fail "pg_dump is unavailable in source container"
-TABLE_COUNT="$(docker exec "$CONTAINER" psql -X -U "$DB_USER" -d "$DB_NAME" -Atqc \
-  "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')" 2>/dev/null)" \
+TABLE_COUNT="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec psql -X -U "$1" -d "$2" -Atqc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('\''pg_catalog'\'','\''information_schema'\'')"' sh "$DB_USER" "$DB_NAME" 2>/dev/null)" \
   || fail "cannot count user tables"
 
 echo "Supabase source: container=$CONTAINER db=$DB_NAME user=$DB_USER"
@@ -43,7 +42,7 @@ echo "Dump client: $PG_DUMP_VERSION"
 echo "User tables: $TABLE_COUNT"
 echo "Writing full logical dump to $FINAL_PATH"
 
-if ! docker exec -i "$CONTAINER" pg_dump \
+if ! docker exec -i "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec pg_dump "$@"' sh \
   --username="$DB_USER" \
   --dbname="$DB_NAME" \
   --no-owner \
