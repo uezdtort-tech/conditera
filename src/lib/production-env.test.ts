@@ -70,6 +70,18 @@ describe("assertProductionEnvironment", () => {
     expect(() => assertProductionEnvironment(env)).toThrow(new RegExp(name));
   });
 
+  it("accepts SMTP sender with a display name", () => {
+    const env = validEnv();
+    env.SMTP_FROM = "Уездный кондитер <noreply@conditera.ru>";
+    expect(() => assertProductionEnvironment(env)).not.toThrow();
+  });
+
+  it("rejects an invalid SMTP sender mailbox", () => {
+    const env = validEnv();
+    env.SMTP_FROM = "Уездный кондитер <not-an-email>";
+    expect(() => assertProductionEnvironment(env)).toThrow(/SMTP_FROM/);
+  });
+
   it("allows a public Yandex OAuth client without a client secret", () => {
     const env = validEnv();
     delete env.YANDEX_CLIENT_SECRET;
