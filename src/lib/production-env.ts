@@ -59,7 +59,7 @@ export function assertProductionEnvironment(env: RuntimeEnv = process.env): void
   const jwtSecret = requireValue(env, "JWT_SECRET", 32);
   const refreshSecret = requireValue(env, "JWT_REFRESH_SECRET", 32);
   const tfaKey = requireValue(env, "TFA_ENCRYPTION_KEY", 32);
-  requireValue(env, "CRON_SECRET", 24);
+  const cronSecret = requireValue(env, "CRON_SECRET", 24);
 
   // Core production flows must not silently boot without mail, payments or Yandex OAuth.
   requireValue(env, "SMTP_HOST");
