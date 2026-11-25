@@ -47,6 +47,7 @@ on:
       - "integration/**"
     paths:
       # Запускать только при изменениях в коде, который тестируется e2e
+      - "src/app/**"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
