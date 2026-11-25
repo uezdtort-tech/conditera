@@ -37,7 +37,7 @@ if (_isStub) {
 
 export const supabaseAdmin = createClient(
   supabaseUrl,
-  serviceRoleKey || "stub[-_]build_only_service_role_key",
+  serviceRoleKey || "stub_build_only_service_role_key",
   {
     auth: {
       autoRefreshToken: false,
