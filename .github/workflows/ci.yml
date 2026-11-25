@@ -463,12 +463,12 @@ jobs:
         image: supabase/postgres:17.6.1.136
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
+          POSTGRES_USER: supabase_admin
           POSTGRES_DB: conditera
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U supabase_admin"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -490,14 +490,14 @@ jobs:
         run: |
           SVC="${{ job.services.postgres.id }}"
           docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
+          docker exec "$SVC" psql -U supabase_admin -d conditera -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(ls supabase/migrations/*.sql | wc -l)
           # 0026 is intentionally deferred until the Supabase Storage API has
           # created storage.buckets/storage.objects. The full Compose workflow
           # starts Storage and verifies 0026 separately.
-          STORAGE_TABLES=$(docker exec "$SVC" psql -U postgres -d conditera -Atc \
+          STORAGE_TABLES=$(docker exec "$SVC" psql -U supabase_admin -d conditera -Atc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='storage' AND table_name IN ('buckets','objects')")
           if [ "$STORAGE_TABLES" = "0" ]; then
             EXPECTED=$((TOTAL - 1))
@@ -523,7 +523,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -550,7 +550,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
