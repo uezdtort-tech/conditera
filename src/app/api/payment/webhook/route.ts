@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
     // pay4: refund.succeeded НЕ гейтится этим чеком — gейт с dbStatus="succeeded"
     // проглатывал ВСЕ refund-события по оплаченному платежу (payment.status
     // "succeeded" === dbStatus). Дедуп возвратов — по refund id в RPC 0039.
-    if (event !== "refund.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
+    if (event !== "refund.succeeded" && event !== "payment.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
       const alreadyDone =
         payment.status === dbStatus ||
         (event === "refund.succeeded" && payment.status === "refunded");
@@ -280,8 +280,28 @@ export async function POST(request: NextRequest) {
 
     // Обрабатываем события YooKassa
     switch (event) {
-      case "payment.succeeded":
       case "payment.waiting_for_capture": {
+        if (!payment) {
+          console.error("[webhook] waiting_for_capture event has no matching payment row:", providerPaymentId);
+          return NextResponse.json({ error: "Payment ledger row missing" }, { status: 500 });
+        }
+        const expectedKop = Math.round(Number(payment.amount) * 100);
+        if (wireKop === null || wireKop !== expectedKop || expectedKop !== Math.round(Number(order.total) * 100)) {
+          return NextResponse.json({ error: "Payment amount mismatch" }, { status: 500 });
+        }
+        const { error: waitingError } = await supabaseAdmin
+          .from("payments")
+          .update({ status: "waiting_for_capture", updated_at: new Date().toISOString() })
+          .eq("id", payment.id)
+          .in("status", ["pending", "waiting_for_capture"]);
+        if (waitingError) {
+          console.error("[webhook] waiting_for_capture update failed:", waitingError.message);
+          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        }
+        return NextResponse.json({ success: true, awaitingCapture: true });
+      }
+
+      case "payment.succeeded": {
         // === СВЕРКА СУММЫ (P0) ===
         // payments.amount и orders.total — в рублях; провайдер присылает
         // строку в рублях. Не совпало → платёж НЕ зачисляем.
@@ -307,10 +327,15 @@ export async function POST(request: NextRequest) {
 
         // Статус платежа — только после проверки суммы
         if (payment && payment.status !== dbStatus) {
-          await supabaseAdmin
+          const { error: paymentUpdateError } = await supabaseAdmin
             .from("payments")
             .update({ status: dbStatus, updated_at: new Date().toISOString() })
-            .eq("id", payment.id);
+            .eq("id", payment.id)
+            .in("status", ["pending", "waiting_for_capture", "succeeded"]);
+          if (paymentUpdateError) {
+            console.error("[webhook] payment status update failed:", paymentUpdateError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
         }
 
         // PAY-1 CAS: атомарный переход заказа в escrow. Два одинаковых
@@ -327,7 +352,35 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "DB error" }, { status: 500 });
         }
         if (!escrowWinner || escrowWinner.length === 0) {
-          console.info(`[webhook] Order ${orderId} already in escrow (CAS), skipping side-effects.`);
+          const { data: latestOrder, error: latestOrderError } = await supabaseAdmin
+            .from("orders")
+            .select("id, number, status")
+            .eq("id", orderId)
+            .maybeSingle();
+          if (latestOrderError) {
+            console.error("[webhook] order re-read after escrow CAS failed:", latestOrderError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!latestOrder) {
+            return NextResponse.json({ error: "Order not found after escrow CAS" }, { status: 500 });
+          }
+          if (["CANCELLED", "REFUNDED", "COMPLETED"].includes(latestOrder.status)) {
+            const refundAmount = Math.max(0, Number(payment?.amount ?? order.total) - Number(payment?.refund_amount ?? 0));
+            if (refundAmount > 0) {
+              const lateRefund = await refundPayment(
+                providerPaymentId,
+                refundAmount,
+                `Автоматический возврат по отменённому заказу ${latestOrder.number || orderId}`,
+                `uezd_konditer:refund:late:${orderId}`
+              );
+              if (!lateRefund.success) {
+                console.error("[webhook] concurrent-cancel refund failed; YooKassa retry required:", lateRefund.error);
+                return NextResponse.json({ error: "Late cancellation refund failed" }, { status: 500 });
+              }
+            }
+            return NextResponse.json({ success: true, refundInitiated: refundAmount > 0 });
+          }
+          console.info(`[webhook] Order ${orderId} already transitioned (CAS), skipping side-effects.`);
           return NextResponse.json({ success: true, idempotent: true });
         }
 
