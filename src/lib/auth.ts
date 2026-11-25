@@ -15,6 +15,7 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isUserSessionActive } from "@/lib/session-registry";
 
 // === КРИТИЧНО: секреты fail-closed ===
 //
@@ -254,6 +255,11 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   //     payload.sub, JWT-claims как у Supabase (role/email в top-level)
   const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
   if (!payload || !userId) return null;
+
+  // Production app-JWT is valid only while its server-side session is active.
+  // This makes logout, device revocation and concurrent-login protection effective immediately.
+  if (process.env.NODE_ENV === "production" && !payload.sid) return null;
+  if (payload.sid && !(await isUserSessionActive(payload.sid, userId))) return null;
 
   try {
     const profileResult = await supabaseAdmin
