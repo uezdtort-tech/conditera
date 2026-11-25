@@ -27,3 +27,13 @@ export function normalizeCmsSectionOrder(input: unknown): CmsSectionOrderInput[]
   if (new Set(normalized.map((row) => row.sortOrder)).size !== normalized.length) return null;
   return normalized.sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
 }
+
+export function normalizeCmsBlockOrder(input: unknown): string[] | null {
+  if (!Array.isArray(input) || input.length > 200) return null;
+  const ids: string[] = [];
+  for (const value of input) {
+    if (typeof value !== "string" || value.trim().length === 0 || value.length > 100) return null;
+    ids.push(value);
+  }
+  return new Set(ids).size === ids.length ? ids : null;
+}
