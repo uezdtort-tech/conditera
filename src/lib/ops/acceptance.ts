@@ -500,6 +500,31 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
         );
     const shortages = needs.shortages;
 
+    // Не принимаем оплату за позицию без исполнимого рецепта/ингредиентов.
+    // Отсутствующий рецепт и несовместимые единицы блокируют checkout до исправления каталога.
+    if (group.items.some((item) => !item.recipeId) || needs.ingredients.length === 0) {
+      reasons.push({
+        code: "MISSING_RECIPE",
+        message: `Для «${group.items.filter((item) => !item.recipeId).map((item) => item.title).join(", ") || group.items[0]?.title}» не настроен рецепт с ингредиентами.`,
+      });
+      suggestions.push({
+        code: "CONFIGURE_PRODUCT_TIME",
+        message: "Привяжите к товару рецепт и заполните его ингредиенты до приёма заказа.",
+      });
+    }
+
+    const unitMismatches = needs.ingredients.filter((ingredient) => ingredient.status === "unit_mismatch");
+    if (unitMismatches.length > 0) {
+      reasons.push({
+        code: "UNIT_MISMATCH",
+        message: `Несовместимые единицы измерения: ${unitMismatches.map((ingredient) => ingredient.name).join(", ")}. Исправьте единицы рецепта или склада.`,
+      });
+      suggestions.push({
+        code: "CONFIGURE_PRODUCT_TIME",
+        message: "Согласуйте единицы измерения в рецепте и складских позициях.",
+      });
+    }
+
     // Z-v27 (сценарий P, fail-closed): ингредиенты со статусом unit_mismatch
     // (неизвестная/несовместимая единица склада) не входят в shortages, но
     // потребность по ним НЕ проверяема — раньше гейт пропускал такой заказ
@@ -719,6 +744,8 @@ const BLOCKING_CODES = new Set<string>([
   "PURCHASE_ETA_AFTER_DEADLINE",
   "PURCHASE_ETA_MISSING",
   "DEADLINE_TOO_CLOSE",
+  "MISSING_RECIPE",
+  "UNIT_MISMATCH",
   // Сценарии A/D приёмки (Z-v12): нехватка ингредиентов и отсутствие рецепта
   // запрещают переход в состояние «принято к производству». LOW_STOCK — код
   // движка для нехватки; RECIPE_MISSING — позиция без расчёта потребности.
