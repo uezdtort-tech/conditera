@@ -211,6 +211,7 @@ export type LifecycleErrorCode =
   | "ASSIGNMENT_REQUIRED"
   | "QC_GATE_FAILED"
   | "READY_PHOTO_REQUIRED"
+  | "DELIVERY_ASSIGNMENT_REQUIRED"
   | "ORDER_NOT_FOUND";
 
 export class LifecycleError extends Error {
@@ -376,7 +377,8 @@ export async function applyOrderTransition(
               o.payment_method, o.delivery_type
        FROM public.orders o
        WHERE o.id = $1::uuid
-       LIMIT 1`,
+       LIMIT 1
+       FOR UPDATE`,
       [input.orderId]
     );
     const row = res.rows[0];
@@ -424,6 +426,24 @@ export async function applyOrderTransition(
     }
 
     // --- 3. Условия ---
+    if (def.condition === "assignment_required" && !order.confectioner_id) {
+      throw new LifecycleError(
+        "ASSIGNMENT_REQUIRED",
+        "Нельзя начать производство без назначенного кондитера"
+      );
+    }
+
+    // COMPLETED от CUSTOMER — только владелец заказа. Это отдельная
+    // проверка субъекта: роль CUSTOMER сама по себе не доказывает владение.
+    const isAdminActor = input.actorRoles.includes("ADMIN") || input.actorRoles.includes("SUPER_ADMIN");
+    if (input.to === "COMPLETED" && input.actorRoles.includes("CUSTOMER") &&
+        !isAdminActor && order.user_id !== input.actorId) {
+      throw new LifecycleError(
+        "FORBIDDEN_ROLE",
+        "Подтвердить получение может только покупатель — владелец заказа"
+      );
+    }
+
     if (def.condition === "payment_confirmed_or_cash") {
       const paid = PAID_PAYMENT_STATUSES.has(order.payment_status);
       const cash = order.payment_method === "cash";
@@ -451,6 +471,31 @@ export async function applyOrderTransition(
           "QC_GATE_FAILED",
           "Чеклист производства не завершён",
           gate.missing.join(", ")
+        );
+      }
+    }
+
+    // При подтверждении доставки курьером одновременно закрываем его
+    // delivery assignment в той же транзакции. Если назначения нет, статус
+    // заказа не изменится и запись доставки не потеряется.
+    const courierCompleting =
+      input.to === "DELIVERED" &&
+      input.actorRoles.includes("COURIER") &&
+      !isAdminActor;
+    if (courierCompleting) {
+      const deliveryUpdate = await client.query(
+        `UPDATE public.deliveries
+            SET status = 'delivered', delivered_at = now(), updated_at = now()
+          WHERE order_id = $1::uuid
+            AND courier_id = $2::uuid
+            AND status IN ('assigned', 'picked_up', 'on_the_way')
+          RETURNING id::text`,
+        [input.orderId, input.actorId]
+      );
+      if (deliveryUpdate.rowCount === 0) {
+        throw new LifecycleError(
+          "DELIVERY_ASSIGNMENT_REQUIRED",
+          "Подтвердить доставку может только назначенный курьер"
         );
       }
     }
