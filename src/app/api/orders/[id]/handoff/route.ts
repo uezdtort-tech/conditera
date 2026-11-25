@@ -15,7 +15,6 @@ import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { applyOrderTransition, LifecycleError, isTransitionAllowed } from "@/lib/ops/lifecycle";
 import { recordEvent } from "@/lib/ops/events";
 import { materializeOpsTasks } from "@/lib/ops/rules";
-import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,6 +78,11 @@ export async function POST(
         actorId: user.id,
         actorRoles: user.roles,
         skipRoleCheck: true,
+        eventPayload: {
+          executor,
+          handoffType: isPickup ? "pickup" : "courier",
+          code: body.code ? "provided" : null,
+        },
       });
     } catch (err) {
       if (err instanceof LifecycleError) {
@@ -90,17 +94,21 @@ export async function POST(
       throw err;
     }
 
-    await recordEvent("order.handed_off", {
-      entityType: "order",
-      entityId: id,
-      actorId: user.id,
-      payload: {
-        orderNumber: order.number,
-        executor,
-        handoffType: isPickup ? "pickup" : "courier",
-        code: body.code ? "provided" : null,
-      },
-    });
+    // Для самовывоза lifecycle engine уже записал order.handed_off.
+    // Для доставки отдельное событие фиксирует передачу заказа курьеру.
+    if (!isPickup) {
+      await recordEvent("order.handed_off", {
+        entityType: "order",
+        entityId: id,
+        actorId: user.id,
+        payload: {
+          orderNumber: order.number,
+          executor,
+          handoffType: "courier",
+          code: body.code ? "provided" : null,
+        },
+      });
+    }
 
     void materializeOpsTasks(true).catch(() => {});
 
@@ -114,10 +122,13 @@ export async function POST(
       },
     });
   } catch (err) {
-    return handleRouteError(err, {
-      route: "/api/orders/[id]/handoff",
-      component: "orders",
-      requestId: request.headers.get("x-request-id") ?? undefined,
-    });
+    console.error(
+      "[orders/handoff] POST failed:",
+      err instanceof Error ? err.message : err
+    );
+    return NextResponse.json(
+      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
+      { status: 500 }
+    );
   }
 }
