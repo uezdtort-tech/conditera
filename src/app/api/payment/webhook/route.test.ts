@@ -232,6 +232,28 @@ describe("payment webhook POST — cancellation race", () => {
     expect(mocks.state.fromCalls).toEqual([]);
   });
 
+  it("fail-closed: не применяет подтверждённый возврат без локальной строки платежа", async () => {
+    mocks.state.providerConfigured = true;
+    mocks.state.getRefund.mockResolvedValue({
+      success: true,
+      refund: {
+        id: REFUND_ID,
+        payment_id: PAYMENT_ID,
+        status: "succeeded",
+        amount: { value: "25.00", currency: "RUB" },
+      },
+    });
+    mocks.state.singleResults.payments = [];
+
+    const response = await POST(refundRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toMatchObject({ error: "Payment ledger row missing for refund" });
+    expect(mocks.state.fromCalls).toEqual(["payments"]);
+    expect(mocks.state.refundPayment).not.toHaveBeenCalled();
+  });
+
   it("не допускает привязку возврата к другому платежу", async () => {
     mocks.state.providerConfigured = true;
     mocks.state.getRefund.mockResolvedValue({
