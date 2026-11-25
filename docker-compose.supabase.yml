@@ -61,11 +61,10 @@ services:
     expose:
       - "5432"
     volumes:
-      # ВНИМАНИЕ (PG15→PG17): старый том supabase_db_data инициализирован
-      # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
-      # («database files are incompatible with server»). Переход только через
-      # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
-      - supabase_db_data:/var/lib/postgresql/data
+      # Изолированный том PG17. Старый supabase_db_data не удаляется и не
+      # подключается к PG17: перенос выполняется только через проверенный dump/restore.
+      # До завершения restore этот том пустой; production cutover запрещён.
+      - supabase_db_data_v17:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
       # Подключаем только наш скрипт отдельным файлом, после системного migrate.sh.
@@ -100,13 +99,10 @@ services:
     container_name: conditera-supabase-kong
     restart: unless-stopped
     environment:
-      KONG_DATABASE: "false"
+      KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
-      KONG_NGINX_PROXY_PROXY_buffers: 64 160k
-      KONG_NGINX_PROXY_proxy_busy_buffers_size: 320k
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
@@ -546,7 +542,9 @@ services:
       - conditera-net
 
 volumes:
+  # Старый том оставлен как есть для безопасного переноса/rollback.
   supabase_db_data:
+  supabase_db_data_v17:
   supabase_storage_data:
   supabase_vector_data:
 
