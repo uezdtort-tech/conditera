@@ -27,6 +27,7 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 import { findDevFallbackUser } from "@/lib/dev-auth";
 import { isAdminConfigured } from "@/lib/supabase/admin";
 
@@ -309,8 +310,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType: user.account_type,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId: user.id });
+    let sessionId: string;
+    try {
+      sessionId = await createUserSession(user.id, request, "password");
+    } catch (sessionError) {
+      const reason = sessionError instanceof Error ? sessionError.message : String(sessionError);
+      if (reason === NEW_DEVICE_LOGIN_BLOCKED) {
+        return NextResponse.json(
+          { error: "Вход с нового устройства запрещён. Завершите сеанс на прежнем устройстве.", code: NEW_DEVICE_LOGIN_BLOCKED },
+          { status: 403 }
+        );
+      }
+      if (reason === SESSION_POLICY_UNAVAILABLE) {
+        return NextResponse.json(
+          { error: "Не удалось проверить безопасность сессии. Повторите попытку позже.", code: SESSION_POLICY_UNAVAILABLE },
+          { status: 503 }
+        );
+      }
+      if (reason === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+        return NextResponse.json({ error: "Вход отменён другим одновременным входом.", code: reason }, { status: 409 });
+      }
+      console.error("[auth/login] session creation failed:", reason);
+      return NextResponse.json({ error: "Не удалось создать защищённую сессию" }, { status: 503 });
+    }
+
+    const refreshJti = crypto.randomUUID();
+    try {
+      await setSessionRefreshJti(sessionId, user.id, refreshJti);
+    } catch (sessionError) {
+      console.error("[auth/login] refresh session initialization failed:", (sessionError as Error).message);
+      return NextResponse.json({ error: "Не удалось инициализировать защищённую сессию" }, { status: 503 });
+    }
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId: user.id, sid: sessionId, jti: refreshJti });
 
     // Обновить last_login_at (non-blocking)
     supabaseAdmin
