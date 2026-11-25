@@ -52,7 +52,7 @@ docker compose --env-file .env.production -f docker-compose.supabase.yml config 
 docker compose --env-file .env.production -f docker-compose.supabase.yml up -d --no-deps --force-recreate supabase-kong
 docker logs --tail=100 conditera-supabase-kong
 docker exec conditera-supabase-kong kong health
-docker exec conditera-supabase-kong sh -c 'test -s /tmp/conditera-kong-rendered.yml && ! grep -Fq "${SUPABASE_ANON_KEY}" /tmp/conditera-kong-rendered.yml && ! grep -Fq "${SUPABASE_SERVICE_KEY}" /tmp/conditera-kong-rendered.yml'
+docker exec conditera-supabase-kong sh -c 'test -s /tmp/conditera-kong-rendered.yml && ! grep -Fq "\${SUPABASE_ANON_KEY}" /tmp/conditera-kong-rendered.yml && ! grep -Fq "\${SUPABASE_SERVICE_KEY}" /tmp/conditera-kong-rendered.yml'
 curl -fsS http://127.0.0.1:8000/auth/v1/health
 curl -fsS https://conditera.ru/api/auth/v1/health
 ```
