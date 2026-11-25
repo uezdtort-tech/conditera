@@ -20,7 +20,7 @@ if [ "${#REALTIME_DB_ENC_KEY_GCM}" -ne 32 ]; then
 fi
 
 export POSTGRES_USER="${POSTGRES_USER:-supabase_admin}"
-export POSTGRES_DB="${POSTGRES_DB:-supabase}"
+export POSTGRES_DB="${POSTGRES_DB:-conditera}"
 export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 # Preserve the official Supabase Postgres image data path inside chroot.
 export PGDATA="${PGDATA:-/var/lib/postgresql/data}"
