@@ -32,18 +32,32 @@ jobs:
           POSTGRES_PASSWORD: ci-only-postgres-password
           APP_DATABASE_PASSWORD: ci-only-app-db-password
           JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
+          JWT_REFRESH_SECRET: ci-only-conditera-refresh-secret-32-bytes
+          TFA_ENCRYPTION_KEY: ci-only-tfa-encryption-key-32-bytes
+          NEXT_PUBLIC_APP_URL: https://conditera.ru
+          NEXT_PUBLIC_SUPABASE_URL: https://conditera.ru/api
+          YANDEX_CLIENT_ID: ci-only-yandex-client-id
+          YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
+          YOOKASSA_SHOP_ID: ci-only-yookassa-shop
+          YOOKASSA_SECRET_KEY: ci-only-yookassa-secret-32-bytes
+          SMTP_HOST: mailu
+          SMTP_USER: noreply@conditera.ru
+          SMTP_PASSWORD: ci-only-smtp-password-32-bytes
+          SMTP_FROM: "Conditera <noreply@conditera.ru>"
+          SMTP_PORT: "587"
+          SMTP_SECURE: "false"
           ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
           ANON_KEY: ci-only-anon-key
           SERVICE_ROLE_KEY: ci-only-service-role-key
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key-32-bytes-minimum
+          SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key-32-bytes
           SUPABASE_SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
           PG_META_CRYPTO_KEY: ci-only-pg-meta-crypto-key-32
           REALTIME_DB_ENC_KEY: ci-only-key-16
           REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
           MEILI_MASTER_KEY: ci-only-meili-master-key
-          CRON_SECRET: ci-only-cron-secret
+          CRON_SECRET: ci-only-cron-secret-24-bytes
           N8N_ADMIN_PASSWORD: ci-only-n8n-password
           SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
         run: |
@@ -70,8 +84,8 @@ jobs:
           web = services["web"]
           assert "supabase-runtime" in web["depends_on"]
           assert "redis" in web["depends_on"] and "meilisearch" in web["depends_on"]
-          assert "postgresql://conditera_app:" in web["environment"]["DATABASE_URL"] and "@supabase-runtime:5432/supabase" in web["environment"]["DATABASE_URL"]
-          assert "supabase-runtime:5432/supabase" in web["environment"]["DIRECT_DATABASE_URL"]
+          assert "postgresql://conditera_app:" in web["environment"]["DATABASE_URL"] and "@supabase-runtime:5432/conditera" in web["environment"]["DATABASE_URL"]
+          assert "supabase-runtime:5432/conditera" in web["environment"]["DIRECT_DATABASE_URL"]
           assert web["environment"]["SUPABASE_INTERNAL_URL"] == "http://supabase-kong:8000"
           aliases = services["supabase-runtime"]["networks"]["conditera-net"].get("aliases", [])
           assert "supabase-kong" in aliases
@@ -243,7 +257,7 @@ jobs:
 
           docker exec conditera-supabase-runtime-poc \
             /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
-            /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase \
+            /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera \
             -Atqc "SELECT to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 60 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
             | grep -qx t
 
