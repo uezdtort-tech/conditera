@@ -15,11 +15,10 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { verifyRefreshToken, createAccessToken } from "@/lib/auth";
-import {
-  REFRESH_COOKIE,
-  clearSessionCookies,
-} from "@/lib/session-cookies";
+import { verifyRefreshToken, createAccessToken, createRefreshToken } from "@/lib/auth";
+import { isUserSessionActive, rotateSessionRefreshJti } from "@/lib/session-registry";
+import { setSessionCookies, clearSessionCookies } from "@/lib/session-cookies";
+import { REFRESH_COOKIE } from "@/lib/session-cookies";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
@@ -63,6 +62,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    if (!payload.sid || !payload.jti || !(await isUserSessionActive(payload.sid, payload.userId))) {
+      return NextResponse.json(
+        { error: "Сессия завершена или отозвана. Войдите снова." },
+        { status: 401 }
+      );
+    }
+
     // 2. Найти пользователя
     const { data: user, error } = await supabaseAdmin
       .from("profiles")
@@ -82,9 +88,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     if (user.is_blocked) {
-      // ZV33-8d FIX A (D1): единый контракт блокировки + очистка сессионных
-      // cookie — браузер не может бесконечно пересобирать сессию по
-      // cd_refresh (раньше возвращался 403 с другим телом, но cookie жили).
       const blockedResponse = NextResponse.json(
         { error: "ACCOUNT_BLOCKED", message: "Аккаунт заблокирован" },
         { status: 403 }
@@ -104,16 +107,29 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     const roles = (rolesData || []).map((r: any) => r.role as string);
 
-    // 4. Создать новый access token
-    const newAccessToken = await createAccessToken({
+    // 4. Подготовить новые токены и атомарно заменить JTI.
+    // Два параллельных refresh-запроса с одним токеном: только один CAS пройдёт.
+    const nextJti = crypto.randomUUID();
+    const tokenPayload = {
       userId: user.id,
       email: user.email,
       name: user.name || user.email?.split("@")[0] || "Пользователь",
       roles,
       accountType: user.account_type,
-    });
+      sid: payload.sid,
+    };
+    const newAccessToken = await createAccessToken(tokenPayload);
+    const newRefreshToken = await createRefreshToken({ userId: user.id, sid: payload.sid, jti: nextJti });
+    const rotated = await rotateSessionRefreshJti(payload.sid, user.id, payload.jti, nextJti);
+    if (!rotated) {
+      return NextResponse.json(
+        { error: "Refresh token уже использован или сессия завершена. Войдите снова." },
+        { status: 401 }
+      );
+    }
 
-    return NextResponse.json({ accessToken: newAccessToken });
+    const response = NextResponse.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
+    return setSessionCookies(response, { accessToken: newAccessToken, refreshToken: newRefreshToken });
   } catch (error: any) {
     console.error("Refresh error:", error?.message);
     return NextResponse.json(
