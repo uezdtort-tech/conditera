@@ -101,6 +101,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Standalone operational restore verifier (uses pg dependency copied below).
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/ops/backup-verify-restore.mjs ./scripts/ops/backup-verify-restore.mjs
 
 # Supabase JS клиент (для runtime запросов к БД)
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@supabase ./node_modules/@supabase
