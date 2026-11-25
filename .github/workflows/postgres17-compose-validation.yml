@@ -149,6 +149,23 @@ jobs:
           fi
           REALTIME_MIGRATIONS=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc "SELECT to_regclass('_realtime.schema_migrations') IS NOT NULL;")
           test "$REALTIME_MIGRATIONS" = "t"
+          # /status can be healthy before Storage finishes its database bootstrap.
+          # Do not run migrations that write storage.buckets until the schema exists.
+          STORAGE_SCHEMA_READY=0
+          for attempt in $(seq 1 90); do
+            STORAGE_SCHEMA=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc "SELECT to_regclass('storage.buckets') IS NOT NULL;" 2>/dev/null || echo f)
+            if [ "$STORAGE_SCHEMA" = "t" ]; then
+              STORAGE_SCHEMA_READY=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$STORAGE_SCHEMA_READY" != "1" ]; then
+            echo "Supabase Storage API is healthy but storage.buckets was not initialized."
+            docker logs conditera-supabase-storage-pg17-migration || true
+            docker logs conditera-supabase-rest-pg17-migration || true
+            exit 1
+          fi
           if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
             docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
