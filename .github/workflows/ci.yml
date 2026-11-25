@@ -88,6 +88,9 @@ jobs:
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
 
+      - name: Verify YooKassa refund RPC contract on PGlite
+        run: bun run test:refund-contract
+
       - name: Run tests with coverage
         run: bun run test:coverage
         env:
