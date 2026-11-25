@@ -78,6 +78,13 @@ jobs:
           current_named_volumes = [volume["source"] for volume in current.get("volumes", []) if volume.get("type") == "volume"]
           assert "supabase_pg17_migration_data" in target_named_volumes, target_named_volumes
           assert current["image"] == "supabase/postgres:17.12.0.001", current.get("image")
+          assert current.get("environment", {}).get("POSTGRES_USER") == "supabase_admin", current.get("environment", {}).get("POSTGRES_USER")
+          assert services["supabase-auth"]["environment"]["GOTRUE_DB_DATABASE_URL"].startswith("postgres://supabase_auth_admin:"), services["supabase-auth"]["environment"].get("GOTRUE_DB_DATABASE_URL")
+          assert services["supabase-rest"]["environment"]["PGRST_DB_URI"].startswith("postgres://authenticator:"), services["supabase-rest"]["environment"].get("PGRST_DB_URI")
+          assert services["supabase-realtime"]["environment"]["DB_USER"] == "supabase_admin", services["supabase-realtime"]["environment"].get("DB_USER")
+          assert services["supabase-storage"]["environment"]["DATABASE_URL"].startswith("postgres://supabase_storage_admin:"), services["supabase-storage"]["environment"].get("DATABASE_URL")
+          assert services["supabase-meta"]["environment"]["PG_META_DB_USER"] == "supabase_admin", services["supabase-meta"]["environment"].get("PG_META_DB_USER")
+          assert services["supabase-app-migrator"]["environment"]["PGUSER"] == "supabase_admin", services["supabase-app-migrator"]["environment"].get("PGUSER")
           assert "supabase_db_data_v17" in current_named_volumes, current_named_volumes
           assert config["volumes"]["supabase_db_data_v17"]["name"] == "conditera_supabase_db_data_v17"
           assert set(current_named_volumes).isdisjoint(target_named_volumes), (current_named_volumes, target_named_volumes)
