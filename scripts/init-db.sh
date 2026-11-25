@@ -2,7 +2,7 @@
 # scripts/init-db.sh — Инициализация БД для локальной разработки.
 #
 # Использование:
-#   ./scripts/init-db.sh                — Docker: PostgreSQL 18 (порт 5433) + Redis + Meilisearch
+#   ./scripts/init-db.sh                — Docker: PostgreSQL 17 (порт 5433) + Redis + Meilisearch
 #   ./scripts/init-db.sh supabase       — Docker: полный Supabase stack (порт 5432)
 #   ./scripts/init-db.sh pglite         — Локально без Docker (PGlite WASM, в /db/pglite-dev)
 #   ./scripts/init-db.sh pglite-reset   — То же, но с удалением старого PGlite-файла
@@ -43,20 +43,27 @@ fi
 if [ "$MODE" = "supabase" ]; then
   echo "→ Запуск Supabase через docker-compose.supabase.yml..."
   if [ ! -f .env.supabase ]; then
-    echo "⚠️  Файл .env.supabase не найден. Создаём из .env.supabase.example..."
-    cp .env.supabase .env.supabase.local 2>/dev/null || true
+    if [ -f .env.supabase.example ]; then
+      cp .env.supabase.example .env.supabase
+      echo "Создан .env.supabase из шаблона. Заполните секреты и повторите запуск."
+    else
+      echo "ОШИБКА: отсутствуют .env.supabase и .env.supabase.example." >&2
+    fi
+    exit 1
   fi
-  export $(grep -v '^#' .env.supabase | xargs)
+  set -a
+  . ./.env.supabase
+  set +a
   docker-compose -f docker-compose.supabase.yml up -d supabase-db
   DB_HOST="localhost"
   DB_PORT="5432"
-  DB_USER="supabase"
-  DB_NAME="supabase"
+  DB_USER="supabase_admin"
+  DB_NAME="conditera"
   DB_PASS="$POSTGRES_PASSWORD"
   WAIT_TIME=15
   CONTAINER_NAME="supabase-db"
 else
-  echo "→ Запуск PostgreSQL 18 через docker-compose.dev.yml..."
+  echo "→ Запуск PostgreSQL 17 через docker-compose.dev.yml..."
   docker-compose -f docker-compose.dev.yml up -d db-dev
   DB_HOST="localhost"
   DB_PORT="5433"
