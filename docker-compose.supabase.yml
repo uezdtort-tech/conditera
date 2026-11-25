@@ -103,11 +103,15 @@ services:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      SUPABASE_ANON_KEY: ${ANON_KEY:?ANON_KEY is required}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
       - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+      - ./scripts/supabase/kong-entrypoint.sh:/usr/local/bin/conditera-kong-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/conditera-kong-entrypoint.sh"]
     depends_on:
       supabase-db:
         condition: service_healthy
