@@ -13,7 +13,7 @@
 # Требуемые секреты (настраивает ВЛАДЕЛЕЦ один раз):
 #   MAINTENANCE_APP_URL      — публичный URL (staging или production)
 #   MAINTENANCE_CRON_SECRET  — значение CRON_SECRET соответствующей среды
-#   STAGING_HOST/STAGING_SSH_KEY/STAGING_RESTORE_DATABASE_URL — отдельный restore-кластер PG18; psql >=18 на staging host
+#   STAGING_HOST/STAGING_SSH_KEY/STAGING_RESTORE_DATABASE_URL — отдельный restore-кластер PG18; psql >=18 внутри web image
 #
 # daily-report (§12): скрипт scripts/ops/daily-report.mjs читает ЛОКАЛЬНЫЕ
 # файлы бэкапов — запускается на хосте приложения по crontab
