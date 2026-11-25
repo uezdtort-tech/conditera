@@ -247,45 +247,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Recover a provider-created payment if checkout failed after provider
-    // creation but before the local ledger insert completed.
-    if (!payment && event.startsWith("payment.") &&
-        ["payment.succeeded", "payment.waiting_for_capture", "payment.canceled"].includes(event)) {
-      if (wireKop === null || wireKop !== Math.round(Number(order.total) * 100) ||
-          object.amount?.currency !== "RUB") {
-        console.error(`[webhook] cannot recover payment row: amount/currency mismatch order=${orderId}`);
-        return NextResponse.json({ error: "Payment ledger recovery mismatch" }, { status: 500 });
-      }
-      const { error: recoverError } = await supabaseAdmin
-        .from("payments")
-        .upsert(
-          {
-            order_id: orderId,
-            yookassa_payment_id: providerPaymentId,
-            amount: Number(order.total),
-            currency: "RUB",
-            status: "pending",
-            method: "yookassa",
-            metadata: { recovered_from_webhook: true },
-          },
-          { onConflict: "yookassa_payment_id", ignoreDuplicates: true }
-        );
-      if (recoverError) {
-        console.error("[webhook] payment ledger recovery failed:", recoverError.message);
-        return NextResponse.json({ error: "DB error" }, { status: 500 });
-      }
-      const { data: recovered, error: recoveredLookupError } = await supabaseAdmin
-        .from("payments")
-        .select("id, order_id, amount, status, refund_amount")
-        .eq("yookassa_payment_id", providerPaymentId)
-        .maybeSingle();
-      if (recoveredLookupError || !recovered) {
-        console.error("[webhook] recovered payment row not visible:", recoveredLookupError?.message);
-        return NextResponse.json({ error: "DB error" }, { status: 500 });
-      }
-      payment = recovered as PaymentRow;
-    }
-
     // === IDEMPOTENCY CHECK ===
     // Платёж уже в финальном статусе — не обрабатываем повторно
     // (защита от двойных бонусов/писем при retry со стороны YooKassa).
@@ -334,6 +295,45 @@ export async function POST(request: NextRequest) {
     if (!order) {
       console.warn(`[webhook] Order ${orderId} not found in DB`);
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    // Recover a provider-created payment if checkout failed after provider
+    // creation but before the local ledger insert completed.
+    if (!payment && event.startsWith("payment.") &&
+        ["payment.succeeded", "payment.waiting_for_capture", "payment.canceled"].includes(event)) {
+      if (wireKop === null || wireKop !== Math.round(Number(order.total) * 100) ||
+          object.amount?.currency !== "RUB") {
+        console.error(`[webhook] cannot recover payment row: amount/currency mismatch order=${orderId}`);
+        return NextResponse.json({ error: "Payment ledger recovery mismatch" }, { status: 500 });
+      }
+      const { error: recoverError } = await supabaseAdmin
+        .from("payments")
+        .upsert(
+          {
+            order_id: orderId,
+            yookassa_payment_id: providerPaymentId,
+            amount: Number(order.total),
+            currency: "RUB",
+            status: "pending",
+            method: "yookassa",
+            metadata: { recovered_from_webhook: true },
+          },
+          { onConflict: "yookassa_payment_id", ignoreDuplicates: true }
+        );
+      if (recoverError) {
+        console.error("[webhook] payment ledger recovery failed:", recoverError.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      const { data: recovered, error: recoveredLookupError } = await supabaseAdmin
+        .from("payments")
+        .select("id, order_id, amount, status, refund_amount")
+        .eq("yookassa_payment_id", providerPaymentId)
+        .maybeSingle();
+      if (recoveredLookupError || !recovered) {
+        console.error("[webhook] recovered payment row not visible:", recoveredLookupError?.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      payment = recovered as PaymentRow;
     }
 
     // Обрабатываем события YooKassa
