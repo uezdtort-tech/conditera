@@ -337,7 +337,7 @@ services:
   # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
   # только после того, как Storage API создал свои таблицы.
   supabase-app-migrator:
-    # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.11.0.017).
+    # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.6.1.136).
     # Мигратор client-only (bash+psql, без volume/initdb) — образ серверных
     # расширений не влияет на применяемые SQL, но версия клиента = версия сервера.
     image: supabase/postgres:17.6.1.136
