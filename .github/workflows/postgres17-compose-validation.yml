@@ -77,7 +77,7 @@ jobs:
           storage_named_volumes = [volume["source"] for volume in storage.get("volumes", []) if volume.get("type") == "volume"]
           current_named_volumes = [volume["source"] for volume in current.get("volumes", []) if volume.get("type") == "volume"]
           assert "supabase_pg17_migration_data" in target_named_volumes, target_named_volumes
-          assert current["image"] == "supabase/postgres:17.11.0.017", current.get("image")
+          assert current["image"] == "supabase/postgres:17.12.0.001", current.get("image")
           assert "supabase_db_data_v17" in current_named_volumes, current_named_volumes
           assert "supabase_db_data" not in current_named_volumes, current_named_volumes
           assert set(current_named_volumes).isdisjoint(target_named_volumes), (current_named_volumes, target_named_volumes)
