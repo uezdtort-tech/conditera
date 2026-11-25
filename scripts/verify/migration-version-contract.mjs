@@ -7,7 +7,7 @@ const versions = new Map();
 const errors = [];
 
 for (const file of files) {
-  const match = file.match(/^(\\d+[a-z]?)_/i);
+  const match = file.match(/^(\d+[a-z]?)_/i);
   if (!match) {
     errors.push(file + ": migration filename has no sortable version prefix");
     continue;
