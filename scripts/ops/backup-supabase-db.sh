@@ -33,7 +33,7 @@ SERVER_VERSION="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_
   || fail "cannot query PostgreSQL server version"
 PG_DUMP_VERSION="$(docker exec "$CONTAINER" pg_dump --version 2>/dev/null)" \
   || fail "pg_dump is unavailable in source container"
-TABLE_COUNT="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec psql -X -U "$1" -d "$2" -Atqc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('\''pg_catalog'\'','\''information_schema'\'')"' sh "$DB_USER" "$DB_NAME" 2>/dev/null)" \
+TABLE_COUNT="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec psql -X -U "$1" -d "$2" -Atqc "$3"' sh "$DB_USER" "$DB_NAME" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')" 2>/dev/null)" \
   || fail "cannot count user tables"
 
 echo "Supabase source: container=$CONTAINER db=$DB_NAME user=$DB_USER"
