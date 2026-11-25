@@ -1,21 +1,25 @@
 // GET /api/auth/oauth/[provider]
-// OAuth initiation endpoint with server-side state and PKCE.
+// OAuth initiation endpoint (stub implementation).
 //
 // Supported providers: google, yandex, vk, telegram.
-// If credentials are absent or contain template placeholders, returns 501.
-// With real credentials, constructs and returns the provider authorization URL.
+// In stub mode (env vars unset or set to placeholder `stub_*` values),
+// returns a JSON stub response. In production mode (real credentials
+// configured), constructs and returns the provider's authorization URL.
 
 import { NextRequest, NextResponse } from "next/server";
-import { isPlaceholderValue } from "@/lib/placeholder-value";
 import { createHash, randomBytes } from "crypto";
 
 type Provider = "google" | "yandex" | "vk" | "telegram";
 
 const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk", "telegram"];
 
-/** Returns true for missing or template-placeholder provider credentials. */
+/**
+ * Returns true if a credential value is missing or set to a `stub_*` placeholder.
+ * We treat `stub_*` values as "not configured" so developers can ship the
+ * skeleton .env without accidentally hitting real OAuth endpoints.
+ */
 function isStubValue(value: string | undefined): boolean {
-  return isPlaceholderValue(value);
+  return !value || value.trim() === "" || value.startsWith("stub_");
 }
 
 /**
@@ -90,7 +94,7 @@ function buildAuthorizationUrl(
     }
     case "vk": {
       // Современный VK ID (OAuth 2.1), не legacy oauth.vk.com.
-      params.set("scope", "vkid.personal_info email");
+      params.set("scope", "email");
       params.set("code_challenge", codeChallenge);
       params.set("code_challenge_method", "s256");
       return `https://id.vk.ru/authorize?${params.toString()}`;
