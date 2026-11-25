@@ -64,8 +64,8 @@ APPLIED_BEFORE=$(PSQL -tAc "SELECT count(*) FROM public.schema_migrations")
 # — конфликт дубликатов (инцидент Z-v24: 0062_cart_custom_items + 0062_cart_sync_custom).
 # Блокируем ДО применения любого SQL.
 DUP_ERRORS=0
-for num in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | xargs -n1 basename | sed -n 's/^\([0-9][0-9]*\)_.*/\1/p' | sort -u); do
-  DUP_FILES=$(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | xargs -n1 basename | grep -E "^${num}_" | sort)
+for num in $(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' -exec basename {} + | sed -n 's/^\([0-9][0-9]*\)_.*/\1/p' | sort -u); do
+  DUP_FILES=$(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' -exec basename {} + | grep -E "^${num}_" | sort)
   DUP_COUNT=$(echo "$DUP_FILES" | grep -c . || true)
   if [ "$DUP_COUNT" -gt 1 ]; then
     echo "❌ ДУБЛИКАТ MIGRATION ID ${num}:"
