@@ -555,7 +555,6 @@ volumes:
   # Legacy PG15 volume is retained for explicit rollback/forensic recovery.
   supabase_db_data:
     name: conditera_supabase_db_data
-  supabase_db_data:
   supabase_storage_data:
   supabase_vector_data:
 
