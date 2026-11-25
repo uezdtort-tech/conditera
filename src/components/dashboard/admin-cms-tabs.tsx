@@ -115,7 +115,9 @@ export function AdminCmsHomeTab() {
         }
       }
       setSectionsData(map);
-      setSectionMeta(meta.sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug)));
+      setSectionMeta(meta
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug))
+        .map((section, index) => ({ ...section, sortOrder: (index + 1) * 10 })));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось загрузить блоки");
     } finally {
