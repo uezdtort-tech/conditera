@@ -31,15 +31,9 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # ===== PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация (единая с runtime и CI) =====
-  # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI =
-  # PG17, embedded db:setup = PG17. Образ supabase/postgres:17.11.0.017 —
-  # последний vanilla-тег PG17 (без -orioledb/-multigres). Менять версию
-  # ТОЛЬКО синхронно в: docker-compose.supabase.yml, conditera-v2/docker-compose.local.yml,
-  # .github/workflows/ci.yml (jobs.migrations-pg17), package.json (embedded-postgres).
-  # Гард: scripts/verify/pg-version-gate.mjs (CI) — не-17 версии = FAIL.
+  # ===== PostgreSQL 15 с расширениями =====
   supabase-db:
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:15.6.1.141
     container_name: conditera-supabase-db
     restart: unless-stopped
     command:
@@ -61,10 +55,7 @@ services:
     expose:
       - "5432"
     volumes:
-      # Изолированный том PG17. Старый supabase_db_data не удаляется и не
-      # подключается к PG17: перенос выполняется только через проверенный dump/restore.
-      # До завершения restore этот том пустой; production cutover запрещён.
-      - supabase_db_data_v17:/var/lib/postgresql/data
+      - supabase_db_data:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
       # Подключаем только наш скрипт отдельным файлом, после системного migrate.sh.
@@ -99,22 +90,17 @@ services:
     container_name: conditera-supabase-kong
     restart: unless-stopped
     environment:
-      # Kong 2.8 DB-less mode requires the literal string "off".
-      KONG_DATABASE: "off"
+      KONG_DATABASE: "false"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: "160k"
-      KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
-      KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE: "320k"
-      SUPABASE_ANON_KEY: ${ANON_KEY:?ANON_KEY is required}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_buffers: 64 160k
+      KONG_NGINX_PROXY_proxy_busy_buffers_size: 320k
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
       - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
-      - ./scripts/supabase/kong-entrypoint.sh:/usr/local/bin/conditera-kong-entrypoint.sh:ro
-    entrypoint: ["/bin/sh", "/usr/local/bin/conditera-kong-entrypoint.sh"]
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -165,10 +151,10 @@ services:
       GOTRUE_MAILER_TEMPLATES_RECOVERY: /etc/gotrue/templates/recovery.html
       GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: /etc/gotrue/templates/email_change.html
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-noreply@conditera.ru}
-      GOTRUE_SMTP_HOST: ${SMTP_HOST:-127.0.0.1}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
       GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
-      GOTRUE_SMTP_USER: ${SMTP_USER:-}
-      GOTRUE_SMTP_PASS: ${SMTP_PASSWORD:-}
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_SMTP_PASS: ${SMTP_PASSWORD}
       GOTRUE_SMTP_MAX_FREQUENCY: 1s
       GOTRUE_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       GOTRUE_JWT_EXP: 3600
@@ -286,8 +272,8 @@ services:
     container_name: conditera-supabase-storage
     restart: unless-stopped
     environment:
-      ANON_KEY: ${ANON_KEY:?ANON_KEY required}
-      SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
+      ANON_KEY: ${ANON_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}}
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=storage
@@ -333,10 +319,7 @@ services:
   # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
   # только после того, как Storage API создал свои таблицы.
   supabase-app-migrator:
-    # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.11.0.017).
-    # Мигратор client-only (bash+psql, без volume/initdb) — образ серверных
-    # расширений не влияет на применяемые SQL, но версия клиента = версия сервера.
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:15.6.1.141
     container_name: conditera-supabase-app-migrator
     restart: "no"
     command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
@@ -433,8 +416,8 @@ services:
       DEFAULT_PROJECT_NAME: "Conditera Production"
       SUPABASE_URL: http://supabase-kong:8000
       SUPABASE_PUBLIC_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
-      ANON_KEY: ${ANON_KEY:?ANON_KEY required}
-      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
+      ANON_KEY: ${ANON_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY required}}
       AUTH_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       LOGFLARE_LOGGER_BACKEND_API_KEY: ${LOGFLARE_LOGGER_BACKEND_API_KEY:-}
       LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-}
@@ -550,10 +533,7 @@ services:
       - conditera-net
 
 volumes:
-  # Legacy volume conditera_supabase_db_data намеренно не объявлен здесь:
-  # Compose не должен удалять его при down --volumes. Он остаётся вне runtime.
-  supabase_db_data_v17:
-    name: conditera_supabase_db_data_v17
+  supabase_db_data:
   supabase_storage_data:
   supabase_vector_data:
 

@@ -151,7 +151,6 @@ interface OrderRow {
   number: string | null;
   user_id: string;
   status: string;
-  items: OrderItemRow[];
 }
 
 const REVIEW_ALLOWED_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
@@ -208,7 +207,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Заказ + первая позиция (товар берём из order_items[0])
     const { data: order, error: orderErr } = await supabaseAdmin
       .from("orders")
-      .select("id, number, user_id, status, items:order_items(product_id, product_title)")
+      .select("id, number, user_id, status")
       .eq("id", orderId)
       .maybeSingle() as { data: OrderRow | null; error: { message: string } | null };
 
@@ -229,7 +228,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const firstItem = (order.items || [])[0];
+    // Load order items separately instead of relying on PostgREST's
+    // embedded relationship cache. This remains reliable immediately after
+    // clean migrations and schema reloads.
+    const { data: orderItems, error: orderItemsErr } = await supabaseAdmin
+      .from("order_items")
+      .select("product_id, product_title")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (orderItemsErr) {
+      console.error("[reviews] POST order items load:", orderItemsErr.message);
+      return NextResponse.json({ error: "Не удалось загрузить позиции заказа" }, { status: 500 });
+    }
+
+    const firstItem = orderItems?.[0] as OrderItemRow | undefined;
     if (!firstItem || !firstItem.product_id) {
       return NextResponse.json(
         { error: "REVIEW_NOT_ALLOWED", message: "Товар недоступен для отзыва" },

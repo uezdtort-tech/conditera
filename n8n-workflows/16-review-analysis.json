@@ -1,6 +1,6 @@
 {
   "name": "💬 Анализ отзывов — sentiment + авто-ответ",
-  "active": true,
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/cron/review-analysis?status=new",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -81,7 +80,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -113,7 +111,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

@@ -29,6 +29,12 @@ if [ "$MODE" != "dev" ] && [ "$MODE" != "prod" ]; then
   exit 1
 fi
 
+# Production uses the idempotent PG17 bootstrap; do not reset existing env values
+# or prompt for secrets that must be supplied by external providers.
+if [ "$MODE" = "prod" ]; then
+  exec bash scripts/prepare-production-env.sh
+fi
+
 if [ "$MODE" = "dev" ]; then
   ENV_FILE=".env.local"
   TEMPLATE=".env.local.example"

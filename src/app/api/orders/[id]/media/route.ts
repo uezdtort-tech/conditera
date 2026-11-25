@@ -21,7 +21,6 @@ import {
 } from "@/lib/ops/order-media";
 import { setStageDone } from "@/lib/ops/production";
 import { recordEvent } from "@/lib/ops/events";
-import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -136,11 +135,14 @@ export async function POST(
       { status: 201 }
     );
   } catch (err) {
-    return handleRouteError(err, {
-      route: "/api/orders/[id]/media",
-      component: "orders",
-      requestId: request.headers.get("x-request-id") ?? undefined,
-    });
+    console.error(
+      "[orders/media] POST failed:",
+      err instanceof Error ? err.message : err
+    );
+    return NextResponse.json(
+      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
+      { status: 500 }
+    );
   }
 }
 
@@ -166,7 +168,22 @@ export async function GET(
         { status: 404 }
       );
     }
-    if (!(await canOperateOrder(order, user.id))) {
+    // Фото готового изделия — часть заказа и доказательство исполнения:
+    // владелец-покупатель должен иметь возможность просматривать их.
+    // SUPPORT/COURIER не получают доступ только по наличию глобальной роли.
+    let canView = order.user_id === user.id || await canOperateOrder(order, user.id);
+    let isAssignedDisputeSupport = false;
+    if (!canView && user.roles.includes("SUPPORT")) {
+      const assignedDispute = await getPool().query(
+        `SELECT 1 FROM public.order_disputes
+         WHERE order_id = $1::uuid AND assigned_to = $2::uuid
+         LIMIT 1`,
+        [id, user.id],
+      );
+      canView = assignedDispute.rows.length > 0;
+      isAssignedDisputeSupport = canView;
+    }
+    if (!canView) {
       return NextResponse.json(
         { error: "FORBIDDEN", message: "Нет доступа" },
         { status: 403 }
@@ -186,8 +203,9 @@ export async function GET(
       `SELECT id::text, kind, mime_type, file_size, width, height, uploaded_at
        FROM public.order_media
        WHERE order_id = $1::uuid AND status = 'approved'
+         AND ($2::boolean = false OR kind = 'dispute_evidence')
        ORDER BY uploaded_at ASC`,
-      [id]
+      [id, isAssignedDisputeSupport]
     );
 
     return NextResponse.json({
@@ -203,10 +221,13 @@ export async function GET(
       })),
     });
   } catch (err) {
-    return handleRouteError(err, {
-      route: "/api/orders/[id]/media",
-      component: "orders",
-      requestId: request.headers.get("x-request-id") ?? undefined,
-    });
+    console.error(
+      "[orders/media] GET failed:",
+      err instanceof Error ? err.message : err
+    );
+    return NextResponse.json(
+      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
+      { status: 500 }
+    );
   }
 }

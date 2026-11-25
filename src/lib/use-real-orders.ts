@@ -12,7 +12,7 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Order, OrderItem, OrderStatus } from "@/lib/types";
-import { getSessionAuthHeaders, getCsrfToken, csrfFetch } from "@/lib/api-client";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import { useAppStore } from "@/lib/store";
 
 /** Сырой заказ из GET /api/orders (snake_case, как в БД) */
@@ -32,8 +32,6 @@ export interface ApiOrder {
   user_id: string;
   created_at: string;
   confectioner?: { business_name: string | null; avatar: string | null } | null;
-  /** Этап 10 §A3: имя покупателя (profiles.name), обогащается сервером */
-  customer_name?: string | null;
   items?: ApiOrderItem[];
 }
 
@@ -81,8 +79,7 @@ export function mapApiOrderToStoreOrder(raw: ApiOrder): Order {
     id: raw.id,
     number: raw.number || "",
     customerId: raw.user_id,
-    // Этап 10 §A3: API обогащает список именем профиля покупателя
-    customerName: raw.customer_name || "",
+    customerName: "", // список API не содержит имени покупателя — дозаполнять не требуется
     confectionerId: raw.confectioner_id || undefined,
     confectionerName: raw.confectioner?.business_name || undefined,
     items,
@@ -137,10 +134,6 @@ export function useRealOrders(): RealOrdersResult {
     staleTime: 30_000,
     retry: 1,
     enabled: !!user,
-    // Живой статус у покупателя: кондитер принял/начал готовить — карточка
-    // обновляется сама, без ручного F5 (ТЗ: покупатель видит ход заказа).
-    // refetchIntervalInBackground=false по умолчанию — в скрытой вкладке пауза.
-    refetchInterval: 15_000,
   });
 
   const realOrders = query.data ?? null;
@@ -162,17 +155,19 @@ export function useRealUpdateOrderStatus(options?: { onSuccess?: () => void }) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: { orderId: string; status: string; comment?: string }) => {
-      // FIX-ZV13: параллельные мутации (кондитер быстро подтверждает несколько
-      // заказов) гоняли GET /api/csrf-token — каждый ответ перезаписывал
-      // httpOnly-куку csrf_token, и часть PATCH уходила с чужим токеном →
-      // 403 CSRF. csrfFetch берёт токен из кэша (10 мин) и ретраит один раз
-      // при CSRF-отказе — гонки больше нет.
-      const res = await csrfFetch(`/api/orders/${input.orderId}`, {
-        method: "PATCH",
-        headers: await getSessionAuthHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ status: input.status, comment: input.comment }),
-      });
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const isCancellation = input.status === "CANCELLED";
+      const res = await fetch(
+        isCancellation ? `/api/orders/${input.orderId}/cancel` : `/api/orders/${input.orderId}`,
+        {
+          method: isCancellation ? "POST" : "PATCH",
+          headers,
+          credentials: "include",
+          body: JSON.stringify(isCancellation
+            ? { reason: input.comment }
+            : { status: input.status, comment: input.comment }),
+        }
+      );
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error || `HTTP ${res.status}`);
@@ -181,9 +176,6 @@ export function useRealUpdateOrderStatus(options?: { onSuccess?: () => void }) {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["orders-real"] });
-      // FIX-TL: история статусов в карточках (OrderTimelineEvents / админский
-      // order-workspace-dialog) обновляется сразу после перехода
-      queryClient.invalidateQueries({ queryKey: ["order-timeline", variables.orderId] });
       toast.success(`Статус заказа изменён: ${variables.status}`);
       options?.onSuccess?.();
     },

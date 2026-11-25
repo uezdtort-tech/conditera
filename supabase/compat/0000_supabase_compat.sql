@@ -42,6 +42,15 @@ ALTER ROLE service_role BYPASSRLS;
 
 GRANT USAGE ON SCHEMA public, auth, storage, extensions TO anon, authenticated, service_role;
 GRANT ALL ON SCHEMA auth, storage TO service_role;
+-- service_role must be able to create/read/update auth.users through the local
+-- PostgREST compatibility layer, just as it can in Supabase. Schema privileges
+-- alone do not grant privileges on tables created inside the schema.
+GRANT ALL ON ALL TABLES IN SCHEMA auth TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO service_role;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth GRANT EXECUTE ON FUNCTIONS TO service_role;
 
 -- ===== 3. Стаб auth.users =====
 -- Состав колонок = супerset того, что использует seed_vitrine.sql (INSERT INTO
@@ -73,36 +82,6 @@ CREATE TABLE IF NOT EXISTS auth.users (
   updated_at timestamptz DEFAULT now(),
   deleted_at timestamptz
 );
-
--- ===== 3.1. Self-heal auth.users (PG17-рантайм, урок первого прогона PG17) =====
--- Если auth.users уже создан ДРУГИМ bootstrap-ом (единый Supabase Runtime на
--- PG17, старая версия compat-слоя), CREATE TABLE IF NOT EXISTS — no-op, и
--- отсутствующие колонки не появятся: первый же INSERT demo-юзеров падает
--- с «column "email_confirmed_at" of relation "users" does not exist».
--- ADD COLUMN IF NOT EXISTS идемпотентно доуплотняет схему до контракта,
--- который использует код и seed_vitrine.sql (совпадает с блоком CREATE выше).
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS instance_id text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS aud text DEFAULT 'authenticated'::text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS role text DEFAULT 'authenticated'::text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS encrypted_password text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz DEFAULT now();
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS invited_at timestamptz;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS confirmation_token text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS recovery_token text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_change text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_change_token_new text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS action_token text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS reauthentication_token text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone text;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone_confirmed_at timestamptz;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS last_sign_in_at timestamptz;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb DEFAULT '{}'::jsonb;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_user_meta_data jsonb DEFAULT '{}'::jsonb;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS is_sso_user boolean DEFAULT false;
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
-ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 
 -- ===== 4. JWT-функции (источник — request.jwt.claims, выставляет шим) =====
 -- auth.uid(): uuid текущего пользователя или NULL (аноним/нет claims).
@@ -176,21 +155,6 @@ CREATE TABLE IF NOT EXISTS storage.objects (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
-
--- ===== 5.1. Self-heal storage (аналогично 3.1): таблица может существовать
--- в минимальном виде из другого bootstrap-а — доуплотняем до контракта. =====
-ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS name text;
-ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS public boolean DEFAULT false;
-ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS file_size_limit bigint;
-ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS allowed_mime_types text[];
-ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
-ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
-ALTER TABLE storage.objects ADD COLUMN IF NOT EXISTS bucket_id text;
-ALTER TABLE storage.objects ADD COLUMN IF NOT EXISTS name text;
-ALTER TABLE storage.objects ADD COLUMN IF NOT EXISTS owner uuid;
-ALTER TABLE storage.objects ADD COLUMN IF NOT EXISTS metadata jsonb;
-ALTER TABLE storage.objects ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
-ALTER TABLE storage.objects ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
 -- 0026 использует storage.foldername(name) в RLS-политиках
 CREATE OR REPLACE FUNCTION storage.foldername(name text)

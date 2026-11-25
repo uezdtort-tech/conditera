@@ -1,6 +1,6 @@
 {
   "name": "🔄 CRM-интеграция — экспорт клиентов и заказов",
-  "active": true,
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -39,7 +39,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -71,7 +70,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

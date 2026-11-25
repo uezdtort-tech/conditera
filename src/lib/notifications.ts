@@ -23,6 +23,8 @@
  *   • Frequency cap защищает от спама (≤maxPerDay в день, критические категории除外).
  */
 import { supabaseAdmin } from "./supabase/admin";
+import { sendEmail } from "./email";
+import { isAllowedPushEndpoint } from "./push-subscriptions";
 
 export type Template =
   | "ORDER_CREATED"
@@ -56,11 +58,6 @@ export type Template =
   | "ABANDONED_CART"
   | "VERIFICATION_APPROVED"
   | "VERIFICATION_REJECTED"
-  | "SUPPLIER_SUBMITTED"
-  | "SUPPLIER_PROFILE_SUBMITTED"
-  | "SUPPLIER_APPROVED"
-  | "SUPPLIER_CHANGES_REQUESTED"
-  | "SUPPLIER_SUSPENDED"
   | "PAYOUT_REQUEST_RECEIVED"
   | "PAYOUT_PROCESSED"
   | "PAYOUT_REJECTED"
@@ -301,41 +298,6 @@ export const TEMPLATES: Record<Template, TemplateDef> = {
     title: () => `Профиль кондитера: нужна доработка`,
     body: (v) =>
       `Профиль не прошёл модерацию. Причина: ${v.reason || "не указана"}. Внесите правки и отправьте на проверку снова.`,
-    defaultChannels: ["in_app", "push", "email"],
-  },
-  SUPPLIER_SUBMITTED: {
-    category: "orderUpdates",
-    title: (v) => `Заявка поставщика «${v.companyName}»`,
-    body: () =>
-      `Новая заявка поставщика ждёт проверки в панели модерации.`,
-    defaultChannels: ["in_app"],
-  },
-  SUPPLIER_PROFILE_SUBMITTED: {
-    category: "orderUpdates",
-    title: () => `Профиль отправлен на проверку`,
-    body: () =>
-      `Заявка на статус поставщика отправлена. Решение появится в кабинете и в этом разделе.`,
-    defaultChannels: ["in_app", "push"],
-  },
-  SUPPLIER_APPROVED: {
-    category: "orderUpdates",
-    title: () => `Профиль поставщика одобрен ✓`,
-    body: () =>
-      `Поздравляем! Ваш профиль поставщика прошёл модерацию. Теперь вы можете публиковать товары и получать закупочные заказы.`,
-    defaultChannels: ["in_app", "push", "email"],
-  },
-  SUPPLIER_CHANGES_REQUESTED: {
-    category: "orderUpdates",
-    title: () => `Профиль поставщика: требуются исправления`,
-    body: (v) =>
-      `Администратор запросил исправления: ${v.comment || "без комментария"}. Внесите правки и отправьте на проверку снова.`,
-    defaultChannels: ["in_app", "push", "email"],
-  },
-  SUPPLIER_SUSPENDED: {
-    category: "orderUpdates",
-    title: () => `Деятельность поставщика приостановлена`,
-    body: (v) =>
-      `Профиль приостановлен администратором. Причина: ${v.reason || "не указана"}. Каталог скрыт из продажи до возобновления.`,
     defaultChannels: ["in_app", "push", "email"],
   },
   PAYOUT_REQUEST_RECEIVED: {
@@ -593,8 +555,27 @@ export async function sendNotification(input: SendInput): Promise<{
       .single() as { data: { id: string } | null; error: SupabaseError | null };
 
     if (insertErr || !notif) {
-      if ((insertErr as { code?: string } | null)?.code === "23505") {
-        // Дедуп: то же событие уже доставлено этому пользователю/каналу
+      if ((insertErr as { code?: string } | null)?.code === "23505" && input.dedupKey) {
+        // Idempotent retry: a previously failed delivery can be retried; a
+        // successful or currently queued delivery is never duplicated.
+        const { data: existing, error: lookupError } = await supabaseAdmin
+          .from("notifications")
+          .select("id, status")
+          .eq("user_id", input.userId)
+          .eq("channel", channel)
+          .contains("metadata", { dedup_key: input.dedupKey })
+          .maybeSingle() as { data: { id: string; status: string } | null; error: SupabaseError | null };
+        if (lookupError) throw new Error(`Не удалось проверить повтор уведомления: ${lookupError.message}`);
+        if (existing?.status === "failed") {
+          const { error: retryError } = await supabaseAdmin
+            .from("notifications")
+            .update({ status: "queued" })
+            .eq("id", existing.id)
+            .eq("status", "failed");
+          if (retryError) throw new Error(`Не удалось повторить уведомление: ${retryError.message}`);
+          notificationIds.push(existing.id);
+          if (!input.scheduledFor) await deliverNotification(existing.id, channel, user);
+        }
         continue;
       }
       console.error("[notify] insert failed:", insertErr?.message);
@@ -664,7 +645,12 @@ export async function deliverNotification(
       .from("notifications")
       .update({
         status: "failed",
-        metadata: { error: errMsg.slice(0, 500) },
+        metadata: {
+          ...(notif.metadata && typeof notif.metadata === "object" && !Array.isArray(notif.metadata)
+            ? notif.metadata as Record<string, unknown>
+            : {}),
+          delivery_error: errMsg.slice(0, 500),
+        },
       })
       .eq("id", notificationId);
     console.error(`[notify] delivery failed for ${notificationId} via ${channel}:`, errMsg);
@@ -679,10 +665,10 @@ async function deliverPush(
   body: string
 ): Promise<void> {
   // Web Push via VAPID — requires VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
-  if (
-    !process.env.VAPID_PUBLIC_KEY ||
-    !process.env.VAPID_PRIVATE_KEY
-  ) {
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Web Push VAPID keys are not configured");
+    }
     console.info(`[notify:push] (dev) → user=${userId} title="${title}"`);
     return;
   }
@@ -693,12 +679,11 @@ async function deliverPush(
     .select("id, endpoint, keys")
     .eq("user_id", userId) as { data: PushSubscriptionRow[] | null; error: SupabaseError | null };
 
-  if (error) {
-    console.warn("[notify:push] subscriptions query failed:", error.message);
-    return;
-  }
-
+  if (error) throw new Error(`Push subscription lookup failed: ${error.message}`);
   if (!subscriptions || subscriptions.length === 0) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("No active Web Push subscriptions for recipient");
+    }
     console.info(`[notify:push] → user=${userId} (no subscriptions)`);
     return;
   }
@@ -723,25 +708,29 @@ async function deliverPush(
       data: { url: "/" },
     });
 
+    let sent = 0;
+    let failed = 0;
     for (const sub of subscriptions) {
+      if (!isAllowedPushEndpoint(sub.endpoint)) {
+        failed += 1;
+        continue;
+      }
       const keys = (sub.keys || {}) as { p256dh?: string; auth?: string };
-      if (!keys.p256dh || !keys.auth) continue;
+      if (!keys.p256dh || !keys.auth) {
+        failed += 1;
+        continue;
+      }
       try {
         await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: {
-              p256dh: keys.p256dh,
-              auth: keys.auth,
-            },
-          },
+          { endpoint: sub.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } },
           payload
         );
+        sent += 1;
         console.info(`[notify:push] ✓ sent to ${sub.endpoint.slice(0, 50)}...`);
       } catch (err) {
+        failed += 1;
         const errMsg = err instanceof Error ? err.message : String(err);
         console.warn(`[notify:push] failed for ${sub.endpoint.slice(0, 50)}:`, errMsg);
-        // Remove invalid subscription
         const statusCode = (err as { statusCode?: number }).statusCode;
         if (statusCode === 410 || statusCode === 404) {
           await supabaseAdmin.from("push_subscriptions").delete().eq("id", sub.id);
@@ -749,9 +738,11 @@ async function deliverPush(
         }
       }
     }
+    if (sent === 0) throw new Error(`Web Push delivery failed for all subscriptions (${failed} failed)`);
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
-    console.warn("[notify:push] web-push library not available:", errMsg);
+    console.warn("[notify:push] delivery error:", errMsg);
+    if (process.env.NODE_ENV === "production") throw e;
   }
 }
 
@@ -760,36 +751,31 @@ async function deliverEmail(
   subject: string,
   body: string
 ): Promise<void> {
-  if (!to || to.length === 0) {
-    console.info(`[notify:email] (skip — no email)`);
-    return;
-  }
-  // SMTP via nodemailer; configure via SMTP_URL env
-  if (!process.env.SMTP_URL) {
+  if (!to) throw new Error("Recipient email is missing");
+  if (!process.env.SMTP_HOST) {
+    if (process.env.NODE_ENV === "production") throw new Error("SMTP_HOST is not configured");
     console.info(`[notify:email] (dev) → to=${to} subject="${subject}"`);
-    console.info(`[notify:email] body: ${body.slice(0, 200)}`);
     return;
   }
-  // Prod: import nodemailer dynamically and send
-  const nodemailer = await import("nodemailer");
-  const transporter = nodemailer.createTransport(process.env.SMTP_URL);
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || "Кондитера <noreply@conditera.ru>",
+  const result = await sendEmail({
     to,
     subject,
     text: body,
     html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:20px">
-      <h2 style="color:#7c3aed">${subject}</h2>
+      <h2>${subject}</h2>
       <p style="font-size:16px;line-height:1.6">${body}</p>
       <hr style="margin:24px 0;border:none;border-top:1px solid #eee">
-      <p style="font-size:12px;color:#999">Уездный кондитер — маркетплейс частных кондитеров России</p>
+      <p style="font-size:12px;color:#999">Уездный кондитер — маркетплейс кондитерских изделий России</p>
     </div>`,
+    template: "notification",
   });
+  if (!result.success) throw new Error(result.error || "SMTP delivery failed");
 }
 
 async function deliverSms(phone: string, text: string): Promise<void> {
   // SMS via SMS.ru — requires SMSRU_API_ID env
   if (!process.env.SMSRU_API_ID) {
+    if (process.env.NODE_ENV === "production") throw new Error("SMS provider is not configured");
     console.info(`[notify:sms] (dev) → to=${phone} text="${text.slice(0, 80)}"`);
     return;
   }
@@ -809,12 +795,10 @@ async function deliverTelegram(
   body: string
 ): Promise<void> {
   // Find user's Telegram chat ID (linked via /start bot command)
-  if (!process.env.TELEGRAM_BOT_TOKEN) {
-    console.info(`[notify:telegram] (dev) → user=${userId} title="${title}"`);
-    return;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Per-user Telegram notification delivery is not implemented");
   }
-  // Prod: query linked telegram account and send via bot API
-  console.info(`[notify:telegram] → user=${userId} (no telegram account linked)`);
+  console.info(`[notify:telegram] (dev) → user=${userId} title="${title}"`);
 }
 
 /**

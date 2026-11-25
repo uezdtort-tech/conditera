@@ -24,7 +24,6 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
-import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -73,10 +72,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // P1.1 §2: отменённый/возвращённый заказ не оплачивается повторно —
     // webhook перевёл бы его в escrow при статусе CANCELLED и деньги «зависли» бы
     // вне выплаты (escrow-release пропускает CANCELLED).
-    if (order.status === "CANCELLED" || order.payment_status === "refunded") {
+    if (
+      ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status) ||
+      order.payment_status === "refunded"
+    ) {
       return NextResponse.json(
-        { error: "Заказ отменён — оплата невозможна" },
-        { status: 400 }
+        { error: "Заказ отменён или завершён — оплата невозможна" },
+        { status: 409 }
       );
     }
 
@@ -158,32 +160,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
 
       if (insertErr) {
-        // Платёж у провайдера уже создан; webhook найдёт заказ по
-        // metadata.orderId (fallback) — не отдаём 500, но фиксируем.
+        // Не отдаём confirmation_url, пока локальный финансовый ledger
+        // не подтверждён. Иначе webhook сможет перевести заказ в escrow,
+        // не имея локальной payment-записи для возврата/сверки.
         console.error("[payment/create] payments insert failed:", insertErr.message);
+        return NextResponse.json(
+          { error: "Не удалось зафиксировать платёж. Повторите попытку." },
+          { status: 503 }
+        );
       }
     }
 
     // Update order payment status
-    const { error: orderUpdErr } = await supabaseAdmin
+    const { data: orderUpdated, error: orderUpdErr } = await supabaseAdmin
       .from("orders")
       .update({ payment_status: "pending" })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("status", order.status)
+      .eq("payment_status", order.payment_status)
+      .select("id");
     if (orderUpdErr) {
       console.error("[payment/create] orders payment_status update failed:", orderUpdErr.message);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать состояние заказа перед оплатой" },
+        { status: 503 }
+      );
+    }
+    if (!orderUpdated || orderUpdated.length === 0) {
+      // Заказ был отменён/изменён параллельно созданию платежа. Не выдаём
+      // confirmation_url для устаревшего состояния.
+      return NextResponse.json(
+        { error: "Заказ изменился во время создания платежа. Обновите страницу." },
+        { status: 409 }
+      );
     }
 
     return NextResponse.json({
       paymentUrl: paymentResult.payment.confirmation.confirmation_url,
       paymentId: yookassaPaymentId,
     });
-  } catch (error) {
-    // DEPLOY-01 §3: неожиданные ошибки — в единый журнал (captureServerError),
+  } catch (error: unknown) {
     // detail наружу не отдаём (утечка внутренностей)
-    return handleRouteError(error, {
-      route: "/api/payment/create",
-      component: "payments",
-      requestId: request.headers.get("x-request-id") ?? undefined,
-    });
+    console.error("[payment/create] error:", (error as Error)?.message);
+    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
   }
 }

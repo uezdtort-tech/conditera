@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 /**
  * Authentication helper for cron API endpoints.
  *
@@ -7,14 +9,7 @@
  *
  * Set CRON_SECRET in .env (or docker-compose env) to enable.
  * If CRON_SECRET is unset, the endpoints refuse to run (defensive default).
- *
- * R5 (ENGINEERING_RISKS.md): сравнение — timing-safe (timingSafeEqualStr,
- * crypto.timingSafeEqual), как в proxy.ts CSRF и webhooks (n8n/telegram).
- * Ранний выход по длине допустим: длина секрета не секрет
- * (см. src/lib/secure-compare.ts).
  */
-import { timingSafeEqualStr } from "@/lib/secure-compare";
-
 export function verifyCronSecret(req: Request): boolean {
   const expected = process.env.CRON_SECRET?.trim();
   if (!expected) {
@@ -22,10 +17,11 @@ export function verifyCronSecret(req: Request): boolean {
     return false;
   }
   const got = req.headers.get("X-Cron-Secret")?.trim();
-  if (!got || !timingSafeEqualStr(got, expected)) {
-    return false;
-  }
-  return true;
+  if (!got) return false;
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const gotBytes = Buffer.from(got, "utf8");
+  if (expectedBytes.length !== gotBytes.length) return false;
+  return timingSafeEqual(expectedBytes, gotBytes);
 }
 
 export function cronUnauthorized() {

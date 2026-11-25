@@ -393,8 +393,10 @@ export function useWriteOffInventory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
-      orderId?: string;
-      items: Array<{ itemId: string; quantity: number }>;
+      orderId: string;
+      /** Если items не передан или mode=recipe — сервер рассчитает нормы из рецептов заказа. */
+      mode?: "recipe" | "manual";
+      items?: Array<{ itemId: string; quantity: number }>;
       reason?: string;
     }) => {
       const headers = await getSessionAuthHeaders(await getCsrfToken());
@@ -403,8 +405,10 @@ export function useWriteOffInventory() {
         headers,
         credentials: "include",
         body: JSON.stringify({
-          order_id: input.orderId || null,
-          items: input.items.map((it) => ({ item_id: it.itemId, quantity: it.quantity })),
+          order_id: input.orderId,
+          ...(input.mode === "recipe" || !input.items
+            ? { mode: "recipe" }
+            : { items: input.items.map((it) => ({ item_id: it.itemId, quantity: it.quantity })) }),
           reason: input.reason || null,
         }),
       });

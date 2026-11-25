@@ -7,11 +7,7 @@
  *   2. Если isCorporate=true — проверка организации через DaData
  *   3. Валидация items (quantity 1-999, productId существует)
  *   4. Расчёт itemsTotal на основе цены товара из БД
- *      (PR-2C: база — get_product_price_at(now), фолбэк products.price;
- *      order_items.price_version_id + metadata.pricing)
- *   5. Доставка — СЕРВЕРНЫЙ расчёт calculateDelivery (lib/finance, единая
- *      формула с checkout). Присланный клиентом deliveryCost НЕ используется
- *      для расчёта — только в metadata.pricing.deliveryClientSubmitted (аудит).
+ *   5. Валидация deliveryCost (0-5000 ₽)
  *   6. Получение confectionerId из первого товара + снапшот тарифа
  *   7. Серверная валидация промокода (validatePromoCode)
  *   8. Списание бонусов (redeemPoints с проверкой баланса)
@@ -42,15 +38,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
-import { loadConfectionerOrderSnapshot } from "@/lib/confectioner-tariff";
-import { buildAcceptanceSnapshot, type AcceptanceSnapshot } from "@/lib/ops/snapshot";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
-import { calculateDelivery } from "@/lib/finance";
-import { getPool } from "@/lib/postgrest/pool";
-import {
-  resolveCurrentPriceSafe,
-  syncEffectiveProductPricesSafe,
-} from "@/lib/price-version";
 import { emitEvent } from "@/lib/n8n";
 import { recordEvent } from "@/lib/ops/events";
 
@@ -69,10 +57,17 @@ interface OrderItemRecord {
   price: number;
   quantity: number;
   customization: Record<string, unknown> | null;
-  price_version_id: string | null; // PR-2C: привязка к версии цены (legacy-фолбэк → NULL)
 }
 
-// Ставки комиссии — в lib/confectioner-tariff.ts (ЕДИНЫЙ источник с checkout)
+const TARIFF_RATES: Record<string, number> = {
+  START: 0.15,
+  PROFI: 0.10,
+  PREMIUM: 0.05,
+  BASIC: 0.15,
+  BUSINESS: 0.08,
+};
+
+const DEFAULT_COMMISSION_RATE = 0.15;
 
 /**
  * GET /api/orders — список заказов текущего пользователя.
@@ -209,44 +204,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Этап 10 §A3: имя покупателя для кондитерского скоупа (раньше UI показывал
-    // пустую строку — contact через чат не очевиден). Отдаём только имя профиля,
-    // без email/телефона — в пределах допустимой информации о покупателе.
-    // Safe enrich: ошибка не роняет список.
-    const customerIds = Array.from(
-      new Set(
-        (orders || [])
-          .map((o: any) => o.user_id)
-          .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
-      )
-    );
-    const customerNames = new Map<string, string>();
-    if (customerIds.length > 0) {
-      try {
-        const { data: profiles } = await supabaseAdmin
-          .from("profiles")
-          .select("id, name")
-          .in("id", customerIds);
-        for (const p of profiles || []) {
-          customerNames.set((p as any).id, ((p as any).name as string) || "");
-        }
-      } catch {
-        // фолбэк ниже оставит пустую строку — список заказов не блокируем
-      }
-    }
-
     const result = (orders || []).map((o: any) => ({
       ...o,
       confectioner: o.confectioner_id ? confByKey.get(o.confectioner_id) || null : null,
-      customer_name: customerNames.get(o.user_id) || "",
       items: itemsByOrder.get(o.id) || [],
     }));
 
     return NextResponse.json({ orders: result });
   } catch (error: any) {
-    // Z-v19 §6 fix: регистрация 5xx в app_error_events (было только console.error)
     console.error("GET /api/orders error:", error?.message);
-    return handleRouteError(error, { route: "/api/orders", component: "orders" });
+    return NextResponse.json(
+      { error: "Внутренняя ошибка сервера" },
+      { status: 500 }
+    );
   }
 }
 
@@ -311,6 +281,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Явное приведение типов после safeJsonBody — все поля unknown.
     const deliveryDateStr = typeof deliveryDate === "string" ? deliveryDate : undefined;
 
+    // Legacy endpoint не создаёт платёж YooKassa. Не создаём через него
+    // карточные заказы, которые останутся без payment ledger и ссылки оплаты.
+    // Карточный checkout выполняется только через POST /api/checkout.
+    const normalizedPaymentMethod =
+      typeof paymentMethod === "string" ? paymentMethod.trim().toLowerCase() : "card";
+    if (normalizedPaymentMethod !== "cash") {
+      return NextResponse.json(
+        {
+          error: "Для оплаты картой используйте оформление через платёжный checkout.",
+          code: "CHECKOUT_REQUIRED",
+        },
+        { status: 409 }
+      );
+    }
+
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
         { error: "Корзина пуста" },
@@ -335,10 +320,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 3-4. Расчёт суммы заказа + подготовка orderItems
-    // PR-2C: перед резолвом цен — ленивый catch-up эффективных цен (best-effort,
-    // тот же контракт, что в checkout: сбой синка НЕ валид заказ).
-    await syncEffectiveProductPricesSafe(getPool());
-
     const orderItems: OrderItemRecord[] = [];
     let itemsTotal = 0;
 
@@ -360,27 +341,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       if (prodErr || !product) continue;
 
-      // PR-2C: базовая цена — покрывающая now версия истории цен (0083).
-      // Legacy-фолбэк (version_id NULL) или ошибка БД → products.price как раньше.
-      let unitPrice = Number(product.price);
-      let priceVersionId: string | null = null;
-      const resolved = await resolveCurrentPriceSafe(getPool(), product.id);
-      if (resolved) {
-        unitPrice = resolved.amount;
-        priceVersionId = resolved.versionId;
-      }
-
-      const itemTotal = unitPrice * item.quantity;
+      const itemTotal = Number(product.price) * item.quantity;
       itemsTotal += itemTotal;
 
       orderItems.push({
         product_id: product.id,
         title: product.title,
         image: ((product.images as string[]) || [])[0] || "",
-        price: unitPrice,
+        price: Number(product.price),
         quantity: item.quantity,
         customization: item.customization ?? null,
-        price_version_id: priceVersionId,
       });
     }
 
@@ -391,18 +361,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 5. PR-2C SECURITY FIX: доставка считается СЕРВЕРОМ той же функцией, что
-    // и в checkout (lib/finance.calculateDelivery; pickup в этом пути нет —
-    // заказ всегда с адресом). Клиентское deliveryCost для расчёта НЕ
-    // используется: оно может быть сохранено ТОЛЬКО в metadata.pricing.
-    // deliveryClientSubmitted (аудит отклонения клиентских ожиданий).
-    const serverDeliveryCost = calculateDelivery(itemsTotal).cost;
-    const clientDeliverySubmitted =
-      typeof deliveryCost === "number" && Number.isFinite(deliveryCost)
-        ? deliveryCost
-        : typeof deliveryCost === "string" && deliveryCost.trim() !== "" && Number.isFinite(Number(deliveryCost))
-          ? Number(deliveryCost)
-          : null;
+    // 5. Валидация deliveryCost
+    const safeDeliveryCost = Math.max(0, Math.min(Number(deliveryCost) || 0, 5000));
 
     // 6. Получение confectionerId из первого товара + снапшот тарифа
     let confectionerId: string | null = null;
@@ -420,15 +380,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       confectionerId = product?.confectioner_id || null;
 
       if (confectionerId) {
-        // products.confectioner_id — UUID пользователя (auth.users), а
-        // confectioners.id — TEXT legacy-сид ('c0'…). Раньше искали по id и
-        // ВСЕГДА промахивались → tariff/commission snapshot были null у ВСЕХ
-        // заказов этого пути. Единый хелпер (checkout использует тот же):
-        // поиск по "userId" + только approved.
-        const snapshot = await loadConfectionerOrderSnapshot(confectionerId);
-        tariffSnapshot = snapshot.tariffSnapshot;
-        commissionRateSnapshot = snapshot.commissionRateSnapshot;
-        legalStatusSnapshot = snapshot.legalStatusSnapshot;
+        const { data: conf } = await supabaseAdmin
+          .from("confectioners")
+          .select("tariff, legalInfo")
+          .eq("id", confectionerId)
+          .maybeSingle();
+
+        if (conf) {
+          tariffSnapshot = String(conf.tariff || "BASIC");
+          commissionRateSnapshot = TARIFF_RATES[tariffSnapshot] ?? DEFAULT_COMMISSION_RATE;
+          const legalInfo = (conf.legalInfo as { status?: string } | null) || null;
+          legalStatusSnapshot = legalInfo?.status || null;
+        }
       }
     }
 
@@ -477,29 +440,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // 1 бонус = 1 рубль — это значение запишем в заказ
     bonusDiscountRub = bonusPointsRequested;
 
-    // Итоговая сумма: товары + СЕРВЕРНАЯ доставка − промо-скидка − бонусная скидка
+    // Итоговая сумма: товары + доставка − промо-скидка − бонусная скидка
     const totalDiscount = promoDiscount + bonusDiscountRub;
-    const finalTotal = Math.max(1, itemsTotal + serverDeliveryCost - totalDiscount);
-
-    // 8.5. Z-v29: НЕИЗМЕНЯЕМЫЙ snapshot производственной потребности —
-    // тот же контракт, что у checkout: сервер собирает состав из БД в момент
-    // фиксации, запись попадает В ТОТ ЖЕ INSERT orders (metadata.acceptance_snapshot).
-    // Fail-closed: ошибка сборки → 503 ДО создания заказа.
-    let acceptanceSnapshot: AcceptanceSnapshot | null = null;
-    {
-      const built = await buildAcceptanceSnapshot({
-        items: orderItems.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
-        source: "orders_b2b",
-      });
-      if (!built.ok) {
-        console.error("[orders] acceptance snapshot build failed:", built.error);
-        return NextResponse.json(
-          { error: "Не удалось зафиксировать производственный состав заказа, попробуйте позже" },
-          { status: 503 }
-        );
-      }
-      acceptanceSnapshot = built.snapshot;
-    }
+    const finalTotal = Math.max(1, itemsTotal + safeDeliveryCost - totalDiscount);
 
     // 9. Генерация номера заказа
     const orderNumber = `UK-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
@@ -516,8 +459,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         delivery_address: typeof deliveryAddress === "string" ? deliveryAddress : null,
         delivery_date: deliveryDateStr ? new Date(deliveryDateStr).toISOString() : null,
         delivery_time: typeof deliveryTime === "string" ? deliveryTime : null,
-        delivery_cost: serverDeliveryCost,
-        payment_method: typeof paymentMethod === "string" ? paymentMethod : "card",
+        delivery_cost: safeDeliveryCost,
+        payment_method: "cash",
         payment_status: "pending",
         comment: typeof comment === "string" ? comment : null,
         tariff_snapshot: tariffSnapshot,
@@ -528,24 +471,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         promo_code_applied: promoCodeApplied,
         promo_code_id: promoCodeId,
         promo_discount: promoDiscount,
-        metadata: {
-          items_count: orderItems.length,
-          // PR-2C: аудит привязки цен + серверного расчёта доставки.
-          // Присланный клиентом deliveryCost сохраняется ТОЛЬКО здесь.
-          pricing: {
-            resolvedAt: new Date().toISOString(),
-            currency: "RUB" as const,
-            items: orderItems.map((i) => ({
-              productId: i.product_id,
-              priceVersionId: i.price_version_id,
-              unitPrice: i.price,
-            })),
-            deliverySource: "server_calculated" as const,
-            deliveryClientSubmitted: clientDeliverySubmitted,
-          },
-          // Z-v29: снимок производственной потребности на момент оформления
-          ...(acceptanceSnapshot ? { acceptance_snapshot: acceptanceSnapshot } : {}),
-        },
+        metadata: { items_count: orderItems.length },
       })
       .select("id, number")
       .single();
@@ -583,7 +509,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       price: item.price,
       quantity: item.quantity,
       customization: item.customization,
-      price_version_id: item.price_version_id, // PR-2C: привязка версии цены
     }));
 
     const { error: itemsErr } = await supabaseAdmin
@@ -592,7 +517,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (itemsErr) {
       console.error("[orders] items insert error:", itemsErr.message);
-      // Заказ создан, но без items — не откатываем
+      // Не оставляем живой заказ без позиций: он не может быть изготовлен.
+      const { error: cancelError } = await supabaseAdmin
+        .from("orders")
+        .update({
+          status: "CANCELLED",
+          payment_status: "failed",
+          comment: "Автоматическая отмена: не удалось сохранить состав заказа",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order.id);
+      if (cancelError) {
+        console.error("[orders] failed to cancel order after items insert error:", cancelError.message);
+      }
+      return NextResponse.json(
+        { error: "Не удалось сохранить состав заказа. Заказ не принят.", code: "ORDER_ITEMS_SAVE_FAILED" },
+        { status: 500 }
+      );
     }
 
     // 8.5. Реальное списание бонусов через redeemPoints (с реальным orderId)
@@ -620,18 +561,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             comment: `Отмена: недостаточно бонусов (${e?.message || "unknown"})`,
           })
           .eq("id", order.id);
-
-        // История системной отмены (заказ только что создан в PENDING).
-        // FIX-TL: раньше строку писал триггер orders_log_status (0006,
-        // changed_by=NULL); триггер удалён (0061) — пишем сами.
-        await supabaseAdmin
-          .from("order_status_history")
-          .insert({
-            order_id: order.id,
-            status_from: "PENDING",
-            status_to: "CANCELLED",
-            comment: `Отмена: недостаточно бонусов (${e?.message || "unknown"})`,
-          });
 
         // Откатить инкремент промокода если был
         if (promoCodeId) {
@@ -803,8 +732,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 201 }
     );
   } catch (error: any) {
-    // Z-v19 §6 fix: регистрация 5xx в app_error_events (было только console.error)
     console.error("POST /api/orders error:", error?.message);
-    return handleRouteError(error, { route: "/api/orders", component: "orders" });
+    return NextResponse.json(
+      { error: "Внутренняя ошибка сервера" },
+      { status: 500 }
+    );
   }
 }

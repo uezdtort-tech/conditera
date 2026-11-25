@@ -1,15 +1,13 @@
 /**
- * use-dashboards.ts — прямые hooks для 5 дашбордов (v2.1).
+ * use-dashboards.ts — прямые supabase-js hooks для 5 дашбордов (v2.0).
  *
- * Аутентификация: единый app-JWT (cd_session cookie + Bearer cd_access_token).
- * supabaseBrowser (GoTrue) в локальном runtime всегда пуст — см. fix 0a8de5d:
- * GET-запросы идут через PostgREST-шим /rest/v1 с Bearer app-JWT
- * (роль authenticated, sub=auth.uid() → RLS), fetchWithAuthRetry
- * делает один авто-refresh при 401.
+ * Заменяет stub-API routes (useSupplierData, useCourierData, useAdminData)
+ * на прямые запросы к Supabase через supabaseBrowser с RLS.
  *
  * Преимущества:
  *   - Нет лишнего сетевого хопа (браузер → API → Supabase → браузер)
  *   - RLS на уровне БД (нет дублирования проверок в API routes)
+ *   - Realtime обновления (опционально через onSnapshot)
  *   - Автокэширование через TanStack Query
  *
  * Query hooks:
@@ -21,52 +19,8 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import {
-  csrfFetch,
-  fetchWithAuthRetry,
-  getSessionAuthHeaders,
-  getStoredAccessToken,
-} from "@/lib/api-client";
-
-// ==================== App-session helpers (единый app-JWT контракт) ====================
-
-/**
- * Идентичность из app-JWT (sessionStorage): userId/email/sub.
- * supabaseBrowser.auth.getUser() (GoTrue) в локальном runtime не работает —
- * сессия приложения живёт в cd_session cookie + cd_access_token Bearer.
- */
-function appSessionUser(): { id: string; email: string } | null {
-  const token = getStoredAccessToken();
-  if (!token) return null;
-  try {
-    const part = token.split(".")[1];
-    if (!part) return null;
-    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
-    const payload = JSON.parse(json) as { userId?: string; sub?: string; email?: string };
-    const id = payload.userId || payload.sub;
-    if (!id) return null;
-    return { id, email: payload.email || "" };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * GET /rest/v1/<table> под app-JWT (PostgREST-шим, роль authenticated, sub=auth.uid()).
- * fetchWithAuthRetry: один авто-refresh при 401 и один повтор с новым Bearer.
- */
-async function pgrstGet<T>(table: string, search: string): Promise<T[]> {
-  const headers = await getSessionAuthHeaders(undefined, { json: false });
-  const res = await fetchWithAuthRetry(`/rest/v1/${table}?${search}`, {
-    credentials: "include",
-    headers,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${table}: HTTP ${res.status}${body ? ` — ${body.slice(0, 120)}` : ""}`);
-  }
-  return (await res.json()) as T[];
-}
+import { supabaseBrowser } from "@/lib/supabase/browser";
+import { getSessionAuthHeaders } from "@/lib/api-client";
 
 // ==================== Types ====================
 export interface CustomerDashboardData {
@@ -136,17 +90,6 @@ export interface ConfectionerDashboardData {
     delivery_address: string | null;
     items?: Array<{ product_title: string; quantity: number }>;
   }>;
-  /** Новые заказы (PENDING) — требуют подтверждения кондитером (Acceptance Engine). */
-  pendingOrders: Array<{
-    id: string;
-    number: string;
-    user_id: string;
-    total: number;
-    status: string;
-    delivery_date: string | null;
-    delivery_address: string | null;
-    items?: Array<{ product_title: string; quantity: number }>;
-  }>;
   recentEarnings: Array<{
     id: string;
     amount: number;
@@ -199,8 +142,6 @@ export interface CourierDashboardData {
     estimated_time: string | null;
     cost: number;
     courier_earnings: number;
-    /** Реальный номер заказа из orders.number (Этап 5: не UUID) */
-    orderNumber: string | null;
   }>;
   recentCompleted: Array<{
     id: string;
@@ -208,9 +149,6 @@ export interface CourierDashboardData {
     address: string;
     delivered_at: string;
     courier_earnings: number;
-    /** Снимок стоимости на момент назначения — fallback для legacy-строк без courier_earnings (A-3) */
-    cost: number | null;
-    orderNumber: string | null;
   }>;
 }
 
@@ -242,72 +180,91 @@ export interface AdminDashboardData {
 
 // ==================== Query hooks ====================
 
-/** Customer dashboard — заказы, избранное, бонусы, переговоры.
- * Аутентификация: единый app-JWT (как в useConfectionerDashboard, 0a8de5d).
- * supabaseBrowser.auth.getUser() (GoTrue) в локальном runtime всегда пуст →
- * «Не авторизован» при живой app-сессии + anon-роль вместо authenticated.
- * Запросы идут через /rest/v1 с Bearer app-JWT: RLS видит auth.uid(),
- * все выборки ограничены user_id = auth.uid() + политиками RLS.
- */
+/** Customer dashboard — заказы, избранное, бонусы, переговоры */
 export function useCustomerDashboard() {
   return useQuery<CustomerDashboardData>({
     queryKey: ["customer-dashboard"],
     queryFn: async () => {
-      const user = appSessionUser();
+      const { data: { user } } = await supabaseBrowser.auth.getUser();
       if (!user) throw new Error("Не авторизован");
 
-      // Параллельно загружаем все данные через PostgREST-шим (та же SQL-семантика)
-      const [recentOrders, favorites, inquiries, negotiations, profileRows, allOrders] = await Promise.all([
+      // Параллельно загружаем все данные через supabase-js
+      const [ordersRes, favoritesRes, inquiriesRes, negotiationsRes, profileRes] = await Promise.all([
         // Последние заказы
-        pgrstGet<CustomerDashboardData["recentOrders"][number]>("orders",
-          `select=${encodeURIComponent("id,number,total,status,created_at,items:order_items(product_title,quantity)")}` +
-          `&user_id=eq.${user.id}&order=created_at.desc&limit=10`),
+        supabaseBrowser
+          .from("orders")
+          .select(`
+            id, number, total, status, created_at,
+            items:order_items(product_title, quantity)
+          `)
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(10),
 
         // Избранное
-        pgrstGet<CustomerDashboardData["favorites"][number]>("product_favorites",
-          `select=${encodeURIComponent("id,product_id,product:products(id,title,price)")}` +
-          `&user_id=eq.${user.id}&order=created_at.desc&limit=20`),
+        supabaseBrowser
+          .from("product_favorites")
+          .select(`
+            id, product_id,
+            product:products(id, title, price)
+          `)
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(20),
 
         // Активные inquiries
-        pgrstGet<CustomerDashboardData["activeInquiriesList"][number]>("inquiries",
-          `select=id,event_type,city,status,negotiations_count,expires_at` +
-          `&user_id=eq.${user.id}&status=eq.open&order=submitted_at.desc&limit=5`),
+        supabaseBrowser
+          .from("inquiries")
+          .select("id, event_type, city, status, negotiations_count, expires_at")
+          .eq("user_id", user.id)
+          .in("status", ["open"])
+          .order("submitted_at", { ascending: false })
+          .limit(5),
 
-        // Активные negotiations (count считаем по строкам — эквивалент head:true)
-        pgrstGet<{ id: string; status: string }>("negotiations",
-          `select=id,status&user_id=eq.${user.id}` +
-          `&status=${encodeURIComponent('in.("pending_confectioner","quoted","counter_offered")')}`),
+        // Активные negotiations
+        supabaseBrowser
+          .from("negotiations")
+          .select("id, status", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .in("status", ["pending_confectioner", "quoted", "counter_offered"]),
 
-        // Профиль (для бонусов) — single-строка: limit=1 + take(0)
-        pgrstGet<{ bonus_balance: number | null; loyalty_level: string | null }>("profiles",
-          `select=bonus_balance,loyalty_level&id=eq.${user.id}&limit=1`),
-
-        // Считаем completed orders и total spent
-        pgrstGet<{ total: number | null; status: string }>("orders",
-          `select=total,status&user_id=eq.${user.id}`),
+        // Профиль (для бонусов)
+        supabaseBrowser
+          .from("profiles")
+          .select("bonus_balance, loyalty_level")
+          .eq("id", user.id)
+          .single(),
       ]);
 
-      const profile = profileRows[0];
-      const completedOrders = allOrders.filter(
-        (o) => o.status === "COMPLETED" || o.status === "DELIVERED"
+      // Считаем completed orders и total spent
+      const allOrdersRes = await supabaseBrowser
+        .from("orders")
+        .select("total, status")
+        .eq("user_id", user.id);
+
+      const completedOrders = (allOrdersRes.data || []).filter(
+        (o: { status: string }) => o.status === "COMPLETED" || o.status === "DELIVERED"
       );
 
       return {
         stats: {
-          activeOrders: allOrders.filter(
-            (o) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(o.status)
+          activeOrders: (allOrdersRes.data || []).filter(
+            (o: { status: string }) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(o.status)
           ).length,
           completedOrders: completedOrders.length,
-          bonusBalance: profile?.bonus_balance || 0,
-          loyaltyLevel: profile?.loyalty_level || "BRONZE",
-          favoritesCount: favorites.length,
-          activeInquiries: inquiries.length,
-          activeNegotiations: negotiations.length,
-          totalSpent: completedOrders.reduce((sum, o) => sum + (o.total || 0), 0),
+          bonusBalance: profileRes.data?.bonus_balance || 0,
+          loyaltyLevel: profileRes.data?.loyalty_level || "BRONZE",
+          favoritesCount: favoritesRes.data?.length || 0,
+          activeInquiries: inquiriesRes.data?.length || 0,
+          activeNegotiations: negotiationsRes.count || 0,
+          totalSpent: completedOrders.reduce(
+            (sum: number, o: { total: number }) => sum + (o.total || 0),
+            0
+          ),
         },
-        recentOrders,
-        favorites,
-        activeInquiriesList: inquiries,
+        recentOrders: (ordersRes.data || []) as unknown as CustomerDashboardData["recentOrders"],
+        favorites: (favoritesRes.data || []) as unknown as CustomerDashboardData["favorites"],
+        activeInquiriesList: (inquiriesRes.data || []) as unknown as CustomerDashboardData["activeInquiriesList"],
       };
     },
     staleTime: 30 * 1000,
@@ -319,137 +276,170 @@ export function useConfectionerDashboard() {
   return useQuery<ConfectionerDashboardData>({
     queryKey: ["confectioner-dashboard"],
     queryFn: async () => {
-      // Аутентификация: единый app-JWT (sessionStorage, @/lib/api-client).
-      // supabaseBrowser.auth.getUser() (GoTrue) в локальном runtime всегда
-      // пуст → вкладки дашборда показывали «Не авторизован» при живой
-      // сессии (подтверждено браузерной приёмкой: заказ UK-2026-985818
-      // существовал, кабинет был недоступен).
-      const user = appSessionUser();
+      const { data: { user } } = await supabaseBrowser.auth.getUser();
       if (!user) throw new Error("Не авторизован");
 
-      // Те же PostgREST-запросы (тот же шим /rest/v1, та же SQL-семантика),
-      // но с Bearer app-JWT: supabaseBrowser шлёт только anon-key → роль anon
-      // → пустые выборки даже после замены гейта.
-      const [inquiries, negotiations, activeOrders, pendingOrders, products] = await Promise.all([
-        pgrstGet<ConfectionerDashboardData["incomingInquiries"][number]>("inquiries",
-          `select=${encodeURIComponent("id,event_type,base,filling,servings,city,delivery_date,estimated_price,expires_at,user_id")}` +
-          `&status=eq.open&order=submitted_at.desc&limit=10`),
-        pgrstGet<{ id: string; status: string; quoted_price: number | null; inquiry_id: string }>("negotiations",
-          `select=id,status,quoted_price,inquiry_id&confectioner_id=eq.${user.id}` +
-          `&status=${encodeURIComponent('in.("pending_confectioner","quoted","counter_offered")')}&order=created_at.desc`),
-        pgrstGet<ConfectionerDashboardData["activeOrders"][number]>("orders",
-          `select=${encodeURIComponent("id,number,user_id,total,status,delivery_date,delivery_address,items:order_items(product_title,quantity)")}` +
-          `&confectioner_id=eq.${user.id}&status=${encodeURIComponent('in.("CONFIRMED","PREPARING","READY","IN_DELIVERY")')}` +
-          `&order=${encodeURIComponent("delivery_date.asc.nullsfirst")}&limit=10`),
-        // Новые заказы (PENDING) — без них новая заявка не видна нигде в кабинете
-        pgrstGet<ConfectionerDashboardData["pendingOrders"][number]>("orders",
-          `select=${encodeURIComponent("id,number,user_id,total,status,delivery_date,delivery_address,items:order_items(product_title,quantity)")}` +
-          `&confectioner_id=eq.${user.id}&status=eq.PENDING&order=created_at.desc&limit=10`),
-        pgrstGet<{ id: string; title: string; price: number; status: string; is_featured: boolean | null }>("products",
-          `select=id,title,price,status,is_featured&confectioner_id=eq.${user.id}&deleted_at=is.null&order=created_at.desc`),
+      const [inquiriesRes, negotiationsRes, activeOrdersRes, productsRes] = await Promise.all([
+        // Входящие inquiries (открытые в городе кондитера)
+        supabaseBrowser
+          .from("inquiries")
+          .select(`
+            id, event_type, base, filling, servings, city, delivery_date,
+            estimated_price, expires_at, user_id
+          `)
+          .eq("status", "open")
+          .order("submitted_at", { ascending: false })
+          .limit(10),
+
+        // Активные negotiations для этого кондитера
+        supabaseBrowser
+          .from("negotiations")
+          .select("id, status, quoted_price, inquiry_id")
+          .eq("confectioner_id", user.id)
+          .in("status", ["pending_confectioner", "quoted", "counter_offered"])
+          .order("created_at", { ascending: false }),
+
+        // Активные заказы (где confectioner_id = user.id)
+        supabaseBrowser
+          .from("orders")
+          .select(`
+            id, number, user_id, total, status, delivery_date, delivery_address,
+            items:order_items(product_title, quantity)
+          `)
+          .eq("confectioner_id", user.id)
+          .in("status", ["CONFIRMED", "PREPARING", "READY", "IN_DELIVERY"])
+          .order("delivery_date", { ascending: true, nullsFirst: false })
+          .limit(10),
+
+        // Товары кондитера
+        supabaseBrowser
+          .from("products")
+          .select("id, title, price, status, is_featured")
+          .eq("confectioner_id", user.id)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
       ]);
 
-      // Платежи по активным заказам (отдельный запрос, зависит от orderIds).
-      // number НЕ встраиваем (orders!inner — шим не резолвит связь из payments);
-      // номер берём из уже загруженных activeOrders (Map по id).
-      const orderIds = activeOrders.map((o) => o.id);
-      const numberByOrderId = new Map(activeOrders.map((o) => [o.id, o.number] as const));
-      let recentEarnings: ConfectionerDashboardData["recentEarnings"] = [];
+      // Получаем платежи для активных заказов (отдельный запрос, т.к. зависит от orderIds)
+      const orderIds = (activeOrdersRes.data || []).map((o: { id: string }) => o.id);
+      let paymentsRes = { data: [] as Array<{ id: string; amount: number; status: string; created_at: string; order?: { number: string } }> };
       if (orderIds.length > 0) {
-        const pays = await pgrstGet<{ id: string; amount: number; status: string; created_at: string; order_id: string }>("payments",
-          `select=id,amount,status,created_at,order_id` +
-          `&status=eq.succeeded&order_id=${encodeURIComponent(`in.(${orderIds.join(",")})`)}` +
-          `&order=created_at.desc&limit=10`);
-        recentEarnings = pays.map((p) => {
-          const num = numberByOrderId.get(p.order_id);
-          return { ...p, order: num ? { number: num } : undefined };
-        });
+        const { data: payData } = await supabaseBrowser
+          .from("payments")
+          .select(`
+            id, amount, status, created_at,
+            order:orders!inner(number)
+          `)
+          .eq("status", "succeeded")
+          .in("order_id", orderIds)
+          .order("created_at", { ascending: false })
+          .limit(10);
+        paymentsRes.data = (payData || []) as unknown as Array<{ id: string; amount: number; status: string; created_at: string; order?: { number: string } }>;
       }
 
-      // Завершённые заказы + суммарный доход
-      const completedOrders = await pgrstGet<{ id: string; total: number; status: string }>("orders",
-        `select=id,total,status&confectioner_id=eq.${user.id}` +
-        `&status=${encodeURIComponent('in.("COMPLETED","DELIVERED")')}`);
-      const totalEarnings = completedOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+      // Считаем completed + total earnings
+      const completedOrdersRes = await supabaseBrowser
+        .from("orders")
+        .select("id, total, status", { count: "exact", head: false })
+        .eq("confectioner_id", user.id)
+        .in("status", ["COMPLETED", "DELIVERED"]);
+
+      const totalEarnings = (completedOrdersRes.data || []).reduce(
+        (sum: number, o: { total: number }) => sum + (o.total || 0),
+        0
+      );
 
       return {
         stats: {
-          activeNegotiations: negotiations.length,
-          pendingInquiries: inquiries.length,
-          activeOrders: activeOrders.length,
-          completedOrders: completedOrders.length,
+          activeNegotiations: negotiationsRes.data?.length || 0,
+          pendingInquiries: inquiriesRes.data?.length || 0,
+          activeOrders: activeOrdersRes.data?.length || 0,
+          completedOrders: completedOrdersRes.count || 0,
           totalEarnings,
           rating: 0, // TODO: считать из reviews
-          productsCount: products.length,
-          publishedProducts: products.filter((p) => p.status === "published").length,
+          productsCount: productsRes.data?.length || 0,
+          publishedProducts: (productsRes.data || []).filter(
+            (p: { status: string }) => p.status === "published"
+          ).length,
         },
-        incomingInquiries: inquiries,
-        activeOrders,
-        pendingOrders,
-        recentEarnings,
+        incomingInquiries: (inquiriesRes.data || []) as unknown as ConfectionerDashboardData["incomingInquiries"],
+        activeOrders: (activeOrdersRes.data || []) as unknown as ConfectionerDashboardData["activeOrders"],
+        recentEarnings: (paymentsRes.data || []) as unknown as ConfectionerDashboardData["recentEarnings"],
       };
     },
     staleTime: 30 * 1000,
   });
 }
 
-/** Supplier dashboard — заказы, товары, склад, доход.
- * Аутентификация: единый app-JWT (как в useConfectionerDashboard, 0a8de5d).
- * Дефект исправлен: inventory_items не имеет колонки confectioner_id —
- * владелец склада определяется owner_id (RLS inventory_own).
- */
+/** Supplier dashboard — заказы, товары, склад, доход */
 export function useSupplierDashboard() {
   return useQuery<SupplierDashboardData>({
     queryKey: ["supplier-dashboard-v2"],
     queryFn: async () => {
-      const user = appSessionUser();
+      const { data: { user } } = await supabaseBrowser.auth.getUser();
       if (!user) throw new Error("Не авторизован");
 
-      const [products, orders, inventory] = await Promise.all([
+      const [productsRes, ordersRes, inventoryRes] = await Promise.all([
         // Товары поставщика (через products.confectioner_id — supplier тоже кондитер в v1.0)
-        pgrstGet<{ id: string; title: string; price: number; status: string; is_featured: boolean | null }>("products",
-          `select=id,title,price,status,is_featured&confectioner_id=eq.${user.id}` +
-          `&deleted_at=is.null&order=created_at.desc`),
+        supabaseBrowser
+          .from("products")
+          .select("id, title, price, status, is_featured")
+          .eq("confectioner_id", user.id)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
 
         // Заказы где есть товары этого поставщика (через order_items)
-        pgrstGet<{ id: string; number: string; total: number; status: string; created_at: string; items: unknown[] }>("orders",
-          `select=${encodeURIComponent("id,number,total,status,created_at,items:order_items(product_id,quantity)")}` +
-          `&confectioner_id=eq.${user.id}&order=created_at.desc&limit=10`),
+        supabaseBrowser
+          .from("orders")
+          .select(`
+            id, number, total, status, created_at,
+            items:order_items(product_id, quantity)
+          `)
+          .eq("confectioner_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(10),
 
-        // Склад поставщика: владелец — owner_id (колонки confectioner_id в таблице нет)
-        pgrstGet<{ id: string; quantity: number; cost_per_unit: number | null; min_quantity: number | null }>("inventory_items",
-          `select=id,quantity,cost_per_unit,min_quantity&owner_id=eq.${user.id}`),
+        // Inventory items (если есть в schema)
+        supabaseBrowser
+          .from("inventory_items")
+          .select("id, quantity, cost_per_unit, min_quantity")
+          .eq("confectioner_id", user.id),
       ]);
 
-      const totalProducts = products.length;
-      const lowStockItems = inventory.filter(
-        (i) => i.quantity <= (i.min_quantity ?? 0)
+      const totalProducts = productsRes.data?.length || 0;
+      const lowStockItems = (inventoryRes.data || []).filter(
+        (i: { quantity: number; min_quantity: number }) => i.quantity <= i.min_quantity
       ).length;
 
       // Доход = сумма succeeded платежей для заказов этого поставщика
-      const orderIds = orders.map((o) => o.id);
+      const orderIds = (ordersRes.data || []).map((o: { id: string }) => o.id);
       let revenue = 0;
       if (orderIds.length > 0) {
-        const payments = await pgrstGet<{ amount: number | null }>("payments",
-          `select=amount&status=eq.succeeded` +
-          `&order_id=${encodeURIComponent(`in.(${orderIds.join(",")})`)}`);
-        revenue = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const { data: payments } = await supabaseBrowser
+          .from("payments")
+          .select("amount")
+          .eq("status", "succeeded")
+          .in("order_id", orderIds);
+        revenue = (payments || []).reduce(
+          (sum: number, p: { amount: number }) => sum + (p.amount || 0),
+          0
+        );
       }
 
       return {
         stats: {
-          activeOrders: orders.filter(
-            (o) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(o.status)
+          activeOrders: (ordersRes.data || []).filter(
+            (o: { status: string }) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(o.status)
           ).length,
-          completedOrders: orders.filter(
-            (o) => o.status === "COMPLETED"
+          completedOrders: (ordersRes.data || []).filter(
+            (o: { status: string }) => o.status === "COMPLETED"
           ).length,
           totalProducts,
           lowStockItems,
           revenue,
           rating: 0,
         },
-        recentOrders: orders.map((o) => ({
+        recentOrders: (ordersRes.data || []).map((o: { id: string; number: string; items: unknown[]; total: number; status: string; created_at: string }) => ({
           id: o.id,
           number: o.number,
           customer_name: "—", // TODO: join с user
@@ -458,7 +448,7 @@ export function useSupplierDashboard() {
           status: o.status,
           created_at: o.created_at,
         })),
-        products: products.map((p) => ({
+        products: (productsRes.data || []).map((p: { id: string; title: string; price: number; status: string; is_featured: boolean }) => ({
           id: p.id,
           title: p.title,
           price: p.price,
@@ -471,134 +461,155 @@ export function useSupplierDashboard() {
   });
 }
 
-/** Courier dashboard — активные доставки, история, заработок.
- * Аутентификация: единый app-JWT (как в useConfectionerDashboard, 0a8de5d).
- * Выборки ограничены courier_id = auth.uid() + RLS deliveries_select_own.
- */
+/** Courier dashboard — активные доставки, история, заработок */
 export function useCourierDashboard() {
   return useQuery<CourierDashboardData>({
     queryKey: ["courier-dashboard-v2"],
     queryFn: async () => {
-      const user = appSessionUser();
-      if (!user) throw new Error("Не авторизован");
-
-      const today = new Date(new Date().setHours(0, 0, 0, 0));
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-
-      const [activeDeliveries, todayCompleted, monthCompleted] = await Promise.all([
-        // Активные доставки (assigned или on_the_way)
-        pgrstGet<CourierDashboardData["activeDeliveries"][number]>("deliveries",
-          `select=${encodeURIComponent("id,order_id,address,status,estimated_time,cost,courier_earnings")}` +
-          `&courier_id=eq.${user.id}` +
-          `&status=${encodeURIComponent('in.("assigned","picked_up","on_the_way")')}` +
-          `&order=created_at.desc`),
-
-        // Сегодня завершённые
-        pgrstGet<CourierDashboardData["recentCompleted"][number]>("deliveries",
-          `select=${encodeURIComponent("id,order_id,address,delivered_at,cost,courier_earnings")}` +
-          `&courier_id=eq.${user.id}&status=eq.delivered` +
-          `&delivered_at=gte.${encodeURIComponent(today.toISOString())}` +
-          `&order=delivered_at.desc`),
-
-        // За месяц завершённые (для подсчёта earnings)
-        pgrstGet<{ courier_earnings: number | null; cost: number | null }>("deliveries",
-          `select=courier_earnings,cost&courier_id=eq.${user.id}&status=eq.delivered` +
-          `&delivered_at=gte.${encodeURIComponent(monthStart.toISOString())}`),
-      ]);
-
-      // Этап 5: реальные номера заказов (orders.number, формат 'UK-YYYY-NNNNNN')
-      // вместо UUID deliveries.order_id в UI. Один батч-запрос по всем order_id.
-      const orderIds = [...new Set(
-        [...activeDeliveries, ...todayCompleted].map((d) => d.order_id).filter(Boolean)
-      )];
-      let numberById = new Map<string, string>();
-      if (orderIds.length > 0) {
-        try {
-          const orderRows = await pgrstGet<{ id: string; number: string | null }>("orders",
-            `select=id,number&id=${encodeURIComponent(`in.(${orderIds.join(",")})`)}`);
-          numberById = new Map(orderRows.map((o) => [o.id, o.number || ""]));
-        } catch (e) {
-          // номера — cosmetic-дополнение: провал не роняет дашборд (упадём на UUID)
-          console.warn("[courier-dashboard] order numbers fetch:", (e as Error)?.message);
-        }
+      // Единый app-session API: не читаем deliveries напрямую из браузера,
+      // потому что фактическое назначение хранится в orders.courier_id.
+      const response = await fetch("/api/courier/dashboard", {
+        headers: await getSessionAuthHeaders(),
+        credentials: "include",
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || `Не удалось загрузить кабинет курьера (HTTP ${response.status})`);
       }
-      const withNumber = <T extends { order_id: string }>(rows: T[]): (T & { orderNumber: string | null })[] =>
-        rows.map((r) => ({ ...r, orderNumber: numberById.get(r.order_id) || null }));
-
-      // A-3: каноническое правило заработка — зафиксированная выплата
-      // (courier_earnings); для legacy-строк (delivered до появления sync,
-      // courier_earnings=NULL) — снимок deliveries.cost. Данные НЕ перезаписываем.
-      const earningsOf = (d: { courier_earnings: number | null; cost?: number | null }) =>
-        d.courier_earnings ?? d.cost ?? 0;
-      const earningsToday = todayCompleted.reduce(
-        (sum, d) => sum + earningsOf(d),
-        0
-      );
-      const earningsMonth = monthCompleted.reduce(
-        (sum, d) => sum + earningsOf(d),
-        0
-      );
 
       return {
-        stats: {
-          activeDeliveries: activeDeliveries.length,
-          completedToday: todayCompleted.length,
-          earningsToday,
-          earningsMonth,
-          rating: 0, // TODO: считать из reviews
-        },
-        activeDeliveries: withNumber(activeDeliveries),
-        // A-3: UI показывает эффективный заработок (courier_earnings ?? cost),
-        // чтобы legacy-строки без зафиксированной выплаты не рендерились как null.
-        recentCompleted: withNumber(todayCompleted).map((d) => ({
-          ...d,
-          courier_earnings: earningsOf(d),
+        stats: payload.stats,
+        activeDeliveries: (payload.activeDeliveries || []).map((delivery: any) => ({
+          id: delivery.id,
+          order_id: delivery.orderId,
+          address: delivery.address || "—",
+          status: delivery.status,
+          estimated_time: delivery.deliveryTime || null,
+          cost: Number(delivery.cost || 0),
+          courier_earnings: 0,
         })),
-      };
+        recentCompleted: (payload.history || []).map((delivery: any) => ({
+          id: delivery.id,
+          order_id: delivery.orderId,
+          address: delivery.address || "—",
+          delivered_at: delivery.completedAt,
+          courier_earnings: Number(delivery.earnings || 0),
+        })),
+      } as CourierDashboardData;
     },
     staleTime: 30 * 1000,
   });
 }
 
-/** Admin dashboard — KPI, последние заказы, рост платформы.
- * Данные берутся с серверного /api/admin/dashboard (service_role на сервере):
- * прямой браузерный запрос к Supabase упирался в RLS и показывал нули.
- * Сервер — единственный источник правды (мастер-промпт §4/§17.2).
- */
+/** Admin dashboard — KPI, последние заказы, рост платформы */
 export function useAdminDashboard() {
   return useQuery<AdminDashboardData>({
     queryKey: ["admin-dashboard-v2"],
     queryFn: async () => {
-      const res = await csrfFetch("/api/admin/dashboard");
-      if (!res.ok) {
-        throw new Error(`Не удалось загрузить статистику (HTTP ${res.status})`);
+      // Admin видит все данные через RLS (profile admin_all policy)
+      const today = new Date(new Date().setHours(0, 0, 0, 0));
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+      const [usersCountRes, newUsersRes, ordersCountRes, revenueTodayRes, revenueMonthRes, recentOrdersRes] = await Promise.all([
+        // Всего пользователей
+        supabaseBrowser.from("profiles").select("id", { count: "exact", head: true }),
+
+        // Новых сегодня
+        supabaseBrowser.from("profiles").select("id", { count: "exact", head: true })
+          .gte("created_at", today.toISOString()),
+
+        // Всего заказов
+        supabaseBrowser.from("orders").select("id", { count: "exact", head: true }),
+
+        // Доход за сегодня
+        supabaseBrowser.from("payments")
+          .select("amount")
+          .eq("status", "succeeded")
+          .gte("created_at", today.toISOString()),
+
+        // Доход за месяц
+        supabaseBrowser.from("payments")
+          .select("amount")
+          .eq("status", "succeeded")
+          .gte("created_at", monthStart.toISOString()),
+
+        // Последние заказы
+        supabaseBrowser
+          .from("orders")
+          .select(`
+            id, number, total, status, created_at,
+            user:profiles!orders_user_id_fkey(email)
+          `)
+          .order("created_at", { ascending: false })
+          .limit(10),
+      ]);
+
+      const revenueToday = (revenueTodayRes.data || []).reduce(
+        (sum: number, p: { amount: number }) => sum + (p.amount || 0),
+        0
+      );
+      const revenueMonth = (revenueMonthRes.data || []).reduce(
+        (sum: number, p: { amount: number }) => sum + (p.amount || 0),
+        0
+      );
+
+      // Рост платформы за 6 месяцев
+      const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1);
+      const { data: monthlyUsers } = await supabaseBrowser
+        .from("profiles")
+        .select("created_at")
+        .gte("created_at", sixMonthsAgo.toISOString());
+
+      const { data: monthlyOrders } = await supabaseBrowser
+        .from("orders")
+        .select("created_at")
+        .gte("created_at", sixMonthsAgo.toISOString());
+
+      const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+      const platformGrowth: Array<{ month: string; users: number; orders: number }> = [];
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const nextDate = new Date(today.getFullYear(), today.getMonth() - i + 1, 1);
+        const monthLabel = monthNames[date.getMonth()];
+
+        const usersCount = (monthlyUsers || []).filter(
+          (u: { created_at: string }) => {
+            const d = new Date(u.created_at);
+            return d >= date && d < nextDate;
+          }
+        ).length;
+
+        const ordersCount = (monthlyOrders || []).filter(
+          (o: { created_at: string }) => {
+            const d = new Date(o.created_at);
+            return d >= date && d < nextDate;
+          }
+        ).length;
+
+        platformGrowth.push({ month: monthLabel, users: usersCount, orders: ordersCount });
       }
-      const raw = (await res.json()) as {
-        stats: AdminDashboardData["stats"];
-        recentOrders?: Array<{
-          id: string;
-          number: string;
-          customer?: string;
-          customer_email?: string;
-          total: number;
-          status: string;
-          date?: string;
-          created_at?: string;
-        }>;
-        platformGrowth?: AdminDashboardData["platformGrowth"];
-      };
 
       return {
-        stats: raw.stats,
-        recentOrders: (raw.recentOrders || []).map((o) => ({
-          id: o.id,
-          number: o.number,
-          customer_email: o.customer_email || o.customer || "—",
-          total: Number(o.total),
-          status: o.status,
-          created_at: o.created_at || o.date || "",
+        stats: {
+          totalUsers: usersCountRes.count || 0,
+          newUsersToday: newUsersRes.count || 0,
+          totalOrders: ordersCountRes.count || 0,
+          revenueToday,
+          revenueMonth,
+          activeTickets: 0, // TODO: из CRM миграции
+          pendingPayouts: 0, // TODO: из payouts
+          fraudAlerts: 0, // TODO: из fraud_logs
+        },
+        recentOrders: (recentOrdersRes.data || []).map((o: Record<string, unknown>) => ({
+          id: o.id as string,
+          number: o.number as string,
+          customer_email: (o.user as { email?: string })?.email || "—",
+          total: o.total as number,
+          status: o.status as string,
+          created_at: o.created_at as string,
         })) as AdminDashboardData["recentOrders"],
-        platformGrowth: raw.platformGrowth || [],
+        platformGrowth,
       };
     },
     staleTime: 30 * 1000,

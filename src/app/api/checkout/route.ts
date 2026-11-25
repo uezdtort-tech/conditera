@@ -8,12 +8,10 @@
  *   2. Zod-валидация тела (quantity 1..999, cartItems: product_id | custom,
  *      адрес обязателен только для deliveryType=delivery)
  *   3. Товары из products (admin client): published + СЕРВЕРНЫЙ пересчёт цены:
- *      base = get_product_price_at(now) (0083; legacy-фолбэк version_id NULL →
- *      products.price) + валидированные модификаторы (fillings jsonb);
+ *      unit_price = products.price + валидированные модификаторы (fillings jsonb);
  *      custom-позиции конструктора — validateBuilderConfig + calculateBuilderPrice
  *      (ЕДИНАЯ формула с клиентом, src/lib/cake-builder-pricing.ts).
  *      Неизвестный модификатор → 422 (не молчаливое игнорирование).
- *      PR-2C: order_items.price_version_id + metadata.pricing (аудит привязки).
  *   4. Промокод — серверная истина (lib/promo-codes): discount в рублях,
  *      free_delivery → delivery_cost = 0; orders.promo_code/promo_discount.
  *   5. Доставка: calculateDelivery (единая формула с клиентом); pickup → 0.
@@ -33,16 +31,9 @@ import { invokeInternalEdgeFunction } from "@/lib/supabase/edge-functions";
 // GoTrue (/auth/v1 — 501-стаб в локальном runtime) и всегда отдавал 401.
 import { getUserFromRequest } from "@/lib/auth";
 import { calculateDelivery } from "@/lib/finance";
-import { getPool } from "@/lib/postgrest/pool";
-import {
-  resolveCurrentPriceSafe,
-  syncEffectiveProductPricesSafe,
-} from "@/lib/price-version";
 import { checkAcceptance } from "@/lib/ops/acceptance"; // P0.5 §29: capacity/inventory/deadline gate
-import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
+import { createPayment, isYookassaConfigured, isLocalE2EPaymentStubEnabled } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
-import { loadConfectionerOrderSnapshot } from "@/lib/confectioner-tariff";
-import { recordFinancialEntrySafe } from "@/lib/financial-ledger";
 import {
   validatePromoCode,
   applyPromoCodeToOrder,
@@ -53,20 +44,9 @@ import {
   validateBuilderConfig,
   calculateBuilderPrice,
   describeBuilderConfig,
-  type BuilderFillingOption,
+  mergeBuilderFillings,
   type CakeBuilderConfig,
 } from "@/lib/cake-builder-pricing";
-import { loadBuilderFillingsForValidation } from "@/lib/builder-fillings-server";
-import { buildAcceptanceSnapshot, type AcceptanceSnapshot } from "@/lib/ops/snapshot";
-// Z-v32 Этап 8 (PR-5): серверная фиксация согласованной цены индивидуального
-// предложения (negotiations.valid_until 0085) — цена приходит ТОЛЬКО из БД.
-import {
-  applyNegotiationPriceBinding,
-  buildOfferBindingMeta,
-  validateNegotiationBinding,
-  type NegotiationRecord,
-  type OfferBindingMeta,
-} from "@/lib/negotiation-binding";
 
 /** Разрешённые ключи кастомизации товара (product-page: filling/coating/decoration/inscription). */
 const ALLOWED_ATTR_KEYS = new Set(["filling", "coating", "decoration", "inscription"]);
@@ -96,10 +76,9 @@ const CheckoutSchema = z
     promoCode: z.string().max(40).optional(),
     customerName: z.string().min(2).max(100),
     customerPhone: z.string().min(10).max(20),
-    paymentMethod: z.string().max(30).optional(),
-    // Z-v32 (PR-5): опциональная привязка к принятым переговорам — цена
-    // подменяется сервером из negotiations.quoted_price (в теле цены нет).
-    negotiationId: z.string().uuid().optional(),
+    // Первый production поддерживает только online card/SBP через YooKassa.
+    // cash/split без отдельного контура инкассации/эскроу нельзя принимать.
+    paymentMethod: z.enum(["yookassa", "card", "sbp"]).optional(),
   })
   .superRefine((val, ctx) => {
     // Каждая позиция: либо товар, либо custom-конфигурация конструктора
@@ -188,7 +167,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .from("orders")
         .select("id, number, total, subtotal, delivery_cost, discount, created_at")
         .eq("user_id", user.id)
-        .eq("metadata->>idempotency_key", idempotencyKey)
+        .contains("metadata", { idempotency_key: idempotencyKey })
         .gte("created_at", since)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -220,43 +199,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       notes,
       customerName,
       customerPhone,
-      paymentMethod,
-      negotiationId,
     } = parsed.data;
 
-    // Z-v32 (PR-5): валидация binding переговоров ДО пересчёта позиций.
-    // Владелец/статус/истечение — серверное решение (403/409/410); цена
-    // из negotiations.quoted_price подставляется ниже в custom-позицию.
-    let negotiationBinding: NegotiationRecord | null = null;
-    if (negotiationId) {
-      // ZV33-4b D1: order_id в селекте — гвард «один заказ на предложение»
-      // (повторный checkout с новым Idempotency-Key → 409, ДО создания заказа).
-      const { data: negRow } = await supabaseAdmin
-        .from("negotiations")
-        .select("id, user_id, status, quoted_price, quoted_delivery_cost, valid_until, order_id")
-        .eq("id", negotiationId)
-        .maybeSingle();
-      if (!negRow) {
-        return NextResponse.json(
-          { error: "Переговоры не найдены" },
-          { status: 404 }
-        );
-      }
-      const decision = validateNegotiationBinding(
-        negRow as unknown as NegotiationRecord,
-        user.id
+    // В первый оплачиваемый production-путь допускаются только позиции,
+    // для которых складской расход полностью описан recipe_ingredients.
+    // Конструктор и модификаторы начинки/покрытия/декора пока не имеют
+    // производственной спецификации, поэтому их нельзя принимать как
+    // гарантированно исполнимый оплаченный заказ.
+    const unsupportedProductionItems = cartItems.filter((item) =>
+      Boolean(item.custom) ||
+      Object.entries(item.selected_attributes ?? {}).some(
+        ([key, value]) => key !== "inscription" && typeof value === "string" && value.trim().length > 0
+      )
+    );
+    if (unsupportedProductionItems.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Некоторые позиции требуют производственной спецификации",
+          message: "Оплачиваемый заказ пока доступен для товаров с настроенным рецептом без изменений состава, размера, начинки, покрытия и декора. Для индивидуального торта отправьте запрос на согласование с кондитером.",
+          code: "PRODUCTION_SPEC_REQUIRED",
+        },
+        { status: 422 }
       );
-      if (!decision.ok) {
-        return NextResponse.json(
-          {
-            error: decision.code,
-            message: decision.message,
-            ...(decision.expiredAt ? { expiredAt: decision.expiredAt } : {}),
-          },
-          { status: decision.httpStatus }
-        );
-      }
-      negotiationBinding = decision.negotiation;
     }
 
     // Контакт получателя — серверная валидация (P1-A7)
@@ -313,31 +277,52 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
       for (const p of products) productsMap.set(p.id, p);
-    }
 
-    // 3a. Начинки конструктора: DB (APPROVED + is_active) + mock — ЕДИНЫЙ справочник
-    // с /api/cart (loadBuilderFillingsForValidation). Fail-closed: ошибка БД → 503,
-    // молчаливого даунгрейда до mock нет — иначе cart↔checkout расходятся (cart
-    // отклонит начинку, checkout примет, или наоборот). Лениво: только когда
-    // в запросе есть custom-позиции.
-    let builderFillings: BuilderFillingOption[] = [];
-    if (customItems.length > 0) {
-      try {
-        builderFillings = await loadBuilderFillingsForValidation(supabaseAdmin);
-      } catch (e) {
-        console.error("[checkout] fillings catalog unavailable:", (e as Error).message);
+      // Один заказ — один производственный исполнитель. Смешанная корзина
+      // нескольких кондитеров не должна целиком назначаться владельцу первой
+      // позиции: это приводит к неверной себестоимости, рецептурам и выплатам.
+      const sellerIds = new Set(products.map((p) => p.confectioner_id).filter((id): id is string => Boolean(id)));
+      const hasUnassignedProduct = products.some((p) => !p.confectioner_id);
+      if (sellerIds.size > 1 || (sellerIds.size === 1 && hasUnassignedProduct)) {
         return NextResponse.json(
-          { error: "Каталог начинок временно недоступен, попробуйте позже" },
-          { status: 503 }
+          {
+            error: "В одной оплате могут быть товары только одного кондитера. Разделите корзину на отдельные заказы.",
+            code: "MULTIPLE_CONFECTIONERS",
+          },
+          { status: 422 }
         );
       }
     }
 
-    // 3b. Серверный пересчёт позиций (НЕ доверяем клиентской цене)
-    // PR-2C: перед резолвом цен — ленивый catch-up эффективных цен
-    // (best-effort: сбой синка НЕ валид checkout, резолв ниже работает по факту).
-    await syncEffectiveProductPricesSafe(getPool());
+    // Конструкторская позиция не несёт идентификатор продавца.
+    // Не смешиваем её с товарами конкретного кондитера в одном заказе:
+    // иначе назначение и производственная ответственность будут выдуманы.
+    if (productItems.length > 0 && customItems.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Заказ из конструктора оформляется отдельно от товаров витрины.",
+          code: "MIXED_CUSTOM_AND_MARKETPLACE_ITEMS",
+        },
+        { status: 422 }
+      );
+    }
 
+    // 3a. Начинки конструктора: DB (APPROVED) + mock — единый справочник с клиентом
+    let builderFillings = mergeBuilderFillings(null);
+    if (customItems.length > 0) {
+      try {
+        const { data: dbFillings } = await supabaseAdmin
+          .from("fillings")
+          .select("id, name, price_multiplier")
+          .eq("status", "APPROVED")
+          .limit(500);
+        builderFillings = mergeBuilderFillings(dbFillings || []);
+      } catch (e) {
+        console.warn("[checkout] fillings load failed, using mock catalog:", (e as Error).message);
+      }
+    }
+
+    // 3b. Серверный пересчёт позиций (НЕ доверяем клиентской цене)
     interface ComputedItem {
       product_id: string | null;
       product_title: string;
@@ -345,26 +330,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       quantity: number;
       selected_attributes: Record<string, unknown> | null;
       total: number;
-      price_version_id: string | null; // PR-2C: привязка к версии цены (custom → NULL)
     }
     const orderItems: ComputedItem[] = [];
-
-    // PR-2C: кэш резолва цены на товар (одна позиция может повторяться в корзине)
-    const priceVersionCache = new Map<string, Awaited<ReturnType<typeof resolveCurrentPriceSafe>>>();
 
     for (const item of productItems) {
       const product = productsMap.get(item.product_id);
       if (!product) throw new Error(`Product ${item.product_id} not found`);
 
       const attrs: Record<string, unknown> = {};
-      // PR-2C: базовая цена — покрывающая now версия истории цен (0083).
-      // Legacy-фолбэк (version_id NULL) или ошибка БД → products.price как раньше.
-      if (!priceVersionCache.has(product.id)) {
-        priceVersionCache.set(product.id, await resolveCurrentPriceSafe(getPool(), product.id));
-      }
-      const resolvedPrice = priceVersionCache.get(product.id) ?? null;
-      let unitPrice = resolvedPrice ? resolvedPrice.amount : product.price; // рубли (НЕ копейки — см. seed/формат витрины)
-      let priceVersionId: string | null = resolvedPrice ? resolvedPrice.versionId : null;
+      let unitPrice = product.price; // рубли (НЕ копейки — см. seed/формат витрины)
 
       if (item.selected_attributes) {
         // Неизвестный ключ модификатора → 422 (не молчаливое игнорирование)
@@ -441,7 +415,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         quantity: item.quantity,
         selected_attributes: Object.keys(attrs).length > 0 ? attrs : null,
         total: unitPrice * item.quantity,
-        price_version_id: priceVersionId,
       });
     }
 
@@ -468,43 +441,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         quantity: item.quantity,
         selected_attributes: { ...cfg } as Record<string, unknown>, // снимок конфига — кондитер видит состав
         total: unitPrice * item.quantity,
-        price_version_id: null, // custom-позиция конструктора — версии цены нет
-      });
-    }
-
-    // Z-v32 (PR-5): фиксация согласованной цены — оверрайд единственной
-    // custom-позиции серверным quoted_price (копейки -> рубли). Ноль/несколько
-    // custom-позиций -> 422 (честный отказ, см. applyNegotiationPriceBinding).
-    // ДО reduce subtotal: оверрайд меняет total позиции.
-    let offerBindingMeta: OfferBindingMeta | null = null;
-    if (negotiationBinding) {
-      const applied = applyNegotiationPriceBinding(orderItems, negotiationBinding);
-      if (!applied.ok) {
-        return NextResponse.json(
-          { error: applied.code, message: applied.message },
-          { status: applied.httpStatus }
-        );
-      }
-      const bound = orderItems[applied.boundItemIndex];
-      bound.unit_price = applied.quotedPriceRub;
-      bound.total = applied.quotedPriceRub * bound.quantity;
-
-      // Якорь binding — revision-снимок, записанный в момент accept
-      // (change_reason='accepted'); для legacy-принятий без снимка — null.
-      const { data: acceptedRevision } = await supabaseAdmin
-        .from("negotiation_revisions")
-        .select("id")
-        .eq("negotiation_id", negotiationBinding.id)
-        .eq("change_reason", "accepted")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      offerBindingMeta = buildOfferBindingMeta({
-        negotiation: negotiationBinding,
-        quotedPriceRub: applied.quotedPriceRub,
-        revisionId: (acceptedRevision as { id: string } | null)?.id ?? null,
-        boundAt: new Date(),
       });
     }
 
@@ -515,11 +451,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       (productItems.length > 0
         ? productsMap.get(productItems[0].product_id)?.confectioner_id ?? null
         : null) ?? null;
-
-    // 3a-1. Тарифная/комиссионная/legal снапшоты кондитера (ЕДИНЫЙ хелпер с
-    // POST /api/orders): ищем confectioners по "userId" (auth.users UUID) и
-    // только approved; иначе payout-math падает в дефолт вместо тарифа.
-    const snapshot = await loadConfectionerOrderSnapshot(confectionerId);
 
     // 3.5 P0.5 §29: Acceptance Engine — проверка выполнимости ДО создания заказа.
     // Блокируем ТОЛЬКО недоступность; предупреждения не блокируют оплату.
@@ -559,12 +490,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           );
         }
       } catch (accErr) {
-        // Движок недоступен/ошибка — НЕ блокируем checkout (fail-open,
-        // документировано): заказ создаётся, риск пересчитается при назначении.
-        console.warn(
-          "[checkout] acceptance check failed (fail-open):",
+        // В production нельзя принимать оплату и обещать срок, если движок
+        // не смог проверить рецептуру/склад/мощность. Fail-closed защищает
+        // покупателя и кондитера от заведомо невыполнимого заказа.
+        console.error(
+          "[checkout] acceptance check failed:",
           accErr instanceof Error ? accErr.message : accErr
         );
+        if (process.env.NODE_ENV === "production") {
+          return NextResponse.json(
+            { error: "Не удалось проверить возможность изготовления заказа. Повторите попытку позже.", code: "ACCEPTANCE_UNAVAILABLE" },
+            { status: 503 }
+          );
+        }
       }
     }
 
@@ -574,7 +512,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // неоплачиваемым. Теперь незавершённая payment-конфигурация в
     // production — безопасная ошибка конфигурации ДО создания заказа;
     // dev/test сохраняют stub-поток.
-    if (!isYookassaConfigured() && process.env.NODE_ENV === "production") {
+    if (!isYookassaConfigured() && process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error(
         "[checkout] payment gateway not configured in production — refusing to create order (safe config error)"
       );
@@ -618,45 +556,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const total = subtotal + deliveryCost - discount; // рубли
 
-    // PR-2C: аудит привязки цен (metadata.pricing; existing-ключи metadata не трогаем —
-    // объект собирается ниже одним литералом, pricing добавляется отдельным ключом).
-    const pricingMeta = {
-      resolvedAt: new Date().toISOString(),
-      currency: "RUB" as const,
-      items: orderItems.map((i) => ({
-        productId: i.product_id,
-        priceVersionId: i.price_version_id,
-        unitPrice: i.unit_price,
-      })),
-      deliverySource: "server" as const,
-    };
-
-    // 4b. Z-v29: НЕИЗМЕНЯЕМЫЙ snapshot производственной потребности.
-    // Собирается сервером из БД в момент фиксации заказа и попадает В ТОТ ЖЕ
-    // INSERT orders (metadata.acceptance_snapshot) — запись атомарна с заказом.
-    // Клиент не может передать/подменить состав (в теле запроса поля нет).
-    // Правка рецепта после этой точки больше НЕ меняет разбор/приёмку заказа.
-    // Fail-closed: ошибка сборки → 503 ДО создания заказа (недопустима оплата
-    // без производственного снимка — ТЗ Z-v29 §5).
-    let acceptanceSnapshot: AcceptanceSnapshot | null = null;
-    if (productItems.length > 0) {
-      const built = await buildAcceptanceSnapshot({
-        items: productItems.map((c) => ({
-          product_id: c.product_id,
-          quantity: c.quantity,
-        })),
-        source: "checkout",
-      });
-      if (!built.ok) {
-        console.error("[checkout] acceptance snapshot build failed:", built.error);
-        return NextResponse.json(
-          { error: "Не удалось зафиксировать производственный состав заказа, попробуйте позже" },
-          { status: 503 }
-        );
-      }
-      acceptanceSnapshot = built.snapshot;
-    }
-
     // 5. Создаём order
     // NOTE: number генерируем в коде — триггер generate_order_number в локальном
     // PG падает (lpad(integer,...) не существует) и валил любую вставку без number.
@@ -678,24 +577,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         delivery_date: deliveryDate,
         delivery_type: deliveryType,
         notes,
-        payment_method: paymentMethod || "card",
+        payment_method: "yookassa",
         promo_code: appliedPromoCode,
         promo_discount: discount,
-        tariff_snapshot: snapshot.tariffSnapshot,
-        commission_rate_snapshot: snapshot.commissionRateSnapshot,
-        legal_status_snapshot: snapshot.legalStatusSnapshot,
         metadata: {
           cart_items: cartItems.map((c) => c.id ?? c.product_id ?? "custom").slice(0, 50),
           idempotency_key: idempotencyKey ?? null,
           contact: { name, phone },
-          // PR-2C: аудит привязки цен (версии цены + серверная доставка)
-          pricing: pricingMeta,
-          // Z-v32 (PR-5): аудит согласования индивидуальной цены
-          // (аддитивный ключ; negotiationId/revisionId/quotedPrice/validUntil)
-          ...(offerBindingMeta ? { offerBinding: offerBindingMeta } : {}),
-          // Z-v29: снимок производственной потребности на момент оформления
-          // (неизменяем после INSERT — ни один код-путь не обновляет orders.metadata).
-          ...(acceptanceSnapshot ? { acceptance_snapshot: acceptanceSnapshot } : {}),
         },
       })
       .select()
@@ -745,25 +633,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Откатываем order
       await supabaseAdmin.from("orders").delete().eq("id", order.id);
       return NextResponse.json({ error: "Ошибка создания позиций заказа" }, { status: 500 });
-    }
-
-    // Z-v32 (PR-5): связываем переговоры с заказом (negotiations.order_id —
-    // колонка 0004). Best-effort: сбой не валид заказ, идёт в лог.
-    // ZV33-4b D1: обновление УСЛОВНОЕ (только когда order_id ещё пуст) —
-    // параллельный/повторный checkout не может перезаписать чужую привязку
-    // (last-write-wins невозможен; первая связка выигрывает).
-    if (negotiationBinding) {
-      const { error: negLinkErr } = await supabaseAdmin
-        .from("negotiations")
-        .update({ order_id: order.id })
-        .eq("id", negotiationBinding.id)
-        .is("order_id", null);
-      if (negLinkErr) {
-        console.error(
-          "[checkout] negotiation order_id link failed:",
-          negLinkErr.message
-        );
-      }
     }
 
     // 5b-1. order.created — event log (P1.1 §3: dedup key, idempotent) + n8n.
@@ -826,7 +695,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           promoCodeId: appliedPromoId,
           orderId: order.id,
           discountRub: discount,
-          userId: user.id, // Этап 10 §C1: журнал promo_code_usages
         });
       } catch (promoErr) {
         console.warn("[checkout] promo apply failed (non-blocking):", (promoErr as Error).message);
@@ -837,35 +705,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let paymentUrl = `/checkout/success?orderId=${order.id}&demo=true`;
     let yookassaPaymentId: string | null = null;
 
-    if (!isYookassaConfigured()) {
-      console.warn(
-        "[checkout] YooKassa не настроена (YOOKASSA_SHOP_ID/YOOKASSA_SECRET_KEY) — stub payment URL"
+    const paymentResult = await createPayment({
+      amount: total, // рубли
+      description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
+      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${order.id}`,
+      orderId: order.id,
+    });
+
+    if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
+      console.error("[checkout] Yookassa error:", paymentResult.error);
+      // Заказ оставляем (можно повторить оплату через /api/payment/create),
+      // корзину НЕ чистим.
+      return NextResponse.json(
+        { error: "Ошибка создания платежа в Yookassa" },
+        { status: 502 }
       );
-    } else {
-      const paymentResult = await createPayment({
-        amount: total, // рубли
-        description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
-        returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${order.id}`,
-        orderId: order.id,
-      });
-
-      if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
-        console.error("[checkout] Yookassa error:", paymentResult.error);
-        // Заказ оставляем (можно повторить оплату через /api/payment/create),
-        // корзину НЕ чистим
-        return NextResponse.json(
-          { error: "Ошибка создания платежа в Yookassa" },
-          { status: 502 }
-        );
-      }
-
-      yookassaPaymentId = paymentResult.payment.id;
-      paymentUrl = paymentResult.payment.confirmation.confirmation_url;
     }
 
-    // 7. Запись в payments (существующие колонки 0002) + проверка ошибки.
-    // PAY-2: забираем id записи — нужен для журнала financial_ledger.
-    const { data: paymentRow, error: paymentError } = await supabaseAdmin
+    // В dev/E2E это mock_ ID, но он тоже обязателен в локальном ledger:
+    // webhook должен найти конкретную попытку оплаты, а не только order_id.
+    yookassaPaymentId = paymentResult.payment.id;
+    paymentUrl = paymentResult.payment.confirmation.confirmation_url;
+
+    // 7. Запись в payments (существующие колонки 0002) + проверка ошибки
+    const { error: paymentError } = await supabaseAdmin
       .from("payments")
       .insert({
         order_id: order.id,
@@ -875,38 +738,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         status: "pending",
         method: "yookassa",
         metadata: { confirmation_url: paymentUrl },
-      })
-      .select("id")
-      .single();
+      });
 
     if (paymentError) {
-      // Платёж у провайдера уже создан; webhook найдёт заказ по
-      // metadata.orderId (fallback), поэтому не откатываем — но логируем.
-      console.error("[checkout] Payment create error:", paymentError.message);
-    } else {
-      // PAY-2: журнал — платёж создан (lifecycle-запись, amount 0 — деньги
-      // ещё не двигались; финальное +amount напишет webhook payment.succeeded)
-      void recordFinancialEntrySafe({
-        entryType: "payment_created",
-        amount: 0,
-        paymentId: paymentRow?.id ?? null,
-        orderId: order.id,
-        actorId: user.id,
-        idempotencyKey: `pay-created:${yookassaPaymentId ?? paymentRow?.id ?? order.id}`,
-        metadata: {
-          provider: isYookassaConfigured() ? "yookassa" : "stub",
-          mode: process.env.NODE_ENV,
-          total,
-        },
-      });
+      // Confirmation URL ещё не возвращаем и корзину не очищаем, пока
+      // локальный ledger не подтверждён. Иначе capture может прийти без
+      // payment row, по которой можно сверить сумму и инициировать refund.
+      console.error("[checkout] Payment ledger insert failed:", paymentError.message);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать платёж. Повторите попытку оплаты." },
+        { status: 503 }
+      );
     }
 
     // 8. Корзину чистим только после успешного создания платежа
-    //    (раньше корзина стиралась даже если платёж не создался).
-    //    P1 «серверная корзина»: id от клиента — это client_ref позиции
-    //    (itemId Zustand-корзины), НЕ uuid cart_items. Удаление строго
-    //    в владении пользователя: .eq("user_id", user.id) — иначе admin-клиент
-    //    (RLS bypass) мог бы удалить ЧУЖИЕ строки по перебору uuid.
+    //    (раньше корзина стиралась даже если платёж не создался)
     const cartItemIds = cartItems
       .map((c) => c.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
@@ -914,8 +760,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const { error: cartClearError } = await supabaseAdmin
         .from("cart_items")
         .delete()
-        .in("client_ref", cartItemIds)
-        .eq("user_id", user.id);
+        .in("id", cartItemIds);
 
       if (cartClearError) {
         console.warn("[checkout] Cart clear error:", cartClearError.message);
@@ -990,7 +835,11 @@ async function buildReplayResponse(existing: {
   const paymentRow = payments?.[0] || null;
   const storedUrl = (paymentRow?.metadata as { confirmation_url?: string } | null)
     ?.confirmation_url;
-  const isStub = !paymentRow?.yookassa_payment_id;
+  // Отсутствующая строка payments НЕ означает demo-оплату: платёж мог
+  // быть создан у YooKassa, а запись в БД — временно не сохраниться.
+  // В этом случае возвращаем обычную success-страницу: она покажет pending
+  // и позволит повторить /api/payment/create с тем же orderId/idempotency.
+  const isStub = Boolean(paymentRow) && !paymentRow?.yookassa_payment_id;
 
   return {
     orderId: existing.id,

@@ -13,7 +13,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
-import { serverLogout } from "@/lib/api-client";
+import { serverLogout, csrfFetch } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -44,6 +44,28 @@ interface NotificationPrefs {
   push: boolean;
   telegram: boolean;
   sms: boolean;
+}
+
+interface ActiveSession {
+  id: string;
+  auth_method: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  device_label: string | null;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  isCurrent: boolean;
+}
+
+interface SecurityEvent {
+  id: string;
+  event_type: string;
+  severity: "info" | "warning" | "critical";
+  ip_address: string | null;
+  user_agent: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
 }
 
 interface ProfileSettingsProps {
@@ -119,6 +141,75 @@ export function ProfileSettings({ user: userProp, onLogout, onOpenAuth }: Profil
 
   // Удаление аккаунта
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
+
+  // Активные устройства и журнал безопасности аккаунта.
+  const [activeSessions, setActiveSessions] = React.useState<ActiveSession[]>([]);
+  const [securityEvents, setSecurityEvents] = React.useState<SecurityEvent[]>([]);
+  const [securityLoading, setSecurityLoading] = React.useState(false);
+  const [securityError, setSecurityError] = React.useState<string | null>(null);
+  const [revokingSession, setRevokingSession] = React.useState<string | null>(null);
+
+  const loadSecurityData = React.useCallback(async (): Promise<void> => {
+    if (!user?.id) return;
+    setSecurityLoading(true);
+    setSecurityError(null);
+    try {
+      const [sessionsResponse, eventsResponse] = await Promise.all([
+        fetch("/api/auth/sessions", { credentials: "same-origin", cache: "no-store" }),
+        fetch("/api/auth/security-events", { credentials: "same-origin", cache: "no-store" }),
+      ]);
+      if (!sessionsResponse.ok) throw new Error("Не удалось загрузить активные сеансы");
+      if (!eventsResponse.ok) throw new Error("Не удалось загрузить журнал безопасности");
+      const sessionsPayload = await sessionsResponse.json() as { sessions?: ActiveSession[] };
+      const eventsPayload = await eventsResponse.json() as { events?: SecurityEvent[] };
+      setActiveSessions(sessionsPayload.sessions ?? []);
+      setSecurityEvents(eventsPayload.events ?? []);
+    } catch (error) {
+      setSecurityError(error instanceof Error ? error.message : "Ошибка загрузки безопасности");
+    } finally {
+      setSecurityLoading(false);
+    }
+  }, [user?.id]);
+
+  React.useEffect(() => {
+    void loadSecurityData();
+  }, [loadSecurityData]);
+
+  const handleRevokeSession = async (sessionId: string): Promise<void> => {
+    setRevokingSession(sessionId);
+    try {
+      const response = await csrfFetch(`/api/auth/sessions/${sessionId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Не удалось завершить сеанс");
+      toast.success("Сеанс завершён");
+      await loadSecurityData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Ошибка завершения сеанса");
+    } finally {
+      setRevokingSession(null);
+    }
+  };
+
+  const handleRevokeOtherSessions = async (): Promise<void> => {
+    setRevokingSession("others");
+    try {
+      const response = await csrfFetch("/api/auth/sessions", { method: "DELETE" });
+      if (!response.ok) throw new Error("Не удалось завершить остальные сеансы");
+      const payload = await response.json() as { revoked?: number };
+      toast.success(`Завершено сеансов: ${payload.revoked ?? 0}`);
+      await loadSecurityData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Ошибка завершения сеансов");
+    } finally {
+      setRevokingSession(null);
+    }
+  };
+
+  const securityEventLabel = (eventType: string): string => ({
+    new_device_session: "Вход с нового устройства",
+    session_created: "Создан новый сеанс",
+    session_revoked: "Сеанс завершён",
+    refresh_replay_detected: "Обнаружено повторное использование токена",
+  }[eventType] || eventType);
 
   if (!user) {
     return (
@@ -397,6 +488,89 @@ export function ProfileSettings({ user: userProp, onLogout, onOpenAuth }: Profil
             Настроить 2FA
           </Button>
         )}
+      </Card>
+
+      {/* Устройства, сеансы и мониторинг передачи аккаунта */}
+      <Card className="p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            Устройства и безопасность аккаунта
+          </h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleRevokeOtherSessions()}
+            disabled={securityLoading || revokingSession !== null || activeSessions.filter((session) => !session.isCurrent).length === 0}
+          >
+            {revokingSession === "others" ? "Завершаем..." : "Завершить остальные сеансы"}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Для защиты персонального аккаунта одновременно действует только один сеанс: при входе на другом устройстве предыдущий автоматически завершается. Входы с новых устройств и повторное использование токенов фиксируются в журнале и вызывают предупреждение. Если вход выполнили не вы, немедленно смените пароль и проверьте 2FA. Не передавайте пароль и коды подтверждения другим людям.
+        </p>
+        <Separator />
+        {securityLoading ? (
+          <p className="text-sm text-muted-foreground">Загружаем сеансы...</p>
+        ) : securityError ? (
+          <div className="space-y-2">
+            <p className="text-sm text-destructive">{securityError}</p>
+            <Button size="sm" variant="outline" onClick={() => void loadSecurityData()}>Повторить</Button>
+          </div>
+        ) : activeSessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Активных сеансов не найдено.</p>
+        ) : (
+          <div className="space-y-3">
+            {activeSessions.map((session) => (
+              <div key={session.id} className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-border p-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{session.device_label || "Неизвестное устройство"}</span>
+                    {session.isCurrent && <Badge variant="secondary">Текущий сеанс</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    IP: {session.ip_address || "не определён"} · Вход: {new Date(session.created_at).toLocaleString("ru-RU")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Активность: {new Date(session.last_seen_at).toLocaleString("ru-RU")} · Метод: {session.auth_method}
+                  </p>
+                  {session.user_agent && (
+                    <p className="text-[11px] text-muted-foreground break-all mt-1">{session.user_agent}</p>
+                  )}
+                </div>
+                {!session.isCurrent && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleRevokeSession(session.id)}
+                    disabled={revokingSession !== null}
+                  >
+                    {revokingSession === session.id ? "Завершаем..." : "Завершить"}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <Separator />
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold">Последние события безопасности</h4>
+          {securityEvents.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Событий пока нет.</p>
+          ) : securityEvents.slice(0, 10).map((event) => (
+            <div key={event.id} className="flex items-start justify-between gap-3 text-xs">
+              <div className="min-w-0">
+                <p className="font-medium">{securityEventLabel(event.event_type)}</p>
+                <p className="text-muted-foreground">
+                  {new Date(event.created_at).toLocaleString("ru-RU")} · {event.ip_address || "IP неизвестен"}
+                </p>
+              </div>
+              <Badge variant={event.severity === "critical" ? "destructive" : "outline"}>
+                {event.severity === "critical" ? "Критично" : event.severity === "warning" ? "Внимание" : "Инфо"}
+              </Badge>
+            </div>
+          ))}
+        </div>
       </Card>
 
       {/* Уведомления */}
