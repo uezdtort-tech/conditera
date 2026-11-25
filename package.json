@@ -38,6 +38,7 @@
     "ops:restore-verify": "bun scripts/ops/backup-verify-restore.mjs",
     "ops:daily-report": "bun scripts/ops/daily-report.mjs",
     "verify:route-error-coverage": "node scripts/verify/route-error-coverage.mjs",
+    "verify:kong-compose-contract": "node scripts/verify/kong-compose-contract.mjs",
     "deploy:local": "node scripts/deploy-local.mjs"
   },
   "dependencies": {
