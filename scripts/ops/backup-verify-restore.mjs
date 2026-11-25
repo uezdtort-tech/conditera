@@ -15,7 +15,9 @@
  * BACKUP_RESTORE_PSQL_URL — URL целевой БД внутри окружения psql;
  * BACKUP_RESTORE_DB_NAME — имя одноразовой БД.
  */
-import { readFileSync, existsSync, createReadStream } from "node:fs";
+import { readFileSync, existsSync, createReadStream, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { createGunzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
@@ -52,6 +54,101 @@ restoreDatabaseUrl.searchParams.delete("pgbouncer");
 const RESTORE_DATABASE_URL = restoreDatabaseUrl.toString();
 
 const RESTORE_PSQL_URL = process.env.BACKUP_RESTORE_PSQL_URL || RESTORE_DATABASE_URL;
+
+async function sha256File(filepath) {
+  return await new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const input = createReadStream(filepath);
+    input.on("error", reject);
+    input.on("data", (chunk) => hash.update(chunk));
+    input.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function verifyTarArchive(archivePath, expectedEntry) {
+  const stderr = [];
+  let stdout = "";
+  const child = spawn("tar", ["-tzf", archivePath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (chunk) => {
+    if (expectedEntry) stdout += chunk.toString("utf8");
+  });
+  child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(
+          "tar integrity check failed for " + archivePath + ": " +
+          Buffer.concat(stderr).toString("utf8").slice(0, 2000)
+        ));
+      } else resolve();
+    });
+  });
+  if (expectedEntry) {
+    const expected = expectedEntry.replace(/^\.\//, "");
+    const found = stdout.split(/\r?\n/).some((entry) => entry.replace(/^\.\//, "") === expected);
+    if (!found) throw new Error("Expected media file is absent from archive: " + expectedEntry);
+  }
+}
+
+async function verifyBackupManifest(backupPath) {
+  const manifestPath = backupPath.replace(/\.sql\.gz$/, ".manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw new Error("Full backup manifest is missing: " + manifestPath);
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (manifest.format !== "conditera-full-backup-manifest-v1" || !Array.isArray(manifest.artifacts)) {
+    throw new Error("Backup manifest format is invalid");
+  }
+
+  const expectedKinds = ["database_sql"];
+  if (process.env.NODE_ENV === "production" || process.env.BACKUP_INCLUDE_MEDIA === "true") {
+    expectedKinds.push("product_media", "supabase_storage");
+  }
+  const byKind = new Map(manifest.artifacts.map((artifact) => [artifact.kind, artifact]));
+  for (const kind of expectedKinds) {
+    if (!byKind.has(kind)) throw new Error("Backup manifest is missing required artifact: " + kind);
+  }
+
+  for (const artifact of manifest.artifacts) {
+    if (!artifact.file || basename(artifact.file) !== artifact.file) {
+      throw new Error("Unsafe artifact filename in backup manifest");
+    }
+    const artifactPath = join(dirname(backupPath), artifact.file);
+    if (!existsSync(artifactPath)) throw new Error("Backup artifact is missing: " + artifact.file);
+    const stats = statSync(artifactPath);
+    if (stats.size !== Number(artifact.sizeBytes)) {
+      throw new Error("Backup artifact size mismatch: " + artifact.file);
+    }
+    const checksum = await sha256File(artifactPath);
+    if (checksum !== artifact.sha256) {
+      throw new Error("Backup artifact SHA-256 mismatch: " + artifact.file);
+    }
+    if (artifact.kind === "product_media") {
+      await verifyTarArchive(artifactPath, process.env.BACKUP_EXPECT_PRODUCT_MEDIA_FILE);
+    } else if (artifact.kind === "supabase_storage") {
+      await verifyTarArchive(artifactPath, process.env.BACKUP_EXPECT_SUPABASE_STORAGE_FILE);
+    }
+  }
+
+  const databaseArtifact = byKind.get("database_sql");
+  if (databaseArtifact.file !== basename(backupPath) ||
+      manifest.database?.file !== basename(backupPath) ||
+      manifest.database?.sha256 !== databaseArtifact.sha256) {
+    throw new Error("Database dump does not match the backup manifest");
+  }
+  if (expectedKinds.includes("product_media") && manifest.scope?.productMedia !== true) {
+    throw new Error("Manifest does not certify product media backup");
+  }
+  if (expectedKinds.includes("supabase_storage") && manifest.scope?.supabaseStorage !== true) {
+    throw new Error("Manifest does not certify Supabase Storage backup");
+  }
+
+  console.log("✓ Backup manifest, SHA-256 checksums and media archives verified");
+  return manifestPath;
+}
 
 async function getTableCounts(connectionString) {
   const client = new pg.Client({ connectionString });
@@ -129,6 +226,7 @@ async function main() {
     );
   }
   console.log("✓ Full SQL backup created: " + backupPath);
+  await verifyBackupManifest(backupPath);
 
   console.log("\n── 2. Создание отдельной disposable-БД");
   const admin = new pg.Client({ connectionString: RESTORE_ADMIN_URL });
