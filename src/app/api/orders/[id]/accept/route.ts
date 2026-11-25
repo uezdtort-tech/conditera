@@ -7,6 +7,7 @@
  * Auth: CONFECTIONER
  */
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
@@ -84,6 +85,6 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       throw err;
     }
   } catch (error: any) {
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
+    return handleRouteError(error, { route: "/api/orders/[id]/accept", component: "orders" });
   }
 }

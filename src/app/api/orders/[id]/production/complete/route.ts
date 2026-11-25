@@ -9,6 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
@@ -111,13 +112,6 @@ export async function POST(
           : null,
     });
   } catch (err) {
-    console.error(
-      "[orders/production/complete] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, { route: "/api/orders/[id]/production/complete", component: "orders" });
   }
 }

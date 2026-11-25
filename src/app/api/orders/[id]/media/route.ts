@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
@@ -135,14 +136,7 @@ export async function POST(
       { status: 201 }
     );
   } catch (err) {
-    console.error(
-      "[orders/media] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, { route: "/api/orders/[id]/media", component: "orders" });
   }
 }
 
@@ -221,13 +215,6 @@ export async function GET(
       })),
     });
   } catch (err) {
-    console.error(
-      "[orders/media] GET failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, { route: "/api/orders/[id]/media", component: "orders" });
   }
 }

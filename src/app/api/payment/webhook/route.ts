@@ -21,6 +21,7 @@
 //     metadata.orderId и раньше отклонялся с 400 — возвраты никогда
 //     не подтверждались.
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   verifyWebhook,
@@ -858,11 +859,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Webhook error:", error);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(error, { route: "/api/payment/webhook", component: "payments" });
   }
 }
 

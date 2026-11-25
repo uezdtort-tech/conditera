@@ -20,6 +20,7 @@
  *  - суммы в рублях (orders.total — рубли).
  */
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
@@ -200,8 +201,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       paymentId: yookassaPaymentId,
     });
   } catch (error: unknown) {
-    // detail наружу не отдаём (утечка внутренностей)
-    console.error("[payment/create] error:", (error as Error)?.message);
-    return NextResponse.json({ error: "Ошибка" }, { status: 500 });
+    return handleRouteError(error, { route: "/api/payment/create", component: "payments" });
   }
 }

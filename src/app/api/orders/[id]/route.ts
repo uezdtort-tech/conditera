@@ -1,6 +1,7 @@
 /** PATCH /api/orders/[id] — совместимый API, делегирующий переходы lifecycle engine. */
 
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 // Единый auth-контракт: getUserFromRequest читает Bearer И cookie cd_session —
 // раньше getCurrentUser (GoTrue getSession) не работал в локальном runtime
@@ -99,8 +100,7 @@ export async function PATCH(
       throw err;
     }
   } catch (error) {
-    console.error("[orders/[id]] PATCH failed:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, { route: "/api/orders/[id]", component: "orders" });
   }
 }
 
@@ -208,9 +208,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
-    );
+    return handleRouteError(error, { route: "/api/orders/[id]", component: "orders" });
   }
 }

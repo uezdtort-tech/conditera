@@ -17,6 +17,7 @@
  *    а возвращает 409.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { isAdmin } from "@/lib/role-guards";
@@ -165,6 +166,6 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
 
     return NextResponse.json({ success: true, orderId, status: "CANCELLED", refundPending });
   } catch (error: unknown) {
-    return NextResponse.json({ error: "Ошибка", detail: (error as Error)?.message }, { status: 500 });
+    return handleRouteError(error, { route: "/api/orders/[id]/cancel", component: "orders" });
   }
 }

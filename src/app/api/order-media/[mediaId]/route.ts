@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { createHash } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
@@ -158,13 +159,6 @@ export async function GET(
     ) as ArrayBuffer;
     return new Response(body, { status: 200, headers });
   } catch (err) {
-    console.error(
-      "[order-media] GET failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, { route: "/api/order-media/[mediaId]", component: "orders" });
   }
 }

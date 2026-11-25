@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { getUserFromRequest } from "@/lib/auth";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { applyOrderTransition, LifecycleError, isTransitionAllowed } from "@/lib/ops/lifecycle";
@@ -122,13 +123,6 @@ export async function POST(
       },
     });
   } catch (err) {
-    console.error(
-      "[orders/handoff] POST failed:",
-      err instanceof Error ? err.message : err
-    );
-    return NextResponse.json(
-      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(err, { route: "/api/orders/[id]/handoff", component: "orders" });
   }
 }

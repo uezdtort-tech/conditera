@@ -25,6 +25,7 @@
  * невозможно.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { createHash } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
 import { unauthorizedResponse } from "@/lib/supabase/auth";
@@ -293,7 +294,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ applied, failed, order_id: orderId }, { status: 201 });
   } catch (error) {
-    console.error("[inventory/write-off] POST error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, { route: "/api/inventory/write-off", component: "inventory" });
   }
 }

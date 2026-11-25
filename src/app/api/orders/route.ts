@@ -36,6 +36,7 @@
  *  - через @/lib/yandex-metrika: trackEventServer
  */
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
@@ -212,11 +213,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ orders: result });
   } catch (error: any) {
-    console.error("GET /api/orders error:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(error, { route: "/api/orders", component: "orders" });
   }
 }
 
@@ -732,10 +729,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 201 }
     );
   } catch (error: any) {
-    console.error("POST /api/orders error:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
-      { status: 500 }
-    );
+    return handleRouteError(error, { route: "/api/orders", component: "orders" });
   }
 }
