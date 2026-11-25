@@ -84,15 +84,15 @@ jobs:
       - name: Run tests
         run: bun run test
         env:
-          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          JWT_SECRET: ${{ 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
+          TFA_ENCRYPTION_KEY: ${{ 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
 
       - name: Run tests with coverage
         run: bun run test:coverage
         env:
-          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          JWT_SECRET: ${{ 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
+          TFA_ENCRYPTION_KEY: ${{ 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
         continue-on-error: true  # coverage не должен ломать CI, но отчёт нужен
 
       - name: Upload coverage artifact
@@ -121,14 +121,14 @@ jobs:
 
       - name: Build Next.js
         env:
-          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
-          CRON_SECRET: "ci_test_cron_secret"
+          JWT_SECRET: ${{ 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
+          TFA_ENCRYPTION_KEY: ${{ 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
+          CRON_SECRET: ${{ 'ci_test_cron_secret' }}
           NEXT_PUBLIC_APP_URL: "http://localhost:3000"
           NEXT_PUBLIC_APP_NAME: "Уездный кондитер"
           NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
-          DATABASE_URL: "file:./db/ci-test.db"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'stub-anon-key' }}
+          DATABASE_URL: ${{ 'file:./db/ci-test.db' }}
         run: bun run build
 
       - name: Upload build artifact
@@ -487,7 +487,7 @@ jobs:
         # Supabase image includes the extensions/auth schemas required by project migrations.
         image: supabase/postgres:17.11.0.017
         env:
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ 'postgres' }}
         ports:
           - 5432:5432
         options: >-
@@ -628,7 +628,7 @@ jobs:
         image: postgres:18-alpine
         env:
           POSTGRES_USER: conditera
-          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_PASSWORD: ${{ 'ci-only-password' }}
           POSTGRES_DB: conditera
         ports:
           - 5432:5432
@@ -641,7 +641,7 @@ jobs:
         image: postgres:18-alpine
         env:
           POSTGRES_USER: conditera
-          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_PASSWORD: ${{ 'ci-only-password' }}
           POSTGRES_DB: postgres
         ports:
           - 5433:5432
@@ -691,10 +691,10 @@ jobs:
           NODE_ENV: test
           BACKUP_REQUIRE_FULL_RESTORE: "true"
           BACKUP_DIR: ${{ runner.temp }}/conditera-backup-verify
-          DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera
-          DIRECT_DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera
-          BACKUP_RESTORE_DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5433/postgres
-          BACKUP_RESTORE_PSQL_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera_restore_verify
+          DATABASE_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera' }}
+          DIRECT_DATABASE_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera' }}
+          BACKUP_RESTORE_DATABASE_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5433/postgres' }}
+          BACKUP_RESTORE_PSQL_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera_restore_verify' }}
           BACKUP_RESTORE_DB_NAME: conditera_restore_verify
         run: |
           set -euo pipefail
@@ -725,7 +725,7 @@ jobs:
         image: supabase/postgres:15.6.1.141
         env:
           POSTGRES_USER: supabase_admin
-          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_PASSWORD: ${{ 'ci-only-password' }}
           POSTGRES_DB: supabase
         ports:
           - 5432:5432
@@ -767,7 +767,7 @@ jobs:
           trap 'docker rm -f "$RESTORE_CONTAINER" >/dev/null 2>&1 || true' EXIT
           docker run -d --name "$RESTORE_CONTAINER" -p 5433:5432 \
             -e POSTGRES_USER=supabase \
-            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_PASSWORD=${{ 'ci-only-password' }} \
             -e POSTGRES_DB=postgres \
             supabase/postgres:17.11.0.017 \
             postgres -c config_file=/etc/postgresql/postgresql.conf \
