@@ -259,7 +259,7 @@ jobs:
       - name: Проверить RLS разрезов на отдельном PostgreSQL 17
         run: |
           docker run -d --name product-slices-rls-pg \
-            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_PASSWORD=ci-only-test-password \
             -e POSTGRES_DB=conditera \
             postgres:17-alpine
           READY=0
