@@ -50,7 +50,7 @@ const ANCHORS = [
   },
   {
     file: "Dockerfile",
-    pattern: /FROM .*postgres:(\\d+)-alpine AS migrator/g,
+    pattern: /FROM .*postgres:(\d+)-alpine AS migrator/g,
     what: "application migration client image",
   },
   {
