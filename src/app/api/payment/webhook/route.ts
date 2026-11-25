@@ -51,6 +51,19 @@ export interface YooKassaWebhookBody {
 // Финальные статусы в терминах БД (enum payment_status: 'cancelled' — две l)
 const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
 
+export function shouldSkipFinalPaymentWebhook(
+  event: string,
+  currentStatus: string,
+  incomingStatus: string
+): boolean {
+  return (
+    event !== "refund.succeeded" &&
+    event !== "payment.succeeded" &&
+    FINAL_PAYMENT_STATUSES.has(currentStatus) &&
+    currentStatus === incomingStatus
+  );
+}
+
 /** YooKassa шлёт "canceled" (одна l), в БД enum — "cancelled" */
 function yookassaStatusToDb(status: string): string {
   return status === "canceled" ? "cancelled" : status;
@@ -235,16 +248,11 @@ export async function POST(request: NextRequest) {
     // pay4: refund.succeeded НЕ гейтится этим чеком — gейт с dbStatus="succeeded"
     // проглатывал ВСЕ refund-события по оплаченному платежу (payment.status
     // "succeeded" === dbStatus). Дедуп возвратов — по refund id в RPC 0039.
-    if (event !== "refund.succeeded" && event !== "payment.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status))
-      const alreadyDone =
-        payment.status === dbStatus ||
-        (event === "refund.succeeded" && payment.status === "refunded");
-      if (alreadyDone) {
-        console.info(
-          `[webhook] Payment ${payment.id} (order ${orderId}) already final "${payment.status}", skipping.`
-        );
-        return NextResponse.json({ success: true, idempotent: true });
-      }
+    if (payment && shouldSkipFinalPaymentWebhook(event, payment.status, dbStatus)) {
+      console.info(
+        `[webhook] Payment ${payment.id} (order ${orderId}) already final "${payment.status}", skipping.`
+      );
+      return NextResponse.json({ success: true, idempotent: true });
     }
 
     // Загружаем заказ (без embed — таблицы customers не существует; email/name
