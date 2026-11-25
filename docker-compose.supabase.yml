@@ -50,7 +50,7 @@ services:
     environment:
       POSTGRES_USER: supabase
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      POSTGRES_DB: supabase
+      POSTGRES_DB: conditera
       POSTGRES_PORT: 5432
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
       # Пути должны совпадать с фактическими bind mounts ниже.
@@ -149,7 +149,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=auth
+      GOTRUE_DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=auth
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -221,7 +221,7 @@ services:
     container_name: conditera-supabase-rest
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -296,7 +296,7 @@ services:
       SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=storage
+      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=storage
       PG_META_URL: http://supabase-meta:8080
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /mnt/storage
@@ -409,7 +409,7 @@ services:
       PG_META_PORT: 8080
       PG_META_DB_HOST: supabase-db
       PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: supabase
+      PG_META_DB_NAME: conditera
       PG_META_DB_USER: supabase
       PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       PG_META_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -496,7 +496,7 @@ services:
       LOGFLARE_DASHBOARD_PASSWORD: ${LOGFLARE_DASHBOARD_PASSWORD:-devpass}
       LOGFLARE_MIN_LOG_DURATION_MS: 0
       LOGFLARE_LOGTTL: "604800"
-      DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -536,7 +536,7 @@ services:
       - ./supabase/vector.yaml:/etc/vector/vector.yaml:ro
       - supabase_vector_data:/var/lib/vector
     environment:
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
       LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-dev-key}
     depends_on:
       supabase-db:
