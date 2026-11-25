@@ -340,6 +340,18 @@ jobs:
           grep -Fq 'PGDATABASE=conditera' docker-compose.yml
           echo "Database bootstrap configuration checks passed"
 
+      - name: Validate Kong 2.8 DB-less configuration and key rendering
+        run: |
+          node scripts/verify/kong-compose-contract.mjs
+          KONG_DECLARATIVE_CONFIG="$PWD/supabase/kong.yml" \
+          KONG_RENDERED_CONFIG_PATH="$RUNNER_TEMP/conditera-kong-rendered.yml" \
+          SUPABASE_ANON_KEY=ci-anon-key \
+          SUPABASE_SERVICE_KEY=ci-service-key \
+          KONG_RENDER_ONLY=true \
+          sh scripts/supabase/kong-entrypoint.sh
+          ! grep -Fq '${SUPABASE_ANON_KEY}' "$RUNNER_TEMP/conditera-kong-rendered.yml"
+          ! grep -Fq '${SUPABASE_SERVICE_KEY}' "$RUNNER_TEMP/conditera-kong-rendered.yml"
+
       - name: Check for secrets in code
         run: |
           # Проверка на закоммиченные секреты
