@@ -58,7 +58,7 @@ test("rejects weak or placeholder DATABASE_URL password", () => {
 
 test("rejects reused JWT signing secrets and invalid TOTP key", () => {
   const env = validProduction();
-  env.JWT_REFRESH_SECRET = env.JWT_SECRET;
+  env["JWT_REFRESH_SECRET"] = env.JWT_SECRET;
   env.TFA_ENCRYPTION_KEY = "not-a-64-hex-key";
   const result = validateEnvironment(env, "production");
   assert.ok(result.errors.some((message) => message.includes("JWT_SECRET")));
