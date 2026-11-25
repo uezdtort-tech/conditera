@@ -7,8 +7,8 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
             }
           ]
         }
@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/cron/expiring-bonuses",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -68,7 +67,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/notifications/send",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -84,7 +82,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"BONUS_EXPIRING\",\n  \"vars\": {\n    \"points\": {{ $json.points }},\n    \"expiresAt\": \"{{ $json.expiresAt }}\"\n  },\n  \"channels\": [\"email\", \"push\", \"in_app\"],\n  \"data\": { \"type\": \"bonus_expiring\", \"points\": {{ $json.points }} }\n}",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"BONUS_EXPIRING\",\n  \"vars\": {\n    \"points\": {{ $json.points }},\n    \"expiresAt\": \"{{ $json.expiresAt }}\"\n  },\n  \"channels\": [\"email\", \"push\", \"in_app\"],\n  \"data\": { \"type\": \"bonus_expiring\", \"points\": {{ $json.points }} },\n  \"dedupKey\": \"bonus-expiring:{{ $json.userId }}:{{ $json.expiresAt }}\"\n}",
         "options": {}
       },
       "id": "send-reminder",
@@ -100,7 +98,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

@@ -1,37 +1,32 @@
 /**
- * order-media.ts — фото готовности заказа (P0.5 §35).
+ * order-media.ts — фото готовности и передачи заказа.
  *
- * ПЕРЕИСПОЛЬЗУЕТ существующую product-media инфраструктуру:
- *   • src/lib/product-media/storage.ts — STORAGE_ROOT, absMediaPath,
- *     writeFileAtomic, removeFileQuiet (единый storage subsystem);
- *   • src/lib/product-media/validation.ts — sniffMime, parseImageMeta
- *     (реальный MIME по magic bytes, НЕ только расширение).
- *
- * Путь: orders/<orderId>/published/photos/<uuid>.<ext> — относительный
- * от storage root (ТЗ P0.4 §storage). Статус сразу 'approved': это
- * внутренний QC-артефакт, не витринный контент (в модерации не участвует).
+ * Файлы хранятся в отдельном приватном Supabase Storage bucket "order_media".
+ * Метаданные и связь с заказом остаются в public.order_media (PostgreSQL).
+ * Доступ к объектам выдаётся только через авторизованный API, который
+ * проверяет владельца/назначенного участника заказа.
  */
-
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 import { getPool } from "@/lib/postgrest/pool";
-import {
-  STORAGE_ROOT,
-  writeFileAtomic,
-  removeFileQuiet,
-  MediaStorageError,
-} from "@/lib/product-media/storage";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   sniffMime,
   parseImageMeta,
   PHOTO_MIMES,
   MAX_PHOTO_BYTES,
-  MAX_IMAGE_DIM,
   MediaValidationError,
 } from "@/lib/product-media/validation";
 
-export { MediaValidationError, MediaStorageError, MAX_PHOTO_BYTES };
+export { MediaValidationError, MAX_PHOTO_BYTES };
+
+export class MediaStorageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MediaStorageError";
+  }
+}
+
+const ORDER_MEDIA_BUCKET = "order_media";
 
 /** MIME относится к допустимым фото? */
 function isPhotoMime(mime: string): boolean {
@@ -57,22 +52,21 @@ export interface OrderMediaRow {
   uploadedAt: string;
 }
 
-/**
- * Безопасно построить абсолютный путь из относительного (анти-path-traversal).
- * Путь обязан оставаться внутри STORAGE_ROOT.
- */
-export function safeAbsOrderMediaPath(relPath: string): string {
-  const abs = resolve(STORAGE_ROOT, relPath);
-  const root = resolve(STORAGE_ROOT);
-  if (abs !== root && !abs.startsWith(root + "/")) {
-    throw new MediaStorageError("Path traversal attempt blocked");
+/** Проверка ключа объекта: не допускаем произвольные storage paths. */
+function assertOrderMediaPath(storagePath: string): void {
+  if (
+    typeof storagePath !== "string" ||
+    !storagePath.startsWith("orders/") ||
+    storagePath.includes("..") ||
+    storagePath.startsWith("/")
+  ) {
+    throw new MediaStorageError("Invalid order media storage path");
   }
-  return abs;
 }
 
 /**
- * Сохранить фото готовности: валидация → FS → метаданные в БД.
- * Возвращает строку order_media.
+ * Сохранить фото готовности: валидация → private Supabase Storage → метаданные PG.
+ * При ошибке INSERT удаляет уже загруженный объект (компенсация).
  */
 export async function saveOrderReadyPhoto(params: {
   orderId: string;
@@ -82,7 +76,6 @@ export async function saveOrderReadyPhoto(params: {
 }): Promise<OrderMediaRow> {
   const buffer = Buffer.from(await params.file.arrayBuffer());
 
-  // Размер
   if (buffer.length === 0) {
     throw new MediaValidationError(422, "VALIDATION_FAILED", "Файл пустой");
   }
@@ -94,7 +87,7 @@ export async function saveOrderReadyPhoto(params: {
     );
   }
 
-  // Реальный MIME по magic bytes (ТЗ: «не доверять только расширению»)
+  // Реальный MIME по magic bytes; не доверяем расширению/Content-Type клиента.
   const sniffed = sniffMime(buffer);
   if (!sniffed || !isPhotoMime(sniffed.mime)) {
     throw new MediaValidationError(
@@ -104,15 +97,21 @@ export async function saveOrderReadyPhoto(params: {
     );
   }
 
-  // Размеры изображения (полное чтение заголовков; формат сверяется со сниффером)
   const meta = await parseImageMeta(buffer, sniffed.mime);
-
-  // Относительный путь с UUID-именем (не оригинальное имя пользователя)
   const ext = EXT_BY_MIME[sniffed.mime] ?? "jpg";
-  const relPath = `orders/${params.orderId}/published/photos/${randomUUID()}.${ext}`;
-  const abs = safeAbsOrderMediaPath(relPath);
-  await mkdir(dirname(abs), { recursive: true });
-  await writeFileAtomic(abs, buffer);
+  const storagePath = `orders/${params.orderId}/published/photos/${randomUUID()}.${ext}`;
+  assertOrderMediaPath(storagePath);
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(ORDER_MEDIA_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType: sniffed.mime,
+      cacheControl: "3600",
+      upsert: false,
+    });
+  if (uploadError) {
+    throw new MediaStorageError(`Supabase Storage upload failed: ${uploadError.message}`);
+  }
 
   const pool = getPool();
   try {
@@ -137,7 +136,7 @@ export async function saveOrderReadyPhoto(params: {
       [
         params.orderId,
         params.kind ?? "ready_photo",
-        relPath,
+        storagePath,
         params.file.name?.slice(0, 200) ?? null,
         sniffed.mime,
         buffer.length,
@@ -146,53 +145,73 @@ export async function saveOrderReadyPhoto(params: {
         params.uploadedBy,
       ]
     );
-    const r = res.rows[0];
+    const row = res.rows[0];
     return {
-      id: r.id,
-      orderId: r.order_id,
-      kind: r.kind,
-      storagePath: r.storage_path,
-      mimeType: r.mime_type,
-      fileSize: Number(r.file_size),
-      width: r.width,
-      height: r.height,
-      uploadedBy: r.uploaded_by,
-      uploadedAt: new Date(r.uploaded_at).toISOString(),
+      id: row.id,
+      orderId: row.order_id,
+      kind: row.kind,
+      storagePath: row.storage_path,
+      mimeType: row.mime_type,
+      fileSize: Number(row.file_size),
+      width: row.width,
+      height: row.height,
+      uploadedBy: row.uploaded_by,
+      uploadedAt: new Date(row.uploaded_at).toISOString(),
     };
   } catch (err) {
-    // Компенсация: удалить файл, если БД-вставка не удалась (DB/FS consistency)
-    await removeFileQuiet(abs);
+    const { error: cleanupError } = await supabaseAdmin.storage
+      .from(ORDER_MEDIA_BUCKET)
+      .remove([storagePath]);
+    if (cleanupError) {
+      console.error("[order-media] failed to compensate storage upload:", cleanupError.message);
+    }
+    const dbError = err as { code?: string; message?: string };
+    if (dbError.code === "23514" && dbError.message?.includes("ORDER_READY_PHOTO_LIMIT")) {
+      throw new MediaValidationError(
+        422,
+        "PHOTO_LIMIT_REACHED",
+        "Максимум 5 фото готового изделия на заказ"
+      );
+    }
     throw err;
   }
 }
 
-/** Удалить фото: БД-запись + файл (файл может отсутствовать — не ошибка). */
+/** Скачать фото из приватного bucket. Вызывать только после проверки доступа к заказу. */
+export async function downloadOrderMedia(storagePath: string): Promise<Buffer> {
+  assertOrderMediaPath(storagePath);
+  const { data, error } = await supabaseAdmin.storage
+    .from(ORDER_MEDIA_BUCKET)
+    .download(storagePath);
+  if (error || !data) {
+    throw new MediaStorageError(`Supabase Storage download failed: ${error?.message ?? "empty object"}`);
+  }
+  return Buffer.from(await data.arrayBuffer());
+}
+
+/** Удалить фото: статус PG + объект Storage. */
 export async function deleteOrderMedia(
   mediaId: string
 ): Promise<{ deleted: boolean; storagePath: string | null }> {
   const pool = getPool();
-  const sel = await pool.query<{ storage_path: string }>(
+  const selected = await pool.query<{ storage_path: string }>(
     `SELECT storage_path FROM public.order_media WHERE id = $1::uuid`,
     [mediaId]
   );
-  const rel = sel.rows[0]?.storage_path;
-  if (!rel) return { deleted: false, storagePath: null };
+  const storagePath = selected.rows[0]?.storage_path;
+  if (!storagePath) return { deleted: false, storagePath: null };
 
-  await pool.query(`UPDATE public.order_media SET status='deleted' WHERE id = $1::uuid`, [
-    mediaId,
-  ]);
-  try {
-    await unlink(safeAbsOrderMediaPath(rel));
-  } catch {
-    // Файл может отсутствовать — толерантно (ТЗ §«Удаление»)
+  assertOrderMediaPath(storagePath);
+  await pool.query(`UPDATE public.order_media SET status='deleted' WHERE id = $1::uuid`, [mediaId]);
+  const { error } = await supabaseAdmin.storage.from(ORDER_MEDIA_BUCKET).remove([storagePath]);
+  if (error) {
+    console.warn("[order-media] Storage object deletion failed:", error.message);
   }
-  return { deleted: true, storagePath: rel };
+  return { deleted: true, storagePath };
 }
 
-/** Получить фото по id (для стриминга). */
-export async function getOrderMedia(
-  mediaId: string
-): Promise<OrderMediaRow | null> {
+/** Получить метаданные фото по id (для API после проверки доступа). */
+export async function getOrderMedia(mediaId: string): Promise<OrderMediaRow | null> {
   const pool = getPool();
   const res = await pool.query<{
     id: string;
@@ -212,25 +231,20 @@ export async function getOrderMedia(
      WHERE id = $1::uuid AND status = 'approved'`,
     [mediaId]
   );
-  const r = res.rows[0];
-  if (!r) return null;
+  const row = res.rows[0];
+  if (!row) return null;
   return {
-    id: r.id,
-    orderId: r.order_id,
-    kind: r.kind,
-    storagePath: r.storage_path,
-    mimeType: r.mime_type,
-    fileSize: Number(r.file_size),
-    width: r.width,
-    height: r.height,
-    uploadedBy: r.uploaded_by,
-    uploadedAt: new Date(r.uploaded_at).toISOString(),
+    id: row.id,
+    orderId: row.order_id,
+    kind: row.kind,
+    storagePath: row.storage_path,
+    mimeType: row.mime_type,
+    fileSize: Number(row.file_size),
+    width: row.width,
+    height: row.height,
+    uploadedBy: row.uploaded_by,
+    uploadedAt: new Date(row.uploaded_at).toISOString(),
   };
-}
-
-/** Путь до физического файла фото. */
-export function orderMediaAbsPath(row: OrderMediaRow): string {
-  return join(STORAGE_ROOT, row.storagePath);
 }
 
 /** Count approved ready photos (для гейтов/UI). */

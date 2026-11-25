@@ -15,6 +15,7 @@
  * Auth: ADMIN или SUPER_ADMIN
  */
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
@@ -103,6 +104,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     }
+
+    // Удалённый из публичной выдачи профиль должен сразу исчезнуть из sitemap.
+    revalidatePath("/sitemap.xml");
+    revalidatePath("/confectioners");
 
     // Push-уведомление кондитеру (non-blocking)
     try {

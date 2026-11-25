@@ -21,8 +21,9 @@ import path from "path";
  * Корень хранилища товарных медиа.
  * PRODUCT_MEDIA_ROOT позволяет вынести каталог (docker volume и т.п.).
  */
+const PROJECT_ROOT = process.env.CONDITERA_PROJECT_ROOT || process.cwd();
 export const STORAGE_ROOT: string =
-  process.env.PRODUCT_MEDIA_ROOT || path.join(process.cwd(), "storage");
+  process.env.PRODUCT_MEDIA_ROOT || path.join(PROJECT_ROOT, "storage");
 
 /** Ошибка storage-слоя (path traversal и т.п.). Маппится в 500 INTERNAL_ERROR. */
 export class MediaStorageError extends Error {

@@ -20,7 +20,7 @@ const globalForPool = globalThis as unknown as { __conditeraPgPool?: Pool };
 function resolveDatabaseUrl(): string {
   const raw = (process.env.DATABASE_URL || "").trim();
   if (!raw || raw.startsWith("file:")) {
-    const port = process.env.CONDITERA_PG_PORT || "54329";
+    const port = process.env.CONDITERA_PG_PORT || "54330";
     const fallback = `postgresql://postgres@127.0.0.1:${port}/conditera`;
     if (raw) {
       console.warn(

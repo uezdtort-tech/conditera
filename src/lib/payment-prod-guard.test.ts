@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import { isYookassaConfigured, createPayment } from "@/lib/yookassa";
+import { isYookassaConfigured, createPayment, isLocalE2EPaymentStubEnabled } from "@/lib/yookassa";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -54,6 +54,32 @@ describe("P1.1 payment guard: production + stub configuration", () => {
     expect(result.success).toBe(true);
     expect(result.payment?.id).toMatch(/^mock_/);
     expect(result.payment?.confirmation?.confirmation_url).toBeTruthy();
+  });
+
+  it("локальный E2E mock разрешён только с флагом и loopback URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("E2E_PAYMENT_STUB_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
+    expect(isLocalE2EPaymentStubEnabled()).toBe(true);
+
+    const localResult = await createPayment({
+      amount: 3700,
+      description: "E2E локальный заказ",
+      orderId: "e2e-local-order",
+      returnUrl: "http://localhost:3000/checkout/success",
+    });
+    expect(localResult.success).toBe(true);
+    expect(localResult.payment?.id).toMatch(/^mock_/);
+
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://conditera.ru");
+    expect(isLocalE2EPaymentStubEnabled()).toBe(false);
+    const productionResult = await createPayment({
+      amount: 3700,
+      description: "Production order",
+      orderId: "production-order",
+      returnUrl: "https://conditera.ru/checkout/success",
+    });
+    expect(productionResult.success).toBe(false);
   });
 
   it("production + настроенный шлюз → реальный запрос к провайдеру (не mock)", async () => {
