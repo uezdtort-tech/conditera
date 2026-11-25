@@ -49,7 +49,7 @@ PG_DUMP_VERSION="$(docker exec "$CONTAINER" pg_dump --version)" || fail "pg_dump
 TABLE_COUNT="$(
   docker exec "$CONTAINER" sh -c '
     export PGPASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
-    exec psql -X -h 127.0.0.1 -v ON_ERROR_STOP=1 -U "$1" -d "$2" -Atqc       "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN (''pg_catalog'',''information_schema'')"
+    exec psql -X -h 127.0.0.1 -v ON_ERROR_STOP=1 -U "$1" -d "$2" -Atqc       "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = current_schema()"
   ' sh "$DB_USER" "$DB_NAME"
 )" || fail "cannot count user tables"
 
