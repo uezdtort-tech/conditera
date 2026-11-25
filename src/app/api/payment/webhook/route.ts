@@ -101,16 +101,18 @@ async function verifyEventWithProvider(
   if (event === "refund.succeeded") {
     const res = await getRefund(object.id);
     if (!res.success || !res.refund) return { ok: false };
+    if (object.amount?.currency !== "RUB" || res.refund.amount?.currency !== "RUB") {
+      return { ok: true, skip: "currency_mismatch" };
+    }
     if (res.refund.status !== "succeeded") return { ok: true, skip: "provider_mismatch" };
-    if (object.payment_id && res.refund.payment_id && res.refund.payment_id !== object.payment_id) {
-      return { ok: true, skip: "provider_mismatch" };
-    }
-    if (wireKop !== null) {
-      const refundKop = res.refund.amount?.value
-        ? Math.round(Number(res.refund.amount.value) * 100)
-        : null;
-      if (refundKop !== null && refundKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
-    }
+
+    // Refunds must be bound to the exact payment and exact amount on both sides.
+    // Missing provider fields are not evidence of a valid refund: fail closed.
+    if (!object.payment_id || !res.refund.payment_id) return { ok: false };
+    if (res.refund.payment_id !== object.payment_id) return { ok: true, skip: "provider_mismatch" };
+    const providerRefundKop = wireAmountToKop(res.refund.amount);
+    if (wireKop === null || providerRefundKop === null || providerRefundKop <= 0) return { ok: false };
+    if (providerRefundKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
     return { ok: true };
   }
 
@@ -138,15 +140,18 @@ async function verifyEventWithProvider(
     return { ok: true, skip: "provider_not_configured" };
   }
 
+  if (object.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
+  if (wireKop === null || wireKop <= 0) return { ok: false };
   const res = await getPaymentStatus(providerPaymentId);
   if (!res.success || !res.payment) return { ok: false };
   if (res.payment.status !== expectedStatus) return { ok: true, skip: "provider_mismatch" };
-  if (wireKop !== null) {
-    const providerKop = res.payment.amount?.value
-      ? Math.round(Number(res.payment.amount.value) * 100)
-      : null;
-    if (providerKop !== null && providerKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
+  if (res.payment.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
+  if (!object.metadata?.orderId || res.payment.metadata?.orderId !== object.metadata.orderId) {
+    return { ok: true, skip: "metadata_mismatch" };
   }
+  const providerKop = wireAmountToKop(res.payment.amount);
+  if (providerKop === null || providerKop <= 0) return { ok: false };
+  if (providerKop !== wireKop) return { ok: true, skip: "provider_mismatch" };
   return { ok: true };
 }
 
