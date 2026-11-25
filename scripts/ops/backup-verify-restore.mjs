@@ -4,8 +4,11 @@
  * JSON exports are explicitly reported as PARTIAL because they contain only
  * an allowlisted subset of rows and do not recreate the original schema.
  */
-import { readFileSync, existsSync, createReadStream } from "node:fs";
-import { spawn } from "node:child_process";
+import { readFileSync, existsSync, createReadStream, mkdtempSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import pg from "pg";
 import { createGunzip, gunzipSync } from "node:zlib";
 import { pipeline } from "node:stream/promises";
@@ -59,7 +62,10 @@ async function createDisposableDatabase() {
   const admin = new pg.Client({ connectionString: RESTORE_ADMIN_URL });
   await admin.connect();
   try {
-    await admin.query("DROP DATABASE IF EXISTS " + quoteIdent(RESTORE_DB) + " WITH (FORCE)");
+    const existing = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [RESTORE_DB]);
+    if (existing.rows.length > 0) {
+      throw new Error("Refusing to drop pre-existing restore database " + RESTORE_DB);
+    }
     await admin.query("CREATE DATABASE " + quoteIdent(RESTORE_DB) + " TEMPLATE template0");
     console.log("created disposable database " + RESTORE_DB);
   } finally {
@@ -126,6 +132,115 @@ async function tableCounts(client) {
     counts.set(key, result.rows[0].count);
   }
   return counts;
+}
+
+async function sha256File(path) {
+  const hash = createHash("sha256");
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", resolve);
+  });
+  return hash.digest("hex");
+}
+
+async function runPsqlFile(filePath, databaseUrl) {
+  const url = new URL(databaseUrl);
+  const password = decodeURIComponent(url.password);
+  url.password = "";
+  const env = { ...process.env };
+  if (password) env.PGPASSWORD = password;
+  const child = spawn(
+    "psql",
+    ["--no-psqlrc", "--set=ON_ERROR_STOP=1", "--dbname", url.toString()],
+    { stdio: ["pipe", "inherit", "inherit"], env }
+  );
+  const exitPromise = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => code === 0 ? resolve() : reject(new Error("psql globals restore exited with code " + code)));
+  });
+  const inputPromise = pipeline(createReadStream(filePath), child.stdin);
+  try {
+    await Promise.all([inputPromise, exitPromise]);
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
+}
+
+async function verifyAuxiliaryArtifacts(sqlPath, requireFull) {
+  const manifestPath = process.env.BACKUP_VERIFY_MANIFEST_PATH;
+  let manifest = null;
+  if (manifestPath) {
+    if (!existsSync(manifestPath)) throw new Error("Backup manifest not found: " + manifestPath);
+    manifest = Object.fromEntries(
+      readFileSync(manifestPath, "utf8").split(/\\r?\\n/).filter(Boolean).map((line) => {
+        const index = line.indexOf("=");
+        return index < 0 ? [line, ""] : [line.slice(0, index), line.slice(index + 1)];
+      })
+    );
+    check("backup manifest identifies canonical database", manifest.database === "conditera", manifest.database || "missing");
+    if (manifest.database !== "conditera") throw new Error("Backup manifest database is not canonical conditera");
+  }
+
+  const root = manifestPath ? dirname(manifestPath) : process.cwd();
+  const globalsPath = process.env.BACKUP_VERIFY_GLOBALS_PATH ||
+    (manifest?.cluster_globals ? join(root, manifest.cluster_globals) : "");
+  const storagePath = process.env.BACKUP_VERIFY_STORAGE_PATH ||
+    (manifest?.storage_archive ? join(root, manifest.storage_archive) : "");
+
+  if (requireFull && (!manifestPath || !globalsPath || !storagePath)) {
+    throw new Error("Full Supabase backup verification requires manifest, cluster globals and Storage archive paths.");
+  }
+
+  if (manifestPath && manifest?.sql_sha256) {
+    const actual = await sha256File(sqlPath);
+    check("SQL dump checksum matches manifest", actual === manifest.sql_sha256);
+    if (actual !== manifest.sql_sha256) throw new Error("SQL dump checksum mismatch");
+  }
+
+  if (globalsPath) {
+    if (!existsSync(globalsPath)) throw new Error("Cluster globals file not found: " + globalsPath);
+    const globals = readFileSync(globalsPath, "utf8");
+    const hasRoles = /\\b(?:CREATE|ALTER) ROLE\\b/i.test(globals);
+    check("cluster-global roles dump is present", hasRoles);
+    if (!hasRoles) throw new Error("Cluster globals file contains no role definitions");
+    if (manifest?.cluster_globals_sha256) {
+      const actual = await sha256File(globalsPath);
+      check("cluster globals checksum matches manifest", actual === manifest.cluster_globals_sha256);
+      if (actual !== manifest.cluster_globals_sha256) throw new Error("Cluster globals checksum mismatch");
+    }
+    if (requireFull && process.env.BACKUP_VERIFY_APPLY_GLOBALS !== "true") {
+      throw new Error("Set BACKUP_VERIFY_APPLY_GLOBALS=true only for a fresh, separate restore cluster to verify role restoration.");
+    }
+    if (process.env.BACKUP_VERIFY_APPLY_GLOBALS === "true") {
+      await runPsqlFile(globalsPath, RESTORE_ADMIN_URL);
+      check("cluster-global roles restored to separate disposable cluster", true);
+    }
+  }
+
+  if (storagePath) {
+    if (!existsSync(storagePath)) throw new Error("Storage archive not found: " + storagePath);
+    if (manifest?.storage_sha256) {
+      const actual = await sha256File(storagePath);
+      check("Storage archive checksum matches manifest", actual === manifest.storage_sha256);
+      if (actual !== manifest.storage_sha256) throw new Error("Storage archive checksum mismatch");
+    }
+    const listing = spawnSync("tar", ["-tzf", storagePath], { encoding: "utf8" });
+    if (listing.error || listing.status !== 0) throw new Error("Storage archive is not a readable tar.gz file");
+    const entries = String(listing.stdout || "").split(/\\r?\\n/).filter(Boolean);
+    const unsafe = entries.filter((name) => name.startsWith("/") || /^[A-Za-z]:/.test(name) || name.split("/").includes(".."));
+    if (unsafe.length) throw new Error("Storage archive contains unsafe paths: " + unsafe.slice(0, 5).join(", "));
+    const temp = mkdtempSync(join(tmpdir(), "conditera-storage-restore-"));
+    try {
+      const extract = spawnSync("tar", ["-xzf", storagePath, "-C", temp], { encoding: "utf8" });
+      if (extract.error || extract.status !== 0) throw new Error("Storage archive extraction failed");
+      check("Storage objects extracted into disposable directory", entries.length > 0, entries.length + " archive entries");
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  }
 }
 
 async function verifySqlBackup(backupPath) {
@@ -255,12 +370,22 @@ async function main() {
   console.log("Restore cluster: " + restoreHost);
   console.log("Disposable restore DB: " + RESTORE_DB + "\n");
 
+  const manifestPath = process.env.BACKUP_VERIFY_MANIFEST_PATH;
   let backupPath = process.env.BACKUP_VERIFY_PATH;
+  if (!backupPath && manifestPath && existsSync(manifestPath)) {
+    const manifest = Object.fromEntries(
+      readFileSync(manifestPath, "utf8").split(/\\r?\\n/).filter(Boolean).map((line) => {
+        const index = line.indexOf("=");
+        return index < 0 ? [line, ""] : [line.slice(0, index), line.slice(index + 1)];
+      })
+    );
+    if (manifest.sql_dump) backupPath = join(dirname(manifestPath), manifest.sql_dump);
+  }
   if (backupPath) {
     console.log("Verifying the existing backup artifact created by the application.");
   } else {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("production verification must consume BACKUP_VERIFY_PATH from the persistent web backup volume");
+    if (process.env.NODE_ENV === "production" || requireFull) {
+      throw new Error("full verification must consume a persistent backup manifest and artifacts from the backup volume");
     }
     console.log("Creating backup with the real application backup service...");
     const backupModule = await import("./run-backup.mjs");
@@ -272,6 +397,7 @@ async function main() {
   check("backup file available for verification", true, backupPath);
 
   if (backupPath.endsWith(".sql.gz")) {
+    await verifyAuxiliaryArtifacts(backupPath, requireFull);
     await verifySqlBackup(backupPath);
   } else if (backupPath.endsWith(".json.gz")) {
     verificationLevel = "PARTIAL";
