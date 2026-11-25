@@ -779,7 +779,7 @@ jobs:
             sleep 2
           done
           test "$ready" = true
-          docker exec -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase -d postgres -c 'CREATE DATABASE supabase_restore'
+          docker exec -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase -d postgres -c 'CREATE DATABASE supabase_restore TEMPLATE template0'
           DUMP_FILE="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -print -quit)"
           test -n "$DUMP_FILE"
           gzip -t "$DUMP_FILE"
