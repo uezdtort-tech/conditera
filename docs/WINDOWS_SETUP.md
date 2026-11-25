@@ -52,7 +52,7 @@ docker-compose -f docker-compose.dev.yml up -d
 ```
 
 Это запустит:
-- PostgreSQL 18 на порту 5433
+- PostgreSQL 17 на порту 5433
 - Redis на порту 6380
 - Meilisearch на порту 7700
 - Mailpit на порту 8025 (SMTP 1025)

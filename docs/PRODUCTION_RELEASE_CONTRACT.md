@@ -14,19 +14,19 @@
 
 Этот документ фиксирует обязательные условия релиза. Отчёт агента или факт запуска контейнера не заменяет проверку работающего пользовательского сценария.
 
-## 1. Supabase и Docker — обязательное ограничение владельца проекта
+## 1. Единый Supabase Runtime и PostgreSQL 17
 
-- Запрещено разворачивать Supabase как набор независимо управляемых Compose-проектов или разносить его компоненты по разным Docker-сетям.
-- Запрещено создавать параллельные экземпляры PostgreSQL для одной рабочей системы.
-- Для приложения должна существовать одна согласованная база PostgreSQL и один согласованный набор схем/миграций.
-- Нельзя удалять, пересоздавать или очищать существующие volumes, базы, Storage и пользовательские файлы в рамках исправления инфраструктуры.
-- Перед изменением инфраструктуры обязательны резервная копия и проверка восстановления.
-- Обязательное требование владельца: весь Supabase runtime должен работать в ОДНОМ Docker-контейнере, а не в наборе контейнеров Compose. Внутри образа процессы PostgreSQL, GoTrue, PostgREST, Realtime, Storage и API gateway управляются supervisor; для каждого процесса предусмотрены readiness/health checks, перезапуск, корректное завершение и централизованные логи. Не включать Studio/Analytics/Vector в обязательный runtime без подтверждённой необходимости. Caddy, Next.js и прочие прикладные сервисы могут оставаться отдельными контейнерами, но Supabase-компоненты — нет.
-- Официальная self-hosted Docker-дистрибуция Supabase запускает сервисы отдельными контейнерами вокруг одного PostgreSQL. Native runtime запускает сервисы процессами без Docker, но находится в Public Alpha и позиционируется для local development/CI; production-перевод на него без отдельного нагрузочного, restart/recovery и security-пилота запрещён.
-- Нельзя использовать неподдерживаемую сборку как production без проверки запуска после рестарта, восстановления после отказа отдельного процесса, миграций, RLS, Auth, Storage и Realtime.
-- Текущая конфигурация репозитория пока НЕ соответствует целевой: `docker-compose.yml` содержит отдельный PostgreSQL `db` (PostgreSQL 18, база `conditera`), а `docker-compose.supabase.yml` — `supabase-db` (PostgreSQL 15.6, база `supabase`). `web` и migrator используют `db/conditera`, GoTrue/REST/Storage — `supabase-db/supabase`.
-- Текущий `.github/workflows/deploy.yml` разворачивает только web/migrator и подключает migrator к `db`; Supabase runtime он не поднимает. Старый `scripts/deploy.sh` запускает второй Compose-стек и вручную применяет только первые пять миграций. Эти пути не считать production-ready и не использовать для выпуска новой OAuth-реализации.
-- До объединения БД и runtime миграция `0056_oauth_identity_links.sql` и OAuth callback не считаются внедрёнными в рабочую Supabase-БД. Запрещено переключать `DATABASE_URL`, удалять второй volume или менять версии PostgreSQL без инвентаризации, резервной копии и проверенного плана переноса.
+- Для рабочей системы используется один согласованный кластер PostgreSQL 17.12 и один журнал прикладных миграций.
+- Supabase runtime запускается одним Docker-контейнером: PostgreSQL, GoTrue, PostgREST, Realtime, Storage, Imgproxy, Postgres Meta, Kong и Edge Runtime управляются supervisor внутри образа. Next.js, Caddy и остальные прикладные сервисы остаются отдельными контейнерами.
+- Канонический Compose-граф формируется тремя файлами через scripts/compose-single-runtime.mjs. В нём активны supabase-runtime и web; отдельные PG15/PG18 и legacy Supabase services отключены профилями и launcher их не допускает.
+- Next.js подключается к тому же PostgreSQL 17 через роль conditera_app. Auth, REST, Realtime и Storage используют тот же кластер; отдельной app-БД или второго Supabase PostgreSQL нет.
+- Исходные базы пустые. Пользовательские данные переносить не требуется: PG17 создаётся с чистого volume, затем применяются системные и прикладные миграции. Dump/restore, CDC, объединение записей и сохранение пустых PG15/PG18 volumes не являются частью перехода.
+- Старые каталоги и volumes PG15/PG18 не подключаются к PG17. Их автоматическое удаление не выполняется. После первого production запуска обязательны регулярные резервные копии PG17 и проверка восстановления.
+- Проверка CI на чистом PG17 подтверждает миграции, расширения, роли, RLS, конкурентные операции, полный lifecycle заказа, оплату, checkout, идемпотентность, отзывы, чат, рецептуры, склад, медиа, production build и Playwright.
+- Отдельный runtime smoke подтверждает сборку/запуск единого Supabase контейнера, Auth signup, REST/OpenAPI, Realtime health и Storage upload/download.
+- Эти проверки не равны production deployment. До публичного запуска обязательны нагрузочная проверка, проверка restart/recovery каждого supervised процесса, security review, DNS/TLS, реальные OAuth/YooKassa/Telegram credentials и контрольный заказ.
+- Известные ограничения POC: часть Edge Functions возвращает not_implemented, Telegram notification channel требует настройки, Telegram/YooKassa webhooks должны идти через защищённые Next.js API routes. Нельзя объявлять все интеграции готовыми по факту успешного PG17 smoke.
+- scripts/deploy.sh — канонический локальный production launcher: он проверяет env-файлы, собирает единый runtime, ждёт PG17 и Next.js health, проверяет миграционный ledger. .github/workflows/deploy.yml остаётся заблокированным, потому что он рассчитан на удалённый VPS, а целевой хост — локальный Windows-компьютер владельца. CI не разворачивает систему вместо него.
 
 ## 2. OAuth — обязательные провайдеры
 
