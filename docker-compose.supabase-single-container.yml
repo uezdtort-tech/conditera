@@ -170,4 +170,5 @@ volumes:
   supabase_runtime_pg17_data:
     name: conditera_supabase_runtime_pg17_data
   supabase_runtime_storage_data:
+    name: conditera_supabase_runtime_storage_data
   supabase_runtime_deno_cache:
