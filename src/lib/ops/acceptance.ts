@@ -22,8 +22,13 @@
 import { getPool } from "@/lib/postgrest/pool";
 import { computeIngredientNeeds, type BreakdownIngredient } from "./breakdown";
 import {
+  readAcceptanceSnapshot,
+  validateSnapshotCoversOrder,
+  type AcceptanceSnapshot,
+  type AcceptanceSnapshotIngredient,
+} from "./snapshot";
+import {
   estimateOrderProductionMinutes,
-  isDeliveryLeadTimeSatisfied,
   type OrderItemForEstimate,
 } from "./production-duration";
 import { computeDeadlineAt, computeLatestSafeStart, minuteToHHMM } from "./deadline";
@@ -33,7 +38,7 @@ import type { RiskLevel, RiskReasonCode } from "./lifecycle-config";
 export type Availability = "available" | "available_with_warning" | "unavailable";
 
 export interface AcceptanceReason {
-  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING";
+  code: RiskReasonCode | "PURCHASE_ETA_MISSING" | "PURCHASE_ETA_AFTER_DEADLINE" | "DELIVERY_DATE_MISSING" | "RECIPE_MISSING" | "LOW_STOCK" | "CAN_ACCEPT_WITH_PURCHASE" | "INVENTORY_UNIT_MISMATCH" | "SNAPSHOT_INVALID";
   message: string;
 }
 
@@ -92,6 +97,12 @@ export interface AcceptanceResult {
   owners: AcceptanceOwnerResult[];
   /** Ближайшие свободные окна (для подсказки клиенту, ТЗ §29). */
   alternativeWindows: Array<{ confectionerId: string | null; date: string; start: string; end: string }>;
+  /**
+   * Z-v29: источник потребности. "snapshot" — заказ рассчитан по своему
+   * неизменяемому снимку; "live" — легаси-заказ без snapshot (текущий рецепт).
+   * Для гипотетических проверок (checkout-гейт) поле не выставляется.
+   */
+  needSource?: "live" | "snapshot";
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +119,11 @@ export interface LoadedItem {
   recipePrepMinutes: number | null;
   recipeCookMinutes: number | null;
   categorySlug: string | null;
+  /**
+   * Z-v29: нормы на 1 единицу из snapshot исторического заказа. Если заданы
+   * (включая пустой массив), текущий рецепт для этой позиции НЕ читается.
+   */
+  ingredientNorms?: AcceptanceSnapshotIngredient[];
 }
 
 /**
@@ -120,6 +136,10 @@ export async function loadOrderItemsData(orderId: string): Promise<{
   deliveryTimeWindow: string | null;
   deliveryTime: string | null;
   orderNumber: string | null;
+  /** Z-v29: "snapshot" — потребность из снимка заказа; "live" — легаси-путь. */
+  needSource: "live" | "snapshot";
+  /** Z-v29: непусто, если snapshot ЕСТЬ, но повреждён/не соответствует заказу (fail-closed). */
+  snapshotError: string | null;
 } | null> {
   const pool = getPool();
   const res = await pool.query<{
@@ -136,6 +156,7 @@ export async function loadOrderItemsData(orderId: string): Promise<{
     prep_time_minutes: number | null;
     cook_time_minutes: number | null;
     category_slug: string | null;
+    metadata: string | null;
   }>(
     `SELECT o.number, o.confectioner_id::text,
             to_char(o.delivery_date, 'YYYY-MM-DD') AS delivery_date,
@@ -145,7 +166,8 @@ export async function loadOrderItemsData(orderId: string): Promise<{
             oi.quantity,
             p.recipe_id::text, p.production_time_hours,
             r.prep_time_minutes, r.cook_time_minutes,
-            c.slug AS category_slug
+            c.slug AS category_slug,
+            o.metadata::text AS metadata
      FROM public.orders o
      LEFT JOIN public.order_items oi ON oi.order_id = o.id
      LEFT JOIN public.products p ON p.id = oi.product_id
@@ -169,6 +191,51 @@ export async function loadOrderItemsData(orderId: string): Promise<{
       recipeCookMinutes: r.cook_time_minutes,
       categorySlug: r.category_slug,
     }));
+
+  // --- Z-v29: snapshot исторической потребности ---
+  // Валидный snapshot → нормы/параметры берутся ИЗ НЕГО (правка рецепта
+  // после оформления не влияет на этот заказ). Повреждённый → snapshotError
+  // (fail-closed у checkAcceptance). Отсутствующий → легаси live (needSource="live").
+  let needSource: "live" | "snapshot" = "live";
+  let snapshotError: string | null = null;
+  let metadata: unknown = null;
+  if (first.metadata) {
+    try {
+      metadata = JSON.parse(first.metadata);
+    } catch {
+      metadata = null;
+    }
+  }
+  const parsed = readAcceptanceSnapshot(metadata);
+  if (parsed.status === "invalid") {
+    snapshotError = parsed.reason;
+  } else if (parsed.status === "valid") {
+    const snapshot: AcceptanceSnapshot = parsed.snapshot;
+    const snapshotByProduct = new Map(snapshot.items.map((si) => [si.product_id, si]));
+    const orderProductItems = items
+      .filter((i) => i.productId !== null)
+      .map((i) => ({ product_id: i.productId as string, quantity: i.quantity }));
+    const coverage = validateSnapshotCoversOrder(snapshot, orderProductItems);
+    if (!coverage.ok) {
+      snapshotError = coverage.reason;
+    } else {
+      needSource = "snapshot";
+      for (const item of items) {
+        if (!item.productId) continue; // custom/удалённый товар — без snapshot-норм
+        const si = snapshotByProduct.get(item.productId);
+        if (!si) continue;
+        // Нормы — из snapshot; параметры производства — тоже зафиксированы
+        // (иначе правка рецепта меняла бы срок/мощность исторического заказа).
+        item.ingredientNorms = si.ingredients;
+        item.recipeId = si.recipe_id;
+        item.productionTimeHours = si.production_time_hours;
+        item.recipePrepMinutes = si.prep_time_minutes;
+        item.recipeCookMinutes = si.cook_time_minutes;
+        item.categorySlug = si.category_slug;
+      }
+    }
+  }
+
   return {
     items,
     assignedConfectionerId: first.confectioner_id,
@@ -176,6 +243,8 @@ export async function loadOrderItemsData(orderId: string): Promise<{
     deliveryTimeWindow: first.delivery_time_window,
     deliveryTime: first.delivery_time,
     orderNumber: first.number,
+    needSource,
+    snapshotError,
   };
 }
 
@@ -280,6 +349,12 @@ export interface AcceptanceInput {
    * (окно заказа не должно блокировать его же проверку выполнимости).
    */
   excludeReservationForOrderId?: string;
+  /**
+   * Z-v29: непусто, если заказ содержит ПОВРЕЖДЁННЫЙ metadata.acceptance_snapshot.
+   * Fail-closed: потребность не считается вовсе (ни из snapshot, ни из текущего
+   * рецепта), приёмка блокируется кодом SNAPSHOT_INVALID.
+   */
+  snapshotError?: string | null;
 }
 
 interface OwnerGroup {
@@ -333,11 +408,38 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
     suggestions.push({ code: "CHECK_LATER", message: "Укажите дату доставки для проверки." });
   }
 
+  // Z-v29 (fail-closed): повреждённый/частичный snapshot с неизвестной
+  // schema_version или не соответствующий позициям заказа блокирует расчёт
+  // ПОЛНОСТЬЮ — не «молчаливо считаем по текущему рецепту».
+  const snapshotBroken = Boolean(input.snapshotError);
+  if (snapshotBroken) {
+    reasons.push({
+      code: "SNAPSHOT_INVALID",
+      message: `Snapshot производственного состава заказа повреждён (${input.snapshotError}) — потребность не рассчитана, приёмка заблокирована.`,
+    });
+    suggestions.push({
+      code: "CHECK_LATER",
+      message: "Требуется восстановление snapshot заказа администратором.",
+    });
+  }
+
   const groups = groupByOwner(input.items, input.assignedConfectionerId ?? null);
   const ownerResults: AcceptanceOwnerResult[] = [];
 
   for (const group of groups) {
     const ownerId = group.ownerId;
+
+    // --- Рецепт (сценарий D приёмки): позиция без привязанного рецепта не
+    // должна молча приниматься без расчёта потребности в ингредиентах.
+    const noRecipeItems = group.items.filter((i) => !i.recipeId);
+    if (noRecipeItems.length > 0) {
+      reasons.push({
+        code: "RECIPE_MISSING",
+        message: `«${noRecipeItems
+          .map((i) => i.title)
+          .join(", ")}": нет привязанного рецепта — потребность в ингредиентах не рассчитана.`,
+      });
+    }
 
     // --- Оценка времени производства (ТЗ §10) ---
     const estimateInputs: OrderItemForEstimate[] = group.items.map((i) => ({
@@ -367,28 +469,7 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
       });
     }
 
-    // products.production_time_hours — срок от заказа до выдачи, а не
-    // непрерывная трудоёмкость. Проверяем lead time отдельно от capacity.
-    const requiredLeadTimeHours = group.items.reduce(
-      (max, item) => Math.max(max, item.productionTimeHours ?? 0),
-      0
-    );
-    if (
-      deadlineAt &&
-      requiredLeadTimeHours > 0 &&
-      !isDeliveryLeadTimeSatisfied(requiredLeadTimeHours, deadlineAt, now)
-    ) {
-      reasons.push({
-        code: "DEADLINE_TOO_CLOSE",
-        message: `Для «${group.items[0]?.title ?? "товара"}» требуется не менее ${requiredLeadTimeHours} ч от оформления до выдачи.`,
-      });
-      suggestions.push({
-        code: "MOVE_DELIVERY_TIME",
-        message: "Выберите более позднюю дату выдачи с учётом срока изготовления.",
-      });
-    }
-
-    // --- Deadline Engine (ТЗ §11): только активное время производства ---
+    // --- Deadline Engine (ТЗ §11) ---
     let latestSafeStartAt: Date | null = null;
     let marginMin: number | null = null;
     if (deadlineAt) {
@@ -401,35 +482,40 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
     }
 
     // --- Инвентарь (существующая цепочка P0) ---
-    const needs = await computeIngredientNeeds(
-      group.items.map((i) => ({ recipe_id: i.recipeId, quantity: i.quantity })),
-      ownerId
-    );
+    // Z-v29: при повреждённом snapshot потребность НЕ считается вовсе
+    // (ни из snapshot, ни из текущего рецепта — иначе был бы fail-open).
+    const needs = snapshotBroken
+      ? { ingredients: [], shortages: [], can_produce: false, total_shortage_cost: 0 }
+      : await computeIngredientNeeds(
+          group.items.map((i) => ({
+            recipe_id: i.recipeId,
+            quantity: i.quantity,
+            // Snapshot-позиции считаются по зафиксированным нормам (Z-v29);
+            // легаси-позиции — по текущему рецепту, как раньше.
+            ...(i.ingredientNorms !== undefined
+              ? { ingredientNorms: i.ingredientNorms }
+              : {}),
+          })),
+          ownerId
+        );
     const shortages = needs.shortages;
 
-    // Нельзя принимать заказ, который невозможно провести через штатный
-    // recipe-driven write-off: отсутствие рецепта/ингредиентов и несовместимые
-    // единицы должны блокировать checkout, а не обнаруживаться у печи.
-    if (group.items.some((item) => !item.recipeId) || needs.ingredients.length === 0) {
-      reasons.push({
-        code: "MISSING_RECIPE",
-        message: `Для «${group.items.filter((item) => !item.recipeId).map((item) => item.title).join(", ") || group.items[0]?.title}» не настроен рецепт с ингредиентами.`,
-      });
-      suggestions.push({
-        code: "CONFIGURE_PRODUCT_TIME",
-        message: "Привяжите к товару рецепт и заполните его ингредиенты до приёма заказа.",
-      });
-    }
-
-    const unitMismatches = needs.ingredients.filter((ingredient) => ingredient.status === "unit_mismatch");
+    // Z-v27 (сценарий P, fail-closed): ингредиенты со статусом unit_mismatch
+    // (неизвестная/несовместимая единица склада) не входят в shortages, но
+    // потребность по ним НЕ проверяема — раньше гейт пропускал такой заказ
+    // (canAccept=true), а accept затем отклонял его (canProduce=false) —
+    // оплаченный заказ зависал. Теперь это блокирующая причина.
+    const unitMismatches = needs.ingredients.filter((i) => i.status === "unit_mismatch");
     if (unitMismatches.length > 0) {
       reasons.push({
-        code: "UNIT_MISMATCH",
-        message: `Несовместимые единицы измерения: ${unitMismatches.map((ingredient) => ingredient.name).join(", ")}. Исправьте единицы рецепта или склада.`,
+        code: "INVENTORY_UNIT_MISMATCH",
+        message: `Единицы склада несовместимы с рецептурой: ${unitMismatches
+          .map((i) => `«${i.name}» (склад: ${i.warehouse_unit ?? "?"})`)
+          .join(", ")}. Исправьте единицу позиции склада.`,
       });
       suggestions.push({
-        code: "CONFIGURE_PRODUCT_TIME",
-        message: "Согласуйте единицы измерения в рецепте и складских позициях.",
+        code: "CHECK_LATER",
+        message: "Проверьте единицы измерения позиций склада (г/мл/шт/дес).",
       });
     }
 
@@ -518,11 +604,22 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
     }
 
     if (shortages.length > 0) {
+      // Z-v20 (ТЗ §20 CAN_ACCEPT_WITH_PURCHASE): если закупка запланирована и
+      // успевает к безопасному старту производства — нехватка НЕ блокирует
+      // приёмку (предупреждение). Раньше LOW_STOCK оставался блокирующим
+      // всегда, из-за чего весь контур «дефицит → закупка → ETA» не мог
+      // завершиться приёмкой заказа (engine bug, найден Z-v20 E2E №2).
+      // Повторная проверка остатков выполняется при старте производства.
+      const purchaseCovers = Boolean(earliestEta && etaBeforeProductionStart);
       reasons.push({
-        code: "LOW_STOCK",
-        message: `Недостаточно: ${shortages
-          .map((s) => `${s.name}${s.shortage ? ` (−${s.shortage} ${s.unit})` : ""}`)
-          .join(", ")}.`,
+        code: purchaseCovers ? "CAN_ACCEPT_WITH_PURCHASE" : "LOW_STOCK",
+        message: purchaseCovers
+          ? `Недостаточно: ${shortages
+              .map((s) => `${s.name}${s.shortage ? ` (−${s.shortage} ${s.unit})` : ""}`)
+              .join(", ")}. Закупка успевает к производству (ETA ${earliestEta!.toLocaleString("ru-RU")}).`
+          : `Недостаточно: ${shortages
+              .map((s) => `${s.name}${s.shortage ? ` (−${s.shortage} ${s.unit})` : ""}`)
+              .join(", ")}.`,
       });
     }
 
@@ -622,8 +719,18 @@ const BLOCKING_CODES = new Set<string>([
   "PURCHASE_ETA_AFTER_DEADLINE",
   "PURCHASE_ETA_MISSING",
   "DEADLINE_TOO_CLOSE",
-  "MISSING_RECIPE",
-  "UNIT_MISMATCH",
+  // Сценарии A/D приёмки (Z-v12): нехватка ингредиентов и отсутствие рецепта
+  // запрещают переход в состояние «принято к производству». LOW_STOCK — код
+  // движка для нехватки; RECIPE_MISSING — позиция без расчёта потребности.
+  "LOW_STOCK",
+  "RECIPE_MISSING",
+  // Z-v27 (сценарий P): неизвестная/несовместимая единица склада — потребность
+  // непроверяема → fail-closed (совпадает с accept-путём canProduce).
+  "INVENTORY_UNIT_MISMATCH",
+  // Z-v29: повреждённый/частичный metadata.acceptance_snapshot — потребность
+  // исторического заказа невосстановима достоверно → fail-closed (без
+  // молчаливой подмены текущим рецептом).
+  "SNAPSHOT_INVALID",
 ]);
 
 function dedupeReasons(reasons: AcceptanceReason[]): AcceptanceReason[] {
@@ -664,18 +771,24 @@ export async function suggestAlternativeWindows(
 
 /**
  * Проверка существующего заказа (POST /api/orders/[id]/acceptance-check).
+ *
+ * Z-v29: при наличии валидного metadata.acceptance_snapshot потребность
+ * считается из снимка (needSource="snapshot"); повреждённый snapshot →
+ * блокирующий код SNAPSHOT_INVALID; легаси-заказы — live (needSource="live").
  */
 export async function checkOrderAcceptance(
   orderId: string
 ): Promise<AcceptanceResult | null> {
   const data = await loadOrderItemsData(orderId);
   if (!data) return null;
-  return checkAcceptance({
+  const result = await checkAcceptance({
     items: data.items,
     assignedConfectionerId: data.assignedConfectionerId,
     deliveryDate: data.deliveryDate,
     deliveryTimeWindow: data.deliveryTimeWindow,
     deliveryTime: data.deliveryTime,
     excludeReservationForOrderId: orderId,
+    snapshotError: data.snapshotError,
   });
+  return { ...result, needSource: data.needSource };
 }

@@ -27,7 +27,13 @@ export type Role =
   | "ANIMATOR_AGENCY"
   | "RECREATION_CENTER"
   | "KIDS_CLUB"
-  | "INSPECTOR";
+  | "INSPECTOR"
+  // Роли v2.0 («Архитектура ролевой экосистемы») — уже используются
+  // дашбордами/схемой user_role, но отсутствовали в клиентском типе,
+  // из-за чего pickPrimaryRole(user_role) не присваивался activeRole.
+  | "RECIPE_DEVELOPER"
+  | "LOYALTY_PARTNER"
+  | "AI_ASSISTANT";
 
 export interface User {
   id: string;
@@ -114,9 +120,6 @@ export interface OrderNegotiation {
   confectionerId: string;
   confectionerName: string;
   confectionerAvatar?: string;
-  /** Выбранный кондитером товар, чей рецепт используется для производства индивидуального заказа. */
-  productionProductId?: string;
-  referenceMedia?: Array<{ id: string; url: string; kind: "customer_reference" | "builder_preview" }>;
   // Исходные данные (от покупателя)
   originalRequest: {
     eventType: string;
@@ -636,6 +639,11 @@ export interface Product {
   recipeId?: string | null;
   // Approved-медиа карточки (фото+видео, обложка первая) из GET /api/products/[id]
   media?: ProductMediaItem[];
+  // PR-2C (Z-v32 Этап 6, additive): effective_from покрывающей now строки
+  // истории цен (GET /api/products/[id]). null/undefined на legacy-фолбэке —
+  // строку «Цена действует с …» не показываем. История цен покупателю не
+  // отдаётся — сервер возвращает только текущую цену + дату её вступления.
+  priceEffectiveFrom?: string | null;
 }
 
 // ===== СПОСОБЫ ОПЛАТЫ И РАССРОЧКА =====
@@ -1183,6 +1191,8 @@ export interface ChatMessage {
   createdAt: string;
   isSystem?: boolean;
   isOwn?: boolean;
+  /** Состояние доставки собственного сообщения: failed — POST не удался, нужна повторная отправка */
+  deliveryState?: "sending" | "failed";
   reactions?: { emoji: string; count: number }[];
   // === Bot / Auto-chat ===
   isBot?: boolean;
@@ -1245,6 +1255,14 @@ export interface CartItem {
   custom?: {
     config: import("./cake-builder-pricing").CakeBuilderConfig;
   };
+  /**
+   * ZV33-4b D4: согласованная цена принятого индивидуального предложения
+   * (рубли, negotiations.quoted_price / 100). Ставится ТОЛЬКО кнопкой
+   * «Перейти к оформлению заказа» вкладки «Предложения кондитеров».
+   * Отображение предпочитает её, пока active pendingNegotiationId (store);
+   * сервер всё равно авторитетен — тело checkout цены не содержит.
+   */
+  agreedPriceRub?: number | null;
 }
 
 export interface ChannelPost {
