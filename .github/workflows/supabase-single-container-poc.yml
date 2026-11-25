@@ -92,7 +92,14 @@ jobs:
           assert "supabase_runtime_pg17_data" in config["volumes"]
           assert "supabase_runtime_storage_data" in config["volumes"]
           assert "supabase_runtime_deno_cache" in config["volumes"]
-          print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
+          assert config["volumes"]["supabase_runtime_pg17_data"]["name"] == "conditera_supabase_runtime_pg17_data"
+          assert config["volumes"]["supabase_runtime_storage_data"]["name"] == "conditera_supabase_runtime_storage_data"
+          assert services["supabase-runtime"]["environment"]["POSTGRES_DB"] == "conditera"
+          for key in ["JWT_SECRET", "JWT_REFRESH_SECRET", "TFA_ENCRYPTION_KEY", "CRON_SECRET", "SMTP_PASSWORD", "YOOKASSA_SECRET_KEY", "YANDEX_CLIENT_ID"]:
+              assert web["environment"].get(key), f"missing required production setting: {key}"
+          assert web["environment"]["JWT_SECRET"] != web["environment"]["JWT_REFRESH_SECRET"]
+          assert web["environment"]["MEILI_URL"] == "http://meilisearch:7700"
+          print("Single-container Compose overlay is valid; canonical conditera DB, required secrets and isolated PG17/Storage volumes are present.")
           PY
 
       - name: Build one-container Supabase runtime
