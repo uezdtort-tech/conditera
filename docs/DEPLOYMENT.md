@@ -22,6 +22,20 @@
    перед SSH-шагом.
 4. Сеть compose называется `conditera-net` (проверьте в docker-compose.yml —
    migrator подключается именно к ней).
+5. В `.env.production` должны быть заполнены все обязательные production values:
+   SMTP host/user/password/from, YooKassa live Shop ID/Secret Key, Yandex OAuth
+   enabled + Client ID + точный callback, Supabase keys, отдельные JWT/TFA/CRON
+   secrets и оба PostgreSQL URL. Примеры-заглушки из template не являются
+   рабочими значениями; runtime guard остановит production server.
+6. Перед выпуском на Linux host выполнить `bash scripts/env-check.sh production`.
+   Ошибка preflight означает BLOCKED, не обходить её заглушками.
+   
+**Compose build args:** при ручной сборке всегда передавайте
+`docker compose --env-file .env.production -f docker-compose.yml ...`.
+Секция `env_file:` сервиса задаёт runtime environment контейнера, но не
+переменные Compose interpolation для `build.args`. Production web image
+компилирует `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` и
+`NEXT_PUBLIC_APP_URL` в Next.js bundle; они должны совпадать с runtime env.
 
 ## Публикация (каждый релиз)
 
