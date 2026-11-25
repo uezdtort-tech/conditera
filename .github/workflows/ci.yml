@@ -458,7 +458,9 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # Use the same Supabase PG17 distribution as the runtime: vanilla
+        # postgres:17 does not ship pg_cron required by migration 0001.
+        image: supabase/postgres:17.6.1.136
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
@@ -492,8 +494,14 @@ jobs:
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(ls supabase/migrations/*.sql | wc -l)
-          echo "applied=$APPLIED total=$TOTAL"
-          test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
+          # 0026 is intentionally deferred until the Supabase Storage API has
+          # created storage.buckets/storage.objects. The full Compose workflow
+          # starts Storage and verifies 0026 separately.
+          EXPECTED=$((TOTAL - 1))
+          DEFERRED=$(docker exec "$SVC" psql -U postgres -d conditera -Atc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='storage' AND table_name IN ('buckets','objects')")
+          echo "applied=$APPLIED expected_before_Storage=$EXPECTED total=$TOTAL storage_tables=$DEFERRED"
+          test "$APPLIED" -eq "$EXPECTED" || { echo "FAIL: миграции кроме отложенной Storage 0026 применены не полностью"; exit 1; }
 
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
