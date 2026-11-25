@@ -46,7 +46,7 @@ const ANCHORS = [
 ];
 
 // Запрещённые образы в ЛЮБЫХ compose/workflow файлах (major ≠ 17).
-const SCAN_DIRS = ["docker-compose.supabase.yml", "docker-compose.yml", "docker-compose.dev.yml", ".github/workflows"];
+const SCAN_DIRS = ["docker-compose.supabase.yml", "docker-compose.pg17-migration.yml", "docker-compose.yml", "docker-compose.dev.yml", ".github/workflows"];
 
 let failures = 0;
 const fail = (msg) => {

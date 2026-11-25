@@ -6,7 +6,7 @@
 |---|---|---|
 | Frontend | Next.js (App Router, Turbopack) | 16.1.3 |
 | Backend | Next.js API Routes (Route Handlers) | — |
-| Database | Supabase PostgreSQL | 15 (self-hosted) |
+| Database | Supabase PostgreSQL | 17.12 (single-container runtime) |
 | ORM/Client | @supabase/supabase-js | 2.112.3 |
 | SSR Auth | @supabase/ssr | 0.5.2 |
 | State | Zustand (legacy) → TanStack Query | 5.82.0 |
@@ -49,7 +49,7 @@ User → Browser → Next.js SSR → supabaseBrowser (RLS)
                     ↓               ↓               ↓
                     └───────────────┴───────────────┘
                                     ↓
-                          PostgreSQL 15 (:5432)
+                          PostgreSQL 17.12 (:5432), DB conditera
                           + pg_cron + pg_trgm + FTS
 ```
 
@@ -95,12 +95,12 @@ src/
 supabase/
 ├── config.toml             # CLI config
 ├── kong.yml                # API gateway routing
-├── migrations/             # 9 SQL migrations
+├── migrations/             # 114 SQL migrations
 ├── functions/              # 10 Edge Functions (Deno)
 ├── seed.sql                # 28 categories
 └── seed_cms_crm.sql        # CMS + CRM + automation seed
 
-docker-compose.supabase.yml  # 10 services
+docker-compose.supabase-single-container.yml  # one Supabase runtime container
 docker-compose.yml           # Production (Next.js + Caddy)
 Caddyfile                    # Reverse proxy + health-check
 .github/workflows/deploy.yml # CI/CD
