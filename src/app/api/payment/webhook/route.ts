@@ -30,6 +30,7 @@ import {
   getRefund,
   refundPayment,
 } from "@/lib/yookassa";
+import { shouldSkipFinalPaymentWebhook } from "@/lib/payment-webhook-idempotency";
 
 export const runtime = "nodejs";
 
@@ -49,21 +50,6 @@ export interface YooKassaWebhookBody {
 }
 
 // Финальные статусы в терминах БД (enum payment_status: 'cancelled' — две l)
-const FINAL_PAYMENT_STATUSES = new Set(["succeeded", "cancelled", "refunded"]);
-
-export function shouldSkipFinalPaymentWebhook(
-  event: string,
-  currentStatus: string,
-  incomingStatus: string
-): boolean {
-  return (
-    event !== "refund.succeeded" &&
-    event !== "payment.succeeded" &&
-    FINAL_PAYMENT_STATUSES.has(currentStatus) &&
-    currentStatus === incomingStatus
-  );
-}
-
 /** YooKassa шлёт "canceled" (одна l), в БД enum — "cancelled" */
 function yookassaStatusToDb(status: string): string {
   return status === "canceled" ? "cancelled" : status;
