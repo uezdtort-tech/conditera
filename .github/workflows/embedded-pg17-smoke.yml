@@ -39,10 +39,10 @@ jobs:
     env:
       SEED_MODE: none
       NODE_ENV: test
-      JWT_SECRET: embedded_pg17_test_jwt_secret_32_chars_minimum
-      JWT_REFRESH_SECRET: embedded_pg17_refresh_secret_32_chars_minimum
-      TFA_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      CRON_SECRET: embedded_pg17_cron_secret
+      JWT_SECRET: ${{ 'embedded_pg17_test_jwt_secret_32_chars_minimum' }}
+      JWT_REFRESH_SECRET: ${{ 'embedded_pg17_refresh_secret_32_chars_minimum' }}
+      TFA_ENCRYPTION_KEY: ${{ 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }}
+      CRON_SECRET: ${{ 'embedded_pg17_cron_secret' }}
     steps:
       - uses: actions/checkout@v7
 
