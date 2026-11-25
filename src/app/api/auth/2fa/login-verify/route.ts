@@ -27,13 +27,13 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 import {
   verifyTotp,
   decryptSecret,
   verifyBackupCode,
   hashBackupCode,
 } from "@/lib/totp";
-import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -98,28 +98,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
-
-    // 0. Анти-брутфорс второй ступени (Z-v20, P1 security):
-    //    - 5 попыток подбора кода на один temp-токен (TTL токена 5 минут —
-    //      окно лимита равно жизни токена, т.е. не более 5 попыток всего);
-    //    - 20 попыток на IP за 5 минут (страховка от перебора многих токенов).
-    //    Без этого 6-значный TOTP можно подбирать неограниченно в течение
-    //    жизни temp-токена. Login (первая ступень) уже ограничен 20/ч.
-    const ip = getClientIP(request);
-    const perTokenBlocked = await enforceRateLimit(
-      request,
-      `tfa-code:${tfaTempToken}`,
-      5,
-      5 * 60_000
-    );
-    if (perTokenBlocked) return perTokenBlocked as unknown as NextResponse;
-    const perIpBlocked = await enforceRateLimit(
-      request,
-      `tfa-ip:${ip}`,
-      20,
-      5 * 60_000
-    );
-    if (perIpBlocked) return perIpBlocked as unknown as NextResponse;
 
     // 1. Валидировать временный токен (5 минут TTL)
     const tempPayload = await verifyTfaLoginToken(tfaTempToken);
@@ -277,8 +255,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType: user.account_type,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId: user.id });
+    const sessionId = await createUserSession(user.id, request, "two_factor");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, user.id, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId: user.id, sid: sessionId, jti: refreshJti });
 
     // Sanitize response
     const safeUser: SanitizedUser = {
@@ -304,9 +285,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Cookie-сессия — единый контракт с /api/auth/login
     return setSessionCookies(verifyResponse, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json(
+        { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
+        { status: 403 }
+      );
+    }
+    if (error?.message === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json(
+        { error: "Не удалось безопасно проверить активные устройства. Повторите попытку позже." },
+        { status: 503 }
+      );
+    }
     console.error("POST /api/auth/2fa/login-verify error:", error?.message);
     return NextResponse.json(
-      { error: "Внутренняя ошибка сервера" },
+      { error: "Внутренняя ошибка сервера", detail: error?.message },
       { status: 500 }
     );
   }
