@@ -88,7 +88,7 @@ import { getSessionAuthHeaders, getCsrfToken, serverLogout } from "@/lib/api-cli
 import { useRouter } from "next/navigation";
 import { ensureChatRoom } from "@/components/chat/chat-api";
 import { openChatForOrder } from "@/components/chat/chat-order-bridge";
-import { RotateCcw, AlertTriangle, ShoppingCart, X, Loader2, ImagePlus, Clock } from "lucide-react";
+import { RotateCcw, ShoppingCart, X, Loader2, ImagePlus, Clock } from "lucide-react";
 import type { Product } from "@/lib/types";
 
 export function CustomerDashboard() {
