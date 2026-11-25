@@ -12,7 +12,7 @@
  */
 import { spawn } from "child_process";
 import { createHash } from "crypto";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createGzip } from "zlib";
 import { pipeline } from "stream/promises";
