@@ -337,8 +337,16 @@ jobs:
       - name: Validate Kong 2.8 Compose contract
         run: |
           node scripts/verify/kong-compose-contract.mjs
+          SUPABASE_ANON_KEY=ci-anon-key \
+          SUPABASE_SERVICE_KEY=ci-service-key \
+          KONG_DECLARATIVE_CONFIG="$PWD/supabase/kong.yml" \
+          KONG_RENDERED_CONFIG_PATH="$RUNNER_TEMP/kong-rendered.yml" \
+          KONG_RENDER_ONLY=true \
+          sh scripts/supabase/kong-entrypoint.sh
+          ! grep -Fq '${SUPABASE_ANON_KEY}' "$RUNNER_TEMP/kong-rendered.yml"
+          ! grep -Fq '${SUPABASE_SERVICE_KEY}' "$RUNNER_TEMP/kong-rendered.yml"
           docker run --rm \
-            -v "$PWD/supabase/kong.yml:/kong.yml:ro" \
+            -v "$RUNNER_TEMP/kong-rendered.yml:/kong.yml:ro" \
             -e KONG_DATABASE=off \
             -e KONG_PLUGINS=request-transformer,cors,key-auth,acl,basic-auth,rate-limiting \
             -e KONG_NGINX_PROXY_PROXY_BUFFER_SIZE=160k \
