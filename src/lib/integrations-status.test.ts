@@ -91,7 +91,7 @@ describe("integrations-status", () => {
 
   it("does not expose secret values in the returned status", () => {
     process.env.TELEGRAM_BOT_TOKEN = "12345:TOPSECRET_TEST";
-    process.env.SMTP_PASSWORD = "SMTP_TOPSECRET";
+    process.env.SMTP_PASSWORD = "SMTP_TEST_TOPSECRET";
     const status = getIntegrationsStatus() as unknown as Record<string, unknown>;
 
     expect(JSON.stringify(status)).not.toContain("TOPSECRET");
