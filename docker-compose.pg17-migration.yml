@@ -24,6 +24,8 @@ services:
       - config_file=/etc/postgresql/postgresql.conf
       - -c
       - cron.database_name=supabase
+      - -c
+      - cron.username=supabase_admin
     environment:
       POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
