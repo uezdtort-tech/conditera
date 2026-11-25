@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { PoolClient } from "pg";
+import { canTransitionOrderDispute, isTerminalOrderDisputeStatus } from "@/lib/order-dispute-state";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPool } from "@/lib/postgrest/pool";
@@ -150,7 +152,7 @@ export async function POST(
       );
       dispute = inserted.rows[0];
 
-      // Сохраняем оригиналы в приватном bucket; никакие публичные URL от клиента не принимаются.
+      // Сохраняем оригиналы в приватном файловом хранилище; публичные URL от клиента не принимаются.
       for (const file of files) {
         const media = await saveOrderReadyPhoto({
           orderId,
@@ -195,7 +197,7 @@ export async function POST(
       await client.query("ROLLBACK");
       throw error;
     } finally {
-      client.release();
+      client?.release();
     }
 
     return NextResponse.json({ dispute, evidenceCount: uploadedMedia.length }, { status: 201 });
@@ -226,7 +228,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const client = await getPool().connect();
+  let client: PoolClient | null = null;
   try {
     const { id: orderId } = await params;
     const user = await getUserFromRequest(request);
@@ -263,10 +265,11 @@ export async function PATCH(
         return NextResponse.json({ error: "ASSIGNEE_MUST_HAVE_ACTIVE_SUPPORT_ROLE" }, { status: 422 });
       }
     }
-    if (["resolved", "rejected"].includes(nextStatus) && resolution.length < 10) {
+    if (isTerminalOrderDisputeStatus(nextStatus) && resolution.length < 10) {
       return NextResponse.json({ error: "RESOLUTION_REQUIRED" }, { status: 422 });
     }
 
+    client = await getPool().connect();
     await client.query("BEGIN");
     const selected = await client.query(
       `SELECT id, status, assigned_to FROM public.order_disputes
@@ -283,13 +286,8 @@ export async function PATCH(
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "DISPUTE_NOT_ASSIGNED_TO_YOU" }, { status: 403 });
     }
-    const transitions: Record<string, string[]> = {
-      open: ["under_review"],
-      under_review: ["awaiting_customer", "resolved", "rejected"],
-      awaiting_customer: ["under_review", "resolved", "rejected"],
-    };
     const currentStatus = String(current.status);
-    if (!transitions[currentStatus]?.includes(nextStatus)) {
+    if (!canTransitionOrderDispute(currentStatus, nextStatus)) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "INVALID_DISPUTE_TRANSITION", currentStatus }, { status: 409 });
     }
@@ -327,7 +325,7 @@ export async function PATCH(
         [`ORDER_DISPUTE:${disputeId}`, assignedTo],
       );
     }
-    if (["resolved", "rejected"].includes(nextStatus)) {
+    if (isTerminalOrderDisputeStatus(nextStatus)) {
       await client.query(
         `UPDATE public.ops_tasks
          SET status = 'resolved', resolved_by = $2::uuid, resolved_at = now(),
@@ -339,7 +337,7 @@ export async function PATCH(
     await client.query("COMMIT");
     return NextResponse.json({ dispute: updated.rows[0] });
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
+    if (client) await client.query("ROLLBACK").catch(() => {});
     console.error("[orders/disputes] PATCH failed:", (error as Error).message);
     return NextResponse.json({ error: "DISPUTE_UPDATE_FAILED" }, { status: 500 });
   } finally {
