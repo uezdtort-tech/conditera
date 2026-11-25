@@ -35,7 +35,7 @@ describe("TOTP encryption key configuration", () => {
     "stub-secret-value-that-is-long-enough",
     "placeholder-secret-value-that-is-long-enough",
   ])("rejects a placeholder key in production runtime: %s", async (key) => {
-    mutableEnv.NODE_ENV = "production";
+    process.env.NODE_ENV = "production";
     delete process.env.NEXT_PHASE;
     process.env.TFA_ENCRYPTION_KEY = key;
     vi.resetModules();
@@ -44,7 +44,7 @@ describe("TOTP encryption key configuration", () => {
   });
 
   it("rejects a short key in production runtime", async () => {
-    mutableEnv.NODE_ENV = "production";
+    process.env.NODE_ENV = "production";
     delete process.env.NEXT_PHASE;
     process.env.TFA_ENCRYPTION_KEY = "too-short";
     vi.resetModules();
@@ -53,7 +53,7 @@ describe("TOTP encryption key configuration", () => {
   });
 
   it("allows a valid production key and preserves encrypted-secret round trips", async () => {
-    mutableEnv.NODE_ENV = "production";
+    process.env.NODE_ENV = "production";
     delete process.env.NEXT_PHASE;
     process.env.TFA_ENCRYPTION_KEY = "a".repeat(64);
     vi.resetModules();
@@ -65,7 +65,7 @@ describe("TOTP encryption key configuration", () => {
   });
 
   it("uses a build-only key during the production build phase", async () => {
-    mutableEnv.NODE_ENV = "production";
+    process.env.NODE_ENV = "production";
     process.env.NEXT_PHASE = "phase-production-build";
     delete process.env.TFA_ENCRYPTION_KEY;
     vi.resetModules();
