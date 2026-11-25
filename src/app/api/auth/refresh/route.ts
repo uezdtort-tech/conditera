@@ -62,7 +62,12 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    if (!payload.sid || !payload.jti || !(await isUserSessionActive(payload.sid, payload.userId))) {
+    if (
+      typeof payload.sid !== "string" ||
+      typeof payload.userId !== "string" ||
+      typeof payload.jti !== "string" ||
+      !(await isUserSessionActive(payload.sid, payload.userId))
+    ) {
       return NextResponse.json(
         { error: "Сессия завершена или отозвана. Войдите снова." },
         { status: 401 }

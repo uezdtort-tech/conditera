@@ -12,7 +12,7 @@ async function currentSession(request: NextRequest) {
   const bearerToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
   const token = bearerToken || request.cookies.get(SESSION_COOKIE)?.value;
   const payload = token ? await verifyAccessToken(token) : null;
-  if (!user || !payload?.sid || payload.userId !== user.id) return null;
+  if (!user || typeof payload?.sid !== "string" || typeof payload.userId !== "string" || payload.userId !== user.id) return null;
   return { user, sessionId: payload.sid };
 }
 

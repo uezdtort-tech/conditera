@@ -174,9 +174,9 @@ async function main() {
     ? ok("контроль: без снятия резерва — 800₽ при возврате 400₽ (именно это чинит reset в роуте)")
     : fail("контрольный двойной учёт", bad.refund_amount);
 
-  console.log("\n=== Миграция 0088: усиленный контракт refund RPC ===");
-  await applyFileStrict(db, MIG("0088_harden_yookassa_refund_rpc.sql"), "0088_harden_yookassa_refund_rpc.sql");
-  ok("0088 применена поверх 0039");
+  console.log("\n=== Миграция 0102: усиленный контракт refund RPC ===");
+  await applyFileStrict(db, MIG("0102_harden_yookassa_refund_rpc.sql"), "0102_harden_yookassa_refund_rpc.sql");
+  ok("0102 применена поверх 0039");
 
   await db.exec(`
     INSERT INTO public.payments (yookassa_payment_id, amount, status)

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const appToken = bearerToken || request.cookies.get(SESSION_COOKIE)?.value;
   if (appToken) {
     const payload = await verifyAccessToken(appToken);
-    if (payload?.sid && payload.userId) {
+    if (typeof payload?.sid === "string" && typeof payload.userId === "string") {
       const revoked = await revokeUserSession(payload.sid, payload.userId, "user_logout");
       if (!revoked) {
         return NextResponse.json({ error: "Не удалось завершить серверную сессию" }, { status: 503 });
