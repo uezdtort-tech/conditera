@@ -81,7 +81,7 @@ jobs:
                   image = str(service.get("image", ""))
                   if "postgres" not in image.lower():
                       continue
-                  match = re.search(r":(\d+)(?:\.|-|$)", image)
+                  match = re.search(r"(?:^|/)postgres:(\d+)(?:\.|-|$)", image)
                   assert match, f"{path}: unpinned PostgreSQL image for {name}: {image}"
                   assert int(match.group(1)) == 17, f"{path}: PostgreSQL major mismatch for {name}: {image}"
           print("PASS: retained Compose files parse and use only PostgreSQL 17 images.")
