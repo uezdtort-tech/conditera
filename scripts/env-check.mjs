@@ -241,12 +241,12 @@ export function validateEnvironment(values, selectedMode = "development", select
   }
 
   // SMTP
-  required("SMTP_HOST", "SMTP host");
-  required("SMTP_FROM", "SMTP sender address");
-  if (isFilled(value("SMTP_FROM")) && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value("SMTP_FROM"))) {
-    error("SMTP_FROM должен быть корректным email-адресом");
-  }
   if (production) {
+    required("SMTP_HOST", "SMTP host");
+    required("SMTP_FROM", "SMTP sender address");
+    if (isFilled(value("SMTP_FROM")) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value("SMTP_FROM"))) {
+      error("SMTP_FROM должен быть корректным email-адресом");
+    }
     required("SMTP_USER", "SMTP user");
     required("SMTP_PASSWORD", "SMTP password");
     required("SMTP_PORT", "SMTP port");
@@ -258,6 +258,8 @@ export function validateEnvironment(values, selectedMode = "development", select
     if (smtpPort === 465 && smtpSecure !== "true") error("Для SMTP_PORT=465 требуется SMTP_SECURE=true");
     if (smtpPort === 587 && smtpSecure !== "false") error("Для SMTP_PORT=587 требуется SMTP_SECURE=false");
   } else {
+    optional("SMTP_HOST", "SMTP host");
+    optional("SMTP_FROM", "SMTP sender address");
     optional("SMTP_USER", "SMTP user");
     optional("SMTP_PASSWORD", "SMTP password");
   }
