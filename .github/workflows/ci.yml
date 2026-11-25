@@ -712,6 +712,82 @@ jobs:
             --tag conditera-web:ci \
             .
 
+
+  backup-supabase-pg15-to-pg17:
+    name: Supabase PG15 logical backup and PG17 restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      source:
+        image: supabase/postgres:15.6.1.141
+        env:
+          POSTGRES_USER: supabase
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: supabase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U supabase -d supabase"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Seed representative Supabase source data
+        env:
+          SOURCE_CONTAINER_ID: ${{ job.services.source.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i -e PGPASSWORD=ci-only-password "$SOURCE_CONTAINER_ID" psql -v ON_ERROR_STOP=1 -U supabase -d supabase <<'SQL'
+          CREATE TABLE public.backup_probe (
+            id integer PRIMARY KEY,
+            marker text NOT NULL
+          );
+          INSERT INTO public.backup_probe VALUES (1, 'PG15_TO_PG17_RESTORE_OK');
+          SQL
+      - name: Create full Supabase PG15 logical backup
+        env:
+          SUPABASE_DB_CONTAINER: ${{ job.services.source.id }}
+          SUPABASE_DB_NAME: supabase
+          SUPABASE_DB_USER: supabase
+          SUPABASE_BACKUP_DIR: ${{ runner.temp }}/supabase-pg15-backup
+        run: |
+          set -euo pipefail
+          bash scripts/ops/backup-supabase-db.sh
+          find "$SUPABASE_BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -print -quit | grep -q .
+      - name: Restore Supabase dump into isolated PG17 database
+        env:
+          BACKUP_DIR: ${{ runner.temp }}/supabase-pg15-backup
+        run: |
+          set -euo pipefail
+          RESTORE_CONTAINER="conditera-supabase-pg17-restore-${{ github.run_id }}"
+          trap 'docker rm -f "$RESTORE_CONTAINER" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$RESTORE_CONTAINER" -p 5433:5432 \
+            -e POSTGRES_USER=supabase \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=postgres \
+            supabase/postgres:17.11.0.017 \
+            postgres -c config_file=/etc/postgresql/postgresql.conf \
+              -c cron.database_name=supabase_restore \
+              -c cron.username=supabase
+          ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec "$RESTORE_CONTAINER" pg_isready -U supabase -d postgres; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = true
+          docker exec -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase -d postgres -c 'CREATE DATABASE supabase_restore'
+          DUMP_FILE="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -print -quit)"
+          test -n "$DUMP_FILE"
+          gzip -t "$DUMP_FILE"
+          gzip -dc "$DUMP_FILE" | docker exec -i -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase -d supabase_restore
+          RESULT="$(docker exec -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -U supabase -d supabase_restore -Atqc "SELECT marker FROM public.backup_probe WHERE id=1")"
+          test "$RESULT" = "PG15_TO_PG17_RESTORE_OK"
+          echo "SUPABASE PG15 -> PG17 LOGICAL RESTORE: PASSED"
+
   # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
   # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,
   # известные (baseline) → WARN + remediation backlog (OWNER_DECISIONS D-8).
