@@ -75,7 +75,13 @@ PSQL -c "
     ('0063a_cake_project_spec.sql', '0063_cake_project_spec.sql'),
     ('0064a_product_slices_rls.sql', '0064_product_slices_rls.sql'),
     ('0066_service_role_default_grants.sql', '0066a_service_role_default_grants.sql'),
-    ('0067_repair_updated_at_triggers.sql', '0067a_repair_updated_at_triggers.sql')
+    ('0067_repair_updated_at_triggers.sql', '0067a_repair_updated_at_triggers.sql'),
+    ('0087_user_consent_events.sql', '0061a_user_consent_events.sql'),
+    ('0088_reference_catalog.sql', '0062b_reference_catalog.sql'),
+    ('0089_financial_ledger.sql', '0063a_financial_ledger.sql'),
+    ('0090_supplier_procurement.sql', '0064a_supplier_procurement.sql'),
+    ('0091_service_role_default_grants.sql', '0066a_service_role_default_grants.sql'),
+    ('0092_repair_updated_at_triggers.sql', '0067a_repair_updated_at_triggers.sql')
   ) AS aliases(legacy_name, canonical_name)
   WHERE EXISTS (
     SELECT 1 FROM public.schema_migrations applied
