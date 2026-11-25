@@ -6,8 +6,8 @@ set -euo pipefail
 # Does not back up external Storage objects or cluster-global roles.
 
 CONTAINER="${SUPABASE_DB_CONTAINER:-conditera-supabase-db}"
-DB_NAME="${SUPABASE_DB_NAME:-postgres}"
-DB_USER="${SUPABASE_DB_USER:-supabase_admin}"
+DB_NAME="${SUPABASE_DB_NAME:-supabase}"
+DB_USER="${SUPABASE_DB_USER:-supabase}"
 BACKUP_DIR="${SUPABASE_BACKUP_DIR:-/var/backups/conditera/supabase}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BASENAME="supabase-$DB_NAME-$TIMESTAMP.sql.gz"
