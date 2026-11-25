@@ -132,14 +132,10 @@ export function AdminCmsHomeTab() {
       const index = next.findIndex((item) => item.slug === slug);
       const target = index + direction;
       if (index < 0 || target < 0 || target >= next.length) return current;
-      const first = next[index];
-      next[index] = next[target];
-      next[target] = first;
-      const firstOrder = next[index].sortOrder;
-      const targetOrder = next[target].sortOrder;
-      next[index] = { ...next[index], sortOrder: firstOrder };
-      next[target] = { ...next[target], sortOrder: targetOrder };
-      return next;
+      const currentOrder = next[index].sortOrder;
+      next[index] = { ...next[index], sortOrder: next[target].sortOrder };
+      next[target] = { ...next[target], sortOrder: currentOrder };
+      return next.sort((a, b) => a.sortOrder - b.sortOrder);
     });
   };
 
