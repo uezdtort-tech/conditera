@@ -7,7 +7,7 @@
  * Для каждого заказа:
  * 1. payment_status = "escrow" AND escrow_released_at IS NULL
  * 2. Создан > 24 часов назад
- * 3. Статус не CANCELLED
+ * 3. Статус не CANCELLED/REFUNDED (COMPLETED — успешный заказ, выплачивается)
  * → Релизует эскроу, инкрементирует balance кондитера
  *
  * Auth: X-Cron-Secret header (CRON_SECRET env var)
@@ -132,6 +132,8 @@ async function releaseEscrowLegacy(
     .eq("id", order.id)
     .eq("payment_status", "escrow")
     .is("escrow_released_at", null)
+    .neq("status", "CANCELLED")
+    .neq("status", "REFUNDED")
     .select("id");
 
   if (orderUpdateErr) {
@@ -192,6 +194,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .eq("payment_status", "escrow")
       .is("escrow_released_at", null)
       .neq("status", "CANCELLED")
+      .neq("status", "REFUNDED")
       .lt("created_at", cutoff.toISOString())
       .limit(BATCH_SIZE);
 

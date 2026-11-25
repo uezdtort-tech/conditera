@@ -23,6 +23,10 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SQL = readFileSync(join(here, "../supabase/migrations/0037_payout_linkage.sql"), "utf8");
+const ESCROW_GUARD_SQL = readFileSync(join(here, "../supabase/migrations/0074_escrow_release_cancel_guard.sql"), "utf8");
+const ORDER_ACCESS_SQL = readFileSync(join(here, "../supabase/migrations/0075_order_access_rls.sql"), "utf8");
+const COURIER_ASSIGNMENT_SQL = readFileSync(join(here, "../supabase/migrations/0076_atomic_courier_assignment.sql"), "utf8");
+const COURIER_ASSIGNMENT_FIX_SQL = readFileSync(join(here, "../supabase/migrations/0081_fix_assign_order_delivery_ambiguity.sql"), "utf8");
 
 let failed = 0;
 function ok(label: string, detail = "") {
@@ -35,7 +39,7 @@ function fail(label: string, detail = "") {
 
 async function main() {
   const db = new PGlite();
-  console.log("PGlite in-memory → применяем фикстуру + 0037\n");
+  console.log("PGlite in-memory → проверяем финансовые, RLS и delivery migrations\n");
 
   // Роли, на которые ссылается 0037 (в PGlite их нет)
   await db.exec(`
@@ -56,6 +60,13 @@ async function main() {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       confectioner_id TEXT,
       payment_status TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      user_id UUID,
+      delivery_type TEXT DEFAULT 'delivery',
+      delivery_address TEXT,
+      delivery_cost INTEGER DEFAULT 0,
+      delivery_date DATE,
+      delivery_time TEXT,
       escrow_released_at TIMESTAMPTZ,
       payout_reserved_at TIMESTAMPTZ,
       payout_transferred_at TIMESTAMPTZ
@@ -85,9 +96,52 @@ async function main() {
       (ARRAY['hash_a', 'hash_b']);
   `);
 
-  // Применяем 0037 целиком
+  // Применяем исходную финансовую миграцию и production guard 0074.
   await db.exec(SQL);
   ok("миграция 0037 применена без ошибок");
+  await db.exec(ESCROW_GUARD_SQL);
+  ok("миграция 0074: отменённые/возвращённые заказы защищены, завершённые остаются выплачиваемыми");
+
+  // Минимальная схема для production RLS migration 0075.
+  await db.exec(`
+    CREATE TYPE public.user_role AS ENUM ('ADMIN', 'SUPER_ADMIN', 'COURIER', 'SUPPORT', 'CUSTOMER', 'CONFECTIONER');
+    CREATE TABLE public.user_roles (user_id UUID NOT NULL, role public.user_role NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE);
+    CREATE TABLE public.support_tickets (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID, assigned_to UUID);
+    CREATE TABLE public.order_items (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID NOT NULL REFERENCES public.orders(id));
+    CREATE TABLE public.payments (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID NOT NULL REFERENCES public.orders(id));
+    CREATE TABLE public.deliveries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      order_id UUID NOT NULL REFERENCES public.orders(id),
+      courier_id UUID,
+      status TEXT NOT NULL DEFAULT 'assigned',
+      address TEXT NOT NULL,
+      estimated_time TIMESTAMPTZ,
+      cost INTEGER NOT NULL DEFAULT 0,
+      courier_earnings INTEGER DEFAULT 0,
+      delivered_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE SCHEMA auth;
+    CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS
+      $$ SELECT NULLIF(current_setting('request.jwt.claim.sub', TRUE), '')::UUID $$;
+    GRANT USAGE ON SCHEMA public, auth TO authenticated;
+    GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON public.orders, public.order_items, public.payments TO authenticated;
+    GRANT SELECT ON public.user_roles, public.support_tickets TO authenticated;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON public.deliveries TO authenticated;
+    ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE public.deliveries ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY deliveries_select_own ON public.deliveries
+      FOR SELECT USING (auth.uid() = courier_id);
+  `);
+  await db.exec(ORDER_ACCESS_SQL);
+  ok("миграция 0075: ограничен доступ к заказам и запрещены прямые записи клиентов");
+  await db.exec(COURIER_ASSIGNMENT_SQL);
+  ok("миграция 0076: атомарное назначение курьера через deliveries");
+  await db.exec(COURIER_ASSIGNMENT_FIX_SQL);
+  ok("миграция 0081: устранена неоднозначность courier_id/order_id в RPC");
 
   // 1. Колонка + индекс
   const col = await db.query<{ column_name: string }>(
@@ -191,8 +245,195 @@ async function main() {
     ? ok("атомарность: RAISE при неизвестном кондитере откатил claim (заказ остался escrow)")
     : fail(`атомарность нарушена: r4=${r4}, статус ${ord2StatusBefore}→${ord2StatusAfter}`);
 
+  // 4b. Отменённый заказ не должен быть клеймен или начислен в эскроу.
+  const cancelledOrder = await db.query<{ id: string }>(
+    `INSERT INTO public.orders (confectioner_id, payment_status, status)
+     VALUES ('u1', 'escrow', 'CANCELLED') RETURNING id::text`
+  );
+  const balanceBeforeCancelled = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  const cancelledRelease = await db.query<{ release_escrow_order: number }>(
+    `SELECT release_escrow_order($1::uuid, 'conf_test', 500)`,
+    [cancelledOrder.rows[0].id]
+  );
+  const cancelledAfter = await db.query<{ payment_status: string; escrow_released_at: Date | null }>(
+    `SELECT payment_status, escrow_released_at FROM public.orders WHERE id=$1::uuid`,
+    [cancelledOrder.rows[0].id]
+  );
+  const balanceAfterCancelled = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  cancelledRelease.rows[0].release_escrow_order === 0 &&
+    cancelledAfter.rows[0].payment_status === "escrow" &&
+    cancelledAfter.rows[0].escrow_released_at === null &&
+    balanceAfterCancelled === balanceBeforeCancelled
+    ? ok("отменённый заказ: release → 0, эскроу и баланс не изменены")
+    : fail("отменённый заказ ошибочно релизован/начислен");
+
+  // Успешно завершённый заказ должен оставаться eligible для выплаты.
+  const completedOrder = await db.query<{ id: string }>(
+    `INSERT INTO public.orders (confectioner_id, payment_status, status)
+     VALUES ('u1', 'escrow', 'COMPLETED') RETURNING id::text`
+  );
+  const balanceBeforeCompleted = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  const completedRelease = await db.query<{ release_escrow_order: number }>(
+    `SELECT release_escrow_order($1::uuid, 'conf_test', 200)`,
+    [completedOrder.rows[0].id]
+  );
+  const completedAfter = await db.query<{ payment_status: string; escrow_released_at: Date | null }>(
+    `SELECT payment_status, escrow_released_at FROM public.orders WHERE id=$1::uuid`,
+    [completedOrder.rows[0].id]
+  );
+  const balanceAfterCompleted = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  completedRelease.rows[0].release_escrow_order === 1 &&
+    completedAfter.rows[0].payment_status === "released" &&
+    completedAfter.rows[0].escrow_released_at !== null &&
+    balanceAfterCompleted === balanceBeforeCompleted + 200
+    ? ok("завершённый заказ: release → 1, кондитер получает выплату")
+    : fail("завершённый заказ ошибочно исключён из выплаты");
+
+  // Возвращённый заказ, как и отменённый, не должен выплачиваться.
+  const refundedOrder = await db.query<{ id: string }>(
+    `INSERT INTO public.orders (confectioner_id, payment_status, status)
+     VALUES ('u1', 'escrow', 'REFUNDED') RETURNING id::text`
+  );
+  const balanceBeforeRefunded = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  const refundedRelease = await db.query<{ release_escrow_order: number }>(
+    `SELECT release_escrow_order($1::uuid, 'conf_test', 500)`,
+    [refundedOrder.rows[0].id]
+  );
+  const balanceAfterRefunded = (await db.query<{ balance: number }>(
+    `SELECT balance FROM public.confectioners WHERE id='conf_test'`
+  )).rows[0].balance;
+  refundedRelease.rows[0].release_escrow_order === 0 && balanceAfterRefunded === balanceBeforeRefunded
+    ? ok("возвращённый заказ: release → 0, баланс не изменён")
+    : fail("возвращённый заказ ошибочно релизован");
+
+  // 4c. RLS 0075: courier/support/customer/admin видят только разрешённые заказы.
+  const ids = {
+    buyer: "11111111-1111-4111-8111-111111111201",
+    otherBuyer: "11111111-1111-4111-8111-111111111202",
+    confectioner: "11111111-1111-4111-8111-111111111203",
+    courier: "11111111-1111-4111-8111-111111111204",
+    otherCourier: "11111111-1111-4111-8111-111111111205",
+    support: "11111111-1111-4111-8111-111111111206",
+    admin: "11111111-1111-4111-8111-111111111207",
+  };
+  const accessOrders = await db.query<{ id: string }>(
+    `INSERT INTO public.orders (user_id, confectioner_id, status, payment_status, delivery_type, delivery_address, delivery_cost)
+     VALUES
+       ($1::uuid, 'conf_test', 'IN_DELIVERY', 'escrow', 'delivery', 'Test Courier Street 1', 500),
+       ($2::uuid, 'conf_test', 'PENDING', 'pending', 'delivery', 'Test Support Street 2', 500)
+     RETURNING id::text`,
+    [ids.buyer, ids.otherBuyer]
+  );
+  const courierOrderId = accessOrders.rows[0].id;
+  const supportOrderId = accessOrders.rows[1].id;
+  await db.query(
+    `INSERT INTO public.user_roles (user_id, role) VALUES
+      ($1::uuid, 'COURIER'), ($2::uuid, 'COURIER'), ($3::uuid, 'SUPPORT'), ($4::uuid, 'ADMIN')`,
+    [ids.courier, ids.otherCourier, ids.support, ids.admin]
+  );
+  await db.query(
+    `INSERT INTO public.support_tickets (order_id, assigned_to) VALUES ($1::uuid, $2::uuid)`,
+    [supportOrderId, ids.support]
+  );
+  const firstAssignment = await db.query<{ delivery_id: string; created: boolean }>(
+    `SELECT delivery_id::text, created FROM public.assign_order_delivery($1::uuid, $2::uuid)`,
+    [courierOrderId, ids.courier]
+  );
+  firstAssignment.rows[0].created
+    ? ok("первое назначение курьера создаёт delivery")
+    : fail("первое назначение курьера не создало delivery");
+  const repeatedAssignment = await db.query<{ delivery_id: string; created: boolean }>(
+    `SELECT delivery_id::text, created FROM public.assign_order_delivery($1::uuid, $2::uuid)`,
+    [courierOrderId, ids.courier]
+  );
+  !repeatedAssignment.rows[0].created && repeatedAssignment.rows[0].delivery_id === firstAssignment.rows[0].delivery_id
+    ? ok("повторное назначение того же курьера идемпотентно")
+    : fail("повторное назначение создало дубль");
+  const otherCourierBlocked = await db.query(
+    `SELECT * FROM public.assign_order_delivery($1::uuid, $2::uuid)`,
+    [courierOrderId, ids.otherCourier]
+  ).then(() => false).catch((e: Error) => e.message.includes("ORDER_ALREADY_ASSIGNED"));
+  otherCourierBlocked ? ok("второй курьер не может забрать уже назначенный заказ") : fail("один заказ назначен двум курьерам");
+
+  await db.query(
+    `INSERT INTO public.order_items (order_id) VALUES ($1::uuid), ($2::uuid)`,
+    [courierOrderId, supportOrderId]
+  );
+
+  async function visibleOrders(userId: string): Promise<number> {
+    await db.query("SET ROLE authenticated");
+    await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [userId]);
+    const count = await db.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM public.orders WHERE id = ANY($1::uuid[])",
+      [[courierOrderId, supportOrderId]]
+    );
+    await db.query("RESET ROLE");
+    return Number(count.rows[0].n);
+  }
+  async function visibleItems(userId: string): Promise<number> {
+    await db.query("SET ROLE authenticated");
+    await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [userId]);
+    const count = await db.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM public.order_items WHERE order_id = ANY($1::uuid[])",
+      [[courierOrderId, supportOrderId]]
+    );
+    await db.query("RESET ROLE");
+    return Number(count.rows[0].n);
+  }
+
+  const courierVisible = await visibleOrders(ids.courier);
+  courierVisible === 1 ? ok("курьер видит только назначенный ему заказ") : fail(`курьер видит ${courierVisible} заказов вместо 1`);
+  const courierItemsVisible = await visibleItems(ids.courier);
+  courierItemsVisible === 1 ? ok("курьер видит позиции только назначенного заказа") : fail(`курьер видит ${courierItemsVisible} позиций вместо 1`);
+  const unassignedCourierVisible = await visibleOrders(ids.otherCourier);
+  unassignedCourierVisible === 0 ? ok("курьер без назначения не видит чужие заказы") : fail(`неназначенный курьер видит ${unassignedCourierVisible} заказов`);
+  const supportVisible = await visibleOrders(ids.support);
+  supportVisible === 1 ? ok("поддержка видит только заказ с назначенным тикетом") : fail(`поддержка видит ${supportVisible} заказов вместо 1`);
+  const buyerVisible = await visibleOrders(ids.buyer);
+  buyerVisible === 1 ? ok("покупатель видит только собственный заказ") : fail(`покупатель видит ${buyerVisible} заказов вместо 1`);
+  const adminVisible = await visibleOrders(ids.admin);
+  adminVisible === 2 ? ok("администратор видит оба тестовых заказа") : fail(`администратор видит ${adminVisible} заказов вместо 2`);
+
+  await db.query("SET ROLE authenticated");
+  await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [ids.buyer]);
+  const directOrderWriteBlocked = await db.query(
+    `UPDATE public.orders SET status='COMPLETED' WHERE id=$1::uuid`,
+    [courierOrderId]
+  ).then(() => false).catch((e: Error) => /permission denied/.test(e.message));
+  await db.query("RESET ROLE");
+  directOrderWriteBlocked ? ok("authenticated не может менять статус собственного заказа напрямую") : fail("прямая запись в orders не запрещена");
+
+  await db.query("SET ROLE authenticated");
+  await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [ids.buyer]);
+  const directOrderInsertBlocked = await db.query(
+    `INSERT INTO public.orders (user_id, status, payment_status)
+     VALUES ($1::uuid, 'PENDING', 'pending')`,
+    [ids.buyer]
+  ).then(() => false).catch((e: Error) => /permission denied/.test(e.message));
+  await db.query("RESET ROLE");
+  directOrderInsertBlocked ? ok("authenticated не может создавать заказ в обход checkout") : fail("прямое создание заказа не запрещено");
+
+  await db.query("SET ROLE authenticated");
+  await db.query("SELECT set_config('request.jwt.claim.sub', $1, false)", [ids.courier]);
+  const directDeliveryWriteBlocked = await db.query(
+    `UPDATE public.deliveries SET courier_earnings = 999999 WHERE order_id=$1::uuid`,
+    [courierOrderId]
+  ).then(() => false).catch((e: Error) => /permission denied/.test(e.message));
+  await db.query("RESET ROLE");
+  directDeliveryWriteBlocked ? ok("курьер не может менять назначение/заработок доставки напрямую") : fail("прямая запись в deliveries не запрещена");
+
   // 5. Гранты: только service_role
-  for (const fn of ["release_escrow_order", "consume_tfa_backup_code"]) {
+  for (const fn of ["release_escrow_order", "consume_tfa_backup_code", "assign_order_delivery"]) {
     const acl = await db.query<{ proacl: string[] | null }>(
       `SELECT proacl FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname='public' AND p.proname=$1`,
@@ -207,11 +448,14 @@ async function main() {
     svcOnly ? ok(`${fn}: EXECUTE только service_role`) : fail(`${fn}: ACL не только service_role — ${a}`);
   }
 
-  // 6. Идемпотентность: повторное применение
+  // 6. Идемпотентность: повторное применение обеих миграций
   await db.exec(SQL);
-  ok("повторное применение 0037 — идемпотентно");
+  await db.exec(ESCROW_GUARD_SQL);
+  await db.exec(ORDER_ACCESS_SQL);
+  await db.exec(COURIER_ASSIGNMENT_SQL);
+  ok("повторное применение 0037 + 0074 + 0075 + 0076 — идемпотентно");
 
-  console.log(`\n${failed === 0 ? "✅ ИТОГ: 0037 валидна" : `❌ ИТОГ: проваленных проверок — ${failed}`}`);
+  console.log(`\n${failed === 0 ? "✅ ИТОГ: финансовые, RLS и delivery migrations валидны" : `❌ ИТОГ: проваленных проверок — ${failed}`}`);
   await db.close();
   process.exit(failed === 0 ? 0 : 1);
 }

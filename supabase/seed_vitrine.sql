@@ -47,6 +47,13 @@ VALUES
   ('aaaaaaaa-0000-4000-8000-00000000000c', '11111111-1111-4111-8111-111111111103', (SELECT id FROM public.product_categories WHERE slug='lollipops'), 'lollipop-candy-bar-25', 'Леденцы на палочках (25 шт.)', 'Яркие леденцы ручной тяги для детского праздника', 'Натуральные красители, индивидуальная упаковка с этикеткой.', 2500, NULL, 900, 25, ARRAY['леденцы','детский'], ARRAY[]::text[], 'published', false, 800, 90, 4.6, 25, now())
 ON CONFLICT (id) DO NOTHING;
 
+-- Демонстрационный свадебный торт должен иметь сконфигурированное время,
+-- иначе Acceptance Engine корректно блокирует оплачиваемый checkout.
+UPDATE public.products
+SET production_time_hours = 4
+WHERE id = 'aaaaaaaa-0000-4000-8000-000000000001'
+  AND (production_time_hours IS NULL OR production_time_hours <= 0);
+
 -- ===== 4. Площадки (4 шт., витрина /venues) =====
 INSERT INTO public.venues (id, owner_id, name, description, address, city, region, capacity, price_per_hour, min_rent_hours, images, amenities, contacts, rules, is_active, is_verified, rating, reviews_count, bookings_count)
 VALUES
