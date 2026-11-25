@@ -325,6 +325,30 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Validate canonical Supabase Compose and PG17 runtime
+        env:
+          POSTGRES_PASSWORD: ci-dummy-postgres
+          APP_DATABASE_PASSWORD: ci-dummy-app
+          JWT_SECRET: ci-dummy-jwt-secret-32-chars-aaaaaaaa
+          JWT_REFRESH_SECRET: ci-dummy-jwt-refresh-secret-32-chars-a
+          ANON_KEY: ci-dummy-anon-key
+          SERVICE_ROLE_KEY: ci-dummy-service-role-key
+          SUPABASE_SECRET_KEY_BASE: ci-dummy-secret-key-base-64-characters-aaaaaaaaaaaaaaaa
+          PG_META_CRYPTO_KEY: ci-dummy-pg-meta-crypto-key-32-chars
+          REALTIME_DB_ENC_KEY: 0123456789abcdef
+          REALTIME_DB_ENC_KEY_GCM: 0123456789abcdef0123456789abcdef
+          MEILI_MASTER_KEY: ci-dummy-meili
+          CRON_SECRET: ci-dummy-cron
+          SIMPLEX_BRIDGE_API_KEY: ci-dummy-simplex
+          N8N_ADMIN_PASSWORD: ci-dummy-n8n
+        run: |
+          node scripts/verify/pg-version-gate.mjs
+          node scripts/verify/kong-compose-contract.mjs
+          docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --quiet
+
+      - name: Validate production environment parser
+        run: node --test scripts/tests/env-check.test.mjs
+
       - name: Validate database bootstrap and preflight scripts
         run: |
           bash -n supabase/init-scripts/01-apply-migrations.sh
