@@ -274,6 +274,19 @@ describe("payment webhook POST — cancellation race", () => {
     expect(mocks.state.fromCalls).toEqual([]);
   });
 
+  it("восстанавливает локальный ledger только после provider verification и точной сверки суммы", async () => {
+    mocks.state.providerConfigured = true;
+    mocks.state.singleResults.payments = [null, payment("succeeded")];
+    mocks.state.singleResults.orders = [order("COMPLETED")];
+
+    const response = await POST(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ success: true, skipped: "order_completed" });
+    expect(mocks.state.fromCalls).toEqual(["payments", "orders", "payments", "payments"]);
+  });
+
   it("не пропускает повторный payment.succeeded до проверки terminal-заказа", async () => {
     mocks.state.singleResults.payments = [payment("succeeded")];
     mocks.state.singleResults.orders = [order("CANCELLED")];
