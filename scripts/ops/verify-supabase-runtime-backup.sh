@@ -16,7 +16,11 @@ BACKUP_DIR="${1:-${SUPABASE_BACKUP_DIR:-/var/backups/conditera/supabase}}"
 BACKUP_NAME="${2:?Usage: verify-supabase-runtime-backup.sh BACKUP_DIR BACKUP_NAME}"
 BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
 MANIFEST="$BACKUP_PATH/manifest.txt"
-STORAGE_VOLUME="${SUPABASE_STORAGE_VOLUME:-conditera_supabase_storage_data}"
+STORAGE_CONTAINER="${SUPABASE_STORAGE_CONTAINER:-conditera-supabase-storage}"
+STORAGE_VOLUME=""
+if [[ -n "${SUPABASE_STORAGE_VOLUME:-}" ]]; then
+  STORAGE_VOLUME="$SUPABASE_STORAGE_VOLUME"
+fi
 RESTORE_VOLUME="conditera_storage_restore_verify_$$"
 TMP_DIR="$(mktemp -d)"
 
@@ -34,6 +38,7 @@ trap cleanup EXIT
 command -v docker >/dev/null 2>&1 || fail "docker CLI is required"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
 command -v diff >/dev/null 2>&1 || fail "diff is required"
+command -v tar >/dev/null 2>&1 || fail "tar is required"
 [[ -f "$MANIFEST" ]] || fail "backup manifest not found: $MANIFEST"
 
 manifest_value() {
@@ -67,6 +72,11 @@ BACKUP_REQUIRE_FULL_RESTORE=true \
 node scripts/ops/backup-verify-restore.mjs
 
 echo "2/2: restore Storage archive into a disposable volume"
+docker inspect "$STORAGE_CONTAINER" >/dev/null 2>&1 || fail "Storage container not found: $STORAGE_CONTAINER"
+if [[ -z "$STORAGE_VOLUME" ]]; then
+  STORAGE_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/mnt/storage"}}{{.Name}}{{end}}{{end}}' "$STORAGE_CONTAINER")"
+fi
+[[ -n "$STORAGE_VOLUME" ]] || fail "cannot resolve volume mounted at /mnt/storage"
 docker volume inspect "$STORAGE_VOLUME" >/dev/null 2>&1 || fail "source Storage volume not found: $STORAGE_VOLUME"
 docker volume create "$RESTORE_VOLUME" >/dev/null
 docker run --rm \
