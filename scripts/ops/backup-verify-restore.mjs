@@ -60,7 +60,7 @@ async function createDisposableDatabase() {
   await admin.connect();
   try {
     await admin.query("DROP DATABASE IF EXISTS " + quoteIdent(RESTORE_DB) + " WITH (FORCE)");
-    await admin.query("CREATE DATABASE " + quoteIdent(RESTORE_DB));
+    await admin.query("CREATE DATABASE " + quoteIdent(RESTORE_DB) + " TEMPLATE template0");
     console.log("created disposable database " + RESTORE_DB);
   } finally {
     await admin.end();
