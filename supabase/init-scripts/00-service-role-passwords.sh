@@ -8,7 +8,9 @@ set -Eeuo pipefail
 : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
 
 export PGPASSWORD="$POSTGRES_PASSWORD"
-PSQL=(psql -X -h 127.0.0.1 -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
+# docker-entrypoint executes init scripts while its temporary PostgreSQL server
+# listens on the Unix socket only (not TCP). Keep this connection socket-local.
+PSQL=(psql -X -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
 
 for role in authenticator pgbouncer supabase_auth_admin supabase_functions_admin supabase_storage_admin; do
   exists="$("${PSQL[@]}" -Atqc "SELECT 1 FROM pg_roles WHERE rolname = '$role'")"
