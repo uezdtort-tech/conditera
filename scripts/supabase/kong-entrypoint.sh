@@ -41,7 +41,7 @@ sed \
   -e "s|\${SUPABASE_SERVICE_KEY}|$SERVICE_KEY_VALUE|g" \
   "$TEMPLATE" > "$RENDERED"
 
-if grep -Fq '\${SUPABASE_ANON_KEY}' "$RENDERED" || grep -Fq '\${SUPABASE_SERVICE_KEY}' "$RENDERED"; then
+if grep -Fq '${SUPABASE_ANON_KEY}' "$RENDERED" || grep -Fq '${SUPABASE_SERVICE_KEY}' "$RENDERED"; then
   rm -f "$RENDERED"
   fail "unresolved API-key placeholders remain in rendered Kong config"
 fi
