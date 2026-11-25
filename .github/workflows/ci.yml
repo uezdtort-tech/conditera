@@ -674,7 +674,7 @@ jobs:
           SQL
       - name: Verify full pg_dump and real restore into separate PostgreSQL 18 cluster
         env:
-          NODE_ENV: production
+          NODE_ENV: test
           BACKUP_REQUIRE_FULL_RESTORE: "true"
           BACKUP_DIR: ${{ runner.temp }}/conditera-backup-verify
           DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera
