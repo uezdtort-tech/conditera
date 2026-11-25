@@ -10,7 +10,7 @@ DB_NAME="${SUPABASE_DB_NAME:-supabase}"
 DB_USER="${SUPABASE_DB_USER:-supabase}"
 BACKUP_DIR="${SUPABASE_BACKUP_DIR:-/var/backups/conditera/supabase}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BASENAME="supabase-$DB_NAME-$TIMESTAMP.sql.gz"
+BASENAME="supabase-$DB_NAME-$TIMESTAMP-$.sql.gz"
 FINAL_PATH="$BACKUP_DIR/$BASENAME"
 TMP_PATH="$FINAL_PATH.tmp"
 
