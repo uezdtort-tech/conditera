@@ -28,6 +28,7 @@ import {
   getPaymentStatus,
   isYookassaConfigured,
   getRefund,
+  refundPayment,
 } from "@/lib/yookassa";
 
 export const runtime = "nodejs";
