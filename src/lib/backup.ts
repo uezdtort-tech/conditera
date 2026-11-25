@@ -102,7 +102,7 @@ async function hasPgDump(): Promise<boolean> {
 
 /**
  * Full PostgreSQL backup via plain SQL dump + gzip.
- * The dump connects to DIRECT_DATABASE_URL, bypassing PgBouncer.
+ * The dump connects with BACKUP_DATABASE_URL, bypassing PgBouncer and using a dedicated read-only backup role.
  */
 function parsePgConnectionUrl(value: string): {
   args: string[];
@@ -114,7 +114,7 @@ function parsePgConnectionUrl(value: string): {
   }
   const username = decodeURIComponent(url.username);
   const password = decodeURIComponent(url.password);
-  const database = decodeURIComponent(url.pathname.replace(/^\\//, ""));
+  const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
   if (!url.hostname || !username || !password || !database) {
     throw new Error("BACKUP_DATABASE_URL must include host, username, password and database");
   }
