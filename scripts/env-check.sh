@@ -209,11 +209,15 @@ check_production_secret "SUPABASE_SERVICE_ROLE_KEY"
 JWT_VALUE=$(get_env "JWT_SECRET")
 REFRESH_VALUE=$(get_env "JWT_REFRESH_SECRET")
 TFA_VALUE=$(get_env "TFA_ENCRYPTION_KEY")
+CRON_VALUE=$(get_env "CRON_SECRET")
 if [ -n "$JWT_VALUE" ] && [ "$JWT_VALUE" = "$REFRESH_VALUE" ]; then
   err "JWT_SECRET и JWT_REFRESH_SECRET должны быть разными"
 fi
 if [ -n "$TFA_VALUE" ] && { [ "$TFA_VALUE" = "$JWT_VALUE" ] || [ "$TFA_VALUE" = "$REFRESH_VALUE" ]; }; then
   err "TFA_ENCRYPTION_KEY должен отличаться от JWT-секретов"
+fi
+if [ -n "$CRON_VALUE" ] && { [ "$CRON_VALUE" = "$JWT_VALUE" ] || [ "$CRON_VALUE" = "$REFRESH_VALUE" ] || [ "$CRON_VALUE" = "$TFA_VALUE" ]; }; then
+  err "CRON_SECRET должен отличаться от JWT/TFA секретов"
 fi
 echo ""
 
