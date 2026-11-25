@@ -283,7 +283,7 @@ jobs:
           done
           test "$READY" = "1"
           docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-setup.sql
-          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < supabase/migrations/0064_product_slices_rls.sql
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < supabase/migrations/0064a_product_slices_rls.sql
           docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-regression.sql
       - name: Очистить только временный кластер GitHub Actions
         if: always()

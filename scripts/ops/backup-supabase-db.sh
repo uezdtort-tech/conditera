@@ -54,6 +54,7 @@ if ! docker exec -i "$CONTAINER" sh -c '
   --dbname="$DB_NAME" \
   --no-owner \
   --no-privileges \
+  --exclude-table=*.decrypted_secrets \
   --format=plain \
   | gzip -c > "$TMP_PATH"; then
   rm -f "$TMP_PATH"
