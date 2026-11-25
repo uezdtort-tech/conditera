@@ -10,6 +10,12 @@
  */
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+
+  // Критичные production-переменные проверяются до установки обработчиков:
+  // ошибка конфигурации должна остановить запуск, а не маскироваться логом.
+  const { assertProductionEnvironment } = await import("@/lib/production-env");
+  assertProductionEnvironment();
+
   try {
     const { installGlobalErrorHandlers } = await import(
       "@/lib/diagnostics/global-handlers"
