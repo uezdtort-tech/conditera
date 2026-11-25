@@ -377,10 +377,10 @@ jobs:
       - name: Check for secrets in code (full tracked scan with explicit fixture rules)
         run: |
           set +e
-          node scripts/regression/secrets-scan.mjs --mode=full --json "$RUNNER_TEMP/secrets-scan.json"
+          node scripts/regression/secrets-scan.mjs --mode=full --json docs/operations/checks/secrets-scan-latest.json
           scan_status=$?
           set -e
-          node -e 'const fs=require("node:fs"); const report=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); for (const f of report.findings ?? []) console.log(`${f.file}:${f.line} [${f.rule}]`);' "$RUNNER_TEMP/secrets-scan.json"
+          node -e 'const fs=require("node:fs"); const report=JSON.parse(fs.readFileSync("docs/operations/checks/secrets-scan-latest.json","utf8")); for (const f of report.findings ?? []) console.log(`${f.file}:${f.line} [${f.rule}]`);'
           exit "$scan_status"
       - name: Check for .env files in repo
         run: |
@@ -724,13 +724,13 @@ jobs:
       source:
         image: supabase/postgres:15.6.1.141
         env:
-          POSTGRES_USER: supabase
+          POSTGRES_USER: supabase_admin
           POSTGRES_PASSWORD: ci-only-password
           POSTGRES_DB: supabase
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -U supabase -d supabase"
+          --health-cmd "pg_isready -h 127.0.0.1 -U supabase_admin -d supabase"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 30
@@ -741,7 +741,7 @@ jobs:
           SOURCE_CONTAINER_ID: ${{ job.services.source.id }}
         run: |
           set -euo pipefail
-          docker exec -i -e PGPASSWORD=ci-only-password "$SOURCE_CONTAINER_ID" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U supabase -d supabase <<'SQL'
+          docker exec -i -e PGPASSWORD=ci-only-password "$SOURCE_CONTAINER_ID" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U supabase_admin -d supabase <<'SQL'
           CREATE TABLE public.backup_probe (
             id integer PRIMARY KEY,
             marker text NOT NULL
@@ -752,7 +752,7 @@ jobs:
         env:
           SUPABASE_DB_CONTAINER: ${{ job.services.source.id }}
           SUPABASE_DB_NAME: supabase
-          SUPABASE_DB_USER: supabase
+          SUPABASE_DB_USER: supabase_admin
           SUPABASE_BACKUP_DIR: ${{ runner.temp }}/supabase-pg15-backup
         run: |
           set -euo pipefail
@@ -786,7 +786,7 @@ jobs:
           DUMP_FILE="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -print -quit)"
           test -n "$DUMP_FILE"
           gzip -t "$DUMP_FILE"
-          gzip -dc "$DUMP_FILE" | docker exec -i -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U supabase -d supabase_restore
+          gzip -dc "$DUMP_FILE" | docker exec -i -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U supabase_admin -d supabase_restore
           RESULT="$(docker exec -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -h 127.0.0.1 -U supabase -d supabase_restore -Atqc "SELECT marker FROM public.backup_probe WHERE id=1")"
           test "$RESULT" = "PG15_TO_PG17_RESTORE_OK"
           echo "SUPABASE PG15 -> PG17 LOGICAL RESTORE: PASSED"
