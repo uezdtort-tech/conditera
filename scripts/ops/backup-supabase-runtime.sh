@@ -7,7 +7,11 @@ set -Eeuo pipefail
 CONTAINER="${SUPABASE_DB_CONTAINER:-conditera-supabase-db}"
 DB_NAME="${SUPABASE_DB_NAME:-supabase}"
 DB_USER="${SUPABASE_DB_USER:-supabase}"
-STORAGE_VOLUME="${SUPABASE_STORAGE_VOLUME:-conditera_supabase_storage_data}"
+STORAGE_CONTAINER="${SUPABASE_STORAGE_CONTAINER:-conditera-supabase-storage}"
+STORAGE_VOLUME=""
+if [[ -n "${SUPABASE_STORAGE_VOLUME:-}" ]]; then
+  STORAGE_VOLUME="$SUPABASE_STORAGE_VOLUME"
+fi
 BACKUP_DIR="${SUPABASE_BACKUP_DIR:-/var/backups/conditera/supabase}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BASENAME="conditera-supabase-${TIMESTAMP}"
@@ -28,9 +32,15 @@ command -v docker >/dev/null 2>&1 || fail "docker CLI is required"
 command -v gzip >/dev/null 2>&1 || fail "gzip is required"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
 command -v date >/dev/null 2>&1 || fail "date is required"
+command -v tar >/dev/null 2>&1 || fail "tar is required"
 
 docker inspect "$CONTAINER" >/dev/null 2>&1 || fail "database container not found: $CONTAINER"
 [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" == "true" ]] || fail "database container is not running"
+docker inspect "$STORAGE_CONTAINER" >/dev/null 2>&1 || fail "Storage container not found: $STORAGE_CONTAINER"
+if [[ -z "$STORAGE_VOLUME" ]]; then
+  STORAGE_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/mnt/storage"}}{{.Name}}{{end}}{{end}}' "$STORAGE_CONTAINER")"
+fi
+[[ -n "$STORAGE_VOLUME" ]] || fail "cannot resolve volume mounted at /mnt/storage"
 docker volume inspect "$STORAGE_VOLUME" >/dev/null 2>&1 || fail "Storage volume not found: $STORAGE_VOLUME"
 
 mkdir -p "$BACKUP_DIR"
