@@ -26,8 +26,8 @@ import { isUserSessionActive } from "@/lib/session-registry";
 //   + warning; runtime всё равно потребует реальное значение.
 // Development: dev-значение с явным предупреждением.
 function getRequiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  const normalized = value?.toLowerCase() ?? "";
+  const value = process.env[name]?.trim() ?? "";
+  const normalized = value.toLowerCase();
   const isStub =
     !value ||
     /^(change_me|fallback-|dev[-_]|stub[-_]|placeholder|example|dummy|test[-_])/i.test(value);
