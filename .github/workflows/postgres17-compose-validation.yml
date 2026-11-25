@@ -63,6 +63,14 @@ jobs:
           current = services["supabase-db"]
 
           assert target["image"] == "supabase/postgres:17.12.0.001", target.get("image")
+          assert target.get("environment", {}).get("POSTGRES_DB") == "conditera", target.get("environment", {}).get("POSTGRES_DB")
+          assert target.get("environment", {}).get("POSTGRES_USER") == "supabase_admin", target.get("environment", {}).get("POSTGRES_USER")
+          assert services["supabase-auth-pg17-migration"]["environment"]["GOTRUE_DB_DATABASE_URL"].startswith("postgres://supabase_auth_admin:")
+          assert services["supabase-rest-pg17-migration"]["environment"]["PGRST_DB_URI"].startswith("postgres://authenticator:")
+          assert services["supabase-realtime-pg17-migration"]["environment"]["DB_USER"] == "supabase_admin"
+          assert services["supabase-storage-pg17-migration"]["environment"]["DATABASE_URL"].startswith("postgres://supabase_storage_admin:")
+          assert services["supabase-meta-pg17-migration"]["environment"]["PG_META_DB_USER"] == "supabase_admin"
+          assert services["supabase-app-migrator-pg17-migration"]["environment"]["PGUSER"] == "supabase_admin"
           assert "pg17-migration" in target.get("profiles", []), target.get("profiles")
           assert target.get("ports") in (None, []), target.get("ports")
           isolated_network = config["networks"]["pg17-migration-net"]
