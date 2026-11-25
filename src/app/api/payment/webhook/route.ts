@@ -171,6 +171,23 @@ export async function POST(request: NextRequest) {
 
     const wireKop = wireAmountToKop(object.amount);
     const dbStatus = yookassaStatusToDb(object.status ?? "");
+    const metaOrderId = object.metadata?.orderId;
+
+    // Verify with YooKassa before matching or mutating any payment/ledger row.
+    const pv = await verifyEventWithProvider(event, object, wireKop);
+    if (!pv.ok) {
+      console.error(
+        `[webhook] provider verification failed (event=${event}, object=${object.id}) — fail-closed 500`
+      );
+      return NextResponse.json({ error: "Provider verification failed" }, { status: 500 });
+    }
+    if (pv.skip) {
+      console.warn(`[webhook] provider mismatch (event=${event}, object=${object.id}) — skipped`);
+      return NextResponse.json({ success: true, skipped: pv.skip });
+    }
+    if (metaOrderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metaOrderId)) {
+      return NextResponse.json({ error: "Invalid orderId in webhook metadata" }, { status: 400 });
+    }
 
     // === 1. Матчинг платежа по provider id (точный) ===
     // Для refund.* объект — возврат, платёж ищем по object.payment_id.
@@ -184,7 +201,6 @@ export async function POST(request: NextRequest) {
 
     // === 2. Legacy fallback: metadata.orderId → последний платёж заказа ===
     // (для платежей, записанных до pay0-2 без yookassa_payment_id)
-    const metaOrderId = object.metadata?.orderId;
     // RELEASE-02 §5: legacy-фолбэк по metadata.orderId отключён в production —
     // матчинг строго по yookassa_payment_id; фолбэк только для dev/legacy-данных.
     // Если фолбэк отключён и metadata.orderId нет — orderId останется null и
@@ -218,26 +234,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid orderId in webhook metadata" }, { status: 400 });
     }
 
-    // === PAY-1: СВЕРКА СОБЫТИЯ С ПРОВАЙДЕРОМ ===
-    const pv = await verifyEventWithProvider(event, object, wireKop);
-    if (!pv.ok) {
-      console.error(
-        `[webhook] provider verification failed (event=${event}, object=${object.id}) — fail-closed 500`
-      );
-      return NextResponse.json({ error: "Provider verification failed" }, { status: 500 });
-    }
-    if (pv.skip) {
-      console.warn(`[webhook] provider mismatch (event=${event}, object=${object.id}) — skipped`);
-      return NextResponse.json({ success: true, skipped: pv.skip });
-    }
-
     // === IDEMPOTENCY CHECK ===
     // Платёж уже в финальном статусе — не обрабатываем повторно
     // (защита от двойных бонусов/писем при retry со стороны YooKassa).
     // pay4: refund.succeeded НЕ гейтится этим чеком — gейт с dbStatus="succeeded"
     // проглатывал ВСЕ refund-события по оплаченному платежу (payment.status
     // "succeeded" === dbStatus). Дедуп возвратов — по refund id в RPC 0039.
-    if (event !== "refund.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
+    if (event !== "refund.succeeded" && event !== "payment.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
       const alreadyDone =
         payment.status === dbStatus ||
         (event === "refund.succeeded" && payment.status === "refunded");
