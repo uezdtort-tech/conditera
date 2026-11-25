@@ -330,6 +330,8 @@ jobs:
           bash -n supabase/init-scripts/01-apply-migrations.sh
           bash -n scripts/deploy.sh
           bash -n scripts/db-preflight.sh
+          bash -n scripts/ops/backup-supabase-db.sh
+          node --check scripts/ops/backup-verify-restore.mjs
           grep -Fq 'MIGRATIONS_DIR: /conditera-migrations' docker-compose.supabase.yml
           grep -Fq 'zz-conditera-apply-migrations.sh' docker-compose.supabase.yml
           grep -Fq ':/conditera-migrations:ro' docker-compose.supabase.yml
