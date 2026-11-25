@@ -281,6 +281,10 @@ async function countSafeTarEntries(filePath) {
     child.once("error", reject);
     child.once("close", resolve);
   });
+  if (pending) {
+    if (pending.startsWith("/") || pending.split("/").includes("..")) unsafe = pending;
+    count++;
+  }
   if (code !== 0) throw new Error("tar archive listing failed: " + Buffer.concat(stderr).toString("utf8").slice(0, 500));
   if (unsafe) throw new Error("unsafe path in Storage archive: " + unsafe);
   return count;
@@ -361,7 +365,12 @@ async function main() {
   check("backup file available for verification", true, backupPath);
 
   if (backupPath.endsWith(".sql.gz")) {
-    await verifyBackupBundle(backupPath);
+    const bundleManifest = backupPath.slice(0, -".sql.gz".length) + ".manifest.txt";
+    if (requireFull || existsSync(bundleManifest)) {
+      await verifyBackupBundle(backupPath);
+    } else {
+      console.warn("DATABASE-ONLY: this SQL dump does not include cluster-global roles or Supabase Storage objects.");
+    }
     await verifySqlBackup(backupPath);
   } else if (backupPath.endsWith(".json.gz")) {
     verificationLevel = "PARTIAL";
