@@ -259,6 +259,9 @@ async function main() {
   if (backupPath) {
     console.log("Verifying the existing backup artifact created by the application.");
   } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("production verification must consume BACKUP_VERIFY_PATH from the persistent web backup volume");
+    }
     console.log("Creating backup with the real application backup service...");
     const backupModule = await import("./run-backup.mjs");
     backupPath = await backupModule.runBackupToFile();
