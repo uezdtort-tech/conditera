@@ -189,6 +189,9 @@ jobs:
           CRON_SECRET=ci-dummy \
           SIMPLEX_BRIDGE_API_KEY=ci-dummy \
           N8N_ADMIN_PASSWORD=ci-dummy \
+          NEXT_PUBLIC_SUPABASE_URL=https://conditera-ci.invalid/api \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=stub_ci_anon_key_not_for_deploy \
+          NEXT_PUBLIC_APP_URL=https://conditera-ci.invalid \
           docker compose -f docker-compose.yml config -q
           echo "✓ docker-compose.yml is valid"
 
@@ -207,6 +210,10 @@ jobs:
           # версия деплоя видна в /api/health (version). Без этого APP_VERSION=unknown.
           build-args: |
             GIT_SHA=${{ env.CANDIDATE_SHA }}
+            CI=true
+            NEXT_PUBLIC_SUPABASE_URL=https://conditera-ci.invalid/api
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=stub_ci_anon_key_not_for_deploy
+            NEXT_PUBLIC_APP_URL=https://conditera-ci.invalid
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -691,26 +698,6 @@ jobs:
           export RESTORE_CONTAINER_ID="${{ job.services.restore.id }}"
           export PATH="$RUNNER_TEMP/pgtools:$PATH"
           bun run ops:restore-verify
-
-
-  docker-build-app:
-    name: Production web Docker image build
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build production web image (includes PostgreSQL 18 client check)
-        env:
-          DOCKER_BUILDKIT: "1"
-        run: |
-          docker build --target runner \
-            --build-arg GIT_SHA="$GITHUB_SHA" \
-            --build-arg CI=true \
-            --build-arg NEXT_PUBLIC_SUPABASE_URL=https://example.invalid/api \
-            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=stub_ci_anon_key_not_for_deploy \
-            --build-arg NEXT_PUBLIC_APP_URL=https://example.invalid \
-            --tag conditera-web:ci \
-            .
 
 
   backup-supabase-pg15-to-pg17:
