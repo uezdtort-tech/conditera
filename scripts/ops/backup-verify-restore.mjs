@@ -15,7 +15,8 @@
  * BACKUP_RESTORE_PSQL_URL — URL целевой БД внутри окружения psql;
  * BACKUP_RESTORE_DB_NAME — имя одноразовой БД.
  */
-import { readFileSync, existsSync, createReadStream, statSync } from "node:fs";
+import { readFileSync, existsSync, createReadStream, statSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -65,33 +66,47 @@ async function sha256File(filepath) {
   });
 }
 
-async function verifyTarArchive(archivePath, expectedEntry) {
+async function restoreTarArchive(archivePath, expectedEntry, expectedContent) {
   const stderr = [];
-  let stdout = "";
-  const child = spawn("tar", ["-tzf", archivePath], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stdout.on("data", (chunk) => {
-    if (expectedEntry) stdout += chunk.toString("utf8");
-  });
-  child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
-  await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(
-          "tar integrity check failed for " + archivePath + ": " +
-          Buffer.concat(stderr).toString("utf8").slice(0, 2000)
-        ));
-      } else resolve();
+  const restoreDir = mkdtempSync(join(tmpdir(), "conditera-media-restore-"));
+  try {
+    const child = spawn("tar", ["-xzf", archivePath, "-C", restoreDir], {
+      stdio: ["ignore", "ignore", "pipe"],
     });
-  });
-  if (expectedEntry) {
-    const expected = expectedEntry.replace(/^\.\//, "");
-    const found = stdout.split(/\r?\n/).some((entry) => entry.replace(/^\.\//, "") === expected);
-    if (!found) throw new Error("Expected media file is absent from archive: " + expectedEntry);
+    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+    await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code) => {
+        if (code !== 0) {
+          reject(new Error(
+            "tar restore failed for " + archivePath + ": " +
+            Buffer.concat(stderr).toString("utf8").slice(0, 2000)
+          ));
+        } else resolve();
+      });
+    });
+
+    if (expectedEntry) {
+      const parts = expectedEntry.split("/");
+      if (parts.some((part) => !part || part === "." || part === "..")) {
+        throw new Error("Unsafe expected media path: " + expectedEntry);
+      }
+      const restoredPath = join(restoreDir, ...parts);
+      if (!existsSync(restoredPath)) {
+        throw new Error("Expected media file is absent after restore: " + expectedEntry);
+      }
+      if (expectedContent !== undefined) {
+        const actual = readFileSync(restoredPath, "utf8").trim();
+        if (actual !== expectedContent) {
+          throw new Error("Restored media content mismatch: " + expectedEntry);
+        }
+      }
+    }
+  } finally {
+    rmSync(restoreDir, { recursive: true, force: true });
   }
 }
+
 
 async function verifyBackupManifest(backupPath) {
   const manifestPath = backupPath.replace(/\.sql\.gz$/, ".manifest.json");
@@ -127,9 +142,9 @@ async function verifyBackupManifest(backupPath) {
       throw new Error("Backup artifact SHA-256 mismatch: " + artifact.file);
     }
     if (artifact.kind === "product_media") {
-      await verifyTarArchive(artifactPath, process.env.BACKUP_EXPECT_PRODUCT_MEDIA_FILE);
+      await restoreTarArchive(artifactPath, process.env.BACKUP_EXPECT_PRODUCT_MEDIA_FILE, process.env.BACKUP_EXPECT_PRODUCT_MEDIA_CONTENT);
     } else if (artifact.kind === "supabase_storage") {
-      await verifyTarArchive(artifactPath, process.env.BACKUP_EXPECT_SUPABASE_STORAGE_FILE);
+      await restoreTarArchive(artifactPath, process.env.BACKUP_EXPECT_SUPABASE_STORAGE_FILE, process.env.BACKUP_EXPECT_SUPABASE_STORAGE_CONTENT);
     }
   }
 

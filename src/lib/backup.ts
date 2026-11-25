@@ -451,13 +451,28 @@ export async function listBackups(): Promise<
 
   const files = readdirSync(BACKUP_DIR);
   return files
-    .filter((f) => f.startsWith("backup-"))
+    .filter((file) => file.startsWith("backup-") && (file.endsWith(".sql.gz") || file.endsWith(".json.gz")))
     .map((file) => {
       const filepath = join(BACKUP_DIR, file);
       const stats = statSync(filepath);
+      let sizeBytes = stats.size;
+      if (file.endsWith(".sql.gz")) {
+        const manifestPath = filepath.replace(/\.sql\.gz$/, ".manifest.json");
+        if (existsSync(manifestPath)) {
+          try {
+            const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+            sizeBytes = (manifest.artifacts || []).reduce(
+              (sum: number, artifact: { sizeBytes?: number }) => sum + Number(artifact.sizeBytes || 0),
+              statSync(manifestPath).size
+            );
+          } catch {
+            // Keep the SQL dump size if the companion manifest is unreadable.
+          }
+        }
+      }
       return {
         filename: file,
-        sizeBytes: stats.size,
+        sizeBytes,
         createdAt: stats.mtime,
       };
     })

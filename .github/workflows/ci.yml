@@ -712,7 +712,9 @@ jobs:
           PRODUCT_MEDIA_ROOT: ${{ runner.temp }}/conditera-product-media
           SUPABASE_STORAGE_BACKUP_ROOT: ${{ runner.temp }}/conditera-supabase-storage
           BACKUP_EXPECT_PRODUCT_MEDIA_FILE: products/backup-probe.txt
+          BACKUP_EXPECT_PRODUCT_MEDIA_CONTENT: PRODUCT_MEDIA_BACKUP_OK
           BACKUP_EXPECT_SUPABASE_STORAGE_FILE: buckets/order_media/backup-probe.txt
+          BACKUP_EXPECT_SUPABASE_STORAGE_CONTENT: SUPABASE_STORAGE_BACKUP_OK
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pgtools" "$BACKUP_DIR"
