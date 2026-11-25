@@ -1,90 +1,90 @@
-# Объединение БД Conditera — план без потери данных
+# Консолидация PostgreSQL — Conditera
 
-## Статус
+## Каноническая целевая архитектура
 
-Работа ведётся в отдельной ветке. Этот документ не является разрешением на переключение production, удаление контейнеров или томов. До проверки фактических данных обе существующие БД считаются потенциально содержащими уникальные данные.
+Целевая конфигурация интеграционной ветки:
 
-## Обнаруженная конфигурация
+- PostgreSQL **17.12** (`supabase/postgres:17.12.0.001`).
+- Одна рабочая база данных: **`conditera`**.
+- Один Supabase runtime container: PostgreSQL, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, imgproxy, Kong и Edge Runtime.
+- Next.js использует ту же БД `conditera` через отдельную роль `conditera_app`.
+- Один рабочий named volume: `conditera_supabase_runtime_pg17_data`.
+- Multi-container fallback и single-container runtime используют этот volume поочерёдно; одновременный запуск запрещён.
+- Старые volumes остаются отдельно до подтверждения backup/restore и rollback.
 
-В текущем репозитории описаны два независимых PostgreSQL:
+Каноническая команда:
 
-1. `conditera-db`: образ `postgres:18-alpine`, БД `conditera`, пользователь `conditera`, том `postgres_data_v18`. Основное приложение и migrator в `docker-compose.yml` подключены к этому серверу через PgBouncer/прямой URL.
-2. `conditera-supabase-db`: образ `supabase/postgres:15.6.1.141`, БД `supabase`, пользователь `supabase`, том `supabase_db_data`. GoTrue, PostgREST, Realtime, Storage и Studio из `docker-compose.supabase.yml` используют этот сервер.
+```bash
+docker compose --env-file .env.supabase-runtime \
+  -f docker-compose.yml \
+  -f docker-compose.supabase.yml \
+  -f docker-compose.supabase-single-container.yml \
+  up -d
+```
 
-Это не два имени одной БД, а два отдельных PostgreSQL-кластера с разными форматами данных, ролями, расширениями и томами. Миграции приложения и Auth поэтому могут оказаться в разных местах.
+## Исторические источники данных
 
-## Исправления в этом изменении
+До консолидации репозиторий содержал два независимых PostgreSQL-кластера:
 
-- Скрипт миграций теперь выполняет все обращения к журналу `schema_migrations` с теми же `PGUSER/PGDATABASE`, что и SQL-файлы. Раньше журнал мог создаваться в БД `postgres`, а миграции применяться в `conditera`.
-- Пути миграций и seed для init-скрипта Supabase теперь совпадают с фактическими bind mounts.
-- Пользовательский mount больше не перекрывает весь `/docker-entrypoint-initdb.d`: системные миграции и init-скрипты Supabase сохраняются; Conditera получает отдельный файл запуска и отдельный каталог SQL.
-- Исправлена ошибка старого seed: `fillings.name` не имеет уникального ограничения, поэтому `ON CONFLICT (name)` падал. Начинки загружаются идемпотентно через `NOT EXISTS` с явным приведением массивов PostgreSQL.
-- Проверка готовности initdb не требует `storage.objects` до запуска Storage API; наличие Storage проверяется отдельным read-only preflight после запуска сервисов.
-- Migrator основного Compose получает `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`; переменная `DATABASE_URL` сама по себе не настраивает клиент `psql`.
-- В E2E setup найдено несовпадение подписи локального service-role JWT: ключ генерировался с новым секретом из `.env.local`, а Next runtime получал `JWT_SECRET` из CI environment. Исправлена генерация по эффективному `process.env.JWT_SECRET`, обновление ключа в файле и экспорт service-role ключа в среду CI.
-- В OAuth callback исправлено чтение percent-encoded `returnTo`; добавлен безопасный fallback redirect вместо необработанного HTTP 500 при непредвиденной ошибке callback.
-- Production workflow блокируется при обнаружении отдельного контейнера `conditera-supabase-db`; автоматическое обновление только одного из двух кластеров запрещено.
-- Старый `scripts/deploy.sh`, который применял только пять первых миграций и игнорировал ошибки отдельных файлов, отключён до завершения объединения.
-- Добавлен read-only скрипт `scripts/db-preflight.sh`, который сравнивает версии, схемы и наличие ключевых объектов обоих серверов без вывода персональных данных и без изменения БД.
-- Удалена инструкция, предлагавшая удалять PostgreSQL volume для решения несовместимости major-версий.
-- Демонстрационные seed-файлы больше не запускаются автоматически в production. Базовые категории и начинки перенесены в миграцию `0062_reference_catalog.sql`; тестовые аккаунты, рецепты, AI-диалоги и промокоды доступны только при явном `SEED_MODE=demo` вне production.
+1. Прикладной PG18: БД `conditera`, пользователь `conditera`, прежний volume `postgres_data_v18`.
+2. Supabase PG15: БД `supabase`, пользователь `supabase`, прежний volume `conditera_supabase_db_data`.
 
-## Целевая архитектура
+Это были разные postmaster-процессы, базы, роли и data directories. Простое изменение тега образа не переносит данные. PostgreSQL PG15 volume нельзя монтировать в PG17; PG18 data directory также нельзя подключать напрямую к PG17.
 
-- Один PostgreSQL-кластер с расширениями и системными схемами Supabase.
-- Одна каноническая БД, в которой одновременно находятся `auth.users`, `public.profiles`, `public.user_roles`, заказы, товары, платежи, склад, чаты, журнал согласий и OAuth identity links.
-- Приложение, GoTrue, PostgREST, Realtime и Storage используют один и тот же кластер и единый набор ролей.
-- По зафиксированному требованию владельца Supabase runtime не разбивается на независимые Docker-контейнеры. Нельзя подменять это требование простым подключением нескольких Compose-файлов к одной сети.
-- Все сервисы должны запускаться под управлением одного контролируемого runtime с health checks, перезапуском дочерних процессов, корректным завершением и общим журналированием. Если такой runtime не проходит нагрузочные и восстановительные испытания, production-переключение не выполняется.
+В интеграционной ветке Compose направлен на PG17.12 и БД `conditera`. Старый PG15 volume сохранён под отдельным именем и не подключается к PG17. Старый app PG18 volume также не удаляется.
 
-## Обязательные этапы перед переключением
+**Фактический production backup/restore и слияние содержимого двух прежних источников ещё не выполнены.** Репозиторная конфигурация и CI на disposable volumes не являются доказательством переноса production-данных.
 
-1. Выполнить `bash scripts/db-preflight.sh` на production-хосте и сохранить вывод в защищённом каталоге.
-2. Сделать отдельные согласованные резервные копии обоих PostgreSQL через `pg_dump -Fc` и проверить их восстановлением в изолированные временные БД. Отдельно скопировать и проверить Storage-файлы.
-3. Сверить миграционные журналы, таблицы, индексы, ограничения, триггеры, функции, RLS-политики, grants, расширения, sequences и фактические количества строк.
-4. Сверить идентичность пользователей: `auth.users` ↔ `profiles` ↔ `user_roles` ↔ `confectioners`; выявить дубликаты email, orphan UUID и конфликты PK/FK. Не объединять аккаунты только по совпадающему email.
-5. Выбрать Supabase-совместимую major-версию PostgreSQL по матрице совместимости используемых образов и расширений. Нельзя копировать каталог данных PG18 напрямую в PG15/17 и нельзя менять тег образа поверх существующего volume.
-6. Составить детерминированную карту переноса таблиц и конфликтов. Все денежные значения, статусы платежей, возвраты, выплаты, остатки и движения склада сверять отдельно.
-7. Перенести данные в новый кластер-кандидат, применить миграции в правильном порядке, запустить GoTrue и проверить создание/вход пользователя, RLS, REST, Realtime, Storage, заказы, оплаты, возвраты, выплаты, склад и чаты.
-8. Провести тест восстановления из backup и репетицию переключения/отката. Только после письменного подтверждения владельца выполнять cutover.
-9. Старые тома сохранять неизменными до завершения периода наблюдения и отдельного разрешения на удаление.
+## Роли PostgreSQL
 
-## Запрещённые операции
+| Роль | Назначение |
+|---|---|
+| `supabase_admin` | Bootstrap/superuser, Realtime, Postgres Meta, мигратор и администрирование |
+| `supabase_auth_admin` | GoTrue/Auth |
+| `authenticator` | PostgREST; переключение на `anon`, `authenticated` и `service_role` |
+| `supabase_storage_admin` | Supabase Storage |
+| `conditera_app` | Доверенные серверные запросы Next.js; отдельный пароль, не superuser, `BYPASSRLS` по принятой модели приложения |
+| `anon`, `authenticated`, `service_role` | API роли Supabase |
 
-- `docker compose down -v`, `docker volume rm`, удаление каталогов PGDATA или Storage.
-- Прямое копирование PGDATA между разными major-версиями PostgreSQL.
-- Автоматический baseline миграций без проверки существующей схемы.
-- Повторное применение seed-файлов поверх реальных данных.
-- Переключение `DATABASE_URL`, `SUPABASE_INTERNAL_URL`, PgBouncer или GoTrue на другой кластер без тестовой репетиции.
-- Слияние пользователей только по email.
-- Запуск production deploy workflow, пока обнаруживаются два независимых PostgreSQL.
+Пароли внутренних service roles задаются init-скриптом. В Compose проверяются не только имена образов, но и соответствие каждого сервиса своей роли. Не заменять все service URLs одним пользователем `supabase`.
 
-## Важное ограничение текущего этапа
+## Volumes
 
-Доступа к фактическим production volumes и возможности выполнить SSH-команды на сервере в рамках этого изменения нет. Поэтому количество строк, уникальность данных и корректность резервных копий пока не подтверждены. Read-only preflight и репозиторные проверки — подготовка к реальному переносу, а не доказательство того, что production уже объединён.
+| Volume | Назначение |
+|---|---|
+| `conditera_supabase_runtime_pg17_data` | Единственный рабочий PG17.12 data directory |
+| `conditera_supabase_db_data` | Legacy PG15; не монтировать в PG17 |
+| `conditera_supabase_pg17_migration_data` | Временный изолированный shadow для миграционных репетиций |
+| `supabase_runtime_storage_data` | Storage objects и доступ imgproxy |
+| `supabase_runtime_deno_cache` | Deno/Edge Runtime cache |
 
-## Фактическая маршрутизация запросов приложения (проверка исходников main)
+Не выполнять `docker compose down -v`, `docker volume rm`, `rm -rf PGDATA` или очистку Storage при обычном обновлении.
 
-Раздел добавлен после проверки не только Compose, но и всех 43 результатов поиска по `getPool` в текущем коде.
+## Порядок реального переноса
 
-### Два независимых пути к данным
+1. Зафиксировать остановку записи в оба прежних источника и получить согласованные полные backup.
+2. Supabase PG15: сохранить SQL dump, cluster-global roles/grants, extensions, RLS, Storage metadata и все Storage objects.
+3. App PG18: получить полный dump прикладной БД; использовать `scripts/ops/restore-app-dump-to-pg17-shadow.sh` для восстановления в отдельный PG17.12 shadow database.
+4. Свести таблицы и конфликты идентичности: `auth.users` ↔ `profiles` ↔ `user_roles` ↔ `confectioners`. Не объединять аккаунты только по email.
+5. Сверить отдельно заказы, order_items, payment ledger, YooKassa payment IDs, refunds, payouts, disputes/evidence, recipes, ingredient stock, warehouse movements, reservations, CMS и audit events.
+6. Проверить RLS, grants, extensions, functions, triggers, sequences, ownership и Storage object references.
+7. Сверить counts и контрольные суммы критичных таблиц, провести сценарии регистрации → оплаченного заказа → производства → передачи, возврата и dispute.
+8. Только после успешной репетиции переключить рабочий runtime на восстановленный PG17 volume. Старые volumes оставить нетронутыми для rollback.
 
-| Путь | Код | Фактическое назначение в production |
-|---|---|---|
-| Supabase JS admin | `src/lib/supabase/admin.ts` → `resolveSupabaseServerUrl()` | `SUPABASE_INTERNAL_URL` (если задан) или Supabase URL → Kong → GoTrue/PostgREST/Storage на кластере PG15, БД `supabase` |
-| Supabase browser/SSR | `src/lib/supabase/browser.ts`, `server.ts` | Публичный Supabase URL → Kong → тот же кластер PG15; в локальном режиме URL может быть same-origin |
-| Прямой PostgreSQL | `src/lib/postgrest/pool.ts` → `DATABASE_URL` | В production Compose: PgBouncer → `conditera-db`, PG18, БД `conditera` |
-| Локальный REST shim | `src/app/rest/v1/[...path]/route.ts` | Прямой `getPool()` → PG18; это не тот же сервер, что внешний Kong/PostgREST |
-| Локальный Storage shim | `src/app/storage/v1/[...path]/route.ts` | Файлы в `upload/storage`, метаданные `storage.objects` через PG18; production Supabase Storage использует отдельный Storage volume и PG15 |
+## Backup и восстановление
 
-### Подтверждённые пересечения двух кластеров
+- `scripts/ops/backup-supabase-db.sh` делает logical SQL backup через TCP/password auth, проверяет gzip и сохраняет SHA-256 manifest.
+- SQL dump не включает Storage objects и cluster-global roles. Для полного восстановления нужны отдельные артефакты и проверки.
+- `scripts/ops/restore-app-dump-to-pg17-shadow.sh` — инструмент репетиции app PG18 dump → PG17 shadow; `postgres:18-alpine` используется как клиент/source fixture, а не как целевой runtime.
+- Backup нельзя считать проверенным, пока он не восстановлен в изолированную БД и не прошёл контрольные запросы.
 
-- `src/app/api/products/route.ts`: административное создание товара проверяет `auth.users` и читает имя из `public.profiles` через прямой PG Pool (PG18), затем создаёт/читает товар и категории через `supabaseAdmin` (PG15). Один пользовательский сценарий опирается на обе базы.
-- `src/app/api/auth/register/route.ts`: штатное создание Auth-пользователя и профиля идёт через GoTrue/Supabase Admin (PG15); прямые операции с `auth.users` через PG Pool оставлены для локального fallback/компенсации. Это означает различие поведения dev и production.
-- `src/lib/ops/*` и API производственных сценариев используют прямой PG Pool (PG18) для `orders`, `order_production`, `order_production_checklist`, `inventory_items`, `recipe_ingredients`, `purchase_drafts`, `capacity_reservations`, `domain_events`, `order_media`, `chat_channels/messages` и других операционных таблиц.
-- Каталог, Auth, роли, профили, товары, категории, разрезы и Storage через `supabaseAdmin`/GoTrue/PostgREST работают через Supabase API (PG15). Одни и те же логические сущности могут иметь копии схемы в обоих кластерах, но это не доказывает совпадение строк или идентификаторов.
-- В результате простая смена `DATABASE_URL` или `SUPABASE_INTERNAL_URL` не объединяет систему: она меняет только один путь и может оставить часть запросов на старой базе.
+## Защита от возврата конфликта
 
-### Следствие для переноса
+- `scripts/verify/pg-version-gate.mjs` проверяет runtime Compose, migration overlay, local Compose и workflow service images на PG17.
+- `.github/workflows/postgres17-compose-validation.yml` проверяет PG17.12 runtime image, shared рабочий volume, изоляцию shadow volume и роли Auth/REST/Realtime/Storage/Meta/migrator.
+- `docker-compose.supabase.yml` содержит legacy multi-container fallback; canonical single-container запуск всегда использует `docker-compose.supabase-single-container.yml`.
+- Не создавать второй активный app DB и не направлять часть сценариев в PG18, а часть в Supabase PG17.
 
-Перед выбором целевого кластера нужна таблица «источник истины → таблица → операции чтения/записи → зависимости/FK → файлы Storage». Отдельно сверяются UUID пользователей между `auth.users`, `profiles`, `user_roles`, `confectioners`; товары/медиа/разрезы; заказы/позиции/платежи/возвраты/выплаты; склад/рецептуры/производственные задачи; чаты/события; Storage metadata и физические файлы. Нельзя копировать таблицы вслепую или считать одну из баз disposable.
+## Что не подтверждено
+
+На момент подготовки интеграционной ветки не выполнены SSH/Windows Docker операции, production backup/restore, сверка реальных данных и production cutover. Ни один из этих пунктов не объявляется завершённым.
