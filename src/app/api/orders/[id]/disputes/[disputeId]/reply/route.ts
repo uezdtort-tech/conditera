@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { PoolClient } from "pg";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPool } from "@/lib/postgrest/pool";
@@ -17,7 +18,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; disputeId: string }> },
 ): Promise<NextResponse> {
-  const client = await getPool().connect();
+  let client: PoolClient | null = null;
   const uploadedMedia: Array<{ id: string; contentSha256: string }> = [];
   let transactionStarted = false;
   try {
@@ -46,6 +47,7 @@ export async function POST(
       return NextResponse.json({ error: "INVALID_EVIDENCE_FILES_MAX_5" }, { status: 422 });
     }
 
+    client = await getPool().connect();
     await client.query("BEGIN");
     transactionStarted = true;
     const selected = await client.query(
@@ -112,7 +114,7 @@ export async function POST(
       status: "under_review",
     }, { status: 201 });
   } catch (error) {
-    if (transactionStarted) await client.query("ROLLBACK").catch(() => {});
+    if (transactionStarted && client) await client.query("ROLLBACK").catch(() => {});
     for (const media of uploadedMedia) {
       await deleteOrderMedia(media.id).catch((cleanupError) =>
         console.error("[orders/disputes/reply] evidence cleanup failed:", (cleanupError as Error).message),
@@ -127,6 +129,6 @@ export async function POST(
     console.error("[orders/disputes/reply] POST failed:", (error as Error).message);
     return NextResponse.json({ error: "DISPUTE_REPLY_FAILED" }, { status: 500 });
   } finally {
-    client.release();
+    client?.release();
   }
 }
