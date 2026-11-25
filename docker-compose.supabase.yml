@@ -33,13 +33,13 @@ x-logging: &default-logging
 services:
   # ===== PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация (единая с runtime и CI) =====
   # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI =
-  # PG17, embedded db:setup = PG17. Образ supabase/postgres:17.11.0.017 —
+  # PG17, embedded db:setup = PG17. Образ supabase/postgres:17.12.0.001 —
   # последний vanilla-тег PG17 (без -orioledb/-multigres). Менять версию
   # ТОЛЬКО синхронно в: docker-compose.supabase.yml, conditera-v2/docker-compose.local.yml,
   # .github/workflows/ci.yml (jobs.migrations-pg17), package.json (embedded-postgres).
   # Гард: scripts/verify/pg-version-gate.mjs (CI) — не-17 версии = FAIL.
   supabase-db:
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:17.12.0.001
     container_name: conditera-supabase-db
     restart: unless-stopped
     command:
@@ -340,7 +340,7 @@ services:
     # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.11.0.017).
     # Мигратор client-only (bash+psql, без volume/initdb) — образ серверных
     # расширений не влияет на применяемые SQL, но версия клиента = версия сервера.
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:17.12.0.001
     container_name: conditera-supabase-app-migrator
     restart: "no"
     command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
