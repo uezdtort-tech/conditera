@@ -584,6 +584,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+      return NextResponse.json(
+        { error: "Выполняется параллельный вход. Повторите попытку." },
+        { status: 409 }
+      );
+    }
     if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
       return NextResponse.json(
         { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
