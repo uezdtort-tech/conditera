@@ -126,7 +126,7 @@ ENV HOSTNAME="0.0.0.0"
 # Создаём непривилегированного пользователя
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs && \
-    apk add --no-cache dumb-init openssl wget postgresql17-client
+    apk add --no-cache dumb-init openssl wget postgresql17-client tar gzip
 
 # Standalone-сборка Next.js содержит только нужные node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public

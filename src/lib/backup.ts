@@ -11,7 +11,8 @@
  * Each backup is recorded in MaintenanceLog table.
  */
 import { spawn } from "child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
+import { createHash } from "crypto";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createGzip } from "zlib";
 import { pipeline } from "stream/promises";
@@ -27,6 +28,7 @@ interface BackupResult {
   recordsExported: number;
   durationMs: number;
   errorMessage?: string;
+  manifestPath?: string;
 }
 
 /**
@@ -41,7 +43,9 @@ export async function runFullBackup(): Promise<BackupResult> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   // pg_dump must connect directly to PostgreSQL, never through transaction-pooling PgBouncer.
   const production = process.env.NODE_ENV === "production";
-  const databaseUrl = process.env.DIRECT_DATABASE_URL || (production ? undefined : process.env.DATABASE_URL);
+  const databaseUrl = production
+    ? process.env.BACKUP_DATABASE_URL
+    : (process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL);
   const allowJsonFallback = process.env.BACKUP_ALLOW_JSON_FALLBACK === "true";
 
   if (!existsSync(BACKUP_DIR)) {
@@ -108,6 +112,53 @@ function normalizeLibpqUrl(value: string): string {
   return url.toString();
 }
 
+interface BackupArtifact {
+  kind: "database_sql" | "product_media" | "supabase_storage";
+  file: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+async function sha256File(filepath: string): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const input = createReadStream(filepath);
+    input.on("error", reject);
+    input.on("data", (chunk: Buffer) => hash.update(chunk));
+    input.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function createTarArchive(sourceDir: string, archivePath: string): Promise<void> {
+  if (!sourceDir || !existsSync(sourceDir)) {
+    throw new Error("Required backup source directory is missing: " + (sourceDir || "(empty path)"));
+  }
+  const stderr: Buffer[] = [];
+  const child = spawn("tar", ["-czf", archivePath, "-C", sourceDir, "."], {
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  await new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(
+        "tar archive exited with code " + code + ": " +
+        Buffer.concat(stderr).toString("utf8").slice(0, 1200)
+      ));
+    });
+  });
+}
+
+/**
+ * Full platform backup bundle:
+ * - full PostgreSQL SQL dump (all schemas, including Supabase metadata);
+ * - product media volume;
+ * - Supabase Storage object volume.
+ *
+ * Cluster-global roles are recreated by the pinned Supabase image and the
+ * Conditera role bootstrap/migration scripts; passwords come from runtime env.
+ */
 async function pgDumpBackup(
   databaseUrl: string,
   timestamp: string,
@@ -115,6 +166,9 @@ async function pgDumpBackup(
 ): Promise<BackupResult> {
   const filename = "backup-" + timestamp + ".sql.gz";
   const filepath = join(BACKUP_DIR, filename);
+  const manifestPath = filepath.replace(/\.sql\.gz$/, ".manifest.json");
+  const createdPaths: string[] = [filepath];
+  const artifacts: BackupArtifact[] = [];
   const stderr: Buffer[] = [];
   const child = spawn(
     "pg_dump",
@@ -127,13 +181,56 @@ async function pgDumpBackup(
     child.once("error", reject);
     child.once("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error("pg_dump exited with code " + code + ": " + Buffer.concat(stderr).toString("utf8").slice(0, 1200)));
+      else reject(new Error(
+        "pg_dump exited with code " + code + ": " +
+        Buffer.concat(stderr).toString("utf8").slice(0, 1200)
+      ));
     });
   });
 
   try {
-    const outputPromise = pipeline(child.stdout, createGzip(), createWriteStream(filepath));
+    const outputPromise = pipeline(child.stdout, createGzip(), createWriteStream(filepath, { mode: 0o600 }));
     await Promise.all([outputPromise, exitPromise]);
+
+    const databaseStats = statSync(filepath);
+    artifacts.push({
+      kind: "database_sql",
+      file: filename,
+      sizeBytes: databaseStats.size,
+      sha256: await sha256File(filepath),
+    });
+
+    // Production must include both persistent media volumes. CI can opt in
+    // with BACKUP_INCLUDE_MEDIA=true and temporary fixture directories.
+    const includeMedia = process.env.NODE_ENV === "production" ||
+      process.env.BACKUP_INCLUDE_MEDIA === "true";
+    if (includeMedia) {
+      const mediaSources = [
+        {
+          kind: "product_media" as const,
+          root: process.env.PRODUCT_MEDIA_ROOT || "",
+          filename: "backup-" + timestamp + ".product-media.tar.gz",
+        },
+        {
+          kind: "supabase_storage" as const,
+          root: process.env.SUPABASE_STORAGE_BACKUP_ROOT || "",
+          filename: "backup-" + timestamp + ".supabase-storage.tar.gz",
+        },
+      ];
+
+      for (const source of mediaSources) {
+        const archivePath = join(BACKUP_DIR, source.filename);
+        createdPaths.push(archivePath);
+        await createTarArchive(source.root, archivePath);
+        const stats = statSync(archivePath);
+        artifacts.push({
+          kind: source.kind,
+          file: source.filename,
+          sizeBytes: stats.size,
+          sha256: await sha256File(archivePath),
+        });
+      }
+    }
 
     const { getPool } = await import("@/lib/postgrest/pool");
     const pool = getPool();
@@ -143,26 +240,55 @@ async function pgDumpBackup(
       "AND schemaname NOT LIKE 'pg_toast%'"
     );
     const tablesCount = Number(countResult.rows[0]?.count ?? 0);
-    const stats = statSync(filepath);
+    const manifest = {
+      format: "conditera-full-backup-manifest-v1",
+      createdAt: new Date().toISOString(),
+      database: {
+        host: new URL(databaseUrl).host,
+        file: filename,
+        sizeBytes: databaseStats.size,
+        sha256: artifacts[0].sha256,
+        format: "plain-sql-gzip",
+      },
+      artifacts,
+      scope: {
+        database: true,
+        productMedia: artifacts.some((item) => item.kind === "product_media"),
+        supabaseStorage: artifacts.some((item) => item.kind === "supabase_storage"),
+        clusterGlobals: "recreated_by_supabase_image_and_conditera_bootstrap",
+      },
+    };
+    const manifestTemp = manifestPath + ".tmp";
+    createdPaths.push(manifestTemp);
+    writeFileSync(manifestTemp, JSON.stringify(manifest, null, 2) + "\n", { mode: 0o600 });
+    renameSync(manifestTemp, manifestPath);
+    createdPaths.push(manifestPath);
+
+    const manifestSize = statSync(manifestPath).size;
+    const backupSizeBytes = artifacts.reduce((sum, item) => sum + item.sizeBytes, 0) + manifestSize;
     const durationMs = Date.now() - startTime;
 
     console.info(
-      "[backup] full pg_dump completed: " + filename +
-      " (" + (stats.size / 1024 / 1024).toFixed(2) + " MB, " +
+      "[backup] full platform backup completed: " + filename +
+      " (database + " + (artifacts.length - 1) + " media archives, " +
+      (backupSizeBytes / 1024 / 1024).toFixed(2) + " MB, " +
       tablesCount + " tables, " + durationMs + "ms)"
     );
 
     return {
       success: true,
       backupPath: filepath,
-      backupSizeBytes: stats.size,
+      manifestPath,
+      backupSizeBytes,
       tablesCount,
       recordsExported: 0,
       durationMs,
     };
   } catch (error) {
     child.kill();
-    try { unlinkSync(filepath); } catch { /* partial file cleanup */ }
+    for (const createdPath of createdPaths) {
+      try { unlinkSync(createdPath); } catch { /* partial artifact cleanup */ }
+    }
     throw error;
   }
 }

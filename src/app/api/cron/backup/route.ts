@@ -67,6 +67,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         details: {
           oldBackupsDeleted: oldDeleted,
           backupPath: result.backupPath,
+          manifestPath: result.manifestPath || null,
           backupSizeBytes: result.backupSizeBytes,
           tablesCount: result.tablesCount,
           recordsExported: result.recordsExported,
@@ -83,6 +84,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       success: result.success,
       backupPath: result.backupPath,
+      manifestPath: result.manifestPath || null,
       backupSizeBytes: result.backupSizeBytes,
       tablesCount: result.tablesCount,
       recordsExported: result.recordsExported,

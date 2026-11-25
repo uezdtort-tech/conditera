@@ -708,6 +708,11 @@ jobs:
           BACKUP_RESTORE_DATABASE_URL: postgresql://conditera:ci-only-password@127.0.0.1:5433/postgres
           BACKUP_RESTORE_PSQL_URL: postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera_restore_verify
           BACKUP_RESTORE_DB_NAME: conditera_restore_verify
+          BACKUP_INCLUDE_MEDIA: "true"
+          PRODUCT_MEDIA_ROOT: ${{ runner.temp }}/conditera-product-media
+          SUPABASE_STORAGE_BACKUP_ROOT: ${{ runner.temp }}/conditera-supabase-storage
+          BACKUP_EXPECT_PRODUCT_MEDIA_FILE: products/backup-probe.txt
+          BACKUP_EXPECT_SUPABASE_STORAGE_FILE: buckets/order_media/backup-probe.txt
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pgtools" "$BACKUP_DIR"
@@ -725,6 +730,9 @@ jobs:
           export SOURCE_CONTAINER_ID="${{ job.services.source.id }}"
           export RESTORE_CONTAINER_ID="${{ job.services.restore.id }}"
           export PATH="$RUNNER_TEMP/pgtools:$PATH"
+          mkdir -p "$PRODUCT_MEDIA_ROOT/products" "$SUPABASE_STORAGE_BACKUP_ROOT/buckets/order_media"
+          printf "PRODUCT_MEDIA_BACKUP_OK\n" > "$PRODUCT_MEDIA_ROOT/products/backup-probe.txt"
+          printf "SUPABASE_STORAGE_BACKUP_OK\n" > "$SUPABASE_STORAGE_BACKUP_ROOT/buckets/order_media/backup-probe.txt"
           bun run ops:restore-verify
 
 
