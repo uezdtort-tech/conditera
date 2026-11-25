@@ -84,7 +84,7 @@ jobs:
           assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data"
           assert "supabase_pg17_migration_storage_data" in storage_named_volumes, storage_named_volumes
           assert config["volumes"]["supabase_pg17_migration_storage_data"]["name"] == "conditera_supabase_pg17_migration_storage_data"
-          print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
+          print("OK: PG17 target is profile-isolated, has a separate volume, and default runtime is PG17.12; shadow is isolated.")
           PY
       - name: Запустить PG17 и Supabase Storage, затем применить отложенную миграцию
         run: |
