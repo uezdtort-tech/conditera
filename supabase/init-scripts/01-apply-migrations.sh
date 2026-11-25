@@ -121,10 +121,12 @@ for sql_file in "$MIGRATIONS_DIR"/*.sql; do
     continue
   fi
 
-  # 0026 creates RLS policies on storage.objects and inserts storage.buckets.
-  # Supabase Storage API creates these tables only after the DB container is healthy.
-  # Defer this migration during initdb; the post-Storage migrator reruns this script.
-  if [ "$filename" = "0026_storage_buckets_and_confectioners_rls.sql" ]; then
+  # Storage API creates storage.buckets/storage.objects after PostgreSQL initdb.
+  # Defer every migration that references those relations, not only 0026:
+  # later order/quote media migrations also provision private Storage buckets.
+  # The post-Storage migrator reruns this same ledger script and applies them
+  # in numeric order once both relations exist.
+  if grep -Eq 'storage\.(buckets|objects)' "$sql_file"; then
     STORAGE_TABLES_READY=$(PSQL -tAc "SELECT (to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL)" | xargs)
     if [ "$STORAGE_TABLES_READY" != "t" ]; then
       echo "⏭ Откладываю ${filename}: таблицы Supabase Storage ещё не созданы"
