@@ -221,7 +221,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       notes,
       customerName,
       customerPhone,
-      paymentMethod,
       negotiationId,
     } = parsed.data;
 
@@ -318,7 +317,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Один заказ — один производственный исполнитель.
       const sellerIds = new Set(products.map((product) => product.confectioner_id).filter((id): id is string => Boolean(id)));
       const hasUnassignedProduct = products.some((product) => !product.confectioner_id);
-      if (sellerIds.size > 1 || (sellerIds.size === 1 && hasUnassignedProduct)) {
+      if (sellerIds.size !== 1 || hasUnassignedProduct) {
         return NextResponse.json(
           { error: "В одной оплате могут быть товары только одного кондитера. Разделите корзину на отдельные заказы.", code: "MULTIPLE_CONFECTIONERS" },
           { status: 422 }
@@ -976,7 +975,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       deliveryCost,
       discount,
       appliedPromoCode,
-      isStub: !isYookassaConfigured(),
+      isStub: yookassaPaymentId.startsWith("mock_") || yookassaPaymentId.startsWith("stub_"),
       items: orderItems.map((i) => ({
         title: i.product_title,
         quantity: i.quantity,
@@ -1020,16 +1019,57 @@ async function buildReplayResponse(existing: {
       .limit(1),
   ]);
 
-  const paymentRow = payments?.[0] || null;
-  const storedUrl = (paymentRow?.metadata as { confirmation_url?: string } | null)
-    ?.confirmation_url;
-  const isStub = !paymentRow?.yookassa_payment_id;
+  let paymentRow = payments?.[0] || null;
+  let storedUrl = (paymentRow?.metadata as { confirmation_url?: string } | null)?.confirmation_url;
+
+  // Восстанавливаем payment ledger после временной ошибки INSERT. YooKassa
+  // использует детерминированный idempotency key по orderId, поэтому повтор
+  // вернёт ту же попытку платежа, а не создаст второй charge.
+  if (!paymentRow?.yookassa_payment_id || !storedUrl) {
+    if (!isYookassaConfigured() && process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
+      throw new Error("PAYMENT_LEDGER_PENDING: YooKassa не настроена");
+    }
+    const paymentResult = await createPayment({
+      amount: existing.total,
+      description: `Заказ ${existing.number} — кондитерский маркетплейс «Уездный кондитер»`,
+      returnUrl: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?orderId=${existing.id}`,
+      orderId: existing.id,
+    });
+    if (!paymentResult.success || !paymentResult.payment?.confirmation?.confirmation_url) {
+      throw new Error("PAYMENT_LEDGER_PENDING: не удалось восстановить платёж");
+    }
+    storedUrl = paymentResult.payment.confirmation.confirmation_url;
+    if (paymentRow?.yookassa_payment_id) {
+      const { error: updateError } = await supabaseAdmin
+        .from("payments")
+        .update({ metadata: { confirmation_url: storedUrl } })
+        .eq("order_id", existing.id)
+        .eq("yookassa_payment_id", paymentRow.yookassa_payment_id);
+      if (updateError) throw new Error("PAYMENT_LEDGER_PENDING: не удалось обновить confirmation URL");
+    } else {
+      const { data: restored, error: insertError } = await supabaseAdmin
+        .from("payments")
+        .insert({
+          order_id: existing.id,
+          yookassa_payment_id: paymentResult.payment.id,
+          amount: existing.total,
+          currency: "RUB",
+          status: "pending",
+          method: "yookassa",
+          metadata: { confirmation_url: storedUrl },
+        })
+        .select("yookassa_payment_id, metadata")
+        .single();
+      if (insertError || !restored) throw new Error("PAYMENT_LEDGER_PENDING: не удалось восстановить запись платежа");
+      paymentRow = restored;
+    }
+  }
+  const isStub = Boolean(paymentRow?.yookassa_payment_id?.startsWith("mock_") || paymentRow?.yookassa_payment_id?.startsWith("stub_"));
 
   return {
     orderId: existing.id,
     orderNumber: existing.number,
-    paymentUrl:
-      storedUrl || `/checkout/success?orderId=${existing.id}${isStub ? "&demo=true" : ""}`,
+    paymentUrl: storedUrl || "",
     total: existing.total,
     subtotal: existing.subtotal ?? 0,
     deliveryCost: existing.delivery_cost ?? 0,
