@@ -4,7 +4,7 @@
  * Покрывает:
  *   1. FINAL_PAYMENT_STATUSES — все ожидаемые финальные статусы
  *   2. Идемпотентность при повторных запросах с тем же orderId и status
- *   3. Обработка разных event types (payment.succeeded, payment.cancelled, refund.succeeded)
+ *   3. Обработка разных event types (payment.succeeded, payment.canceled, refund.succeeded)
  *   4. Idempotency для новых статусов (не финальных)
  *
  * Эти тесты НЕ запускают route handler — они валидируют структуру
@@ -108,7 +108,7 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
 
   it("разный status для уже обработанного платежа → НЕ idempotent", () => {
     const existing = { id: "pay-1", status: "succeeded" };
-    const incoming = { event: "payment.cancelled", status: "cancelled" };
+    const incoming = { event: "payment.canceled", status: "cancelled" };
 
     // Статус изменился — нужно обновить (не idempotent skip)
     const isIdempotent =
@@ -138,7 +138,7 @@ describe("payment/webhook: идемпотентность — edge cases", () =>
 
   it("повторный cancelled → idempotent", () => {
     const existing = { id: "pay-1", status: "cancelled" };
-    const incoming = { event: "payment.cancelled", status: "cancelled" };
+    const incoming = { event: "payment.canceled", status: "cancelled" };
 
     const isIdempotent =
       FINAL_PAYMENT_STATUSES.has(existing.status) &&
