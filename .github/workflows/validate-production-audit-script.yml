@@ -55,7 +55,7 @@ jobs:
           docker run -d --name "$RUNTIME" \
             -e POSTGRES_USER=supabase_admin \
             -e POSTGRES_PASSWORD=${{ 'ci-audit-password' }} \
-            -e POSTGRES_DB=supabase \
+            -e POSTGRES_DB=conditera \
             supabase/postgres:17.12.0.001
 
           READY=0
