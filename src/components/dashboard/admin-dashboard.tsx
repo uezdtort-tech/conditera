@@ -34,6 +34,7 @@ import { formatCurrency, ORDER_STATUS_LABELS } from "@/lib/finance";
 import { csrfFetch } from "@/lib/api-client";
 import { BlacklistTab } from "@/components/dashboard/blacklist-tab";
 import { AdminHomepageSectionsTab } from "@/components/dashboard/admin-homepage-sections-tab";
+import { AdminCmsHomeBlocksTab } from "@/components/dashboard/admin-cms-home-blocks-tab";
 import { AdminDesignTab } from "@/components/dashboard/admin-design-tab";
 import {
   AdminCmsHomeTab, AdminBannersTab, AdminCmsPagesTab,
@@ -95,6 +96,7 @@ const TAB_GROUPS = [
     title: "CMS",
     tabs: [
       { id: "cms-home", label: "Главная", icon: LayoutDashboard },
+      { id: "cms-home-blocks", label: "Блоки главной", icon: Layers },
       { id: "cms-home-sections", label: "Секции главной", icon: Layers },
       { id: "cms-design", label: "Дизайн сайта", icon: Palette },
       { id: "cms-banners", label: "Баннеры", icon: ImageIcon },
@@ -454,6 +456,7 @@ export function AdminDashboard() {
       case "media-moderation": return <AdminMediaModerationTab />;
       case "blacklist": return <BlacklistTab />;
       case "cms-home": return <AdminCmsHomeTab />;
+      case "cms-home-blocks": return <AdminCmsHomeBlocksTab />;
       case "cms-home-sections": return <AdminHomepageSectionsTab />;
       case "cms-design": return <AdminDesignTab />;
       case "cms-banners": return <AdminBannersTab />;
