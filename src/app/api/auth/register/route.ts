@@ -39,6 +39,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashPassword, createAccessToken, createRefreshToken } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
+import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti } from "@/lib/session-registry";
 
 export const runtime = "nodejs";
 
@@ -122,11 +124,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       "CUSTOMER", "CONFECTIONER", "STUDIO", "SUPPLIER", "WHOLESALER",
       "COURIER", "VENUE_OWNER", "ANIMATOR_AGENCY", "RECREATION_CENTER",
       "KIDS_CLUB", "FOOD_SERVICE", "EVENT_ORGANIZER", "PICKUP_POINT",
-      "BLOGGER", "TASTER", "NUTRITIONIST", "COPYWRITER",
+      "BLOGGER", "TASTER", "NUTRITIONIST",
       "CORPORATE_CLIENT", "FRANCHISEE",
     ] as const;
     // Роли, доступные только по приглашению администратора
-    const ADMIN_ASSIGNED_ROLES = ["ADMIN", "SUPER_ADMIN", "MODERATOR", "SUPPORT", "QUALITY_INSPECTOR", "CERTIFICATION_AGENT", "GUEST"];
+    const ADMIN_ASSIGNED_ROLES = ["ADMIN", "SUPER_ADMIN", "MODERATOR", "SUPPORT", "QUALITY_INSPECTOR", "CERTIFICATION_AGENT", "COPYWRITER", "GUEST"];
     const roleInput = String(role ?? "CUSTOMER").trim().toUpperCase();
     if (!(ALLOWED_SELF_REGISTER_ROLES as readonly string[]).includes(roleInput)) {
       if (ADMIN_ASSIGNED_ROLES.includes(roleInput)) {
@@ -517,8 +519,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId });
+    const sessionId = await createUserSession(userId, request, "registration");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, sid: sessionId, jti: refreshJti });
 
     // 13. Sanitize response (без passwordHash и других sensitive полей)
     const safeUser: SanitizedUser = {
@@ -567,7 +572,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 201 Created — REST-контракт создания ресурса (E2E integration-auth-flow
     // ожидает именно 201; 200 ошибочно сигнализировал «обычный ответ»).
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         user: safeUser,
         accessToken,
@@ -575,6 +580,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       { status: 201 }
     );
+    return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("Register error:", error?.message);
     return NextResponse.json(
