@@ -11,7 +11,7 @@ services:
     stop_grace_period: 60s
     environment:
       POSTGRES_USER: supabase_admin
-      POSTGRES_DB: supabase
+      POSTGRES_DB: conditera
       POSTGRES_PORT: "5432"
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a throwaway POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:?Set a throwaway JWT_SECRET}
