@@ -1,11 +1,17 @@
 /**
  * production-duration.ts — оценка времени производства заказа (ТЗ §10).
  *
- * Приоритет источников:
- *   1. product.production_time_hours (сконфигурированное значение, ТЗ §10 «configured»)
- *   2. recipe.prep_time_minutes + cook_time_minutes («configured»)
- *   3. category default (словарь в lifecycle-config, «estimated»)
- *   4. глобальный default («estimated»)
+ * Разделяет два разных понятия:
+ *   - products.production_time_hours — срок от заказа до выдачи (lead time);
+ *     он проверяется относительно дедлайна, но НЕ является трудоёмкостью
+ *     одного рабочего окна.
+ *   - recipes.prep_time_minutes + cook_time_minutes — фактическая трудоёмкость
+ *     для capacity и latest-safe-start.
+ *
+ * Для capacity приоритет источников:
+ *   1. recipe.prep_time_minutes + cook_time_minutes («configured»)
+ *   2. category default (словарь в lifecycle-config, «estimated»)
+ *   3. глобальный default («estimated»)
  *
  * Система ЯВНО показывает source и approximate (ТЗ §10: не выдавать
  * приблизительное значение как точное).
@@ -43,17 +49,10 @@ export interface ProductionTimeEstimate {
 export function estimateItemProductionMinutes(
   input: ProductionTimeInput
 ): ProductionTimeEstimate {
-  // 1. Явно сконфигурированное продуктовое время (в часах → минуты)
-  const prodHours = input.productProductionTimeHours;
-  if (prodHours !== null && Number.isFinite(prodHours) && prodHours > 0) {
-    return {
-      minutes: Math.round(prodHours * 60),
-      source: "product",
-      approximate: false,
-    };
-  }
-
-  // 2. Рецепт: prep + cook
+  // productProductionTimeHours — lead time от заказа до выдачи,
+  // а не непрерывная занятость кондитера. Для capacity используем только
+  // активное время рецепта; lead time проверяется отдельно в Acceptance Engine.
+  // 1. Рецепт: prep + cook
   const prep = input.recipePrepMinutes;
   const cook = input.recipeCookMinutes;
   if ((prep !== null && prep > 0) || (cook !== null && cook > 0)) {
@@ -63,19 +62,37 @@ export function estimateItemProductionMinutes(
     }
   }
 
-  // 3. Категорийный дефолт
+  // 2. Категорийный дефолт
   if (input.categorySlug) {
     const slug = input.categorySlug.trim().toLowerCase();
     const cat = CATEGORY_PRODUCTION_MINUTES[slug];
     if (cat) return { minutes: cat, source: "category", approximate: true };
   }
 
-  // 4. Глобальный дефолт
+  // 3. Глобальный дефолт
   return {
     minutes: DEFAULT_PRODUCTION_MINUTES,
     source: "default",
     approximate: true,
   };
+}
+
+/** Проверка минимального срока от оформления заказа до выдачи. */
+export function isDeliveryLeadTimeSatisfied(
+  productProductionTimeHours: number | null,
+  deadlineAt: Date | null,
+  now: Date = new Date()
+): boolean {
+  if (
+    !deadlineAt ||
+    productProductionTimeHours === null ||
+    !Number.isFinite(productProductionTimeHours) ||
+    productProductionTimeHours <= 0
+  ) {
+    return true;
+  }
+  const requiredReadyAt = now.getTime() + productProductionTimeHours * 60 * 60 * 1000;
+  return deadlineAt.getTime() >= requiredReadyAt;
 }
 
 export interface OrderItemForEstimate {
