@@ -48,7 +48,9 @@ fi
 # Kong 2.8 drops privileges to the kong user before loading declarative config.
 # Keep the generated file private while making it readable by that runtime user.
 if id kong >/dev/null 2>&1; then
-  chown kong:kong "$RENDERED" || fail "cannot assign rendered config to kong user"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown kong "$RENDERED" || fail "cannot assign rendered config to kong user"
+  fi
   chmod 600 "$RENDERED"
 else
   rm -f "$RENDERED"
