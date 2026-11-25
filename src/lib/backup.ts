@@ -11,7 +11,7 @@
  * Each backup is recorded in MaintenanceLog table.
  */
 import { spawn } from "child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 import { createGzip } from "zlib";
 import { pipeline } from "stream/promises";
@@ -41,12 +41,15 @@ export async function runFullBackup(): Promise<BackupResult> {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   // pg_dump must connect directly to PostgreSQL, never through transaction-pooling PgBouncer.
   const production = process.env.NODE_ENV === "production";
-  const databaseUrl = process.env.DIRECT_DATABASE_URL || (production ? undefined : process.env.DATABASE_URL);
+  const databaseUrl = production
+    ? process.env.BACKUP_DATABASE_URL
+    : process.env.BACKUP_DATABASE_URL || process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
   const allowJsonFallback = process.env.BACKUP_ALLOW_JSON_FALLBACK === "true";
 
   if (!existsSync(BACKUP_DIR)) {
-    mkdirSync(BACKUP_DIR, { recursive: true });
+    mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
   }
+  try { chmodSync(BACKUP_DIR, 0o700); } catch { /* mounted directory permissions may be managed by the host */ }
 
   if (databaseUrl && /^postgres(?:ql)?:\/\//.test(databaseUrl) && await hasPgDump()) {
     try {
@@ -61,7 +64,7 @@ export async function runFullBackup(): Promise<BackupResult> {
   } else if (production && !allowJsonFallback) {
     return failedBackup(
       startTime,
-      "Full PostgreSQL backup requires DIRECT_DATABASE_URL and the pg_dump/psql client tools; partial JSON export is disabled in production."
+      "Full PostgreSQL backup requires BACKUP_DATABASE_URL and the pg_dump/psql client tools; partial JSON export is disabled in production."
     );
   }
 
@@ -101,11 +104,42 @@ async function hasPgDump(): Promise<boolean> {
  * Full PostgreSQL backup via plain SQL dump + gzip.
  * The dump connects to DIRECT_DATABASE_URL, bypassing PgBouncer.
  */
-function normalizeLibpqUrl(value: string): string {
+function parsePgConnectionUrl(value: string): {
+  args: string[];
+  env: NodeJS.ProcessEnv;
+} {
   const url = new URL(value);
-  url.searchParams.delete("schema");
-  url.searchParams.delete("pgbouncer");
-  return url.toString();
+  if (!["postgres:", "postgresql:"].includes(url.protocol)) {
+    throw new Error("Backup connection URL must use postgres:// or postgresql://");
+  }
+  const username = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  const database = decodeURIComponent(url.pathname.replace(/^\\//, ""));
+  if (!url.hostname || !username || !password || !database) {
+    throw new Error("BACKUP_DATABASE_URL must include host, username, password and database");
+  }
+
+  const env: NodeJS.ProcessEnv = { ...process.env, PGPASSWORD: password };
+  const sslMode = url.searchParams.get("sslmode");
+  const sslRootCert = url.searchParams.get("sslrootcert");
+  const sslCert = url.searchParams.get("sslcert");
+  const sslKey = url.searchParams.get("sslkey");
+  if (sslMode) env.PGSSLMODE = sslMode;
+  if (sslRootCert) env.PGSSLROOTCERT = sslRootCert;
+  if (sslCert) env.PGSSLCERT = sslCert;
+  if (sslKey) env.PGSSLKEY = sslKey;
+
+  return {
+    args: [
+      "--host", url.hostname,
+      "--port", url.port || "5432",
+      "--username", username,
+      "--dbname", database,
+      "--no-owner",
+      "--no-privileges",
+    ],
+    env,
+  };
 }
 
 async function pgDumpBackup(
@@ -116,10 +150,11 @@ async function pgDumpBackup(
   const filename = "backup-" + timestamp + ".sql.gz";
   const filepath = join(BACKUP_DIR, filename);
   const stderr: Buffer[] = [];
+  const connection = parsePgConnectionUrl(databaseUrl);
   const child = spawn(
     "pg_dump",
-    [normalizeLibpqUrl(databaseUrl), "--no-owner", "--no-privileges"],
-    { stdio: ["ignore", "pipe", "pipe"] }
+    connection.args,
+    { stdio: ["ignore", "pipe", "pipe"], env: connection.env }
   );
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
 
@@ -132,7 +167,7 @@ async function pgDumpBackup(
   });
 
   try {
-    const outputPromise = pipeline(child.stdout, createGzip(), createWriteStream(filepath));
+    const outputPromise = pipeline(child.stdout, createGzip(), createWriteStream(filepath, { mode: 0o600 }));
     await Promise.all([outputPromise, exitPromise]);
 
     const { getPool } = await import("@/lib/postgrest/pool");
@@ -143,6 +178,7 @@ async function pgDumpBackup(
       "AND schemaname NOT LIKE 'pg_toast%'"
     );
     const tablesCount = Number(countResult.rows[0]?.count ?? 0);
+    chmodSync(filepath, 0o600);
     const stats = statSync(filepath);
     const durationMs = Date.now() - startTime;
 
