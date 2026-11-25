@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Полный backup единого Conditera PG17 runtime: SQL database + cluster globals + Storage objects.
-# Создаёт один комплект артефактов; backup не считается успешным, если отсутствует любой компонент.
+# Для multi-container fallback задать SUPABASE_DB_CONTAINER=conditera-supabase-db и SUPABASE_STORAGE_VOLUME=conditera_supabase_storage_data.
 
 CONTAINER="${SUPABASE_DB_CONTAINER:-conditera-supabase-runtime}"
 DB_NAME="${SUPABASE_DB_NAME:-conditera}"
@@ -29,30 +29,39 @@ command -v gzip >/dev/null 2>&1 || fail "gzip is required"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required"
 docker inspect "$CONTAINER" >/dev/null 2>&1 || fail "container not found: $CONTAINER"
 [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" == "true" ]] || fail "container is not running: $CONTAINER"
-docker volume inspect "$STORAGE_VOLUME" >/dev/null 2>&1 || fail "Storage volume not found: $STORAGE_VOLUME (set SUPABASE_STORAGE_VOLUME for fallback mode)"
+docker volume inspect "$STORAGE_VOLUME" >/dev/null 2>&1 || fail "Storage volume not found: $STORAGE_VOLUME"
 
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 rm -f "$DB_TMP" "$GLOBALS_TMP" "$STORAGE_TMP"
 
-# TCP/password auth avoids the peer-auth mismatch on the Supabase image's local Unix socket.
-SERVER_VERSION="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; test -n "$PGPASSWORD"; exec psql -X -h 127.0.0.1 -p 5432 -U "$1" -d "$2" -Atqc "SHOW server_version"' sh "$DB_USER" "$DB_NAME" 2>/dev/null)" || fail "cannot query PostgreSQL over TCP/password auth"
-PG_DUMP_VERSION="$(docker exec "$CONTAINER" pg_dump --version 2>/dev/null)" || fail "pg_dump is unavailable"
-TABLE_COUNT="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; test -n "$PGPASSWORD"; exec psql -X -h 127.0.0.1 -p 5432 -U "$1" -d "$2" -Atqc "$3"' sh "$DB_USER" "$DB_NAME" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')" 2>/dev/null)" || fail "cannot count user tables"
+# Runtime mode has PostgreSQL binaries inside the extracted official image rootfs.
+RUNTIME_CHROOT="false"
+if docker exec "$CONTAINER" test -x /usr/local/lib/supabase-runtime-poc/run-chroot.sh >/dev/null 2>&1; then RUNTIME_CHROOT="true"; fi
+
+db_exec() {
+  if [[ "$RUNTIME_CHROOT" == "true" ]]; then
+    docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; test -n "$PGPASSWORD"; exec /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 "$@"' sh "$@"
+  else
+    docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; test -n "$PGPASSWORD"; exec "$@"' sh "$@"
+  fi
+}
+
+# TCP/password auth avoids peer-auth mismatch on the Supabase image's Unix socket.
+SERVER_VERSION="$(db_exec psql -X -h 127.0.0.1 -p 5432 -U "$DB_USER" -d "$DB_NAME" -Atqc 'SHOW server_version' 2>/dev/null)" || fail "cannot query PostgreSQL over TCP/password auth"
+PG_DUMP_VERSION="$(db_exec pg_dump --version 2>/dev/null)" || fail "pg_dump is unavailable"
+TABLE_COUNT="$(db_exec psql -X -h 127.0.0.1 -p 5432 -U "$DB_USER" -d "$DB_NAME" -Atqc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')" 2>/dev/null)" || fail "cannot count user tables"
 
 echo "Source: container=$CONTAINER database=$DB_NAME user=$DB_USER version=$SERVER_VERSION"
 echo "Storage volume: $STORAGE_VOLUME"
 echo "User tables: $TABLE_COUNT"
 
-if ! docker exec -i "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; test -n "$PGPASSWORD"; exec pg_dump -h 127.0.0.1 -p 5432 "$@"' sh \
-  --username="$DB_USER" --dbname="$DB_NAME" --no-owner --no-privileges --format=plain --quote-all-identifiers | gzip -c > "$DB_TMP"; then
+if ! db_exec pg_dump -h 127.0.0.1 -p 5432 -U "$DB_USER" -d "$DB_NAME" --no-owner --no-privileges --format=plain --quote-all-identifiers | gzip -c > "$DB_TMP"; then
   fail "full database pg_dump pipeline failed"
 fi
-
-if ! docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; test -n "$PGPASSWORD"; exec pg_dumpall -h 127.0.0.1 -p 5432 -U "$1" --globals-only' sh "$DB_USER" | gzip -c > "$GLOBALS_TMP"; then
+if ! db_exec pg_dumpall -h 127.0.0.1 -p 5432 -U "$DB_USER" --globals-only | gzip -c > "$GLOBALS_TMP"; then
   fail "cluster-global roles/grants backup failed"
 fi
-
 if ! docker run --rm -v "$STORAGE_VOLUME:/source:ro" "$ALPINE_IMAGE" sh -c 'tar -czf - -C /source .' > "$STORAGE_TMP"; then
   fail "Storage objects volume archive failed"
 fi
