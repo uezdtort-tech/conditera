@@ -327,7 +327,7 @@ CREATE POLICY "recipe_marketplace_author_insert"
     AND EXISTS (
       SELECT 1 FROM public.user_roles ur
       WHERE ur.user_id = auth.uid()
-        AND ur.role = 'RECIPE_DEVELOPER'
+        AND ur.role::text = 'RECIPE_DEVELOPER'
         AND ur.is_active
     )
   );
@@ -405,7 +405,7 @@ CREATE POLICY "loyalty_partners_self_insert"
     AND EXISTS (
       SELECT 1 FROM public.user_roles ur
       WHERE ur.user_id = auth.uid()
-        AND ur.role = 'LOYALTY_PARTNER'
+        AND ur.role::text = 'LOYALTY_PARTNER'
         AND ur.is_active
     )
   );
