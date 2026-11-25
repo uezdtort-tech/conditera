@@ -107,8 +107,8 @@ services:
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: "160k"
       KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
       KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE: "320k"
-      SUPABASE_ANON_KEY: ${ANON_KEY:?ANON_KEY is required}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}
+      ANON_KEY: ${ANON_KEY:?ANON_KEY is required}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
