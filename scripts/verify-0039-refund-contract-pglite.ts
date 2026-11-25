@@ -89,7 +89,8 @@ async function main() {
   await db.exec(FIXTURE);
   ok("фикстура развёрнута");
   await applyFileStrict(db, MIG("0039_release_readiness.sql"), "0039_release_readiness.sql");
-  ok("0039 применена");
+  await applyFileStrict(db, MIG("0088_harden_yookassa_refund_rpc.sql"), "0088_harden_yookassa_refund_rpc.sql");
+  ok("0039 + 0088 применены");
 
   console.log("\n=== RLS confectioner_transactions ===");
   const pol = (await q(`SELECT count(*)::int AS n FROM pg_policies WHERE tablename='confectioner_transactions' AND policyname='confectioner_transactions_owner_select'`))[0] as { n: number };
@@ -112,26 +113,52 @@ async function main() {
   (!r1.already_processed && r1.total_refunded_kopecks === 30000) ? ok("первый частичный 300₽ → 30000 коп") : fail("первый частичный", JSON.stringify(r1));
   const r1b = (await q(`SELECT * FROM apply_yookassa_refund('${pay.id}'::uuid, 'ref_1', 30000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number };
   (r1b.already_processed && r1b.total_refunded_kopecks === 30000) ? ok("повторная доставка ref_1 → dedup") : fail("dedup", JSON.stringify(r1b));
+  try {
+    await q(`SELECT * FROM apply_yookassa_refund('${pay.id}'::uuid, 'ref_1', 30001)`);
+    fail("повторный refund id с другой суммой должен отклоняться");
+  } catch {
+    ok("повторный refund id с другой суммой отклонён");
+  }
   const r2 = (await q(`SELECT * FROM apply_yookassa_refund('${pay.id}'::uuid, 'ref_2', 70000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number; fully_refunded: boolean };
   (r2.fully_refunded && r2.total_refunded_kopecks === 100000) ? ok("второй частичный 700₽ → fully_refunded") : fail("fully_refunded", JSON.stringify(r2));
   const pr = (await q(`SELECT refund_amount, status FROM payments WHERE id='${pay.id}'`))[0] as { refund_amount: string; status: string };
   (Number(pr.refund_amount) === 1000 && pr.status === "refunded") ? ok("refund_amount=1000, status=refunded") : fail("payments row", JSON.stringify(pr));
 
+  console.log("\n=== Кумулятивный лимит возвратов ===");
+  await db.exec(`INSERT INTO public.payments (yookassa_payment_id, amount, status) VALUES ('pay_4', 1000, 'succeeded')`);
+  const pay4 = (await q(`SELECT id FROM payments WHERE yookassa_payment_id='pay_4'`))[0] as { id: string };
+  await q(`SELECT * FROM apply_yookassa_refund('${pay4.id}'::uuid, 'ref_4a', 60000)`);
+  try {
+    await q(`SELECT * FROM apply_yookassa_refund('${pay4.id}'::uuid, 'ref_4b', 40001)`);
+    fail("кумулятивный возврат сверх суммы платежа должен отклоняться");
+  } catch {
+    ok("кумулятивный возврат сверх суммы платежа отклонён");
+  }
+  const afterCap = (await q(`SELECT refund_amount, status FROM payments WHERE id='${pay4.id}'`))[0] as { refund_amount: string; status: string };
+  (Number(afterCap.refund_amount) === 600 && afterCap.status === "succeeded")
+    ? ok("отклонённый возврат не изменил финансовую запись")
+    : fail("финансовая запись после превышения", JSON.stringify(afterCap));
+
   console.log("\n=== Гранты (anon без EXECUTE) ===");
-  for (const rpc of ["consume_tfa_backup_code_v2", "apply_yookassa_refund"]) {
+  const anonCalls = [
+    `SELECT consume_tfa_backup_code_v2('${USER}'::uuid, 'hash_b')`,
+    `SELECT apply_yookassa_refund('${pay.id}'::uuid, 'anon_refund', 100)`,
+  ];
+  for (const call of anonCalls) {
     try {
-      await db.exec(`SET ROLE anon; SELECT ${rpc}();`);
+      await db.exec(`SET ROLE anon; ${call};`);
       await db.exec(`RESET ROLE;`);
-      fail(`грант: anon может вызвать ${rpc}`);
+      fail(`грант: anon смог выполнить ${call}`);
     } catch {
       await db.exec(`RESET ROLE;`);
-      ok(`грант: anon без EXECUTE ${rpc}`);
+      ok(`грант: anon без EXECUTE — ${call.split("(")[0]}`);
     }
   }
 
   console.log("\n=== Идемпотентность 0039 ===");
   await applyFileStrict(db, MIG("0039_release_readiness.sql"), "0039 повторно");
-  ok("повторное применение без ошибок");
+  await applyFileStrict(db, MIG("0088_harden_yookassa_refund_rpc.sql"), "0088 повторно");
+  ok("повторное применение 0039 + 0088 без ошибок");
 
   console.log("\n=== КОНТРАКТ F-2: reserve_refund (0035) + webhook — единственный писатель ===");
   await db.exec(`
