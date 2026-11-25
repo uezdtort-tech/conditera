@@ -553,6 +553,7 @@ volumes:
   # Старый том оставлен как есть для безопасного переноса/rollback.
   supabase_db_data:
   supabase_db_data_v17:
+    name: conditera_supabase_db_data_v17
   supabase_storage_data:
   supabase_vector_data:
 
