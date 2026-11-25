@@ -345,7 +345,7 @@ jobs:
           sh scripts/supabase/kong-entrypoint.sh
           ! grep -Fq '${SUPABASE_ANON_KEY}' "$RUNNER_TEMP/kong-rendered.yml"
           ! grep -Fq '${SUPABASE_SERVICE_KEY}' "$RUNNER_TEMP/kong-rendered.yml"
-          docker run --rm \
+          docker run --rm --user "$(id -u):$(id -g)" \
             -v "$RUNNER_TEMP/kong-rendered.yml:/kong.yml:ro" \
             -e KONG_DATABASE=off \
             -e KONG_PLUGINS=request-transformer,cors,key-auth,acl,basic-auth,rate-limiting \
