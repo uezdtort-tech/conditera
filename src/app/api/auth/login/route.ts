@@ -27,6 +27,7 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 import { findDevFallbackUser } from "@/lib/dev-auth";
 import { isAdminConfigured } from "@/lib/supabase/admin";
 
@@ -299,7 +300,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    const sessionId = await createUserSession(user.id, request, "password");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, user.id, refreshJti);
+
     const tokenPayload = {
+      sid: sessionId,
       userId: user.id,
       email: user.email,
       // name — для /api/auth/session (приветствие в дашборде), чтобы не
@@ -310,7 +316,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     };
 
     const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId: user.id });
+    const refreshToken = await createRefreshToken({ userId: user.id, sid: sessionId, jti: refreshJti });
 
     // Обновить last_login_at (non-blocking)
     supabaseAdmin
@@ -342,6 +348,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // читающие getUserFromRequest(), работают без ручного Bearer-заголовка.
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json(
+        { error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." },
+        { status: 403 }
+      );
+    }
+    if (error?.message === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json(
+        { error: "Не удалось безопасно проверить активные устройства. Повторите попытку позже." },
+        { status: 503 }
+      );
+    }
     console.error("Login error:", error?.message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
