@@ -44,7 +44,7 @@ const RESTORE_DB = process.env.BACKUP_RESTORE_DB_NAME || ("conditera_restore_ver
 if (!/^conditera_restore_verify_[A-Za-z0-9_]+$/.test(RESTORE_DB)) {
   throw new Error("BACKUP_RESTORE_DB_NAME must use the isolated conditera_restore_verify_ prefix.");
 }
-if (RESTORE_DB === parsed.pathname.replace(/^\\//, "")) {
+if (RESTORE_DB === parsed.pathname.slice(1)) {
   throw new Error("Refusing to use the source database as the disposable restore database.");
 }
 const restoreUrl = new URL(RESTORE_DATABASE_URL);
@@ -267,7 +267,7 @@ async function countSafeTarEntries(filePath) {
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
     pending += chunk;
-    const rows = pending.split(/\\r?\\n/);
+    const rows = pending.split("\n");
     pending = rows.pop() || "";
     for (const row of rows) {
       if (!row) continue;
@@ -293,7 +293,7 @@ async function verifyBackupBundle(sqlPath) {
   const storagePath = stem + ".storage.tar.gz";
   const manifestPath = stem + ".manifest.txt";
   for (const file of [globalsPath, storagePath, manifestPath]) {
-    check("backup bundle artifact exists: " + file.split(/[\\\\/]/).pop(), existsSync(file));
+    check("backup bundle artifact exists: " + file.slice(file.lastIndexOf("/") + 1), existsSync(file));
   }
   if (![globalsPath, storagePath, manifestPath].every(existsSync)) return;
 
@@ -302,7 +302,7 @@ async function verifyBackupBundle(sqlPath) {
   check("Storage archive gzip integrity", gzipTest(storagePath));
 
   const manifest = Object.fromEntries(
-    readFileSync(manifestPath, "utf8").split(/\\r?\\n/).filter(Boolean).map((line) => {
+    readFileSync(manifestPath, "utf8").split("\n").filter(Boolean).map((line) => {
       const index = line.indexOf("=");
       return index > 0 ? [line.slice(0, index), line.slice(index + 1)] : ["", ""];
     }).filter(([key]) => key)
