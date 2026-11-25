@@ -36,7 +36,6 @@
  *  - через @/lib/yandex-metrika: trackEventServer
  */
 import { NextRequest, NextResponse } from "next/server";
-import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { safeJsonBody, HttpError, handleRouteError } from "@/lib/http-helpers";
