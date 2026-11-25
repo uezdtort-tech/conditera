@@ -791,7 +791,7 @@ jobs:
             -e POSTGRES_USER=postgres \
             -e POSTGRES_PASSWORD=ci-only-password \
             -e POSTGRES_DB=postgres \
-            supabase/postgres:17.11.0.017 \
+            supabase/postgres:17.12.0.001 \
             postgres -c config_file=/etc/postgresql/postgresql.conf \
               -c cron.database_name=supabase_restore \
               -c cron.username=postgres

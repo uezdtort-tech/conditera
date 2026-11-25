@@ -39,7 +39,7 @@ services:
   # .github/workflows/ci.yml (jobs.migrations-pg17), package.json (embedded-postgres).
   # Гард: scripts/verify/pg-version-gate.mjs (CI) — не-17 версии = FAIL.
   supabase-db:
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:17.12.0.001
     container_name: conditera-supabase-db
     restart: unless-stopped
     command:
@@ -340,7 +340,7 @@ services:
     # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.11.0.017).
     # Мигратор client-only (bash+psql, без volume/initdb) — образ серверных
     # расширений не влияет на применяемые SQL, но версия клиента = версия сервера.
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:17.12.0.001
     container_name: conditera-supabase-app-migrator
     restart: "no"
     command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
