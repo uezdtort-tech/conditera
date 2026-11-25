@@ -1,5 +1,7 @@
 # 🐳 Docker Compose — запуск production-стека
 
+> **ВНИМАНИЕ: УСТАРЕВШАЯ ИНСТРУКЦИЯ.** Этот файл описывает legacy-стек (Prisma/PostgreSQL 16 и старые имена контейнеров) и не является актуальным runbook Conditera. Не выполняйте команды из него на production. Используйте `docs/DEPLOYMENT.md`, `docs/operations/PRODUCTION_RELEASE.md` и `docs/operations/BACKUP_RECOVERY.md`. Для ручной Compose-валидации/сборки обязательно передавайте `--env-file .env.production`: `env_file:` внутри сервиса не задаёт переменные для Compose interpolation/build args.
+
 > Пошаговая инструкция по деплою «Уездного кондитера» через Docker Compose.
 
 ---
