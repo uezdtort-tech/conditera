@@ -182,6 +182,8 @@ jobs:
         # Обязательные переменные подставлены dummy-значениями — проверяется
         # структура/интерполяция compose-файла, не значения секретов.
         run: |
+          touch .env.production
+          trap 'rm -f .env.production' EXIT
           POSTGRES_PASSWORD=ci-dummy \
           MEILI_MASTER_KEY=ci-dummy \
           JWT_SECRET=ci-dummy-jwt-secret-32-chars-aaaaaaaa \
