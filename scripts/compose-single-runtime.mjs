@@ -137,6 +137,22 @@ for (const key of ["DATABASE_URL", "DIRECT_DATABASE_URL"]) {
     fail("web." + key + " не направлен в единый PostgreSQL 17 runtime.");
   }
 }
+const webRequiredSecrets = [
+  "NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY", "JWT_SECRET", "JWT_REFRESH_SECRET", "TFA_ENCRYPTION_KEY",
+  "CRON_SECRET", "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
+  "SMTP_PORT", "SMTP_SECURE", "YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY",
+  "YANDEX_CLIENT_ID", "YANDEX_OAUTH_REDIRECT",
+];
+for (const key of webRequiredSecrets) {
+  const value = String(webEnv[key] ?? "");
+  if (!value || value.includes("CHANGE_ME")) {
+    fail("Не задан или оставлен шаблонным обязательный web secret/config " + key + ".");
+  }
+}
+if (webEnv.JWT_SECRET === webEnv.JWT_REFRESH_SECRET) {
+  fail("JWT_SECRET и JWT_REFRESH_SECRET должны различаться.");
+}
 if (webEnv.SUPABASE_INTERNAL_URL !== "http://supabase-kong:8000") {
   fail("Supabase JS должен обращаться к Kong внутри единого runtime.");
 }
