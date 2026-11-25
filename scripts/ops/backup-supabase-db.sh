@@ -51,7 +51,7 @@ echo "User tables: $TABLE_COUNT"
 
 if ! docker exec -i "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec pg_dump "$@"' sh \
   --host=127.0.0.1 --port=5432 --username="$DB_USER" --dbname="$DB_NAME" \
-  --no-owner --no-privileges --format=plain | gzip -c > "$SQL_TMP"; then
+  --clean --if-exists --no-owner --no-privileges --format=plain | gzip -c > "$SQL_TMP"; then
   fail "pg_dump pipeline failed"
 fi
 gzip -t "$SQL_TMP" || fail "SQL dump gzip integrity check failed"
