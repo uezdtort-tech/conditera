@@ -11,7 +11,7 @@ export PGHOST=127.0.0.1
 export PGPORT="${POSTGRES_PORT:-5432}"
 export PGUSER="${POSTGRES_USER:-supabase_admin}"
 export PGPASSWORD="$POSTGRES_PASSWORD"
-export PGDATABASE="${POSTGRES_DB:-supabase}"
+export PGDATABASE="${POSTGRES_DB:-conditera}"
 export MIGRATIONS_DIR=/opt/conditera/migrations
 export SEEDS_DIR=/opt/conditera/seeds
 export SEED_MODE=none
@@ -27,11 +27,11 @@ mkdir -p /opt/supabase/services/postgres/opt/conditera/seeds
 # Supabase REST/Auth still use their own authenticator/anon/authenticated/service_role
 # roles. This account is not a PostgreSQL superuser and is only exposed internally.
 /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
-  /bin/bash -c 'psql -X -v ON_ERROR_STOP=1 --username "$PGUSER" --dbname "$PGDATABASE" --set=app_password="$APP_DATABASE_PASSWORD"' <<'SQL'
+  /bin/bash -c 'psql -X -v ON_ERROR_STOP=1 --username "$PGUSER" --dbname "$PGDATABASE" --set=app_password="$APP_DATABASE_PASSWORD" --set=database_name="$PGDATABASE"' <<'SQL'
 SELECT 'CREATE ROLE conditera_app LOGIN' 
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_app') \gexec
 ALTER ROLE conditera_app WITH LOGIN PASSWORD :'app_password' BYPASSRLS;
-GRANT CONNECT ON DATABASE supabase TO conditera_app;
+GRANT CONNECT ON DATABASE :"database_name" TO conditera_app;
 GRANT USAGE ON SCHEMA public TO conditera_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera_app;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app;
@@ -45,12 +45,12 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
 SQL
 
 /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
-  /bin/bash -c 'psql -X -v ON_ERROR_STOP=1 --username "$PGUSER" --dbname "$PGDATABASE" --set=backup_password="$BACKUP_DATABASE_PASSWORD"' <<'SQL'
+  /bin/bash -c 'psql -X -v ON_ERROR_STOP=1 --username "$PGUSER" --dbname "$PGDATABASE" --set=backup_password="$BACKUP_DATABASE_PASSWORD" --set=database_name="$PGDATABASE"' <<'SQL'
 SELECT 'CREATE ROLE conditera_backup LOGIN'
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup') \gexec
 ALTER ROLE conditera_backup WITH LOGIN PASSWORD :'backup_password' BYPASSRLS;
 GRANT pg_read_all_data TO conditera_backup;
-GRANT CONNECT ON DATABASE supabase TO conditera_backup;
+GRANT CONNECT ON DATABASE :"database_name" TO conditera_backup;
 SQL
 touch "$marker"
 echo "Conditera application migrations completed successfully."
