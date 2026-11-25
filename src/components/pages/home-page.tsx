@@ -46,7 +46,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState, useEffect, useMemo } from "react";
+import { Fragment, useState, useEffect, useMemo } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
 import {
   usePublishedHomeCms,
@@ -56,6 +56,93 @@ import {
 import { usePublishedHomeBlocks } from "@/hooks/use-published-home-blocks";
 import type { PublishedHomeBlock } from "@/hooks/use-published-home-blocks";
 import type { ViewKey } from "@/lib/types";
+
+type PublicCmsHomeBlock = {
+  id: string;
+  section: string;
+  title: string;
+  subtitle: string;
+  content: string;
+  image_url: string | null;
+  link_url: string | null;
+  link_text: string;
+  sort_order: number;
+};
+
+type PublicCmsHomeSection = {
+  section: string;
+  title: string;
+  sort_order: number;
+  is_enabled: boolean;
+};
+
+const DEFAULT_CMS_HOME_SECTIONS: PublicCmsHomeSection[] = [
+  { section: "hero", title: "От редакции", sort_order: 10, is_enabled: true },
+  { section: "advantages", title: "Наши преимущества", sort_order: 20, is_enabled: true },
+  { section: "steps", title: "Как это работает", sort_order: 30, is_enabled: true },
+  { section: "stats", title: "О платформе", sort_order: 40, is_enabled: true },
+  { section: "testimonials", title: "Истории клиентов", sort_order: 50, is_enabled: true },
+  { section: "cta_confectioner", title: "Для кондитеров", sort_order: 60, is_enabled: true },
+];
+
+function useCmsHomepageSections() {
+  const [sections, setSections] = useState<PublicCmsHomeSection[]>(DEFAULT_CMS_HOME_SECTIONS);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/sections?public=true", { signal: controller.signal, cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS sections unavailable")))
+      .then((payload: { sections?: PublicCmsHomeSection[] }) => {
+        if (!controller.signal.aborted && Array.isArray(payload.sections) && payload.sections.length === DEFAULT_CMS_HOME_SECTIONS.length) setSections(payload.sections);
+      })
+      .catch(() => { /* Keep safe built-in defaults while CMS is unavailable. */ });
+    return () => controller.abort();
+  }, []);
+  return sections;
+}
+
+function useCmsHomepageBlocks() {
+  const [blocks, setBlocks] = useState<PublicCmsHomeBlock[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/home-blocks?public=true", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("CMS blocks unavailable")))
+      .then((payload: { blocks?: PublicCmsHomeBlock[] }) => {
+        if (!controller.signal.aborted) setBlocks(Array.isArray(payload.blocks) ? payload.blocks : []);
+      })
+      .catch(() => { if (!controller.signal.aborted) setBlocks([]); });
+    return () => controller.abort();
+  }, []);
+  return blocks;
+}
+
+function CmsHomepageSectionBlocks({ section, title, blocks }: {
+  section: string;
+  title: string;
+  blocks: PublicCmsHomeBlock[];
+}) {
+  const items = blocks
+    .filter((block) => block.section === section)
+    .sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id));
+  if (items.length === 0) return null;
+  return (
+    <section className="container mx-auto px-4">
+      <div className="mb-6 text-center"><h2 className="font-display text-2xl font-bold sm:text-3xl">{title}</h2></div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((block) => (
+          <Card key={block.id} className="overflow-hidden p-0">
+            {block.image_url && <img src={block.image_url} alt={block.title} className="aspect-[16/9] w-full object-cover" loading="lazy" />}
+            <div className="space-y-2 p-5">
+              {block.title && <h3 className="text-lg font-semibold">{block.title}</h3>}
+              {block.subtitle && <p className="text-sm text-muted-foreground">{block.subtitle}</p>}
+              {block.content && <p className="whitespace-pre-wrap text-sm leading-relaxed">{block.content}</p>}
+              {block.link_url && block.link_text && <a href={block.link_url} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline">{block.link_text}<ArrowRight className="h-4 w-4" /></a>}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
 interface ApiReview {
@@ -130,6 +217,10 @@ export function HomePage() {
   // /api/cms/settings + /api/cms/banners). Пока данных нет (загрузка/ошибка/
   // пусто в CMS) → hero null, banners [] → хардкод-фолбэк без изменений.
   const cms = usePublishedHomeCms();
+  const cmsSections = useCmsHomepageSections();
+  const cmsHomeBlocks = useCmsHomepageBlocks();
+  const cmsSectionEnabled = (key: string) => cmsSections.find((section) => section.section === key)?.is_enabled ?? true;
+  const cmsSectionTitle = (key: string, fallback: string) => cmsSections.find((section) => section.section === key)?.title || fallback;
   const cmsHero = cms.hero;
   // Z-brand: опубликованные CMS-блоки секций (cms_section_blocks). Пусто →
   // хардкод-фолбэк без изменений (advantages/steps/cta_confectioner).
@@ -192,9 +283,401 @@ export function HomePage() {
     navigate("catalog", { help: JSON.stringify(answers) });
   };
 
+  const cmsSectionNodes = {
+    advantages: (
+      {/* ===== ADVANTAGES ===== */}
+      <section className="relative overflow-hidden py-14">
+        <div className="absolute inset-0 bg-secondary/40" aria-hidden="true" />
+        <div className="absolute inset-0 grain-overlay" aria-hidden="true" />
+        <div className="container mx-auto px-4 relative">
+        <div className="text-center mb-12">
+          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
+            Экосистема платформы
+          </span>
+          <h2 className="font-display text-3xl sm:text-4xl">
+             {cmsSectionTitle("advantages", "Почему выбирают нас")} 
+          </h2>
+          <p className="text-muted-foreground mt-3 max-w-2xl mx-auto">
+            Уездный кондитер — это не просто маркетплейс. Это экосистема для
+            домашних кондитеров и любителей сладкого по всей России.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {cmsAdvantages.length > 0
+            ? cmsAdvantages.map((adv, i) => (
+                <motion.div
+                  key={adv.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.1 }}
+                >
+                  <div className="card-tint rounded-2xl p-6 h-full hover:shadow-[var(--shadow-lift)] transition-all duration-300 card-3d">
+                    <div className="h-12 w-12 rounded-xl flex items-center justify-center mb-4 text-primary bg-primary/10 shadow-sm overflow-hidden">
+                      {adv.image ? (
+                        <img src={adv.image} alt="" className="h-12 w-12 object-cover" loading="lazy" decoding="async" />
+                      ) : (
+                        <Sparkles className="h-6 w-6" aria-hidden="true" />
+                      )}
+                    </div>
+                    <h3 className="font-semibold text-lg mb-2">{adv.title ?? "Блок"}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{adv.subtitle ?? adv.text ?? ""}</p>
+                    {adv.link && adv.linkText && (
+                      <button
+                        onClick={() => openCmsHref(adv.link!)}
+                        className="text-primary text-sm font-medium mt-3 inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
+                      >
+                        {adv.linkText} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              ))
+            : [
+            {
+              icon: ShieldCheck,
+              title: "Эскроу-система расчётов",
+              text: "Средства холдируются 24 часа после доставки. Если что-то не так — возвращаем деньги. Безопасно для обеих сторон.",
+              color: "text-emerald-600 bg-emerald-100",
+            },
+            {
+              icon: Award,
+              title: "Верификация кондитеров",
+              text: "Каждый кондитер проходит проверку документов. Системы доверия: NEW → TRUSTED → EXPERT → MASTER по результатам работы.",
+              color: "text-primary bg-primary/10",
+            },
+            {
+              icon: Cake,
+              title: "Конструктор тортов",
+              text: "8-шаговый конструктор: тип мероприятия, основа, начинка, покрытие, декор, диетические предпочтения, доставка и резюме.",
+              color: "text-amber-600 bg-amber-100",
+            },
+            {
+              icon: CreditCard,
+              title: "Поддержка самозанятости",
+              text: "Автоматический расчёт НПД: 4% с физлиц, 6% с юрлиц, вычет 10 000 ₽ при регистрации. Полная налоговая отчётность.",
+              color: "text-orange-700 bg-orange-100",
+            },
+            {
+              icon: MessageCircle,
+              title: "Чат в реальном времени",
+              text: "Прямые диалоги с кондитерами, чаты привязанные к заказам, поддержка. Все общение — в одной платформе.",
+              color: "text-rose-600 bg-rose-100",
+            },
+            {
+              icon: Users,
+              title: "Социальный канал",
+              text: "Каждый кондитер имеет свой канал: посты с работами, сторис, подписчики, комментарии. Стройте сообщество вокруг бренда.",
+              color: "text-fuchsia-600 bg-fuchsia-100",
+            },
+          ].map((adv, i) => {
+            const Icon = adv.icon;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+              >
+                <div className="card-tint rounded-2xl p-6 h-full hover:shadow-[var(--shadow-lift)] transition-all duration-300 card-3d">
+                  <div
+                    className={`h-12 w-12 rounded-xl flex items-center justify-center mb-4 ${adv.color} shadow-sm`}
+                  >
+                    <Icon className="h-6 w-6" aria-hidden="true" />
+                  </div>
+                  <h3 className="font-semibold text-lg mb-2">
+                    {adv.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {adv.text}
+                  </p>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+        </div>
+      </section>
+    ),
+    steps: (
+      {/* ===== STEPS ===== */}
+      <section className="relative overflow-hidden py-14">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
+        <div className="container mx-auto px-4 relative">
+        <div className="text-center mb-12">
+          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
+            Как это работает
+          </span>
+          <h2 className="font-display text-3xl sm:text-4xl">
+             {cmsSectionTitle("steps", "Как сделать заказ")} 
+          </h2>
+          <p className="text-muted-foreground mt-3">
+            Четыре простых шага от выбора до получения
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 steps-rail">
+          {cmsSteps.length > 0
+            ? cmsSteps.map((step, i) => (
+                <motion.div
+                  key={step.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.1 }}
+                  className="relative"
+                >
+                  <div className="card-tint rounded-2xl p-6 h-full relative overflow-hidden shadow-[var(--shadow-soft)]">
+                    <div className="absolute top-3 right-4 font-display text-6xl text-primary/15" aria-hidden="true">
+                      {String(i + 1).padStart(2, "0")}
+                    </div>
+                    <div className="relative">
+                      <div className="h-12 w-12 rounded-full bg-primary/10 ring-4 ring-background flex items-center justify-center mb-4">
+                        <Sparkles className="h-6 w-6 text-primary" aria-hidden="true" />
+                      </div>
+                      <h3 className="font-display font-semibold mb-2">{step.title ?? `Шаг ${i + 1}`}</h3>
+                      <p className="text-sm text-muted-foreground">{step.subtitle ?? step.text ?? ""}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))
+            : [
+            {
+              num: "01",
+              title: "Выберите торт",
+              text: "Из каталога или соберите свой в конструкторе за 8 шагов",
+              icon: Search,
+            },
+            {
+              num: "02",
+              title: "Свяжитесь с кондитером",
+              text: "Уточните детали, согласуйте сроки и цену через чат",
+              icon: MessageCircle,
+            },
+            {
+              num: "03",
+              title: "Оплатите безопасно",
+              text: "Деньги на эскроу-счёте 24 часа — гарантия получения заказа",
+              icon: CreditCard,
+            },
+            {
+              num: "04",
+              title: "Получите заказ",
+              text: "Доставка курьером или самовывоз. Оцените кондитера и оставьте отзыв",
+              icon: Truck,
+            },
+          ].map((step, i) => {
+            const Icon = step.icon;
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+                className="relative"
+              >
+                <div className="card-tint rounded-2xl p-6 h-full relative overflow-hidden shadow-[var(--shadow-soft)]">
+                  <div className="absolute top-3 right-4 font-display text-6xl text-primary/15" aria-hidden="true">
+                    {step.num}
+                  </div>
+                  <div className="relative">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 ring-4 ring-background flex items-center justify-center mb-4">
+                      <Icon className="h-6 w-6 text-primary" aria-hidden="true" />
+                    </div>
+                    <h3 className="font-display font-semibold mb-2">
+                      {step.title}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">{step.text}</p>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+        </div>
+      </section>
+
+      {/* V2: отдельная лента статистики больше не нужна — счётчики
+          переехали в стеклянную ленту внутри hero (см. HERO) */}
+    ),
+    testimonials: (
+      {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
+      <section className="container mx-auto px-4">
+        <div className="text-center mb-12">
+          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
+            Проверенные отзывы
+          </span>
+          <h2 className="font-display text-3xl sm:text-4xl">
+             {cmsSectionTitle("testimonials", "Отзывы покупателей")} 
+          </h2>
+          <p className="text-muted-foreground mt-3">
+            Проверенные отзывы о заказах на платформе
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {realReviews === null
+            ? // Загрузка: скелетоны в той же сетке
+              [0, 1, 2].map((i) => (
+                <div key={`sk-${i}`} className="card-tint rounded-2xl p-6 h-full animate-pulse">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-10 w-10 rounded-full bg-muted" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-28 bg-muted rounded" />
+                      <div className="h-2 w-16 bg-muted rounded" />
+                    </div>
+                  </div>
+                  <div className="h-3 w-full bg-muted rounded mb-2" />
+                  <div className="h-3 w-4/5 bg-muted rounded" />
+                </div>
+              ))
+            : (realReviews.length > 0
+                ? realReviews.slice(0, 6)
+                : [
+                    // Фолбэк при пустой БД — честная заглушка без выдуманных
+                    // цифр (в БД ещё нет отзывов)
+                    {
+                      id: "fallback-1",
+                      rating: 5,
+                      text: "Здесь появятся отзывы покупателей о заказах на платформе.",
+                      author: { name: "Команда Уездного кондитера" },
+                      helpfulCount: 0,
+                      createdAt: "",
+                    },
+                  ]
+              ).map((review, i) => (
+                <motion.div
+                  key={review.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <div className="card-tint quote-card rounded-2xl p-6 h-full shadow-[var(--shadow-soft)]">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Avatar>
+                        <AvatarImage
+                          src={review.author?.avatarUrl}
+                          alt={review.author?.name || "Покупатель"}
+                        />
+                        <AvatarFallback>
+                          {(review.author?.name || "П")[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="font-semibold text-sm">
+                          {review.author?.name || "Покупатель"}
+                        </div>
+                        {review.product?.title && (
+                          <div className="text-xs text-muted-foreground">
+                            {review.product.title}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-0.5 mb-3">
+                      {Array.from({ length: review.rating }).map((_, si) => (
+                        <Star
+                          key={si}
+                          className="h-4 w-4 fill-amber-400 text-amber-400"
+                        />
+                      ))}
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      &laquo;{review.text}&raquo;
+                    </p>
+                  </div>
+                </motion.div>
+              ))}
+        </div>
+      </section>
+    ),
+    cta_confectioner: (
+      {/* ===== CTA BECOME CONFECTIONER (V2: вишнёвая панель) ===== */}
+      <section className="container mx-auto px-4">
+        <div className="panel-dark relative overflow-hidden rounded-3xl shadow-[var(--shadow-pop)]">
+          <div className="absolute inset-0 bg-pattern opacity-40" aria-hidden="true" />
+          <div className="absolute -top-20 left-1/3 h-72 w-72 rounded-full border border-white/10" aria-hidden="true" />
+          <div className="relative p-8 lg:p-12 grid lg:grid-cols-2 gap-8 items-center">
+            <div className="space-y-5">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/20 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                 {cmsSectionTitle("cta_confectioner", "Для кондитеров")} 
+              </span>
+              <h2 className="font-display text-3xl lg:text-4xl">
+                {cmsCtaPanel?.title ?? (
+                  <>
+                    Продавайте свои торты
+                    <br />
+                    <span className="text-accent">по всей России</span>
+                  </>
+                )}
+              </h2>
+              <p className="text-white/85 max-w-lg">
+                {cmsCtaPanel?.subtitle ?? cmsCtaPanel?.text ?? (
+                  "Присоединяйтесь к кондитерам платформы. Витрина, CRM, финансовая аналитика, социальный канал, помощь с налогами (НПД). Тарифы от 5% комиссии."
+                )}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  size="lg"
+                  onClick={() =>
+                    cmsCtaPanel?.link && cmsCtaPanel?.linkText
+                      ? openCmsHref(cmsCtaPanel.link)
+                      : useAppStore.getState().setAuthModalOpen(true)
+                  }
+                  className="bg-accent text-accent-foreground hover:bg-accent/85 shadow-lg"
+                >
+                  {cmsCtaPanel?.linkText ?? "Стать кондитером"}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => navigate("for-confectioners")}
+                  className="border-white/30 bg-white/5 text-white hover:bg-white/15 hover:text-white"
+                >
+                  Узнать о тарифах
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {[
+                // Z-v20 (UX D3): бизнес-модель — факты (5% / 24ч / 4%),
+                // метрики платформы — реальные счётчики вместо выдуманных
+                // «190+ городов» и «120K заказов в год»
+                { val: "5%", label: "Старт комиссии" },
+                { val: "24ч", label: "Эскроу-холд" },
+                { val: "4%", label: "НПД с физлиц" },
+                { val: verifiedCount > 0 ? String(verifiedCount) : "—", label: "Проверенных кондитеров" },
+                { val: productCount > 0 ? String(productCount) : "—", label: "Товаров в каталоге" },
+                { val: cityCount > 0 ? String(cityCount) : "—", label: "Городов с кондитерами" },
+              ].map((s, i) => (
+                <div
+                  key={i}
+                  className="stat-glass p-3"
+                >
+                  <div className="font-display text-2xl tnum">
+                    {s.val}
+                  </div>
+                  <div className="text-[11px] text-white/75">
+                    {s.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    ),
+  };
+
   return (
     <div className="space-y-20 pb-12">
       {/* ===== HERO (Design Revamp V2: пастильная редакционная сцена) ===== */}
+      {cmsSectionEnabled("hero") && (
       <section className="relative overflow-hidden hero-scene">
         {/* Лёгкое бумажное зерно поверх сцены */}
         <div className="absolute inset-0 grain-overlay" aria-hidden="true" />
@@ -389,6 +872,7 @@ export function HomePage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* ===== CMS BANNERS (ZV31-001): опубликованные админом баннеры
            (cms_banners: is_active=true, позиции top/hero/home_hero, sort_order asc).
@@ -861,393 +1345,19 @@ export function HomePage() {
         </section>
       )}
 
-      {/* ===== ADVANTAGES ===== */}
-      <section className="relative overflow-hidden py-14">
-        <div className="absolute inset-0 bg-secondary/40" aria-hidden="true" />
-        <div className="absolute inset-0 grain-overlay" aria-hidden="true" />
-        <div className="container mx-auto px-4 relative">
-        <div className="text-center mb-12">
-          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
-            Экосистема платформы
-          </span>
-          <h2 className="font-display text-3xl sm:text-4xl">
-            Почему выбирают нас
-          </h2>
-          <p className="text-muted-foreground mt-3 max-w-2xl mx-auto">
-            Уездный кондитер — это не просто маркетплейс. Это экосистема для
-            домашних кондитеров и любителей сладкого по всей России.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {cmsAdvantages.length > 0
-            ? cmsAdvantages.map((adv, i) => (
-                <motion.div
-                  key={adv.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.1 }}
-                >
-                  <div className="card-tint rounded-2xl p-6 h-full hover:shadow-[var(--shadow-lift)] transition-all duration-300 card-3d">
-                    <div className="h-12 w-12 rounded-xl flex items-center justify-center mb-4 text-primary bg-primary/10 shadow-sm overflow-hidden">
-                      {adv.image ? (
-                        <img src={adv.image} alt="" className="h-12 w-12 object-cover" loading="lazy" decoding="async" />
-                      ) : (
-                        <Sparkles className="h-6 w-6" aria-hidden="true" />
-                      )}
-                    </div>
-                    <h3 className="font-semibold text-lg mb-2">{adv.title ?? "Блок"}</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{adv.subtitle ?? adv.text ?? ""}</p>
-                    {adv.link && adv.linkText && (
-                      <button
-                        onClick={() => openCmsHref(adv.link!)}
-                        className="text-primary text-sm font-medium mt-3 inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
-                      >
-                        {adv.linkText} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              ))
-            : [
-            {
-              icon: ShieldCheck,
-              title: "Эскроу-система расчётов",
-              text: "Средства холдируются 24 часа после доставки. Если что-то не так — возвращаем деньги. Безопасно для обеих сторон.",
-              color: "text-emerald-600 bg-emerald-100",
-            },
-            {
-              icon: Award,
-              title: "Верификация кондитеров",
-              text: "Каждый кондитер проходит проверку документов. Системы доверия: NEW → TRUSTED → EXPERT → MASTER по результатам работы.",
-              color: "text-primary bg-primary/10",
-            },
-            {
-              icon: Cake,
-              title: "Конструктор тортов",
-              text: "8-шаговый конструктор: тип мероприятия, основа, начинка, покрытие, декор, диетические предпочтения, доставка и резюме.",
-              color: "text-amber-600 bg-amber-100",
-            },
-            {
-              icon: CreditCard,
-              title: "Поддержка самозанятости",
-              text: "Автоматический расчёт НПД: 4% с физлиц, 6% с юрлиц, вычет 10 000 ₽ при регистрации. Полная налоговая отчётность.",
-              color: "text-orange-700 bg-orange-100",
-            },
-            {
-              icon: MessageCircle,
-              title: "Чат в реальном времени",
-              text: "Прямые диалоги с кондитерами, чаты привязанные к заказам, поддержка. Все общение — в одной платформе.",
-              color: "text-rose-600 bg-rose-100",
-            },
-            {
-              icon: Users,
-              title: "Социальный канал",
-              text: "Каждый кондитер имеет свой канал: посты с работами, сторис, подписчики, комментарии. Стройте сообщество вокруг бренда.",
-              color: "text-fuchsia-600 bg-fuchsia-100",
-            },
-          ].map((adv, i) => {
-            const Icon = adv.icon;
-            return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-              >
-                <div className="card-tint rounded-2xl p-6 h-full hover:shadow-[var(--shadow-lift)] transition-all duration-300 card-3d">
-                  <div
-                    className={`h-12 w-12 rounded-xl flex items-center justify-center mb-4 ${adv.color} shadow-sm`}
-                  >
-                    <Icon className="h-6 w-6" aria-hidden="true" />
-                  </div>
-                  <h3 className="font-semibold text-lg mb-2">
-                    {adv.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {adv.text}
-                  </p>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-        </div>
-      </section>
-
-      {/* ===== STEPS ===== */}
-      <section className="relative overflow-hidden py-14">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
-        <div className="container mx-auto px-4 relative">
-        <div className="text-center mb-12">
-          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
-            Как это работает
-          </span>
-          <h2 className="font-display text-3xl sm:text-4xl">
-            Как сделать заказ
-          </h2>
-          <p className="text-muted-foreground mt-3">
-            Четыре простых шага от выбора до получения
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 steps-rail">
-          {cmsSteps.length > 0
-            ? cmsSteps.map((step, i) => (
-                <motion.div
-                  key={step.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.1 }}
-                  className="relative"
-                >
-                  <div className="card-tint rounded-2xl p-6 h-full relative overflow-hidden shadow-[var(--shadow-soft)]">
-                    <div className="absolute top-3 right-4 font-display text-6xl text-primary/15" aria-hidden="true">
-                      {String(i + 1).padStart(2, "0")}
-                    </div>
-                    <div className="relative">
-                      <div className="h-12 w-12 rounded-full bg-primary/10 ring-4 ring-background flex items-center justify-center mb-4">
-                        <Sparkles className="h-6 w-6 text-primary" aria-hidden="true" />
-                      </div>
-                      <h3 className="font-display font-semibold mb-2">{step.title ?? `Шаг ${i + 1}`}</h3>
-                      <p className="text-sm text-muted-foreground">{step.subtitle ?? step.text ?? ""}</p>
-                    </div>
-                  </div>
-                </motion.div>
-              ))
-            : [
-            {
-              num: "01",
-              title: "Выберите торт",
-              text: "Из каталога или соберите свой в конструкторе за 8 шагов",
-              icon: Search,
-            },
-            {
-              num: "02",
-              title: "Свяжитесь с кондитером",
-              text: "Уточните детали, согласуйте сроки и цену через чат",
-              icon: MessageCircle,
-            },
-            {
-              num: "03",
-              title: "Оплатите безопасно",
-              text: "Деньги на эскроу-счёте 24 часа — гарантия получения заказа",
-              icon: CreditCard,
-            },
-            {
-              num: "04",
-              title: "Получите заказ",
-              text: "Доставка курьером или самовывоз. Оцените кондитера и оставьте отзыв",
-              icon: Truck,
-            },
-          ].map((step, i) => {
-            const Icon = step.icon;
-            return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className="relative"
-              >
-                <div className="card-tint rounded-2xl p-6 h-full relative overflow-hidden shadow-[var(--shadow-soft)]">
-                  <div className="absolute top-3 right-4 font-display text-6xl text-primary/15" aria-hidden="true">
-                    {step.num}
-                  </div>
-                  <div className="relative">
-                    <div className="h-12 w-12 rounded-full bg-primary/10 ring-4 ring-background flex items-center justify-center mb-4">
-                      <Icon className="h-6 w-6 text-primary" aria-hidden="true" />
-                    </div>
-                    <h3 className="font-display font-semibold mb-2">
-                      {step.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">{step.text}</p>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-        </div>
-      </section>
-
-      {/* V2: отдельная лента статистики больше не нужна — счётчики
-          переехали в стеклянную ленту внутри hero (см. HERO) */}
-
-      {/* ===== TESTIMONIALS — реальные отзывы из БД (GET /api/reviews) ===== */}
-      <section className="container mx-auto px-4">
-        <div className="text-center mb-12">
-          <span className="small-caps inline-block text-xs font-semibold tracking-[0.2em] text-primary bg-primary/10 rounded-full px-4 py-1.5 mb-3">
-            Проверенные отзывы
-          </span>
-          <h2 className="font-display text-3xl sm:text-4xl">
-            Отзывы покупателей
-          </h2>
-          <p className="text-muted-foreground mt-3">
-            Проверенные отзывы о заказах на платформе
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {realReviews === null
-            ? // Загрузка: скелетоны в той же сетке
-              [0, 1, 2].map((i) => (
-                <div key={`sk-${i}`} className="card-tint rounded-2xl p-6 h-full animate-pulse">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="h-10 w-10 rounded-full bg-muted" />
-                    <div className="space-y-2">
-                      <div className="h-3 w-28 bg-muted rounded" />
-                      <div className="h-2 w-16 bg-muted rounded" />
-                    </div>
-                  </div>
-                  <div className="h-3 w-full bg-muted rounded mb-2" />
-                  <div className="h-3 w-4/5 bg-muted rounded" />
-                </div>
-              ))
-            : (realReviews.length > 0
-                ? realReviews.slice(0, 6)
-                : [
-                    // Фолбэк при пустой БД — честная заглушка без выдуманных
-                    // цифр (в БД ещё нет отзывов)
-                    {
-                      id: "fallback-1",
-                      rating: 5,
-                      text: "Здесь появятся отзывы покупателей о заказах на платформе.",
-                      author: { name: "Команда Уездного кондитера" },
-                      helpfulCount: 0,
-                      createdAt: "",
-                    },
-                  ]
-              ).map((review, i) => (
-                <motion.div
-                  key={review.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.05 }}
-                >
-                  <div className="card-tint quote-card rounded-2xl p-6 h-full shadow-[var(--shadow-soft)]">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Avatar>
-                        <AvatarImage
-                          src={review.author?.avatarUrl}
-                          alt={review.author?.name || "Покупатель"}
-                        />
-                        <AvatarFallback>
-                          {(review.author?.name || "П")[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-semibold text-sm">
-                          {review.author?.name || "Покупатель"}
-                        </div>
-                        {review.product?.title && (
-                          <div className="text-xs text-muted-foreground">
-                            {review.product.title}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-0.5 mb-3">
-                      {Array.from({ length: review.rating }).map((_, si) => (
-                        <Star
-                          key={si}
-                          className="h-4 w-4 fill-amber-400 text-amber-400"
-                        />
-                      ))}
-                    </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      &laquo;{review.text}&raquo;
-                    </p>
-                  </div>
-                </motion.div>
-              ))}
-        </div>
-      </section>
+      {cmsSections
+        .filter((section) => section.section !== "hero" && section.section !== "stats" && section.is_enabled && section.section in cmsSectionNodes)
+        .sort((a, b) => a.sort_order - b.sort_order || a.section.localeCompare(b.section))
+        .map((section) => (
+          <Fragment key={section.section}>
+            {cmsSectionNodes[section.section as keyof typeof cmsSectionNodes]}
+            <CmsHomepageSectionBlocks section={section.section} title={section.title} blocks={cmsHomeBlocks} />
+          </Fragment>
+        ))}
 
       {/* ===== RECENTLY VIEWED ===== */}
       <section className="container mx-auto px-4">
         <RecentlyViewed />
-      </section>
-
-      {/* ===== CTA BECOME CONFECTIONER (V2: вишнёвая панель) ===== */}
-      <section className="container mx-auto px-4">
-        <div className="panel-dark relative overflow-hidden rounded-3xl shadow-[var(--shadow-pop)]">
-          <div className="absolute inset-0 bg-pattern opacity-40" aria-hidden="true" />
-          <div className="absolute -top-20 left-1/3 h-72 w-72 rounded-full border border-white/10" aria-hidden="true" />
-          <div className="relative p-8 lg:p-12 grid lg:grid-cols-2 gap-8 items-center">
-            <div className="space-y-5">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/20 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider">
-                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                Для кондитеров
-              </span>
-              <h2 className="font-display text-3xl lg:text-4xl">
-                {cmsCtaPanel?.title ?? (
-                  <>
-                    Продавайте свои торты
-                    <br />
-                    <span className="text-accent">по всей России</span>
-                  </>
-                )}
-              </h2>
-              <p className="text-white/85 max-w-lg">
-                {cmsCtaPanel?.subtitle ?? cmsCtaPanel?.text ?? (
-                  "Присоединяйтесь к кондитерам платформы. Витрина, CRM, финансовая аналитика, социальный канал, помощь с налогами (НПД). Тарифы от 5% комиссии."
-                )}
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  size="lg"
-                  onClick={() =>
-                    cmsCtaPanel?.link && cmsCtaPanel?.linkText
-                      ? openCmsHref(cmsCtaPanel.link)
-                      : useAppStore.getState().setAuthModalOpen(true)
-                  }
-                  className="bg-accent text-accent-foreground hover:bg-accent/85 shadow-lg"
-                >
-                  {cmsCtaPanel?.linkText ?? "Стать кондитером"}
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={() => navigate("for-confectioners")}
-                  className="border-white/30 bg-white/5 text-white hover:bg-white/15 hover:text-white"
-                >
-                  Узнать о тарифах
-                </Button>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              {[
-                // Z-v20 (UX D3): бизнес-модель — факты (5% / 24ч / 4%),
-                // метрики платформы — реальные счётчики вместо выдуманных
-                // «190+ городов» и «120K заказов в год»
-                { val: "5%", label: "Старт комиссии" },
-                { val: "24ч", label: "Эскроу-холд" },
-                { val: "4%", label: "НПД с физлиц" },
-                { val: verifiedCount > 0 ? String(verifiedCount) : "—", label: "Проверенных кондитеров" },
-                { val: productCount > 0 ? String(productCount) : "—", label: "Товаров в каталоге" },
-                { val: cityCount > 0 ? String(cityCount) : "—", label: "Городов с кондитерами" },
-              ].map((s, i) => (
-                <div
-                  key={i}
-                  className="stat-glass p-3"
-                >
-                  <div className="font-display text-2xl tnum">
-                    {s.val}
-                  </div>
-                  <div className="text-[11px] text-white/75">
-                    {s.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       </section>
 
       {/* P2.2: анкета «Помочь выбрать» — короткий вопросник, подбор детерминированный */}
