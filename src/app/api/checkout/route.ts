@@ -96,7 +96,7 @@ const CheckoutSchema = z
     promoCode: z.string().max(40).optional(),
     customerName: z.string().min(2).max(100),
     customerPhone: z.string().min(10).max(20),
-    paymentMethod: z.string().max(30).optional(),
+    paymentMethod: z.enum(["yookassa", "card", "sbp"]).optional(),
     // Z-v32 (PR-5): опциональная привязка к принятым переговорам — цена
     // подменяется сервером из negotiations.quoted_price (в теле цены нет).
     negotiationId: z.string().uuid().optional(),
@@ -281,6 +281,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
     const customItems = cartItems.filter((c) => !c.product_id && c.custom);
 
+    // Индивидуальный торт из конструктора оформляется отдельным согласованным
+    // заказом, а не смешивается с товарами конкретного кондитера.
+    if (productItems.length > 0 && customItems.length > 0) {
+      return NextResponse.json(
+        { error: "Заказ из конструктора оформляется отдельно от товаров витрины.", code: "MIXED_CUSTOM_AND_MARKETPLACE_ITEMS" },
+        { status: 422 }
+      );
+    }
+
+    // В production не обещаем изготовление без проверенной производственной
+    // спецификации. Для нестандартной позиции используется согласование с кондитером.
+    if (process.env.NODE_ENV === "production") {
+      const unsupportedProductionItems = cartItems.filter((item) =>
+        Boolean(item.custom) ||
+        Object.entries(item.selected_attributes ?? {}).some(
+          ([key, value]) => key !== "inscription" && typeof value === "string" && value.trim().length > 0
+        )
+      );
+      if (unsupportedProductionItems.length > 0) {
+        return NextResponse.json(
+          {
+            error: "Некоторые позиции требуют производственной спецификации",
+            message: "Оплачиваемый заказ пока доступен для товаров с настроенным рецептом без изменений состава, размера, начинки, покрытия и декора. Для индивидуального торта отправьте запрос на согласование с кондитером.",
+            code: "PRODUCTION_SPEC_REQUIRED",
+          },
+          { status: 422 }
+        );
+      }
+    }
+
     const productIds = [...new Set(productItems.map((c) => c.product_id))];
     const productsMap = new Map<
       string,
@@ -310,6 +340,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         return NextResponse.json(
           { error: `Товары недоступны: ${draftProducts.map((p) => p.title).join(", ")}` },
           { status: 400 }
+        );
+      }
+      // Один оплачиваемый заказ — один производственный исполнитель.
+      // Иначе назначение, себестоимость и выплаты становятся неоднозначными.
+      const sellerIds = new Set(products.map((p) => p.confectioner_id).filter((id): id is string => Boolean(id)));
+      const hasUnassignedProduct = products.some((p) => !p.confectioner_id);
+      if (sellerIds.size > 1 || (sellerIds.size === 1 && hasUnassignedProduct)) {
+        return NextResponse.json(
+          { error: "В одной оплате могут быть товары только одного кондитера. Разделите корзину на отдельные заказы.", code: "MULTIPLE_CONFECTIONERS" },
+          { status: 422 }
         );
       }
       for (const p of products) productsMap.set(p.id, p);
@@ -559,12 +599,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           );
         }
       } catch (accErr) {
-        // Движок недоступен/ошибка — НЕ блокируем checkout (fail-open,
-        // документировано): заказ создаётся, риск пересчитается при назначении.
-        console.warn(
-          "[checkout] acceptance check failed (fail-open):",
+        console.error(
+          "[checkout] acceptance check failed:",
           accErr instanceof Error ? accErr.message : accErr
         );
+        if (process.env.NODE_ENV === "production") {
+          return NextResponse.json(
+            { error: "Не удалось проверить возможность изготовления заказа. Повторите попытку позже.", code: "ACCEPTANCE_UNAVAILABLE" },
+            { status: 503 }
+          );
+        }
       }
     }
 
@@ -880,9 +924,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .single();
 
     if (paymentError) {
-      // Платёж у провайдера уже создан; webhook найдёт заказ по
-      // metadata.orderId (fallback), поэтому не откатываем — но логируем.
-      console.error("[checkout] Payment create error:", paymentError.message);
+      // Не выдаём confirmation URL без локальной записи платежа: webhook
+      // должен сверить сумму и конкретную попытку оплаты до подтверждения.
+      console.error("[checkout] Payment ledger insert failed:", paymentError.message);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать платёж. Повторите попытку оплаты.", code: "PAYMENT_LEDGER_UNAVAILABLE" },
+        { status: 503 }
+      );
     } else {
       // PAY-2: журнал — платёж создан (lifecycle-запись, amount 0 — деньги
       // ещё не двигались; финальное +amount напишет webhook payment.succeeded)
