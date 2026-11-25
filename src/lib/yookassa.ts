@@ -13,6 +13,17 @@ const YOOKASSA_SECRET_KEY =
 const YOOKASSA_API_URL =
   process.env.YOOKASSA_API_URL || "https://api.yookassa.ru/v3";
 
+export const isLocalE2EPaymentStubEnabled = (): boolean => {
+  if (process.env.E2E_PAYMENT_STUB_ENABLED !== "true") return false;
+  if (process.env.NODE_ENV === "production" && process.env.CI !== "true") return false;
+  try {
+    const hostname = new URL(process.env.NEXT_PUBLIC_APP_URL || "").hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+};
+
 // Проверка, настроена ли YooKassa
 // P3: «test_shop»/«test_secret» — это mock-заглушка, реальные платежи не пройдут.
 export const isYookassaConfigured = (): boolean => {
