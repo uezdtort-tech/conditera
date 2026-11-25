@@ -215,6 +215,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
     if (!orderId) {
+      if (event === "refund.succeeded") {
+        console.error(`[webhook] refund event without local payment row: provider=${providerPaymentId}, refund=${object.id}`);
+        return NextResponse.json({ error: "Payment ledger row missing for refund" }, { status: 500 });
+      }
       return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
     }
     // order_id в схеме — UUID. Некорректный metadata.orderId является
@@ -242,7 +246,7 @@ export async function POST(request: NextRequest) {
     // pay4: refund.succeeded НЕ гейтится этим чеком — gейт с dbStatus="succeeded"
     // проглатывал ВСЕ refund-события по оплаченному платежу (payment.status
     // "succeeded" === dbStatus). Дедуп возвратов — по refund id в RPC 0039.
-    if (event !== "refund.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
+    if (event !== "refund.succeeded" && event !== "payment.succeeded" && payment && FINAL_PAYMENT_STATUSES.has(payment.status)) {
       const alreadyDone =
         payment.status === dbStatus ||
         (event === "refund.succeeded" && payment.status === "refunded");
@@ -919,6 +923,10 @@ export async function POST(request: NextRequest) {
       }
 
       case "refund.succeeded": {
+        if (!payment) {
+          console.error(`[webhook] refund event without local payment row: provider=${providerPaymentId}, refund=${object.id}`);
+          return NextResponse.json({ error: "Payment ledger row missing for refund" }, { status: 500 });
+        }
         // Сумма возврата не может превышать сумму платежа
         // (P1.1: Math.round — дробные рубли ломали сравнение копеек)
         const paymentKop = payment ? Math.round(Number(payment.amount) * 100) : null;
@@ -926,7 +934,7 @@ export async function POST(request: NextRequest) {
           console.error(
             `[webhook] REFUND_AMOUNT_MISMATCH payment=${payment.id} payment_kop=${paymentKop} refund_kop=${wireKop}`
           );
-          return NextResponse.json({ success: true, skipped: "refund_amount_mismatch" });
+          return NextResponse.json({ error: "Refund amount mismatch" }, { status: 500 });
         }
 
         if (payment) {
@@ -968,7 +976,10 @@ export async function POST(request: NextRequest) {
               .from("orders")
               .update({ payment_status: "refunded" })
               .eq("id", orderId);
-            if (ordUpdErr) console.error("[webhook] refund order update failed:", ordUpdErr.message);
+            if (ordUpdErr) {
+              console.error("[webhook] refund order update failed; provider retry required:", ordUpdErr.message);
+              return NextResponse.json({ error: "Refund order status update failed" }, { status: 500 });
+            }
           }
 
           // RECIPE-03 (RA.10): хук отзыва entitlement при ПОЛНОМ возврате
