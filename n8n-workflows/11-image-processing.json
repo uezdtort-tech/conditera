@@ -1,6 +1,6 @@
 {
   "name": "🖼️ Обработка изображений — resize, оптимизация, thumbnails",
-  "active": true,
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -36,7 +36,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/webhooks/n8n",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

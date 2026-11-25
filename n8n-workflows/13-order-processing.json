@@ -1,6 +1,6 @@
 {
   "name": "✅ Обработка заказов — авто-подтверждение для верифицированных кондитеров",
-  "active": true,
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/orders?status=PENDING&autoApproveEligible=1",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -111,7 +110,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/orders/{{ $json.id }}/accept",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -154,7 +152,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

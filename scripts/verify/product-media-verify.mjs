@@ -141,7 +141,7 @@ async function login(email) {
 
 // ---------------------------------------------------------------------------
 
-const PG_URL = process.env.PGURL || process.env.PG_URL || "postgresql://postgres@127.0.0.1:54330/conditera";
+const PG_URL = process.env.PGURL || process.env.PG_URL || "postgresql://postgres@127.0.0.1:54329/conditera";
 const client = new Client({ connectionString: PG_URL });
 const createdProducts = []; // {id, storageRoot}
 
@@ -158,11 +158,12 @@ async function main() {
   // ─────────────────────────────────────────────────────────────────────────
   section("Создание тестового товара (админ, владелец — демо-кондитер)");
   const uniq = Date.now().toString(36);
+  const productTitle = `Verify media product ${uniq}`;
   const created = await api("POST", "/api/products", {
     token: admin,
     body: {
       confectionerId: OWNER_USER_ID,
-      title: `Verify media product ${uniq}`,
+      title: productTitle,
       description: "Технологический товар для регрессионной проверки медиа",
       price: 1999,
       status: "draft",
@@ -172,6 +173,35 @@ async function main() {
   const productId = created.json?.product?.id;
   assert("товар создан, id получен", Boolean(productId));
   createdProducts.push({ id: productId, storageRoot: null });
+
+  if (productId) {
+    const moderation = await client.query(
+      `SELECT content_snapshot FROM public.moderation_queue
+       WHERE content_type = 'product' AND content_id = $1::uuid
+       ORDER BY created_at DESC LIMIT 1`,
+      [productId]
+    );
+    const snapshot = moderation.rows[0]?.content_snapshot || {};
+    assert(
+      "moderation record persisted in the real content_snapshot schema",
+      moderation.rowCount === 1 &&
+        snapshot.title === productTitle &&
+        typeof snapshot.content === "string" &&
+        Array.isArray(snapshot.images),
+      JSON.stringify({ rows: moderation.rowCount, snapshotKeys: Object.keys(snapshot) })
+    );
+    const moderationQueue = await api(
+      "GET",
+      `/api/moderation/queue?contentType=product&search=${encodeURIComponent(productTitle)}`,
+      { token: admin }
+    );
+    assert(
+      "moderation search uses JSON snapshot and returns the new product",
+      moderationQueue.status === 200 &&
+        (moderationQueue.json?.items || []).some((item) => item.content_snapshot?.title === productTitle),
+      `got ${moderationQueue.status}`
+    );
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   section("Фотографии: 1 → PASS, 10 → PASS, 11 → REJECT");
@@ -436,6 +466,12 @@ async function cleanup() {
     }
     const ids = createdProducts.map((p) => p.id).filter(Boolean);
     if (ids.length > 0) {
+      // moderation_queue intentionally has no FK to polymorphic content_id;
+      // remove the snapshot explicitly to keep repeated CI runs isolated.
+      await client.query(
+        `DELETE FROM moderation_queue WHERE content_type = 'product' AND content_id = ANY($1::uuid[])`,
+        [ids]
+      );
       await client.query(`DELETE FROM products WHERE id = ANY($1)`, [ids]);
       const { rmSync } = await import("node:fs");
       for (const id of ids) {

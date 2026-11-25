@@ -21,14 +21,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 interface FavoriteRow {
   product_id: string;
   created_at: string;
-  product: {
-    id: string;
-    title: string;
-    price: number;
-    images: string[] | null;
-    slug: string;
-    is_available: boolean | null;
-  } | null;
+}
+
+interface WishlistProductRow {
+  id: string;
+  title: string;
+  price: number;
+  images: string[] | null;
+  slug: string;
+  is_available: boolean | null;
 }
 
 interface ProductImageRow {
@@ -39,13 +40,7 @@ interface ProductImageRow {
 async function loadWishlistCards(userId: string): Promise<NextResponse> {
   const { data: favs, error } = await supabaseAdmin
     .from("product_favorites")
-    .select(
-      `
-      product_id,
-      created_at,
-      product:products(id, title, price, images, slug, is_available)
-    `
-    )
+    .select("product_id, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(200) as { data: FavoriteRow[] | null; error: { message: string } | null };
@@ -55,13 +50,31 @@ async function loadWishlistCards(userId: string): Promise<NextResponse> {
     return NextResponse.json({ error: "Не удалось загрузить избранное" }, { status: 500 });
   }
 
-  const rows = (favs || []).filter((f) => f.product);
+  const rows = favs || [];
+  const productIds = [...new Set(rows.map((row) => row.product_id))];
+  const { data: products, error: productsErr } = productIds.length
+    ? await supabaseAdmin
+        .from("products")
+        .select("id, title, price, images, slug, is_available")
+        .in("id", productIds) as { data: WishlistProductRow[] | null; error: { message: string } | null }
+    : { data: [] as WishlistProductRow[], error: null };
+
+  if (productsErr) {
+    console.error("[wishlist] product lookup:", productsErr.message);
+    return NextResponse.json({ error: "Не удалось загрузить товары избранного" }, { status: 500 });
+  }
+
+  const productMap = new Map((products || []).map((product) => [product.id, product]));
+  const visibleRows = rows.filter((row) => productMap.has(row.product_id));
 
   // Фолбэк-обложка: products.images пуст у витринных товаров — берём из
   // product_images (первая по sort_order).
-  const emptyImageIds = rows
-    .filter((f) => !f.product!.images || f.product!.images.length === 0)
-    .map((f) => f.product_id);
+  const emptyImageIds = visibleRows
+    .filter((row) => {
+      const product = productMap.get(row.product_id)!;
+      return !product.images || product.images.length === 0;
+    })
+    .map((row) => row.product_id);
 
   const imageFallback = new Map<string, string>();
   if (emptyImageIds.length > 0) {
@@ -76,8 +89,8 @@ async function loadWishlistCards(userId: string): Promise<NextResponse> {
   }
 
   return NextResponse.json({
-    items: rows.map((f) => {
-      const p = f.product!;
+    items: visibleRows.map((f) => {
+      const p = productMap.get(f.product_id)!;
       const images = Array.isArray(p.images) && p.images.length > 0
         ? p.images
         : imageFallback.has(f.product_id)
@@ -94,7 +107,7 @@ async function loadWishlistCards(userId: string): Promise<NextResponse> {
         addedAt: f.created_at,
       };
     }),
-    total: rows.length,
+    total: visibleRows.length,
   });
 }
 

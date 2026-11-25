@@ -1,6 +1,6 @@
 {
   "name": "🚚 Управление доставкой — авто-назначение курьеров",
-  "active": true,
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/courier/available-orders?status=READY&unassigned=1",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -68,7 +67,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/courier/assign",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -100,7 +98,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

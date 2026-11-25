@@ -7,8 +7,8 @@
         "rule": {
           "interval": [
             {
-              "field": "hours",
-              "hoursInterval": 1
+              "field": "cronExpression",
+              "expression": "0 * * * *"
             }
           ]
         }
@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/cron/abandoned-cart",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -100,7 +99,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/notifications/send",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -116,7 +114,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"ABANDONED_CART\",\n  \"vars\": {\n    \"itemsCount\": {{ $json.itemsCount }},\n    \"total\": {{ $json.total }}\n  },\n  \"data\": { \"cartId\": \"{{ $json.id }}\", \"type\": \"abandoned_cart\" }\n}",
+        "jsonBody": "={\n  \"userId\": \"{{ $json.userId }}\",\n  \"template\": \"ABANDONED_CART\",\n  \"vars\": {\n    \"itemsCount\": {{ $json.itemsCount }},\n    \"total\": {{ $json.total }}\n  },\n  \"data\": { \"cartId\": \"{{ $json.id }}\", \"type\": \"abandoned_cart\" },\n  \"dedupKey\": \"abandoned-cart:{{ $json.id }}\"\n}",
         "options": {}
       },
       "id": "send-notification",
@@ -132,7 +130,6 @@
       "parameters": {
         "method": "PATCH",
         "url": "={{ $env.APP_URL }}/api/cron/abandoned-cart",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -148,7 +145,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"cartId\": \"{{ $json.id }}\",\n  \"action\": \"mark_notified\"\n}",
+        "jsonBody": "={\n  \"cartId\": \"{{ $('Разделить по корзинам').item.json.id }}\",\n  \"action\": \"mark_notified\",\n  \"skipped\": {{ $json.skipped === true }},\n  \"channel\": \"{{ $json.channels?.[0]?.channel || 'email' }}\"\n}",
         "options": {}
       },
       "id": "mark-notified",
