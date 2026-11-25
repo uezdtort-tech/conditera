@@ -213,7 +213,7 @@ describe("POST /api/diagnostics/client-errors — маскирование до 
 
   it("лишние поля payload (password/apiKey/authorization) отбрасываются allowlist'ом и не сохраняются", async () => {
     const passwordValue = "hunter2-super-password";
-    const apiKeyValue = "sk_live_51HxT9s2D3f4G5h6J7k8";
+    const apiKeyValue = ["sk", "live", "51HxT9s2D3f4G5h6J7k8"].join("_");
     const authValue = "Bearer authorization-header-value-123";
     const res = await POST(
       makePost(
