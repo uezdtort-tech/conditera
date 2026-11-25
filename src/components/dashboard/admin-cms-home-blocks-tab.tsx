@@ -1,6 +1,5 @@
 "use client";
 
-import { useAppStore } from "@/lib/store";
 import { useState, useEffect, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,7 +54,6 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
-import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
 import { toast } from "sonner";
 import { csrfFetch } from "@/lib/api-client";
