@@ -146,7 +146,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=auth
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=auth
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -217,7 +217,7 @@ services:
     container_name: conditera-supabase-rest
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -290,7 +290,7 @@ services:
       SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
-      DATABASE_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=storage
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=storage
       PG_META_URL: http://supabase-meta:8080
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /mnt/storage
