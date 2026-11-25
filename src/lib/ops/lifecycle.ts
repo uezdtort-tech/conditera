@@ -71,7 +71,7 @@ export const ORDER_TRANSITIONS: Record<string, TransitionDef[]> = {
       condition: "payment_confirmed_or_cash",
       label: "заказ принят",
       event: "order.accepted",
-      notification: "ORDER_ACCEPTED",
+      notification: "ORDER_CONFIRMED",
       notify: ["customer"],
     },
     {
@@ -340,6 +340,7 @@ export interface ApplyTransitionResult {
   event: string;
   customerId: string;
   confectionerId: string | null;
+  deliverySync?: "ok" | "skipped_no_delivery";
 }
 
 interface OrderRow {
@@ -354,7 +355,7 @@ interface OrderRow {
   category_slug: string | null;
 }
 
-const PAID_PAYMENT_STATUSES = new Set(["escrow", "succeeded", "released"]);
+const PAID_PAYMENT_STATUSES = new Set(["paid", "escrow", "succeeded", "released"]);
 
 /**
  * Применить переход жизненного цикла. Атомарно (FOR UPDATE + CAS),
@@ -480,25 +481,63 @@ export async function applyOrderTransition(
     // При подтверждении доставки курьером одновременно закрываем его
     // delivery assignment в той же транзакции. Если назначения нет, статус
     // заказа не изменится и запись доставки не потеряется.
+    let deliverySync: "ok" | "skipped_no_delivery" = "skipped_no_delivery";
     const courierCompleting =
       input.to === "DELIVERED" &&
       input.actorRoles.includes("COURIER") &&
       !isAdminActor;
-    if (courierCompleting) {
-      const deliveryUpdate = await client.query(
-        `UPDATE public.deliveries
-            SET status = 'delivered', delivered_at = now(), updated_at = now()
+    if (input.to === "DELIVERED") {
+      // Блокируем строки доставок в той же транзакции, что и заказ.
+      // Несколько активных назначений — нарушение инварианта, переход запрещён.
+      const deliveryRows = await client.query<{ id: string; cost: number | string | null }>(
+        `SELECT id::text, cost
+           FROM public.deliveries
           WHERE order_id = $1::uuid
-            AND courier_id = $2::uuid
             AND status IN ('assigned', 'picked_up', 'on_the_way')
-          RETURNING id::text`,
-        [input.orderId, input.actorId]
+            ${courierCompleting ? "AND courier_id = $2::uuid" : ""}
+          ORDER BY created_at ASC
+          LIMIT 2
+          FOR UPDATE`,
+        courierCompleting ? [input.orderId, input.actorId] : [input.orderId]
       );
-      if (deliveryUpdate.rowCount === 0) {
+      if (deliveryRows.rows.length > 1) {
+        throw new LifecycleError(
+          "DELIVERY_INVARIANT_VIOLATION",
+          "У заказа несколько активных доставок; требуется исправление данных"
+        );
+      }
+      if (deliveryRows.rows.length === 0 && courierCompleting) {
         throw new LifecycleError(
           "DELIVERY_ASSIGNMENT_REQUIRED",
           "Подтвердить доставку может только назначенный курьер"
         );
+      }
+      if (deliveryRows.rows.length === 1) {
+        if (!courierCompleting && !isAdminActor) {
+          throw new LifecycleError(
+            "DELIVERY_ASSIGNMENT_REQUIRED",
+            "Активную доставку может завершить только назначенный курьер или администратор"
+          );
+        }
+        const delivery = deliveryRows.rows[0];
+        const deliveryUpdate = await client.query(
+          `UPDATE public.deliveries
+              SET status = 'delivered',
+                  delivered_at = now(),
+                  courier_earnings = COALESCE(cost, 0),
+                  updated_at = now()
+            WHERE id = $1::uuid
+              AND status IN ('assigned', 'picked_up', 'on_the_way')
+            RETURNING id::text`,
+          [delivery.id]
+        );
+        if (deliveryUpdate.rowCount === 0) {
+          throw new LifecycleError(
+            "DELIVERY_ASSIGNMENT_REQUIRED",
+            "Назначение доставки изменилось параллельно; обновите заказ"
+          );
+        }
+        deliverySync = "ok";
       }
     }
 
@@ -509,12 +548,13 @@ export async function applyOrderTransition(
     if (input.to === "DELIVERED") updates.delivered_at = new Date().toISOString();
     if (input.to === "COMPLETED") updates.completed_at = new Date().toISOString();
     if (input.to === "CANCELLED") updates.cancelled_at = new Date().toISOString();
+    if (input.comment) updates.notes = input.comment;
 
     const upd = await client.query(
       `UPDATE public.orders SET status = $2, confirmed_at = COALESCE($3, confirmed_at),
               shipped_at = COALESCE($4, shipped_at), delivered_at = COALESCE($5, delivered_at),
               completed_at = COALESCE($6, completed_at), cancelled_at = COALESCE($7, cancelled_at),
-              updated_at = now()
+              notes = COALESCE($9, notes), updated_at = now()
        WHERE id = $1::uuid AND status = $8
        RETURNING id::text`,
       [
@@ -526,6 +566,7 @@ export async function applyOrderTransition(
         updates.completed_at ?? null,
         updates.cancelled_at ?? null,
         from,
+        updates.notes ?? null,
       ]
     );
     if (upd.rowCount === 0) {
@@ -557,6 +598,7 @@ export async function applyOrderTransition(
     event: def!.event,
     customerId: order!.user_id,
     confectionerId: order!.confectioner_id,
+    ...(input.to === "DELIVERED" ? { deliverySync } : {}),
   };
 
   try {
