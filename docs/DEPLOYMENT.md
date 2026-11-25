@@ -22,6 +22,46 @@
    перед SSH-шагом.
 4. Сеть compose называется `conditera-net` (проверьте в docker-compose.yml —
    migrator подключается именно к ней).
+5. В `.env.production` должны быть заполнены все обязательные production values:
+   SMTP host/user/password/from, YooKassa live Shop ID/Secret Key, Yandex OAuth
+   enabled + Client ID + точный callback, Supabase keys, отдельные JWT/TFA/CRON
+   secrets и оба PostgreSQL URL. Примеры-заглушки из template не являются
+   рабочими значениями; runtime guard остановит production server.
+6. Перед выпуском на Linux host выполнить `bash scripts/env-check.sh production`.
+   Ошибка preflight означает BLOCKED, не обходить её заглушками.
+   
+**Compose build args:** при ручной сборке всегда передавайте
+`docker compose --env-file .env.production -f docker-compose.yml ...`.
+Секция `env_file:` сервиса задаёт runtime environment контейнера, но не
+переменные Compose interpolation для `build.args`. Production web image
+компилирует `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` и
+`NEXT_PUBLIC_APP_URL` в Next.js bundle; они должны совпадать с runtime env.
+
+## Восстановление Kong 2.8 без перезапуска базы
+
+Kong работает в DB-less режиме. Compose запускает
+`scripts/supabase/kong-entrypoint.sh`, который подставляет реальные
+`SUPABASE_ANON_KEY` и `SUPABASE_SERVICE_KEY` в шаблон
+`supabase/kong.yml` перед запуском Kong. Сам Kong не подставляет env-переменные
+в declarative YAML автоматически.
+
+После выкладки исправленного кода и проверки резервных копий на сервере:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.supabase.yml config -q
+docker compose --env-file .env.production -f docker-compose.supabase.yml up -d --no-deps --force-recreate supabase-kong
+docker logs --tail=100 conditera-supabase-kong
+docker exec conditera-supabase-kong kong health
+docker exec conditera-supabase-kong sh -c 'test -s /tmp/conditera-kong-rendered.yml && ! grep -Fq "\${SUPABASE_ANON_KEY}" /tmp/conditera-kong-rendered.yml && ! grep -Fq "\${SUPABASE_SERVICE_KEY}" /tmp/conditera-kong-rendered.yml'
+curl -fsS http://127.0.0.1:8000/auth/v1/health
+curl -fsS https://conditera.ru/api/auth/v1/health
+```
+
+Именно `--force-recreate` нужен, чтобы контейнер перестал использовать старые
+переменные окружения (в том числе ошибочное значение `true`). Команда
+`--no-deps` ограничивает операцию сервисом Kong и не переключает/не пересоздаёт
+PostgreSQL volume. Не выполнять `docker compose down -v` и не запускать весь
+Supabase stack до завершения отдельного PG15→PG17 backup/restore и cutover gate.
 
 ## Публикация (каждый релиз)
 
