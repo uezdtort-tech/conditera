@@ -427,13 +427,15 @@ export async function POST(request: NextRequest) {
             console.error("[webhook] late-cancel payment update failed:", latePaymentUpdateError.message);
             return NextResponse.json({ error: "DB error" }, { status: 500 });
           }
+          const confirmedPaymentId = payment.id;
+          const confirmedPaymentAmount = Number(payment.amount);
           void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
             recordFinancialEntrySafe({
               entryType: "payment_succeeded",
-              amount: Number(payment.amount),
-              paymentId: payment.id,
+              amount: confirmedPaymentAmount,
+              paymentId: confirmedPaymentId,
               orderId,
-              idempotencyKey: `pay-succeeded:${payment.id}`,
+              idempotencyKey: `pay-succeeded:${confirmedPaymentId}`,
               metadata: { provider: "yookassa", provider_payment_id: providerPaymentId, late_cancel: true },
             })
           );
@@ -830,13 +832,14 @@ export async function POST(request: NextRequest) {
           }
           cancellationApplied = (cancelledPayment?.length ?? 0) > 0 || payment.status === "cancelled";
           if (cancellationApplied) {
+            const cancelledPaymentId = payment.id;
             void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
               recordFinancialEntrySafe({
                 entryType: "payment_canceled",
                 amount: 0,
-                paymentId: payment.id,
+                paymentId: cancelledPaymentId,
                 orderId,
-                idempotencyKey: `pay-canceled:${payment.id}`,
+                idempotencyKey: `pay-canceled:${cancelledPaymentId}`,
                 metadata: { provider: "yookassa", provider_payment_id: providerPaymentId },
               })
             );
