@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 
 // Импортируем типы из route для проверки структуры
-import { shouldSkipFinalPaymentWebhook } from "@/app/api/payment/webhook/route";
+import { shouldSkipFinalPaymentWebhook } from "@/lib/payment-webhook-idempotency";
 import type { YooKassaPaymentObject, YooKassaWebhookBody } from "@/app/api/payment/webhook/route";
 
 describe("payment/webhook: типизация", () => {
