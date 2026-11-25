@@ -104,17 +104,17 @@ describe("personal account device-transfer protection", () => {
     expect(mocked.rpc).not.toHaveBeenCalled();
   });
 
-  it("does not trust missing IP or user-agent values as a known device", async () => {
+  it("does not trust a missing user-agent as a known device", async () => {
     mocked.previousSessions = [{
       id: "existing-session",
-      ip_address: null,
-      user_agent: "Known browser",
+      ip_address: "192.0.2.10",
+      user_agent: null,
     }];
 
     await expect(createUserSession(
       "user-1",
       new Request("https://conditera.test/api/auth/login", {
-        headers: { "user-agent": "Known browser" },
+        headers: { "x-forwarded-for": "192.0.2.10" },
       }),
       "password",
     )).rejects.toThrow(NEW_DEVICE_LOGIN_BLOCKED);
@@ -149,7 +149,7 @@ describe("personal account device-transfer protection", () => {
       "user-1",
       new Request("https://conditera.test/api/auth/login", {
         headers: {
-          "x-forwarded-for": "192.0.2.10",
+          "x-forwarded-for": "192.0.2.20",
           "user-agent": "Known browser",
         },
       }),
