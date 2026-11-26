@@ -200,7 +200,8 @@ function getAppSessionUserId(): string {
     const payloadPart = token.split(".")[1];
     if (!payloadPart) throw new Error("Некорректная сессия");
     const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    const payload = JSON.parse(atob(normalized)) as { userId?: string; sub?: string };
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded)) as { userId?: string; sub?: string };
     const userId = payload.userId || payload.sub;
     if (!userId) throw new Error("Некорректная сессия");
     return userId;
@@ -470,7 +471,7 @@ export function useCourierDashboard() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error || `Не удалось загрузить кабинет курьера (HTTP ${response.status})`);
+        throw new Error(`${payload.error || "Не удалось загрузить кабинет курьера"} (HTTP ${response.status})`);
       }
       return {
         stats: payload.stats,
@@ -508,7 +509,7 @@ export function useAdminDashboard() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error || `Не удалось загрузить кабинет администратора (HTTP ${response.status})`);
+        throw new Error(`${payload.error || "Не удалось загрузить кабинет администратора"} (HTTP ${response.status})`);
       }
       return {
         stats: payload.stats,
