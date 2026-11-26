@@ -217,35 +217,36 @@ describe("useCourierDashboard — доставки только свои", () =>
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("активные доставки по courier_id + фильтр статусов; заработок из завершённых", async () => {
+  it("загружает активные доставки через серверный app-session endpoint", async () => {
     sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, makeAppJwt(USER_ID));
     const todayIso = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
     const fetchMock = vi.fn((url: string) => {
-      const u = new URL(url, "http://localhost");
-      if (u.searchParams.get("status")?.includes("assigned")) {
-        return Promise.resolve(
-          okResponse([
-            {
-              id: "d1",
-              order_id: "o1",
-              address: "ул. Ленина, 1",
-              status: "assigned",
-              estimated_time: null,
-              cost: 400,
-              courier_earnings: 200,
-            },
-          ])
-        );
-      }
-      if (u.searchParams.get("select") === "courier_earnings") {
-        return Promise.resolve(okResponse([{ courier_earnings: 300 }]));
-      }
-      if (u.searchParams.get("status") === "eq.delivered") {
-        return Promise.resolve(
-          okResponse([
-            { id: "d2", order_id: "o2", address: "ул. Мира, 2", delivered_at: todayIso, courier_earnings: 300 },
-          ])
-        );
+      if (url === "/api/courier/dashboard") {
+        return Promise.resolve(okResponse({
+          stats: {
+            activeDeliveries: 1,
+            completedToday: 1,
+            earningsToday: 300,
+            earningsMonth: 300,
+            rating: 5,
+          },
+          activeDeliveries: [{
+            id: "d1",
+            orderId: "o1",
+            address: "ул. Ленина, 1",
+            status: "assigned",
+            deliveryTime: null,
+            cost: 400,
+            earnings: 200,
+          }],
+          history: [{
+            id: "d2",
+            orderId: "o2",
+            address: "ул. Мира, 2",
+            completedAt: todayIso,
+            earnings: 300,
+          }],
+        }));
       }
       return Promise.resolve(errResponse(404, { message: "unexpected " + url }));
     });
@@ -254,15 +255,13 @@ describe("useCourierDashboard — доставки только свои", () =>
     const { result } = renderHook(() => useCourierDashboard(), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    const urls = urlsOf(fetchMock).join("\n");
-    expect(urls).toContain(`courier_id=eq.${USER_ID}`);
-    expect(urls).toContain(encodeURIComponent('in.("assigned","picked_up","on_the_way")'));
+    expect(urlsOf(fetchMock)).toContain("/api/courier/dashboard");
     expect(result.current.data?.activeDeliveries).toHaveLength(1);
+    expect(result.current.data?.activeDeliveries[0]?.order_id).toBe("o1");
     expect(result.current.data?.stats.completedToday).toBe(1);
     expect(result.current.data?.stats.earningsToday).toBe(300);
-    expect(result.current.data?.stats.earningsMonth).toBe(300);
-  });
-});
+    expect(result.current.data?.recentCompleted[0]?.courier_earnings).toBe(300);
+  });});
 
 describe("useAdminDashboard — серверная проверка роли", () => {
   it("данные с /api/admin/dashboard, маппинг customer_email (fallback customer)", async () => {
