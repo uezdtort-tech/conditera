@@ -50,7 +50,28 @@ vi.mock("@/lib/yookassa", () => ({
   refundPayment: mocks.state.refundPayment,
 }));
 
-import { POST } from "@/app/api/payment/webhook/route";
+import {
+  POST,
+  ESCROW_ELIGIBLE_PAYMENT_STATUSES,
+  CANCEL_RECONCILE_PAYMENT_STATUSES,
+} from "@/app/api/payment/webhook/route";
+
+describe("PostgreSQL payment_status enum contract", () => {
+  it("uses only real enum states and never the legacy paid alias", () => {
+    expect(ESCROW_ELIGIBLE_PAYMENT_STATUSES).toEqual([
+      "pending",
+      "waiting_for_capture",
+      "succeeded",
+    ]);
+    expect(CANCEL_RECONCILE_PAYMENT_STATUSES).toEqual([
+      "pending",
+      "waiting_for_capture",
+      "succeeded",
+      "cancelled",
+    ]);
+    expect([...ESCROW_ELIGIBLE_PAYMENT_STATUSES, ...CANCEL_RECONCILE_PAYMENT_STATUSES]).not.toContain("paid");
+  });
+});
 
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const PAYMENT_ID = "provider-payment-1";
