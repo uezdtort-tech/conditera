@@ -60,7 +60,7 @@ jobs:
 
           READY=0
           for attempt in $(seq 1 60); do
-            if docker exec "$RUNTIME" pg_isready -U supabase_admin -d supabase >/dev/null 2>&1; then
+            if docker exec "$RUNTIME" pg_isready -U supabase_admin -d conditera >/dev/null 2>&1; then
               READY=1
               break
             fi
@@ -74,7 +74,7 @@ jobs:
           STABLE_PROBES=0
           FINAL_READY=0
           for attempt in $(seq 1 30); do
-            CURRENT_START="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d supabase -c 'SELECT pg_postmaster_start_time()' 2>/dev/null || true)"
+            CURRENT_START="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d conditera -c 'SELECT pg_postmaster_start_time()' 2>/dev/null || true)"
             if [ -n "$CURRENT_START" ] && [ "$CURRENT_START" = "$POSTMASTER_START" ]; then
               STABLE_PROBES=$((STABLE_PROBES + 1))
             else
@@ -89,7 +89,7 @@ jobs:
           done
           test "$FINAL_READY" = 1
 
-          docker exec -i "$RUNTIME" psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase <<'SQL'
+          docker exec -i "$RUNTIME" psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera <<'SQL'
           CREATE SCHEMA IF NOT EXISTS auth;
           CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY);
           CREATE SCHEMA IF NOT EXISTS storage;
@@ -122,11 +122,11 @@ jobs:
           WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') \gexec
           SQL
 
-          BEFORE="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d supabase -c 'SELECT count(*) FROM public.schema_migrations')"
+          BEFORE="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d conditera -c 'SELECT count(*) FROM public.schema_migrations')"
           pwsh -NoProfile -File scripts/ops/audit-local-production.ps1 \
-            -RuntimeContainer "$RUNTIME" -Database supabase -User supabase_admin \
+            -RuntimeContainer "$RUNTIME" -Database conditera -User supabase_admin \
             -OutputRoot "$RUNNER_TEMP/conditera-audit-pg17"
-          AFTER="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d supabase -c 'SELECT count(*) FROM public.schema_migrations')"
+          AFTER="$(docker exec "$RUNTIME" psql -X -At -U supabase_admin -d conditera -c 'SELECT count(*) FROM public.schema_migrations')"
           test "$BEFORE" = "$AFTER"
           test "$AFTER" = "82"
 
