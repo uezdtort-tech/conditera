@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 type Row = Record<string, unknown>;
 
 // FIFO результатов запросов к deliveries: (1) сегодня, (2) месяц, (3) история
-let deliveriesQueue: { data: Row[] | null; error: { message: string } | null }[] = [];
+let deliveriesQueue: { data: Row[] | null; error: { message: string } | null; count?: number | null }[] = [];
 
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
@@ -18,7 +18,7 @@ vi.mock("@/lib/supabase/admin", () => ({
       const resultFor = (): { data: Row[] | null; error: { message: string } | null; count: number | null } => {
         if (table === "deliveries") {
           const next = deliveriesQueue.shift();
-          return { ...(next ?? { data: [], error: null }), count: null };
+          return { ...(next ?? { data: [], error: null }), count: next?.count ?? null };
         }
         return { data: [], error: null, count: 2 };
       };
@@ -31,6 +31,7 @@ vi.mock("@/lib/supabase/admin", () => ({
           gte: vi.fn(() => b),
           order: vi.fn(() => b),
           limit: vi.fn(() => b),
+          maybeSingle: vi.fn(async () => resultFor()),
           then: (res?: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
             p.then(res as never, rej as never),
         };
@@ -80,20 +81,20 @@ describe("GET /api/courier/dashboard — канонический источни
   it("KPI считается по courier_earnings, а не по orders.delivery_cost", async () => {
     const today = isoNow();
     deliveriesQueue = [
-      // сегодня: две доставки, зафиксированные выплаты 350 + 400
+      { data: [], error: null, count: 2 }, // active count
+      { data: [], error: null, count: 2 }, // completed today
       { data: [
-        { id: "d1", order_id: "o-1", cost: 350, courier_earnings: 350, delivered_at: today },
-        { id: "d2", order_id: "o-2", cost: 400, courier_earnings: 400, delivered_at: today },
-      ], error: null },
-      // месяц (те же две)
+        { courier_earnings: 350, cost: 999 },
+        { courier_earnings: 400, cost: 999 },
+      ], error: null }, // earnings today
       { data: [
-        { cost: 350, courier_earnings: 350 },
-        { cost: 400, courier_earnings: 400 },
-      ], error: null },
-      // история: одна доставка с выплатой 350 (при delivery_cost=999)
+        { courier_earnings: 350, cost: 999 },
+        { courier_earnings: 400, cost: 999 },
+      ], error: null }, // earnings month
+      { data: [], error: null }, // active delivery list
       { data: [
-        { id: "d1", order_id: "o-1", delivered_at: today, cost: 350, courier_earnings: 350 },
-      ], error: null },
+        { id: "d1", order_id: "o-1", delivered_at: today, cost: 999, courier_earnings: 350 },
+      ], error: null }, // history
     ];
 
     const res = await callGet();
@@ -116,10 +117,11 @@ describe("GET /api/courier/dashboard — канонический источни
   it("legacy-строка courier_earnings=NULL показывается по cost (без перезаписи данных)", async () => {
     const today = isoNow();
     deliveriesQueue = [
-      { data: [
-        { id: "d1", order_id: "o-1", cost: 500, courier_earnings: null, delivered_at: today },
-      ], error: null },
+      { data: [], error: null, count: 1 },
+      { data: [], error: null, count: 1 },
       { data: [{ cost: 500, courier_earnings: null }], error: null },
+      { data: [{ cost: 500, courier_earnings: null }], error: null },
+      { data: [], error: null },
       { data: [
         { id: "d1", order_id: "o-1", delivered_at: today, cost: 500, courier_earnings: null },
       ], error: null },
@@ -136,13 +138,17 @@ describe("GET /api/courier/dashboard — канонический источни
 
   it("ошибка запроса истории → fail-safe stub (без частичных цифр)", async () => {
     deliveriesQueue = [
+      { data: [], error: null, count: 0 },
+      { data: [], error: null, count: 0 },
+      { data: [], error: null },
       { data: [], error: null },
       { data: [], error: null },
       { data: null, error: { message: "connection refused" } },
     ];
     const res = await callGet();
-    // история-ошибка пробрасывается → внешний catch → stub в dev-семантике
-    const json = (await res.json()) as { stub?: boolean };
-    expect(json.stub).toBe(true);
+    // В test/production недоступность БД закрывается 503 без демо-данных.
+    const json = (await res.json()) as { error?: string };
+    expect(res.status).toBe(503);
+    expect(json.error).toContain("временно недоступны");
   });
 });
