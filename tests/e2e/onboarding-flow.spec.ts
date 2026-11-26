@@ -247,7 +247,7 @@ test.describe("Полный онбординг кондитера — PostgreSQL
       },
     });
     expect(response.status()).toBe(401);
-
+  });
 
   test("smoke: публичные страницы отвечают после production onboarding", async ({ request, page }) => {
     const health = await request.get(`${APP}/api/health`);
@@ -256,6 +256,5 @@ test.describe("Полный онбординг кондитера — PostgreSQL
     expect(list.status()).toBe(200);
     await page.goto(APP, { waitUntil: "domcontentloaded" });
     await expect(page).toHaveTitle(/Уездный кондитер/i);
-  });
   });
 });
