@@ -325,6 +325,7 @@ const DEMO_USERS = [
   { id: "11111111-1111-4111-8111-111111111108", email: "support@demo.ru", role: "SUPPORT", name: "Демо Поддержка" },
   { id: "11111111-1111-4111-8111-111111111109", email: "decor@demo.ru", role: "SUPPLIER", name: "Демо Поставщик декора" },
   { id: "11111111-1111-4111-8111-111111111110", email: "animator@demo.ru", role: "ANIMATOR_AGENCY", name: "Демо Аниматоры" },
+  { id: "22222222-2222-4222-8222-222222222201", email: "courier@demo.ru", role: "COURIER", name: "Демо Курьер" },
 ];
 
 async function upsertDemoUsers(client) {
