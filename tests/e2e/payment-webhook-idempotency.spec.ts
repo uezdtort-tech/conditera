@@ -124,8 +124,9 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    // В production без реальной сверки с YooKassa событие не подтверждается.
-    expect(response.status()).toBe(500);
+    // Отсутствующий orderId — некорректный payload; отклоняем до сетевого
+    // запроса к провайдеру и до обращения к локальному платёжному ledger.
+    expect(response.status()).toBe(400);
   });
 
   test('4. Payload без object → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
