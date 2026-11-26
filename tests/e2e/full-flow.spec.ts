@@ -319,13 +319,17 @@ test.describe("Customer checkout — browser UI", () => {
     await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
 
     await page.goto(`${BASE_URL}/catalog`);
-    const addToCart = page.locator('button[aria-label="Добавить в корзину"]:not([disabled])').first();
-    await expect(addToCart).toBeVisible({ timeout: 20_000 });
-    await addToCart.click();
+    const orderableCard = page.getByRole("link").filter({
+      hasText: "E2E демо-торт (тестовый товар)",
+    }).first();
+    await expect(orderableCard).toBeVisible({ timeout: 20_000 });
+    await orderableCard.getByRole("button", { name: "Добавить в корзину" }).click();
 
     await page.goto(`${BASE_URL}/checkout`);
     await expect(page.getByRole("heading", { name: "Оформление заказа" })).toBeVisible();
     await page.getByRole("button", { name: /Самовывоз/ }).click();
+    const deliveryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    await page.getByLabel("Дата получения").fill(deliveryDate);
     await page.getByLabel("Имя получателя *").fill("Покупатель E2E");
     await page.getByLabel("Телефон получателя *").fill("+7 999 123-45-67");
     await page.getByLabel("Город *").fill("Москва");
