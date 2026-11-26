@@ -260,6 +260,16 @@ jobs:
           VERIFY_BASE: http://localhost:3000
           PGURL: ${{ env.DATABASE_URL }}
 
+      - name: Диагностика webhook и PostgREST при сбое бизнес-сценария
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f /tmp/conditera-pg17-next.log ]; then
+            grep -E '\\[webhook\\]|\\[pgrst\\].*(payments|orders)|payment ledger|exact provider|Failed to fetch order' /tmp/conditera-pg17-next.log | tail -n 240 || true
+          else
+            echo "Next.js runtime log is missing"
+          fi
+
       - name: Оплата, checkout, идемпотентность, отзывы и чат
         run: node scripts/verify/p11-hardening-verify.mjs
         env:
