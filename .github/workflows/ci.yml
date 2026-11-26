@@ -127,7 +127,7 @@ jobs:
           NEXT_PUBLIC_APP_URL: "http://localhost:3000"
           NEXT_PUBLIC_APP_NAME: "Уездный кондитер"
           NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'stub-anon-key' }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'ci-only-anon-key-not-for-deploy' }}
           DATABASE_URL: ${{ 'file:./db/ci-test.db' }}
         run: bun run build
 
