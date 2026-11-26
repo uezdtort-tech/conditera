@@ -47,6 +47,14 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/supabase/auth", () => ({
   unauthorizedResponse: () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
 }));
+vi.mock("@/lib/ops/order-access", () => ({
+  loadOrderLite: vi.fn(async () => ({
+    id: ORDER_ID,
+    status: "PREPARING",
+    confectioner_id: OWNER,
+  })),
+  canOperateOrder: vi.fn(async () => true),
+}));
 
 // Без order_id route идёт прежним per-item путём (0048) — движок мокаем очередью.
 type MovementResult =
