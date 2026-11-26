@@ -77,9 +77,6 @@ is_filled() {
   if [[ "$normalized" =~ ^(change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_]) ]]; then
     return 1
   fi
-  if [[ "$val" == *'\${'* ]]; then
-    return 1
-  fi
   return 0
 }
 
@@ -114,7 +111,7 @@ check_secret_value() {
   local value="$2"
   local minimum="${3:-32}"
   local normalized="${value,,}"
-  if [ -z "$value" ] || [[ "$value" == *'\${'* ]] || [[ "$normalized" =~ ^(change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_]) ]]; then
+  if [ -z "$value" ] || [[ "$value" == *'${'* ]] || [[ "$normalized" =~ ^(change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_]) ]]; then
     err "$name отсутствует или содержит заглушку (значение скрыто)"
   elif [ "${#value}" -lt "$minimum" ]; then
     err "$name короче $minimum символов (значение скрыто)"
@@ -187,6 +184,8 @@ if [ "$MODE_LABEL" = "production" ]; then
   check_secret_value "APP_DATABASE_PASSWORD" "$(get_env "APP_DATABASE_PASSWORD")" 32
   check_secret_value "BACKUP_DATABASE_PASSWORD" "$(get_env "BACKUP_DATABASE_PASSWORD")" 32
   check_secret_value "POSTGRES_PASSWORD" "$(get_env "POSTGRES_PASSWORD")" 32
+  check_secret_value "NEXT_PUBLIC_SUPABASE_ANON_KEY" "$(get_env "NEXT_PUBLIC_SUPABASE_ANON_KEY")" 32
+  check_secret_value "SUPABASE_SERVICE_ROLE_KEY" "$(get_env "SUPABASE_SERVICE_ROLE_KEY")" 32
   validate_database_url "DATABASE_URL" "$DB_URL" "conditera_app" "${APP_DATABASE_PASSWORD}"
   validate_database_url "DIRECT_DATABASE_URL" "$DIRECT_DB_URL" "conditera_app" "${APP_DATABASE_PASSWORD}"
   validate_database_url "BACKUP_DATABASE_URL" "$BACKUP_DB_URL" "conditera_backup" "${BACKUP_DATABASE_PASSWORD}"
