@@ -22,6 +22,7 @@
 //     не подтверждались.
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import type { payment_status } from "@/lib/supabase/types";
 import { handleRouteError } from "@/lib/http-helpers";
 import { shouldSkipFinalPaymentWebhook } from "@/lib/payment-webhook-idempotency";
 import {
@@ -32,6 +33,13 @@ import {
   getRefund,
   refundPayment,
 } from "@/lib/yookassa";
+
+// Только реальные значения enum 0001; тип запрещает добавлять legacy-алиасы вроде "paid".
+const ESCROW_ELIGIBLE_PAYMENT_STATUSES = [
+  "pending",
+  "waiting_for_capture",
+  "succeeded",
+] satisfies payment_status[];
 
 export const runtime = "nodejs";
 
@@ -478,7 +486,7 @@ export async function POST(request: NextRequest) {
           .from("orders")
           .update({ payment_status: "escrow" })
           .eq("id", orderId)
-          .in("payment_status", ["pending", "waiting_for_capture", "succeeded"])
+          .in("payment_status", ESCROW_ELIGIBLE_PAYMENT_STATUSES)
           .neq("status", "CANCELLED")
           .neq("status", "REFUNDED")
           .neq("status", "COMPLETED")
