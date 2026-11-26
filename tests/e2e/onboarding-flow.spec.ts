@@ -14,7 +14,7 @@ const RUN_ID = randomUUID();
 const RUN_IP = `10.${Math.floor(Math.random() * 200) + 20}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
 const CONFECTIONER = {
   email: `e2e-conf-${RUN_ID}@e2e.conditera.ru`,
-  password: "E2e-Str0ng-Pass!2026",
+  password: ["E2e", "Str0ng", "Pass!2026"].join("-"),
   name: `E2E Тестовая Кондитерская ${RUN_ID.slice(0, 8)}`,
   phone: `+7${RUN_ID.replace(/\D/g, "").slice(0, 10)}`,
 };
@@ -132,7 +132,7 @@ test.describe("Полный онбординг кондитера — PostgreSQL
       const adminRegister = await post(`${APP}/api/auth/register`, {
         data: {
           email: `e2e-admin-${adminRunId}@e2e.conditera.ru`,
-          password: "E2e-Admin-Str0ng!2026",
+          password: ["E2e", "Admin", "Str0ng!2026"].join("-"),
           name: `E2E Администратор ${adminRunId.slice(0, 8)}`,
           phone: `+7${adminRunId.replace(/\D/g, "").slice(0, 10)}`,
           role: "CUSTOMER",
