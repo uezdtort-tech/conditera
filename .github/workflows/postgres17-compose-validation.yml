@@ -51,6 +51,9 @@ jobs:
       N8N_ENCRYPTION_KEY: ${{ 'ci-only-n8n-encryption-key-32' }}
       N8N_WEBHOOK_SECRET: ${{ 'ci-only-n8n-webhook-secret-64-characters-long' }}
       SIMPLEX_BRIDGE_API_KEY: ${{ 'ci-only-simplex-key' }}
+      NEXT_PUBLIC_APP_URL: https://conditera-ci.invalid
+      NEXT_PUBLIC_SUPABASE_URL: https://conditera-ci.invalid/api
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key-not-for-deploy
     steps:
       - uses: actions/checkout@v7
 
