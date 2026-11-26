@@ -109,6 +109,7 @@ vi.mock("@/lib/rate-limit", () => ({
 
 vi.mock("@/lib/yookassa", () => ({
   isYookassaConfigured: () => false,
+  isLocalE2EPaymentStubEnabled: () => false,
   createPayment: vi.fn(),
 }));
 
