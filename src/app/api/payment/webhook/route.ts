@@ -250,7 +250,502 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, idempotent: true });
     }
 
-    // === Telegram уведомление об оплате ===
+    // Загружаем заказ (без embed — таблицы customers не существует; email/name
+    // покупателя дозагружаются ниже отдельным запросом в profiles)
+    const { data: order, error: orderErr } = await supabaseAdmin
+      .from("orders")
+      .select(
+        `
+        id,
+        number,
+        total,
+        payment_method,
+        payment_status,
+        status,
+        customer_id,
+        user_id,
+        confectioner_id,
+        type,
+        metadata
+      `
+      )
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (orderErr) {
+      console.error("[webhook] Failed to fetch order:", orderErr.message);
+      return NextResponse.json({ error: "DB error" }, { status: 500 });
+    }
+
+    if (!order) {
+      console.warn(`[webhook] Order ${orderId} not found in DB`);
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    } 
+    // Восстанавливаем точную локальную payment-запись только после PAY-1
+    // provider re-fetch, и только если сумма/валюта совпадают с текущим заказом.
+    // Это закрывает редкий сбой, когда YooKassa создала платёж, а checkout не
+    // смог записать ledger; неподтверждённые и неоднозначные попытки не связываем.
+    if (
+      event.startsWith("payment.") &&
+      !payment &&
+      ["payment.succeeded", "payment.waiting_for_capture", "payment.canceled"].includes(event)
+    ) {
+      if (
+        wireKop === null ||
+        wireKop !== Math.round(Number(order.total) * 100) ||
+        object.amount?.currency !== "RUB"
+      ) {
+        console.error(`[webhook] cannot recover payment row: amount/currency mismatch order=${orderId}`);
+        return NextResponse.json({ error: "Payment ledger recovery mismatch" }, { status: 500 });
+      }
+      const { error: recoverError } = await supabaseAdmin
+        .from("payments")
+        .upsert(
+          {
+            order_id: orderId,
+            yookassa_payment_id: providerPaymentId,
+            amount: Number(order.total),
+            currency: "RUB",
+            status: "pending",
+            method: "yookassa",
+            metadata: { recovered_from_webhook: true },
+          },
+          { onConflict: "yookassa_payment_id", ignoreDuplicates: true }
+        );
+      if (recoverError) {
+        console.error("[webhook] payment ledger recovery failed:", recoverError.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      const { data: recovered, error: recoveredLookupError } = await supabaseAdmin
+        .from("payments")
+        .select("id, order_id, amount, status, refund_amount")
+        .eq("yookassa_payment_id", providerPaymentId)
+        .maybeSingle();
+      if (recoveredLookupError || !recovered) {
+        console.error("[webhook] recovered payment row not visible:", recoveredLookupError?.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      payment = recovered as PaymentRow;
+    }
+
+
+    // Восстановление локальной строки платежа допускается только после
+    // проверки события у YooKassa, суммы, валюты и связи с заказом.
+    // Без локальной строки нельзя безопасно вести ledger и применять CAS.
+    if (
+      event.startsWith("payment.") &&
+      !payment &&
+      ["payment.succeeded", "payment.waiting_for_capture", "payment.canceled"].includes(event)
+    ) {
+      if (
+        wireKop === null ||
+        wireKop !== Math.round(Number(order.total) * 100) ||
+        object.amount?.currency !== "RUB"
+      ) {
+        console.error(
+          `[webhook] cannot recover payment row: amount/currency mismatch order=${orderId}`
+        );
+        return NextResponse.json({ error: "Payment ledger recovery mismatch" }, { status: 500 });
+      }
+      const { error: recoverError } = await supabaseAdmin
+        .from("payments")
+        .upsert(
+          {
+            order_id: orderId,
+            yookassa_payment_id: providerPaymentId,
+            amount: Number(order.total),
+            currency: "RUB",
+            status: "pending",
+            method: "yookassa",
+            metadata: { recovered_from_webhook: true },
+          },
+          { onConflict: "yookassa_payment_id", ignoreDuplicates: true }
+        );
+      if (recoverError) {
+        console.error("[webhook] payment ledger recovery failed:", recoverError.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      const { data: recovered, error: recoveredLookupError } = await supabaseAdmin
+        .from("payments")
+        .select("id, order_id, amount, status, refund_amount")
+        .eq("yookassa_payment_id", providerPaymentId)
+        .maybeSingle();
+      if (recoveredLookupError || !recovered) {
+        console.error("[webhook] recovered payment row not visible:", recoveredLookupError?.message);
+        return NextResponse.json({ error: "DB error" }, { status: 500 });
+      }
+      payment = recovered as PaymentRow;
+    }
+
+    // Обрабатываем события YooKassa
+    switch (event) {
+      case "payment.waiting_for_capture": {
+        if (!payment) {
+          return NextResponse.json({ error: "Payment ledger row missing" }, { status: 500 });
+        }
+        if (payment.status !== "waiting_for_capture") {
+          const { data: waitingUpdated, error: waitingUpdateError } = await supabaseAdmin
+            .from("payments")
+            .update({ status: "waiting_for_capture", updated_at: new Date().toISOString() })
+            .eq("id", payment.id)
+            .in("status", ["pending", "waiting_for_capture"])
+            .select("id");
+          if (waitingUpdateError) {
+            console.error("[webhook] waiting_for_capture payment update failed:", waitingUpdateError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!waitingUpdated?.length) {
+            return NextResponse.json({ success: true, skipped: "payment_terminal" });
+          }
+        }
+        // Авторизация карты ещё не означает подтверждённое списание.
+        // Заказ остаётся pending до payment.succeeded.
+        return NextResponse.json({ success: true, waitingForCapture: true });
+      }
+
+      case "payment.succeeded": {
+        if (!payment) {
+          console.error(`[webhook] succeeded event without local payment row: provider=${providerPaymentId}, order=${orderId}`);
+          return NextResponse.json({ error: "Payment ledger row missing" }, { status: 500 });
+        }
+
+        // Сумма provider должна совпасть с конкретной попыткой оплаты.
+        const expectedKop = Math.round(Number(payment.amount) * 100);
+        const orderKop = Math.round(Number(order.total) * 100);
+        const terminalOrder =
+          ["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status) ||
+          ["cancelled", "refunded"].includes(payment.status) ||
+          ["cancelled", "refunded", "released"].includes(order.payment_status);
+        const amountMismatch =
+          (wireKop !== null && wireKop !== expectedKop) ||
+          (!terminalOrder && orderKop !== expectedKop);
+        if (amountMismatch) {
+          console.error(
+            `[webhook] AMOUNT_MISMATCH order=${orderId} expected_kop=${expectedKop} order_kop=${orderKop} got_kop=${wireKop}`
+          );
+          return NextResponse.json({ error: "Payment amount mismatch" }, { status: 500 });
+        }
+
+        // Уже завершённый/возвращённый заказ не должен получать повторный возврат.
+        if (order.status === "REFUNDED" || payment.status === "refunded" || order.payment_status === "refunded") {
+          return NextResponse.json({ success: true, skipped: "already_refunded" });
+        }
+        if (order.status === "COMPLETED") {
+          if (payment.status === "cancelled" || order.payment_status === "cancelled") {
+            console.error("[webhook] completed order has a cancelled payment; manual reconciliation required");
+            return NextResponse.json({ error: "Completed order payment state conflict" }, { status: 500 });
+          }
+          return NextResponse.json({ success: true, skipped: "order_completed" });
+        }
+
+        // Поздний succeeded после отмены требует возврата, а не escrow.
+        if (order.status === "CANCELLED" || order.payment_status === "cancelled" || payment.status === "cancelled") {
+          if (order.status !== "CANCELLED") {
+            const { data: cancelledOrder, error: cancelOrderError } = await supabaseAdmin
+              .from("orders")
+              .update({ status: "CANCELLED", payment_status: "cancelled" })
+              .eq("id", orderId)
+              .eq("status", order.status)
+              .eq("payment_status", order.payment_status)
+              .in("payment_status", ["pending", "waiting_for_capture", "succeeded", "paid", "cancelled"])
+              .select("id");
+            if (cancelOrderError) {
+              console.error("[webhook] cancelled payment order reconciliation failed:", cancelOrderError.message);
+              return NextResponse.json({ error: "DB error" }, { status: 500 });
+            }
+            if (!cancelledOrder?.length) {
+              return NextResponse.json({ error: "Order cancellation reconciliation required" }, { status: 500 });
+            }
+          }
+          const refundAmount = Math.max(
+            0,
+            Number(payment.amount) - Number(payment.refund_amount ?? 0)
+          );
+          if (refundAmount > 0) {
+            const lateRefund = await refundPayment(
+              providerPaymentId,
+              refundAmount,
+              `Автоматический возврат по отменённому заказу ${order.number || orderId}`,
+              `uezd_konditer:refund:late:${orderId}`
+            );
+            if (!lateRefund.success) {
+              console.error("[webhook] late-cancel refund failed; YooKassa retry required:", lateRefund.error);
+              return NextResponse.json({ error: "Late cancellation refund failed" }, { status: 500 });
+            }
+          }
+          const { error: latePaymentUpdateError } = await supabaseAdmin
+            .from("payments")
+            .update({ status: "succeeded", updated_at: new Date().toISOString() })
+            .eq("id", payment.id)
+            .in("status", ["pending", "waiting_for_capture", "succeeded", "cancelled"]);
+          if (latePaymentUpdateError) {
+            console.error("[webhook] late-cancel payment update failed:", latePaymentUpdateError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          const confirmedPaymentId = payment.id;
+          const confirmedPaymentAmount = Number(payment.amount);
+          void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
+            recordFinancialEntrySafe({
+              entryType: "payment_succeeded",
+              amount: confirmedPaymentAmount,
+              paymentId: confirmedPaymentId,
+              orderId,
+              idempotencyKey: `pay-succeeded:${confirmedPaymentId}`,
+              metadata: { provider: "yookassa", provider_payment_id: providerPaymentId, late_cancel: true },
+            })
+          );
+          return NextResponse.json({ success: true, refundInitiated: refundAmount > 0 });
+        }
+
+        if (order.status === "REFUNDED" || payment.status === "refunded") {
+          return NextResponse.json({ success: true, skipped: "already_refunded" });
+        }
+        if (order.status === "COMPLETED") {
+          return NextResponse.json({ success: true, skipped: "order_completed" });
+        }
+
+        // Статус платежа меняется CAS-ом: поздний canceled не перезапишет succeeded.
+        if (payment.status !== "succeeded") {
+          const { data: paymentUpdated, error: paymentUpdateError } = await supabaseAdmin
+            .from("payments")
+            .update({ status: "succeeded", updated_at: new Date().toISOString() })
+            .eq("id", payment.id)
+            .in("status", ["pending", "waiting_for_capture", "succeeded"])
+            .select("id");
+          if (paymentUpdateError) {
+            console.error("[webhook] succeeded payment update failed:", paymentUpdateError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!paymentUpdated?.length) {
+            return NextResponse.json({ success: true, skipped: "payment_terminal" });
+          }
+        }
+
+        // PAY-1 CAS: атомарный переход заказа в escrow. Два одинаковых
+        // webhook'а не могут оба выиграть — побочные эффекты (бонусы,
+        // уведомления, письма) выполняет только победитель CAS.
+        const { data: escrowWinner, error: casErr } = await supabaseAdmin
+          .from("orders")
+          .update({ payment_status: "escrow" })
+          .eq("id", orderId)
+          .in("payment_status", ["pending", "waiting_for_capture", "succeeded", "paid"])
+          .neq("status", "CANCELLED")
+          .neq("status", "REFUNDED")
+          .neq("status", "COMPLETED")
+          .select("id");
+        if (casErr) {
+          console.error("[webhook] escrow CAS failed:", casErr.message);
+          return NextResponse.json({ error: "DB error" }, { status: 500 });
+        }
+        if (!escrowWinner || escrowWinner.length === 0) {
+          const { data: latestOrder, error: latestOrderError } = await supabaseAdmin
+            .from("orders")
+            .select("id, number, status, payment_status")
+            .eq("id", orderId)
+            .maybeSingle();
+          if (latestOrderError) {
+            console.error("[webhook] order re-read after escrow CAS failed:", latestOrderError.message);
+            return NextResponse.json({ error: "DB error" }, { status: 500 });
+          }
+          if (!latestOrder) {
+            return NextResponse.json({ error: "Order not found after escrow CAS" }, { status: 500 });
+          }
+          if (latestOrder.status === "REFUNDED" || latestOrder.payment_status === "refunded") {
+            return NextResponse.json({ success: true, skipped: "already_refunded" });
+          }
+          if (latestOrder.status === "COMPLETED") {
+            return NextResponse.json({ success: true, skipped: "order_completed" });
+          }
+          if (latestOrder.status === "CANCELLED" || latestOrder.payment_status === "cancelled") {
+            const refundAmount = Math.max(
+              0,
+              Number(payment.amount) - Number(payment.refund_amount ?? 0)
+            );
+            if (refundAmount > 0) {
+              const lateRefund = await refundPayment(
+                providerPaymentId,
+                refundAmount,
+                `Автоматический возврат по отменённому заказу ${latestOrder.number || orderId}`,
+                `uezd_konditer:refund:late:${orderId}`
+              );
+              if (!lateRefund.success) {
+                console.error("[webhook] concurrent-cancel refund failed; YooKassa retry required:", lateRefund.error);
+                return NextResponse.json({ error: "Late cancellation refund failed" }, { status: 500 });
+              }
+            }
+            void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
+              recordFinancialEntrySafe({
+                entryType: "payment_succeeded",
+                amount: Number(payment.amount),
+                paymentId: payment.id,
+                orderId,
+                idempotencyKey: `pay-succeeded:${payment.id}`,
+                metadata: { provider: "yookassa", provider_payment_id: providerPaymentId, late_cancel: true },
+              })
+            );
+            return NextResponse.json({ success: true, refundInitiated: refundAmount > 0 });
+          }
+          if (latestOrder.status === "REFUNDED") {
+            return NextResponse.json({ success: true, skipped: "already_refunded" });
+          }
+          if (latestOrder.status === "COMPLETED") {
+            return NextResponse.json({ success: true, skipped: "order_completed" });
+          }
+          console.info(`[webhook] Order ${orderId} already transitioned (CAS), skipping side-effects.`);
+          return NextResponse.json({ success: true, idempotent: true });
+        }
+
+        // P1: Эскроу релизуется через cron /api/cron/escrow-release (каждые 30 минут)
+        console.info(`[webhook] Order ${orderId} → escrow. Will be released by cron in 24h.`);
+
+        // RECIPE-03 (RA.10.3): выдача entitlement для заказов type='recipe' —
+        // ТОЛЬКО у победителя CAS (идемпотентность двойной защиты: CAS +
+        // UNIQUE(recipe_id,buyer_id)); цена/роялти — с серверного оффера,
+        // НИКОГДА из metadata клиента. Частичный/отложенный pay не выдаёт право:
+        // метод вызывается только при dbStatus='succeeded' (waiting_for_capture →
+        // отдельная доставка выдаст при succeeded).
+        if (dbStatus === "succeeded" && order.type === "recipe") {
+          try {
+            const offerId = order.metadata?.recipe_offer_id;
+            const recipeId = order.metadata?.recipe_id;
+            if (offerId && recipeId) {
+              const { data: offer } = await supabaseAdmin
+                .from("recipe_marketplace")
+                .select("id, recipe_id, royalty_rate, base_price")
+                .eq("id", offerId)
+                .maybeSingle();
+              if (offer && offer.recipe_id === recipeId) {
+                // PAY-1b: платёжная строка может отсутствовать (dev-stub без
+                // шлюза / legacy-платежи без yookassa_payment_id). Раньше
+                // передавался paymentId="" → FK recipe_purchases.payment_id
+                // падал «invalid input syntax for type uuid: ""» и покупатель
+                // НИКОГДА не получал доступ. Создаём строку по каноническим
+                // данным события (сумма — order.total, уже сверена выше),
+                // идемпотентно по UNIQUE yookassa_payment_id (0002).
+                let paymentIdForEntitlement = payment?.id ?? null;
+                if (!payment) {
+                  const { data: byProvider } = await supabaseAdmin
+                    .from("payments")
+                    .select("id")
+                    .eq("yookassa_payment_id", object.id)
+                    .maybeSingle();
+                  if (byProvider) {
+                    paymentIdForEntitlement = String((byProvider as { id: string }).id);
+                  } else {
+                    const { data: created, error: payCreateErr } = await supabaseAdmin
+                      .from("payments")
+                      .insert({
+                        order_id: orderId,
+                        yookassa_payment_id: object.id,
+                        amount: Number(order.total),
+                        currency: "RUB",
+                        status: dbStatus,
+                        method: "yookassa",
+                        metadata: { order_id: orderId },
+                      })
+                      .select("id")
+                      .single();
+                    if (!payCreateErr && created) {
+                      paymentIdForEntitlement = String((created as { id: string }).id);
+                      console.info(`[webhook] fallback payments row created for order ${orderId}`);
+                    } else {
+                      console.error(
+                        "[webhook] fallback payments insert failed:",
+                        payCreateErr?.message
+                      );
+                    }
+                  }
+                }
+                const { data: latestVersion } = await supabaseAdmin
+                  .from("recipe_versions")
+                  .select("id")
+                  .eq("recipe_id", recipeId)
+                  .order("version_no", { ascending: false })
+                  .limit(1);
+                const { grantEntitlement } = await import("@/lib/recipes/entitlement");
+                const grant = await grantEntitlement({
+                  recipeId,
+                  buyerId: order.user_id || order.customer_id,
+                  paymentId: paymentIdForEntitlement,
+                  pricePaid: Number(offer.base_price),
+                  royaltyRate: Number(offer.royalty_rate),
+                  recipeVersionId: latestVersion?.[0]?.id ?? null,
+                });
+                console.info(
+                  `[webhook] recipe entitlement ${grant.granted ? "granted" : "FAILED"} recipe=${recipeId} buyer=${order.user_id ?? order.customer_id}`
+                );
+              } else {
+                console.error(`[webhook] recipe order ${orderId}: offer mismatch, entitlement NOT granted`);
+              }
+            }
+          } catch (e) {
+            // Не 500: заказ уже в escrow, повторная доставка webhook даст
+            // idempotent-ветку CAS… но entitlement не будет выдан — поэтому
+            // логируем как CRITICAL для монитора; резервирование — reconciliation.
+            console.error("[webhook] recipe entitlement grant failed (CRITICAL):", e);
+          }
+        }
+
+        // PAY-2: журнал — деньги ПРИШЛИ (+amount, только у победителя CAS —
+        // идемпотентно по payment id: повторная доставка дедупится и CAS'ом выше,
+        // и уникальным idempotency_key журнала)
+        if (dbStatus === "succeeded") {
+          void import("@/lib/financial-ledger").then(({ recordFinancialEntrySafe }) =>
+            recordFinancialEntrySafe({
+              entryType: "payment_succeeded",
+              amount: Number(payment ? payment.amount : order.total),
+              paymentId: payment?.id ?? null,
+              orderId,
+              idempotencyKey: `pay-succeeded:${payment?.id ?? orderId}`,
+              metadata: {
+                provider: "yookassa",
+                provider_payment_id: providerPaymentId,
+                mode: process.env.NODE_ENV,
+              },
+            })
+          );
+        }
+
+        // n8n: order.paid (fail-safe, после CAS-победы — только у победителя)
+        try {
+          const { emitEvent } = await import("@/lib/n8n");
+          void emitEvent("order.paid", {
+            orderId,
+            paymentId: payment?.id ?? null,
+            amount: order.total,
+          }).catch(() => {});
+        } catch (e) {
+          console.warn("[webhook] n8n emitEvent failed (non-blocking):", e);
+        }
+
+        // ops: event log (append-only, fail-safe)
+        try {
+          const { recordEvent } = await import("@/lib/ops/events");
+          void recordEvent("order.paid", {
+            entityType: "order",
+            entityId: orderId,
+            payload: { provider: "yookassa" },
+          });
+        } catch (e) {
+          console.warn("[webhook] ops recordEvent failed (non-blocking):", e);
+        }
+
+        // Покупатель: profiles по user_id (fallback — customer_id). Таблицы
+        // customers в схеме нет — embed заменён отдельным запросом.
+        let customer: { name?: string | null; email?: string | null } | null = null;
+        const customerProfileId = order.user_id || order.customer_id;
+        if (customerProfileId) {
+          const { data: profile } = await supabaseAdmin
+            .from("profiles")
+            .select("email, name")
+            .eq("id", customerProfileId)
+            .maybeSingle();
+          customer = (profile as { name?: string | null; email?: string | null } | null) ?? null;
+        }
+        const customerName = customer?.name || "Клиент";
+        const customerEmail = customer?.email || null;
+
+        // === Telegram уведомление об оплате ===
         try {
           const { notifyPaymentSucceeded } = await import("@/lib/telegram-bot");
           await notifyPaymentSucceeded({
