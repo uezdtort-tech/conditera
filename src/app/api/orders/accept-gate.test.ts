@@ -106,45 +106,45 @@ vi.mock("@/lib/notifications", () => ({
   }),
 }));
 
-const feasibility = (over: Record<string, unknown> = {}) => ({
-  canAccept: true,
-  availability: "available",
-  risk: "GREEN",
-  reasons: [],
-  suggestions: [],
-  owners: [{ inventory: { canProduce: true, shortageCount: 0, shortages: [] } }],
-  alternativeWindows: [],
-  ...over,
+const lifecycleState: {
+  errorCode: string | null;
+  calls: Array<Record<string, unknown>>;
+} = { errorCode: null, calls: [] };
+
+vi.mock("@/lib/ops/lifecycle", () => {
+  class MockLifecycleError extends Error {
+    code: string;
+    detail?: string;
+    constructor(code: string, message: string, detail?: string) {
+      super(message);
+      this.code = code;
+      this.detail = detail;
+    }
+  }
+  return {
+    LifecycleError: MockLifecycleError,
+    applyOrderTransition: vi.fn(async (input: Record<string, unknown>) => {
+      lifecycleState.calls.push(input);
+      if (lifecycleState.errorCode) {
+        throw new MockLifecycleError(
+          lifecycleState.errorCode,
+          `lifecycle rejected ${String(input.to)}`,
+          "test detail"
+        );
+      }
+      const from = dbState.order.status;
+      dbState.order.status = String(input.to);
+      dbState.history.push({
+        order_id: input.orderId,
+        status_from: from,
+        status_to: input.to,
+        changed_by: input.actorId,
+      });
+      dbState.notifications.push({ user_id: CUST_ID });
+      return { orderId: input.orderId, from, to: input.to };
+    }),
+  };
 });
-
-// Управляемое поведение движка (переопределяется в тестах через переменную)
-let engineBehavior: "ok" | "blocked" | "inventory" | "throws" | "null" = "ok";
-let engineCalls: string[] = [];
-
-vi.mock("@/lib/ops/acceptance", () => ({
-  checkOrderAcceptance: vi.fn(async (orderId: string) => {
-    engineCalls.push(orderId);
-    if (engineBehavior === "throws") throw new Error("engine down");
-    if (engineBehavior === "null") return null;
-    if (engineBehavior === "blocked") {
-      return feasibility({
-        canAccept: false,
-        availability: "unavailable",
-        risk: "ORANGE",
-        reasons: [{ code: "RECIPE_MISSING", message: "«Товар»: нет привязанного рецепта — потребность в ингредиентах не рассчитана." }],
-      });
-    }
-    if (engineBehavior === "inventory") {
-      return feasibility({
-        availability: "available_with_warning",
-        risk: "ORANGE",
-        reasons: [{ code: "LOW_STOCK", message: "Недостаточно: Ягоды (−500 г)." }],
-        owners: [{ inventory: { canProduce: false, shortageCount: 1, shortages: [{ name: "Ягоды", shortage: 500, unit: "г" }] } }],
-      });
-    }
-    return feasibility();
-  }),
-}));
 
 import { POST as postAccept } from "./[id]/accept/route";
 
@@ -152,69 +152,64 @@ const req = () => new NextRequest(`http://localhost:3000/api/orders/${ORDER_ID}/
 
 beforeEach(() => {
   resetDb();
-  engineBehavior = "ok";
-  engineCalls = [];
+  lifecycleState.errorCode = null;
+  lifecycleState.calls = [];
 });
 
-describe("POST /api/orders/:id/accept — гейт Acceptance Engine", () => {
-  it("выполнимый заказ → CONFIRMED, история, уведомление; движок вызван с orderId", async () => {
+describe("POST /api/orders/:id/accept — единый lifecycle engine", () => {
+  it("выполнимый заказ → CONFIRMED через атомарный lifecycle engine", async () => {
     const res = await postAccept(req(), { params: Promise.resolve({ id: ORDER_ID }) });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.status).toBe("CONFIRMED");
-    expect(engineCalls).toEqual([ORDER_ID]);
+    expect(body).toMatchObject({ success: true, orderId: ORDER_ID, status: "CONFIRMED" });
+    expect(lifecycleState.calls).toHaveLength(1);
+    expect(lifecycleState.calls[0]).toMatchObject({
+      orderId: ORDER_ID,
+      to: "CONFIRMED",
+      actorId: CONF_ID,
+      actorRoles: ["CONFECTIONER"],
+    });
     expect(dbState.order.status).toBe("CONFIRMED");
     expect(dbState.history).toHaveLength(1);
-    expect(dbState.history[0]).toMatchObject({ order_id: ORDER_ID, status_from: "PENDING", status_to: "CONFIRMED", changed_by: CONF_ID });
+    expect(dbState.history[0]).toMatchObject({
+      order_id: ORDER_ID,
+      status_from: "PENDING",
+      status_to: "CONFIRMED",
+      changed_by: CONF_ID,
+    });
     expect(dbState.notifications).toHaveLength(1);
   });
 
-  it("нехватка ингредиентов (canProduce=false) → 409, статус остаётся PENDING (сценарий A)", async () => {
-    engineBehavior = "inventory";
+  it("неподтверждённая онлайн-оплата → 422, заказ не меняется", async () => {
+    lifecycleState.errorCode = "PAYMENT_NOT_CONFIRMED";
     const res = await postAccept(req(), { params: Promise.resolve({ id: ORDER_ID }) });
-    expect(res.status).toBe(409);
-    const body = await res.json();
-    expect(body.error).toBe("ORDER_NOT_FEASIBLE");
-    expect(body.shortages).toEqual([{ name: "Ягоды", shortage: 500, unit: "г" }]);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("PAYMENT_NOT_CONFIRMED");
     expect(dbState.order.status).toBe("PENDING");
     expect(dbState.history).toHaveLength(0);
     expect(dbState.notifications).toHaveLength(0);
   });
 
-  it("RECIPE_MISSING (!canAccept) → 409 с понятным сообщением (сценарий D)", async () => {
-    engineBehavior = "blocked";
+  it("исполнитель не имеет права на заказ → 403, заказ не меняется", async () => {
+    lifecycleState.errorCode = "FORBIDDEN_ROLE";
+    const res = await postAccept(req(), { params: Promise.resolve({ id: ORDER_ID }) });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("FORBIDDEN_ROLE");
+    expect(dbState.order.status).toBe("PENDING");
+  });
+
+  it("заказ уже обработан / переход запрещён → 409", async () => {
+    lifecycleState.errorCode = "INVALID_TRANSITION";
     const res = await postAccept(req(), { params: Promise.resolve({ id: ORDER_ID }) });
     expect(res.status).toBe(409);
-    const body = await res.json();
-    expect(body.error).toBe("ORDER_NOT_FEASIBLE");
-    expect(JSON.stringify(body.reasons)).toContain("RECIPE_MISSING");
+    expect((await res.json()).error).toBe("INVALID_TRANSITION");
     expect(dbState.order.status).toBe("PENDING");
   });
 
-  it("параллельный/повторный accept: conditional update вернул 0 строк → 409, без дубля истории", async () => {
-    // Симуляция: второй запрос приходит, когда статус уже CONFIRMED
-    dbState.order.status = "CONFIRMED";
+  it("заказ не найден в транзакционном движке → 404", async () => {
+    lifecycleState.errorCode = "ORDER_NOT_FOUND";
     const res = await postAccept(req(), { params: Promise.resolve({ id: ORDER_ID }) });
-    // Статус не PENDING → ранний отказ «Заказ уже CONFIRMED» (первый барьер)
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toContain("CONFIRMED");
-  });
-
-  it("движок упал → 503 fail-closed, статус не меняется", async () => {
-    engineBehavior = "throws";
-    const res = await postAccept(req(), { params: Promise.resolve({ id: ORDER_ID }) });
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("FEASIBILITY_CHECK_FAILED");
-    expect(dbState.order.status).toBe("PENDING");
-  });
-
-  it("движок вернул null → 503 fail-closed", async () => {
-    engineBehavior = "null";
-    const res = await postAccept(req(), { params: Promise.resolve({ id: ORDER_ID }) });
-    expect(res.status).toBe(503);
-    expect(dbState.order.status).toBe("PENDING");
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("ORDER_NOT_FOUND");
   });
 });
