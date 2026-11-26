@@ -20,13 +20,14 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createAccessToken, createRefreshToken } from "@/lib/auth";
 import { setSessionCookies } from "@/lib/session-cookies";
 import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
+import { isPlaceholderValue } from "@/lib/placeholder-value";
 
 type Provider = "google" | "yandex" | "vk";
 
 const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk"];
 
 function isStubValue(value: string | undefined): boolean {
-  return !value || value.trim() === "" || value.startsWith("stub_");
+  return isPlaceholderValue(value);
 }
 
 function getProviderConfig(provider: Provider): {
