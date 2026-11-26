@@ -192,7 +192,7 @@ jobs:
           SIMPLEX_BRIDGE_API_KEY=ci-dummy \
           N8N_ADMIN_PASSWORD=ci-dummy \
           NEXT_PUBLIC_SUPABASE_URL=https://conditera-ci.invalid/api \
-          NEXT_PUBLIC_SUPABASE_ANON_KEY=stub_ci_anon_key_not_for_deploy \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=ci-only-anon-key-not-for-deploy \
           NEXT_PUBLIC_APP_URL=https://conditera-ci.invalid \
           docker compose -f docker-compose.yml config -q
           echo "✓ docker-compose.yml is valid"
@@ -214,7 +214,7 @@ jobs:
             GIT_SHA=${{ env.CANDIDATE_SHA }}
             CI=true
             NEXT_PUBLIC_SUPABASE_URL=https://conditera-ci.invalid/api
-            NEXT_PUBLIC_SUPABASE_ANON_KEY=stub_ci_anon_key_not_for_deploy
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=ci-only-anon-key-not-for-deploy
             NEXT_PUBLIC_APP_URL=https://conditera-ci.invalid
           cache-from: type=gha
           cache-to: type=gha,mode=max
