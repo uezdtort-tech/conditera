@@ -142,7 +142,7 @@ test.describe("Полный онбординг кондитера — PostgreSQL
           consentMarketing: false,
         },
       });
-      expect(adminRegister.status(), await adminRegister.text()).toBe(200);
+      expect(adminRegister.status(), await adminRegister.text()).toBe(201);
       const admin = await adminRegister.json() as {
         user: { id: string };
         accessToken: string;
