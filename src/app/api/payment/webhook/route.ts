@@ -35,12 +35,12 @@ import {
 } from "@/lib/yookassa";
 
 // Только реальные значения enum 0001; тип запрещает добавлять legacy-алиасы вроде "paid".
-const ESCROW_ELIGIBLE_PAYMENT_STATUSES = [
+export const ESCROW_ELIGIBLE_PAYMENT_STATUSES = [
   "pending",
   "waiting_for_capture",
   "succeeded",
 ] satisfies payment_status[];
-const CANCEL_RECONCILE_PAYMENT_STATUSES = [
+export const CANCEL_RECONCILE_PAYMENT_STATUSES = [
   "pending",
   "waiting_for_capture",
   "succeeded",
