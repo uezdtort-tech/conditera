@@ -100,6 +100,9 @@ env:
   SUPABASE_INTERNAL_URL: "http://127.0.0.1:3000"
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-only-anon-key-not-for-deploy"
   NODE_ENV: test
+  # Only this CI workflow runs against loopback; enables the guarded mock
+  # payment provider for browser/integration scenarios without live credentials.
+  E2E_PAYMENT_STUB_ENABLED: "true"
   YANDEX_CLIENT_ID: e2e-yandex-client
   YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
   VK_CLIENT_ID: e2e-vk-client
