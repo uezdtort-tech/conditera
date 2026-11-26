@@ -67,24 +67,48 @@ export function validateEnvironment(values, selectedMode = "development", select
   const error = (message) => errors.push(message);
   const value = (name) => (values[name] || "").trim();
 
-  // Database and Supabase
-  required("DATABASE_URL", "PostgreSQL connection URL");
+  // Database and Supabase — one logical PG17 database, with separate app/backup roles.
+  required("DATABASE_URL", "PostgreSQL runtime URL (conditera_app)");
+  required("DIRECT_DATABASE_URL", "direct PostgreSQL URL (conditera_app)");
+  required("BACKUP_DATABASE_URL", "dedicated read-only backup URL (conditera_backup)");
+  required("APP_DATABASE_PASSWORD", "separate application database role password");
+  required("BACKUP_DATABASE_PASSWORD", "separate backup database role password");
   required("NEXT_PUBLIC_SUPABASE_URL", "Supabase public URL");
   required("NEXT_PUBLIC_SUPABASE_ANON_KEY", "Supabase anon key");
   required("SUPABASE_SERVICE_ROLE_KEY", "server-only service role key");
 
   const databaseUrl = value("DATABASE_URL");
   if (databaseUrl.startsWith("file:")) error("DATABASE_URL не может использовать file: URL");
-  if (production && isFilled(databaseUrl)) {
-    try {
-      const parsed = new URL(databaseUrl);
-      const password = decodeURIComponent(parsed.password);
-      if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname || !parsed.username ||
-          password.length < 32 || /^(CHANGE_ME|change_me|stub_|fallback-|dev[-_]|placeholder|example|dummy|test[-_])/i.test(password)) {
-        error("DATABASE_URL должен содержать PostgreSQL host/user и неплейсхолдерный пароль не короче 32 символов (значение скрыто)");
+  if (production) {
+    const databaseContracts = [
+      ["DATABASE_URL", "conditera_app", "APP_DATABASE_PASSWORD"],
+      ["DIRECT_DATABASE_URL", "conditera_app", "APP_DATABASE_PASSWORD"],
+      ["BACKUP_DATABASE_URL", "conditera_backup", "BACKUP_DATABASE_PASSWORD"],
+    ];
+    for (const [name, expectedUser, passwordVariable] of databaseContracts) {
+      const raw = value(name);
+      if (!isFilled(raw)) continue;
+      try {
+        const parsed = new URL(raw);
+        const password = decodeURIComponent(parsed.password);
+        const expectedPasswordRef = `${${passwordVariable}}`;
+        const passwordFromEnvReference = password === expectedPasswordRef;
+        const configuredPassword = value(passwordVariable);
+        const validPassword = passwordFromEnvReference
+          ? isFilled(configuredPassword) && configuredPassword.length >= 32
+          : password.length >= 32 && !/^(CHANGE_ME|change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_])/i.test(password);
+        const database = parsed.pathname.replace(/^\\//, "");
+        if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname ||
+            parsed.username !== expectedUser || database !== "conditera" || !validPassword) {
+          error(`${name} должен подключаться к базе conditera от роли ${expectedUser} с отдельным неплейсхолдерным паролем`);
+        }
+      } catch {
+        error(`${name} имеет некорректный формат PostgreSQL URL`);
       }
-    } catch {
-      error("DATABASE_URL имеет некорректный формат PostgreSQL URL");
+    }
+    if (value("BACKUP_DATABASE_URL") === value("DATABASE_URL") ||
+        value("BACKUP_DATABASE_URL") === value("DIRECT_DATABASE_URL")) {
+      error("BACKUP_DATABASE_URL должен использовать отдельную роль conditera_backup");
     }
   }
 
@@ -113,6 +137,7 @@ export function validateEnvironment(values, selectedMode = "development", select
     for (const [name, description] of [
       ["POSTGRES_PASSWORD", "PostgreSQL superuser password"],
       ["APP_DATABASE_PASSWORD", "separate application database role password"],
+      ["BACKUP_DATABASE_PASSWORD", "separate backup database role password"],
       ["SUPABASE_SECRET_KEY_BASE", "Supabase runtime secret key base"],
       ["PG_META_CRYPTO_KEY", "postgres-meta encryption key"],
       ["REALTIME_DB_ENC_KEY", "Realtime encryption key"],
@@ -141,6 +166,7 @@ export function validateEnvironment(values, selectedMode = "development", select
     const lengthRules = [
       ["POSTGRES_PASSWORD", 32, "min"],
       ["APP_DATABASE_PASSWORD", 32, "min"],
+      ["BACKUP_DATABASE_PASSWORD", 32, "min"],
       ["SUPABASE_SECRET_KEY_BASE", 32, "min"],
       ["MEILI_MASTER_KEY", 32, "min"],
       ["N8N_ADMIN_PASSWORD", 24, "min"],
@@ -199,13 +225,22 @@ export function validateEnvironment(values, selectedMode = "development", select
   // OAuth providers
   if (production) {
     required("YANDEX_CLIENT_ID", "Yandex ID client ID");
+    required("YANDEX_CLIENT_SECRET", "Yandex ID client secret");
     required("YANDEX_OAUTH_REDIRECT", "Yandex ID callback URL");
     required("VK_CLIENT_ID", "VK ID client ID");
     required("VK_OAUTH_REDIRECT", "VK ID callback URL");
+    const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\\/$/, "");
+    if (isFilled(appBase) && isFilled(value("VK_OAUTH_REDIRECT")) &&
+        value("VK_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/vk/callback`) {
+      error("VK_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/vk/callback");
+    }
     const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\/$/, "");
     if (isFilled(appBase) && isFilled(value("YANDEX_OAUTH_REDIRECT")) &&
         value("YANDEX_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/yandex/callback`) {
       error("YANDEX_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/yandex/callback");
+    }
+    if (isFilled(value("YANDEX_CLIENT_SECRET")) && value("YANDEX_CLIENT_SECRET").length < 16) {
+      error("YANDEX_CLIENT_SECRET короче 16 символов");
     }
     if (isFilled(appBase) && isFilled(value("VK_OAUTH_REDIRECT")) &&
         value("VK_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/vk/callback`) {
@@ -217,13 +252,20 @@ export function validateEnvironment(values, selectedMode = "development", select
     optional("VK_CLIENT_ID", "VK ID");
     optional("VK_OAUTH_REDIRECT", "VK ID callback");
   }
-  if (isFilled(value("GOOGLE_CLIENT_ID"))) {
+  if (production) {
+    required("GOOGLE_CLIENT_ID", "Google OAuth client ID");
     required("GOOGLE_CLIENT_SECRET", "Google OAuth client secret");
     required("GOOGLE_OAUTH_REDIRECT", "Google OAuth callback URL");
-  } else if (isFilled(value("GOOGLE_CLIENT_SECRET")) || isFilled(value("GOOGLE_OAUTH_REDIRECT"))) {
-    error("Google OAuth настроен частично: задайте client ID, client secret и redirect URI или очистите все три");
+    if (isFilled(value("GOOGLE_CLIENT_SECRET")) && value("GOOGLE_CLIENT_SECRET").length < 16) {
+      error("GOOGLE_CLIENT_SECRET короче 16 символов");
+    }
+    const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\\/$/, "");
+    if (isFilled(appBase) && isFilled(value("GOOGLE_OAUTH_REDIRECT")) &&
+        value("GOOGLE_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/google/callback`) {
+      error("GOOGLE_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/google/callback");
+    }
   } else {
-    optional("GOOGLE_CLIENT_ID", "Google OAuth (optional)");
+    optional("GOOGLE_CLIENT_ID", "Google OAuth");
   }
 
   // Telegram
@@ -235,6 +277,9 @@ export function validateEnvironment(values, selectedMode = "development", select
   if (production) {
     required("YOOKASSA_SHOP_ID", "YooKassa shop ID");
     required("YOOKASSA_SECRET_KEY", "YooKassa secret key");
+    if (isFilled(value("YOOKASSA_SECRET_KEY")) && !value("YOOKASSA_SECRET_KEY").startsWith("live_")) {
+      error("YOOKASSA_SECRET_KEY должен быть production-ключом с префиксом live_");
+    }
   } else {
     optional("YOOKASSA_SHOP_ID", "YooKassa shop ID");
     optional("YOOKASSA_SECRET_KEY", "YooKassa secret key");
