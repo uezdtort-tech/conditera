@@ -188,8 +188,10 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    const providerConfigured = Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
-    expect(providerConfigured ? [200, 401, 404] : [500]).toContain(response.status());
+    // Идентификатор возврата синтетический: реальный YooKassa не подтвердит
+    // его даже при настроенных credentials. Ошибка проверки провайдера обязана
+    // завершаться fail-closed, без обращения к локальному финансовому журналу.
+    expect(response.status()).toBe(500);
   });
 
   test('9. Unknown event → 200 OK (логируется, не падает)', async ({ request }: { request: APIRequestContext }) => {
