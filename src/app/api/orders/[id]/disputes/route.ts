@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { canTransitionOrderDispute, isTerminalOrderDisputeStatus } from "@/lib/order-dispute-state";
 import { getUserFromRequest } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getPool } from "@/lib/postgrest/pool";
@@ -263,7 +264,7 @@ export async function PATCH(
         return NextResponse.json({ error: "ASSIGNEE_MUST_HAVE_ACTIVE_SUPPORT_ROLE" }, { status: 422 });
       }
     }
-    if (["resolved", "rejected"].includes(nextStatus) && resolution.length < 10) {
+    if (isTerminalOrderDisputeStatus(nextStatus) && resolution.length < 10) {
       return NextResponse.json({ error: "RESOLUTION_REQUIRED" }, { status: 422 });
     }
 
@@ -283,13 +284,8 @@ export async function PATCH(
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "DISPUTE_NOT_ASSIGNED_TO_YOU" }, { status: 403 });
     }
-    const transitions: Record<string, string[]> = {
-      open: ["under_review"],
-      under_review: ["awaiting_customer", "resolved", "rejected"],
-      awaiting_customer: ["under_review", "resolved", "rejected"],
-    };
     const currentStatus = String(current.status);
-    if (!transitions[currentStatus]?.includes(nextStatus)) {
+    if (!canTransitionOrderDispute(currentStatus, nextStatus)) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "INVALID_DISPUTE_TRANSITION", currentStatus }, { status: 409 });
     }
