@@ -284,16 +284,14 @@ async function main() {
   const ingredient = stockIngredient.rows[0];
   const unitText = String(ingredient.unit ?? "");
   const ingredientQty = /^(кг|kg)$/i.test(unitText) ? 0.001 : 1;
-  // Checkout requests 12 pieces. The demo seed may contain a positive but
-  // insufficient quantity (e.g. 5 l), which makes an idempotency test fail
-  // before reaching the idempotency contract. Isolate the fixture stock and
-  // restore the exact original quantity in cleanup.
+  // Keep a single test item so the idempotency scenario measures replay
+  // semantics rather than bulk-production capacity. Restore stock in cleanup.
   cleanup.inventoryOriginal = { id: ingredient.id, quantity: ingredient.quantity };
   await client.query(
     `UPDATE public.inventory_items
         SET quantity = GREATEST(quantity, $2::numeric)
       WHERE id = $1::uuid`,
-    [ingredient.id, ingredientQty * 12 + 1],
+    [ingredient.id, ingredientQty + 1],
   );
   const recipe = await client.query(
     `INSERT INTO public.recipes
@@ -313,7 +311,7 @@ async function main() {
   );
   await client.query(
     `UPDATE public.products
-        SET recipe_id = $2::uuid, updated_at = now()
+        SET recipe_id = $2::uuid, production_time_hours = 1, updated_at = now()
       WHERE id = $1::uuid`,
     [PRODUCT_ID, cleanup.recipeId]
   );
@@ -326,7 +324,7 @@ async function main() {
   const deliveryDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const idemKey = `p11-verify-${rand()}`;
   const checkoutBody = {
-    cartItems: [{ product_id: PRODUCT_ID, quantity: 12 }],
+    cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
     deliveryCity: "Москва",
     deliveryAddress: "ул. Тестовая, 5, кв 1",
     deliveryType: "delivery",
