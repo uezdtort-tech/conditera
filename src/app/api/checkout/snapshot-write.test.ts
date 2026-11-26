@@ -140,6 +140,7 @@ vi.mock("@/lib/builder-fillings-server", () => ({
 
 vi.mock("@/lib/yookassa", () => ({
   isYookassaConfigured: () => false,
+  isLocalE2EPaymentStubEnabled: () => false,
   createPayment: vi.fn(),
 }));
 
