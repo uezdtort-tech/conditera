@@ -52,7 +52,7 @@ fi
 echo "4/7 Wait for PostgreSQL 17..."
 READY=0
 for attempt in $(seq 1 90); do
-  if docker exec "$RUNTIME_CONTAINER" pg_isready -U supabase_admin -d supabase >/dev/null 2>&1; then
+  if docker exec "$RUNTIME_CONTAINER" pg_isready -U supabase_admin -d conditera >/dev/null 2>&1; then
     READY=1
     break
   fi
@@ -64,20 +64,20 @@ if [ "$READY" != "1" ]; then
   exit 4
 fi
 
-VERSION_NUM="$(docker exec "$RUNTIME_CONTAINER" psql -X -At -U supabase_admin -d supabase -c 'SHOW server_version_num')"
+VERSION_NUM="$(docker exec "$RUNTIME_CONTAINER" psql -X -At -U supabase_admin -d conditera -c 'SHOW server_version_num')"
 MAJOR="$((VERSION_NUM / 10000))"
 if [ "$MAJOR" != "17" ]; then
   echo "ERROR: expected PostgreSQL 17; server_version_num=$VERSION_NUM"
   exit 5
 fi
 EXPECTED_MIGRATIONS="$(for sql_file in supabase/migrations/*.sql; do basename "$sql_file"; done | sort)"
-ACTUAL_MIGRATIONS="$(docker exec "$RUNTIME_CONTAINER" psql -X -At -U supabase_admin -d supabase -c 'SELECT filename FROM public.schema_migrations ORDER BY filename')"
+ACTUAL_MIGRATIONS="$(docker exec "$RUNTIME_CONTAINER" psql -X -At -U supabase_admin -d conditera -c 'SELECT filename FROM public.schema_migrations ORDER BY filename')"
 if [ "$EXPECTED_MIGRATIONS" != "$ACTUAL_MIGRATIONS" ]; then
   echo "ERROR: applied migration ledger does not exactly match the repository migration set."
   diff -u <(printf "%s\\n" "$EXPECTED_MIGRATIONS") <(printf "%s\\n" "$ACTUAL_MIGRATIONS") || true
   exit 5
 fi
-BACKUP_ROLE="$(docker exec "$RUNTIME_CONTAINER" psql -X -At -U supabase_admin -d supabase -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup' AND rolbypassrls AND NOT rolsuper)")"
+BACKUP_ROLE="$(docker exec "$RUNTIME_CONTAINER" psql -X -At -U supabase_admin -d conditera -c "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_backup' AND rolbypassrls AND NOT rolsuper)")"
 if [ "$BACKUP_ROLE" != "t" ]; then
   echo "ERROR: dedicated least-privilege conditera_backup role is missing."
   exit 5
