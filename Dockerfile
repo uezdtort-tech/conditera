@@ -40,13 +40,23 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# pay4: идентификация версии образа (передаётся из CI как GIT_SHA=${{ github.sha }})
+# Публичные переменные Next.js встраиваются в клиентский bundle на этапе build.
+# Они не являются секретами; service-role/JWT/payment secrets сюда не передавать.
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG GIT_SHA=unknown
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
 ENV APP_VERSION=${GIT_SHA}
 
-# Собираем Next.js со standalone-выходом (см. next.config.ts: output: "standalone")
+# Не выпускаем образ с пустой публичной конфигурацией Supabase.
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN test -n "$NEXT_PUBLIC_APP_URL" \
+ && test -n "$NEXT_PUBLIC_SUPABASE_URL" \
+ && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+ && npm run build
 
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
