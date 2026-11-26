@@ -160,7 +160,7 @@ test.describe.serial('Payment webhook idempotency', () => {
     expect([400, 500]).toContain(response.status());
   });
 
-  test('7. Webhook payment.canceled → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
+  test('7. payment.canceled без конфигурации YooKassa отклоняется fail-closed', async ({ request }: { request: APIRequestContext }) => {
     const orderId = randomUUID();
     const paymentId = `e2e-cancel-p-${Date.now()}`;
 
@@ -171,8 +171,10 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    // 200 (OK) или 404 (если order не существует) — оба валидны.
-    expect([200, 404]).toContain(response.status());
+    // В CI нет реальных credentials YooKassa: production runtime обязан вернуть 500,
+    // не применяя неподтверждённое событие. При настроенном шлюзе допустимы 200/404.
+    const providerConfigured = Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
+    expect(providerConfigured ? [200, 401, 404] : [404, 500]).toContain(response.status());
   });
 
   test('8. Webhook refund.succeeded → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
@@ -258,7 +260,8 @@ test.describe('Payment webhook — edge cases', () => {
 
     // Все запросы должны завершиться успешно (или с 404 если order не существует).
     // 401 — production-деплой: IP не из YooKassa-allowlist (см. verifyWebhook).
-    const webhookOk = [200, 401, 404];
+    const providerConfigured = Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
+    const webhookOk = providerConfigured ? [200, 401, 404] : [404, 500];
     expect(webhookOk).toContain(r1.status());
     expect(webhookOk).toContain(r2.status());
     expect(webhookOk).toContain(r3.status());
