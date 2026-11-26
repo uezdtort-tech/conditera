@@ -189,6 +189,10 @@ test.describe('API v2.0 — AI assistant', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'customer@demo.ru', password: 'Demo123!' }),
+      headers: {
+        'x-real-ip': '10.250.250.250',
+        'user-agent': 'Playwright-E2E/1.0 (+https://conditera.ru)',
+      },
     })
     if (!response.ok) throw new Error(`Demo login failed: ${response.status}`)
     const data = (await response.json()) as { accessToken?: string }
