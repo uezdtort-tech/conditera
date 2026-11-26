@@ -41,7 +41,7 @@ jobs:
           POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
           SEED_MODE: none
         ports:
-          - 55432:5432
+          - 5432
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera"
           --health-interval 10s
@@ -50,7 +50,6 @@ jobs:
           --health-start-period 45s
     env:
       NODE_VERSION: "26"
-      DATABASE_URL: ${{ 'postgresql://supabase_admin:ci-pg17-password@127.0.0.1:55432/conditera' }}
       JWT_SECRET: ${{ 'e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa' }}
       JWT_REFRESH_SECRET: ${{ 'e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa' }}
       TFA_ENCRYPTION_KEY: ${{ 'e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
@@ -72,6 +71,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - name: Выделить уникальный порт для PostgreSQL 17
+        shell: bash
+        env:
+          PG17_HOST_PORT: ${{ job.services.postgres.ports[5432] }}
+        run: |
+          if [[ -z "$PG17_HOST_PORT" ]]; then
+            echo "GitHub Actions не выдал динамический host port для PostgreSQL 17" >&2
+            exit 1
+          fi
+          echo "DATABASE_URL=postgresql://supabase_admin:ci-pg17-password@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
+          echo "PGURL=postgresql://supabase_admin:ci-pg17-password@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
+          echo "ZV24_ADMIN_URL=postgresql://supabase_admin:ci-pg17-password@127.0.0.1:${PG17_HOST_PORT}/postgres" >> "$GITHUB_ENV"
+
 
       - name: Проверить все JSON-сценарии n8n и production allowlist
         run: node scripts/verify/n8n-production-workflows-verify.mjs
@@ -93,7 +105,6 @@ jobs:
       - name: Применить все миграции к чистому PostgreSQL 17 и создать E2E-данные
         run: bun run db:setup
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
           SEED_MODE: demo
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
@@ -104,7 +115,6 @@ jobs:
       - name: Изолированная регрессия cart schema на отдельной БД PostgreSQL 17
         run: bun scripts/verify/cart-schema-verify.mjs
         env:
-          ZV24_ADMIN_URL: ${{ 'postgresql://supabase_admin:ci-pg17-password@127.0.0.1:55432/postgres' }}
 
       - name: Проверить версию PG17, журнал миграций, расширения, роли и RLS
         run: |
@@ -191,7 +201,6 @@ jobs:
       - name: Проверить конкурентные возвраты на независимых соединениях PG17
         run: node scripts/verify/refund-concurrency-pg.mjs
         env:
-          PGURL: ${{ env.DATABASE_URL }}
 
       - name: Экспортировать сгенерированный Supabase anon key для production build
         shell: bash
