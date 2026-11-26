@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
 import type { user_role } from "@/lib/supabase/types";
+import { normalizeCmsBlockOrder } from "@/lib/cms-section-order";
 
 export const runtime = "nodejs";
 
@@ -26,21 +27,20 @@ export async function POST(request: NextRequest) {
     }
 
     const { section, blockIds } = body as { section?: unknown; blockIds?: unknown };
+    const normalizedBlockIds = normalizeCmsBlockOrder(blockIds);
     if (
       typeof section !== "string" ||
       !SECTIONS.has(section) ||
-      !Array.isArray(blockIds) ||
-      blockIds.length === 0 ||
-      blockIds.length > 200 ||
-      !blockIds.every((id): id is string => typeof id === "string" && UUID.test(id)) ||
-      new Set(blockIds).size !== blockIds.length
+      !normalizedBlockIds ||
+      normalizedBlockIds.length === 0 ||
+      !normalizedBlockIds.every((id) => UUID.test(id))
     ) {
       return NextResponse.json({ error: "Некорректный список блоков" }, { status: 400 });
     }
 
     const { error } = await supabaseAdmin.rpc("cms_reorder_home_blocks", {
       p_section: section,
-      p_block_ids: blockIds,
+      p_block_ids: normalizedBlockIds,
       p_actor: user.id,
     });
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true, section, blockIds });
+    return NextResponse.json({ ok: true, section, blockIds: normalizedBlockIds });
   } catch {
     return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
   }
