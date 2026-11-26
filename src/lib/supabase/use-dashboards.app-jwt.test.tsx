@@ -261,7 +261,8 @@ describe("useCourierDashboard — доставки только свои", () =>
     expect(result.current.data?.stats.completedToday).toBe(1);
     expect(result.current.data?.stats.earningsToday).toBe(300);
     expect(result.current.data?.recentCompleted[0]?.courier_earnings).toBe(300);
-  });});
+  });
+});
 
 describe("useAdminDashboard — серверная проверка роли", () => {
   it("данные с /api/admin/dashboard, маппинг customer_email (fallback customer)", async () => {
@@ -302,7 +303,7 @@ describe("Истёкшая сессия — авто-refresh и повтор", (
       if (u.pathname === "/api/auth/refresh") {
         return Promise.resolve(okResponse({ accessToken: NEW_TOKEN }));
       }
-      // GET /rest/v1/deliveries: до refresh — 401, после — 200
+      // GET /api/courier/dashboard: до refresh — 401, после — 200
       const seenRefresh = fetchMock.mock.calls.some(
         (call: unknown[]) => String(call[0]).includes("/api/auth/refresh")
       );
