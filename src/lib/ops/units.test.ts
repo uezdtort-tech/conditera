@@ -9,8 +9,8 @@ describe("culinary unit conversion", () => {
   });
 
   it("converts dozen to pieces and back without losing the unit factor", () => {
-    expect(convertQty(1, "дес", "шт")).toBe(12);
-    expect(convertQty(8, "шт", "дес")).toBeCloseTo(2 / 3, 6);
+    expect(convertQty(1, "дес", "шт")).toBe(10);
+    expect(convertQty(8, "шт", "дес")).toBeCloseTo(0.8, 6);
     expect(convertQty(2, "dozen", "pcs")).toBe(24);
   });
 
