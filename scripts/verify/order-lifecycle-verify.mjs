@@ -193,6 +193,12 @@ async function deleteOrder(orderId) {
   // escrow_accounts создаётся триггером/эккаунтингом при payment_status='escrow'
   await client.query(`DELETE FROM public.escrow_accounts WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
+  // financial_ledger.payment_id references payments(id); remove child rows first.
+  await client.query(
+    `DELETE FROM public.financial_ledger
+      WHERE payment_id IN (SELECT id FROM public.payments WHERE order_id = $1::uuid)`,
+    [orderId]
+  ).catch(() => {});
   await client.query(`DELETE FROM public.payments WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.deliveries WHERE order_id = $1::uuid`, [orderId]).catch(() => {});
   await client.query(`DELETE FROM public.order_media WHERE order_id = $1::uuid`, [orderId]);
