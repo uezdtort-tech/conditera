@@ -132,7 +132,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
         .limit(1)
         .maybeSingle();
 
-      const orderWasPaid = ["paid", "escrow", "succeeded"].includes(order.payment_status);
+      const orderWasPaid = ["escrow", "succeeded", "released"].includes(order.payment_status);
       if (paymentLookupError) {
         refundPending = true;
         console.error(
