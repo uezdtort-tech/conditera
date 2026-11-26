@@ -99,6 +99,8 @@ PSQL -c "
     ('0087_quote_media_private_bucket.sql', '0101_quote_media_private_bucket.sql'),
     ('0087_user_consent_events.sql', '0061a_user_consent_events.sql'),
     ('0087_restrict_public_analytics_and_trigger_rpcs.sql', '0117_restrict_public_analytics_and_trigger_rpcs.sql'),
+    ('0108_restrict_public_analytics_and_trigger_rpcs.sql', '0117_restrict_public_analytics_and_trigger_rpcs.sql'),
+    ('0109_restrict_public_analytics_and_trigger_rpcs.sql', '0117_restrict_public_analytics_and_trigger_rpcs.sql'),
     ('0088_reference_catalog.sql', '0062b_reference_catalog.sql'),
     ('0088_harden_yookassa_refund_rpc.sql', '0103_harden_yookassa_refund_rpc.sql'),
     ('0089_financial_ledger.sql', '0063a_financial_ledger.sql'),
