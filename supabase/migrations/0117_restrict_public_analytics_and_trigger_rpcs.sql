@@ -109,9 +109,11 @@ BEGIN
     'analytics_top_confectioners'
   ] LOOP
     IF to_regclass(format('public.%I', view_name)) IS NOT NULL THEN
-      IF has_table_privilege('anon', format('public.%I', view_name), 'SELECT')
-         OR has_table_privilege('authenticated', format('public.%I', view_name), 'SELECT') THEN
-        RAISE EXCEPTION '0109 security regression: client SELECT remains on public.%', view_name;
+      IF (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+          AND has_table_privilege('anon', format('public.%I', view_name), 'SELECT'))
+         OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+          AND has_table_privilege('authenticated', format('public.%I', view_name), 'SELECT')) THEN
+        RAISE EXCEPTION '0117 security regression: client SELECT remains on public.%', view_name;
       END IF;
     END IF;
   END LOOP;
