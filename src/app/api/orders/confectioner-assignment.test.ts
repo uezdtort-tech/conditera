@@ -214,6 +214,7 @@ describe("POST /api/orders — тарифный снапшот кондитер�
     const res = await postOrder(
       jsonReq(`${BASE}/api/orders`, {
         items: [{ productId: PID, quantity: 2 }],
+        paymentMethod: "cash",
         deliveryAddress: "г. Москва, ул. Тверская 1",
         deliveryCost: 0,
       })
@@ -243,6 +244,7 @@ describe("POST /api/orders — тарифный снапшот кондитер�
     const res = await postOrder(
       jsonReq(`${BASE}/api/orders`, {
         items: [{ productId: PID, quantity: 1 }],
+        paymentMethod: "cash",
         deliveryCost: 0,
       })
     );
