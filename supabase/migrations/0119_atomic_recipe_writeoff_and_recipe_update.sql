@@ -122,7 +122,8 @@ $$;
 -- 2. ZV31-002: атомарное кумулятивное order-списание (одна транзакция)
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.apply_order_write_off_atomic(
-  p_owner_id        uuid,      -- актор (user.id): владелец реестровой строки, user_id движений, владелец склада по умолчанию
+  p_actor_id       uuid,      -- пользователь, выполнивший действие (аудит движения)
+  p_inventory_owner_id uuid,   -- владелец складских остатков и ключ реестра
   p_order_id        uuid,      -- бизнес-ключ дедупликации/серилизации (обязателен)
   p_items           jsonb,     -- [{item_id, quantity}] в единицах складских позиций
   p_signature       text,      -- sha256 отсортированных "item_id:quantity" (считает СЕРВЕР)
@@ -171,8 +172,11 @@ DECLARE
   v_overage      boolean := false;
 BEGIN
   -- ── Валидация входа (никакого доверия клиенту; signature/order_id обязательны) ──
-  IF p_owner_id IS NULL THEN
-    RAISE EXCEPTION '[order_write_off] p_owner_id обязателен';
+  IF p_actor_id IS NULL THEN
+    RAISE EXCEPTION '[order_write_off] p_actor_id обязателен';
+  END IF;
+  IF p_inventory_owner_id IS NULL THEN
+    RAISE EXCEPTION '[order_write_off] p_inventory_owner_id обязателен';
   END IF;
   IF p_order_id IS NULL THEN
     RAISE EXCEPTION '[order_write_off] p_order_id обязателен (order-путь)';
@@ -197,7 +201,11 @@ BEGIN
   --    Заказ не найден → легаси-поведение (валидации нет, паритет route). ──
   SELECT * INTO v_order FROM public.orders WHERE id = p_order_id FOR UPDATE;
   v_order_found := FOUND;
-  v_owner := COALESCE(v_order.confectioner_id, p_owner_id);
+  v_owner := COALESCE(v_order.confectioner_id, p_inventory_owner_id);
+  IF v_order_found AND v_order.confectioner_id IS NOT NULL
+     AND v_order.confectioner_id IS DISTINCT FROM p_inventory_owner_id THEN
+    RAISE EXCEPTION '[order_write_off] inventory_owner_mismatch';
+  END IF;
 
   -- ── Шаг 2: РЕЕСТР-ПЕРВЫМ (паттерн 0071). Конфликт ЛЮБОГО уникального ключа
   --    = повтор/гонка → replay сохранённого результата, движения НЕ пишутся.
@@ -206,14 +214,14 @@ BEGIN
   INSERT INTO public.inventory_write_offs
     (owner_id, order_id, signature, items, result)
   VALUES
-    (p_owner_id, p_order_id, p_signature, p_items, '{}'::jsonb)
+    (p_inventory_owner_id, p_order_id, p_signature, p_items, '{}'::jsonb)
   ON CONFLICT DO NOTHING
   RETURNING * INTO v_row;
 
   IF v_row.id IS NULL THEN
     SELECT * INTO v_existing
       FROM public.inventory_write_offs w
-     WHERE w.owner_id = p_owner_id
+     WHERE w.owner_id = p_inventory_owner_id
        AND w.order_id = p_order_id
        AND w.signature = p_signature
      ORDER BY created_at DESC
@@ -360,7 +368,7 @@ BEGIN
         -- завершиться failed; считать их списанными запрещено.
         SELECT COALESCE(w.result -> 'applied', '[]'::jsonb)
           FROM public.inventory_write_offs w
-         WHERE w.owner_id = p_owner_id
+         WHERE w.owner_id = p_inventory_owner_id
            AND w.order_id = p_order_id
            AND w.id <> v_row.id
       LOOP
@@ -444,7 +452,7 @@ BEGIN
       CONTINUE;
     END IF;
 
-    IF v_inv.owner_id IS DISTINCT FROM p_owner_id AND p_actor_is_admin IS NOT TRUE THEN
+    IF v_inv.owner_id IS DISTINCT FROM p_inventory_owner_id THEN
       v_failed := v_failed || jsonb_build_object('item_id', v_item_id::text, 'error', 'Нет доступа к этой позиции склада');
       IF v_first_kind IS NULL THEN v_first_kind := 'forbidden'; END IF;
       CONTINUE;
@@ -470,7 +478,7 @@ BEGIN
     INSERT INTO public.inventory_movements
       (item_id, user_id, type, quantity, reason, order_id)
     VALUES
-      (v_item_id, p_owner_id, 'OUT', v_qty, v_reason, p_order_id)
+      (v_item_id, p_actor_id, 'OUT', v_qty, v_reason, p_order_id)
     RETURNING id INTO v_movement;
 
     v_applied := v_applied || jsonb_build_object(
@@ -497,10 +505,11 @@ BEGIN
 
   -- ── Шаг 7: успех — фиксируем результат в реестре и возвращаем ──
   UPDATE public.inventory_write_offs
-     SET result = jsonb_build_object('applied', v_applied, 'failed', v_failed)
+     SET result = jsonb_build_object('source', 'recipe', 'applied', v_applied, 'failed', v_failed)
    WHERE id = v_row.id;
 
   RETURN jsonb_build_object(
+    'source',    'recipe',
     'applied',   v_applied,
     'failed',    v_failed,
     'order_id',  p_order_id,
@@ -511,7 +520,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean) IS
+COMMENT ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, uuid, jsonb, text, text, boolean, boolean) IS
   'Z-v32/ZV31-002: атомарное кумулятивное order-списание; FOR UPDATE заказа + реестр-первым + перепроверка snapshot в транзакции';
 
 -- ============================================================================
@@ -668,7 +677,7 @@ REVOKE ALL ON FUNCTION public.inventory_unit_alias_info(text) FROM authenticated
 REVOKE ALL ON FUNCTION public.inventory_unit_convert_qty(numeric, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.inventory_unit_convert_qty(numeric, text, text) FROM anon;
 REVOKE ALL ON FUNCTION public.inventory_unit_convert_qty(numeric, text, text) FROM authenticated;
-REVOKE ALL ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, uuid, jsonb, text, text, boolean, boolean) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean) FROM anon;
 REVOKE ALL ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean) FROM authenticated;
 REVOKE ALL ON FUNCTION public.update_recipe_with_ingredients(uuid, jsonb, jsonb, jsonb, jsonb, jsonb, jsonb) FROM PUBLIC;
@@ -680,7 +689,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.inventory_unit_alias_info(text) TO service_role';
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.inventory_unit_convert_qty(numeric, text, text) TO service_role';
-    EXECUTE 'GRANT EXECUTE ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, uuid, jsonb, text, text, boolean, boolean) TO service_role';
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.update_recipe_with_ingredients(uuid, jsonb, jsonb, jsonb, jsonb, jsonb, jsonb) TO service_role';
   END IF;
 END $$;
