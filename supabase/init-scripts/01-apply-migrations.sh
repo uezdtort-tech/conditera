@@ -68,6 +68,7 @@ PSQL -c "
   INSERT INTO public.schema_migrations(filename)
   SELECT aliases.canonical_name
   FROM (VALUES
+    ('0012a_new_roles_recipes_loyalty_ai.sql', '0012_new_roles_recipes_loyalty_ai.sql'),
     ('0061_user_consent_events.sql', '0061a_user_consent_events.sql'),
     ('0062_reference_catalog.sql', '0062b_reference_catalog.sql'),
     ('0062a_reference_catalog.sql', '0062b_reference_catalog.sql'),
