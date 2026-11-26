@@ -1,6 +1,6 @@
-# ===== Docker Compose для "Уездного кондитера" (production) =====
-# Запуск: docker-compose up -d
-# Требует .env.production со всеми секретами (см. .env.example)
+# ===== Legacy Docker Compose для "Уездного кондитера" =====
+# Самостоятельный запуск запрещён: используйте node scripts/compose-single-runtime.mjs.
+# Этот файл содержит legacy app stack и подключается только как база для overlay PG17.
 # ====================================================================
 
 # Общие настройки логирования (ротация логов)
@@ -18,6 +18,7 @@ x-default-restart: &default-restart
 services:
   # ===== Migrator (init-контейнер — применяет миграции БД один раз) =====
   migrator:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -49,10 +50,17 @@ services:
 
   # ===== Веб-приложение (Next.js) =====
   web:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
       target: runner
+      args:
+        # Next.js встраивает эти публичные значения в клиентский bundle при build.
+        # Service role key и остальные секреты передавать в build args запрещено.
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL required}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL required}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY required}
     # pay4: образ по SHA-тегу из CI (immutable). WEB_IMAGE задаётся деплоем;
     # локально (без CI) образ собирается из build: ниже
     image: ${WEB_IMAGE:-conditera:local}
@@ -151,7 +159,8 @@ services:
   # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
   # с резервной копией и контрольной сверкой данных.
   db:
-    image: public.ecr.aws/docker/library/postgres:17-alpine
+    profiles: ["legacy-app-db"]
+    image: postgres:17-alpine
     container_name: conditera-db
     <<: *default-restart
     environment:
@@ -188,6 +197,7 @@ services:
   # session-level features (temp tables, SET без транзакции, LISTEN/NOTIFY).
   # Для Prisma этого достаточно — все запросы в явных транзакциях.
   pgbouncer:
+    profiles: ["legacy-app-db"]
     image: pgbouncer/pgbouncer:latest
     container_name: conditera-pgbouncer
     <<: *default-restart
@@ -251,6 +261,7 @@ services:
   # Индексация через API endpoint /api/search/reindex.
   # Заменяет медленный ILIKE '%...%' в PostgreSQL.
   meilisearch:
+    profiles: ["legacy-app-db"]
     image: getmeili/meilisearch:v1.12
     container_name: conditera-meilisearch
     <<: *default-restart
@@ -294,7 +305,8 @@ services:
 
   # ===== Redis (кэш, сессии, Socket.IO adapter, rate-limiting) =====
   redis:
-    image: public.ecr.aws/docker/library/redis:7-alpine
+    profiles: ["legacy-app-db"]
+    image: redis:7-alpine
     container_name: conditera-redis
     <<: *default-restart
     command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -321,6 +333,7 @@ services:
 
   # ===== Сервис чата (Socket.IO) =====
   chat-service:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile.chat
@@ -364,6 +377,7 @@ services:
   # настраивается owner-аккаунт через UI; переменные оставлены для отката
   # на 1.95.0 (git revert вернёт тег и env атомарно). См. docs/N8N_UPGRADE_CHECKLIST.md
   n8n:
+    profiles: ["legacy-app-db"]
     image: n8nio/n8n:2.49.5
     container_name: conditera-n8n
     <<: *default-restart
@@ -404,7 +418,8 @@ services:
 
   # ===== Caddy (обратный прокси + HTTPS) =====
   caddy:
-    image: public.ecr.aws/docker/library/caddy:2.8-alpine
+    profiles: ["legacy-app-db"]
+    image: caddy:2.11.9-alpine
     container_name: conditera-caddy
     <<: *default-restart
     ports:
