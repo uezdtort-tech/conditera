@@ -94,9 +94,6 @@ async function main() {
   t("все миграции в леджере", ledgerFiles === expectedMigrationFiles,
     `applied=${ledgerFiles}; expected=${expectedMigrationFiles}`);
 
-  const c = new Client({ connectionString: DB_URL });
-  await c.connect();
-
   console.log("\n─── PostgreSQL 17, extensions и повторный запуск ───");
   const version = await c.query("SELECT current_setting('server_version_num')::int AS n, version() AS v");
   const versionNum = Number(version.rows[0].n);
