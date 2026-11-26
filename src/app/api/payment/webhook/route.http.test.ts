@@ -42,6 +42,7 @@ vi.mock("@/lib/yookassa", () => ({
   verifyWebhook: mocks.verifyWebhook,
   getPaymentStatus: mocks.getPaymentStatus,
   isYookassaConfigured: mocks.isYookassaConfigured,
+  isLocalE2EPaymentStubEnabled: vi.fn(() => false),
   getRefund: mocks.getRefund,
 }));
 
