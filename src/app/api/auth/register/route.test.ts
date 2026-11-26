@@ -210,6 +210,11 @@ describe("POST /api/auth/register — единый fallback при недост�
     expect(profileUpsertMock).toHaveBeenCalledTimes(1);
     expect(userRolesUpsertMock).toHaveBeenCalledTimes(1);
     expect(referralsInsertMock).toHaveBeenCalledTimes(1);
+    expect(referralsInsertMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: expect.any(String),
+      userId: expect.any(String),
+      referralCode: expect.any(String),
+    }));
     // Компенсация (deleteUser) не нужна — GoTrue пользователя и не было
     expect(deleteUserMock).not.toHaveBeenCalled();
   });
