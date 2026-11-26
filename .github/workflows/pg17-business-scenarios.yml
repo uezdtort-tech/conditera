@@ -194,6 +194,17 @@ jobs:
         env:
           PGURL: ${{ env.DATABASE_URL }}
 
+      - name: Экспортировать сгенерированный Supabase anon key для production build
+        shell: bash
+        run: |
+          KEY="$(sed -n 's/^NEXT_PUBLIC_SUPABASE_ANON_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$KEY" ] || [ "$KEY" = "stub-anon-key" ]; then
+            echo "A generated Supabase anon key is required for the production build"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$KEY" >> "$GITHUB_ENV"
+
       - name: Экспортировать service-role key из локального окружения теста
         shell: bash
         run: |
