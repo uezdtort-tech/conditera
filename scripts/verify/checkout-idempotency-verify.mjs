@@ -33,7 +33,7 @@ const BASE = process.env.VERIFY_BASE || "http://127.0.0.1:3000";
 const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
 const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
-const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000002"; // tort-napoleon-domashniy
+let PRODUCT_ID = ""; // demo product with a seeded recipe
 
 let passed = 0;
 let failed = 0;
@@ -105,13 +105,11 @@ const client = new Client({ connectionString: PG_URL });
 function checkoutBody() {
   const d = new Date(Date.now() + 2 * 86400_000);
   const deliveryDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  // Z-v19 §13: custom-позиция конструктора (без product_id). Причина: Acceptance
-  // Engine (P0.5 §29) отказывает продуктовые позиции на seed-данных (в seed 0
-  // товаров с recipe_id+production_time, закупки не запланированы →
-  // PURCHASE_ETA_MISSING). Custom-позиции гейт пропускает ПО ДИЗАЙНУ — это
-  // позволяет проверять именно контракт идемпотентности checkout.
+  // Используем опубликованный demo-продукт с recipe_id и заполненными
+  // recipe_ingredients из seed-ops-center. Custom-конструктор в production
+  // намеренно не оплачивается без отдельной согласованной спецификации.
   return {
-    cartItems: [{ custom: { productType: "cake", filling: "condensed_milk", servings: 8 }, quantity: 1 }],
+    cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
     deliveryCity: "Москва",
     deliveryAddress: "ул. Идемпотентности, 1, кв 1",
     deliveryType: "delivery",
@@ -121,7 +119,6 @@ function checkoutBody() {
     paymentMethod: "card",
   };
 }
-
 async function countOrdersByKey(key) {
   const r = await client.query(
     `SELECT count(*)::int AS n, COALESCE(array_agg(id::text), '{}') AS ids
@@ -134,6 +131,17 @@ async function countOrdersByKey(key) {
 
 async function main() {
   await client.connect();
+  const productFixture = await client.query(
+    `SELECT id::text FROM public.products
+      WHERE slug = 'svadebnyy-tort-yagodnyy-barhat'
+        AND recipe_id IS NOT NULL
+        AND status = 'published'
+      LIMIT 1`
+  );
+  if (productFixture.rowCount !== 1) {
+    throw new Error("production-ready demo product with recipe was not seeded");
+  }
+  PRODUCT_ID = productFixture.rows[0].id;
   const customer = await login("customer@demo.ru");
   assert("логин customer@demo.ru", Boolean(customer));
 
