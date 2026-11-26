@@ -313,8 +313,8 @@ test.describe("Customer registration — browser UI", () => {
 test.describe("Customer checkout — browser UI", () => {
   test("customer logs in, adds a live product and creates an order through UI", async ({ page }) => {
     await page.goto(`${BASE_URL}/login`);
-    await page.getByLabel("Email").fill("customer@demo.ru");
-    await page.getByLabel("Пароль").fill("Demo123!");
+    await page.getByLabel("Email", { exact: true }).fill("customer@demo.ru");
+    await page.getByLabel("Пароль", { exact: true }).fill("Demo123!");
     await page.getByRole("button", { name: "Войти", exact: true }).click();
     await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
 
