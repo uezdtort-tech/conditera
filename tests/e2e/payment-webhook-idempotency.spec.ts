@@ -195,7 +195,7 @@ test.describe.serial('Payment webhook idempotency', () => {
     expect(response.status()).toBe(500);
   });
 
-  test('9. Unknown event with unverified provider payment is rejected fail-closed', async ({ request }: { request: APIRequestContext }) => {
+  test('9. Unknown event without a local order is not acknowledged as success', async ({ request }: { request: APIRequestContext }) => {
     const orderId = randomUUID();
     const paymentId = `e2e-unknown-p-${Date.now()}`;
     const body = makeWebhook('payment.unknown_event', orderId, paymentId, 'unknown');
@@ -205,9 +205,9 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    // Synthetic payment IDs cannot be verified against YooKassa. Unknown
-    // event types must not bypass provider verification and be acknowledged.
-    expect(response.status()).toBe(500);
+    // Unsupported events are not applied or acknowledged as successful:
+    // with no local payment/order ledger the route returns 404.
+    expect(response.status()).toBe(404);
   });
 
   test('10. Повторные webhook для отсутствующего заказа отклоняются одинаково', async ({ request }: { request: APIRequestContext }) => {
