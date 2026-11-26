@@ -487,13 +487,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 10. Создание referral записи
     const referralCode = `${name.toUpperCase().slice(0, 4)}-${userId.slice(-6).toUpperCase()}`;
-    try {
-      await supabaseAdmin.from("referrals").insert({
-        user_id: userId,
-        referral_code: referralCode,
-      });
-    } catch (refErr: any) {
-      console.warn("[register] referral create failed (non-blocking):", refErr?.message);
+    const { error: referralErr } = await supabaseAdmin.from("referrals").insert({
+      id: crypto.randomUUID(),
+      userId,
+      referralCode,
+    });
+    if (referralErr) {
+      // Referral attribution is non-blocking for account creation, but the
+      // schema error must remain visible instead of silently losing the code.
+      console.warn("[register] referral create failed (non-blocking):", referralErr.message);
     }
 
     // 11. Записать успешную верификацию (если legal)
