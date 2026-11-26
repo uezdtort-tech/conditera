@@ -402,6 +402,9 @@ jobs:
             echo "  Waiting for app... ($i/30)"
             sleep 2
           done
+        env:
+          NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+          E2E_PAYMENT_STUB_ENABLED: "true"
 
       - name: Run integration verifies
         run: |
