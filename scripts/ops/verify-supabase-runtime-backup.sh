@@ -75,7 +75,7 @@ node scripts/ops/backup-verify-restore.mjs
 echo "2/2: restore Storage archive into a disposable volume"
 docker inspect "$STORAGE_CONTAINER" >/dev/null 2>&1 || fail "Storage container not found: $STORAGE_CONTAINER"
 if [[ -z "$STORAGE_VOLUME" ]]; then
-  STORAGE_VOLUME="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "${STORAGE_MOUNT}"}}{{.Name}}{{end}}{{end}}' "$STORAGE_CONTAINER")"
+  STORAGE_VOLUME="$(docker inspect -f "{{range .Mounts}}{{if eq .Destination \"\${STORAGE_MOUNT}\"}}{{.Name}}{{end}}{{end}}" "$STORAGE_CONTAINER")"
 fi
 [[ -n "$STORAGE_VOLUME" ]] || fail "cannot resolve volume mounted at /mnt/storage"
 docker volume inspect "$STORAGE_VOLUME" >/dev/null 2>&1 || fail "source Storage volume not found: $STORAGE_VOLUME"
