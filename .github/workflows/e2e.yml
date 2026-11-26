@@ -178,14 +178,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Bootstrap embedded PostgreSQL + migrations + demo fixtures for integration scenarios
+      - name: Bootstrap embedded PostgreSQL + migrations + seed
         run: |
           node scripts/db/runtime.mjs start
           bun run db:setup
         env:
           DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
           JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
-          SEED_MODE: demo
 
       - name: Restore build cache
         uses: actions/cache@v6
@@ -366,13 +365,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Bootstrap embedded PostgreSQL + migrations + seed
+      - name: Bootstrap embedded PostgreSQL + migrations + demo fixtures for integration scenarios
         run: |
           node scripts/db/runtime.mjs start
           bun run db:setup
         env:
           DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
           JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
+          SEED_MODE: demo
 
       - name: Restore build cache
         uses: actions/cache@v6
