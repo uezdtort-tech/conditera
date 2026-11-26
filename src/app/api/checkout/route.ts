@@ -184,15 +184,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const idempotencyKey = extractIdempotencyKey(request);
     if (idempotencyKey) {
       const since = new Date(Date.now() - IDEMPOTENCY_TTL_MINUTES * 60 * 1000).toISOString();
-      const { data: existing } = await supabaseAdmin
-        .from("orders")
-        .select("id, number, total, subtotal, delivery_cost, discount, created_at")
-        .eq("user_id", user.id)
-        .eq("metadata->>idempotency_key", idempotencyKey)
-        .gte("created_at", since)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // JSON-path filters are not portable through the local PostgREST shim.
+      // Use the same PostgreSQL expression as the unique index (0060), directly
+      // against the canonical PG17 pool; DB errors remain fail-closed.
+      const existingResult = await getPool().query(
+        `SELECT id, number, total, subtotal, delivery_cost, discount, created_at
+           FROM public.orders
+          WHERE user_id = $1::uuid
+            AND metadata->>'idempotency_key' = $2
+            AND created_at >= $3::timestamptz
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [user.id, idempotencyKey, since]
+      );
+      const existing = existingResult.rows[0] ?? null;
 
       if (existing) {
         const replay = await buildReplayResponse(existing);
