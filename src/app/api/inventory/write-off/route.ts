@@ -303,7 +303,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             duplicate: data.idempotent === true,
             ...(data.idempotent === true ? { message: "Списание уже было выполнено ранее" } : {}),
           },
-          { status: 409 }
+          { status: applied.length > 0 ? 201 : 409 }
         );
       }
       return NextResponse.json(
