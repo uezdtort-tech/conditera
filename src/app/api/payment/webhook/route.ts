@@ -28,6 +28,7 @@ import {
   verifyWebhook,
   getPaymentStatus,
   isYookassaConfigured,
+  isLocalE2EPaymentStubEnabled,
   getRefund,
   refundPayment,
 } from "@/lib/yookassa";
@@ -92,10 +93,12 @@ async function verifyEventWithProvider(
     // pay4: mock_* в production — подделка (defense-in-depth поверх IP-allowlist):
     // фальшивый refund.succeeded с metadata.orderId мог уйти в legacy-fallback
     // и уменьшить/обнулить реальный платёж. Dev/mock — пропускаем как прежде.
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error(`[webhook] mock_* id в production — fail-closed (object=${object.id})`);
       return { ok: false };
     }
+    // A mock payment can be accepted only by the explicitly enabled loopback
+    // E2E runtime; normal production traffic remains fail-closed.
     return { ok: true };
   }
 
