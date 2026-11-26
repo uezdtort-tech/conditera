@@ -134,7 +134,8 @@ describe("payment/webhook: HTTP-контракт (регрессии владе�
     // Обработка остановлена на skip-ветке: только поиск платежа (provider id +
     // dev-фолбэк по metadata.orderId — вне production он ещё жив), без чтения
     // заказа и записей.
-    expect(mocks.from.mock.calls.map((c) => c[0])).toEqual(["payments", "payments"]);
+    // Provider verification happens before any ledger read when credentials are absent.
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it("4. провайдер недоступен → 500 fail-closed (ослабления нет)", async () => {
@@ -180,7 +181,8 @@ describe("payment/webhook: HTTP-контракт (регрессии владе�
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({ error: "Provider verification failed" });
     expect(mocks.getPaymentStatus).not.toHaveBeenCalled();
-    expect(mocks.from.mock.calls.map((c) => c[0])).toEqual(["payments"]);
+    // Fail-closed before touching the local financial ledger.
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it("7. production: yookassa_payment_id не найден + metadata.orderId → фолбэк отключён, 404, БД-запись не создана", async () => {
