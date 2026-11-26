@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
-import { getSafeCmsMediaExtension, hasValidCmsMediaSignature } from "@/lib/cms-validation";
+import { getSafeCmsMediaExtension, hasValidCmsMediaSignature, sniffCmsMediaMime } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
 const CMS_ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"];
@@ -70,13 +70,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Размер файла должен быть от 1 байта до 50 МБ" }, { status: 400 });
     }
 
-    const extension = getSafeCmsMediaExtension(formFile.type);
-    if (!extension) {
-      return NextResponse.json({ error: "Этот формат файла не поддерживается" }, { status: 415 });
-    }
     const fileBytes = new Uint8Array(await formFile.arrayBuffer());
-    if (!hasValidCmsMediaSignature(formFile.type, fileBytes)) {
-      return NextResponse.json({ error: "Содержимое файла не соответствует заявленному формату" }, { status: 415 });
+    const detectedMime = sniffCmsMediaMime(fileBytes);
+    const extension = getSafeCmsMediaExtension(detectedMime);
+    if (!detectedMime || !extension || !hasValidCmsMediaSignature(detectedMime, fileBytes)) {
+      return NextResponse.json({ error: "Формат файла не поддерживается или сигнатура повреждена" }, { status: 415 });
     }
 
     const storage = supabaseAdmin.storage;
@@ -101,7 +99,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const objectPath = `media/${randomUUID()}.${extension}`;
     const { error: uploadError } = await storage.from("media").upload(objectPath, fileBytes, {
-      contentType: formFile.type,
+      contentType: detectedMime,
       cacheControl: "3600",
       upsert: false,
     });
@@ -111,16 +109,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const { data: publicData } = supabaseAdmin.storage.from("media").getPublicUrl(objectPath);
-    const type = formFile.type.startsWith("image/") ? "image"
-      : formFile.type.startsWith("video/") ? "video"
-      : formFile.type.startsWith("audio/") ? "audio" : "document";
+    const type = detectedMime.startsWith("image/") ? "image"
+      : detectedMime.startsWith("video/") ? "video"
+      : detectedMime.startsWith("audio/") ? "audio" : "document";
     const safeDisplayName = formFile.name.replaceAll("/", "_").replaceAll("\\", "_").replace(/[\u0000-\u001f\u007f]/g, "_").slice(0, 180) ||  "upload." + extension;
     const { data, error } = await supabaseAdmin.from("cms_media").insert({
       name: safeDisplayName,
       url: publicData.publicUrl,
       type,
       size_bytes: formFile.size,
-      mime_type: formFile.type,
+      mime_type: detectedMime,
       uploaded_by: auth.user!.id,
       is_public: true,
     }).select("id,name,url,type,size_bytes,mime_type,uploaded_by,is_public,created_at").single();
