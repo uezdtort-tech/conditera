@@ -4,6 +4,7 @@ const APP = process.env.E2E_APP_URL || "http://localhost:3000";
 const DEMO_PASSWORD = "Demo123!";
 const DEMO_CUSTOMER_ID = "11111111-1111-4111-8111-111111111106";
 const DEMO_CONFECTIONER_ID = "11111111-1111-4111-8111-111111111101";
+const TEST_DEVICE_HEADERS = { "x-real-ip": "10.250.250.250", "user-agent": "Playwright-E2E/1.0 (+https://conditera.ru)" };
 
 test.describe("Создание проекта торта и переговоров", () => {
   const sessionTokens: string[] = [];
@@ -31,6 +32,7 @@ test.describe("Создание проекта торта и переговор�
 
     const customerLogin = await request.post(APP + "/api/auth/login", {
       data: { email: "customer@demo.ru", password: DEMO_PASSWORD },
+      headers: TEST_DEVICE_HEADERS,
     });
     expect(customerLogin.ok(), await customerLogin.text()).toBeTruthy();
     const customerBody = await customerLogin.json();
@@ -39,6 +41,7 @@ test.describe("Создание проекта торта и переговор�
 
     const confectionerLogin = await request.post(APP + "/api/auth/login", {
       data: { email: "confectioner@demo.ru", password: DEMO_PASSWORD },
+      headers: TEST_DEVICE_HEADERS,
     });
     expect(confectionerLogin.ok(), await confectionerLogin.text()).toBeTruthy();
     const confectionerBody = await confectionerLogin.json();
