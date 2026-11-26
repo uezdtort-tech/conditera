@@ -109,14 +109,13 @@ test.describe.serial('Payment webhook idempotency', () => {
     }
   });
 
-  test('3. Невалидный payload (нет orderId) → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
-    // Отправляем payload без metadata.orderId
+  test('3. Неизвестный provider payment без metadata.orderId отклоняется fail-closed', async ({ request }: { request: APIRequestContext }) => {
     const badBody = {
       event: 'payment.succeeded',
       object: {
         id: TEST_PAYMENT_ID,
         status: 'succeeded',
-        metadata: {}, // нет orderId
+        metadata: {},
       },
     };
 
@@ -125,7 +124,8 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    expect(response.status()).toBe(400);
+    // В production без реальной сверки с YooKassa событие не подтверждается.
+    expect(response.status()).toBe(500);
   });
 
   test('4. Payload без object → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
