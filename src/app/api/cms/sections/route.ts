@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
 import type { user_role } from "@/lib/supabase/types";
+import { normalizeCmsSectionOrder } from "@/lib/cms-section-order";
 
 export const runtime = "nodejs";
 
@@ -49,33 +50,30 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Необходимо передать все шесть секций" }, { status: 400 });
     }
 
-    const normalized = sections.map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const normalizedInput = sections.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return item;
       const value = item as Record<string, unknown>;
-      if (
-        typeof value.section !== "string" ||
-        !SECTION_KEYS.includes(value.section as typeof SECTION_KEYS[number]) ||
-        typeof value.title !== "string" ||
-        value.title.trim().length === 0 ||
-        value.title.length > 100 ||
-        !Number.isInteger(value.sort_order) ||
-        (value.sort_order as number) < 0 ||
-        (value.sort_order as number) > 1000 ||
-        typeof value.is_enabled !== "boolean"
-      ) return null;
       return {
-        section: value.section,
-        title: value.title.trim(),
-        sort_order: value.sort_order,
-        is_enabled: value.is_enabled,
+        slug: value.section,
+        title: value.title,
+        sortOrder: value.sort_order,
+        visible: value.is_enabled,
       };
     });
-
-    if (normalized.some((item) => item === null) ||
-        new Set(normalized.map((item) => item?.section)).size !== SECTION_KEYS.length ||
-        new Set(normalized.map((item) => item?.sort_order)).size !== SECTION_KEYS.length) {
+    const normalizedOrder = normalizeCmsSectionOrder(normalizedInput);
+    if (
+      !normalizedOrder ||
+      normalizedOrder.length !== SECTION_KEYS.length ||
+      normalizedOrder.some((item) => !SECTION_KEYS.includes(item.slug as typeof SECTION_KEYS[number]) || typeof item.title !== "string")
+    ) {
       return NextResponse.json({ error: "Секции, названия и позиции должны быть уникальными и корректными" }, { status: 400 });
     }
+    const normalized = normalizedOrder.map((item) => ({
+      section: item.slug,
+      title: item.title!,
+      sort_order: item.sortOrder,
+      is_enabled: item.visible,
+    }));
 
     const { error } = await supabaseAdmin.rpc("cms_update_home_sections", {
       p_sections: normalized,
