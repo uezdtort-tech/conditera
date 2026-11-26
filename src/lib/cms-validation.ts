@@ -100,6 +100,24 @@ export function getSafeCmsMediaExtension(mimeType: unknown): string | null {
   return typeof mimeType === "string" ? CMS_MEDIA_EXTENSIONS[mimeType] ?? null : null;
 }
 
+/** Detect the actual media type from file bytes; never trust multipart Content-Type. */
+export function sniffCmsMediaMime(bytes: Uint8Array): string | null {
+  const starts = (...signature: number[]) =>
+    signature.every((byte, index) => bytes[index] === byte);
+  if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (starts(0x47, 0x49, 0x46, 0x38, 0x37, 0x61) || starts(0x47, 0x49, 0x46, 0x38, 0x39, 0x61)) return "image/gif";
+  if (starts(0x52, 0x49, 0x46, 0x46) &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+  if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return "video/mp4";
+  if (starts(0x1a, 0x45, 0xdf, 0xa3)) return "video/webm";
+  if (starts(0x49, 0x44, 0x33) || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return "audio/mpeg";
+  if (starts(0x52, 0x49, 0x46, 0x46) &&
+      bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45) return "audio/wav";
+  if (starts(0x25, 0x50, 0x44, 0x46, 0x2d)) return "application/pdf";
+  return null;
+}
+
 export function hasValidCmsMediaSignature(mimeType: string, bytes: Uint8Array): boolean {
   const starts = (...signature: number[]) => signature.every((byte, index) => bytes[index] === byte);
   switch (mimeType) {
