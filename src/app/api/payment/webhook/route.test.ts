@@ -44,6 +44,7 @@ vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: { from: mocks.from } }))
 vi.mock("@/lib/yookassa", () => ({
   verifyWebhook: vi.fn(() => true),
   isYookassaConfigured: vi.fn(() => mocks.state.providerConfigured),
+  isLocalE2EPaymentStubEnabled: vi.fn(() => false),
   getPaymentStatus: mocks.state.getPaymentStatus,
   getRefund: mocks.state.getRefund,
   refundPayment: mocks.state.refundPayment,
