@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => {
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => {
     query.in = vi.fn(() => query);
     query.is = vi.fn(() => query);
     query.limit = vi.fn(() => query);
+    query.order = vi.fn(() => query);
     query.update = vi.fn(() => { operation = "update"; return query; });
     query.upsert = vi.fn(() => { operation = "upsert"; return query; });
     query.maybeSingle = vi.fn(async () => {
@@ -111,6 +112,8 @@ function order(status = "PENDING") {
 }
 
 describe("payment webhook POST — cancellation race", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     mocks.state.singleResults = {};
     mocks.state.updateResults = {};
@@ -130,6 +133,7 @@ describe("payment webhook POST — cancellation race", () => {
   });
 
   it("fail-closed: не обрабатывает событие без конфигурации YooKassa", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     mocks.state.providerConfigured = false;
     const response = await POST(request());
     expect(response.status).toBe(500);
