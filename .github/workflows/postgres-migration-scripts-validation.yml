@@ -43,6 +43,8 @@ jobs:
           bash -n scripts/ops/restore-app-dump-to-pg17-shadow.sh
           bash -n supabase/init-scripts/01-apply-migrations.sh
           bash -n supabase/init-scripts/00-service-role-passwords.sh
+          bash -n scripts/ops/backup-supabase-runtime.sh
+          bash -n scripts/ops/verify-supabase-runtime-backup.sh
       - name: Установить ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Выполнить ShellCheck
@@ -51,3 +53,5 @@ jobs:
           shellcheck --severity=warning scripts/ops/restore-app-dump-to-pg17-shadow.sh
           shellcheck --severity=warning supabase/init-scripts/01-apply-migrations.sh
           shellcheck --severity=warning supabase/init-scripts/00-service-role-passwords.sh
+          shellcheck --severity=warning scripts/ops/backup-supabase-runtime.sh
+          shellcheck --severity=warning scripts/ops/verify-supabase-runtime-backup.sh
