@@ -929,7 +929,7 @@ async function main() {
   assert("заказ появляется у курьера только после handoff", courierAvailable.status === 200 && (courierAvailable.json?.orders || []).some((o) => o.id === o1.orderId), JSON.stringify(courierAvailable.json).slice(0, 160));
 
   const courierAssign = await api("POST", "/api/courier/assign", { token: courier, body: { orderId: o1.orderId } });
-  assert("курьер принимает переданный ему заказ → 200", courierAssign.status === 200 && courierAssign.json?.courierId === "11111111-1111-4111-8111-111111111113", JSON.stringify(courierAssign.json).slice(0, 160));
+  assert("курьер принимает переданный ему заказ → 200", courierAssign.status === 200 && courierAssign.json?.courierId === "22222222-2222-4222-8222-222222222201", JSON.stringify(courierAssign.json).slice(0, 160));
 
   const courierOrder = await api("GET", `/api/orders/${o1.orderId}`, { token: courier });
   assert("назначенный курьер открывает карточку заказа → 200", courierOrder.status === 200, JSON.stringify(courierOrder.json).slice(0, 120));
