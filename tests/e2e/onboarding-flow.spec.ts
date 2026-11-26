@@ -55,7 +55,7 @@ test.describe("Полный онбординг кондитера — PostgreSQL
         consentMarketing: false,
       },
     });
-    expect(register.status(), await register.text()).toBe(200);
+    expect(register.status(), await register.text()).toBe(201);
     const registered = await register.json() as { user: { id: string; roles: string[] }; accessToken: string; refreshToken: string };
     expect(registered.user?.id).toMatch(/^[0-9a-f-]{36}$/i);
     expect(registered.user.roles).toContain("CONFECTIONER");
