@@ -40,6 +40,12 @@ const ESCROW_ELIGIBLE_PAYMENT_STATUSES = [
   "waiting_for_capture",
   "succeeded",
 ] satisfies payment_status[];
+const CANCEL_RECONCILE_PAYMENT_STATUSES = [
+  "pending",
+  "waiting_for_capture",
+  "succeeded",
+  "cancelled",
+] satisfies payment_status[];
 
 export const runtime = "nodejs";
 
@@ -405,7 +411,7 @@ export async function POST(request: NextRequest) {
               .eq("id", orderId)
               .eq("status", order.status)
               .eq("payment_status", order.payment_status)
-              .in("payment_status", ["pending", "waiting_for_capture", "succeeded", "paid", "cancelled"])
+              .in("payment_status", CANCEL_RECONCILE_PAYMENT_STATUSES)
               .select("id");
             if (cancelOrderError) {
               console.error("[webhook] cancelled payment order reconciliation failed:", cancelOrderError.message);
