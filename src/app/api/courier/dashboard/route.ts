@@ -131,12 +131,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         if (result.error) throw new Error(result.error.message);
       }
 
+      // courier_earnings хранится в рублях; legacy-строки без снимка выплаты
+      // используют cost, не изменяя исходную запись.
+      const earningsOf = (delivery: any) =>
+        Number(delivery.courier_earnings ?? delivery.cost ?? 0);
       const earningsToday = (earningsTodayResult.data || []).reduce(
-        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0) / 100,
+        (sum: number, delivery: any) => sum + earningsOf(delivery),
         0
       );
       const earningsMonth = (earningsMonthResult.data || []).reduce(
-        (sum: number, delivery: any) => sum + Number(delivery.courier_earnings || 0) / 100,
+        (sum: number, delivery: any) => sum + earningsOf(delivery),
         0
       );
 
@@ -202,7 +206,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             customer: customerMap.get(order?.user_id) || "—",
             address: delivery.address || "—",
             completedAt: delivery.delivered_at || delivery.updated_at,
-            earnings: Number(delivery.courier_earnings || 0) / 100,
+            earnings: earningsOf(delivery),
             rating: 0,
           };
         }),
