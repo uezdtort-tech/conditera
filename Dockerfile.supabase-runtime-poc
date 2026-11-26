@@ -1,7 +1,7 @@
 # Experimental all-in-one Supabase runtime proof of concept.
 # Every Supabase process runs inside this one container; no sibling Supabase containers.
 FROM supabase/postgres:17.6.1.136 AS postgres
-FROM supabase/gotrue:v2.197.0 AS gotrue
+FROM supabase/gotrue:v2.198.0 AS gotrue
 FROM postgrest/postgrest:v14.18 AS postgrest
 FROM supabase/realtime:v2.148.3 AS realtime
 FROM supabase/storage-api:v1.89.12 AS storage
