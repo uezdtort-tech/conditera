@@ -224,6 +224,13 @@ function preprocessStatement(stmt) {
     }
   }
 
+  // pg_cron is conditionally installed inside a DO block for Supabase PG17.
+  // It is managed in the postgres maintenance DB, not the application DB;
+  // vanilla PostgreSQL also lacks the extension, so skip the whole DO block.
+  if (/CREATE\\s+EXTENSION\\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
+    return { skip: true, reason: "pg_cron is managed outside the application database" };
+  }
+
   // pgsodium is conditionally installed inside a DO block for Supabase PG17.
   // Skip the complete block in vanilla PostgreSQL where pgsodium is unavailable.
   if (/CREATE\s+EXTENSION\s+pgsodium/i.test(s) && SKIP_EXTENSIONS.includes("pgsodium")) {
