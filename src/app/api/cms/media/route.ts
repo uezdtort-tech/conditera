@@ -5,25 +5,36 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCurrentUser, unauthorizedResponse, forbiddenResponse } from "@/lib/supabase/auth";
+import { getUserFromRequest } from "@/lib/auth";
 import { getSafeCmsMediaExtension, hasValidCmsMediaSignature } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
 const CMS_ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"];
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-async function authorizeCmsMedia() {
-  const user = await getCurrentUser();
-  if (!user) return { user: null, response: unauthorizedResponse() };
+async function authorizeCmsMedia(request: NextRequest) {
+  const user = await getUserFromRequest(request);
+  if (!user) {
+    return {
+      user: null,
+      response: NextResponse.json({ error: "Не авторизован" }, { status: 401 }),
+    };
+  }
   if (!user.roles.some((role: string) => CMS_ROLES.includes(role))) {
-    return { user: null, response: forbiddenResponse("Недостаточно прав для управления медиатекой") };
+    return {
+      user: null,
+      response: NextResponse.json(
+        { error: "Недостаточно прав для управления медиатекой" },
+        { status: 403 }
+      ),
+    };
   }
   return { user, response: null };
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const auth = await authorizeCmsMedia();
+    const auth = await authorizeCmsMedia(request);
     if (auth.response) return auth.response;
     const type = request.nextUrl.searchParams.get("type");
     if (type && !["image", "video", "audio", "document"].includes(type)) {
@@ -47,7 +58,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const auth = await authorizeCmsMedia();
+    const auth = await authorizeCmsMedia(request);
     if (auth.response) return auth.response;
 
     const formData = await request.formData();
