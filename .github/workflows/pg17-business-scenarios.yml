@@ -134,7 +134,7 @@ jobs:
               "profiles","user_roles","products","orders","inventory_items","inventory_movements",
               "chat_channels","oauth_identity_links","user_consent_events","moderation_queue",
               "order_disputes","order_dispute_messages","user_sessions","quote_request_media",
-              "product_slices"
+              "product_slices","cms_home_blocks","cms_home_sections"
             ];
             for (const table of required) {
               const found = (await db.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${table}`])).rows[0].ok;
