@@ -33,6 +33,7 @@ test.describe("Создание проекта торта и переговор�
     const customerLogin = await request.post(APP + "/api/auth/login", {
       data: { email: "customer@demo.ru", password: DEMO_PASSWORD },
       headers: TEST_DEVICE_HEADERS,
+      headers: TEST_DEVICE_HEADERS,
     });
     expect(customerLogin.ok(), await customerLogin.text()).toBeTruthy();
     const customerBody = await customerLogin.json();
@@ -52,6 +53,7 @@ test.describe("Создание проекта торта и переговор�
     // чтобы cookie и явный Bearer token не представляли разные учётные записи.
     const customerLoginForSubmit = await request.post(APP + "/api/auth/login", {
       data: { email: "customer@demo.ru", password: DEMO_PASSWORD },
+      headers: TEST_DEVICE_HEADERS,
     });
     expect(customerLoginForSubmit.ok()).toBeTruthy();
     const customerSubmitBody = await customerLoginForSubmit.json();
