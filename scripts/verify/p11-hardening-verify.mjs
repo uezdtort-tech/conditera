@@ -149,6 +149,24 @@ async function getOrderPaymentStatus(orderId) {
 
 async function main() {
   await client.connect();
+  const paymentEnum = await client.query(
+    `SELECT e.enumlabel
+       FROM pg_type t
+       JOIN pg_enum e ON e.enumtypid = t.oid
+      WHERE t.typname = 'payment_status'
+      ORDER BY e.enumsortorder`
+  );
+  const paymentStatuses = paymentEnum.rows.map((row) => row.enumlabel);
+  assert(
+    "payment_status не содержит UI-алиас paid, отсутствующий в PostgreSQL enum",
+    !paymentStatuses.includes("paid"),
+    paymentStatuses.join(", ")
+  );
+  assert(
+    "payment_status содержит реальные состояния escrow/released/cancelled",
+    ["escrow", "released", "cancelled"].every((status) => paymentStatuses.includes(status)),
+    paymentStatuses.join(", ")
+  );
   const customer = await login("customer@demo.ru");
   const confectioner = await login("confectioner@demo.ru");
   assert("логины customer/confectioner", Boolean(customer && confectioner));
