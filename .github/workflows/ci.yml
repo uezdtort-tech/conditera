@@ -503,6 +503,9 @@ jobs:
         run: node scripts/verify/pg-version-gate.mjs
         timeout-minutes: 2
 
+      - name: Проверить непрерывность и уникальность версий миграций
+        run: node scripts/verify/migration-version-contract.mjs
+
       - name: Copy migrations + migrator into service container
         run: |
           SVC="${{ job.services.postgres.id }}"
