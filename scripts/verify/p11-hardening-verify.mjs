@@ -535,6 +535,13 @@ async function cleanupAll() {
       await client.query(`DELETE FROM public.chat_channels WHERE id = ANY($1::uuid[])`, [cleanup.chatRoomIds]).catch(() => {});
     }
     if (cleanup.paymentIds.length > 0) {
+      // Webhook создаёт financial_ledger entries с FK на payments.
+      // Удаляем ledger раньше платежей, иначе тест оставляет сиротские
+      // payment/order rows и загрязняет повторные прогоны.
+      await client.query(
+        `DELETE FROM public.financial_ledger WHERE payment_id = ANY($1::uuid[])`,
+        [cleanup.paymentIds]
+      ).catch(() => {});
       await client.query(`DELETE FROM public.payments WHERE id = ANY($1::uuid[])`, [cleanup.paymentIds]).catch(() => {});
     }
     if (cleanup.orderIds.length > 0) {
