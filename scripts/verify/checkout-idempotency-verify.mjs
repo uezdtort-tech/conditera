@@ -35,6 +35,10 @@ const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
 let PRODUCT_ID = ""; // demo product with a seeded recipe
 let originalProductionTimeHours;
+let originalRecipeId = null;
+let fixtureRecipeId = null;
+let originalInventory = null;
+let fixtureInventoryId = null;
 let confectionerId = "";
 let originalCapacityConfig = null;
 let deliveryDateFixture = "";
@@ -136,7 +140,7 @@ async function countOrdersByKey(key) {
 async function main() {
   await client.connect();
   const productFixture = await client.query(
-    `SELECT id::text, production_time_hours, confectioner_id::text
+    `SELECT id::text, production_time_hours, recipe_id::text, confectioner_id::text
        FROM public.products
       WHERE slug = 'svadebnyy-tort-yagodnyy-barhat'
         AND recipe_id IS NOT NULL
@@ -148,8 +152,53 @@ async function main() {
   }
   PRODUCT_ID = productFixture.rows[0].id;
   originalProductionTimeHours = productFixture.rows[0].production_time_hours;
+  originalRecipeId = productFixture.rows[0].recipe_id;
   confectionerId = productFixture.rows[0].confectioner_id;
   if (!confectionerId) throw new Error("demo product has no assigned confectioner");
+
+  // Supply a private, deterministic one-ingredient recipe and enough stock.
+  // The checkout test must reach idempotency logic, not depend on demo stock.
+  const stockIngredient = await client.query(
+    `SELECT id::text, name, unit, quantity
+       FROM public.inventory_items
+      WHERE owner_id = $1::uuid AND is_active IS TRUE
+      ORDER BY id
+      LIMIT 1`,
+    [confectionerId]
+  );
+  if (!stockIngredient.rows[0]) throw new Error("checkout fixture requires an active confectioner inventory item");
+  const ingredient = stockIngredient.rows[0];
+  const ingredientQty = /^(кг|kg)$/i.test(String(ingredient.unit ?? "")) ? 0.001 : 1;
+  fixtureInventoryId = ingredient.id;
+  originalInventory = ingredient.quantity;
+  await client.query(
+    `UPDATE public.inventory_items
+        SET quantity = GREATEST(quantity, $2::numeric)
+      WHERE id = $1::uuid`,
+    [fixtureInventoryId, ingredientQty + 1]
+  );
+  const recipe = await client.query(
+    `INSERT INTO public.recipes
+       (author_id, title, description, content, difficulty, servings, slug, status,
+        published_at, prep_time_minutes, cook_time_minutes)
+     VALUES ($1::uuid, 'U07 checkout fixture', 'Изолированный рецепт для проверки идемпотентности',
+             'Тестовая рецептура', 'easy', 1, $2, 'published', now(), 15, 15)
+     RETURNING id::text`,
+    [confectionerId, `u07-checkout-${rand()}`]
+  );
+  fixtureRecipeId = recipe.rows[0].id;
+  await client.query(
+    `INSERT INTO public.recipe_ingredients
+       (recipe_id, name, qty, unit, inventory_item_id, sort_order)
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid, 1)`,
+    [fixtureRecipeId, ingredient.name, ingredientQty, ingredient.unit, fixtureInventoryId]
+  );
+  await client.query(
+    `UPDATE public.products
+        SET recipe_id = $2::uuid, production_time_hours = 1
+      WHERE id = $1::uuid`,
+    [PRODUCT_ID, fixtureRecipeId]
+  );
 
   // The test validates checkout idempotency, not a particular confectioner's
   // production calendar. Isolate a free day and a wide temporary work window,
@@ -341,9 +390,16 @@ async function cleanupAll() {
     }
     if (PRODUCT_ID && originalProductionTimeHours !== undefined) {
       await client.query(
-        "UPDATE public.products SET production_time_hours = $2 WHERE id = $1::uuid",
-        [PRODUCT_ID, originalProductionTimeHours]
+        "UPDATE public.products SET recipe_id = $2::uuid, production_time_hours = $3 WHERE id = $1::uuid",
+        [PRODUCT_ID, originalRecipeId, originalProductionTimeHours]
       ).catch(() => {});
+    }
+    if (fixtureRecipeId) {
+      await client.query("DELETE FROM public.recipe_ingredients WHERE recipe_id = $1::uuid", [fixtureRecipeId]).catch(() => {});
+      await client.query("DELETE FROM public.recipes WHERE id = $1::uuid", [fixtureRecipeId]).catch(() => {});
+    }
+    if (fixtureInventoryId && originalInventory !== null) {
+      await client.query("UPDATE public.inventory_items SET quantity = $2::numeric WHERE id = $1::uuid", [fixtureInventoryId, originalInventory]).catch(() => {});
     }
     // Ключ-базированный догсбор: ловит заказ, созданный оборванным в D запросом
     const byKeys = await client
