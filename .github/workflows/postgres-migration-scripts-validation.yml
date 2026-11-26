@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Проверить уникальность и непрерывность версий миграций
+        run: node scripts/verify/migration-version-contract.mjs
       - name: Проверить синтаксис всех GitHub Actions workflow
         shell: bash
         run: |
