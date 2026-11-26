@@ -382,7 +382,8 @@ jobs:
 
       - name: Start application
         run: |
-          bun run start &
+          bun run start > /tmp/conditera-integration-next.log 2>&1 &
+          echo $! > /tmp/conditera-integration-next.pid
           for i in {1..30}; do
             if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health | grep -q "200"; then
               echo "✓ Application is up"
@@ -401,3 +402,9 @@ jobs:
           node scripts/verify/diagnostics-verify.mjs
         env:
           VERIFY_TEST_IP: 10.250.250.250
+
+      - name: Print integration server logs on failure
+        if: failure() || cancelled()
+        run: |
+          echo "===== Conditera integration Next.js server log ====="
+          tail -n 500 /tmp/conditera-integration-next.log || true
