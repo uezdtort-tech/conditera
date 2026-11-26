@@ -488,10 +488,11 @@ jobs:
         image: supabase/postgres:17.11.0.017
         env:
           POSTGRES_PASSWORD: ${{ 'postgres' }}
+          POSTGRES_DB: conditera
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U supabase_admin -d postgres"
+          --health-cmd "pg_isready -U supabase_admin -d conditera"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -514,7 +515,7 @@ jobs:
         # This isolated migration job creates only the contract needed by migration 0026.
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           CREATE SCHEMA IF NOT EXISTS storage;
           CREATE TABLE IF NOT EXISTS storage.buckets (
             id text PRIMARY KEY,
@@ -544,8 +545,8 @@ jobs:
       - name: Apply all migrations (ledger, fail-fast)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=postgres bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U supabase_admin -d postgres -tAc \
+          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=conditera bash /init-scripts/01-apply-migrations.sh
+          docker exec "$SVC" psql -U supabase_admin -d conditera -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
@@ -555,7 +556,7 @@ jobs:
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=postgres bash /init-scripts/01-apply-migrations.sh \
+          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=conditera bash /init-scripts/01-apply-migrations.sh \
             | tee rerun.log
           if grep -q "Применяю:" rerun.log; then
             echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
@@ -565,7 +566,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -592,7 +593,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
