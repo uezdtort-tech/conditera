@@ -39,31 +39,63 @@ const CONF_112 = "11111111-1111-4111-8111-111111111112"; // Сахарный Л�
 let CUSTOMER_ID = "11111111-1111-4111-8111-111111111106"; // заменяется ID свежезарегистрированного E2E-покупателя
 const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000001"; // Свадебный торт «Ягодный бархат» (cakes, recipe)
 
-// Test fixture: the demo product must carry an explicit six-hour production
-// lead time. Restore the original value even if a later scenario fails.
+// Test fixture: six-hour customer lead time plus six hours of active recipe
+// work. products.production_time_hours is NOT capacity labor time; capacity
+// must read recipe prep+cook minutes. Restore every touched value on exit.
 let prodTimeApplied = false;
 let prodTimeOriginal = null;
+let recipeTimeApplied = false;
+let recipeTimeOriginal = null;
 async function applyProductionTimeFixture() {
   const current = await client.query(
-    `SELECT production_time_hours FROM public.products WHERE id = $1::uuid`,
+    `SELECT production_time_hours, recipe_id FROM public.products WHERE id = $1::uuid`,
     [PRODUCT_ID]
   );
   if (!current.rows.length) throw new Error("demo production product not found");
   prodTimeOriginal = current.rows[0].production_time_hours ?? null;
-  if (Number(prodTimeOriginal) === 6) return;
-  await client.query(
-    `UPDATE public.products SET production_time_hours = 6 WHERE id = $1::uuid`,
-    [PRODUCT_ID]
+  if (Number(prodTimeOriginal) !== 6) {
+    await client.query(
+      `UPDATE public.products SET production_time_hours = 6 WHERE id = $1::uuid`,
+      [PRODUCT_ID]
+    );
+    prodTimeApplied = true;
+  }
+
+  const recipeId = current.rows[0].recipe_id;
+  if (!recipeId) throw new Error("demo production product has no recipe");
+  const recipe = await client.query(
+    `SELECT prep_time_minutes, cook_time_minutes FROM public.recipes WHERE id = $1::uuid`,
+    [recipeId]
   );
-  prodTimeApplied = true;
+  if (!recipe.rows.length) throw new Error("demo production recipe not found");
+  recipeTimeOriginal = {
+    id: recipeId,
+    prep: recipe.rows[0].prep_time_minutes ?? null,
+    cook: recipe.rows[0].cook_time_minutes ?? null,
+  };
+  if (Number(recipeTimeOriginal.prep) !== 240 || Number(recipeTimeOriginal.cook) !== 120) {
+    await client.query(
+      `UPDATE public.recipes SET prep_time_minutes = 240, cook_time_minutes = 120 WHERE id = $1::uuid`,
+      [recipeId]
+    );
+    recipeTimeApplied = true;
+  }
 }
 async function restoreProductionTimeFixture() {
-  if (!prodTimeApplied) return;
-  await client.query(
-    `UPDATE public.products SET production_time_hours = $2 WHERE id = $1::uuid`,
-    [PRODUCT_ID, prodTimeOriginal]
-  ).catch(() => {});
-  prodTimeApplied = false;
+  if (prodTimeApplied) {
+    await client.query(
+      `UPDATE public.products SET production_time_hours = $2 WHERE id = $1::uuid`,
+      [PRODUCT_ID, prodTimeOriginal]
+    ).catch(() => {});
+    prodTimeApplied = false;
+  }
+  if (recipeTimeApplied && recipeTimeOriginal) {
+    await client.query(
+      `UPDATE public.recipes SET prep_time_minutes = $2, cook_time_minutes = $3 WHERE id = $1::uuid`,
+      [recipeTimeOriginal.id, recipeTimeOriginal.prep, recipeTimeOriginal.cook]
+    ).catch(() => {});
+    recipeTimeApplied = false;
+  }
 }
 
 
@@ -805,7 +837,7 @@ async function main() {
 
   const assign = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("POST assign → 200", assign.status === 200, JSON.stringify(assign.json).slice(0, 200));
-  assert("оценка трудоёмкости: 360 мин по production_time_hours=6", assign.json?.estimate?.minutes === 360 && assign.json?.estimate?.source === "product" && assign.json?.estimate?.approximate === false, JSON.stringify(assign.json?.estimate));
+  assert("оценка трудоёмкости: 360 мин по рецепту (prep 240 + cook 120)", assign.json?.estimate?.minutes === 360 && assign.json?.estimate?.source === "recipe" && assign.json?.estimate?.approximate === false, JSON.stringify(assign.json?.estimate));
   assert("резерв создан на дату доставки", assign.json?.reservation?.date === tomorrowStr, JSON.stringify(assign.json?.reservation));
   assert("latestSafeStartAt рассчитан", Boolean(assign.json?.deadline?.latestSafeStartAt));
   // 18:00 − 65м буферов − 360м производства = 10:55
