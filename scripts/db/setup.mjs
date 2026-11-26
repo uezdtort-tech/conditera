@@ -733,6 +733,7 @@ async function main() {
     // ledger when historical branches renamed/re-numbered equivalent SQL files.
     // Only aliases whose canonical file exists in this tree are materialized.
     const migrationAliases = [
+      ["0012a_new_roles_recipes_loyalty_ai.sql", "0012_new_roles_recipes_loyalty_ai.sql"],
       ["0061_user_consent_events.sql", "0061a_user_consent_events.sql"],
       ["0062_reference_catalog.sql", "0062b_reference_catalog.sql"],
       ["0062a_reference_catalog.sql", "0062b_reference_catalog.sql"],
