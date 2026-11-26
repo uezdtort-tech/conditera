@@ -197,7 +197,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           LIMIT 1`,
         [user.id, idempotencyKey, since]
       );
-      const existing = existingResult.rows[0] ?? null;
+      const existing = (existingResult.rows[0] as {
+        id: string;
+        number: string;
+        total: number;
+        subtotal: number | null;
+        delivery_cost: number | null;
+        discount: number | null;
+        created_at: string;
+      } | undefined) ?? null;
 
       if (existing) {
         const replay = await buildReplayResponse(existing);
