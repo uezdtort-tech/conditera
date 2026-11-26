@@ -11,6 +11,8 @@ on:
       - "scripts/supabase-runtime-poc/start-app-migrations.sh"
       - "scripts/deploy.sh"
       - "scripts/init-db.sh"
+      - "scripts/tests/product-slices-rls-*.sql"
+      - "supabase/migrations/0064_product_slices_rls.sql"
       - ".env.supabase-runtime.example"
       - ".github/workflows/postgres17-compose-validation.yml"
   workflow_dispatch:
@@ -112,8 +114,8 @@ jobs:
           web = services["web"]
           assert "supabase-runtime" in web["depends_on"]
           assert "postgresql://conditera_app:" in web["environment"]["DATABASE_URL"]
-          assert "@supabase-runtime:5432/supabase" in web["environment"]["DATABASE_URL"]
-          assert "supabase-runtime:5432/supabase" in web["environment"]["DIRECT_DATABASE_URL"]
+          assert "@supabase-runtime:5432/conditera" in web["environment"]["DATABASE_URL"]
+          assert "supabase-runtime:5432/conditera" in web["environment"]["DIRECT_DATABASE_URL"]
           assert web["environment"]["SUPABASE_INTERNAL_URL"] == "http://supabase-kong:8000"
           assert "supabase_runtime_pg17_data" in config["volumes"]
           assert "supabase_runtime_storage_data" in config["volumes"]
@@ -125,6 +127,31 @@ jobs:
           assert "postgres:17" in runtime["image"] or "17.12" in runtime["image"] or runtime.get("build")
           print("PASS: unified Supabase Runtime / PostgreSQL 17 is the only active database; app and Supabase API use the same cluster.")
           PY
+
+      - name: Проверить RLS разрезов товаров на изолированном PostgreSQL 17
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker run -d --name product-slices-rls-pg \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            -e POSTGRES_DB=conditera \
+            postgres:17-alpine
+          READY=0
+          for attempt in $(seq 1 30); do
+            if docker exec product-slices-rls-pg pg_isready -U postgres -d conditera >/dev/null 2>&1; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "$READY" = "1"
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-setup.sql
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < supabase/migrations/0064_product_slices_rls.sql
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-regression.sql
+
+      - name: Очистить временный PG17 RLS-контейнер
+        if: always()
+        run: docker rm -fv product-slices-rls-pg >/dev/null 2>&1 || true
 
           # Launcher must reject legacy profiles and destructive volume deletion.
           if node scripts/compose-single-runtime.mjs --profile legacy-supabase config; then
