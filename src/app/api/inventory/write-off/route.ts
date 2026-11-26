@@ -34,6 +34,7 @@ import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { writeOffOrderRecipe } from "@/lib/ops/recipe-writeoff";
 import {
   applyInventoryMovement,
+  isInventoryAdmin,
   parseMovementQuantity,
   type InventoryActor,
   type ApplyMovementError,
@@ -71,16 +72,15 @@ function batchSignature(items: WriteOffRequestItem[]): string {
   return createHash("sha256").update(canon).digest("hex");
 }
 
-/** Найти уже выполненное списание этого же батча (идемпотентный повтор) */
-async function findExistingWriteOff(ownerId: string, orderId: string, signature: string) {
-  const { data } = await supabaseAdmin
-    .from("inventory_write_offs")
-    .select("id, items, result, created_at")
-    .eq("owner_id", ownerId)
-    .eq("order_id", orderId)
-    .eq("signature", signature)
-    .maybeSingle();
-  return (data as { id: string; items: unknown; result: unknown; created_at: string } | null) ?? null;
+/** Map database-side atomic write-off errors to stable HTTP contracts. */
+function atomicWriteOffError(message: string): { status: number; message: string } {
+  if (message.includes("snapshot_mismatch:")) return { status: 422, message: "Списание расходится с нормативом snapshot заказа" };
+  if (message.includes("snapshot_invalid:")) return { status: 422, message: "Snapshot заказа повреждён; списание заблокировано" };
+  if (message.includes("apply_failed:insufficient")) return { status: 409, message: "Недостаточно ингредиентов на складе" };
+  if (message.includes("apply_failed:forbidden")) return { status: 403, message: "Нет доступа к позиции склада" };
+  if (message.includes("apply_failed:not_found")) return { status: 404, message: "Позиция склада не найдена" };
+  if (message.includes("PGRST202")) return { status: 503, message: "Атомарное списание недоступно: примените миграцию 0119 и обновите PostgREST schema cache" };
+  return { status: 503, message: "Не удалось выполнить атомарное списание" };
 }
 
 /** HTTP-статус и сообщение для ошибки применения движения */
@@ -190,45 +190,52 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const actor: InventoryActor = { id: user.id, roles: (user.roles as string[]) || [] };
-    const writeOffOwnerId = orderId ? (order?.confectioner_id || user.id) : user.id;
 
+    // Любое order-bound списание идёт через одну PostgreSQL-транзакцию:
+    // блокировка заказа + проверка acceptance_snapshot + дедупликация +
+    // все движения склада. Никаких check-then-act и частичных батчей.
+    if (orderId) {
+      const isAdmin = isInventoryAdmin(actor);
+      const signature = batchSignature(parsed);
+      const { data, error } = await supabaseAdmin.rpc("apply_order_write_off_atomic", {
+        p_actor_id: user.id,
+        p_inventory_owner_id: order?.confectioner_id || user.id,
+        p_order_id: orderId,
+        p_items: parsed,
+        p_signature: signature,
+        p_reason: reason,
+        p_allow_overage: body.allow_overage === true && isAdmin,
+        p_actor_is_admin: isAdmin,
+      }) as unknown as {
+        data: { applied?: AppliedItem[]; failed?: Array<{ item_id: string; error: string }>; idempotent?: boolean } | null;
+        error: (Error & { code?: string }) | null;
+      };
+
+      if (error) {
+        const mapped = atomicWriteOffError(error.message || error.code || "");
+        console.error("[inventory/write-off] atomic RPC failed:", error.message);
+        return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+      }
+      if (!data) return NextResponse.json({ error: "RPC списания не вернул результат" }, { status: 503 });
+      const applied = Array.isArray(data.applied) ? data.applied : [];
+      const failed = Array.isArray(data.failed) ? data.failed : [];
+      if (failed.length > 0) {
+        return NextResponse.json(
+          { applied, failed, order_id: orderId, idempotent: data.idempotent === true },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json(
+        { applied, failed, order_id: orderId, idempotent: data.idempotent === true },
+        { status: data.idempotent ? 200 : 201 }
+      );
+    }
+
+    // Вне заказа разрешены только обычные ручные корректировки; они не могут
+    // менять acceptance snapshot или обходить атомарный order write-off.
     // Захватываем уникальный batch-key ДО изменения остатков. Старый порядок
     // (сперва движения, потом INSERT реестра) допускал двойное списание при
     // двух параллельных запросах: оба успевали пройти pre-check.
-    const signature = orderId ? batchSignature(parsed) : null;
-    if (orderId && signature) {
-      const { error: claimError } = await supabaseAdmin.from("inventory_write_offs").insert({
-        owner_id: writeOffOwnerId,
-        order_id: orderId,
-        signature,
-        items: parsed,
-        result: { state: "processing" },
-      });
-      if (claimError) {
-        if ((claimError as { code?: string }).code !== "23505") {
-          console.error("[inventory/write-off] batch claim failed:", claimError.message);
-          return NextResponse.json({ error: "Не удалось зарезервировать списание. Повторите позже." }, { status: 503 });
-        }
-        const existing = await findExistingWriteOff(writeOffOwnerId, orderId, signature);
-        if (!existing) return NextResponse.json({ error: "Списание уже выполняется; повторите позже." }, { status: 409 });
-        const saved = (existing.result ?? {}) as { state?: string; applied?: AppliedItem[]; failed?: unknown[] };
-        if (!Array.isArray(saved.applied) || !Array.isArray(saved.failed)) {
-          return NextResponse.json({ error: "Списание уже выполняется; повторите позже." }, { status: 409 });
-        }
-        return NextResponse.json(
-          {
-            applied: saved.applied,
-            failed: saved.failed,
-            order_id: orderId,
-            idempotent: true,
-            duplicate: true,
-            message: "Списание по этому заказу уже было выполнено ранее",
-          },
-          { status: 200 }
-        );
-      }
-    }
-
     const applied: Array<{
       item_id: string;
       item_name: string;
@@ -279,20 +286,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Сохраняем итог в уже захваченном batch-реестре. Если запись результата
     // не прошла, claim остаётся processing: повторное списание блокируется.
-    if (orderId && signature) {
-      const { error: resultError } = await supabaseAdmin
-        .from("inventory_write_offs")
-        .update({ result: { state: "completed", applied, failed } })
-        .eq("owner_id", writeOffOwnerId)
-        .eq("order_id", orderId)
-        .eq("signature", signature);
-      if (resultError) {
-        console.error("[inventory/write-off] batch result persistence failed:", resultError.message);
-        return NextResponse.json({ error: "Списание применено, но не удалось сохранить результат. Обратитесь в поддержку." }, { status: 503 });
-      }
-    }
-
-    return NextResponse.json({ applied, failed, order_id: orderId }, { status: 201 });
+    return NextResponse.json({ applied, failed }, { status: 201 });
   } catch (error) {
     return handleRouteError(error, {
       route: "/api/inventory/write-off",
