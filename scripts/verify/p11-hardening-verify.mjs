@@ -320,7 +320,9 @@ async function main() {
 
   // === 2. CHECKOUT IDEMPOTENCY (§8) ===
   section("Checkout: параллельные POST с одним Idempotency-Key");
-  const today = new Date(Date.now() + 14 * 86400_000);
+  // В fixture доступные производственные слоты создаются на ближайшие дни;
+  // не выбираем искусственно дату за пределами расписания кондитера.
+  const today = new Date(Date.now() + 2 * 86400_000);
   const deliveryDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const idemKey = `p11-verify-${rand()}`;
   const checkoutBody = {
