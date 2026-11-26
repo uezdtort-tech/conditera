@@ -254,7 +254,7 @@ jobs:
       - name: Run Playwright tests
         run: |
           # E2E_GREP передаётся через env (см. блок env ниже), а не текстуальной
-          # ${{ }}-подстановкой: расширение "$E2E_GREP" внутри bash-массива не
+          # встроенной подстановкой GitHub Actions: расширение "$E2E_GREP" внутри bash-массива не
           # ре-парсится shell'ом — ввод dispatch не разорвёт кавычки и не
           # внедрит команды (защита от shell injection, TZ v4.0 §6).
           ARGS=(--project=${{ matrix.browser }})
