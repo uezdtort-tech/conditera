@@ -413,8 +413,8 @@ async function main() {
       consentMarketing: false,
     },
   });
-  assert("новый покупатель зарегистрирован через /api/auth/register → 200", registration.status === 200 && Boolean(registration.json?.accessToken && registration.json?.user?.id), JSON.stringify(registration.json).slice(0, 180));
-  if (registration.status !== 200 || !registration.json?.accessToken || !registration.json?.user?.id) {
+  assert("новый покупатель зарегистрирован через /api/auth/register → 201", registration.status === 201 && Boolean(registration.json?.accessToken && registration.json?.user?.id), JSON.stringify(registration.json).slice(0, 180));
+  if (registration.status !== 201 || !registration.json?.accessToken || !registration.json?.user?.id) {
     throw new Error("Регистрация нового E2E-покупателя не завершилась успешно");
   }
   let customer = registration.json.accessToken;
