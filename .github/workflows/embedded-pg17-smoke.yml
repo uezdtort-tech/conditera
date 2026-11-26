@@ -43,9 +43,12 @@ jobs:
       JWT_REFRESH_SECRET: ${{ 'embedded_pg17_refresh_secret_32_chars_minimum' }}
       TFA_ENCRYPTION_KEY: ${{ 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }}
       CRON_SECRET: ${{ 'embedded_pg17_cron_secret' }}
-      CONDITERA_PGDATA: ${{ runner.temp }}/conditera-pg17-data
     steps:
       - uses: actions/checkout@v7
+      - name: Configure writable PostgreSQL data directory
+        shell: bash
+        run: echo "CONDITERA_PGDATA=$RUNNER_TEMP/conditera-pg17-data" >> "$GITHUB_ENV"
+
 
       - uses: actions/setup-node@v4
         with:
