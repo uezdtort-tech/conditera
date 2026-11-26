@@ -115,7 +115,7 @@ describe("payment webhook POST — cancellation race", () => {
     mocks.state.singleResults = {};
     mocks.state.updateResults = {};
     mocks.state.fromCalls = [];
-    mocks.state.providerConfigured = false;
+    mocks.state.providerConfigured = true;
     mocks.state.providerResult = {
       success: true,
       payment: {
@@ -127,6 +127,14 @@ describe("payment webhook POST — cancellation race", () => {
     mocks.state.getPaymentStatus.mockReset().mockImplementation(async () => mocks.state.providerResult);
     mocks.state.getRefund.mockReset();
     mocks.state.refundPayment.mockReset().mockResolvedValue({ success: true, refund: { id: "refund-1" } });
+  });
+
+  it("fail-closed: не обрабатывает событие без конфигурации YooKassa", async () => {
+    mocks.state.providerConfigured = false;
+    const response = await POST(request());
+    expect(response.status).toBe(500);
+    expect(mocks.state.fromCalls).toEqual([]);
+    expect(mocks.state.getPaymentStatus).not.toHaveBeenCalled();
   });
 
   it("не обращается к финансовому журналу при несовпадении статуса YooKassa", async () => {
