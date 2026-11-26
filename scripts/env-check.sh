@@ -240,6 +240,8 @@ if [ "$MODE_LABEL" = "production" ]; then
   check_required "GOOGLE_OAUTH_REDIRECT" "Google OAuth callback URL"
   check_required "VK_CLIENT_ID" "VK ID client ID"
   check_required "VK_OAUTH_REDIRECT" "VK ID callback URL"
+  check_secret_value "YANDEX_CLIENT_SECRET" "$(get_env "YANDEX_CLIENT_SECRET")" 16
+  check_secret_value "GOOGLE_CLIENT_SECRET" "$(get_env "GOOGLE_CLIENT_SECRET")" 16
   if [ "$(get_env "YANDEX_OAUTH_REDIRECT")" != "https://conditera.ru/api/auth/oauth/yandex/callback" ]; then
     err "YANDEX_OAUTH_REDIRECT должен указывать на production callback Conditera"
   fi
@@ -267,6 +269,12 @@ echo ""
 echo -e "${BOLD}[YOOKASSA — платежи]${NC}"
 check_required "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
 check_required "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
+if [ "$MODE_LABEL" = "production" ]; then
+  YOOKASSA_KEY=$(get_env "YOOKASSA_SECRET_KEY")
+  if [[ ! "$YOOKASSA_KEY" =~ ^live_ ]]; then
+    err "YOOKASSA_SECRET_KEY должен быть production-ключом с префиксом live_"
+  fi
+fi
 echo ""
 
 # ===== SMTP =====
