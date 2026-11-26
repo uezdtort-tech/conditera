@@ -9,7 +9,7 @@ on:
       - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
       - "supabase/init-scripts/01-apply-migrations.sh"
       - "supabase/init-scripts/00-service-role-passwords.sh"
-      - ".github/workflows/postgres-migration-scripts-validation.yml"
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "scripts/ops/backup-dual-postgres-before-pg17.sh"
@@ -25,6 +25,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Проверить синтаксис всех GitHub Actions workflow
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          VERSION=1.7.7
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color .github/workflows/*.yml
+
       - name: Проверить синтаксис Bash
         run: |
           bash -n scripts/ops/backup-dual-postgres-before-pg17.sh
