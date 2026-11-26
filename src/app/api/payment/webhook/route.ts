@@ -178,6 +178,11 @@ export async function POST(request: NextRequest) {
     // Reject malformed payment metadata before any provider or database call.
     // This avoids unnecessary external calls and keeps invalid UUIDs out of SQL.
     const metaOrderId = object.metadata?.orderId;
+    // A payment event cannot be correlated safely without an order id.
+    // Validate this before provider/network or database access.
+    if (event.startsWith("payment.") && !metaOrderId) {
+      return NextResponse.json({ error: "Invalid webhook payload" }, { status: 400 });
+    }
     if (metaOrderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metaOrderId)) {
       console.warn(`[webhook] orderId is not a UUID: ${metaOrderId} — 404`);
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
