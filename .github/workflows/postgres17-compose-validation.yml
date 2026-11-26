@@ -128,6 +128,16 @@ jobs:
           print("PASS: unified Supabase Runtime / PostgreSQL 17 is the only active database; app and Supabase API use the same cluster.")
           PY
 
+          # Launcher must reject legacy profiles and destructive volume deletion.
+          if node scripts/compose-single-runtime.mjs --profile legacy-supabase config; then
+            echo "Launcher accepted forbidden legacy-supabase profile" >&2
+            exit 1
+          fi
+          if node scripts/compose-single-runtime.mjs down --volumes; then
+            echo "Launcher accepted destructive volume removal" >&2
+            exit 1
+          fi
+
       - name: Проверить RLS разрезов товаров на изолированном PostgreSQL 17
         shell: bash
         run: |
@@ -153,12 +163,3 @@ jobs:
         if: always()
         run: docker rm -fv product-slices-rls-pg >/dev/null 2>&1 || true
 
-          # Launcher must reject legacy profiles and destructive volume deletion.
-          if node scripts/compose-single-runtime.mjs --profile legacy-supabase config; then
-            echo "Launcher accepted forbidden legacy-supabase profile" >&2
-            exit 1
-          fi
-          if node scripts/compose-single-runtime.mjs down --volumes; then
-            echo "Launcher accepted destructive volume removal" >&2
-            exit 1
-          fi
