@@ -144,10 +144,11 @@ async function main() {
   }
   PRODUCT_ID = productFixture.rows[0].id;
   originalProductionTimeHours = productFixture.rows[0].production_time_hours;
-  // Production acceptance requires an explicit duration. Keep this test fixture
-  // valid for the 48h delivery window, then restore the seed value in cleanup.
+  // This test exercises checkout idempotency, not long-horizon production planning.
+  // Keep the temporary demo product within one normal workday and restore its
+  // original production duration in cleanup.
   await client.query(
-    "UPDATE public.products SET production_time_hours = 6 WHERE id = $1::uuid",
+    "UPDATE public.products SET production_time_hours = 1 WHERE id = $1::uuid",
     [PRODUCT_ID]
   );
   const customer = await login("customer@demo.ru");
