@@ -415,9 +415,12 @@ jobs:
           node scripts/verify/ops-center-verify.mjs
           node scripts/verify/checkout-idempotency-verify.mjs
           node scripts/verify/order-lifecycle-verify.mjs
+          node scripts/verify/p11-hardening-verify.mjs
           node scripts/verify/diagnostics-verify.mjs
         env:
           VERIFY_TEST_IP: 10.250.250.250
+          PGURL: ${{ env.DATABASE_URL }}
+          VERIFY_BASE: http://127.0.0.1:3000
 
       - name: Print integration server logs on failure
         if: failure() || cancelled()
