@@ -270,16 +270,23 @@ jobs:
             else
               echo "  ✓ layer history clean"
             fi
-            # 3) секреты в содержимом файлов образа (экспорт файловой системы)
+            # 3) секреты в содержимом файлов образа. Распаковываем
+            # rootfs во временный каталог, чтобы показывать точный путь
+            # совпадения и отличать реальные секреты от системных PEM-файлов.
             CID="sg-$(echo "$img" | tr ':/' '--')"
+            ROOTFS="$(mktemp -d)"
             docker create --name "$CID" "$img" > /dev/null
-            if docker export "$CID" | grep -aEiq "$SECRET_RE"; then
-              echo "❌ potential secret in exported filesystem of $img"
+            docker export "$CID" | tar -x -C "$ROOTFS"
+            MATCHES="$(grep -RIlEa "$SECRET_RE" "$ROOTFS" || true)"
+            if [ -n "$MATCHES" ]; then
+              echo "❌ potential secret in exported filesystem of $img:"
+              printf '%s\n' "$MATCHES" | sed "s#^$ROOTFS/##"
               FAIL=1
             else
               echo "  ✓ exported filesystem content clean"
             fi
             docker rm -f "$CID" > /dev/null
+            rm -rf "$ROOTFS"
           done
           exit $FAIL
 
