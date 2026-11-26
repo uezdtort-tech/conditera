@@ -16,13 +16,23 @@ const YOOKASSA_API_URL =
 // Явный mock-платёж разрешён только в E2E-стенде с loopback URL.
 // Один флаг без локального адреса не может отключить production-защиту.
 export const isLocalE2EPaymentStubEnabled = (): boolean => {
-  if (process.env.E2E_PAYMENT_STUB_ENABLED !== "true") return false;
+  const flagEnabled = process.env.E2E_PAYMENT_STUB_ENABLED === "true";
+  let hostname = "";
   try {
-    const hostname = new URL(process.env.NEXT_PUBLIC_APP_URL || "").hostname;
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    hostname = new URL(process.env.NEXT_PUBLIC_APP_URL || "").hostname;
   } catch {
-    return false;
+    // An invalid/missing app URL must never enable a production payment stub.
   }
+  const loopbackHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  const allowed = flagEnabled && loopbackHost;
+  if (process.env.NODE_ENV === "production" && !allowed) {
+    // Log only the non-secret guard inputs so a misconfigured CI runtime can be
+    // diagnosed without exposing payment credentials or tokens.
+    console.warn(
+      `[yookassa] local E2E payment stub denied: flag=${flagEnabled}, hostname=${hostname || "invalid"}`
+    );
+  }
+  return allowed;
 };
 
 // Проверка, настроена ли YooKassa
