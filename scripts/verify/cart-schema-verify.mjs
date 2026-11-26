@@ -2,23 +2,23 @@
 /**
  * cart-schema-verify.mjs — Z-v24 регрессионная защита контракта корзины.
  *
- * Что проверяет (на изолированной disposable-БД, PostgreSQL 18):
+ * Что проверяет (на изолированной disposable-БД, PostgreSQL 17):
  *   1. Уникальность migration ID (правило: одинаковый числовой префикс + оба
  *      остатка с «_» = конфликт; вариантные 0016b легальны).
- *   2. Зомби-артефакты 0062_cart_custom_items отсутствуют (CHECK
- *      cart_items_product_or_custom_check, колонка metadata).
+ *   2. Историческая 0062_cart_custom_items — no-op; legacy CHECK отсутствует.
+ *      Колонка metadata не создаётся на чистой БД.
  *   3. Канонические объекты на месте (0062_cart_sync_custom: kind_check,
  *      custom_config, client_ref, uq_cart_user_client_ref).
  *   4. Поведение схемы: товарная позиция OK; custom-позиция OK (дкфект Z-v24
  *      давал здесь SQLSTATE 23514 → HTTP 500 на POST /api/cart); invalid-виды
  *      (обе колонки / ни одной) отклонены kind_check; quantity <= 0 отклонён.
- *   5. Миграция 0080 в леджере (repair-путь для существующих БД).
+ *   5. Миграция 0118 снимает legacy CHECK, не удаляя исторические данные.
  *
  * Запуск: DATABASE_URL=postgresql://... bun scripts/verify/cart-schema-verify.mjs
  * DB создаётся скриптом (conditera_zv24_cartverify_<suffix>), в конце удаляется.
  */
 import { Client } from "pg";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -81,14 +81,79 @@ async function main() {
   } catch (e) {
     t("db:setup на чистой БД — exit 0", false, String(e.stderr || e.message).slice(-300));
   }
-  const ledgerFiles = (setupOut.match(/(\d+) total in ledger/) || [])[1];
-  t("все миграции в леджере", !!ledgerFiles && Number(ledgerFiles) > 0, `total=${ledgerFiles}`);
-  t("в установке нет 0062_cart_custom_items", !setupOut.includes("0062_cart_custom_items"));
-  t("0080_cart_remove_zombie_check применён", setupOut.includes("0080_cart_remove_zombie_check"));
+  const expectedMigrationFiles = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).length;
+  const legacyMigrationSql = readFileSync(join(MIGRATIONS_DIR, "0062_cart_custom_items.sql"), "utf8");
+  t("0062_cart_custom_items retired as no-op",
+    legacyMigrationSql.includes("RETIRED / NO-OP") && !/ALTER\\s+TABLE/i.test(legacyMigrationSql));
+  t("0118 legacy CHECK repair migration was executed", setupOut.includes("0118_retire_legacy_cart_metadata_constraint"));
 
   // 2. Каталог схемы
   const c = new Client({ connectionString: DB_URL });
   await c.connect();
+  const ledgerFiles = Number((await c.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
+  t("все миграции в леджере", ledgerFiles === expectedMigrationFiles,
+    `applied=${ledgerFiles}; expected=${expectedMigrationFiles}`);
+
+  const c = new Client({ connectionString: DB_URL });
+  await c.connect();
+
+  console.log("\n─── PostgreSQL 17, extensions и повторный запуск ───");
+  const version = await c.query("SELECT current_setting('server_version_num')::int AS n, version() AS v");
+  const versionNum = Number(version.rows[0].n);
+  t("используется PostgreSQL 17", versionNum >= 170000 && versionNum < 180000, version.rows[0].v);
+  const extensions = await c.query(
+    "SELECT extname FROM pg_extension WHERE extname = ANY($1)",
+    [["pgcrypto", "uuid-ossp", "pg_trgm"]]
+  );
+  const installedExtensions = new Set(extensions.rows.map((r) => r.extname));
+  const missingExtensions = ["pgcrypto", "uuid-ossp", "pg_trgm"].filter((name) => !installedExtensions.has(name));
+  t("базовые расширения PostgreSQL доступны", missingExtensions.length === 0,
+    missingExtensions.length ? `missing=${missingExtensions.join(",")}` : "pgcrypto, uuid-ossp, pg_trgm");
+
+  const ledgerBeforeRerun = Number((await c.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
+  let rerunOk = true;
+  try {
+    execSync(`DATABASE_URL="${DB_URL}" bun scripts/db/setup.mjs`, {
+      cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    rerunOk = false;
+    t("повторный db:setup не падает", false, String(e.stderr || e.message).slice(-300));
+  }
+  const ledgerAfterRerun = Number((await c.query("SELECT count(*)::int AS n FROM public.schema_migrations")).rows[0].n);
+  t("повторный db:setup идемпотентен", rerunOk && ledgerBeforeRerun === ledgerAfterRerun,
+    `before=${ledgerBeforeRerun}; after=${ledgerAfterRerun}`);
+
+  console.log("\n─── RLS и права клиентских ролей ───");
+  const rlsTables = [
+    "app_error_events", "app_incidents", "app_incident_history", "ops_tasks",
+    "orders", "payments", "recipe_purchases", "inventory_items",
+  ];
+  const rls = await c.query(
+    "SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename = ANY($1)",
+    [rlsTables]
+  );
+  const rlsState = new Map(rls.rows.map((r) => [r.tablename, r.rowsecurity]));
+  const rlsMissing = rlsTables.filter((name) => rlsState.get(name) !== true);
+  t("RLS включён на всех критичных таблицах", rlsMissing.length === 0,
+    rlsMissing.length ? `missing/disabled=${rlsMissing.join(",")}` : `${rlsTables.length} tables`);
+
+  const writeTables = [
+    "inventory_items", "stock_movements", "recipe_purchases",
+    "recipes", "recipe_marketplace", "financial_ledger",
+  ];
+  const clientWrites = await c.query(
+    `SELECT table_name, grantee, privilege_type
+       FROM information_schema.role_table_grants
+      WHERE table_schema='public'
+        AND table_name = ANY($1)
+        AND grantee = ANY($2)
+        AND privilege_type = ANY($3)`,
+    [writeTables, ["anon", "authenticated"], ["INSERT", "UPDATE", "DELETE"]]
+  );
+  t("anon/authenticated не имеют прямых write-grants", clientWrites.rowCount === 0,
+    clientWrites.rowCount ? clientWrites.rows.map((r) => `${r.grantee}:${r.table_name}:${r.privilege_type}`).join(", ") : "no client write grants");
+
   console.log("\n─── Схема cart_items (каталоги PG) ───");
   {
     const ck = await c.query(
@@ -107,8 +172,8 @@ async function main() {
     const ixNames = ix.rows.map((r) => r.indexname);
     t("uq_cart_user_client_ref присутствует", ixNames.includes("uq_cart_user_client_ref"));
     t("idx_cart_user_updated присутствует", ixNames.includes("idx_cart_user_updated"));
-    const led = await c.query(`SELECT 1 FROM schema_migrations WHERE filename='0080_cart_remove_zombie_check.sql'`);
-    t("0080 в леджере миграций", led.rowCount === 1);
+    const led = await c.query(`SELECT 1 FROM schema_migrations WHERE filename='0118_retire_legacy_cart_metadata_constraint.sql'`);
+    t("0118 в леджере миграций", led.rowCount === 1);
   }
 
   // 3. Поведение схемы на синтетических данных
