@@ -188,7 +188,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Use the same PostgreSQL expression as the unique index (0060), directly
       // against the canonical PG17 pool; DB errors remain fail-closed.
       const existingResult = await getPool().query(
-        `SELECT id, number, total, subtotal, delivery_cost, discount, created_at
+        `SELECT id, number, total::double precision AS total,
+                 subtotal::double precision AS subtotal,
+                 delivery_cost::double precision AS delivery_cost,
+                 discount::double precision AS discount, created_at
            FROM public.orders
           WHERE user_id = $1::uuid
             AND metadata->>'idempotency_key' = $2
