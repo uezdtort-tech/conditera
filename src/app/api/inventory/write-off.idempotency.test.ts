@@ -131,7 +131,7 @@ describe("POST /api/inventory/write-off — идемпотентность че�
     expect(body.applied).toHaveLength(2);
     expect(body.failed).toHaveLength(0);
     expect(rpcState.calls).toHaveLength(1);
-    expect(rpcState.calls[0].args.p_owner_id).toBe(OWNER);
+    expect(rpcState.calls[0].args.p_inventory_owner_id).toBe(OWNER);
     expect(rpcState.calls[0].args.p_order_id).toBe(ORDER_ID);
     expect(rpcState.calls[0].args.p_items).toEqual([
       { item_id: ITEM_A, quantity: 2 },
