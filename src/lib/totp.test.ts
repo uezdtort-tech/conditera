@@ -25,7 +25,7 @@ describe("TOTP encryption key configuration", () => {
     delete process.env.TFA_ENCRYPTION_KEY;
     vi.resetModules();
 
-    await expect(import("./totp")).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
+    await expect(import("./totp").then(({ encryptSecret }) => encryptSecret("A".repeat(32))).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
   });
 
   it.each([
@@ -40,7 +40,7 @@ describe("TOTP encryption key configuration", () => {
     process.env.TFA_ENCRYPTION_KEY = key;
     vi.resetModules();
 
-    await expect(import("./totp")).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
+    await expect(import("./totp").then(({ encryptSecret }) => encryptSecret("A".repeat(32))).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
   });
 
   it("rejects a short key in production runtime", async () => {
@@ -49,7 +49,7 @@ describe("TOTP encryption key configuration", () => {
     process.env.TFA_ENCRYPTION_KEY = "too-short";
     vi.resetModules();
 
-    await expect(import("./totp")).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
+    await expect(import("./totp").then(({ encryptSecret }) => encryptSecret("A".repeat(32))).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
   });
 
   it("allows a valid production key and preserves encrypted-secret round trips", async () => {
