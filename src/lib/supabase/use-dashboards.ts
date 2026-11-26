@@ -90,6 +90,16 @@ export interface ConfectionerDashboardData {
     delivery_address: string | null;
     items?: Array<{ product_title: string; quantity: number }>;
   }>;
+  pendingOrders: Array<{
+    id: string;
+    number: string;
+    user_id: string;
+    total: number;
+    status: string;
+    delivery_date: string | null;
+    delivery_address: string | null;
+    items?: Array<{ product_title: string; quantity: number }>;
+  }>;
   recentEarnings: Array<{
     id: string;
     amount: number;
@@ -279,7 +289,7 @@ export function useConfectionerDashboard() {
       const { data: { user } } = await supabaseBrowser.auth.getUser();
       if (!user) throw new Error("Не авторизован");
 
-      const [inquiriesRes, negotiationsRes, activeOrdersRes, productsRes] = await Promise.all([
+      const [inquiriesRes, negotiationsRes, activeOrdersRes, pendingOrdersRes, productsRes] = await Promise.all([
         // Входящие inquiries (открытые в городе кондитера)
         supabaseBrowser
           .from("inquiries")
@@ -309,6 +319,18 @@ export function useConfectionerDashboard() {
           .eq("confectioner_id", user.id)
           .in("status", ["CONFIRMED", "PREPARING", "READY", "IN_DELIVERY"])
           .order("delivery_date", { ascending: true, nullsFirst: false })
+          .limit(10),
+
+        // Новые заказы, требующие явного подтверждения кондитером.
+        supabaseBrowser
+          .from("orders")
+          .select(`
+            id, number, user_id, total, status, delivery_date, delivery_address,
+            items:order_items(product_title, quantity)
+          `)
+          .eq("confectioner_id", user.id)
+          .eq("status", "PENDING")
+          .order("created_at", { ascending: false })
           .limit(10),
 
         // Товары кондитера
@@ -364,6 +386,7 @@ export function useConfectionerDashboard() {
         },
         incomingInquiries: (inquiriesRes.data || []) as unknown as ConfectionerDashboardData["incomingInquiries"],
         activeOrders: (activeOrdersRes.data || []) as unknown as ConfectionerDashboardData["activeOrders"],
+        pendingOrders: (pendingOrdersRes.data || []) as unknown as ConfectionerDashboardData["pendingOrders"],
         recentEarnings: (paymentsRes.data || []) as unknown as ConfectionerDashboardData["recentEarnings"],
       };
     },
