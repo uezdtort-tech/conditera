@@ -71,7 +71,7 @@ export async function GET(
           )
         ORDER BY p.title
         LIMIT 200`,
-      [confectioner.id]
+      [user.userId]
     );
     return NextResponse.json({ products: products.rows });
   } catch (error) {
@@ -176,7 +176,7 @@ export async function POST(
             SELECT 1 FROM public.recipe_ingredients AS ri
              WHERE ri.recipe_id = p.recipe_id
           )`,
-      [body.production_product_id, confectioner.id]
+      [body.production_product_id, user.userId]
     );
     const productionProduct = productCheck.rows[0];
     if (!productionProduct) {
