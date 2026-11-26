@@ -100,10 +100,12 @@ async function verifyEventWithProvider(
   }
 
   if (event === "refund.succeeded") {
-    if (object.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
+    // A missing amount/currency is not a harmless mismatch: it removes the
+    // evidence needed to prove the refund. Fail closed so the provider retries.
+    if (!object.amount || object.amount.currency !== "RUB") return { ok: false };
     const res = await getRefund(object.id);
     if (!res.success || !res.refund) return { ok: false };
-    if (res.refund.amount?.currency !== "RUB") return { ok: true, skip: "currency_mismatch" };
+    if (!res.refund.amount || res.refund.amount.currency !== "RUB") return { ok: false };
     if (res.refund.status !== "succeeded") return { ok: true, skip: "provider_mismatch" };
 
     // Для возврата обязательна подтверждённая связь с исходным платежом.
