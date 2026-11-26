@@ -175,6 +175,14 @@ export async function POST(request: NextRequest) {
     const wireKop = wireAmountToKop(object.amount);
     const dbStatus = yookassaStatusToDb(object.status ?? "");
 
+    // Reject malformed payment metadata before any provider or database call.
+    // This avoids unnecessary external calls and keeps invalid UUIDs out of SQL.
+    const metaOrderId = object.metadata?.orderId;
+    if (metaOrderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(metaOrderId)) {
+      console.warn(`[webhook] orderId is not a UUID: ${metaOrderId} — 404`);
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
     // === PAY-1: СВЕРКА СОБЫТИЯ С ПРОВАЙДЕРОМ ===
     const pv = await verifyEventWithProvider(event, object, wireKop);
     if (!pv.ok) {
@@ -204,7 +212,6 @@ export async function POST(request: NextRequest) {
 
     // === 2. Legacy fallback: metadata.orderId → последний платёж заказа ===
     // (для платежей, записанных до pay0-2 без yookassa_payment_id)
-    const metaOrderId = object.metadata?.orderId;
     // RELEASE-02 §5: legacy-фолбэк по metadata.orderId отключён в production —
     // матчинг строго по yookassa_payment_id; фолбэк только для dev/legacy-данных.
     // Если фолбэк отключён и metadata.orderId нет — orderId останется null и
@@ -225,10 +232,6 @@ export async function POST(request: NextRequest) {
     // Non-UUID orderId (мусор в metadata.orderId) не может существовать в БД:
     // .eq("id", …) по uuid-колонке бросил бы 22P02 и отдал бы 500. Валидный
     // контракт для «заказа не существует» — 404 (см. E2E payment-webhook).
-    if (orderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)) {
-      console.warn(`[webhook] orderId is not a UUID: ${orderId} — 404`);
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
-    }
     if (!orderId) {
       if (event === "refund.succeeded") {
         console.error(`[webhook] refund event without local payment row: provider=${providerPaymentId}, refund=${object.id}`);
