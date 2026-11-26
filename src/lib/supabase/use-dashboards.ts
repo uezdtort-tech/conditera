@@ -19,8 +19,11 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { supabaseBrowser } from "@/lib/supabase/browser";
-import { getSessionAuthHeaders } from "@/lib/api-client";
+import {
+  fetchWithAuthRetry,
+  getSessionAuthHeaders,
+  getStoredAccessToken,
+} from "@/lib/api-client";
 
 // ==================== Types ====================
 export interface CustomerDashboardData {
@@ -188,295 +191,265 @@ export interface AdminDashboardData {
   }>;
 }
 
+// ==================== App-JWT authenticated data access ====================
+
+function getAppSessionUserId(): string {
+  const token = getStoredAccessToken();
+  if (!token) throw new Error("Не авторизован");
+  try {
+    const payloadPart = token.split(".")[1];
+    if (!payloadPart) throw new Error("Некорректная сессия");
+    const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(normalized)) as { userId?: string; sub?: string };
+    const userId = payload.userId || payload.sub;
+    if (!userId) throw new Error("Некорректная сессия");
+    return userId;
+  } catch {
+    throw new Error("Не авторизован");
+  }
+}
+
+async function restGet<T>(table: string, params: Record<string, string>): Promise<T[]> {
+  const token = getStoredAccessToken();
+  if (!token) throw new Error("Не авторизован");
+
+  const headers = await getSessionAuthHeaders();
+  headers.Authorization = `Bearer ${token}`;
+  headers.Accept = "application/json";
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (anonKey) headers.apikey = anonKey;
+
+  const baseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/\/+$/, "");
+  const query = new URLSearchParams(params).toString();
+  const url = `${baseUrl}/rest/v1/${encodeURIComponent(table)}?${query}`;
+  const response = await fetchWithAuthRetry(url, {
+    method: "GET",
+    headers,
+    credentials: "include",
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String((payload as { message: unknown }).message)
+        : `Supabase REST HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return Array.isArray(payload) ? (payload as T[]) : [];
+}
+
 // ==================== Query hooks ====================
 
-/** Customer dashboard — заказы, избранное, бонусы, переговоры */
+/** Customer dashboard — app-JWT + RLS: заказы, избранное, бонусы, переговоры */
 export function useCustomerDashboard() {
   return useQuery<CustomerDashboardData>({
     queryKey: ["customer-dashboard"],
     queryFn: async () => {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
-      if (!user) throw new Error("Не авторизован");
+      const userId = getAppSessionUserId();
+      const [ordersRes, favoritesRes, inquiriesRes, negotiationsRes, profileRes, allOrdersRes] =
+        await Promise.all([
+          restGet<CustomerDashboardData["recentOrders"][number]>("orders", {
+            select: "id,number,total,status,created_at,items:order_items(product_title,quantity)",
+            user_id: `eq.${userId}`,
+            order: "created_at.desc",
+            limit: "10",
+          }),
+          restGet<CustomerDashboardData["favorites"][number]>("product_favorites", {
+            select: "id,product_id,product:products(id,title,price)",
+            user_id: `eq.${userId}`,
+            order: "created_at.desc",
+            limit: "20",
+          }),
+          restGet<CustomerDashboardData["activeInquiriesList"][number]>("inquiries", {
+            select: "id,event_type,city,status,negotiations_count,expires_at",
+            user_id: `eq.${userId}`,
+            status: "in.(open)",
+            order: "submitted_at.desc",
+            limit: "5",
+          }),
+          restGet<{ id: string; status: string }>("negotiations", {
+            select: "id,status",
+            user_id: `eq.${userId}`,
+            status: "in.(pending_confectioner,quoted,counter_offered)",
+          }),
+          restGet<{ bonus_balance: number; loyalty_level: string }>("profiles", {
+            select: "bonus_balance,loyalty_level",
+            id: `eq.${userId}`,
+            limit: "1",
+          }),
+          restGet<{ total: number; status: string }>("orders", {
+            select: "total,status",
+            user_id: `eq.${userId}`,
+          }),
+        ]);
 
-      // Параллельно загружаем все данные через supabase-js
-      const [ordersRes, favoritesRes, inquiriesRes, negotiationsRes, profileRes] = await Promise.all([
-        // Последние заказы
-        supabaseBrowser
-          .from("orders")
-          .select(`
-            id, number, total, status, created_at,
-            items:order_items(product_title, quantity)
-          `)
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(10),
-
-        // Избранное
-        supabaseBrowser
-          .from("product_favorites")
-          .select(`
-            id, product_id,
-            product:products(id, title, price)
-          `)
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(20),
-
-        // Активные inquiries
-        supabaseBrowser
-          .from("inquiries")
-          .select("id, event_type, city, status, negotiations_count, expires_at")
-          .eq("user_id", user.id)
-          .in("status", ["open"])
-          .order("submitted_at", { ascending: false })
-          .limit(5),
-
-        // Активные negotiations
-        supabaseBrowser
-          .from("negotiations")
-          .select("id, status", { count: "exact", head: true })
-          .eq("user_id", user.id)
-          .in("status", ["pending_confectioner", "quoted", "counter_offered"]),
-
-        // Профиль (для бонусов)
-        supabaseBrowser
-          .from("profiles")
-          .select("bonus_balance, loyalty_level")
-          .eq("id", user.id)
-          .single(),
-      ]);
-
-      // Считаем completed orders и total spent
-      const allOrdersRes = await supabaseBrowser
-        .from("orders")
-        .select("total, status")
-        .eq("user_id", user.id);
-
-      const completedOrders = (allOrdersRes.data || []).filter(
-        (o: { status: string }) => o.status === "COMPLETED" || o.status === "DELIVERED"
+      const completed = allOrdersRes.filter(
+        (order) => order.status === "COMPLETED" || order.status === "DELIVERED"
       );
-
+      const profile = profileRes[0];
       return {
         stats: {
-          activeOrders: (allOrdersRes.data || []).filter(
-            (o: { status: string }) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(o.status)
+          activeOrders: allOrdersRes.filter(
+            (order) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(order.status)
           ).length,
-          completedOrders: completedOrders.length,
-          bonusBalance: profileRes.data?.bonus_balance || 0,
-          loyaltyLevel: profileRes.data?.loyalty_level || "BRONZE",
-          favoritesCount: favoritesRes.data?.length || 0,
-          activeInquiries: inquiriesRes.data?.length || 0,
-          activeNegotiations: negotiationsRes.count || 0,
-          totalSpent: completedOrders.reduce(
-            (sum: number, o: { total: number }) => sum + (o.total || 0),
-            0
-          ),
+          completedOrders: completed.length,
+          bonusBalance: Number(profile?.bonus_balance || 0),
+          loyaltyLevel: profile?.loyalty_level || "BRONZE",
+          favoritesCount: favoritesRes.length,
+          activeInquiries: inquiriesRes.length,
+          activeNegotiations: negotiationsRes.length,
+          totalSpent: completed.reduce((sum, order) => sum + Number(order.total || 0), 0),
         },
-        recentOrders: (ordersRes.data || []) as unknown as CustomerDashboardData["recentOrders"],
-        favorites: (favoritesRes.data || []) as unknown as CustomerDashboardData["favorites"],
-        activeInquiriesList: (inquiriesRes.data || []) as unknown as CustomerDashboardData["activeInquiriesList"],
+        recentOrders: ordersRes,
+        favorites: favoritesRes,
+        activeInquiriesList: inquiriesRes,
       };
     },
     staleTime: 30 * 1000,
   });
 }
 
-/** Confectioner dashboard — входящие запросы, переговоры, заказы, доход */
+/** Confectioner dashboard — app-JWT + RLS */
 export function useConfectionerDashboard() {
   return useQuery<ConfectionerDashboardData>({
     queryKey: ["confectioner-dashboard"],
     queryFn: async () => {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
-      if (!user) throw new Error("Не авторизован");
+      const userId = getAppSessionUserId();
+      const [inquiriesRes, negotiationsRes, activeOrdersRes, pendingOrdersRes, productsRes, completedRes] =
+        await Promise.all([
+          restGet<ConfectionerDashboardData["incomingInquiries"][number]>("inquiries", {
+            select: "id,event_type,base,filling,servings,city,delivery_date,estimated_price,expires_at,user_id",
+            status: "eq.open",
+            order: "submitted_at.desc",
+            limit: "10",
+          }),
+          restGet<{ id: string; status: string }>("negotiations", {
+            select: "id,status,quoted_price,inquiry_id",
+            confectioner_id: `eq.${userId}`,
+            status: "in.(pending_confectioner,quoted,counter_offered)",
+            order: "created_at.desc",
+          }),
+          restGet<ConfectionerDashboardData["activeOrders"][number]>("orders", {
+            select: "id,number,user_id,total,status,delivery_date,delivery_address,items:order_items(product_title,quantity)",
+            confectioner_id: `eq.${userId}`,
+            status: "in.(CONFIRMED,PREPARING,READY,IN_DELIVERY)",
+            order: "delivery_date.asc",
+            limit: "10",
+          }),
+          restGet<ConfectionerDashboardData["pendingOrders"][number]>("orders", {
+            select: "id,number,user_id,total,status,delivery_date,delivery_address,items:order_items(product_title,quantity)",
+            confectioner_id: `eq.${userId}`,
+            status: "eq.PENDING",
+            order: "created_at.desc",
+            limit: "10",
+          }),
+          restGet<{ id: string; title: string; price: number; status: string; is_featured: boolean }>("products", {
+            select: "id,title,price,status,is_featured",
+            confectioner_id: `eq.${userId}`,
+            deleted_at: "is.null",
+            order: "created_at.desc",
+          }),
+          restGet<{ id: string; total: number; status: string }>("orders", {
+            select: "id,total,status",
+            confectioner_id: `eq.${userId}`,
+            status: "in.(COMPLETED,DELIVERED)",
+          }),
+        ]);
 
-      const [inquiriesRes, negotiationsRes, activeOrdersRes, pendingOrdersRes, productsRes] = await Promise.all([
-        // Входящие inquiries (открытые в городе кондитера)
-        supabaseBrowser
-          .from("inquiries")
-          .select(`
-            id, event_type, base, filling, servings, city, delivery_date,
-            estimated_price, expires_at, user_id
-          `)
-          .eq("status", "open")
-          .order("submitted_at", { ascending: false })
-          .limit(10),
-
-        // Активные negotiations для этого кондитера
-        supabaseBrowser
-          .from("negotiations")
-          .select("id, status, quoted_price, inquiry_id")
-          .eq("confectioner_id", user.id)
-          .in("status", ["pending_confectioner", "quoted", "counter_offered"])
-          .order("created_at", { ascending: false }),
-
-        // Активные заказы (где confectioner_id = user.id)
-        supabaseBrowser
-          .from("orders")
-          .select(`
-            id, number, user_id, total, status, delivery_date, delivery_address,
-            items:order_items(product_title, quantity)
-          `)
-          .eq("confectioner_id", user.id)
-          .in("status", ["CONFIRMED", "PREPARING", "READY", "IN_DELIVERY"])
-          .order("delivery_date", { ascending: true, nullsFirst: false })
-          .limit(10),
-
-        // Новые заказы, требующие явного подтверждения кондитером.
-        supabaseBrowser
-          .from("orders")
-          .select(`
-            id, number, user_id, total, status, delivery_date, delivery_address,
-            items:order_items(product_title, quantity)
-          `)
-          .eq("confectioner_id", user.id)
-          .eq("status", "PENDING")
-          .order("created_at", { ascending: false })
-          .limit(10),
-
-        // Товары кондитера
-        supabaseBrowser
-          .from("products")
-          .select("id, title, price, status, is_featured")
-          .eq("confectioner_id", user.id)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false }),
-      ]);
-
-      // Получаем платежи для активных заказов (отдельный запрос, т.к. зависит от orderIds)
-      const orderIds = (activeOrdersRes.data || []).map((o: { id: string }) => o.id);
-      let paymentsRes = { data: [] as Array<{ id: string; amount: number; status: string; created_at: string; order?: { number: string } }> };
-      if (orderIds.length > 0) {
-        const { data: payData } = await supabaseBrowser
-          .from("payments")
-          .select(`
-            id, amount, status, created_at,
-            order:orders!inner(number)
-          `)
-          .eq("status", "succeeded")
-          .in("order_id", orderIds)
-          .order("created_at", { ascending: false })
-          .limit(10);
-        paymentsRes.data = (payData || []) as unknown as Array<{ id: string; amount: number; status: string; created_at: string; order?: { number: string } }>;
-      }
-
-      // Считаем completed + total earnings
-      const completedOrdersRes = await supabaseBrowser
-        .from("orders")
-        .select("id, total, status", { count: "exact", head: false })
-        .eq("confectioner_id", user.id)
-        .in("status", ["COMPLETED", "DELIVERED"]);
-
-      const totalEarnings = (completedOrdersRes.data || []).reduce(
-        (sum: number, o: { total: number }) => sum + (o.total || 0),
-        0
-      );
+      const orderIds = activeOrdersRes.map((order) => order.id);
+      const payments = orderIds.length
+        ? await restGet<ConfectionerDashboardData["recentEarnings"][number]>("payments", {
+            select: "id,amount,status,created_at,order:orders!inner(number)",
+            status: "eq.succeeded",
+            order_id: `in.(${orderIds.join(",")})`,
+            order: "created_at.desc",
+            limit: "10",
+          })
+        : [];
 
       return {
         stats: {
-          activeNegotiations: negotiationsRes.data?.length || 0,
-          pendingInquiries: inquiriesRes.data?.length || 0,
-          activeOrders: activeOrdersRes.data?.length || 0,
-          completedOrders: completedOrdersRes.count || 0,
-          totalEarnings,
-          rating: 0, // TODO: считать из reviews
-          productsCount: productsRes.data?.length || 0,
-          publishedProducts: (productsRes.data || []).filter(
-            (p: { status: string }) => p.status === "published"
-          ).length,
+          activeNegotiations: negotiationsRes.length,
+          pendingInquiries: inquiriesRes.length,
+          activeOrders: activeOrdersRes.length,
+          completedOrders: completedRes.length,
+          totalEarnings: completedRes.reduce((sum, order) => sum + Number(order.total || 0), 0),
+          rating: 0,
+          productsCount: productsRes.length,
+          publishedProducts: productsRes.filter((product) => product.status === "published").length,
         },
-        incomingInquiries: (inquiriesRes.data || []) as unknown as ConfectionerDashboardData["incomingInquiries"],
-        activeOrders: (activeOrdersRes.data || []) as unknown as ConfectionerDashboardData["activeOrders"],
-        pendingOrders: (pendingOrdersRes.data || []) as unknown as ConfectionerDashboardData["pendingOrders"],
-        recentEarnings: (paymentsRes.data || []) as unknown as ConfectionerDashboardData["recentEarnings"],
+        incomingInquiries: inquiriesRes,
+        activeOrders: activeOrdersRes,
+        pendingOrders: pendingOrdersRes,
+        recentEarnings: payments,
       };
     },
     staleTime: 30 * 1000,
   });
 }
 
-/** Supplier dashboard — заказы, товары, склад, доход */
+/** Supplier dashboard — склад по owner_id, app-JWT + RLS */
 export function useSupplierDashboard() {
   return useQuery<SupplierDashboardData>({
-    queryKey: ["supplier-dashboard-v2"],
+    queryKey: ["supplier-dashboard-v3"],
     queryFn: async () => {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
-      if (!user) throw new Error("Не авторизован");
-
+      const userId = getAppSessionUserId();
       const [productsRes, ordersRes, inventoryRes] = await Promise.all([
-        // Товары поставщика (через products.confectioner_id — supplier тоже кондитер в v1.0)
-        supabaseBrowser
-          .from("products")
-          .select("id, title, price, status, is_featured")
-          .eq("confectioner_id", user.id)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false }),
-
-        // Заказы где есть товары этого поставщика (через order_items)
-        supabaseBrowser
-          .from("orders")
-          .select(`
-            id, number, total, status, created_at,
-            items:order_items(product_id, quantity)
-          `)
-          .eq("confectioner_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(10),
-
-        // Inventory items (если есть в schema)
-        supabaseBrowser
-          .from("inventory_items")
-          .select("id, quantity, cost_per_unit, min_quantity")
-          .eq("confectioner_id", user.id),
+        restGet<{ id: string; title: string; price: number; status: string; is_featured: boolean }>("products", {
+          select: "id,title,price,status,is_featured",
+          confectioner_id: `eq.${userId}`,
+          deleted_at: "is.null",
+          order: "created_at.desc",
+        }),
+        restGet<{ id: string; number: string; total: number; status: string; created_at: string; items?: unknown[] }>("orders", {
+          select: "id,number,total,status,created_at,items:order_items(product_id,quantity)",
+          confectioner_id: `eq.${userId}`,
+          order: "created_at.desc",
+          limit: "10",
+        }),
+        restGet<{ id: string; quantity: number; cost_per_unit: number; min_quantity: number }>("inventory_items", {
+          select: "id,quantity,cost_per_unit,min_quantity",
+          owner_id: `eq.${userId}`,
+        }),
       ]);
 
-      const totalProducts = productsRes.data?.length || 0;
-      const lowStockItems = (inventoryRes.data || []).filter(
-        (i: { quantity: number; min_quantity: number }) => i.quantity <= i.min_quantity
-      ).length;
-
-      // Доход = сумма succeeded платежей для заказов этого поставщика
-      const orderIds = (ordersRes.data || []).map((o: { id: string }) => o.id);
-      let revenue = 0;
-      if (orderIds.length > 0) {
-        const { data: payments } = await supabaseBrowser
-          .from("payments")
-          .select("amount")
-          .eq("status", "succeeded")
-          .in("order_id", orderIds);
-        revenue = (payments || []).reduce(
-          (sum: number, p: { amount: number }) => sum + (p.amount || 0),
-          0
-        );
-      }
-
+      const orderIds = ordersRes.map((order) => order.id);
+      const payments = orderIds.length
+        ? await restGet<{ amount: number }>("payments", {
+            select: "amount",
+            status: "eq.succeeded",
+            order_id: `in.(${orderIds.join(",")})`,
+          })
+        : [];
       return {
         stats: {
-          activeOrders: (ordersRes.data || []).filter(
-            (o: { status: string }) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(o.status)
+          activeOrders: ordersRes.filter(
+            (order) => !["COMPLETED", "CANCELLED", "REFUNDED"].includes(order.status)
           ).length,
-          completedOrders: (ordersRes.data || []).filter(
-            (o: { status: string }) => o.status === "COMPLETED"
+          completedOrders: ordersRes.filter((order) => order.status === "COMPLETED").length,
+          totalProducts: productsRes.length,
+          lowStockItems: inventoryRes.filter(
+            (item) => Number(item.quantity) <= Number(item.min_quantity)
           ).length,
-          totalProducts,
-          lowStockItems,
-          revenue,
+          revenue: payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
           rating: 0,
         },
-        recentOrders: (ordersRes.data || []).map((o: { id: string; number: string; items: unknown[]; total: number; status: string; created_at: string }) => ({
-          id: o.id,
-          number: o.number,
-          customer_name: "—", // TODO: join с user
-          items_count: Array.isArray(o.items) ? o.items.length : 0,
-          total: o.total,
-          status: o.status,
-          created_at: o.created_at,
+        recentOrders: ordersRes.map((order) => ({
+          id: order.id,
+          number: order.number,
+          customer_name: "—",
+          items_count: Array.isArray(order.items) ? order.items.length : 0,
+          total: Number(order.total || 0),
+          status: order.status,
+          created_at: order.created_at,
         })),
-        products: (productsRes.data || []).map((p: { id: string; title: string; price: number; status: string; is_featured: boolean }) => ({
-          id: p.id,
-          title: p.title,
-          price: p.price,
-          stock: 0, // TODO: брать из inventory
-          is_active: p.status === "published" && !p.is_featured,
+        products: productsRes.map((product) => ({
+          id: product.id,
+          title: product.title,
+          price: Number(product.price || 0),
+          stock: 0,
+          is_active: product.status === "published" && !product.is_featured,
         })),
       };
     },
@@ -484,14 +457,13 @@ export function useSupplierDashboard() {
   });
 }
 
-/** Courier dashboard — активные доставки, история, заработок */
+/** Courier dashboard — server-side scope + one automatic refresh on 401 */
 export function useCourierDashboard() {
   return useQuery<CourierDashboardData>({
-    queryKey: ["courier-dashboard-v2"],
+    queryKey: ["courier-dashboard-v3"],
     queryFn: async () => {
-      // Единый app-session API: не читаем deliveries напрямую из браузера,
-      // потому что фактическое назначение хранится в orders.courier_id.
-      const response = await fetch("/api/courier/dashboard", {
+      if (!getStoredAccessToken()) throw new Error("Не авторизован");
+      const response = await fetchWithAuthRetry("/api/courier/dashboard", {
         headers: await getSessionAuthHeaders(),
         credentials: "include",
         cache: "no-store",
@@ -500,7 +472,6 @@ export function useCourierDashboard() {
       if (!response.ok) {
         throw new Error(payload.error || `Не удалось загрузить кабинет курьера (HTTP ${response.status})`);
       }
-
       return {
         stats: payload.stats,
         activeDeliveries: (payload.activeDeliveries || []).map((delivery: any) => ({
@@ -510,7 +481,7 @@ export function useCourierDashboard() {
           status: delivery.status,
           estimated_time: delivery.deliveryTime || null,
           cost: Number(delivery.cost || 0),
-          courier_earnings: 0,
+          courier_earnings: Number(delivery.earnings || 0),
         })),
         recentCompleted: (payload.history || []).map((delivery: any) => ({
           id: delivery.id,
@@ -519,120 +490,37 @@ export function useCourierDashboard() {
           delivered_at: delivery.completedAt,
           courier_earnings: Number(delivery.earnings || 0),
         })),
-      } as CourierDashboardData;
+      };
     },
     staleTime: 30 * 1000,
   });
 }
 
-/** Admin dashboard — KPI, последние заказы, рост платформы */
+/** Admin dashboard — серверная проверка роли, а не клиентский обход RLS */
 export function useAdminDashboard() {
   return useQuery<AdminDashboardData>({
-    queryKey: ["admin-dashboard-v2"],
+    queryKey: ["admin-dashboard-v3"],
     queryFn: async () => {
-      // Admin видит все данные через RLS (profile admin_all policy)
-      const today = new Date(new Date().setHours(0, 0, 0, 0));
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-
-      const [usersCountRes, newUsersRes, ordersCountRes, revenueTodayRes, revenueMonthRes, recentOrdersRes] = await Promise.all([
-        // Всего пользователей
-        supabaseBrowser.from("profiles").select("id", { count: "exact", head: true }),
-
-        // Новых сегодня
-        supabaseBrowser.from("profiles").select("id", { count: "exact", head: true })
-          .gte("created_at", today.toISOString()),
-
-        // Всего заказов
-        supabaseBrowser.from("orders").select("id", { count: "exact", head: true }),
-
-        // Доход за сегодня
-        supabaseBrowser.from("payments")
-          .select("amount")
-          .eq("status", "succeeded")
-          .gte("created_at", today.toISOString()),
-
-        // Доход за месяц
-        supabaseBrowser.from("payments")
-          .select("amount")
-          .eq("status", "succeeded")
-          .gte("created_at", monthStart.toISOString()),
-
-        // Последние заказы
-        supabaseBrowser
-          .from("orders")
-          .select(`
-            id, number, total, status, created_at,
-            user:profiles!orders_user_id_fkey(email)
-          `)
-          .order("created_at", { ascending: false })
-          .limit(10),
-      ]);
-
-      const revenueToday = (revenueTodayRes.data || []).reduce(
-        (sum: number, p: { amount: number }) => sum + (p.amount || 0),
-        0
-      );
-      const revenueMonth = (revenueMonthRes.data || []).reduce(
-        (sum: number, p: { amount: number }) => sum + (p.amount || 0),
-        0
-      );
-
-      // Рост платформы за 6 месяцев
-      const sixMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 5, 1);
-      const { data: monthlyUsers } = await supabaseBrowser
-        .from("profiles")
-        .select("created_at")
-        .gte("created_at", sixMonthsAgo.toISOString());
-
-      const { data: monthlyOrders } = await supabaseBrowser
-        .from("orders")
-        .select("created_at")
-        .gte("created_at", sixMonthsAgo.toISOString());
-
-      const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
-      const platformGrowth: Array<{ month: string; users: number; orders: number }> = [];
-      for (let i = 5; i >= 0; i--) {
-        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-        const nextDate = new Date(today.getFullYear(), today.getMonth() - i + 1, 1);
-        const monthLabel = monthNames[date.getMonth()];
-
-        const usersCount = (monthlyUsers || []).filter(
-          (u: { created_at: string }) => {
-            const d = new Date(u.created_at);
-            return d >= date && d < nextDate;
-          }
-        ).length;
-
-        const ordersCount = (monthlyOrders || []).filter(
-          (o: { created_at: string }) => {
-            const d = new Date(o.created_at);
-            return d >= date && d < nextDate;
-          }
-        ).length;
-
-        platformGrowth.push({ month: monthLabel, users: usersCount, orders: ordersCount });
+      const response = await fetchWithAuthRetry("/api/admin/dashboard", {
+        headers: await getSessionAuthHeaders(),
+        credentials: "include",
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || `Не удалось загрузить кабинет администратора (HTTP ${response.status})`);
       }
-
       return {
-        stats: {
-          totalUsers: usersCountRes.count || 0,
-          newUsersToday: newUsersRes.count || 0,
-          totalOrders: ordersCountRes.count || 0,
-          revenueToday,
-          revenueMonth,
-          activeTickets: 0, // TODO: из CRM миграции
-          pendingPayouts: 0, // TODO: из payouts
-          fraudAlerts: 0, // TODO: из fraud_logs
-        },
-        recentOrders: (recentOrdersRes.data || []).map((o: Record<string, unknown>) => ({
-          id: o.id as string,
-          number: o.number as string,
-          customer_email: (o.user as { email?: string })?.email || "—",
-          total: o.total as number,
-          status: o.status as string,
-          created_at: o.created_at as string,
-        })) as AdminDashboardData["recentOrders"],
-        platformGrowth,
+        stats: payload.stats,
+        recentOrders: (payload.recentOrders || []).map((order: any) => ({
+          id: order.id,
+          number: order.number,
+          customer_email: order.customer_email || order.customer || "—",
+          total: Number(order.total || 0),
+          status: order.status,
+          created_at: order.created_at,
+        })),
+        platformGrowth: payload.platformGrowth || [],
       };
     },
     staleTime: 30 * 1000,
