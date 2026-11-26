@@ -111,12 +111,9 @@ test.describe("Создание проекта торта и переговор�
     expect(inquiry.estimated_price).toBe(750000);
     expect(inquiry.project_spec.price.productKopecks).toBe(750000);
 
-    const confectionerLoginForAvailable = await request.post(APP + "/api/auth/login", {
-      data: { email: "confectioner@demo.ru", password: DEMO_PASSWORD },
-    });
-    expect(confectionerLoginForAvailable.ok()).toBeTruthy();
-    const confectionerAvailableBody = await confectionerLoginForAvailable.json();
-    if (confectionerAvailableBody.accessToken) sessionTokens.push(confectionerAvailableBody.accessToken);
+    // Повторно не логиним общий demo-аккаунт: политика реестра сессий
+    // намеренно блокирует параллельные входы с другого устройства.
+    const confectionerAvailableBody = confectionerBody;
     const available = await request.get(APP + "/api/inquiries?filter=available", {
       headers: { Authorization: "Bearer " + (confectionerAvailableBody.accessToken as string) },
     });
