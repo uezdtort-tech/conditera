@@ -285,6 +285,30 @@ test.describe("Login page (Supabase Auth)", () => {
   });
 });
 
+
+/* ===== Группа: Регистрация покупателя через браузер ===== */
+test.describe("Customer registration — browser UI", () => {
+  test("customer completes registration and enters the account through UI", async ({ page }) => {
+    const suffix = Date.now().toString();
+    const email = `e2e-${suffix}@example.test`;
+    const phone = `+7999${suffix.slice(-7).padStart(7, "0")}`;
+
+    await page.goto(`${BASE_URL}/login`);
+    await page.getByRole("tab", { name: "Регистрация" }).click();
+    await page.getByLabel("Имя / ФИО *").fill("Покупатель E2E");
+    await page.getByLabel("Телефон *").fill(phone);
+    await page.getByLabel("Email *").fill(email);
+    await page.getByLabel("Пароль *").fill("E2ePassword!2026");
+    await page.getByRole("button", { name: "Покупать торты" }).click();
+    await page.locator("#consent-pd").check();
+    await page.locator("#consent-terms").check();
+    await page.locator("#consent-offer").check();
+    await page.getByRole("button", { name: "Зарегистрироваться", exact: true }).click();
+    await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
+    await expect(page.locator("body")).toContainText(/Покупатель E2E|Мои заказы|Личный кабинет/);
+  });
+});
+
 /* ===== Группа: Реальный пользовательский checkout через браузер ===== */
 test.describe("Customer checkout — browser UI", () => {
   test("customer logs in, adds a live product and creates an order through UI", async ({ page }) => {
