@@ -58,7 +58,6 @@ jobs:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
       SUPABASE_INTERNAL_URL: http://127.0.0.1:3000
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'stub-anon-key' }}
       NODE_ENV: test
       LOCAL_AUTH_STUB_ENABLED: "true"
       E2E_PAYMENT_STUB_ENABLED: "true"
