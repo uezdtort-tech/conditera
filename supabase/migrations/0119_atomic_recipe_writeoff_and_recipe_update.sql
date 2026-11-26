@@ -681,8 +681,6 @@ REVOKE ALL ON FUNCTION public.inventory_unit_convert_qty(numeric, text, text) FR
 REVOKE ALL ON FUNCTION public.inventory_unit_convert_qty(numeric, text, text) FROM anon;
 REVOKE ALL ON FUNCTION public.inventory_unit_convert_qty(numeric, text, text) FROM authenticated;
 REVOKE ALL ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, uuid, jsonb, text, text, boolean, boolean) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean) FROM anon;
-REVOKE ALL ON FUNCTION public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean) FROM authenticated;
 REVOKE ALL ON FUNCTION public.update_recipe_with_ingredients(uuid, jsonb, jsonb, jsonb, jsonb, jsonb, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.update_recipe_with_ingredients(uuid, jsonb, jsonb, jsonb, jsonb, jsonb, jsonb) FROM anon;
 REVOKE ALL ON FUNCTION public.update_recipe_with_ingredients(uuid, jsonb, jsonb, jsonb, jsonb, jsonb, jsonb) FROM authenticated;
@@ -700,7 +698,7 @@ END $$;
 -- ============================================================================
 -- ROLLBACK PLAN (выполняется вручную):
 -- DROP FUNCTION IF EXISTS public.update_recipe_with_ingredients(uuid, jsonb, jsonb, jsonb, jsonb, jsonb, jsonb);
--- DROP FUNCTION IF EXISTS public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean);
+-- DROP FUNCTION IF EXISTS public.apply_order_write_off_atomic(uuid, uuid, uuid, jsonb, text, text, boolean, boolean);
 -- DROP FUNCTION IF EXISTS public.inventory_unit_convert_qty(numeric, text, text);
 -- DROP FUNCTION IF EXISTS public.inventory_unit_alias_info(text);
 -- (данные не меняются; маршруты до отката миграции вернут 500 fail-closed)
