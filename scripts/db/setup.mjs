@@ -744,8 +744,6 @@ async function main() {
       ["0104_order_disputes_and_immutable_evidence.sql", "0105_order_disputes_and_immutable_evidence.sql"],
       ["0105_order_dispute_messages.sql", "0106_order_dispute_messages.sql"],
       ["0106_abandoned_cart_delivery_tracking.sql", "0107_abandoned_cart_delivery_tracking.sql"],
-      ["0107_postgrest_maintenance_enum_compat.sql", "0108_postgrest_maintenance_enum_compat.sql"],
-      ["0108_moderation_queue_schema_alignment.sql", "0102_moderation_queue_schema_alignment.sql"],
       ["0063a_cake_project_spec.sql", "0063_cake_project_spec.sql"],
       ["0064a_product_slices_rls.sql", "0064_product_slices_rls.sql"],
       ["0065_cms_home_blocks.sql", "0109_cms_home_blocks.sql"],
