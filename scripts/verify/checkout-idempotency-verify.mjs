@@ -55,6 +55,7 @@ function section(title) {
 
 const rand = () => Math.floor(Math.random() * 1e9).toString(36);
 const RUN_TAG = `u07fix-${rand()}`;
+const VERIFY_AUTH_IP = process.env.VERIFY_TEST_IP || "10.250.250.250";
 const IDEM_KEYS = [`${RUN_TAG}-a`, `${RUN_TAG}-c`, `${RUN_TAG}-d`];
 const collectedOrderIds = [];
 
@@ -92,7 +93,7 @@ async function api(method, path, { token, body, headers: extraHeaders, signal, i
 }
 
 async function login(email) {
-  const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
+  const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD }, ip: VERIFY_AUTH_IP });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
