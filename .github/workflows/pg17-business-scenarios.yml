@@ -1,7 +1,10 @@
 name: PostgreSQL 17 — полный прогон бизнес-сценариев
 
 on:
-  pull_request:
+  push:
+    branches:
+      - main
+      - "integration/**"
     paths:
       - ".github/workflows/pg17-business-scenarios.yml"
       - ".github/workflows/supabase-single-container-poc.yml"
