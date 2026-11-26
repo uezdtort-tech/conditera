@@ -19,10 +19,8 @@
  * списка (applied/failed). Если не применилось НИЧЕГО — ошибка с HTTP-статусом
  * первой причины (403/404/409/500).
  *
- * Идемпотентность (миграция 0049, реестр inventory_write_offs): batch claim
- * создаётся ДО движений. Повторная/параллельная отправка того же батча
- * возвращает сохранённый результат или 409 processing — двойное списание
- * невозможно.
+ * Для order-bound ручного списания используется транзакционный RPC миграции
+ * 0119; вне заказа допускаются только отдельные ручные корректировки.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
@@ -212,7 +210,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       };
 
       if (error) {
-        const mapped = atomicWriteOffError(error.message || error.code || "");
+        const mapped = atomicWriteOffError(`${error.code ?? ""} ${error.message ?? ""}`);
         console.error("[inventory/write-off] atomic RPC failed:", error.message);
         return NextResponse.json({ error: mapped.message }, { status: mapped.status });
       }
@@ -273,19 +271,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // Ни одна позиция не списана — освобождаем batch claim, чтобы после
-    // пополнения склада/исправления прав пользователь мог повторить запрос.
+    // Вне заказа обычная корректировка применяется по одной позиции.
     if (applied.length === 0 && firstError) {
-      if (orderId && signature) {
-        await supabaseAdmin.from("inventory_write_offs").delete()
-           .eq("owner_id", writeOffOwnerId).eq("order_id", orderId).eq("signature", signature);
-      }
       const { status, message } = errorToResponse(firstError);
       return NextResponse.json({ error: message, failed }, { status });
     }
 
-    // Сохраняем итог в уже захваченном batch-реестре. Если запись результата
-    // не прошла, claim остаётся processing: повторное списание блокируется.
     return NextResponse.json({ applied, failed }, { status: 201 });
   } catch (error) {
     return handleRouteError(error, {
