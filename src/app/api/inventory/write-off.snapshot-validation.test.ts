@@ -259,9 +259,9 @@ describe("POST /api/inventory/write-off (order-путь) — контракт RP
     const res = await postWriteOff(
       req({ order_id: ORDER_ID, items: [{ item_id: BERRY, quantity: 0.5 }] })
     );
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const json = (await res.json()) as { error: string };
-    expect(json.error).toContain("0081");
+    expect(json.error).toContain("0119");
   });
 
   it("некорректная позиция от клиента → 400 до RPC", async () => {
