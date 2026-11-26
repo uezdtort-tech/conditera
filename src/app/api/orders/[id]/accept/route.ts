@@ -11,6 +11,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
 import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
+import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
 
@@ -83,7 +84,11 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       }
       throw err;
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, {
+      route: "/api/orders/[id]/accept",
+      component: "orders",
+      requestId: req.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
