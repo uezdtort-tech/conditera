@@ -294,7 +294,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: nextjs-server-log-${{ matrix.browser }}
+          name: nextjs-server-log-${{ matrix.project }}
           path: /tmp/conditera-next.log
           if-no-files-found: warn
           retention-days: 7
@@ -303,7 +303,7 @@ jobs:
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report-${{ matrix.browser }}
+          name: playwright-report-${{ matrix.project }}
           path: playwright-report/
           retention-days: 14
 
@@ -311,7 +311,7 @@ jobs:
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-results-${{ matrix.browser }}
+          name: playwright-results-${{ matrix.project }}
           path: test-results/
           retention-days: 7
 
@@ -319,7 +319,7 @@ jobs:
         uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-failures-${{ matrix.browser }}
+          name: playwright-failures-${{ matrix.project }}
           path: test-results/**/test-video.webm
           retention-days: 7
 
