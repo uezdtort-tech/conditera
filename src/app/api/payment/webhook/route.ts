@@ -478,7 +478,7 @@ export async function POST(request: NextRequest) {
           .from("orders")
           .update({ payment_status: "escrow" })
           .eq("id", orderId)
-          .in("payment_status", ["pending", "waiting_for_capture", "succeeded", "paid"])
+          .in("payment_status", ["pending", "waiting_for_capture", "succeeded"])
           .neq("status", "CANCELLED")
           .neq("status", "REFUNDED")
           .neq("status", "COMPLETED")
