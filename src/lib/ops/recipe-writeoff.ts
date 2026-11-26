@@ -66,8 +66,12 @@ export async function writeOffOrderRecipe(
     return { ok: false, status: 409, error: "Для заказа не назначен кондитер" };
   }
 
-  const breakdown = await computeOrderBreakdown(orderId);
-  if (!breakdown) return { ok: false, status: 404, error: "Не удалось рассчитать рецептуру заказа" };
+  const breakdownResult = await computeOrderBreakdown(orderId);
+  if (!breakdownResult) return { ok: false, status: 404, error: "Не удалось рассчитать рецептуру заказа" };
+  if (!breakdownResult.ok) {
+    return { ok: false, status: 422, error: breakdownResult.message };
+  }
+  const breakdown = breakdownResult.breakdown;
   if (!breakdown.ingredients.length) {
     return { ok: false, status: 422, error: "У товаров заказа не настроены рецептуры с ингредиентами" };
   }
