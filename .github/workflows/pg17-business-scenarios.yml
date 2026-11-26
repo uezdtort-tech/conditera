@@ -226,7 +226,6 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: test
 
       - name: Установить Chromium для Playwright
@@ -254,7 +253,6 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: test
 
       - name: Полный путь заказа — регистрация, оплата, производство, передача
@@ -319,7 +317,6 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: test
           CI: "true"
 
