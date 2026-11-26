@@ -35,6 +35,9 @@ const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
 let PRODUCT_ID = ""; // demo product with a seeded recipe
 let originalProductionTimeHours;
+let confectionerId = "";
+let originalCapacityConfig = null;
+let deliveryDateFixture = "";
 
 let passed = 0;
 let failed = 0;
@@ -104,8 +107,8 @@ async function login(email) {
 const client = new Client({ connectionString: PG_URL });
 
 function checkoutBody() {
-  const d = new Date(Date.now() + 2 * 86400_000);
-  const deliveryDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const deliveryDate = deliveryDateFixture;
+  if (!deliveryDate) throw new Error("checkout capacity fixture did not choose a delivery date");
   // Используем опубликованный demo-продукт с recipe_id и заполненными
   // recipe_ingredients из seed-ops-center. Custom-конструктор в production
   // намеренно не оплачивается без отдельной согласованной спецификации.
@@ -133,7 +136,8 @@ async function countOrdersByKey(key) {
 async function main() {
   await client.connect();
   const productFixture = await client.query(
-    `SELECT id::text, production_time_hours FROM public.products
+    `SELECT id::text, production_time_hours, confectioner_id::text
+       FROM public.products
       WHERE slug = 'svadebnyy-tort-yagodnyy-barhat'
         AND recipe_id IS NOT NULL
         AND status = 'published'
@@ -144,6 +148,51 @@ async function main() {
   }
   PRODUCT_ID = productFixture.rows[0].id;
   originalProductionTimeHours = productFixture.rows[0].production_time_hours;
+  confectionerId = productFixture.rows[0].confectioner_id;
+  if (!confectionerId) throw new Error("demo product has no assigned confectioner");
+
+  // The test validates checkout idempotency, not a particular confectioner's
+  // production calendar. Isolate a free day and a wide temporary work window,
+  // then restore the exact previous capacity configuration in cleanup.
+  const capacityBefore = await client.query(
+    `SELECT user_id::text, workday_start_minute, workday_end_minute,
+            daily_capacity_minutes, packaging_minutes, quality_check_minutes,
+            handoff_buffer_minutes, delivery_buffer_minutes, is_active
+       FROM public.confectioner_capacity WHERE user_id = $1::uuid`,
+    [confectionerId]
+  );
+  originalCapacityConfig = capacityBefore.rows[0] ?? null;
+  if (originalCapacityConfig) {
+    await client.query(
+      `UPDATE public.confectioner_capacity
+          SET workday_start_minute = 0, workday_end_minute = 1439,
+              daily_capacity_minutes = 1439, is_active = true
+        WHERE user_id = $1::uuid`,
+      [confectionerId]
+    );
+  } else {
+    await client.query(
+      `INSERT INTO public.confectioner_capacity
+         (user_id, workday_start_minute, workday_end_minute, daily_capacity_minutes, is_active)
+       VALUES ($1::uuid, 0, 1439, 1439, true)`,
+      [confectionerId]
+    );
+  }
+  const freeDay = await client.query(
+    `SELECT to_char(day::date, 'YYYY-MM-DD') AS date
+       FROM generate_series(CURRENT_DATE + 2, CURRENT_DATE + 30, interval '1 day') AS day
+      WHERE NOT EXISTS (
+        SELECT 1 FROM public.capacity_reservations r
+         WHERE r.confectioner_id = $1::uuid
+           AND r.reserved_date = day::date
+           AND r.status IN ('reserved', 'confirmed')
+      )
+      ORDER BY day
+      LIMIT 1`,
+    [confectionerId]
+  );
+  if (!freeDay.rows[0]?.date) throw new Error("no free demo confectioner capacity day in the next 30 days");
+  deliveryDateFixture = freeDay.rows[0].date;
   // This test exercises checkout idempotency, not long-horizon production planning.
   // Keep the temporary demo product within one normal workday and restore its
   // original production duration in cleanup.
@@ -262,6 +311,34 @@ async function main() {
 
 async function cleanupAll() {
   try {
+    if (confectionerId) {
+      if (originalCapacityConfig) {
+        await client.query(
+          `UPDATE public.confectioner_capacity
+              SET workday_start_minute = $2, workday_end_minute = $3,
+                  daily_capacity_minutes = $4, packaging_minutes = $5,
+                  quality_check_minutes = $6, handoff_buffer_minutes = $7,
+                  delivery_buffer_minutes = $8, is_active = $9
+            WHERE user_id = $1::uuid`,
+          [
+            confectionerId,
+            originalCapacityConfig.workday_start_minute,
+            originalCapacityConfig.workday_end_minute,
+            originalCapacityConfig.daily_capacity_minutes,
+            originalCapacityConfig.packaging_minutes,
+            originalCapacityConfig.quality_check_minutes,
+            originalCapacityConfig.handoff_buffer_minutes,
+            originalCapacityConfig.delivery_buffer_minutes,
+            originalCapacityConfig.is_active,
+          ]
+        ).catch(() => {});
+      } else {
+        await client.query(
+          "DELETE FROM public.confectioner_capacity WHERE user_id = $1::uuid",
+          [confectionerId]
+        ).catch(() => {});
+      }
+    }
     if (PRODUCT_ID && originalProductionTimeHours !== undefined) {
       await client.query(
         "UPDATE public.products SET production_time_hours = $2 WHERE id = $1::uuid",
