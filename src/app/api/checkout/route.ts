@@ -897,11 +897,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let paymentUrl = `/checkout/success?orderId=${order.id}&demo=true`;
     let yookassaPaymentId: string | null = null;
 
-    if (!isYookassaConfigured()) {
+    if (!isYookassaConfigured() && !isLocalE2EPaymentStubEnabled()) {
       console.warn(
         "[checkout] YooKassa не настроена (YOOKASSA_SHOP_ID/YOOKASSA_SECRET_KEY) — stub payment URL"
       );
     } else {
+      // In an explicitly enabled loopback E2E environment, call the adapter
+      // even without provider credentials so it persists a mock_* payment ID.
+      // Production remains fail-closed unless the dedicated local stub guard passes.
       const paymentResult = await createPayment({
         amount: total, // рубли
         description: `Заказ ${order.number} — кондитерский маркетплейс «Уездный кондитер»`,
