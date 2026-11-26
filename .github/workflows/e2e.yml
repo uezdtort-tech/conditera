@@ -205,6 +205,11 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NODE_ENV: ${{ env.NODE_ENV }}
 
+      - name: Seed isolated orderable product for browser checkout
+        run: node scripts/db/seed-e2e-orderable-product.mjs
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
       - name: Export generated Supabase service-role key to CI runtime
         shell: bash
         run: |
