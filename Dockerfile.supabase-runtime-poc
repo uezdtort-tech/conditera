@@ -1,10 +1,10 @@
 # Experimental all-in-one Supabase runtime proof of concept.
 # Every Supabase process runs inside this one container; no sibling Supabase containers.
-FROM supabase/postgres:17.12.0.001 AS postgres
-FROM supabase/gotrue:v2.197.0 AS gotrue
-FROM postgrest/postgrest:v14.18 AS postgrest
-FROM supabase/realtime:v2.148.3 AS realtime
-FROM supabase/storage-api:v1.89.12 AS storage
+FROM supabase/postgres:17.12.0.002 AS postgres
+FROM supabase/gotrue:v2.198.0 AS gotrue
+FROM postgrest/postgrest:v16.6 AS postgrest
+FROM supabase/realtime:v2.174.5 AS realtime
+FROM supabase/storage-api:v1.98.5 AS storage
 FROM supabase/postgres-meta:v0.100.0 AS meta
 FROM darthsim/imgproxy:v4.0.21 AS imgproxy
 FROM kong:3.9.3 AS kong
@@ -48,7 +48,7 @@ COPY supabase/init-scripts/02-realtime-schema.sql \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-schema.sql
 # Seed the exact tenant schema/migration state shipped with the pinned Realtime
 # image. The image release bundles this versioned dump under the app priv dir.
-COPY --from=realtime /app/lib/realtime-2.148.3/priv/repo/tenant_db_dump_17.sql \
+COPY --from=realtime /app/lib/realtime-*/priv/repo/tenant_db_dump_17.sql \
   /opt/supabase/services/postgres/docker-entrypoint-initdb.d/zz-conditera-realtime-tenant-db-dump.sql
 # Application migrations run once, inside this same runtime container, after
 # PostgreSQL and the Storage API have initialized their managed schemas.
