@@ -349,6 +349,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
       return NextResponse.json({ error: "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве." }, { status: 403 });
     }
+    if (error?.message === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+      return NextResponse.json(
+        { error: "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN", message: "Другой вход одновременно заменил этот сеанс. Повторите вход." },
+        { status: 409 }
+      );
+    }
     if (error?.message === SESSION_POLICY_UNAVAILABLE) {
       return NextResponse.json({ error: "Не удалось безопасно проверить активные устройства. Повторите попытку позже." }, { status: 503 });
     }
