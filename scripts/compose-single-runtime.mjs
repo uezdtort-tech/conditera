@@ -128,7 +128,7 @@ for (const key of requiredSecrets) {
 
 const webEnv = services.web.environment || {};
 const backupDatabaseUrl = String(webEnv.BACKUP_DATABASE_URL || "");
-if (!backupDatabaseUrl.includes("conditera_backup:") || !backupDatabaseUrl.includes("@supabase-runtime:5432/supabase")) {
+if (!backupDatabaseUrl.includes("conditera_backup:") || !backupDatabaseUrl.includes("@supabase-runtime:5432/conditera")) {
   fail("web.BACKUP_DATABASE_URL должен использовать отдельную роль conditera_backup в едином PostgreSQL 17.");
 }
 const backupMount = (services.web.volumes || []).find((mount) => mount.target === "/app/backups");
@@ -136,7 +136,7 @@ if (!backupMount || !String(backupMount.source || "").includes("conditera_backup
   fail("Не найден отдельный постоянный Docker volume conditera_backup_data для резервных копий.");
 }
 for (const key of ["DATABASE_URL", "DIRECT_DATABASE_URL"]) {
-  if (!String(webEnv[key] || "").includes("@supabase-runtime:5432/supabase")) {
+  if (!String(webEnv[key] || "").includes("@supabase-runtime:5432/conditera")) {
     fail("web." + key + " не направлен в единый PostgreSQL 17 runtime.");
   }
 }
@@ -146,8 +146,8 @@ if (webEnv.SUPABASE_INTERNAL_URL !== "http://supabase-kong:8000") {
 if (services.web.depends_on?.["supabase-runtime"]?.condition !== "service_healthy") {
   fail("web должен ожидать успешный healthcheck единого Supabase Runtime.");
 }
-if (runtimeEnvValues.POSTGRES_DB !== "supabase" || runtimeEnvValues.POSTGRES_USER !== "supabase_admin") {
-  fail("Supabase Runtime должен использовать каноническую БД supabase и административную роль supabase_admin.");
+if (runtimeEnvValues.POSTGRES_DB !== "conditera" || runtimeEnvValues.POSTGRES_USER !== "supabase_admin") {
+  fail("Supabase Runtime должен использовать каноническую БД conditera и административную роль supabase_admin.");
 }
 
 const runtimeMounts = runtime.volumes || [];
