@@ -284,3 +284,33 @@ test.describe("Login page (Supabase Auth)", () => {
     }
   });
 });
+
+/* ===== Группа: Реальный пользовательский checkout через браузер ===== */
+test.describe("Customer checkout — browser UI", () => {
+  test("customer logs in, adds a live product and creates an order through UI", async ({ page }) => {
+    await page.goto(`${BASE_URL}/login`);
+    await page.getByLabel("Email").fill("customer@demo.ru");
+    await page.getByLabel("Пароль").fill("Demo123!");
+    await page.getByRole("button", { name: "Войти", exact: true }).click();
+    await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
+
+    await page.goto(`${BASE_URL}/catalog`);
+    const addToCart = page.locator('button[aria-label="Добавить в корзину"]:not([disabled])').first();
+    await expect(addToCart).toBeVisible({ timeout: 20_000 });
+    await addToCart.click();
+
+    await page.goto(`${BASE_URL}/checkout`);
+    await expect(page.getByRole("heading", { name: "Оформление заказа" })).toBeVisible();
+    await page.getByRole("button", { name: /Самовывоз/ }).click();
+    await page.getByLabel("Имя получателя *").fill("Покупатель E2E");
+    await page.getByLabel("Телефон получателя *").fill("+7 999 123-45-67");
+    await page.getByLabel("Город *").fill("Москва");
+    await page.getByRole("button", { name: "Продолжить", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Подтверждение заказа" })).toBeVisible();
+    await page.getByRole("button", { name: /Оплатить/ }).click();
+
+    await expect(page.getByRole("heading", { name: "Заказ оформлен!" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Номер заказа:/)).toBeVisible();
+    await expect(page.getByText(/Платёж создан в демо-режиме/)).toBeVisible();
+  });
+});
