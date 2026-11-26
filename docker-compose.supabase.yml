@@ -434,7 +434,6 @@ services:
     profiles: ["legacy-supabase"]
     image: supabase/studio:2026.11.02-sha-a05e7ec
     container_name: conditera-supabase-studio
-    profiles: ["studio"]
     restart: unless-stopped
     environment:
       STUDIO_PG_META_URL: http://supabase-meta:8080
