@@ -89,7 +89,7 @@ async function hasPgDump(): Promise<boolean> {
   try {
     for (const command of ["pg_dump", "psql"]) {
       await new Promise<void>((resolve, reject) => {
-        const child = spawn(command, ["--version"], { stdio: "ignore" });
+        const child = spawn(/* turbopackIgnore: true */ command, ["--version"], { stdio: "ignore" });
         child.once("error", reject);
         child.once("close", (code) => code === 0 ? resolve() : reject(new Error(command + " unavailable")));
       });
