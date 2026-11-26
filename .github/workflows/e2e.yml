@@ -399,3 +399,5 @@ jobs:
           node scripts/verify/checkout-idempotency-verify.mjs
           node scripts/verify/order-lifecycle-verify.mjs
           node scripts/verify/diagnostics-verify.mjs
+        env:
+          VERIFY_TEST_IP: 10.250.250.250
