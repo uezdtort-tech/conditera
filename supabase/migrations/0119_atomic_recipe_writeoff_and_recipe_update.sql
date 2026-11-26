@@ -121,6 +121,9 @@ $$;
 -- ============================================================================
 -- 2. ZV31-002: атомарное кумулятивное order-списание (одна транзакция)
 -- ============================================================================
+-- Remove the legacy overload so PostgREST cannot expose an unsafe actor/owner conflation.
+DROP FUNCTION IF EXISTS public.apply_order_write_off_atomic(uuid, uuid, jsonb, text, text, boolean, boolean);
+
 CREATE OR REPLACE FUNCTION public.apply_order_write_off_atomic(
   p_actor_id       uuid,      -- пользователь, выполнивший действие (аудит движения)
   p_inventory_owner_id uuid,   -- владелец складских остатков и ключ реестра
