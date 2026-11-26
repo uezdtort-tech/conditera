@@ -28,6 +28,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { getUserFromRequest } from "@/lib/auth";
 import { unauthorizedResponse } from "@/lib/supabase/auth";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
 import { writeOffOrderRecipe } from "@/lib/ops/recipe-writeoff";
@@ -293,7 +294,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ applied, failed, order_id: orderId }, { status: 201 });
   } catch (error) {
-    console.error("[inventory/write-off] POST error:", (error as Error).message);
-    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    return handleRouteError(error, {
+      route: "/api/inventory/write-off",
+      component: "inventory",
+      requestId: request.headers.get("x-request-id") ?? undefined,
+    });
   }
 }
