@@ -38,7 +38,7 @@ jobs:
       SECRET_KEY_BASE: ${{ 'ci-only-secret-key-base-64-characters-long' }}
       ANON_KEY: ${{ 'ci-only-anon-key' }}
       SERVICE_ROLE_KEY: ${{ 'ci-only-service-role-key' }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'ci-only-anon-key' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key-not-for-deploy
       SUPABASE_SERVICE_ROLE_KEY: ${{ 'ci-only-service-role-key' }}
       SUPABASE_SECRET_KEY_BASE: ${{ 'ci-only-secret-key-base-64-characters-long' }}
       PG_META_CRYPTO_KEY: ${{ 'ci-only-pg-meta-crypto-key-32' }}
@@ -53,7 +53,6 @@ jobs:
       SIMPLEX_BRIDGE_API_KEY: ${{ 'ci-only-simplex-key' }}
       NEXT_PUBLIC_APP_URL: https://conditera-ci.invalid
       NEXT_PUBLIC_SUPABASE_URL: https://conditera-ci.invalid/api
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key-not-for-deploy
     steps:
       - uses: actions/checkout@v7
 
