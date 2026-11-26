@@ -36,6 +36,20 @@ PG_DUMP_VERSION="$(docker exec "$CONTAINER" pg_dump --version 2>/dev/null)" \
 TABLE_COUNT="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec psql -X -U "$1" -d "$2" -Atqc "$3"' sh "$DB_USER" "$DB_NAME" "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')" 2>/dev/null)" \
   || fail "cannot count user tables"
 
+# Supabase Vault exposes decrypted_secrets as a derived view. The PG17 target
+# recreates this view from its installed Vault extension; dumping the view's
+# DDL would collide with that extension-owned object. The source of truth,
+# vault.secrets, remains included in the full dump.
+VAULT_DECRYPTED_RELKIND="$(docker exec "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-}"; exec psql -X -U "$1" -d "$2" -Atqc "$3"' sh "$DB_USER" "$DB_NAME" "SELECT c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='vault' AND c.relname='decrypted_secrets'" 2>/dev/null)" \
+  || fail "cannot inspect Supabase Vault derived relation"
+DUMP_EXCLUDES=()
+if [[ "$VAULT_DECRYPTED_RELKIND" == "v" || "$VAULT_DECRYPTED_RELKIND" == "m" ]]; then
+  DUMP_EXCLUDES+=(--exclude-table=vault.decrypted_secrets)
+  echo "Vault decrypted_secrets is a derived view; its definition is recreated by the target extension."
+elif [[ -n "$VAULT_DECRYPTED_RELKIND" && "$VAULT_DECRYPTED_RELKIND" != "r" && "$VAULT_DECRYPTED_RELKIND" != "p" ]]; then
+  fail "unexpected vault.decrypted_secrets relation kind: $VAULT_DECRYPTED_RELKIND"
+fi
+
 echo "Supabase source: container=$CONTAINER db=$DB_NAME user=$DB_USER"
 echo "PostgreSQL server: $SERVER_VERSION"
 echo "Dump client: $PG_DUMP_VERSION"
@@ -47,6 +61,7 @@ if ! docker exec -i "$CONTAINER" sh -c 'export PGPASSWORD="${POSTGRES_PASSWORD:-
   --dbname="$DB_NAME" \
   --no-owner \
   --no-privileges \
+  "${DUMP_EXCLUDES[@]}" \
   --format=plain \
   | gzip -c > "$TMP_PATH"; then
   rm -f "$TMP_PATH"
@@ -70,6 +85,7 @@ MANIFEST="$FINAL_PATH.manifest.txt"
   echo "user_tables=$TABLE_COUNT"
   echo "format=plain-sql-gzip"
   echo "sha256=$CHECKSUM"
+  echo "vault_decrypted_secrets_relkind=$VAULT_DECRYPTED_RELKIND"
   echo "storage_objects=NOT_INCLUDED"
   echo "cluster_globals=NOT_INCLUDED"
 } > "$MANIFEST"
