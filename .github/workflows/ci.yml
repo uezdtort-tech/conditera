@@ -277,7 +277,10 @@ jobs:
             ROOTFS="$(mktemp -d)"
             docker create --name "$CID" "$img" > /dev/null
             docker export "$CID" | tar -x -C "$ROOTFS"
-            MATCHES="$(grep -RIlEa "$SECRET_RE" "$ROOTFS" || true)"
+            # Scan text files only. -a forced binary executables/shared libraries into
+            # text mode and produced false positives on Node/GPG/system libraries.
+            # --binary-files=without-match keeps PEM/config/text secrets detectable.
+            MATCHES="$(grep -RIlE --binary-files=without-match "$SECRET_RE" "$ROOTFS" || true)"
             if [ -n "$MATCHES" ]; then
               echo "❌ potential secret in exported filesystem of $img:"
               printf '%s\n' "$MATCHES" | sed "s#^$ROOTFS/##"
