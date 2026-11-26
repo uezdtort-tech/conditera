@@ -1,169 +1,93 @@
-/**
- * GET    /api/cms/banners — список баннеров (public: active only)
- *                            ?include_inactive=true — полный список (ADMIN/SUPER_ADMIN/COPYWRITER)
- *                            ?position=... — фильтр по позиции
- * POST   /api/cms/banners — создать баннер (ADMIN/SUPER_ADMIN/COPYWRITER)
- * PATCH  /api/cms/banners — обновить баннер по id (ADMIN/SUPER_ADMIN/COPYWRITER), body: { id, ...fields }
- * DELETE /api/cms/banners — удалить баннер (?id=) (ADMIN/SUPER_ADMIN)
- *
- * Таблица cms_banners (миграция 0005): title, image_url, link_url, position,
- * text, cta_text, starts_at, ends_at, is_active, sort_order, created_at, updated_at.
- *
- * Тело POST/PATCH (camelCase): { title, imageUrl, linkUrl, position, sortOrder,
- * isActive, startAt, endAt, subtitle | text, buttonText | ctaText }.
- */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
-import { cmsAudit } from "@/lib/cms/settings-versioning";
+import { areValidCmsNavigationRoles, isValidCmsSchedule, isSafeCmsUrl } from "@/lib/cms-validation";
 
 export const runtime = "nodejs";
-
 const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN", "COPYWRITER"] as const;
+const POSITIONS = new Set(["home_hero", "catalog_top", "sidebar", "footer", "mobile"]);
 
-/** Аудит баннеров (Z-v32 E-1): best-effort, details — только нечувствительные поля. */
-function auditBanner(
-  action: "banner_create" | "banner_update" | "banner_delete",
-  bannerId: string,
-  actorId: string,
-  details: Record<string, unknown>
-): void {
-  void cmsAudit({ entityType: "cms_banners", entityId: bannerId, action, actorId, details });
+async function authorize(request: NextRequest) {
+  const user = await getUserFromRequest(request);
+  if (!user) return { user: null, response: NextResponse.json({ error: "Не авторизован" }, { status: 401 }) };
+  const guard = await requireAnyRole(user.id, [...ADMIN_ROLES]);
+  if (guard) return { user, response: new NextResponse(guard.body, { status: guard.status, headers: guard.headers }) };
+  return { user, response: null };
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const { searchParams } = new URL(request.url);
-    const position = searchParams.get("position");
-    const includeInactive = searchParams.get("include_inactive") === "true";
-
-    let query = supabaseAdmin
-      .from("cms_banners")
-      .select("*")
-      .order("sort_order", { ascending: true });
-
-    if (includeInactive) {
-      // Полный список (включая скрытые) — только для админ-ролей
-      const user = await getUserFromRequest(request);
-      const isAdmin =
-        !!user && (user.roles || []).some((r: string) => (ADMIN_ROLES as readonly string[]).includes(r));
-      if (!isAdmin) query = query.eq("is_active", true);
+    const includeInactive = request.nextUrl.searchParams.get("include_inactive") === "true";
+    const now = new Date().toISOString();
+    let query = supabaseAdmin.from("cms_banners").select("*").order("sort_order", { ascending: true });
+    if (!includeInactive) {
+      query = query.eq("is_active", true)
+        .or(`starts_at.is.null,starts_at.lte.${now}`)
+        .or(`ends_at.is.null,ends_at.gte.${now}`);
     } else {
-      query = query.eq("is_active", true);
+      const auth = await authorize(request);
+      if (auth.response) return auth.response;
     }
+    const position = request.nextUrl.searchParams.get("position");
     if (position) query = query.eq("position", position);
-
     const { data, error } = await query;
-    if (error) console.warn("[cms/banners] GET error:", error.message);
-    return NextResponse.json({ banners: data || [] });
-  } catch (error: any) {
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: "Не удалось загрузить баннеры" }, { status: 500 });
+
+    let visibleBanners = data || [];
+    if (!includeInactive) {
+      const user = await getUserFromRequest(request);
+      let roles: string[] = [];
+      if (user) {
+        const { data: roleRows } = await supabaseAdmin
+          .from("user_roles").select("role").eq("user_id", user.id).eq("is_active", true);
+        roles = (roleRows || []).map((row) => String(row.role));
+      }
+      visibleBanners = visibleBanners.filter((banner) =>
+        !Array.isArray(banner.target_audience) || banner.target_audience.length === 0 ||
+        banner.target_audience.some((role: string) => roles.includes(role))
+      );
+    }
+    return NextResponse.json({ banners: visibleBanners }, {
+      headers: { "Cache-Control": includeInactive ? "private, no-store" : "private, max-age=30, stale-while-revalidate=60" },
+    });
+  } catch {
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
-
-    const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN", "COPYWRITER"]);
-    if (guard) return new NextResponse(guard.body, { status: guard.status, headers: guard.headers });
-
+    const auth = await authorize(request);
+    if (auth.response) return auth.response;
     const body = await request.json();
-    const { data, error } = await supabaseAdmin
-      .from("cms_banners")
-      .insert({
-        title: body.title || "Untitled",
-        image_url: body.imageUrl || null,
-        link_url: body.linkUrl || null,
-        position: body.position || "hero",
-        sort_order: body.sortOrder || 0,
-        is_active: body.isActive !== false,
-        starts_at: body.startAt || null,
-        ends_at: body.endAt || null,
-        text: body.text ?? body.subtitle ?? null,
-        cta_text: body.ctaText ?? body.buttonText ?? null,
-        created_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
-
-    if (error) return NextResponse.json({ error: "DB error", details: error.message }, { status: 500 });
-    auditBanner("banner_create", String(data.id), user.id, {
-      title: data.title,
-      position: data.position,
-      isActive: data.is_active,
-    });
+    if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 180 ||
+        (body.position !== undefined && !POSITIONS.has(body.position)) ||
+        (body.imageUrl && !isSafeCmsUrl(body.imageUrl)) || (body.linkUrl && !isSafeCmsUrl(body.linkUrl))) {
+      return NextResponse.json({ error: "Некорректные данные баннера" }, { status: 400 });
+    }
+    if (body.targetAudience !== undefined && body.targetAudience !== null && !areValidCmsNavigationRoles(body.targetAudience)) {
+      return NextResponse.json({ error: "Некорректная целевая аудитория" }, { status: 400 });
+    }
+    if (!isValidCmsSchedule(body.startsAt, body.endsAt)) {
+      return NextResponse.json({ error: "Некорректный период показа баннера" }, { status: 400 });
+    }
+    const { data, error } = await supabaseAdmin.from("cms_banners").insert({
+      title: body.title.trim(),
+      image_url: typeof body.imageUrl === "string" && body.imageUrl ? body.imageUrl.slice(0, 2048) : null,
+      link_url: typeof body.linkUrl === "string" ? body.linkUrl.slice(0, 2048) : null,
+      position: body.position || "home_hero",
+      text: typeof body.text === "string" ? body.text.slice(0, 1000) : null,
+      cta_text: typeof body.ctaText === "string" ? body.ctaText.slice(0, 100) : null,
+      sort_order: Number.isInteger(body.sortOrder) ? Math.max(0, Math.min(body.sortOrder, 10000)) : 0,
+      is_active: body.isActive !== false,
+      starts_at: body.startsAt || null,
+      ends_at: body.endsAt || null,
+      target_audience: body.targetAudience ?? null,
+    }).select("*").single();
+    if (error) return NextResponse.json({ error: "Не удалось создать баннер" }, { status: 500 });
     return NextResponse.json({ banner: data }, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
-  }
-}
-
-export async function PATCH(request: NextRequest): Promise<NextResponse> {
-  try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
-
-    const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN", "COPYWRITER"]);
-    if (guard) return new NextResponse(guard.body, { status: guard.status, headers: guard.headers });
-
-    const body = await request.json();
-    if (!body?.id) return NextResponse.json({ error: "id обязателен" }, { status: 400 });
-
-    const updates: Record<string, unknown> = {};
-    if (body.title !== undefined) updates.title = String(body.title);
-    if (body.imageUrl !== undefined) updates.image_url = body.imageUrl || null;
-    if (body.linkUrl !== undefined) updates.link_url = body.linkUrl || null;
-    if (body.position !== undefined) updates.position = String(body.position);
-    if (body.sortOrder !== undefined) updates.sort_order = Number(body.sortOrder) || 0;
-    if (body.isActive !== undefined) updates.is_active = Boolean(body.isActive);
-    if (body.startAt !== undefined) updates.starts_at = body.startAt || null;
-    if (body.endAt !== undefined) updates.ends_at = body.endAt || null;
-    if (body.text !== undefined || body.subtitle !== undefined) {
-      updates.text = (body.text ?? body.subtitle) || null;
-    }
-    if (body.ctaText !== undefined || body.buttonText !== undefined) {
-      updates.cta_text = (body.ctaText ?? body.buttonText) || null;
-    }
-    if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: "Нет полей для обновления" }, { status: 400 });
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from("cms_banners")
-      .update(updates)
-      .eq("id", String(body.id))
-      .select()
-      .single();
-
-    if (error) return NextResponse.json({ error: "DB error", details: error.message }, { status: 500 });
-    auditBanner("banner_update", String(data.id), user.id, {
-      fields: Object.keys(updates), // только имена изменённых полей, без значений
-    });
-    return NextResponse.json({ banner: data });
-  } catch (error: any) {
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
-  }
-}
-
-export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  try {
-    const user = await getUserFromRequest(request);
-    if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
-
-    const guard = await requireAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
-    if (guard) return new NextResponse(guard.body, { status: guard.status, headers: guard.headers });
-
-    const id = new URL(request.url).searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "id обязателен" }, { status: 400 });
-
-    const { error } = await supabaseAdmin.from("cms_banners").delete().eq("id", id);
-    if (error) return NextResponse.json({ error: "DB error", details: error.message }, { status: 500 });
-    auditBanner("banner_delete", id, user.id, {});
-    return NextResponse.json({ ok: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: "Ошибка", detail: error?.message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
   }
 }
