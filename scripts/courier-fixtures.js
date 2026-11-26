@@ -11,7 +11,8 @@ const ORDER_ID = "33333333-3333-4333-8333-333333333301";
 const DELIVERY_ID = "44444444-4444-4444-8444-444444444401";
 
 (async () => {
-  const c = new Client({ connectionString: "postgresql://postgres@127.0.0.1:54329/conditera" });
+  const connectionString = process.env.PGURL || process.env.DATABASE_URL || "postgresql://postgres@127.0.0.1:54329/conditera";
+  const c = new Client({ connectionString });
   await c.connect();
 
   // 1) auth.users — копия строки customer с новым id/email
