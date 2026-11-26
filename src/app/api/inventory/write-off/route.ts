@@ -229,11 +229,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Вне заказа разрешены только обычные ручные корректировки; они не могут
-    // менять acceptance snapshot или обходить атомарный order write-off.
-    // Захватываем уникальный batch-key ДО изменения остатков. Старый порядок
-    // (сперва движения, потом INSERT реестра) допускал двойное списание при
-    // двух параллельных запросах: оба успевали пройти pre-check.
+    // Вне заказа разрешены только отдельные ручные корректировки; они не
+    // затрагивают acceptance snapshot и не обходят order-bound RPC.
     const applied: Array<{
       item_id: string;
       item_name: string;
@@ -277,7 +274,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: message, failed }, { status });
     }
 
-    return NextResponse.json({ applied, failed }, { status: 201 });
+    return NextResponse.json({ applied, failed, order_id: orderId }, { status: 201 });
   } catch (error) {
     return handleRouteError(error, {
       route: "/api/inventory/write-off",
