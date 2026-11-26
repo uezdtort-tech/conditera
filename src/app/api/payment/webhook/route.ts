@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (byProviderError) {
       console.error("[webhook] exact provider payment lookup failed:", byProviderError.message);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
+      return NextResponse.json({ error: "DB error", code: "WEBHOOK_PAYMENT_LOOKUP" }, { status: 500 });
     }
     let payment = (byProvider as PaymentRow | null) ?? null;
 
@@ -272,7 +272,7 @@ export async function POST(request: NextRequest) {
 
     if (orderErr) {
       console.error("[webhook] Failed to fetch order:", orderErr.message);
-      return NextResponse.json({ error: "DB error" }, { status: 500 });
+      return NextResponse.json({ error: "DB error", code: "WEBHOOK_ORDER_LOOKUP" }, { status: 500 });
     }
 
     if (!order) {
@@ -312,7 +312,7 @@ export async function POST(request: NextRequest) {
         );
       if (recoverError) {
         console.error("[webhook] payment ledger recovery failed:", recoverError.message);
-        return NextResponse.json({ error: "DB error" }, { status: 500 });
+        return NextResponse.json({ error: "DB error", code: "WEBHOOK_LEDGER_RECOVERY" }, { status: 500 });
       }
       const { data: recovered, error: recoveredLookupError } = await supabaseAdmin
         .from("payments")
@@ -321,7 +321,7 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
       if (recoveredLookupError || !recovered) {
         console.error("[webhook] recovered payment row not visible:", recoveredLookupError?.message);
-        return NextResponse.json({ error: "DB error" }, { status: 500 });
+        return NextResponse.json({ error: "DB error", code: "WEBHOOK_LEDGER_RECOVERY_LOOKUP" }, { status: 500 });
       }
       payment = recovered as PaymentRow;
     }
@@ -342,7 +342,7 @@ export async function POST(request: NextRequest) {
             .select("id");
           if (waitingUpdateError) {
             console.error("[webhook] waiting_for_capture payment update failed:", waitingUpdateError.message);
-            return NextResponse.json({ error: "DB error" }, { status: 500 });
+            return NextResponse.json({ error: "DB error", code: "WEBHOOK_WAITING_PAYMENT_UPDATE" }, { status: 500 });
           }
           if (!waitingUpdated?.length) {
             return NextResponse.json({ success: true, skipped: "payment_terminal" });
@@ -401,7 +401,7 @@ export async function POST(request: NextRequest) {
               .select("id");
             if (cancelOrderError) {
               console.error("[webhook] cancelled payment order reconciliation failed:", cancelOrderError.message);
-              return NextResponse.json({ error: "DB error" }, { status: 500 });
+              return NextResponse.json({ error: "DB error", code: "WEBHOOK_CANCELLED_ORDER_RECONCILE" }, { status: 500 });
             }
             if (!cancelledOrder?.length) {
               return NextResponse.json({ error: "Order cancellation reconciliation required" }, { status: 500 });
@@ -430,7 +430,7 @@ export async function POST(request: NextRequest) {
             .in("status", ["pending", "waiting_for_capture", "succeeded", "cancelled"]);
           if (latePaymentUpdateError) {
             console.error("[webhook] late-cancel payment update failed:", latePaymentUpdateError.message);
-            return NextResponse.json({ error: "DB error" }, { status: 500 });
+            return NextResponse.json({ error: "DB error", code: "WEBHOOK_LATE_CANCEL_PAYMENT_UPDATE" }, { status: 500 });
           }
           const confirmedPaymentId = payment.id;
           const confirmedPaymentAmount = Number(payment.amount);
@@ -464,7 +464,7 @@ export async function POST(request: NextRequest) {
             .select("id");
           if (paymentUpdateError) {
             console.error("[webhook] succeeded payment update failed:", paymentUpdateError.message);
-            return NextResponse.json({ error: "DB error" }, { status: 500 });
+            return NextResponse.json({ error: "DB error", code: "WEBHOOK_PAYMENT_UPDATE" }, { status: 500 });
           }
           if (!paymentUpdated?.length) {
             return NextResponse.json({ success: true, skipped: "payment_terminal" });
@@ -485,7 +485,7 @@ export async function POST(request: NextRequest) {
           .select("id");
         if (casErr) {
           console.error("[webhook] escrow CAS failed:", casErr.message);
-          return NextResponse.json({ error: "DB error" }, { status: 500 });
+          return NextResponse.json({ error: "DB error", code: "WEBHOOK_ESCROW_CAS" }, { status: 500 });
         }
         if (!escrowWinner || escrowWinner.length === 0) {
           const { data: latestOrder, error: latestOrderError } = await supabaseAdmin
@@ -495,7 +495,7 @@ export async function POST(request: NextRequest) {
             .maybeSingle();
           if (latestOrderError) {
             console.error("[webhook] order re-read after escrow CAS failed:", latestOrderError.message);
-            return NextResponse.json({ error: "DB error" }, { status: 500 });
+            return NextResponse.json({ error: "DB error", code: "WEBHOOK_ESCROW_REREAD" }, { status: 500 });
           }
           if (!latestOrder) {
             return NextResponse.json({ error: "Order not found after escrow CAS" }, { status: 500 });
