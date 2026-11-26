@@ -28,12 +28,13 @@ import { isUserSessionActive } from "@/lib/session-registry";
 function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim() ?? "";
   const normalized = value.toLowerCase();
+  const valueBytes = new TextEncoder().encode(value).length;
   const isStub =
     !value ||
-    /^(change_me|fallback-|dev[-_]|stub[-_]|placeholder|example|dummy|test[-_])/i.test(value);
+    /^(change_me|fallback-|dev[-_]|stub[-_]|build-placeholder|placeholder|example|dummy|your_|test[-_])/i.test(value);
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
-  if (process.env.NODE_ENV === "production" && (isStub || value.length < 32)) {
+  if (process.env.NODE_ENV === "production" && (isStub || valueBytes < 32)) {
     if (isBuildPhase) {
       console.warn(
         `[auth] ${name} отсутствует/недействителен на этапе production-сборки; ` +
@@ -47,7 +48,7 @@ function getRequiredEnv(name: string): string {
     );
   }
 
-  if (isStub || value.length < 32) {
+  if (isStub || valueBytes < 32) {
     console.warn(`[auth] ${name} не задана или слишком короткая — используется dev-значение. НЕ для production!`);
     return `dev-${name}-${"0".repeat(32)}`;
   }
