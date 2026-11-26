@@ -50,7 +50,7 @@ describe("OAuth initiation — Yandex ID and VK ID", () => {
     expect(location.searchParams.get("code_challenge_method")).toBe("s256");
     expect(location.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(location.searchParams.get("state")).toBeTruthy();
-    expect(location.searchParams.get("scope")).toBe("email");
+    expect(location.searchParams.get("scope")).toBe("vkid.personal_info email");
     expect(response.cookies.get("oauth_state_vk")?.value).toBe(location.searchParams.get("state"));
     expect(response.cookies.get("oauth_verifier_vk")?.value).toBeTruthy();
     expect(decodeURIComponent(response.cookies.get("oauth_return_to_vk")?.value || "")).toBe("/dashboard");
