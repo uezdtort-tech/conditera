@@ -356,7 +356,7 @@ interface OrderRow {
   category_slug: string | null;
 }
 
-const PAID_PAYMENT_STATUSES = new Set(["paid", "escrow", "succeeded", "released"]);
+const PAID_PAYMENT_STATUSES = new Set(["escrow", "succeeded", "released"]);
 
 /**
  * Применить переход жизненного цикла. Атомарно (FOR UPDATE + CAS),
