@@ -34,7 +34,7 @@ const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/condi
 const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
 let PRODUCT_ID = ""; // demo product with a seeded recipe
-let originalProductionTimeHours = null;
+let originalProductionTimeHours;
 
 let passed = 0;
 let failed = 0;
@@ -261,7 +261,7 @@ async function main() {
 
 async function cleanupAll() {
   try {
-    if (PRODUCT_ID && originalProductionTimeHours !== null) {
+    if (PRODUCT_ID && originalProductionTimeHours !== undefined) {
       await client.query(
         "UPDATE public.products SET production_time_hours = $2 WHERE id = $1::uuid",
         [PRODUCT_ID, originalProductionTimeHours]
