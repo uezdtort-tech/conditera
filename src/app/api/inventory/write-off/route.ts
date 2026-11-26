@@ -70,15 +70,89 @@ function batchSignature(items: WriteOffRequestItem[]): string {
   return createHash("sha256").update(canon).digest("hex");
 }
 
-/** Map database-side atomic write-off errors to stable HTTP contracts. */
-function atomicWriteOffError(message: string): { status: number; message: string } {
-  if (message.includes("snapshot_mismatch:")) return { status: 422, message: "Списание расходится с нормативом snapshot заказа" };
-  if (message.includes("snapshot_invalid:")) return { status: 422, message: "Snapshot заказа повреждён; списание заблокировано" };
-  if (message.includes("apply_failed:insufficient")) return { status: 409, message: "Недостаточно ингредиентов на складе" };
-  if (message.includes("apply_failed:forbidden")) return { status: 403, message: "Нет доступа к позиции склада" };
-  if (message.includes("apply_failed:not_found")) return { status: 404, message: "Позиция склада не найдена" };
-  if (message.includes("PGRST202")) return { status: 503, message: "Атомарное списание недоступно: примените миграцию 0119 и обновите PostgREST schema cache" };
-  return { status: 503, message: "Не удалось выполнить атомарное списание" };
+type AtomicWriteOffError = { status: number; body: Record<string, unknown> };
+
+/** Safely recover structured details emitted by the transactional SQL RPC. */
+function rpcErrorDetails(message: string, marker: string): Array<Record<string, unknown>> {
+  const markerIndex = message.indexOf(marker);
+  if (markerIndex < 0) return [];
+  const start = message.indexOf("[", markerIndex + marker.length);
+  const end = message.lastIndexOf("]");
+  if (start < 0 || end < start) return [];
+  try {
+    const parsed: unknown = JSON.parse(message.slice(start, end + 1));
+    return Array.isArray(parsed)
+      ? parsed.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Map database-side atomic write-off errors to stable, actionable HTTP contracts. */
+function atomicWriteOffError(message: string): AtomicWriteOffError {
+  if (message.includes("snapshot_mismatch:")) {
+    return {
+      status: 422,
+      body: {
+        error: "WRITE_OFF_SNAPSHOT_MISMATCH",
+        message: "Списание расходится с нормативом snapshot заказа",
+        validation_mode: "snapshot",
+        deviations: rpcErrorDetails(message, "snapshot_mismatch:"),
+      },
+    };
+  }
+  if (message.includes("snapshot_invalid:")) {
+    const reason = message.slice(message.indexOf("snapshot_invalid:") + "snapshot_invalid:".length);
+    return {
+      status: 422,
+      body: {
+        error: "SNAPSHOT_INVALID",
+        message: reason.includes("quantity_mismatch")
+          ? "Snapshot не соответствует позициям заказа"
+          : "Повреждён snapshot заказа; списание заблокировано",
+      },
+    };
+  }
+  if (message.includes("apply_failed:insufficient")) {
+    const failed = rpcErrorDetails(message, "apply_failed:insufficient:");
+    return {
+      status: 409,
+      body: {
+        error: String(failed[0]?.error || "Недостаточно ингредиентов на складе"),
+        failed,
+      },
+    };
+  }
+  if (message.includes("apply_failed:forbidden")) {
+    const failed = rpcErrorDetails(message, "apply_failed:forbidden:");
+    return {
+      status: 403,
+      body: {
+        error: String(failed[0]?.error || "Нет доступа к позиции склада"),
+        failed,
+      },
+    };
+  }
+  if (message.includes("apply_failed:not_found")) {
+    const failed = rpcErrorDetails(message, "apply_failed:not_found:");
+    return {
+      status: 404,
+      body: {
+        error: String(failed[0]?.error || "Позиция склада не найдена"),
+        failed,
+      },
+    };
+  }
+  if (message.includes("PGRST202")) {
+    return {
+      status: 503,
+      body: {
+        error: "Атомарное списание недоступно: примените миграцию 0119 и обновите PostgREST schema cache",
+      },
+    };
+  }
+  return { status: 503, body: { error: "Не удалось выполнить атомарное списание" } };
 }
 
 /** HTTP-статус и сообщение для ошибки применения движения */
@@ -155,6 +229,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           failed: result.failed,
           order_id: orderId,
           idempotent: result.idempotent,
+          duplicate: result.idempotent,
+          ...(result.idempotent ? { message: "Списание уже было выполнено ранее" } : {}),
         },
         { status: result.idempotent ? 200 : 201 }
       );
@@ -212,19 +288,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (error) {
         const mapped = atomicWriteOffError(`${error.code ?? ""} ${error.message ?? ""}`);
         console.error("[inventory/write-off] atomic RPC failed:", error.message);
-        return NextResponse.json({ error: mapped.message }, { status: mapped.status });
+        return NextResponse.json(mapped.body, { status: mapped.status });
       }
       if (!data) return NextResponse.json({ error: "RPC списания не вернул результат" }, { status: 503 });
       const applied = Array.isArray(data.applied) ? data.applied : [];
       const failed = Array.isArray(data.failed) ? data.failed : [];
       if (failed.length > 0) {
         return NextResponse.json(
-          { applied, failed, order_id: orderId, idempotent: data.idempotent === true },
+          {
+            applied,
+            failed,
+            order_id: orderId,
+            idempotent: data.idempotent === true,
+            duplicate: data.idempotent === true,
+            ...(data.idempotent === true ? { message: "Списание уже было выполнено ранее" } : {}),
+          },
           { status: 409 }
         );
       }
       return NextResponse.json(
-        { applied, failed, order_id: orderId, idempotent: data.idempotent === true },
+        {
+          applied,
+          failed,
+          order_id: orderId,
+          idempotent: data.idempotent === true,
+          duplicate: data.idempotent === true,
+          ...(data.idempotent === true ? { message: "Списание уже было выполнено ранее" } : {}),
+        },
         { status: data.idempotent ? 200 : 201 }
       );
     }
