@@ -34,6 +34,7 @@ const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/condi
 const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
 let PRODUCT_ID = ""; // demo product with a seeded recipe
+let originalProductionTimeHours = null;
 
 let passed = 0;
 let failed = 0;
@@ -132,7 +133,7 @@ async function countOrdersByKey(key) {
 async function main() {
   await client.connect();
   const productFixture = await client.query(
-    `SELECT id::text FROM public.products
+    `SELECT id::text, production_time_hours FROM public.products
       WHERE slug = 'svadebnyy-tort-yagodnyy-barhat'
         AND recipe_id IS NOT NULL
         AND status = 'published'
@@ -142,6 +143,13 @@ async function main() {
     throw new Error("production-ready demo product with recipe was not seeded");
   }
   PRODUCT_ID = productFixture.rows[0].id;
+  originalProductionTimeHours = productFixture.rows[0].production_time_hours;
+  // Production acceptance requires an explicit duration. Keep this test fixture
+  // valid for the 48h delivery window, then restore the seed value in cleanup.
+  await client.query(
+    "UPDATE public.products SET production_time_hours = 6 WHERE id = $1::uuid",
+    [PRODUCT_ID]
+  );
   const customer = await login("customer@demo.ru");
   assert("логин customer@demo.ru", Boolean(customer));
 
@@ -253,6 +261,12 @@ async function main() {
 
 async function cleanupAll() {
   try {
+    if (PRODUCT_ID && originalProductionTimeHours !== null) {
+      await client.query(
+        "UPDATE public.products SET production_time_hours = $2 WHERE id = $1::uuid",
+        [PRODUCT_ID, originalProductionTimeHours]
+      ).catch(() => {});
+    }
     // Ключ-базированный догсбор: ловит заказ, созданный оборванным в D запросом
     const byKeys = await client
       .query(
