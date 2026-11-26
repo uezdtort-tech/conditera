@@ -122,8 +122,19 @@ export async function verifyPassword(
 }
 
 export async function createAccessToken(payload: JwtPayload): Promise<string> {
-  return new SignJWT(payload as unknown as JWTPayload)
+  // Supabase PostgREST/RLS reads the standard JWT claims (sub + role), while
+  // application routes retain the backwards-compatible userId/roles claims.
+  // Both layers therefore authenticate the same identity from one token.
+  const claims = {
+    ...payload,
+    sub: payload.userId,
+    aud: "authenticated",
+    role: "authenticated",
+  };
+  return new SignJWT(claims as unknown as JWTPayload)
     .setProtectedHeader({ alg: "HS256" })
+    .setSubject(payload.userId)
+    .setAudience("authenticated")
     .setIssuedAt()
     .setExpirationTime(process.env.JWT_EXPIRES_IN || "7d")
     .sign(JWT_SECRET);
