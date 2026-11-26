@@ -43,6 +43,7 @@ jobs:
       JWT_REFRESH_SECRET: ${{ 'embedded_pg17_refresh_secret_32_chars_minimum' }}
       TFA_ENCRYPTION_KEY: ${{ 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }}
       CRON_SECRET: ${{ 'embedded_pg17_cron_secret' }}
+      CONDITERA_PGDATA: ${{ runner.temp }}/conditera-pg17-data
     steps:
       - uses: actions/checkout@v7
 
@@ -89,7 +90,7 @@ jobs:
               const exists = (await client.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${name}`])).rows[0].ok;
               if (!exists) throw new Error(`Missing public.${name}`);
             }
-            if (fs.readFileSync(".pgdata/PG_VERSION", "utf8").trim() !== "17") {
+            if (fs.readFileSync(process.env.CONDITERA_PGDATA + "/PG_VERSION", "utf8").trim() !== "17") {
               throw new Error("Embedded data directory is not PostgreSQL 17");
             }
             console.log(`PASS embedded PostgreSQL ${version}; ${count} app migrations; .pgdata verified`);
