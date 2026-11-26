@@ -196,7 +196,6 @@ jobs:
           }
           NODE
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
 
       - name: Проверить конкурентные возвраты на независимых соединениях PG17
         run: node scripts/verify/refund-concurrency-pg.mjs
@@ -227,7 +226,6 @@ jobs:
       - name: Собрать production build
         run: bun run build
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
@@ -254,7 +252,6 @@ jobs:
             exit 1
           fi
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
@@ -267,7 +264,6 @@ jobs:
         run: node scripts/verify/order-lifecycle-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: ${{ env.DATABASE_URL }}
 
       - name: Диагностика webhook и PostgREST при сбое бизнес-сценария
         if: failure()
@@ -283,19 +279,16 @@ jobs:
         run: node scripts/verify/p11-hardening-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: ${{ env.DATABASE_URL }}
 
       - name: Операции, рецептуры, списание и остатки склада
         run: node scripts/verify/ops-center-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: ${{ env.DATABASE_URL }}
 
       - name: Медиа товаров, модерация и Storage
         run: node scripts/verify/product-media-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: ${{ env.DATABASE_URL }}
 
       - name: Проверить фактическую запись в очередь автоматической модерации
         run: |
@@ -319,7 +312,6 @@ jobs:
           }
           NODE
         env:
-          DATABASE_URL: ${{ env.DATABASE_URL }}
 
       - name: Полный набор Playwright на PostgreSQL 17 — все проекты
         run: bun run test:e2e -- --fail-on-flaky-tests
@@ -327,8 +319,6 @@ jobs:
           PLAYWRIGHT_WORKERS: "2"
           E2E_BASE_URL: http://localhost:3000
           E2E_APP_URL: http://localhost:3000
-          PGURL: ${{ env.DATABASE_URL }}
-          DATABASE_URL: ${{ env.DATABASE_URL }}
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
