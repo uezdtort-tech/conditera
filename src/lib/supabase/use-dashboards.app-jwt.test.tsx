@@ -34,7 +34,7 @@ const USER_ID = "11111111-1111-4111-8111-111111111106";
 function makeAppJwt(userId: string): string {
   const b64 = (obj: unknown) =>
     btoa(JSON.stringify(obj)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  return `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ userId, email: "u@demo.ru" })}.sig`;
+  return `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ userId, sub: userId, aud: "authenticated", role: "authenticated", email: "u@demo.ru" })}.sig`;
 }
 
 function okResponse(body: unknown) {
