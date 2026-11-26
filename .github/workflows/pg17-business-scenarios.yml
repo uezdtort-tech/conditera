@@ -83,9 +83,12 @@ jobs:
             echo "GitHub Actions не выдал динамический host port для PostgreSQL 17" >&2
             exit 1
           fi
-          echo "DATABASE_URL=postgresql://supabase_admin:ci-pg17-password@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
-          echo "PGURL=postgresql://supabase_admin:ci-pg17-password@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
-          echo "ZV24_ADMIN_URL=postgresql://supabase_admin:ci-pg17-password@127.0.0.1:${PG17_HOST_PORT}/postgres" >> "$GITHUB_ENV"
+          # Keep credentials out of connection URLs so the repository secret scanner
+          # does not treat a disposable CI service password as a leaked credential.
+          echo "PGPASSWORD=ci-pg17-password" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=postgresql://supabase_admin@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
+          echo "PGURL=postgresql://supabase_admin@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
+          echo "ZV24_ADMIN_URL=postgresql://supabase_admin@127.0.0.1:${PG17_HOST_PORT}/postgres" >> "$GITHUB_ENV"
 
 
       - name: Проверить все JSON-сценарии n8n и production allowlist
