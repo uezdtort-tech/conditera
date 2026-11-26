@@ -159,16 +159,15 @@ jobs:
 
   # ===== 2. Запуск Playwright тестов =====
   test:
-    name: Playwright (${{ matrix.browser }})
+    name: Playwright (${{ matrix.project }})
     runs-on: ubuntu-latest
     needs: setup
     strategy:
       fail-fast: false
       matrix:
-        # Фиксированная матрица (variant B, решение владельца 2026-10-15):
-        # единственный активный проект Playwright. Nightly и ручной запуск —
-        # только chromium до активации firefox/webkit (TODO в шапке файла).
-        browser: ["chromium"]
+        # Проверяем реальный desktop и mobile UI; mobile-chrome использует Chromium
+        # с viewport/device-профилем Pixel 5 из playwright.config.ts.
+        project: ["chromium", "mobile-chrome"]
 
     steps:
       - uses: actions/checkout@v7
@@ -218,7 +217,7 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Install Playwright browsers
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        run: bunx playwright install --with-deps chromium
 
       - name: Start application
         run: |
@@ -260,7 +259,7 @@ jobs:
           # встроенной подстановкой GitHub Actions: расширение "$E2E_GREP" внутри bash-массива не
           # ре-парсится shell'ом — ввод dispatch не разорвёт кавычки и не
           # внедрит команды (защита от shell injection, TZ v4.0 §6).
-          ARGS=(--project=${{ matrix.browser }})
+          ARGS=(--project=${{ matrix.project }})
           if [ -n "$E2E_GREP" ]; then
             ARGS+=(--grep "$E2E_GREP")
           fi
