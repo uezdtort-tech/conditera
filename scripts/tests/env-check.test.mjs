@@ -97,7 +97,6 @@ test("development mode does not require production-only payment and OAuth creden
   delete env.YOOKASSA_SHOP_ID;
   delete env.YOOKASSA_SECRET_KEY;
   delete env.POSTGRES_PASSWORD;
-  delete env.APP_DATABASE_PASSWORD;
   delete env.SUPABASE_SECRET_KEY_BASE;
   delete env.PG_META_CRYPTO_KEY;
   delete env.REALTIME_DB_ENC_KEY;
