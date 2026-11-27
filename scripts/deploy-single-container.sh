@@ -453,6 +453,24 @@ fi
 echo "Резервное копирование работающих PostgreSQL баз до остановки контейнеров..."
 bash scripts/backup-precutover.sh --database
 
+# Legacy PG18/PG15 databases are preserved in their volumes, but the new PG17
+# runtime starts with its own database. Never switch traffic to an empty target
+# unless the operator explicitly confirms that both legacy datasets are disposable.
+legacy_databases=()
+for container in conditera-db conditera-supabase-db; do
+  if docker inspect "$container" >/dev/null 2>&1; then
+    legacy_databases+=("$container")
+  fi
+done
+if [[ "${#legacy_databases[@]}" -gt 0 && "${CONDITERA_CONFIRM_LEGACY_DATABASES_EMPTY:-0}" != "1" ]]; then
+  printf 'ОШИБКА: обнаружены прежние БД (%s). Архивы созданы, контейнеры и volumes НЕ остановлены.\n' "${legacy_databases[*]}" >&2
+  echo "Для осознанного перехода на пустую PG17 БД разрешите его отдельным параметром PowerShell -ConfirmEmptyLegacyDatabases только после проверки, что старые данные не нужны." >&2
+  exit 78
+fi
+if [[ "${#legacy_databases[@]}" -gt 0 ]]; then
+  printf 'Подтверждён fresh cutover; прежние volumes сохраняются: %s\n' "${legacy_databases[*]}"
+fi
+
 echo "Остановка legacy-контейнеров БД/Supabase без удаления их volumes..."
 compose stop db pgbouncer migrator supabase-db supabase-kong supabase-auth supabase-rest \
   supabase-realtime supabase-storage supabase-app-migrator supabase-imgproxy \
