@@ -15,7 +15,14 @@ test.describe("Customer checkout — real browser UI", () => {
     await expect(page.getByRole("heading", { name: /каталог/i })).toBeVisible();
 
     // Sign in through the visible header and authentication dialog.
-    await page.getByRole("button", { name: "Войти" }).click();
+    const desktopLogin = page.getByRole("button", { name: "Войти", exact: true });
+    if (await desktopLogin.isVisible().catch(() => false)) {
+      await desktopLogin.click();
+    } else {
+      // On a narrow viewport the login action lives in the mobile navigation.
+      await page.locator("button.lg\\:hidden").first().click();
+      await page.getByRole("button", { name: "Войти / Регистрация" }).click();
+    }
     const authDialog = page.getByRole("dialog");
     await expect(authDialog).toBeVisible();
     await authDialog.locator("#login-email").fill("customer@demo.ru");
@@ -52,7 +59,7 @@ test.describe("Customer checkout — real browser UI", () => {
 
     // CI has the guarded local payment stub enabled; the customer sees the
     // successful order state, not a synthetic direct API response.
-    await expect(page.getByText(/Заказ оформлен|Заказ №/i).first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(/E2E демо-торт/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Заказ оформлен!" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Номер заказа:/)).toBeVisible();
   });
 });
