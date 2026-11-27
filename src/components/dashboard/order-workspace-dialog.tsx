@@ -285,7 +285,7 @@ const ORDER_ACTIONS: Record<OrderActionKind, { path: string; body?: Record<strin
   "production-start": { path: "production/start" },
   "production-complete": { path: "production/complete" },
   ready: { path: "ready" },
-  handoff: { path: "handoff", body: { executor: "admin" } },
+  handoff: { path: "handoff" },
   complete: { path: "complete" },
 };
 
@@ -436,10 +436,15 @@ export function OrderWorkspaceDialog({
   orderId,
   open,
   onOpenChange,
+  defaultTab = "overview",
+  hideCompleteAction = false,
 }: {
   orderId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  defaultTab?: "overview" | "production" | "ingredients" | "timeline" | "dispute";
+  /** Скрывает подтверждение получения: его выполняет клиент, не кондитер. */
+  hideCompleteAction?: boolean;
 }) {
   const queryClient = useQueryClient();
 
@@ -652,7 +657,7 @@ export function OrderWorkspaceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="overview" className="gap-3">
+        <Tabs defaultValue={defaultTab} className="gap-3">
           <TabsList className="w-full max-w-full overflow-x-auto sm:w-auto">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">Обзор</TabsTrigger>
             <TabsTrigger value="materials" className="text-xs sm:text-sm">Материалы</TabsTrigger>
@@ -964,7 +969,7 @@ export function OrderWorkspaceDialog({
 
                 {/* Действия */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {actions.map((a) => {
+                  {actions.filter((a) => !(hideCompleteAction && a.kind === "complete")).map((a) => {
                     const Icon = a.icon;
                     const busy = isActionBusy(a.kind);
                     return (
