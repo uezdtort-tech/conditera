@@ -49,7 +49,7 @@ describe("PATCH /api/profile — профиль только текущего п
     mocks.getUserFromRequest.mockResolvedValue(null);
     const response = await PATCH(request({ name: "Тест" }));
     expect(response.status).toBe(401);
-    expect(update).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   const invalidBodies: Array<{ body: unknown; description: string }> = [
@@ -64,7 +64,7 @@ describe("PATCH /api/profile — профиль только текущего п
   it.each(invalidBodies)("отклоняет некорректный ввод: $description", async ({ body }) => {
     const response = await PATCH(request(body));
     expect(response.status).toBe(400);
-    expect(update).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   it("игнорирует попытку mass-assignment и обновляет только разрешённые поля владельца", async () => {
@@ -75,20 +75,20 @@ describe("PATCH /api/profile — профиль только текущего п
       is_blocked: false,
     }));
     expect(response.status).toBe(200);
-    expect(update).toHaveBeenCalledWith({ name: "Алиса" });
-    expect(eq).toHaveBeenCalledWith("id", "user-1");
+    expect(mocks.update).toHaveBeenCalledWith({ name: "Алиса" });
+    expect(mocks.eq).toHaveBeenCalledWith("id", "user-1");
     expect((await response.json()).profile).toMatchObject({ id: "user-1" });
   });
 
   it("разрешает очистить необязательное поле через null", async () => {
     const response = await PATCH(request({ bio: null }));
     expect(response.status).toBe(200);
-    expect(update).toHaveBeenCalledWith({ bio: null });
+    expect(mocks.update).toHaveBeenCalledWith({ bio: null });
   });
 
   it("отклоняет запрос без разрешённых полей", async () => {
     const response = await PATCH(request({ role: "ADMIN", is_blocked: true }));
     expect(response.status).toBe(400);
-    expect(update).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 });
