@@ -309,13 +309,14 @@ jobs:
             -d '{"expiresIn":60}' \
             http://127.0.0.1:18000/storage/v1/object/sign/order_media/ci/ready.png \
             > /tmp/order-media-signed.json
-          signed_path="$(python3 -c 'import json; print(json.load(open("/tmp/order-media-signed.json"))["signedURL"])')"
+          signed_path="$(python3 -c 'import json; data=json.load(open("/tmp/order-media-signed.json")); print(data.get("signedURL") or data.get("signedUrl") or "")')"
+          test -n "$signed_path"
           case "$signed_path" in
             http://*|https://*) signed_url="$signed_path" ;;
             /*) signed_url="http://127.0.0.1:18000/storage/v1$signed_path" ;;
             *) signed_url="http://127.0.0.1:18000/storage/v1/$signed_path" ;;
           esac
-          curl --fail --silent --show-error "$signed_url" -o /tmp/order-media-downloaded.png
+          curl --fail --silent --show-error -H "apikey: $ANON_KEY" "$signed_url" -o /tmp/order-media-downloaded.png
           cmp /tmp/order-ready.png /tmp/order-media-downloaded.png
 
           docker exec conditera-supabase-runtime-poc \
