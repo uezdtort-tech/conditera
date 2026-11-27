@@ -135,6 +135,20 @@ const backupMount = (services.web.volumes || []).find((mount) => mount.target ==
 if (!backupMount || !String(backupMount.source || "").includes("conditera_backup_data")) {
   fail("Не найден отдельный постоянный Docker volume conditera_backup_data для резервных копий.");
 }
+const productMediaMount = (services.web.volumes || []).find((mount) => mount.target === "/app/storage");
+if (!productMediaMount || !String(productMediaMount.source || "").includes("conditera_product_media") ||
+    webEnv.PRODUCT_MEDIA_ROOT !== "/app/storage") {
+  fail("Каталог пользовательских фото должен храниться в постоянном volume conditera_product_media.");
+}
+const storageBackupMount = (services.web.volumes || []).find((mount) => mount.target === "/app/supabase-storage");
+if (!storageBackupMount || !String(storageBackupMount.source || "").includes("supabase_runtime_storage_data") ||
+    storageBackupMount.read_only !== true || webEnv.SUPABASE_STORAGE_BACKUP_ROOT !== "/app/supabase-storage") {
+  fail("Supabase Storage должен быть подключён к web только для чтения, для резервного копирования.");
+}
+const runtimeImage = String(runtime.image || "");
+if (!/^conditera\/supabase-runtime:(?:pg17|sha-[0-9a-f]{7,40})$/.test(runtimeImage)) {
+  fail("Supabase Runtime должен использовать закреплённый PG17 image tag (pg17 или sha-<commit>).");
+}
 for (const key of ["DATABASE_URL", "DIRECT_DATABASE_URL"]) {
   if (!String(webEnv[key] || "").includes("@supabase-runtime:5432/conditera")) {
     fail("web." + key + " не направлен в единый PostgreSQL 17 runtime.");
