@@ -145,6 +145,7 @@ import { useRealInventory } from "@/lib/use-real-inventory";
 import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
 import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-scale-settings";
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
+import { OrderWorkspaceDialog } from "@/components/dashboard/order-workspace-dialog";
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
 import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { ConfectionerChatTab } from "@/components/dashboard/confectioner-chat-tab";
@@ -206,6 +207,7 @@ export function ConfectionerDashboard() {
   const [showTariffDialog, setShowTariffDialog] = useState(false);
   // Разбор заказа (OrderBreakdownDialog): id заказа или null
   const [breakdownOrderId, setBreakdownOrderId] = useState<string | null>(null);
+  const [workspaceOrderId, setWorkspaceOrderId] = useState<string | null>(null);
   // Реальные заказы (GET /api/orders — скоуп кондитера решает сервер: user_id ИЛИ confectioner_id).
   // Fallback на store-заказы (mock) только если API недоступен (isStale=true).
   const {
@@ -394,6 +396,7 @@ export function ConfectionerDashboard() {
               <ConfectionerTodayTab
                 onNavigateTab={setActiveTab}
                 onOpenBreakdown={(id) => setBreakdownOrderId(id)}
+                onOpenWorkspace={(id) => setWorkspaceOrderId(id)}
               />
             )}
 
@@ -1312,6 +1315,16 @@ export function ConfectionerDashboard() {
             onOpenChange={(o) => {
               if (!o) setBreakdownOrderId(null);
             }}
+          />
+
+          <OrderWorkspaceDialog
+            orderId={workspaceOrderId}
+            open={!!workspaceOrderId}
+            onOpenChange={(open) => {
+              if (!open) setWorkspaceOrderId(null);
+            }}
+            defaultTab="production"
+            hideCompleteAction
           />
 
           {/* Диалог смены тарифа */}
