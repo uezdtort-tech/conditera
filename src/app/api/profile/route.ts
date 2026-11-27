@@ -68,25 +68,50 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
 
-    // Фильтруем только разрешённые поля (защита от mass-assignment)
-    const updates: Record<string, unknown> = {};
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "Ожидается объект с полями профиля" }, { status: 400 });
+    }
+
+    // Разрешаем только явный список полей. Проверяем типы до обращения к БД:
+    // иначе PATCH принимал объекты/массивы вместо строк и мог записать мусор в профиль.
+    const updates: Record<string, string | null> = {};
     for (const [key, value] of Object.entries(body)) {
-      if (isValidField(key)) {
-        // Валидация длин
-        if (key === "name" && typeof value === "string" && value.length > 100) {
-          return NextResponse.json({ error: "Имя слишком длинное (макс. 100 символов)" }, { status: 400 });
-        }
-        if (key === "bio" && typeof value === "string" && value.length > 500) {
-          return NextResponse.json({ error: "Описание слишком длинное (макс. 500 символов)" }, { status: 400 });
-        }
-        if (key === "phone" && typeof value === "string" && value.length > 20) {
-          return NextResponse.json({ error: "Телефон слишком длинный" }, { status: 400 });
-        }
-        if (key === "city" && typeof value === "string" && value.length > 100) {
-          return NextResponse.json({ error: "Город слишком длинный" }, { status: 400 });
-        }
-        updates[key] = value;
+      if (!isValidField(key)) continue;
+
+      const nullableStringFields: readonly ProfileField[] = [
+        "phone", "bio", "avatar_url", "city", "default_delivery_address",
+      ];
+      if (value === null && nullableStringFields.includes(key)) {
+        updates[key] = null;
+        continue;
       }
+      if (typeof value !== "string") {
+        return NextResponse.json({ error: `Поле «${key}» должно быть строкой` }, { status: 400 });
+      }
+
+      const normalized = value.trim();
+      const maxLength: Record<ProfileField, number> = {
+        name: 100,
+        phone: 20,
+        bio: 500,
+        avatar_url: 2048,
+        city: 100,
+        default_delivery_address: 500,
+      };
+      if (normalized.length > maxLength[key]) {
+        const labels: Record<ProfileField, string> = {
+          name: "Имя", phone: "Телефон", bio: "Описание",
+          avatar_url: "Ссылка на аватар", city: "Город",
+          default_delivery_address: "Адрес доставки",
+        };
+        return NextResponse.json({
+          error: `${labels[key]} слишком длинное (макс. ${maxLength[key]} символов)`,
+        }, { status: 400 });
+      }
+      if (key === "name" && normalized.length === 0) {
+        return NextResponse.json({ error: "Имя не может быть пустым" }, { status: 400 });
+      }
+      updates[key] = normalized;
     }
 
     if (Object.keys(updates).length === 0) {
