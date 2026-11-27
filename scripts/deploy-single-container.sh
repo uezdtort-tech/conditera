@@ -304,7 +304,7 @@ if web_environment.get("BACKUP_DIR") != "/app/backups":
 backup_mounts = [
     mount for mount in services["web"].get("volumes", [])
     if mount.get("type") == "volume"
-    and mount.get("source") == "conditera_backup_data"
+    and "conditera_backup_data" in mount.get("source", "")
     and mount.get("target") == "/app/backups"
 ]
 if not backup_mounts:
@@ -312,7 +312,7 @@ if not backup_mounts:
 media_mounts = [
     mount for mount in services["web"].get("volumes", [])
     if mount.get("type") == "volume"
-    and mount.get("source") == "conditera_product_media"
+    and "conditera_product_media" in mount.get("source", "")
     and mount.get("target") == "/app/storage"
 ]
 if not media_mounts or web_environment.get("PRODUCT_MEDIA_ROOT") != "/app/storage":
@@ -320,7 +320,7 @@ if not media_mounts or web_environment.get("PRODUCT_MEDIA_ROOT") != "/app/storag
 supabase_storage_mounts = [
     mount for mount in services["web"].get("volumes", [])
     if mount.get("type") == "volume"
-    and mount.get("source") == "supabase_runtime_storage_data"
+    and "supabase_runtime_storage_data" in mount.get("source", "")
     and mount.get("target") == "/app/supabase-storage"
     and mount.get("read_only") is True
 ]
