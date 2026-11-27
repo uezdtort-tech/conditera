@@ -287,10 +287,41 @@ jobs:
             -o /tmp/runtime-poc-downloaded.txt
           cmp /tmp/runtime-poc.txt /tmp/runtime-poc-downloaded.txt
 
+          # Реальная проверка приватного order_media: upload service_role → public GET denied → signed URL доступен.
+          printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' | base64 --decode > /tmp/order-ready.png
+          curl --fail --silent --show-error -X POST \
+            -H "apikey: $SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: image/png" \
+            -H "x-upsert: true" \
+            --data-binary @/tmp/order-ready.png \
+            http://127.0.0.1:18000/storage/v1/object/order_media/ci/ready.png
+
+          public_status="$(curl --silent --show-error --output /tmp/order-media-public.body --write-out '%{http_code}' \
+            -H "apikey: $ANON_KEY" \
+            http://127.0.0.1:18000/storage/v1/object/public/order_media/ci/ready.png)"
+          test "$public_status" != "200"
+
+          curl --fail --silent --show-error -X POST \
+            -H "apikey: $SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"expiresIn":60}' \
+            http://127.0.0.1:18000/storage/v1/object/sign/order_media/ci/ready.png \
+            > /tmp/order-media-signed.json
+          signed_path="$(python3 -c 'import json; print(json.load(open("/tmp/order-media-signed.json"))["signedURL"])')"
+          case "$signed_path" in
+            http://*|https://*) signed_url="$signed_path" ;;
+            /*) signed_url="http://127.0.0.1:18000/storage/v1$signed_path" ;;
+            *) signed_url="http://127.0.0.1:18000/storage/v1/$signed_path" ;;
+          esac
+          curl --fail --silent --show-error "$signed_url" -o /tmp/order-media-downloaded.png
+          cmp /tmp/order-ready.png /tmp/order-media-downloaded.png
+
           docker exec conditera-supabase-runtime-poc \
             /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
             /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d conditera \
-            -Atqc "SELECT floor(current_setting('server_version_num')::integer / 10000) = 17 AND to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 81 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.inventory_items') IS NOT NULL AND to_regclass('public.recipe_ingredients') IS NOT NULL AND to_regclass('public.chat_channels') IS NOT NULL AND to_regclass('public.oauth_identity_links') IS NOT NULL AND to_regclass('public.moderation_queue') IS NOT NULL AND (SELECT count(*) = 6 FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue' AND column_name IN ('author_name','title','content','images','auto_score','violations')) AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND to_regclass('public.cms_home_blocks') IS NOT NULL AND has_table_privilege('service_role','public.cms_home_blocks','SELECT') AND to_regclass('public.cms_home_sections') IS NOT NULL AND has_table_privilege('service_role','public.cms_home_sections','SELECT') AND to_regclass('public.cms_media') IS NOT NULL AND has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT')" \
+            -Atqc "SELECT floor(current_setting('server_version_num')::integer / 10000) = 17 AND to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 81 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.inventory_items') IS NOT NULL AND to_regclass('public.recipe_ingredients') IS NOT NULL AND to_regclass('public.chat_channels') IS NOT NULL AND to_regclass('public.oauth_identity_links') IS NOT NULL AND to_regclass('public.moderation_queue') IS NOT NULL AND (SELECT count(*) = 6 FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue' AND column_name IN ('author_name','title','content','images','auto_score','violations')) AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND to_regclass('public.cms_home_blocks') IS NOT NULL AND has_table_privilege('service_role','public.cms_home_blocks','SELECT') AND to_regclass('public.cms_home_sections') IS NOT NULL AND has_table_privilege('service_role','public.cms_home_sections','SELECT') AND to_regclass('public.cms_media') IS NOT NULL AND has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') AND EXISTS (SELECT 1 FROM storage.buckets WHERE id='order_media' AND public=false AND allowed_mime_types @> ARRAY['image/jpeg','image/png','image/webp'])" \
             | grep -qx t
 
       - name: Verify PG17 application backup restore with the restricted backup role
