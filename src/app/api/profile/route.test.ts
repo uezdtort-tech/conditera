@@ -1,19 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const getUserFromRequest = vi.fn();
-const update = vi.fn();
-const eq = vi.fn();
-const select = vi.fn();
-const single = vi.fn();
+const mocks = vi.hoisted(() => ({
+  getUserFromRequest: vi.fn(),
+  update: vi.fn(),
+  eq: vi.fn(),
+  select: vi.fn(),
+  single: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({
-  getUserFromRequest: (...args: unknown[]) => getUserFromRequest(...args),
+  getUserFromRequest: (...args: unknown[]) => mocks.getUserFromRequest(...args),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
   supabaseAdmin: {
-    from: vi.fn(() => ({ update, eq, select })),
+    from: vi.fn(() => ({ update: mocks.update, eq: mocks.eq, select: mocks.select })),
   },
 }));
 
