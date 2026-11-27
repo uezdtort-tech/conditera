@@ -28,6 +28,14 @@ usage() {
 USAGE
 }
 
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  if command -v python >/dev/null 2>&1; then PYTHON_BIN="python"; else
+    echo "ОШИБКА: требуется Python 3 для проверки конфигурации." >&2
+    exit 1
+  fi
+fi
+
 MODE="${1:---config}"
 case "$MODE" in
   --config|--up|--status|--health|--logs|--stop) ;;
@@ -46,7 +54,7 @@ require_files() {
       exit 1
     fi
   done
-  for file in docker-compose.yml docker-compose.supabase.yml docker-compose.supabase-single-container.yml Dockerfile.supabase-runtime-poc Caddyfile; do
+  for file in docker-compose.yml docker-compose.supabase.yml docker-compose.supabase-single-container.yml Dockerfile.supabase-runtime-poc Caddyfile scripts/backup-precutover.sh; do
     [[ -f "$file" ]] || { echo "ОШИБКА: отсутствует обязательный файл $file" >&2; exit 1; }
   done
   command -v git >/dev/null 2>&1 || { echo "ОШИБКА: требуется Git для проверки защиты env-файлов." >&2; exit 1; }
@@ -56,7 +64,7 @@ require_files() {
 }
 
 validate_env() {
-  python3 - "$ENV_FILE" "$RUNTIME_ENV_FILE" <<'PY'
+  "$PYTHON_BIN" - "$ENV_FILE" "$RUNTIME_ENV_FILE" <<'PY'
 import re
 import sys
 import time
@@ -254,8 +262,9 @@ validate_compose() {
   rendered="$(mktemp)"
   trap 'rm -f "$rendered"' RETURN
   compose config --format json > "$rendered"
-  python3 - "$rendered" <<'PY'
+  "$PYTHON_BIN" - "$rendered" <<'PY'
 import json
+import re
 import sys
 from pathlib import Path
 from urllib.parse import urlparse, unquote
@@ -295,11 +304,11 @@ if web_environment.get("BACKUP_DIR") != "/app/backups":
 backup_mounts = [
     mount for mount in services["web"].get("volumes", [])
     if mount.get("type") == "volume"
-    and mount.get("source") == "conditera_backups"
+    and mount.get("source") == "conditera_backup_data"
     and mount.get("target") == "/app/backups"
 ]
 if not backup_mounts:
-    raise SystemExit("The web service must mount the persistent conditera_backups volume at /app/backups")
+    raise SystemExit("The web service must mount the persistent conditera_backup_data volume at /app/backups")
 media_mounts = [
     mount for mount in services["web"].get("volumes", [])
     if mount.get("type") == "volume"
@@ -367,8 +376,8 @@ if "www.conditera.ru {\n        redir https://conditera.ru{uri} permanent" not i
     raise SystemExit("www host must redirect to canonical https://conditera.ru")
 
 runtime = services["supabase-runtime"]
-if runtime.get("image") != "conditera/supabase-runtime:pg17":
-    raise SystemExit("Supabase runtime image must be the pinned Conditera PG17 image")
+if not re.fullmatch(r"conditera/supabase-runtime:(?:pg17|sha-[0-9a-f]{7,40})", runtime.get("image", "")):
+    raise SystemExit("Supabase runtime image must be pinned to PG17 or an immutable commit SHA tag")
 if "5432" not in runtime.get("expose", []) or "8000" not in runtime.get("expose", []):
     raise SystemExit("Supabase runtime must expose PostgreSQL and Kong only on the internal Compose network")
 
@@ -426,7 +435,7 @@ fi
 
 command -v docker >/dev/null 2>&1 || { echo "ОШИБКА: Docker CLI не найден." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "ОШИБКА: Docker Desktop/daemon не запущен." >&2; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "ОШИБКА: требуется Python 3 для проверки конфигурации." >&2; exit 1; }
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || { echo "ОШИБКА: требуется Python 3 для проверки конфигурации." >&2; exit 1; }
 if [[ "$MODE" == "--health" ]]; then
   health_check
   exit $?
@@ -439,10 +448,22 @@ if [[ "$MODE" == "--config" ]]; then
   exit 0
 fi
 
-echo "Остановка только legacy-контейнеров БД/Supabase без удаления их volumes..."
+echo "Резервное копирование работающих PostgreSQL баз до остановки контейнеров..."
+bash scripts/backup-precutover.sh --database
+
+echo "Остановка legacy-контейнеров БД/Supabase без удаления их volumes..."
 compose stop db pgbouncer migrator supabase-db supabase-kong supabase-auth supabase-rest \
   supabase-realtime supabase-storage supabase-app-migrator supabase-imgproxy \
   supabase-meta supabase-studio supabase-analytics supabase-vector || true
+
+echo "Остановка web и единого runtime для согласованного снимка Storage..."
+compose stop web supabase-runtime || true
+for container in conditera-db conditera-supabase-db conditera-supabase-storage conditera-supabase-runtime conditera-web; do
+  docker stop "$container" >/dev/null 2>&1 || true
+done
+
+echo "Архивация Storage и product media из остановленных контейнеров..."
+bash scripts/backup-precutover.sh --storage
 
 echo "Сборка и запуск единого Supabase runtime (PostgreSQL 17) и приложения..."
 compose up -d --build supabase-runtime redis meilisearch web chat-service n8n caddy
