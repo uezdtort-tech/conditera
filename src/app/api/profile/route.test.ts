@@ -36,9 +36,9 @@ describe("PATCH /api/profile — профиль только текущего п
       userId: "user-1",
       roles: ["CUSTOMER"],
     });
-    mocks.update.mockReturnValue({ eq });
-    mocks.eq.mockReturnValue({ select });
-    mocks.select.mockReturnValue({ single });
+    mocks.update.mockReturnValue({ eq: mocks.eq });
+    mocks.eq.mockReturnValue({ select: mocks.select });
+    mocks.select.mockReturnValue({ single: mocks.single });
     mocks.single.mockResolvedValue({
       data: { id: "user-1", name: "Новое имя", city: "Москва" },
       error: null,
