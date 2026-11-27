@@ -254,7 +254,7 @@ export function validateEnvironment(values, selectedMode = "development", select
     if (isFilled(value("GOOGLE_CLIENT_SECRET")) && value("GOOGLE_CLIENT_SECRET").length < 16) {
       error("GOOGLE_CLIENT_SECRET короче 16 символов");
     }
-    const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\\/$/, "");
+    const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\/$/, "");
     if (isFilled(appBase) && isFilled(value("GOOGLE_OAUTH_REDIRECT")) &&
         value("GOOGLE_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/google/callback`) {
       error("GOOGLE_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/google/callback");
