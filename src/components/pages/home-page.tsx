@@ -222,7 +222,7 @@ export function HomePage() {
   const cmsSectionEnabled = (key: string) => cmsSections.find((section) => section.section === key)?.is_enabled ?? true;
   const cmsSectionTitle = (key: string, fallback: string) => cmsSections.find((section) => section.section === key)?.title || fallback;
   const cmsHero = cms.hero;
-  // Z-brand: опубликованные CMS-блоки секций (cms_section_blocks). Пусто →
+  // Опубликованные CMS-блоки секций (cms_home_blocks). Пусто →
   // хардкод-фолбэк без изменений (advantages/steps/cta_confectioner).
   const cmsBlocksMap = usePublishedHomeBlocks();
   const cmsAdvantages: PublishedHomeBlock[] = cmsBlocksMap.advantages ?? [];
