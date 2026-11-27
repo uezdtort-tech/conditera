@@ -149,16 +149,43 @@ export function ProfileSettings({ user: userProp, onLogout, onOpenAuth }: Profil
   const [securityError, setSecurityError] = React.useState<string | null>(null);
   const [revokingSession, setRevokingSession] = React.useState<string | null>(null);
 
-  // Компонент может смонтироваться до завершения гидратации auth-store.
-  // Синхронизируем форму при загрузке/обновлении профиля, но не на каждый рендер.
+  // Загружаем канонический профиль с сервера: dashboard-store содержит
+  // неполный набор полей и может гидратироваться позже, чем эта вкладка.
   React.useEffect(() => {
     if (!user?.id) return;
-    setName(user.name || "");
-    setPhone(user.phone || "");
-    setBio((user as { bio?: string }).bio || "");
-    setAvatar(user.avatar || "");
-    setAddresses((user as { addresses?: AddressItem[] }).addresses || []);
-  }, [user?.id, user?.name, user?.phone, (user as { bio?: string } | null)?.bio, user?.avatar]);
+    const controller = new AbortController();
+    const loadProfile = async (): Promise<void> => {
+      try {
+        const response = await fetch("/api/profile", {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Не удалось загрузить профиль");
+        const payload = await response.json() as {
+          profile?: { name?: string | null; phone?: string | null; bio?: string | null; avatar_url?: string | null };
+          addresses?: AddressItem[];
+        };
+        if (controller.signal.aborted) return;
+        setName(payload.profile?.name || "");
+        setPhone(payload.profile?.phone || "");
+        setBio(payload.profile?.bio || "");
+        setAvatar(payload.profile?.avatar_url || "");
+        setAddresses(payload.addresses || []);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        // Не блокируем редактирование, если профильный API временно недоступен.
+        setName(user.name || "");
+        setPhone(user.phone || "");
+        setBio((user as { bio?: string }).bio || "");
+        setAvatar(user.avatar || "");
+        setAddresses((user as { addresses?: AddressItem[] }).addresses || []);
+        console.error("[profile-settings] profile load failed:", error);
+      }
+    };
+    void loadProfile();
+    return () => controller.abort();
+  }, [user?.id]);
 
   const loadSecurityData = React.useCallback(async (): Promise<void> => {
     if (!user?.id) return;
