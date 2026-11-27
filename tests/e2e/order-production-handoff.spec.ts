@@ -15,7 +15,7 @@ test.describe("Полный заказ: оплата → производств�
     const customerName = `Покупатель E2E ${suffix.slice(-6)}`;
     const email = `e2e-order-${suffix}@example.test`;
     const phone = `+7999${suffix.slice(-7).padStart(7, "0")}`;
-    const password = "E2E-Password-2026!";
+    const password = DEMO_PASSWORD;
 
     // Покупатель регистрируется исключительно через форму сайта.
     await page.goto(`${BASE_URL}/login`);
