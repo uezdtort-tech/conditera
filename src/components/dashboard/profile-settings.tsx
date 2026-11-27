@@ -149,6 +149,17 @@ export function ProfileSettings({ user: userProp, onLogout, onOpenAuth }: Profil
   const [securityError, setSecurityError] = React.useState<string | null>(null);
   const [revokingSession, setRevokingSession] = React.useState<string | null>(null);
 
+  // Компонент может смонтироваться до завершения гидратации auth-store.
+  // Синхронизируем форму при загрузке/обновлении профиля, но не на каждый рендер.
+  React.useEffect(() => {
+    if (!user?.id) return;
+    setName(user.name || "");
+    setPhone(user.phone || "");
+    setBio((user as { bio?: string }).bio || "");
+    setAvatar(user.avatar || "");
+    setAddresses((user as { addresses?: AddressItem[] }).addresses || []);
+  }, [user?.id, user?.name, user?.phone, (user as { bio?: string } | null)?.bio, user?.avatar]);
+
   const loadSecurityData = React.useCallback(async (): Promise<void> => {
     if (!user?.id) return;
     setSecurityLoading(true);
@@ -245,12 +256,15 @@ export function ProfileSettings({ user: userProp, onLogout, onOpenAuth }: Profil
       toast.error("Файл слишком большой (макс. 5 МБ)");
       return;
     }
-    // Optimistic preview
+    // Optimistic preview; replace it with the persisted URL after upload.
+    const previousAvatar = avatar;
     const reader = new FileReader();
     reader.onload = () => setAvatar(reader.result as string);
     reader.readAsDataURL(file);
-    // Real upload through mutation
-    uploadAvatar.mutate(file);
+    uploadAvatar.mutate(file, {
+      onSuccess: (result: { avatarUrl: string }) => setAvatar(result.avatarUrl),
+      onError: () => setAvatar(previousAvatar),
+    });
   };
 
   const handleAddAddress = (): void => {
