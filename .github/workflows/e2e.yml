@@ -320,13 +320,17 @@ jobs:
           path: test-results/
           retention-days: 7
 
-      - name: Upload screenshots on failure
+      - name: Upload screenshots and videos on failure
         uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-failures-${{ matrix.project }}
-          path: test-results/**/test-video.webm
+          path: |
+            test-results/**/*.png
+            test-results/**/*.webm
+            test-results/**/error-context.md
           retention-days: 7
+          if-no-files-found: warn
 
   # ===== 3. Отчёт в Slack/Telegram (опционально) =====
   notify:
