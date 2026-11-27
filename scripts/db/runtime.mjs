@@ -13,10 +13,10 @@
  *   node scripts/db/runtime.mjs stop     — остановить (pg_ctl -m fast + fallback)
  *   node scripts/db/runtime.mjs restart  — stop + start
  *   node scripts/db/runtime.mjs status   — pid-файл + TCP-проверка
- *   node scripts/db/runtime.mjs logs     — хвост .pgdata/server.log
+ *   node scripts/db/runtime.mjs logs     — хвост .pgdata-pg17/server.log
  *
- * Порт по умолчанию: 54329 (специально НЕ 5432, чтобы не конфликтовать
- * с пользовательским PostgreSQL). Переопределяется CONDITERA_PG_PORT.
+ * PostgreSQL 17. Порт по умолчанию: 54330, каталог .pgdata-pg17.
+ * Старый PG18 в .pgdata на порту 54329 не переиспользуется. Переопределяется CONDITERA_PG_PORT.
  *
  * ВАЖНО: команды управляют ТОЛЬКО встроенным экземпляром. Если DATABASE_URL
  * указывает на другой сервер — выводится предупреждение, но embedded
@@ -24,7 +24,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync, openSync, readSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmdirSync, readFileSync, writeFileSync, statSync, openSync, readSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import net from "node:net";
 import path from "node:path";
@@ -39,8 +39,8 @@ const require = createRequire(import.meta.url);
 // <project>/scripts/db/runtime.mjs → <project> (require.resolve — работает
 // и на Windows с буквами дисков, в отличие от fileURLToPath(import.meta.url))
 const ROOT = path.resolve(path.dirname(require.resolve("./runtime.mjs")), "..", "..");
-export const PGDATA = path.join(ROOT, ".pgdata");
-export const PG_PORT = Number(process.env.CONDITERA_PG_PORT || 54329);
+export const PGDATA = path.join(ROOT, ".pgdata-pg17");
+export const PG_PORT = Number(process.env.CONDITERA_PG_PORT || 54330);
 export const PG_USER = "postgres";
 export const PG_DB = "conditera";
 export const EMBEDDED_URL = `postgresql://${PG_USER}@127.0.0.1:${PG_PORT}/${PG_DB}`;
@@ -52,7 +52,7 @@ const CONF_MARKER = "# conditera-local";
 // ============================================================================
 function platformPackageShort() {
   const { platform, arch } = process;
-  if (platform === "win32") return "win-x64";
+  if (platform === "win32") return "windows-x64";
   if (platform === "darwin") {
     if (arch === "arm64") return "darwin-arm64";
     if (arch === "x64") return "darwin-x64";
@@ -169,15 +169,45 @@ function pidAlive(pid) {
   }
 }
 
-/** Живая проверка статуса: pid-файл + процесс + TCP. */
+async function readServerVersion() {
+  const { Client } = require("pg");
+  const client = new Client({
+    connectionString: `postgresql://${PG_USER}@127.0.0.1:${PG_PORT}/postgres`,
+    connectionTimeoutMillis: 1200,
+  });
+  try {
+    await client.connect();
+    const result = await client.query("SHOW server_version_num");
+    return Number(result.rows[0]?.server_version_num || 0);
+  } catch {
+    return null;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+/** Живая проверка статуса: PID + TCP + фактическая major-версия сервера. */
 export async function getStatus() {
-  const initialized = existsSync(path.join(PGDATA, "PG_VERSION"));
-  if (!initialized) return { running: false, initialized: false, pid: null };
+  const versionFile = path.join(PGDATA, "PG_VERSION");
+  const initialized = existsSync(versionFile);
+  const dataVersion = initialized ? readFileSync(versionFile, "utf8").trim() : null;
   const pid = readPidFile();
   const procAlive = pid ? pidAlive(pid) : false;
   const tcpOk = await tcpProbe(PG_PORT);
-  const running = (procAlive && tcpOk) || (!pid && tcpOk);
-  return { running, initialized, pid: running ? pid : null };
+  const serverVersionNum = tcpOk ? await readServerVersion() : null;
+  const serverMajor = serverVersionNum ? Math.floor(serverVersionNum / 10000) : null;
+  const dataCompatible = !dataVersion || dataVersion === "17";
+  const serverCompatible = !tcpOk || serverMajor === 17;
+  const running = dataCompatible && serverCompatible &&
+    ((procAlive && tcpOk) || (!pid && tcpOk));
+  return {
+    running,
+    initialized,
+    pid: running ? pid : null,
+    dataVersion,
+    serverVersionNum,
+    incompatible: !dataCompatible || (tcpOk && !serverCompatible),
+  };
 }
 
 // ============================================================================
@@ -216,10 +246,14 @@ function writeHba(hbaPath) {
 // ============================================================================
 function initialize() {
   const { initdb, binDir } = resolveBinaries();
-  if (!existsSync(PGDATA)) mkdirSync(PGDATA, { recursive: true });
-  const entries = readdirSync(PGDATA);
-  if (entries.length > 0) {
-    throw new Error(`Data dir ${PGDATA} is not empty but has no PG_VERSION. Remove it manually and retry.`);
+  // Не создавать сам PGDATA через Node: Windows initdb должен создать каталог
+  // самостоятельно, иначе его попытка выставить ACL может завершиться EACCES.
+  if (existsSync(PGDATA)) {
+    const entries = readdirSync(PGDATA);
+    if (entries.length > 0) {
+      throw new Error(`Data dir ${PGDATA} is not empty but has no PG_VERSION. Remove it manually and retry.`);
+    }
+    rmdirSync(PGDATA);
   }
   console.log(`» initdb: creating cluster at ${PGDATA}`);
   const res = run(
@@ -257,7 +291,7 @@ export async function start() {
   }
   if (!status.initialized) initialize();
   applyConfigs();
-  console.log(`» starting PostgreSQL on 127.0.0.1:${PG_PORT} ...`);
+  console.log(`» starting PostgreSQL 17 on 127.0.0.1:${PG_PORT} ...`);
   const res = run(
     pg_ctl,
     ["-D", PGDATA, "-l", PG_LOG, "-o", `-p ${PG_PORT}`, "-w", "start"],

@@ -106,6 +106,7 @@ import {
 import { MOCK_NEGOTIATIONS } from "./mock-data-negotiation";
 import { MOCK_VENUES, MOCK_VENUE_SERVICES, MOCK_VENUE_VENDORS } from "./mock-data-venues";
 import { FILLINGS_SEED } from "./fillings-data";
+import { demoSeed } from "./demo-seed";
 
 interface AppState {
   // Auth
@@ -546,8 +547,8 @@ export const useAppStore = create<AppState>()(
       mobileMenuOpen: false,
       theme: "light",
 
-      chatRooms: MOCK_CHAT_ROOMS,
-      chatMessages: MOCK_CHAT_MESSAGES,
+      chatRooms: demoSeed(MOCK_CHAT_ROOMS),
+      chatMessages: demoSeed(MOCK_CHAT_MESSAGES),
       activeChatRoom: null,
 
       cakeBuilder: { step: 0, decorations: [], dietary: [], productType: undefined, servings: undefined, quantity: undefined },
@@ -564,9 +565,9 @@ export const useAppStore = create<AppState>()(
       },
       userCity: "Москва",
 
-      confectioners: MOCK_CONFECTIONERS,
-      couriers: MOCK_COURIERS,
-      products: MOCK_PRODUCTS,
+      confectioners: demoSeed(MOCK_CONFECTIONERS),
+      couriers: demoSeed(MOCK_COURIERS),
+      products: demoSeed(MOCK_PRODUCTS),
 
       setLiveProducts: (liveProducts) => {
         // Пустой ответ из БД — витрина остаётся на mock-данных (dev/фоллбэк)
@@ -655,50 +656,50 @@ export const useAppStore = create<AppState>()(
         set({ recipes: [newRecipe, ...get().recipes] });
       },
 
-      orders: MOCK_ORDERS,
-      channelPosts: MOCK_CHANNEL_POSTS,
-  channelStories: MOCK_CHANNEL_STORIES,
-  channelFollowers: MOCK_CHANNEL_FOLLOWERS,
-      inquiries: MOCK_CONSTRUCTOR_INQUIRIES,
-      teamTasks: MOCK_TEAM_TASKS,
+      orders: demoSeed(MOCK_ORDERS),
+      channelPosts: demoSeed(MOCK_CHANNEL_POSTS),
+  channelStories: demoSeed(MOCK_CHANNEL_STORIES),
+  channelFollowers: demoSeed(MOCK_CHANNEL_FOLLOWERS),
+      inquiries: demoSeed(MOCK_CONSTRUCTOR_INQUIRIES),
+      teamTasks: demoSeed(MOCK_TEAM_TASKS),
       // Новые данные
-      promotions: MOCK_PROMOTIONS,
-      venues: MOCK_VENUES,
-      venueServices: MOCK_VENUE_SERVICES,
-      venueVendors: MOCK_VENUE_VENDORS,
+      promotions: demoSeed(MOCK_PROMOTIONS),
+      venues: demoSeed(MOCK_VENUES),
+      venueServices: demoSeed(MOCK_VENUE_SERVICES),
+      venueVendors: demoSeed(MOCK_VENUE_VENDORS),
       fillings: FILLINGS_SEED,
-      recipes: MOCK_RECIPES,
-      inventory: MOCK_INVENTORY,
-      stockMovements: MOCK_STOCK_MOVEMENTS,
-      ganttTasks: MOCK_GANTT_TASKS,
-      reminders: MOCK_REMINDERS,
+      recipes: demoSeed(MOCK_RECIPES),
+      inventory: demoSeed(MOCK_INVENTORY),
+      stockMovements: demoSeed(MOCK_STOCK_MOVEMENTS),
+      ganttTasks: demoSeed(MOCK_GANTT_TASKS),
+      reminders: demoSeed(MOCK_REMINDERS),
       promoPopupShown: false,
       promoPopupDismissed: [],
       // Корпоратив + чёрный список + семафор
-      corporateEvents: MOCK_CORPORATE_EVENTS,
-      blacklist: MOCK_BLACKLIST,
-      semaphores: [...MOCK_SEMAPHORES, ...MOCK_LEGAL_USERS.flatMap((u) => [
+      corporateEvents: demoSeed(MOCK_CORPORATE_EVENTS),
+      blacklist: demoSeed(MOCK_BLACKLIST),
+      semaphores: demoSeed([...MOCK_SEMAPHORES, ...MOCK_LEGAL_USERS.flatMap((u) => [
         { id: `s_${u.id}_e`, type: "email" as const, value: u.email, userId: u.id, verified: true, registeredAt: u.createdAt, attempts: 1 },
         ...(u.phone ? [{ id: `s_${u.id}_p`, type: "phone" as const, value: u.phone, userId: u.id, verified: true, registeredAt: u.createdAt, attempts: 1 }] : []),
-      ])],
-      decorShops: MOCK_DECOR_SHOPS,
-      decorProducts: MOCK_DECOR_PRODUCTS,
-      bundles: MOCK_BUNDLES,
-      serviceShops: MOCK_SERVICE_SHOPS,
-      serviceProducts: MOCK_SERVICE_PRODUCTS,
-      userHolidays: MOCK_USER_HOLIDAYS,
-      giftCertificates: MOCK_GIFT_CERTIFICATES,
+      ])]),
+      decorShops: demoSeed(MOCK_DECOR_SHOPS),
+      decorProducts: demoSeed(MOCK_DECOR_PRODUCTS),
+      bundles: demoSeed(MOCK_BUNDLES),
+      serviceShops: demoSeed(MOCK_SERVICE_SHOPS),
+      serviceProducts: demoSeed(MOCK_SERVICE_PRODUCTS),
+      userHolidays: demoSeed(MOCK_USER_HOLIDAYS),
+      giftCertificates: demoSeed(MOCK_GIFT_CERTIFICATES),
       referral: MOCK_REFERRAL,
-      videoReviews: MOCK_VIDEO_REVIEWS,
+      videoReviews: demoSeed(MOCK_VIDEO_REVIEWS),
       courierTracking: MOCK_COURIER_TRACKING,
       // CMS
-      cmsPages: MOCK_CMS_PAGES,
-      cmsBlocks: MOCK_CMS_BLOCKS,
-      banners: MOCK_BANNERS,
+      cmsPages: demoSeed(MOCK_CMS_PAGES),
+      cmsBlocks: demoSeed(MOCK_CMS_BLOCKS),
+      banners: demoSeed(MOCK_BANNERS),
       siteSettings: MOCK_SITE_SETTINGS,
-      navMenu: MOCK_NAV_MENU,
-      reviewsModeration: MOCK_REVIEWS_MODERATION,
-      negotiations: MOCK_NEGOTIATIONS,
+      navMenu: demoSeed(MOCK_NAV_MENU),
+      reviewsModeration: demoSeed(MOCK_REVIEWS_MODERATION),
+      negotiations: demoSeed(MOCK_NEGOTIATIONS),
       confectionerWorks: [],
       fraudReports: [],
       riskScores: {},

@@ -1,6 +1,10 @@
 # ===== Docker Compose для "Уездного кондитера" (production) =====
-# Запуск: docker-compose up -d
-# Требует .env.production со всеми секретами (см. .env.example)
+# ВАЖНО: этот файл содержит только legacy app PostgreSQL 18 и НЕ является самостоятельной production-конфигурацией.
+# Канонический запуск единого Supabase PostgreSQL 17:
+#   node scripts/compose-single-runtime.mjs up -d
+# Launcher подключает docker-compose.supabase.yml + docker-compose.supabase-single-container.yml,
+# проверяет отсутствие активных PG18/PG15 и не допускает удаления volumes.
+# Требует .env.production и .env.supabase-runtime; см. docs/SUPABASE_SINGLE_CONTAINER_RUNTIME.md
 # ====================================================================
 
 # Общие настройки логирования (ротация логов)
@@ -18,6 +22,7 @@ x-default-restart: &default-restart
 services:
   # ===== Migrator (init-контейнер — применяет миграции БД один раз) =====
   migrator:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -49,6 +54,7 @@ services:
 
   # ===== Веб-приложение (Next.js) =====
   web:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -89,7 +95,7 @@ services:
       - SMTP_FROM=${SMTP_FROM:-Кондитера <noreply@conditera.ru>}
       - SMTP_REPLY_TO=${SMTP_REPLY_TO:-support@conditera.ru}
       - SMTP_SECURE=${SMTP_SECURE:-false}
-      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-false}
+      - SMTP_TLS_REJECT_UNAUTHORIZED=${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
       - MAILGUN_SIGNING_KEY=${MAILGUN_SIGNING_KEY:-}
       - SENDGRID_WEBHOOK_KEY=${SENDGRID_WEBHOOK_KEY:-}
       # Контакты сайта (NEXT_PUBLIC_ — видны на клиенте)
@@ -143,6 +149,7 @@ services:
   # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
   # с резервной копией и контрольной сверкой данных.
   db:
+    profiles: ["legacy-app-db"]
     image: postgres:18-alpine
     container_name: conditera-db
     <<: *default-restart
@@ -180,6 +187,7 @@ services:
   # session-level features (temp tables, SET без транзакции, LISTEN/NOTIFY).
   # Для Prisma этого достаточно — все запросы в явных транзакциях.
   pgbouncer:
+    profiles: ["legacy-app-db"]
     image: pgbouncer/pgbouncer:latest
     container_name: conditera-pgbouncer
     <<: *default-restart
@@ -240,6 +248,7 @@ services:
   # Индексация через API endpoint /api/search/reindex.
   # Заменяет медленный ILIKE '%...%' в PostgreSQL.
   meilisearch:
+    profiles: ["legacy-app-db"]
     image: getmeili/meilisearch:v1.12
     container_name: conditera-meilisearch
     <<: *default-restart
@@ -280,6 +289,7 @@ services:
 
   # ===== Redis (кэш, сессии, Socket.IO adapter, rate-limiting) =====
   redis:
+    profiles: ["legacy-app-db"]
     image: redis:7-alpine
     container_name: conditera-redis
     <<: *default-restart
@@ -307,6 +317,7 @@ services:
 
   # ===== Сервис чата (Socket.IO) =====
   chat-service:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile.chat
@@ -345,23 +356,33 @@ services:
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, сгорание бонусов) =====
   n8n:
+    profiles: ["legacy-app-db"]
     image: n8nio/n8n:1.95.0
     container_name: conditera-n8n
     <<: *default-restart
+    entrypoint: ["node"]
+    command: ["/usr/local/bin/conditera-n8n-entrypoint.mjs"]
     environment:
       - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
+      - N8N_USER_FOLDER=/home/node/.n8n
       - WEBHOOK_URL=https://${DOMAIN:-conditera.ru}/n8n/
       - GENERIC_TIMEZONE=Europe/Moscow
       - APP_URL=http://web:3000
       - CRON_SECRET=${CRON_SECRET:?CRON_SECRET required}
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_ADMIN_PASSWORD:?N8N_ADMIN_PASSWORD required}
+      - N8N_ADMIN_EMAIL=${N8N_ADMIN_EMAIL:?N8N_ADMIN_EMAIL required}
+      - N8N_ADMIN_PASSWORD=${N8N_ADMIN_PASSWORD:?N8N_ADMIN_PASSWORD required}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY required}
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:?N8N_WEBHOOK_SECRET required}
+      - N8N_PROXY_HOPS=1
+      - N8N_SECURE_COOKIE=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     volumes:
       - n8n_data:/home/node/.n8n
-      - ./n8n-workflows:/imports
+      - ./n8n-workflows:/imports:ro
+      - ./scripts/n8n-entrypoint.mjs:/usr/local/bin/conditera-n8n-entrypoint.mjs:ro
     depends_on:
       web:
         condition: service_healthy
@@ -385,6 +406,7 @@ services:
 
   # ===== Caddy (обратный прокси + HTTPS) =====
   caddy:
+    profiles: ["legacy-app-db"]
     image: caddy:2.8-alpine
     container_name: conditera-caddy
     <<: *default-restart
@@ -420,9 +442,10 @@ services:
   # ===== SimpleX SMP server (приватный E2E-канал) =====
   # ВНИМАНИЕ: SimpleX-сервисы (smp-server + simplex-bridge) — опциональны.
   # Они нужны только для E2E-чата PREMIUM-пользователей.
-  # Чтобы запустить стек без SimpleX (например для первого деплоя или тестов):
-  #   docker compose up -d web db redis chat-service n8n caddy
-  # Или создать профиль: docker compose --profile simplex up -d
+  # Канонический стек без SimpleX запускается только через единый PG17 launcher:
+  #   CONDITERA_PG17_CUTOVER_APPROVED=1 node scripts/compose-single-runtime.mjs up -d
+  # Для осознанного включения SimpleX добавьте --profile simplex перед up.
+  # Прямой запуск legacy Compose без overlay не является поддерживаемым production-путём.
   smp-server:
     image: simplexchat/smp-server:v7.0.1
     container_name: conditera-smp

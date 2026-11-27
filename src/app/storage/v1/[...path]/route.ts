@@ -18,7 +18,8 @@ import { resolveClaims } from "@/lib/postgrest/jwt";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const UPLOAD_ROOT = path.join(process.cwd(), "upload", "storage");
+const PROJECT_ROOT = process.env.CONDITERA_PROJECT_ROOT || process.cwd();
+const UPLOAD_ROOT = process.env.SUPABASE_STORAGE_ROOT || path.join(PROJECT_ROOT, "upload", "storage");
 
 const MIME: Record<string, string> = {
   ".png": "image/png",

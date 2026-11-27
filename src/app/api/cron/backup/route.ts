@@ -4,7 +4,7 @@
  * Auth: X-Cron-Secret header (CRON_SECRET env var)
  * Schedule: daily at 03:00 (recommended)
  *
- * Создаёт gzip-бэкап БД, записывает в maintenance_logs,
+ * Создаёт проверяемый PostgreSQL custom-format архив, записывает в maintenance_logs,
  * удаляет бэкапы старше 30 дней.
  *
  * Соответствует таблицам:

@@ -25,10 +25,11 @@
  */
 
 import { Client } from "pg";
+import { spawnSync } from "node:child_process";
 
 const BASE = process.env.VERIFY_BASE || "http://127.0.0.1:3000";
 const PASSWORD = "Demo123!";
-const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54330/conditera";
 
 const OWNER_ID = "11111111-1111-4111-8111-111111111101"; // confectioner@demo.ru (Торты на заказ | Сахарная печать)
 const CONF_102 = "11111111-1111-4111-8111-111111111102"; // Сладкая уездная
@@ -58,8 +59,8 @@ function section(title) {
 
 const RUN_IP = `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
 
-async function api(method, path, { token, body, raw } = {}) {
-  const headers = { "x-real-ip": RUN_IP };
+async function api(method, path, { token, body, raw, extraHeaders } = {}) {
+  const headers = { "x-real-ip": RUN_IP, ...(extraHeaders || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (raw) {
     // raw: FormData — не ставим Content-Type (boundary проставит fetch)
@@ -89,12 +90,16 @@ async function api(method, path, { token, body, raw } = {}) {
   return { status: res.status, json };
 }
 
+const sessionTokens = [];
+
 async function login(email) {
   const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
-  return res.json.accessToken;
+  const token = res.json.accessToken;
+  sessionTokens.push(token);
+  return token;
 }
 
 const client = new Client({ connectionString: PG_URL });
@@ -112,7 +117,7 @@ function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-async function createTestOrder({ confectionerId = null, deliveryDate, window = "15:00-18:00", escrow = true }) {
+async function createTestOrder({ confectionerId = null, deliveryDate, window = "15:00-18:00", escrow = true, deliveryType = "delivery" }) {
   const number = orderNumber();
   const res = await client.query(
     `INSERT INTO public.orders
@@ -121,7 +126,7 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
         delivery_date, delivery_time_window, delivery_type, metadata, paid_at,
         confirmed_at)
      VALUES ($1, $2::uuid, $3::uuid, 2400, 0, 0, 2400, 'PENDING', $4, 'card',
-             'ул. Тестовая, 1', 'Москва', $5::date, $6, 'delivery',
+             'ул. Тестовая, 1', 'Москва', $5::date, $6, $8,
              jsonb_build_object('test','p05-verify'), $7, $7)
      RETURNING id::text`,
     [
@@ -132,6 +137,7 @@ async function createTestOrder({ confectionerId = null, deliveryDate, window = "
       deliveryDate,
       window,
       escrow ? new Date().toISOString() : null,
+      deliveryType,
     ]
   );
   const orderId = res.rows[0].id;
@@ -176,6 +182,20 @@ const PNG_1PX = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64"
 );
+
+function disputeForm() {
+  const fd = new FormData();
+  fd.append("category", "quality");
+  fd.append("description", "На изделии обнаружен дефект покрытия и повреждение декора после получения заказа.");
+  fd.append("evidence", new Blob([PNG_1PX], { type: "image/png" }), "defect-evidence.png");
+  return fd;
+}
+
+function disputeReplyForm() {
+  const fd = new FormData();
+  fd.append("message", "Прикладываю дополнительные сведения: повреждение заметно сразу после распаковки, упаковка была целой.");
+  return fd;
+}
 
 function photoForm() {
   const fd = new FormData();
@@ -308,7 +328,31 @@ async function prepareRecipeInventoryFixture() {
   };
 }
 
+function runQualityCommand(label, args) {
+  const result = spawnSync("bun", args, { stdio: "inherit" });
+  assert(label, result.status === 0, `exit=${result.status ?? "signal"}`);
+}
+
 async function main() {
+  section("Статическое качество и полный набор unit-тестов");
+  runQualityCommand("TypeScript typecheck", ["run", "typecheck"]);
+  runQualityCommand("ESLint по всему репозиторию", ["run", "lint"]);
+  runQualityCommand("Полный набор Vitest", ["run", "test"]);
+
+  section("OAuth Yandex/VK и YooKassa — внешние контракты безопасности");
+  const oauthTests = spawnSync("bunx", [
+    "vitest",
+    "run",
+    "src/app/api/auth/oauth/[provider]/route.test.ts",
+    "src/app/api/auth/oauth/[provider]/callback/route.test.ts",
+    "src/app/api/payment/webhook/route.test.ts",
+    "src/lib/yookassa.test.ts",
+    "src/lib/session-registry-device-policy.test.ts",
+  ], { stdio: "inherit" });
+  assert("контрактные тесты OAuth, YooKassa и защиты сессий проходят",
+    oauthTests.status === 0 && !oauthTests.error,
+    oauthTests.error?.message || `exit=${oauthTests.status}`);
+
   await client.connect();
 
   section("Подготовка");
@@ -388,21 +432,25 @@ async function main() {
   const secondCustomerLogin = await api("POST", "/api/auth/login", {
     body: { email: customerEmail, password: PASSWORD },
   });
-  assert("повторный вход создаёт отдельный серверный сеанс",
+  assert("повторный вход создаёт новую персональную сессию",
     secondCustomerLogin.status === 200 && Boolean(secondCustomerLogin.json?.accessToken));
-  const revokeOtherSessions = await api("DELETE", "/api/auth/sessions", { token: customer });
-  assert("покупатель может завершить все остальные сеансы",
-    revokeOtherSessions.status === 200 && Number(revokeOtherSessions.json?.revoked) >= 1);
-  const revokedSessionCheck = await api("GET", "/api/auth/sessions", {
-    token: secondCustomerLogin.json?.accessToken,
-  });
-  assert("отозванный сеанс больше не проходит аутентификацию → 401",
-    revokedSessionCheck.status === 401);
+  const revokedPreviousSession = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("повторный вход немедленно отзывает предыдущий JWT → 401",
+    revokedPreviousSession.status === 401);
+  customer = secondCustomerLogin.json.accessToken;
+  const currentSessionAfterLogin = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("после повторного входа доступна ровно одна текущая сессия",
+    currentSessionAfterLogin.status === 200 &&
+    currentSessionAfterLogin.json?.sessions?.length === 1 &&
+    currentSessionAfterLogin.json.sessions[0]?.isCurrent === true);
   const ownSecurityEvents = await api("GET", "/api/auth/security-events", { token: customer });
-  assert("журнал безопасности показывает создание и отзыв сеансов",
+  assert("журнал безопасности показывает создание и отзыв прежней сессии",
     ownSecurityEvents.status === 200 &&
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_created") &&
     ownSecurityEvents.json?.events?.some(event => event.event_type === "session_revoked"));
+  const revokeOtherSessions = await api("DELETE", "/api/auth/sessions", { token: customer });
+  assert("завершение остальных сессий при эксклюзивной политике идемпотентно",
+    revokeOtherSessions.status === 200 && Number(revokeOtherSessions.json?.revoked) === 0);
 
   // Индивидуальный RFQ: проект → предложение с рецептом → заказ → платёж.
   const confectionerRow = await client.query(
@@ -722,7 +770,7 @@ async function main() {
 
   const assign = await api("POST", `/api/orders/${o1.orderId}/assign`, { token: admin, body: { confectionerId: OWNER_ID } });
   assert("POST assign → 200", assign.status === 200, JSON.stringify(assign.json).slice(0, 200));
-  assert("оценка времени: 240 мин по настройке товара", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "product" && assign.json?.estimate?.approximate === false, JSON.stringify(assign.json?.estimate));
+  assert("оценка трудоёмкости: 240 мин по категории (lead time товара не считается рабочим окном)", assign.json?.estimate?.minutes === 240 && assign.json?.estimate?.source === "category" && assign.json?.estimate?.approximate === true, JSON.stringify(assign.json?.estimate));
   assert("резерв создан на дату доставки", assign.json?.reservation?.date === tomorrowStr, JSON.stringify(assign.json?.reservation));
   assert("latestSafeStartAt рассчитан", Boolean(assign.json?.deadline?.latestSafeStartAt));
   // 18:00 − 65м буферов − 240м производства = 12:55
@@ -888,6 +936,237 @@ async function main() {
     assert(`timeline содержит ${ev}`, tlTypes.includes(ev), tlTypes.join(","));
   }
   assert("timeline НЕ содержит параллельной истории (только события+статусы)", timeline.json?.timeline?.length >= 8, `len=${timeline.json?.timeline?.length}`);
+
+  // Самовывоз: передача кондитером не равна подтверждению получения покупателем.
+  section("E2E №1b — самовывоз: handoff отдельно от customer receipt");
+  const pickup = await createTestOrder({
+    confectionerId: OWNER_ID,
+    deliveryDate: tomorrowStr,
+    deliveryType: "pickup",
+  });
+  testOrders.push(pickup.orderId);
+  await client.query(
+    `UPDATE public.orders SET status = 'READY' WHERE id = $1::uuid`,
+    [pickup.orderId]
+  );
+
+  const pickupPrematureComplete = await api("POST", `/api/orders/${pickup.orderId}/complete`, { token: customer });
+  assert("покупатель не может подтвердить получение до handoff → 409",
+    pickupPrematureComplete.status === 409);
+
+  const pickupHandoff = await api("POST", `/api/orders/${pickup.orderId}/handoff`, {
+    token: owner,
+    body: { executor: "Кондитер самовывоза" },
+  });
+  assert("самовывоз: handoff переводит READY → DELIVERED",
+    pickupHandoff.status === 200 && pickupHandoff.json?.status === "DELIVERED",
+    JSON.stringify(pickupHandoff.json));
+
+  const pickupDeliveryRows = await client.query(
+    `SELECT count(*)::int AS count FROM public.deliveries WHERE order_id = $1::uuid`,
+    [pickup.orderId]
+  );
+  assert("для самовывоза не создаётся доставка курьером",
+    pickupDeliveryRows.rows[0]?.count === 0);
+
+  const pickupHandoffEvents = await client.query(
+    `SELECT count(*)::int AS count FROM public.domain_events
+      WHERE entity_type = 'order' AND entity_id = $1::text AND type = 'order.handed_off'`,
+    [pickup.orderId]
+  );
+  assert("самовывоз записывает ровно одно событие order.handed_off",
+    pickupHandoffEvents.rows[0]?.count === 1,
+    `count=${pickupHandoffEvents.rows[0]?.count}`);
+
+  const pickupComplete = await api("POST", `/api/orders/${pickup.orderId}/complete`, { token: customer });
+  assert("только после handoff покупатель подтверждает получение → COMPLETED",
+    pickupComplete.status === 200 && pickupComplete.json?.status === "COMPLETED",
+    JSON.stringify(pickupComplete.json));
+
+  const pickupDbState = await client.query(
+    `SELECT status FROM public.orders WHERE id = $1::uuid`,
+    [pickup.orderId]
+  );
+  assert("БД сохраняет отдельный финальный статус COMPLETED",
+    pickupDbState.rows[0]?.status === "COMPLETED");
+
+  // Спор о дефекте: отдельный процесс, приватные доказательства и неизменяемый журнал.
+  const disputeCreate = await api("POST", `/api/orders/${pickup.orderId}/disputes`, {
+    token: customer,
+    raw: disputeForm(),
+  });
+  assert("покупатель открывает спор с фото-доказательством → 201",
+    disputeCreate.status === 201 && Boolean(disputeCreate.json?.dispute?.id),
+    JSON.stringify(disputeCreate.json).slice(0, 240));
+  const disputeId = disputeCreate.json?.dispute?.id;
+  const duplicateDispute = await api("POST", `/api/orders/${pickup.orderId}/disputes`, {
+    token: customer,
+    raw: disputeForm(),
+  });
+  assert("второй активный спор по тому же заказу отклоняется → 409",
+    duplicateDispute.status === 409 && duplicateDispute.json?.error === "ACTIVE_DISPUTE_ALREADY_EXISTS",
+    JSON.stringify(duplicateDispute.json));
+  const disputeMediaCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.order_media
+      WHERE order_id = $1::uuid AND kind = 'dispute_evidence' AND status = 'approved'`,
+    [pickup.orderId],
+  );
+  assert("отклонённый дубль не оставляет активного orphan-файла",
+    disputeMediaCount.rows[0]?.count === 1,
+    `active evidence media=${disputeMediaCount.rows[0]?.count}`);
+  const disputeView = await api("GET", `/api/orders/${pickup.orderId}/disputes`, { token: customer });
+  assert("покупатель видит свой спор и вложенное доказательство",
+    disputeView.status === 200 && disputeView.json?.dispute?.evidence?.length === 1,
+    JSON.stringify(disputeView.json).slice(0, 240));
+  assert("доказательство связано с SHA-256 оригинального файла",
+    /^[0-9a-f]{64}$/.test(disputeView.json?.dispute?.evidence?.[0]?.content_sha256 || ""));
+  let evidenceHashMismatchState = "";
+  try {
+    await client.query(
+      `INSERT INTO public.order_dispute_evidence
+        (dispute_id, order_media_id, uploaded_by, content_sha256)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, repeat('0', 64))`,
+      [disputeId, disputeView.json?.dispute?.evidence?.[0]?.order_media_id, CUSTOMER_ID],
+    );
+  } catch (error) {
+    evidenceHashMismatchState = error.code;
+  }
+  assert("БД отклоняет доказательство с хешем, не совпадающим с оригиналом (23514)",
+    evidenceHashMismatchState === "23514", evidenceHashMismatchState);
+  const evidenceUrl = disputeView.json?.dispute?.evidence?.[0]?.url;
+  const evidenceDownload = await fetch(`${BASE}${evidenceUrl}`, { headers: { Authorization: `Bearer ${customer}` } });
+  assert("оригинал доказательства доступен участнику заказа как image/png",
+    evidenceDownload.status === 200 && evidenceDownload.headers.get("content-type") === "image/png",
+    `${evidenceDownload.status} ${evidenceDownload.headers.get("content-type")}`);
+
+  const evidenceDownloadAdmin = await fetch(`${BASE}${evidenceUrl}`, {
+    headers: { Authorization: `Bearer ${admin}` },
+  });
+  assert("администратор может скачать доказательство для рассмотрения",
+    evidenceDownloadAdmin.status === 200 &&
+    evidenceDownloadAdmin.headers.get("content-type") === "image/png");
+
+  const confectionerDisputeDecision = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: owner,
+    body: { disputeId, status: "under_review" },
+  });
+  assert("кондитер не может принимать решение по спору → 403",
+    confectionerDisputeDecision.status === 403);
+  const prematureDisputeReply = await api("POST", `/api/orders/${pickup.orderId}/disputes/${disputeId}/reply`, {
+    token: customer,
+    raw: disputeReplyForm(),
+  });
+  assert("покупатель не может отвечать до запроса поддержки → 409",
+    prematureDisputeReply.status === 409);
+  const confectionerDisputeReply = await api("POST", `/api/orders/${pickup.orderId}/disputes/${disputeId}/reply`, {
+    token: owner,
+    raw: disputeReplyForm(),
+  });
+  assert("кондитер не может отправлять ответ от имени покупателя → 403",
+    confectionerDisputeReply.status === 403);
+  const disputeReview = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: admin,
+    body: { disputeId, status: "under_review" },
+  });
+  assert("администратор переводит спор в under_review",
+    disputeReview.status === 200 && disputeReview.json?.dispute?.status === "under_review",
+    JSON.stringify(disputeReview.json));
+  const disputeAskCustomer = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: admin,
+    body: { disputeId, status: "awaiting_customer", resolution: "Нужны дополнительные сведения об упаковке и моменте обнаружения дефекта." },
+  });
+  assert("администратор запрашивает уточнение у покупателя",
+    disputeAskCustomer.status === 200 && disputeAskCustomer.json?.dispute?.status === "awaiting_customer",
+    JSON.stringify(disputeAskCustomer.json));
+  const disputeReply = await api("POST", `/api/orders/${pickup.orderId}/disputes/${disputeId}/reply`, {
+    token: customer,
+    raw: disputeReplyForm(),
+  });
+  assert("покупатель отвечает на запрос поддержки → спор возвращается в under_review",
+    disputeReply.status === 201 && disputeReply.json?.status === "under_review",
+    JSON.stringify(disputeReply.json));
+  const disputeAfterReply = await api("GET", `/api/orders/${pickup.orderId}/disputes`, { token: customer });
+  assert("переписка сохраняет запрос поддержки и ответ покупателя",
+    disputeAfterReply.status === 200 &&
+    disputeAfterReply.json?.dispute?.messages?.length === 2 &&
+    disputeAfterReply.json.dispute.messages[0]?.message.includes("Нужны дополнительные сведения") &&
+    disputeAfterReply.json.dispute.messages[1]?.message.includes("Прикладываю дополнительные сведения"));
+  let disputeMessageMutationState = "";
+  try {
+    await client.query(
+      `UPDATE public.order_dispute_messages SET message = 'tampered' WHERE id = $1::uuid`,
+      [disputeAfterReply.json?.dispute?.messages?.[0]?.id],
+    );
+  } catch (error) {
+    disputeMessageMutationState = error.code;
+  }
+  assert("БД запрещает подмену сообщения в истории спора (SQLSTATE 55000)",
+    disputeMessageMutationState === "55000", disputeMessageMutationState);
+  const disputeResolve = await api("PATCH", `/api/orders/${pickup.orderId}/disputes`, {
+    token: admin,
+    body: { disputeId, status: "resolved", resolution: "Дефект подтверждён, покупателю согласован полный возврат." },
+  });
+  assert("администратор фиксирует решение спора",
+    disputeResolve.status === 200 && disputeResolve.json?.dispute?.status === "resolved",
+    JSON.stringify(disputeResolve.json));
+  const evidenceId = disputeView.json?.dispute?.evidence?.[0]?.id;
+  let evidenceMutationState = "";
+  try {
+    await client.query(`UPDATE public.order_dispute_evidence SET note = 'tampered' WHERE id = $1::uuid`, [evidenceId]);
+  } catch (error) {
+    evidenceMutationState = error.code;
+  }
+  assert("БД запрещает подмену доказательства (SQLSTATE 55000)", evidenceMutationState === "55000", evidenceMutationState);
+  const mediaId = disputeView.json?.dispute?.evidence?.[0]?.order_media_id;
+  let mediaMutationState = "";
+  try {
+    await client.query(`UPDATE public.order_media SET status = 'deleted' WHERE id = $1::uuid`, [mediaId]);
+  } catch (error) {
+    mediaMutationState = error.code;
+  }
+  assert("БД запрещает удалить файл, приложенный к спору (SQLSTATE 55000)", mediaMutationState === "55000", mediaMutationState);
+  let mediaTruncateState = "";
+  await client.query("BEGIN");
+  try {
+    await client.query("TRUNCATE public.order_media CASCADE");
+  } catch (error) {
+    mediaTruncateState = error.code;
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+  }
+  assert("TRUNCATE order_media не удаляет файлы, на которые ссылаются доказательства",
+    mediaTruncateState === "55000" || mediaTruncateState === "0A000", mediaTruncateState);
+  let evidenceTruncateState = "";
+  await client.query("BEGIN");
+  try {
+    await client.query("TRUNCATE public.order_dispute_evidence");
+  } catch (error) {
+    evidenceTruncateState = error.code;
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+  }
+  assert("БД запрещает TRUNCATE неизменяемых доказательств (SQLSTATE 55000)",
+    evidenceTruncateState === "55000", evidenceTruncateState);
+  const disputeEvents = await client.query(
+    `SELECT count(*)::int AS count FROM public.order_dispute_events WHERE dispute_id = $1::uuid`,
+    [disputeId],
+  );
+  assert("журнал спора сохраняет открытие, рассмотрение и решение",
+    disputeEvents.rows[0]?.count === 5,
+    `events=${disputeEvents.rows[0]?.count}`);
+  const disputeOpsTask = await client.query(
+    `SELECT status, resolved_by, action_url FROM public.ops_tasks
+      WHERE type = 'ORDER_DISPUTE_OPENED' AND entity_id = $1`,
+    [disputeId],
+  );
+  const adminIdentity = await client.query(
+    `SELECT id::text FROM auth.users WHERE email = 'admin@demo.ru' LIMIT 1`,
+  );
+  assert("открытие спора создаёт задачу администратору, а решение закрывает её",
+    disputeOpsTask.rows[0]?.status === "resolved" &&
+    disputeOpsTask.rows[0]?.resolved_by === adminIdentity.rows[0]?.id &&
+    disputeOpsTask.rows[0]?.action_url === "/dashboard?tab=orders",
+    JSON.stringify(disputeOpsTask.rows[0]));
 
   const mediaServe = await fetch(`${BASE}${mediaUrl}`, { headers: { Authorization: `Bearer ${admin}` } });
   assert("фото раздаётся авторизованному (200, image/png)", mediaServe.status === 200 && mediaServe.headers.get("content-type") === "image/png", `${mediaServe.status} ${mediaServe.headers.get("content-type")}`);
@@ -1061,10 +1340,19 @@ async function main() {
   const o7 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   const o8 = await createTestOrder({ confectionerId: OWNER_ID, deliveryDate: dayPlus2 });
   testOrders.push(o7.orderId, o8.orderId);
-  const [ins1, ins2] = await Promise.allSettled([
-    client.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 540, 780, 240)`, [o7.orderId, OWNER_ID, dayPlus2]),
-    client.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 700, 940, 240)`, [o8.orderId, OWNER_ID, dayPlus2]),
-  ]);
+  // Два независимых pg.Client — один Client сериализует query() и не проверяет гонку.
+  const concurrentClient = new Client({ connectionString: PG_URL });
+  await concurrentClient.connect();
+  let ins1;
+  let ins2;
+  try {
+    [ins1, ins2] = await Promise.allSettled([
+      client.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 540, 780, 240)`, [o7.orderId, OWNER_ID, dayPlus2]),
+      concurrentClient.query(`INSERT INTO public.capacity_reservations (order_id, confectioner_id, reserved_date, start_minute, end_minute, estimated_minutes) VALUES ($1::uuid, $2::uuid, $3::date, 700, 940, 240)`, [o8.orderId, OWNER_ID, dayPlus2]),
+    ]);
+  } finally {
+    await concurrentClient.end();
+  }
   const okInserts = (ins1.status === "fulfilled" ? 1 : 0) + (ins2.status === "fulfilled" ? 1 : 0);
   assert("параллельные пересекающиеся резервы: ровно один INSERT прошёл (EXCLUDE)", okInserts === 1, `${ins1.status}/${ins2.status} ${ins1.status === "rejected" ? ins1.reason?.code : ""} ${ins2.status === "rejected" ? ins2.reason?.code : ""}`);
   const overlapRejected = [ins1, ins2].some((r) => r.status === "rejected" && r.reason?.code === "23P01");
@@ -1083,6 +1371,146 @@ async function main() {
   const tower = await api("GET", "/api/ops/orders-today", { token: admin });
   assert("Control Tower → 200 c группами (ТЗ §21-22)", tower.status === 200 && tower.json?.groups && "atRisk" in tower.json.groups && "unassigned" in tower.json.groups);
   assert("Tower: группа atRisk содержит o4 (RED до старта был)", Array.isArray(tower.json?.groups?.atRisk));
+
+  // Контроль передачи аккаунта: чужое устройство не может вытеснить владельца.
+  const newDeviceLogin = await api("POST", "/api/auth/login", {
+    body: { email: customerEmail, password: PASSWORD },
+    extraHeaders: {
+      "x-real-ip": "10.241.242.243",
+      "user-agent": "Conditera-E2E-New-Device/1.0",
+    },
+  });
+  assert("вход с нового устройства блокируется → 403",
+    newDeviceLogin.status === 403 && !newDeviceLogin.json?.accessToken,
+    JSON.stringify(newDeviceLogin.json));
+  const activeSessionsAfterBlockedLogin = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()`,
+    [CUSTOMER_ID]
+  );
+  assert("заблокированная попытка не отзывает и не заменяет действующую сессию",
+    activeSessionsAfterBlockedLogin.rows[0]?.count === 1,
+    `active=${activeSessionsAfterBlockedLogin.rows[0]?.count}`);
+  const previousTokenCheck = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("JWT владельца остаётся действительным после чужой попытки входа",
+    previousTokenCheck.status === 200,
+    JSON.stringify(previousTokenCheck.json));
+  const newDeviceSecurityEvent = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+      WHERE user_id = $1::uuid AND event_type = 'new_device_login_blocked'`,
+    [CUSTOMER_ID]
+  );
+  assert("заблокированная попытка нового устройства фиксируется в security journal",
+    newDeviceSecurityEvent.rows[0]?.count >= 1);
+  const newDeviceAdminTask = await client.query(
+    `SELECT count(*)::int AS count FROM public.ops_tasks
+      WHERE type = 'ACCOUNT_NEW_DEVICE' AND entity_id = $1 AND status = 'open'`,
+    [CUSTOMER_ID]
+  );
+  assert("для заблокированной попытки создаётся задача контроля аккаунта",
+    newDeviceAdminTask.rows[0]?.count >= 1);
+
+  // Владелец завершает свой сеанс на старом устройстве — только после этого
+  // разрешается контролируемый перенос аккаунта на новое устройство.
+  const ownerLogout = await api("POST", "/api/auth/logout", { token: customer });
+  assert("владелец может завершить текущий сеанс перед сменой устройства",
+    ownerLogout.status === 200 && ownerLogout.json?.ok === true,
+    JSON.stringify(ownerLogout.json));
+  const approvedDeviceLogin = await api("POST", "/api/auth/login", {
+    body: { email: customerEmail, password: PASSWORD },
+    extraHeaders: {
+      "x-real-ip": "10.241.242.243",
+      "user-agent": "Conditera-E2E-New-Device/1.0",
+    },
+  });
+  assert("смена устройства разрешена после добровольного завершения прежнего сеанса",
+    approvedDeviceLogin.status === 200 && Boolean(approvedDeviceLogin.json?.accessToken),
+    JSON.stringify(approvedDeviceLogin.json));
+  const oldOwnerTokenAfterLogout = await api("GET", "/api/auth/sessions", { token: customer });
+  assert("старый JWT владельца недействителен после logout → 401",
+    oldOwnerTokenAfterLogout.status === 401);
+  customer = approvedDeviceLogin.json.accessToken;
+
+  // Одновременные входы с одного уже известного устройства: advisory lock
+  // должен оставить действительной ровно одну из параллельно созданных сессий.
+  const [parallelLoginA, parallelLoginB] = await Promise.all([
+    api("POST", "/api/auth/login", {
+      body: { email: customerEmail, password: PASSWORD },
+      extraHeaders: { "x-real-ip": "10.241.242.243", "user-agent": "Conditera-E2E-New-Device/1.0" },
+    }),
+    api("POST", "/api/auth/login", {
+      body: { email: customerEmail, password: PASSWORD },
+      extraHeaders: { "x-real-ip": "10.241.242.243", "user-agent": "Conditera-E2E-New-Device/1.0" },
+    }),
+  ]);
+  assert("конкурентные входы с известного устройства: строго один 200 и один 409",
+    [parallelLoginA.status, parallelLoginB.status].filter((status) => status === 200).length === 1 &&
+    [parallelLoginA.status, parallelLoginB.status].filter((status) => status === 409).length === 1,
+    `${parallelLoginA.status}/${parallelLoginB.status}`);
+  const [parallelSessionA, parallelSessionB] = await Promise.all([
+    api("GET", "/api/auth/sessions", { token: parallelLoginA.json?.accessToken }),
+    api("GET", "/api/auth/sessions", { token: parallelLoginB.json?.accessToken }),
+  ]);
+  const validParallelTokens = [parallelSessionA.status, parallelSessionB.status].filter((status) => status === 200).length;
+  assert("конкурентные логины оставляют действительным ровно один JWT",
+    validParallelTokens === 1,
+    `HTTP=${parallelSessionA.status}/${parallelSessionB.status}`);
+  const parallelActiveCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()`,
+    [CUSTOMER_ID],
+  );
+  assert("после конкурентных логинов в БД ровно одна активная сессия",
+    parallelActiveCount.rows[0]?.count === 1,
+    `active=${parallelActiveCount.rows[0]?.count}`);
+
+  // Проверяем защиту на уровне БД в обход createUserSession helper.
+  const activeParallelToken = parallelSessionA.status === 200
+    ? parallelLoginA.json.accessToken
+    : parallelLoginB.json.accessToken;
+  const directInsertSession = await client.query(
+    `INSERT INTO public.user_sessions
+      (id, user_id, auth_method, user_agent, ip_address, device_label, expires_at)
+     VALUES (uuid_generate_v4(), $1::uuid, 'dev', 'direct-db-insert-test',
+       '10.241.242.246', 'DB trigger test', now() + interval '1 hour')
+     RETURNING id::text`,
+    [CUSTOMER_ID],
+  );
+  const directInsertActiveCount = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()`,
+    [CUSTOMER_ID],
+  );
+  assert("даже прямой INSERT в user_sessions отзывает предыдущие устройства",
+    directInsertActiveCount.rows[0]?.count === 1);
+  const directInsertSecurityEvent = await client.query(
+    `SELECT count(*)::int AS count FROM public.user_security_events
+      WHERE user_id = $1::uuid AND event_type = 'session_revoked'
+        AND details->>'replacement_session_id' = $2`,
+    [CUSTOMER_ID, directInsertSession.rows[0]?.id],
+  );
+  assert("DB-триггер фиксирует отзыв прежнего устройства в журнале безопасности",
+    directInsertSecurityEvent.rows[0]?.count >= 1);
+  const directInsertRevokedToken = await api("GET", "/api/auth/sessions", { token: activeParallelToken });
+  assert("прямой DB INSERT немедленно инвалидирует прежний JWT → 401",
+    directInsertRevokedToken.status === 401);
+  const revokedSessionRow = await client.query(
+    `SELECT id FROM public.user_sessions
+      WHERE user_id = $1::uuid AND revoked_at IS NOT NULL
+      ORDER BY revoked_at DESC LIMIT 1`,
+    [CUSTOMER_ID],
+  );
+  let reactivationState = "";
+  try {
+    await client.query(
+      `UPDATE public.user_sessions SET revoked_at = NULL WHERE id = $1::uuid`,
+      [revokedSessionRow.rows[0]?.id],
+    );
+  } catch (error) {
+    reactivationState = error.code;
+  }
+  assert("БД запрещает повторно активировать отозванную сессию (SQLSTATE 55000)",
+    reactivationState === "55000", reactivationState);
 }
 
 main()
@@ -1094,6 +1522,58 @@ main()
   .finally(async () => {
     // ---- Очистка (ТЗ: тестовые данные не остаются) ----
     try {
+    // Освобождаем демо-аккаунты после сценария: следующий E2E-контур
+    // не должен принимать оставшийся тестовый сеанс за передачу аккаунта.
+    for (const token of sessionTokens) {
+      const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
+      if (logout && logout.status !== 200) {
+        console.warn("[verify] test session cleanup returned", logout.status);
+      }
+    }
+      // Тестовые доказательства очищаются только в disposable CI-БД после
+      // проверки immutability; production-процесс не имеет такого пути.
+      const disputeStorage = await client.query(
+        `SELECT m.storage_path FROM public.order_media m
+          WHERE m.order_id = ANY($1::uuid[])
+            AND m.id IN (SELECT e.order_media_id FROM public.order_dispute_evidence e)`,
+        [testOrders],
+      ).catch(() => ({ rows: [] }));
+      for (const row of disputeStorage.rows) {
+        await client.query(
+          `DELETE FROM storage.objects WHERE bucket_id = 'order_media' AND name = $1`,
+          [row.storage_path],
+        ).catch(() => {});
+      }
+      await client.query("ALTER TABLE public.order_dispute_evidence DISABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_dispute_evidence
+          WHERE dispute_id IN (SELECT id FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_evidence ENABLE TRIGGER USER").catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_messages DISABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_dispute_messages
+          WHERE dispute_id IN (SELECT id FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_messages ENABLE TRIGGER USER").catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_events DISABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_dispute_events
+          WHERE dispute_id IN (SELECT id FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
+      await client.query("ALTER TABLE public.order_dispute_events ENABLE TRIGGER USER").catch(() => {});
+      await client.query(
+        `DELETE FROM public.ops_tasks WHERE type = 'ORDER_DISPUTE_OPENED' AND entity_id IN
+          (SELECT id::text FROM public.order_disputes WHERE order_id = ANY($1::uuid[]))`,
+        [testOrders],
+      ).catch(() => {});
+      await client.query(
+        `DELETE FROM public.order_disputes WHERE order_id = ANY($1::uuid[])`,
+        [testOrders],
+      ).catch(() => {});
       for (const id of testOrders) {
         await deleteOrder(id).catch(() => {});
       }
@@ -1142,6 +1622,12 @@ main()
         // Удаляем все оставшиеся тестовые заказы этого покупателя, включая
         // возможные записи, не попавшие в testOrders из вспомогательных сценариев.
         await client.query(`DELETE FROM public.orders WHERE user_id = $1::uuid`, [registeredCustomerId]);
+        // Удаляем созданные этим E2E сигналы нового устройства: они не должны
+        // оставлять тестовые security events, уведомления и admin-задачи.
+        await client.query(`DELETE FROM public.ops_tasks WHERE type = 'ACCOUNT_NEW_DEVICE' AND entity_id = $1`, [registeredCustomerId]).catch(() => {});
+        await client.query(`DELETE FROM public.notifications WHERE user_id = $1::uuid`, [registeredCustomerId]).catch(() => {});
+        await client.query(`DELETE FROM public.user_security_events WHERE user_id = $1::uuid`, [registeredCustomerId]).catch(() => {});
+        await client.query(`DELETE FROM public.user_sessions WHERE user_id = $1::uuid`, [registeredCustomerId]).catch(() => {});
         await client.query(`DELETE FROM auth.users WHERE id = $1::uuid`, [registeredCustomerId]);
       }
       const left = await client.query(`SELECT count(*)::int AS c FROM public.orders WHERE number LIKE 'P05V-%'`);

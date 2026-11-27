@@ -6,7 +6,7 @@
 |---|---|---|
 | Frontend | Next.js (App Router, Turbopack) | 16.1.3 |
 | Backend | Next.js API Routes (Route Handlers) | — |
-| Database | Supabase PostgreSQL | 15 (self-hosted) |
+| Database | Supabase PostgreSQL | 17.12 (single runtime) |
 | ORM/Client | @supabase/supabase-js | 2.112.3 |
 | SSR Auth | @supabase/ssr | 0.5.2 |
 | State | Zustand (legacy) → TanStack Query | 5.82.0 |
@@ -18,7 +18,7 @@
 | Auth | Supabase GoTrue (email/pass, OAuth, Magic Link, 2FA) | built-in |
 | Reverse Proxy | Caddy 2.8 | auto-HTTPS |
 | CI/CD | GitHub Actions | deploy.yml |
-| Container | Docker Compose | single stack |
+| Container | Docker Compose | unified Supabase Runtime |
 
 ## Module Boundaries (Composable Architecture)
 
@@ -49,7 +49,7 @@ User → Browser → Next.js SSR → supabaseBrowser (RLS)
                     ↓               ↓               ↓
                     └───────────────┴───────────────┘
                                     ↓
-                          PostgreSQL 15 (:5432)
+                          PostgreSQL 17 (:5432)
                           + pg_cron + pg_trgm + FTS
 ```
 
@@ -100,7 +100,7 @@ supabase/
 ├── seed.sql                # 28 categories
 └── seed_cms_crm.sql        # CMS + CRM + automation seed
 
-docker-compose.supabase.yml  # 10 services
+docker-compose.supabase.yml  # legacy services, explicit profile only
 docker-compose.yml           # Production (Next.js + Caddy)
 Caddyfile                    # Reverse proxy + health-check
 .github/workflows/deploy.yml # CI/CD

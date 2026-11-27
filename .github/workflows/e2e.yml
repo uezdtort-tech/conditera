@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       browser:
-        description: "Браузер (chromium, firefox, webkit, или all)"
+        description: "Браузер (chromium, mobile-chrome, firefox, webkit или all)"
         required: false
         default: "chromium"
         type: choice
@@ -33,6 +33,7 @@ on:
           - chromium
           - firefox
           - webkit
+          - mobile-chrome
           - all
       grep:
         description: "Фильтр тестов (regex, пусто = все)"
@@ -45,8 +46,17 @@ on:
       - main
       - develop
       - release/first-production-hardening
+      - fix/webhook-verify-before-ledger
+      - fix/concurrent-login-refresh-jti-race
     paths:
-      # Запускать только при изменениях в коде, который тестируется e2e
+      # Запускать при изменениях API, миграций, сценария полного заказа или самого workflow.
+      - ".github/workflows/e2e.yml"
+      - "supabase/migrations/**"
+      - "scripts/verify/order-lifecycle-verify.mjs"
+      - "scripts/verify/refund-concurrency-pg.mjs"
+      - "scripts/verify/p11-hardening-verify.mjs"
+      - "scripts/verify/ops-center-verify.mjs"
+      - "scripts/verify/product-media-verify.mjs"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
@@ -62,8 +72,15 @@ on:
     branches:
       - main
       - develop
+      - release/first-production-hardening
     paths:
       - ".github/workflows/e2e.yml"
+      - "scripts/verify/refund-concurrency-pg.mjs"
+      - "scripts/verify/order-lifecycle-verify.mjs"
+      - "scripts/verify/p11-hardening-verify.mjs"
+      - "scripts/verify/ops-center-verify.mjs"
+      - "scripts/verify/product-media-verify.mjs"
+      - "supabase/migrations/**"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
@@ -114,6 +131,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Run acceptance and production-time unit tests
+        run: bunx vitest run src/lib/ops/risk.test.ts
+
       - name: Cache Next.js build
         uses: actions/cache@v6
         with:
@@ -152,7 +172,8 @@ jobs:
       fail-fast: false
       matrix:
         # По умолчанию только chromium, для nightly — все 3 браузера
-        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","firefox","webkit"]')) || fromJson('["chromium"]') }}
+        # Desktop Chromium и реальный мобильный viewport Pixel 5 проверяются на каждом релизном прогоне.
+        browser: ${{ github.event.inputs.browser == 'all' && fromJson('["chromium","mobile-chrome","firefox","webkit"]') || (github.event.inputs.browser && fromJson(format('["{0}"]', github.event.inputs.browser))) || (github.event_name == 'schedule' && fromJson('["chromium","mobile-chrome","firefox","webkit"]')) || fromJson('["chromium","mobile-chrome"]') }}
 
     steps:
       - uses: actions/checkout@v7
@@ -182,6 +203,11 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NODE_ENV: ${{ env.NODE_ENV }}
 
+      - name: Verify concurrent YooKassa refunds on independent PostgreSQL sessions
+        run: node scripts/verify/refund-concurrency-pg.mjs
+        env:
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
+
       - name: Export generated Supabase service-role key to CI runtime
         shell: bash
         run: |
@@ -194,7 +220,13 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Install Playwright browsers
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.browser }}" = "mobile-chrome" ]; then
+            bunx playwright install --with-deps chromium
+          else
+            bunx playwright install --with-deps "${{ matrix.browser }}"
+          fi
 
       - name: Start application
         run: |
@@ -218,7 +250,7 @@ jobs:
             exit 1
           fi
         env:
-          DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
+          DATABASE_URL: "postgresql://postgres@127.0.0.1:54330/conditera"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
@@ -232,7 +264,25 @@ jobs:
         run: node scripts/verify/order-lifecycle-verify.mjs
         env:
           VERIFY_BASE: http://localhost:3000
-          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
+
+      - name: Verify payment, checkout, idempotency, reviews and chat scenarios
+        run: node scripts/verify/p11-hardening-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
+
+      - name: Verify ops center, recipe breakdown and stock scenarios
+        run: node scripts/verify/ops-center-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
+
+      - name: Verify product media, moderation and storage scenarios
+        run: node scripts/verify/product-media-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: postgresql://postgres@127.0.0.1:54330/conditera
 
       - name: Run Playwright tests
         run: bun run test:e2e -- --project=${{ matrix.browser }} ${{ github.event.inputs.grep && format('--grep "{0}"', github.event.inputs.grep) || '' }}
@@ -240,7 +290,7 @@ jobs:
           # Сервер уже запущен предыдущим шагом — запрещаем playwright
           # поднимать собственный webServer (иначе конфликт порта 3000)
           E2E_BASE_URL: http://localhost:3000
-          DATABASE_URL: "postgresql://postgres@127.0.0.1:54329/conditera"
+          DATABASE_URL: "postgresql://postgres@127.0.0.1:54330/conditera"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
           TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
@@ -290,7 +340,174 @@ jobs:
           path: test-results/**/test-video.webm
           retention-days: 7
 
-  # ===== 3. Отчёт в Slack/Telegram (опционально) =====
+  # ===== 3. Полный сценарный прогон на целевом PostgreSQL 17 =====
+  pg17-scenarios:
+    name: PostgreSQL 17 — полный набор сценариев
+    runs-on: ubuntu-latest
+    needs: setup
+    services:
+      postgres:
+        image: supabase/postgres:17.12.0.001
+        env:
+          POSTGRES_USER: supabase_admin
+          POSTGRES_PASSWORD: ci-pg17-password
+          POSTGRES_DB: supabase
+          POSTGRES_PORT: 5432
+          POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+          SEED_MODE: none
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d supabase"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 30s
+    env:
+      NODE_VERSION: "20"
+      DATABASE_URL: postgresql://supabase_admin:ci-pg17-password@127.0.0.1:54322/supabase
+      JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
+      JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
+      TFA_ENCRYPTION_KEY: e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa
+      CRON_SECRET: e2e_test_cron_secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
+      SUPABASE_INTERNAL_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: stub-anon-key
+      NODE_ENV: test
+      LOCAL_AUTH_STUB_ENABLED: "true"
+      E2E_PAYMENT_STUB_ENABLED: "true"
+      YANDEX_CLIENT_ID: e2e-yandex-client
+      YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
+      VK_CLIENT_ID: e2e-vk-client
+      VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
+      GOOGLE_CLIENT_ID: e2e-google-client
+      GOOGLE_CLIENT_SECRET: e2e-google-secret
+      GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Restore application build
+        uses: actions/cache@v6
+        with:
+          path: .next
+          key: nextjs-build-${{ github.sha }}
+
+      - name: Apply all migrations and seed isolated PostgreSQL 17
+        run: bun run db:setup
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          SEED_MODE: demo
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NODE_ENV: test
+
+      - name: Assert PostgreSQL 17 version and complete migration ledger
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const version = (await db.query("SHOW server_version")).rows[0].server_version;
+            const migrations = await db.query("SELECT count(*)::int AS n FROM public.schema_migrations");
+            const count = migrations.rows[0].n;
+            console.log(`PostgreSQL server_version=${version}; applied app migrations=${count}`);
+            if (!version.startsWith("17.")) throw new Error(`Expected PostgreSQL 17, got ${version}`);
+            if (count !== 85) throw new Error(`Expected exactly 85 app migrations, got ${count}`);
+          } finally {
+            await db.end();
+          }
+          NODE
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Export generated Supabase service-role key
+        shell: bash
+        run: |
+          KEY="$(sed -n 's/^SUPABASE_SERVICE_ROLE_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$KEY" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY was not generated by db:setup"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Start application on PostgreSQL 17
+        run: |
+          bun run start > /tmp/conditera-pg17-next.log 2>&1 &
+          echo $! > /tmp/conditera-pg17-next.pid
+          READY=0
+          for i in {1..30}; do
+            STATUS="$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health || true)"
+            if [ "$STATUS" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            tail -n 250 /tmp/conditera-pg17-next.log || true
+            exit 1
+          fi
+
+      - name: Verify concurrent refunds on PostgreSQL 17
+        run: node scripts/verify/refund-concurrency-pg.mjs
+        env:
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify complete order lifecycle on PostgreSQL 17
+        run: node scripts/verify/order-lifecycle-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify checkout, idempotency, reviews and chat on PostgreSQL 17
+        run: node scripts/verify/p11-hardening-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify operations, recipes and stock on PostgreSQL 17
+        run: node scripts/verify/ops-center-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Verify product media and moderation on PostgreSQL 17
+        run: node scripts/verify/product-media-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+          PGURL: ${{ env.DATABASE_URL }}
+
+      - name: Run Playwright suite on PostgreSQL 17
+        run: bunx playwright install --with-deps chromium && bun run test:e2e -- --project=chromium
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NODE_ENV: test
+          CI: "true"
+
+      - name: Print PostgreSQL 17 E2E logs on failure
+        if: failure() || cancelled()
+        run: tail -n 500 /tmp/conditera-pg17-next.log || true
+
+  # ===== 4. Отчёт в Slack/Telegram (опционально) =====
   notify:
     name: Notify on failure
     runs-on: ubuntu-latest

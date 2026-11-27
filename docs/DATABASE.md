@@ -2,12 +2,12 @@
 
 ## Обзор
 
-Проект использует **PostgreSQL 18** через **Supabase** как основную БД. Локально
+Проект использует **PostgreSQL 17** через **Supabase** как основную БД. Локально
 можно разворачивать тремя способами в зависимости от окружения:
 
 | Способ | Docker | Время запуска | Особенности |
 |--------|--------|---------------|-------------|
-| **Docker dev** | ✓ | ~30 сек | PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n |
+| **Docker dev** | ✓ | ~30 сек | PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n |
 | **Docker Supabase** | ✓ | ~60 сек | Полный Supabase stack (Auth, Storage, Realtime, Edge Functions) |
 | **PGlite (без Docker)** | ✗ | ~5 сек | WASM PostgreSQL в Node.js — для CI, тестов, preview |
 
@@ -24,7 +24,7 @@
 ### Вариант 1: Docker dev (рекомендуется для разработки)
 
 ```bash
-# 1. Запуск PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n
+# 1. Запуск PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n
 ./scripts/init-db.sh
 
 # 2. Проверка

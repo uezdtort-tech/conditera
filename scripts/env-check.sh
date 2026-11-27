@@ -199,6 +199,17 @@ check_required "STORAGE_BUCKET_AVATARS" "имя бакета для аватар
 check_required "STORAGE_BUCKET_PORTFOLIO" "имя бакета для портфолио"
 echo ""
 
+# ===== Строгий production release gate =====
+if [ "$MODE_LABEL" = "production" ]; then
+  echo -e "${BOLD}[PRODUCTION RELEASE GATE] Проверка всех обязательных интеграций и запрет mock-данных${NC}"
+  if ! command -v node >/dev/null 2>&1; then
+    err "Для production preflight требуется Node.js"
+  elif ! node scripts/verify/production-env-preflight.mjs; then
+    ERRORS=$((ERRORS + 1))
+  fi
+  echo ""
+fi
+
 # ===== ИТОГ =====
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 if [ $ERRORS -gt 0 ]; then
@@ -214,7 +225,7 @@ else
   if [ $WARNINGS -gt 0 ]; then
     echo -e "  ${GREEN}${BOLD}Ошибок нет.${NC}  ${YELLOW}Предупреждений: $WARNINGS${NC}"
     echo ""
-    echo "  Предупреждения — это опциональные функции (OAuth, YooKassa, Telegram)."
+    echo "  Предупреждения относятся к дополнительным функциям. OAuth, YooKassa и Telegram обязательны для production и проверяются строгим release gate."
     echo "  Запуск возможен, но соответствующие функции будут отключены."
   else
     echo -e "  ${GREEN}${BOLD}Все обязательные переменные заполнены.${NC}"

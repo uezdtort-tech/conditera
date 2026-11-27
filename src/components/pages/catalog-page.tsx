@@ -15,8 +15,11 @@ import { HelpChooseDialog } from "@/components/marketplace/help-choose-dialog";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { AiSmartSearch } from "@/components/ai/ai-smart-search";
 import { AiCompareDialog } from "@/components/ai/ai-compare-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { AiSearchFilters } from "@/lib/ai-search-types";
 import { CATEGORIES } from "@/lib/mock-data";
+import { useLiveProducts } from "@/lib/supabase/use-marketplace";
+import { isDemoVitrineMode, selectVitrineProducts } from "@/lib/vitrine-products";
 import { productMatchesPaymentFilter, PAYMENT_METHOD_INFO } from "@/lib/finance";
 import type { PaymentFilterOption } from "@/lib/types";
 import {
@@ -35,7 +38,18 @@ import {
   type RankOptions,
 } from "@/lib/product-search";
 import { toast } from "sonner";
-import { Search, SlidersHorizontal, X, Filter, Cake, CreditCard, Scale, Sparkles } from "lucide-react";
+import {
+  Search,
+  SlidersHorizontal,
+  X,
+  Filter,
+  Cake,
+  CreditCard,
+  Scale,
+  Sparkles,
+  AlertTriangle,
+  RefreshCw,
+} from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -46,9 +60,30 @@ import {
 
 export function CatalogPage() {
   const navigate = useAppStore((s) => s.navigate);
-  const products = useAppStore((s) => s.products);
+  const storeProducts = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
   const nav = useAppStore((s) => s.nav);
+
+  // ZV31-017: витрина рендерит только live-данные /api/products.
+  // Mock-товары из store больше не показываются (demo-escape-hatch —
+  // NEXT_PUBLIC_DEMO_MODE='1'); ошибка API — честная ошибка + «Повторить».
+  const demoMode = isDemoVitrineMode();
+  const {
+    data: liveProducts,
+    isPending: livePending,
+    isError: liveError,
+    refetch: refetchLive,
+  } = useLiveProducts();
+  const products = useMemo(
+    () =>
+      selectVitrineProducts({
+        demoMode,
+        isError: liveError,
+        live: liveProducts,
+        storeProducts,
+      }),
+    [demoMode, liveError, liveProducts, storeProducts]
+  );
 
   const initialCategory = nav.params?.category || "all";
   const initialQuery = nav.params?.q || "";
@@ -212,6 +247,16 @@ export function CatalogPage() {
     return result;
   }, [products, searchQuery, activeCategory, priceRange, selectedConfectioners, onlyHit, paymentFilters, tasteFilters, minRating, confectioners, sortBy, aiServings, aiKeywords, aiExclude, maxPrice, occasion, restrictions, servingsMin]);
 
+  // Честные состояния витрины (по образцу recipes-catalog / корзины):
+  //   loading → skeleton; ошибка → сообщение + «Повторить»;
+  //   пустой каталог → честное «Каталог пока пуст»; фильтры без совпадений
+  //   при ненулевом каталоге → прежний «Ничего не найдено».
+  const isInitialLoading = livePending && products.length === 0;
+  const hasLoadError = liveError && products.length === 0;
+  const isCatalogEmpty = !livePending && !liveError && products.length === 0;
+  const isFilteredEmpty =
+    !isInitialLoading && !hasLoadError && !isCatalogEmpty && filtered.length === 0;
+
   // Честные счётчики чипов: считаются по реальным данным каталога
   // (чип с нулём не скрывается — показывается приглушённым)
   const occasionCounts = useMemo(() => {
@@ -227,6 +272,18 @@ export function CatalogPage() {
     (Object.keys(ALLERGEN_GROUPS) as AllergenKey[]).forEach((k) => {
       counts[k] = products.filter((p) => passesAllergen(toSearchDoc(p), k)).length;
     });
+    return counts;
+  }, [products]);
+
+  // D-BADGE: счётчики категорий — по ТЕМ ЖЕ данным и тому же предикату, что
+  // использует фильтр ниже (result.filter((p) => p.category === activeCategory),
+  // т.е. PRIMARY-категория товара), а не по статическим mock-значениям
+  // CATEGORIES[].count — они расходились с реальной выдачей фильтра.
+  const categoryCounts = useMemo(() => {
+    const counts = {} as Record<string, number>;
+    for (const cat of CATEGORIES) {
+      counts[cat.slug] = products.filter((p) => p.category === cat.slug).length;
+    }
     return counts;
   }, [products]);
 
@@ -297,7 +354,7 @@ export function CatalogPage() {
               <span>{cat.icon}</span>
               {cat.name}
               <Badge variant="secondary" className="ml-auto text-[10px]">
-                {cat.count}
+                {categoryCounts[cat.slug] ?? 0}
               </Badge>
             </button>
           ))}
@@ -559,12 +616,13 @@ export function CatalogPage() {
       <Breadcrumbs items={[{ label: "Каталог" }]} />
       {/* Header */}
       <div className="mb-6">
-        <h1 className="font-display text-2xl lg:text-3xl font-bold mb-2">
+        <h1 className="fade-up font-display text-2xl lg:text-3xl font-bold mb-2">
           Каталог кондитерских изделий
         </h1>
         <p className="text-muted-foreground">
-          {filtered.length} {filtered.length === 1 ? "товар" : "товаров"} от{" "}
-          {confectioners.length} кондитеров по всей России
+          {isInitialLoading
+            ? "Загружаем каталог…"
+            : `${filtered.length} ${filtered.length === 1 ? "товар" : "товаров"} от ${confectioners.length} кондитеров по всей России`}
         </p>
       </div>
 
@@ -577,7 +635,7 @@ export function CatalogPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Поиск по названию, описанию или тегам..."
-            className="pl-10"
+            className="pl-10 h-11"
           />
           {searchQuery && (
             <button
@@ -664,7 +722,7 @@ export function CatalogPage() {
       </div>
 
       {/* P2 §5: «Помочь выбрать» — рядом с уточнением через ИИ; обычный путь не спрятан */}
-      <Card className="p-3 mb-4 border-purple-200 dark:border-purple-900">
+      <Card className="p-3 mb-4 border-primary/20">
         <div className="flex flex-col sm:flex-row items-stretch gap-2">
           <div className="flex-1 min-w-0">
             <AiSmartSearch variant="compact" onApplyFilters={applyAiFilters} />
@@ -701,7 +759,7 @@ export function CatalogPage() {
               size="sm"
               disabled={compareIds.length < 2}
               onClick={() => setCompareOpen(true)}
-              className="gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+              className="gap-1.5 btn-primary-gradient"
             >
               Сравнить ({compareIds.length})
             </Button>
@@ -726,9 +784,48 @@ export function CatalogPage() {
           </Card>
         </aside>
 
-        {/* Grid */}
-        <div>
-          {filtered.length === 0 ? (
+        {/* Grid — честные состояния (ZV31-017): loading / error+retry /
+            пустой каталог / фильтры без совпадений / данные */}
+        <div aria-busy={isInitialLoading || undefined}>
+          {isInitialLoading ? (
+            <div
+              className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-5"
+              role="status"
+              aria-label="Загрузка каталога"
+            >
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Card key={i} className="overflow-hidden p-0">
+                  <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                  <div className="p-3 space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : hasLoadError ? (
+            <Card className="p-12 text-center" role="alert">
+              <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-destructive" />
+              <h3 className="font-semibold mb-1">Не удалось загрузить каталог</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Сервис каталога недоступен. Попробуйте ещё раз.
+              </p>
+              <Button onClick={() => refetchLive()} className="gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Повторить
+              </Button>
+            </Card>
+          ) : isCatalogEmpty ? (
+            <Card className="p-12 text-center">
+              <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                <Cake className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="font-semibold mb-1">Каталог пока пуст</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Кондитеры ещё не опубликовали товары — загляните позже.
+              </p>
+            </Card>
+          ) : isFilteredEmpty ? (
             <Card className="p-12 text-center">
               <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
                 <Search className="h-8 w-8 text-muted-foreground" />
@@ -764,6 +861,7 @@ export function CatalogPage() {
                   isCompared={compareIds.includes(p.id)}
                 />
               ))}
+
             </div>
           )}
         </div>

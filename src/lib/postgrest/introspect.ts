@@ -279,12 +279,23 @@ export function resolveColumn(
   return col;
 }
 
+/**
+ * PostgreSQL folds unquoted identifiers to lowercase. Prisma enum types in this
+ * schema are intentionally quoted CamelCase identifiers ("TrustLevel",
+ * "Tariff", "UserRole", ...). Preserve their exact spelling in explicit casts.
+ * Lowercase built-in and snake_case types remain unquoted for compatibility.
+ */
+function quotePgTypeName(name: string): string {
+  if (/^[a-z_][a-z0-9_]*$/.test(name)) return name;
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
 /** Pg-тип для явного каста параметра ($1::uuid). Возвращает null если каст не нужен. */
 export function pgCastTarget(col: IntrospectedColumn): string | null {
   const { dataType, udtName } = col;
   if (dataType === "ARRAY" || udtName.startsWith("_")) {
     const elem = udtName.startsWith("_") ? udtName.slice(1) : udtName;
-    return `${elem}[]`;
+    return `${quotePgTypeName(elem)}[]`;
   }
   switch (dataType) {
     case "uuid":
@@ -302,8 +313,8 @@ export function pgCastTarget(col: IntrospectedColumn): string | null {
     case "bytea":
       return udtName;
     case "USER-DEFINED":
-      // enum / домены — каст к точному имени типа
-      return udtName;
+      // Точное quoted-имя enum/domain, иначе TrustLevel станет trustlevel.
+      return quotePgTypeName(udtName);
     default:
       return null; // numeric/int/text/bool — PG выведет сам
   }

@@ -4,18 +4,29 @@ on:
   pull_request:
     paths:
       - "Dockerfile.supabase-runtime-poc"
+      - "Dockerfile"
+      - ".env.production.example"
       - "docker-compose.supabase-runtime-poc.yml"
       - "docker-compose.supabase-single-container.yml"
       - "docker-compose.supabase.yml"
       - "docker-compose.yml"
       - "Caddyfile"
       - "scripts/supabase-runtime-poc/**"
+      - "scripts/compose-single-runtime.mjs"
+      - "scripts/n8n-entrypoint.mjs"
+      - "scripts/verify/n8n-production-workflows-verify.mjs"
+      - "n8n-workflows/**"
+      - "package.json"
       - "supabase/kong.yml"
       - "supabase/init-scripts/**"
       - "supabase/migrations/**"
       - "supabase/functions/**"
       - ".github/workflows/supabase-single-container-poc.yml"
   workflow_dispatch:
+
+concurrency:
+  group: supabase-single-container-poc-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -31,6 +42,7 @@ jobs:
         env:
           POSTGRES_PASSWORD: ci-only-postgres-password
           APP_DATABASE_PASSWORD: ci-only-app-db-password
+          BACKUP_DATABASE_PASSWORD: ci-only-backup-db-password
           JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
           ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
@@ -44,12 +56,18 @@ jobs:
           REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
           MEILI_MASTER_KEY: ci-only-meili-master-key
           CRON_SECRET: ci-only-cron-secret
-          N8N_ADMIN_PASSWORD: ci-only-n8n-password
+          N8N_ADMIN_EMAIL: ci-only-admin@conditera.test
+          N8N_ADMIN_PASSWORD: CI-N8N-Owner-2026!
+          N8N_ENCRYPTION_KEY: ci-only-n8n-encryption-key-32
+          N8N_WEBHOOK_SECRET: ci-only-n8n-webhook-secret-64-characters-long
           SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
         run: |
           set -Eeuo pipefail
-          touch .env.production
-          trap 'rm -f .env.production' EXIT
+          touch .env.production .env.supabase-runtime
+          trap 'rm -f .env.production .env.supabase-runtime' EXIT
+          # Старые Compose-файлы без overlay больше не должны запускать ни PG18, ни PG15.
+          test -z "$(docker compose -f docker-compose.yml config --services)"
+          test -z "$(docker compose -f docker-compose.supabase.yml config --services)"
           docker compose -f docker-compose.yml -f docker-compose.supabase.yml -f docker-compose.supabase-single-container.yml config --format json > /tmp/conditera-compose.json
           python3 - <<'PY'
           import json
@@ -78,9 +96,19 @@ jobs:
           assert "supabase_runtime_pg17_data" in config["volumes"]
           assert "supabase_runtime_storage_data" in config["volumes"]
           assert "supabase_runtime_deno_cache" in config["volumes"]
+          assert "conditera_backup_data" in config["volumes"]
+          assert "conditera_backup:" in web["environment"]["BACKUP_DATABASE_URL"]
+          assert any(v.get("target") == "/app/backups" and "conditera_backup_data" in v.get("source", "") for v in web.get("volumes", []))
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
+          node scripts/compose-single-runtime.mjs config
+          if node scripts/compose-single-runtime.mjs --profile legacy-supabase config; then echo "Launcher must reject legacy profiles" >&2; exit 1; fi
+          if node scripts/compose-single-runtime.mjs down --volumes; then echo "Launcher must protect named volumes" >&2; exit 1; fi
 
+      - name: Verify PostgreSQL 17 client package in the production Node Alpine base
+        run: |
+          set -Eeuo pipefail
+          docker run --rm node:26-alpine sh -ec 'apk add --no-cache postgresql17-client && pg_dump --version && pg_restore --version && pg_dump --version | grep -Eq " 17[.]"'
       - name: Build one-container Supabase runtime
         run: docker build --pull -f Dockerfile.supabase-runtime-poc -t conditera/supabase-runtime-poc:ci .
 
@@ -91,6 +119,7 @@ jobs:
           export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
           export POSTGRES_PASSWORD="ci-only-postgres-password"
           export APP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          export BACKUP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"
           export REALTIME_DB_ENC_KEY="0123456789abcdef"
@@ -115,6 +144,7 @@ jobs:
           values = {
               "POSTGRES_PASSWORD":os.environ["POSTGRES_PASSWORD"],
               "APP_DATABASE_PASSWORD":os.environ["APP_DATABASE_PASSWORD"],
+              "BACKUP_DATABASE_PASSWORD":os.environ["BACKUP_DATABASE_PASSWORD"],
               "JWT_SECRET":os.environ["JWT_SECRET"],
               "ANON_KEY":jwt("anon"),
               "SERVICE_ROLE_KEY":jwt("service_role"),
@@ -244,9 +274,86 @@ jobs:
           docker exec conditera-supabase-runtime-poc \
             /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 \
             /usr/bin/psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase \
-            -Atqc "SELECT to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 60 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
+            -Atqc "SELECT floor(current_setting('server_version_num')::integer / 10000) = 17 AND to_regnamespace('auth') IS NOT NULL AND to_regnamespace('storage') IS NOT NULL AND to_regnamespace('_realtime') IS NOT NULL AND to_regclass('auth.users') IS NOT NULL AND to_regclass('storage.buckets') IS NOT NULL AND to_regclass('storage.objects') IS NOT NULL AND to_regclass('realtime.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM realtime.schema_migrations) > 0 AND to_regclass('public.schema_migrations') IS NOT NULL AND (SELECT count(*) FROM public.schema_migrations) >= 81 AND to_regclass('public.profiles') IS NOT NULL AND to_regclass('public.user_roles') IS NOT NULL AND to_regclass('public.products') IS NOT NULL AND to_regclass('public.orders') IS NOT NULL AND to_regclass('public.inventory_items') IS NOT NULL AND to_regclass('public.recipe_ingredients') IS NOT NULL AND to_regclass('public.chat_channels') IS NOT NULL AND to_regclass('public.oauth_identity_links') IS NOT NULL AND to_regclass('public.moderation_queue') IS NOT NULL AND (SELECT count(*) = 6 FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue' AND column_name IN ('author_name','title','content','images','auto_score','violations')) AND to_regclass('public.cms_pages') IS NOT NULL AND to_regprocedure('public.update_updated_at_column()') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_recipe_marketplace_updated' AND NOT tgisinternal) AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_app' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_app','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='conditera_backup' AND rolbypassrls AND NOT rolsuper) AND has_table_privilege('conditera_backup','public.profiles','SELECT') AND CASE WHEN to_regclass('public.cms_home_blocks') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_home_blocks','SELECT') END AND CASE WHEN to_regclass('public.cms_media') IS NULL THEN true ELSE has_table_privilege('service_role','public.cms_media','SELECT') AND has_table_privilege('service_role','public.cms_media','INSERT') END" \
             | grep -qx t
 
+      - name: Verify PG17 application backup restore with the restricted backup role
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec conditera-supabase-runtime-poc /usr/local/lib/supabase-runtime-poc/run-chroot.sh postgres 0:0 /bin/bash -c '
+            set -Eeuo pipefail
+            export PGPASSWORD="$BACKUP_DATABASE_PASSWORD"
+            # pg_cron is bound to cron.database_name (supabase). Exclude only
+            # this database-bound scheduler extension/schema from the disposable
+            # cross-database restore rehearsal; the production backup remains full.
+            pg_dump -h 127.0.0.1 -p 5432 -U conditera_backup -d supabase -Fc --no-owner --no-privileges --exclude-extension=pg_cron --exclude-schema=cron -f /tmp/conditera-pg17-backup.dump
+            test -s /tmp/conditera-pg17-backup.dump
+            pg_restore --list /tmp/conditera-pg17-backup.dump > /tmp/conditera-pg17-backup.list
+            grep -q "TABLE public schema_migrations" /tmp/conditera-pg17-backup.list
+            if grep -Eq "EXTENSION - pg_cron|SCHEMA - cron" /tmp/conditera-pg17-backup.list; then
+              echo "Database-bound pg_cron objects unexpectedly present in cross-database restore archive" >&2
+              exit 1
+            fi
+            export PGPASSWORD="$POSTGRES_PASSWORD"
+            psql -h 127.0.0.1 -p 5432 -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE conditera_backup_restore_test"
+            pg_restore -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera_backup_restore_test --no-owner --no-privileges /tmp/conditera-pg17-backup.dump
+            restored="$(psql -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera_backup_restore_test -Atqc "SELECT count(*) FROM public.schema_migrations")"
+            test "$restored" -ge 81
+            echo "PASS: restricted-role application archive restored into a separate PostgreSQL 17 database ($restored migrations); pg_cron remains bound to the source database."
+          '
+      - name: Validate n8n workflow definitions and production allowlist
+        run: node scripts/verify/n8n-production-workflows-verify.mjs
+
+      - name: Smoke test n8n bootstrap, import and activation allowlist
+        shell: bash
+        env:
+          # Disposable owner credentials for this isolated CI-only n8n instance.
+          N8N_ADMIN_EMAIL: ci-admin@conditera.invalid
+          N8N_ADMIN_PASSWORD: ci-only-not-a-production-secret-2026
+        run: |
+          set -Eeuo pipefail
+          docker run -d --name conditera-n8n-poc \
+            --entrypoint node \
+            -e N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true \
+            -e N8N_USER_FOLDER=/home/node/.n8n \
+            -e N8N_ADMIN_EMAIL="$N8N_ADMIN_EMAIL" \
+            -e N8N_ADMIN_PASSWORD="$N8N_ADMIN_PASSWORD" \
+            -e N8N_ENCRYPTION_KEY=ci-n8n-encryption-key-32-chars-long \
+            -e N8N_WEBHOOK_SECRET=ci-n8n-webhook-secret-for-smoke-test \
+            -e CRON_SECRET=ci-n8n-cron-secret \
+            -e APP_URL=http://127.0.0.1:3000 \
+            -e N8N_HOST=127.0.0.1 -e N8N_PORT=5678 -e N8N_PROTOCOL=http \
+            -e N8N_PROXY_HOPS=1 -e N8N_SECURE_COOKIE=false -e N8N_RUNNERS_ENABLED=true \
+            -e N8N_DIAGNOSTICS_ENABLED=false -e N8N_PERSONALIZATION_ENABLED=false \
+            -v "$GITHUB_WORKSPACE/n8n-workflows:/imports:ro" \
+            -v "$GITHUB_WORKSPACE/scripts/n8n-entrypoint.mjs:/usr/local/bin/conditera-n8n-entrypoint.mjs:ro" \
+            n8nio/n8n:1.95.0 /usr/local/bin/conditera-n8n-entrypoint.mjs
+          healthy=0
+          for attempt in $(seq 1 90); do
+            if docker exec conditera-n8n-poc wget -qO- http://127.0.0.1:5678/healthz >/dev/null 2>&1; then healthy=1; break; fi
+            sleep 2
+          done
+          if [ "$healthy" != "1" ]; then docker logs conditera-n8n-poc; exit 1; fi
+
+          # The first healthz belongs to the temporary owner-setup process.
+          # Wait for workflow import/allowlist verification and the final n8n process.
+          bootstrapped=0
+          for attempt in $(seq 1 90); do
+            running="$(docker inspect -f '{{.State.Running}}' conditera-n8n-poc 2>/dev/null || echo false)"
+            if [ "$running" != "true" ]; then docker logs conditera-n8n-poc; exit 1; fi
+            if docker exec conditera-n8n-poc test -f /home/node/.n8n/.conditera-bootstrap-complete \
+              && docker exec conditera-n8n-poc node -e 'fetch("http://127.0.0.1:5678/healthz").then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'; then
+              bootstrapped=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$bootstrapped" != "1" ]; then docker logs conditera-n8n-poc; exit 1; fi
+
+          docker exec conditera-n8n-poc n8n export:workflow --all --output=/tmp/conditera-workflows.json
+          docker exec conditera-n8n-poc node -e 'const fs=require("node:fs");const raw=JSON.parse(fs.readFileSync("/tmp/conditera-workflows.json","utf8"));const workflows=Array.isArray(raw)?raw:(raw.workflows||raw.data||[]);if(workflows.length!==1)throw new Error("Expected exactly one imported production workflow; got "+workflows.length);if(workflows[0].id!=="7b775b04-7f7f-5fb3-b532-a5b80e75b10b"||workflows[0].active!==true)throw new Error("Backup workflow was not activated with the expected stable id");console.log("PASS: only the verified daily backup workflow is imported and active.")'
+          docker logs conditera-n8n-poc
       - name: Collect runtime diagnostics on failure
         if: failure()
         shell: bash
@@ -275,5 +382,6 @@ jobs:
       - name: Cleanup disposable POC runtime
         if: always()
         run: |
+          docker rm -fv conditera-n8n-poc || true
           docker rm -fv conditera-supabase-runtime-poc || true
           docker volume rm supabase-runtime-pgdata-ci supabase-runtime-storage-ci supabase-runtime-deno-cache-ci || true

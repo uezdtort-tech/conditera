@@ -9,6 +9,27 @@
 import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.E2E_BASE_URL || "http://localhost:3000";
+ 
+// ===== Production static assets =====
+test.describe("Production static assets", () => {
+  test("Next.js client chunks and stylesheets load successfully", async ({ page }) => {
+    const failedAssets: string[] = [];
+    page.on("response", (response) => {
+      if (response.url().includes("/_next/static/") && response.status() >= 400) {
+        failedAssets.push(`${response.status()} ${response.url()}`);
+      }
+    });
+
+    await page.goto(BASE_URL, { waitUntil: "load" });
+    await expect(page.locator("body")).toBeVisible();
+    const runtimeAssets = await page.locator(
+      'script[src*="/_next/static/"], link[rel="stylesheet"][href*="/_next/static/"]'
+    ).count();
+    expect(runtimeAssets).toBeGreaterThan(0);
+    expect(failedAssets).toEqual([]);
+  });
+});
+
 
 // ===== Группа: Public pages =====
 test.describe("Public pages — должны возвращать 200", () => {
@@ -93,10 +114,12 @@ test.describe("API endpoints", () => {
     expect(response.ok()).toBeTruthy();
   });
 
-  test("GET /api/products returns 200 or 500 (no DB in test)", async ({ request }) => {
+  test("GET /api/products returns 200 with the PG17-backed catalog", async ({ request }) => {
     const response = await request.get(`${BASE_URL}/api/products`);
-    // 200 если БД есть, 500 если нет — оба варианта допустимы
-    expect([200, 500]).toContain(response.status());
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(Array.isArray(body.products)).toBe(true);
+    expect(typeof body.total).toBe("number");
   });
 
   test("GET /api/csrf-token returns 200", async ({ request }) => {
@@ -228,19 +251,14 @@ test.describe("Navigation", () => {
 test.describe("Cake builder", () => {
   test("cake builder dialog can be opened from homepage", async ({ page }) => {
     await page.goto(BASE_URL);
-    await page.waitForTimeout(2000);
-    // Ищем кнопку конструктора
-    const builderButton = page.locator("text=Конструктор").first();
-    if (await builderButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await builderButton.click();
-      await page.waitForTimeout(2000);
-      // Должен открыться диалог конструктора
-      const dialog = page.locator("[role='dialog']").first();
-      // Если Supabase недоступен, диалог может не открыться — это OK для smoke-теста
-      if (await dialog.isVisible().catch(() => false)) {
-        await expect(dialog).toBeVisible();
-      }
-    }
+    const builderButton = page.getByRole("button", {
+      name: /Собрать торт в конструкторе/i,
+    });
+    await expect(builderButton).toBeVisible();
+    await builderButton.click();
+    const dialog = page.getByRole("dialog").first();
+    await expect(dialog).toBeVisible({ timeout: 10000 });
+    await expect(dialog).toContainText("Шаг 1 / 9");
   });
 });
 

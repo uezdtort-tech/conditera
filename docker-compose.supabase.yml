@@ -1,7 +1,8 @@
 # ====================================================================
 # docker-compose.supabase.yml — Self-hosted Supabase для «Уездный кондитер»
 # ====================================================================
-# Запуск: docker-compose -f docker-compose.supabase.yml up -d
+# LEGACY: файл содержит отдельный PostgreSQL 15 и не должен запускаться самостоятельно.
+# Для единого Supabase PostgreSQL 17 используйте: node scripts/compose-single-runtime.mjs up -d
 #
 # Включает 10 сервисов Supabase (mini-stack):
 #   - supabase-db (PostgreSQL 15 с расширениями: pgsodium, pg_cron, pg_trgm)
@@ -33,6 +34,7 @@ x-logging: &default-logging
 services:
   # ===== PostgreSQL 15 с расширениями =====
   supabase-db:
+    profiles: ["legacy-supabase"]
     image: supabase/postgres:15.6.1.141
     container_name: conditera-supabase-db
     restart: unless-stopped
@@ -86,6 +88,7 @@ services:
   # ===== Kong API Gateway =====
   # Единая точка входа для всех Supabase сервисов
   supabase-kong:
+    profiles: ["legacy-supabase"]
     image: library/kong:2.8.1
     container_name: conditera-supabase-kong
     restart: unless-stopped
@@ -124,6 +127,7 @@ services:
 
   # ===== GoTrue (Auth) =====
   supabase-auth:
+    profiles: ["legacy-supabase"]
     image: supabase/gotrue:v2.164.0
     container_name: conditera-supabase-auth
     restart: unless-stopped
@@ -199,6 +203,7 @@ services:
 
   # ===== PostgREST (auto REST API из PostgreSQL) =====
   supabase-rest:
+    profiles: ["legacy-supabase"]
     image: postgrest/postgrest:v12.2.0
     container_name: conditera-supabase-rest
     restart: unless-stopped
@@ -225,6 +230,7 @@ services:
 
   # ===== Realtime (WebSocket подписки на postgres_changes) =====
   supabase-realtime:
+    profiles: ["legacy-supabase"]
     image: supabase/realtime:v2.34.21
     container_name: conditera-supabase-realtime
     restart: unless-stopped
@@ -268,6 +274,7 @@ services:
 
   # ===== Storage (S3-совместимое хранилище) =====
   supabase-storage:
+    profiles: ["legacy-supabase"]
     image: supabase/storage-api:v1.14.5
     container_name: conditera-supabase-storage
     restart: unless-stopped
@@ -319,6 +326,7 @@ services:
   # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
   # только после того, как Storage API создал свои таблицы.
   supabase-app-migrator:
+    profiles: ["legacy-supabase"]
     image: supabase/postgres:15.6.1.141
     container_name: conditera-supabase-app-migrator
     restart: "no"
@@ -347,6 +355,7 @@ services:
 
   # ===== imgproxy (обработка изображений) =====
   supabase-imgproxy:
+    profiles: ["legacy-supabase"]
     image: darthsim/imgproxy:v3.24.0
     container_name: conditera-supabase-imgproxy
     restart: unless-stopped
@@ -376,6 +385,7 @@ services:
 
   # ===== postgres-meta (управление схемой БД) =====
   supabase-meta:
+    profiles: ["legacy-supabase"]
     image: supabase/postgres-meta:v0.83.2
     container_name: conditera-supabase-meta
     restart: unless-stopped
@@ -407,7 +417,7 @@ services:
   supabase-studio:
     image: supabase/studio:2026.11.02-sha-a05e7ec
     container_name: conditera-supabase-studio
-    profiles: ["studio"]
+    profiles: ["legacy-supabase", "studio"]
     restart: unless-stopped
     environment:
       STUDIO_PG_META_URL: http://supabase-meta:8080
@@ -452,6 +462,7 @@ services:
 
   # ===== Analytics (Logflare — логирование) =====
   supabase-analytics:
+    profiles: ["legacy-supabase"]
     image: supabase/logflare:1.4.0
     container_name: conditera-supabase-analytics
     restart: unless-stopped
@@ -498,6 +509,7 @@ services:
   #   docker-compose -f docker-compose.supabase.yml stop supabase-vector
   # Или закомментируйте весь блок supabase-vector ниже.
   supabase-vector:
+    profiles: ["legacy-supabase"]
     image: timberio/vector:0.28.1-debian
     container_name: conditera-supabase-vector
     restart: unless-stopped

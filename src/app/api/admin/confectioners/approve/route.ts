@@ -19,6 +19,7 @@
  *  - через @/lib/email-confectioner: sendConfectionerVerificationEmail
  */
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Найти кондитера
     const { data: conf, error: fetchErr } = await supabaseAdmin
       .from("confectioners")
-      .select("id, userId, businessName, verificationStatus")
+      .select("id, userId, businessName, slug, verificationStatus")
       .eq("id", confectionerId)
       .maybeSingle();
 
@@ -101,6 +102,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     }
+
+    // Публикация изменила индексируемый набор страниц: немедленно сбрасываем
+    // ISR-кэш sitemap и публичных страниц, не ожидая 60-секундного revalidate.
+    revalidatePath("/sitemap.xml");
+    revalidatePath("/confectioners");
+    if (conf.slug) revalidatePath(`/confectioners/${conf.slug}`);
 
     // Push-уведомление кондитеру (non-blocking)
     try {

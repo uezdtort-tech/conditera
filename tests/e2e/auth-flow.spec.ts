@@ -17,22 +17,33 @@ import { test, expect, type APIRequestContext } from '@playwright/test'
 test.describe('Auth flow — register/login (exempt от CSRF)', () => {
   // register и login exempt от CSRF → POST проходит без CSRF
 
-  test('POST /api/auth/register без полей → 400-500 (exempt от CSRF)', async ({ request }) => {
+  test('POST /api/auth/register без полей → 400 (exempt от CSRF)', async ({ request }) => {
     const response = await request.post('/api/auth/register', { data: {} })
-    // register exempt от CSRF → проходит → валидация тела → 400 (missing fields) или 500 (БД недоступна)
-    expect([400, 422, 500]).toContain(response.status())
+    expect(response.status()).toBe(400)
+    expect((await response.json()).error).toContain('обязательные поля')
   })
 
-  test('POST /api/auth/register с коротким паролем → 400-500', async ({ request }) => {
+  test('POST /api/auth/register с коротким паролем → 400', async ({ request }) => {
     const response = await request.post('/api/auth/register', {
-      data: { email: 'test@example.com', password: '123', name: 'Test', phone: '+79999999999' },
+      data: {
+        email: 'short-password@example.com',
+        password: '123',
+        name: 'Short Password Test',
+        phone: '+79998887766',
+        consentPd: true,
+        consentTerms: true,
+        consentOffer: true,
+      },
+      headers: { 'x-real-ip': '10.230.10.11' },
     })
-    expect([400, 422, 500]).toContain(response.status())
+    expect(response.status()).toBe(400)
+    expect((await response.json()).error).toContain('Пароль')
   })
 
-  test('POST /api/auth/login без email/password → 400-500', async ({ request }) => {
+  test('POST /api/auth/login без email/password → 400', async ({ request }) => {
     const response = await request.post('/api/auth/login', { data: {} })
-    expect([400, 500]).toContain(response.status())
+    expect(response.status()).toBe(400)
+    expect((await response.json()).error).toContain('обязательны')
   })
 
   test('POST /api/auth/refresh без refreshToken → 400', async ({ request }) => {
@@ -83,10 +94,10 @@ test.describe('Auth flow — 2FA (без авторизации запрещен
 })
 
 test.describe('Auth flow — session & logout', () => {
-  test('GET /api/auth/session без авторизации → 401/307/200', async ({ request }) => {
-    const response = await request.get('/api/auth/session')
-    // 401 (unauthorized), 307 (Supabase redirect), 200 (если middleware пропускает)
-    expect([401, 307, 200, 500]).toContain(response.status())
+  test('GET /api/auth/session без авторизации → 200 и user=null', async ({ request }) => {
+    const response = await request.get('/api/auth/session', { headers: { cookie: '' } })
+    expect(response.status()).toBe(200)
+    expect((await response.json()).user).toBeNull()
   })
 
   test('POST /api/auth/logout без сессии безопасно очищает cookie → 200', async ({ request }) => {

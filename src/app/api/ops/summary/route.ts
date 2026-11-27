@@ -16,11 +16,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { existsSync } from "node:fs";
-import path from "node:path";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireAnyRole } from "@/lib/role-guards";
 import { getPool } from "@/lib/postgrest/pool";
 import { isYookassaConfigured } from "@/lib/yookassa";
+import { STORAGE_ROOT } from "@/lib/product-media/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,8 +116,7 @@ export async function GET(request: NextRequest) {
     db = "fail";
   }
 
-  const storageDir = path.join(process.cwd(), "storage");
-  const storage: "ok" | "fail" = existsSync(storageDir) ? "ok" : "fail";
+  const storage: "ok" | "fail" = existsSync(STORAGE_ROOT) ? "ok" : "fail";
 
   const n8nBase = (
     process.env.N8N_WEBHOOK_BASE_URL ||

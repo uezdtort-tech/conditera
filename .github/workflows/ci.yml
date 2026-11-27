@@ -1,7 +1,7 @@
 # ============================================================
 # CI/CD для «Уездный кондитер» (v2.0 — Supabase, bun)
 # ============================================================
-# Запускается на каждый push в main и на каждый PR.
+# Запускается на push в release-ветки и на PR в main, develop и release/first-production-hardening.
 # Pipeline: lint → typecheck → test → build → docker-build → security.
 # Все шаги — строгие (БЕЗ continue-on-error, кроме coverage). Любая ошибка ломает CI.
 #
@@ -18,7 +18,7 @@ on:
   push:
     branches: [main, develop, release/first-production-hardening]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, release/first-production-hardening]
 
 permissions:
   contents: read
@@ -276,3 +276,38 @@ jobs:
           # Используем caddy image для валидации
           docker run --rm -v $(pwd)/Caddyfile:/etc/caddy/Caddyfile caddy:2.8-alpine \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  # Временный job для получения lockfile с исправленной версией Next.js.
+  # Артефакт будет проверен и включён в отдельный атомарный коммит.
+  next-security-lock-refresh:
+    name: Generate patched Next.js lockfile artifact
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Update vulnerable Next.js packages
+        run: bun update next@16.4.5 eslint-config-next@16.4.5
+
+      - name: Verify updated versions and lockfile
+        run: |
+          bun install --frozen-lockfile
+          node -e 'const p=require("./package.json"); console.log("next",p.dependencies.next,"eslint-config-next",p.devDependencies["eslint-config-next"]);'
+
+      - name: Upload updated package and lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-security-lockfile
+          path: |
+            package.json
+            bun.lock
+          if-no-files-found: error
+          retention-days: 3

@@ -2,17 +2,20 @@
  * sitemap.ts — Динамический sitemap.xml через Next.js metadata route.
  *
  * Источники данных:
- *   - Статичные публичные страницы (home, catalog, confectioners, etc.)
- *   - Категории каталога (CATEGORIES из mock-data — стабильные slugs)
- *   - Профили верифицированных кондитеров (из Supabase, fallback на mock)
- *   - Статьи блога (пока mock-data, будет переведено на БД позже)
+ *   - Статичные публичные страницы (home, catalog, confectioners, recipes, etc.)
+ *   - Профили верифицированных кондитеров (живой запрос в Supabase)
  *
- * Если БД недоступна (build-time) — sitemap содержит статичные страницы + mock data,
- * чтобы build не падал. На runtime (через ISR / cron) — реальные данные.
+ * Конвергенция на реальные данные: mock-сущности (MOCK_CONFECTIONERS /
+ * MOCK_RECIPES) из sitemap УДАЛЕНЫ — поисковикам не отдаём фейковые URL,
+ * которых нет в БД. Если БД недоступна или пуста — динамические записи просто
+ * пропускаются (sitemap не бросает исключений и не падает).
+ *
+ * Динамические URL рецептов (/recipes?id=…) пока НЕ добавляются: у рецептов
+ * нет отдельного canonical-маршрута /recipes/<slug>, а query-URL — класс
+ * дублей (см. CLOUD-PREVIEW-SEO-REPORT.md, Этап 4). Вернуть при появлении
+ * slug-роута — источником станет таблица recipe_marketplace.
  */
 import type { MetadataRoute } from "next";
-import { CATEGORIES, MOCK_CONFECTIONERS } from "@/lib/mock-data";
-import { MOCK_RECIPES } from "@/lib/mock-data-extra";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -51,7 +54,8 @@ const STATIC_PAGES: { path: string; priority: number; changeFreq: "daily" | "wee
 
 /**
  * Загрузить верифицированных кондитеров из Supabase (camelCase columns, migration 0017).
- * При ошибке / пустой БД — fallback на MOCK_CONFECTIONERS (build не должен падать).
+ * При ошибке / пустой БД — пустой список (mock-fallback удалён: фейковых
+ * сущностей в sitemap быть не должно). Sitemap не должен падать.
  */
 async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string; updatedAt: string }[]> {
   try {
@@ -60,29 +64,13 @@ async function fetchVerifiedConfectioners(): Promise<{ id: string; slug: string;
       .select("id, slug, updatedAt")
       .eq("verified", true);
     if (error) {
-      console.warn("[sitemap] Supabase query failed, fallback to mock:", error.message);
-      return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
-        id: c.id,
-        slug: c.slug,
-        updatedAt: c.joinedAt,
-      }));
+      console.warn("[sitemap] Supabase query failed, skip confectioner entries:", error.message);
+      return [];
     }
-    if (!data || data.length === 0) {
-      // БД пуста — возвращаем mock (чтобы sitemap не был пустым на старте)
-      return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
-        id: c.id,
-        slug: c.slug,
-        updatedAt: c.joinedAt,
-      }));
-    }
-    return data as { id: string; slug: string; updatedAt: string }[];
+    return (data as { id: string; slug: string; updatedAt: string }[]) ?? [];
   } catch (e) {
     console.warn("[sitemap] Confectioners fetch exception:", (e as Error).message);
-    return MOCK_CONFECTIONERS.filter((c) => c.verified).map((c) => ({
-      id: c.id,
-      slug: c.slug,
-      updatedAt: c.joinedAt,
-    }));
+    return [];
   }
 }
 
@@ -100,26 +88,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   }
 
-  // 2. Категории каталога
-  try {
-    for (const cat of CATEGORIES) {
-      entries.push({
-        url: `${APP_URL}/catalog?category=${cat.slug}`,
-        lastModified: now,
-        changeFrequency: "weekly" as const,
-        priority: 0.6,
-      });
-    }
-  } catch (e) {
-    console.warn("[sitemap] Categories failed:", (e as Error).message);
-  }
+  // 2. Категории каталога и рецепты — НЕ включаем query-URL (?category=…, ?id=…).
+  // SPA-каноникл указывает на /catalog и /recipes, query-URL — дубли.
+  // Динамические рецепты вернутся с появлением canonical-маршрута /recipes/<slug>.
 
-  // 3. Профили верифицированных кондитеров (Supabase, fallback на mock)
+  // 3. Профили верифицированных кондитеров (живой Supabase; при ошибке — skip).
   // Чистые slug-URL /confectioners/<slug> (роут src/app/confectioners/[slug]/page.tsx).
-  // Query-URL (?confectioner=<id>) поисковики не индексируют как отдельные страницы.
   try {
     const confectioners = await fetchVerifiedConfectioners();
     for (const c of confectioners) {
+      if (!c?.slug) continue;
       entries.push({
         url: `${APP_URL}/confectioners/${c.slug}`,
         lastModified: c.updatedAt ? new Date(c.updatedAt) : now,
@@ -128,21 +106,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       });
     }
   } catch (e) {
+    // Двойная страховка: sitemap никогда не бросает
     console.warn("[sitemap] Confectioners failed:", (e as Error).message);
-  }
-
-  // 4. Рецепты/статьи блога (пока mock — будут переведены на БД в следующем раунде)
-  try {
-    for (const r of MOCK_RECIPES) {
-      entries.push({
-        url: `${APP_URL}/recipes?id=${r.id}`,
-        lastModified: now,
-        changeFrequency: "monthly" as const,
-        priority: 0.5,
-      });
-    }
-  } catch (e) {
-    console.warn("[sitemap] Recipes failed:", (e as Error).message);
   }
 
   return entries;

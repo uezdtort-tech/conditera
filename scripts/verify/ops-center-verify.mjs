@@ -72,16 +72,20 @@ async function api(method, path, { token, body } = {}) {
   return { status: res.status, json };
 }
 
+const sessionTokens = [];
+
 async function login(email) {
   const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
-  return res.json.accessToken;
+  const token = res.json.accessToken;
+  sessionTokens.push(token);
+  return token;
 }
 
 // P1.1: единый паттерн с order-lifecycle-verify — PGURL окружением переопределяется
-const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54330/conditera";
 const client = new Client({ connectionString: PG_URL });
 const cleanupIds = { orders: [], drafts: [] };
 
@@ -268,9 +272,18 @@ async function main() {
 
 async function cleanup() {
   try {
+    // Освобождаем демо-аккаунты после сценария: следующий E2E-контур
+    // не должен принимать оставшийся тестовый сеанс за передачу аккаунта.
+    for (const token of sessionTokens) {
+      const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
+      if (logout && logout.status !== 200) {
+        console.warn("[verify] test session cleanup returned", logout.status);
+      }
+    }
     if (cleanupIds.orders.length > 0) {
       await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanupIds.orders]);
       await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanupIds.orders]);
+      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanupIds.orders]);
       await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanupIds.orders]);
     }
     if (cleanupIds.drafts.length > 0) {

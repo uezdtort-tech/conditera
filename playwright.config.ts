@@ -23,9 +23,12 @@ export default defineConfig({
   // Timeout для expect() (5 сек)
   expect: { timeout: 5_000 },
 
-  // Параллелизм — 4 воркера на CI, 1 локально (для дебага)
+  // На CI ограничиваем параллелизм, чтобы не перегружать единый Next.js runtime.
+  // PLAYWRIGHT_WORKERS позволяет PG17 acceptance workflow задать стабильный предел.
   fullyParallel: process.env.CI ? true : false,
-  workers: process.env.CI ? 4 : 1,
+  workers: process.env.PLAYWRIGHT_WORKERS
+    ? Math.max(1, Number(process.env.PLAYWRIGHT_WORKERS))
+    : process.env.CI ? 4 : 1,
 
   // Fail fast — останавливаем после 5 ошибок
   retries: process.env.CI ? 2 : 0,

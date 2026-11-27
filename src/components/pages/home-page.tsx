@@ -17,8 +17,11 @@ import { ProductCard } from "@/components/marketplace/product-card";
 import { ConfectionerCard } from "@/components/marketplace/confectioner-card";
 import { ConfectionersMarquee } from "@/components/marketplace/confectioners-marquee";
 import { RecentlyViewed } from "@/components/ui/enhanced-components";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatedCounter, GlassCard, FloatWrapper, GradientBorderCard, TiltCard } from "@/components/ui/modern-effects";
 import { CATEGORIES } from "@/lib/mock-data";
+import { useLiveProducts } from "@/lib/supabase/use-marketplace";
+import { isDemoVitrineMode, selectVitrineProducts } from "@/lib/vitrine-products";
 import { formatCurrency } from "@/lib/finance";
 import Image from "next/image";
 import { OrnamentDivider, Eyebrow } from "@/components/ui/ornaments";
@@ -39,9 +42,11 @@ import {
   TrendingUp,
   Clock,
   Check,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useConfectioners } from "@/lib/supabase/use-marketplace";
 
 /** Публичные отзывы из БД (GET /api/reviews) — витрина «Отзывы покупателей». */
@@ -79,8 +84,30 @@ function useRealReviews(limit = 6) {
 export function HomePage() {
   const navigate = useAppStore((s) => s.navigate);
   const setCakeBuilderOpen = useAppStore((s) => s.setCakeBuilderOpen);
-  const products = useAppStore((s) => s.products);
+  const storeProducts = useAppStore((s) => s.products);
   const confectioners = useAppStore((s) => s.confectioners);
+
+  // Публичная витрина использует только live-товары; demo-сид включается
+  // исключительно явным флагом и не маскирует ошибки API.
+  const demoMode = isDemoVitrineMode();
+  const {
+    data: liveProducts,
+    isPending: livePending,
+    isError: liveError,
+    refetch: refetchLive,
+  } = useLiveProducts();
+  const products = useMemo(
+    () => selectVitrineProducts({
+      demoMode,
+      isError: liveError,
+      live: liveProducts,
+      storeProducts,
+    }),
+    [demoMode, liveError, liveProducts, storeProducts]
+  );
+  const isProductsLoading = livePending && products.length === 0;
+  const hasProductsError = liveError && products.length === 0;
+  const isCatalogEmpty = !livePending && !liveError && products.length === 0;
 
   // Реальные данные платформы для честных счётчиков (не выдуманные цифры):
   // кондитеры — из публичного API, товары — hydrated store (live-источник).
@@ -105,6 +132,13 @@ export function HomePage() {
 
   const popularProducts = products.filter((p) => p.isPopular || p.isHit).slice(0, 8);
   const newProducts = products.filter((p) => p.isNew).slice(0, 4);
+  const categoryCounts = useMemo(() => {
+    const counts = {} as Record<string, number>;
+    for (const category of CATEGORIES) {
+      counts[category.slug] = products.filter((product) => product.category === category.slug).length;
+    }
+    return counts;
+  }, [products]);
 
   // P2.2: анкета «Помочь выбрать» на главной (ТЗ §5) — результат можно
   // перенести в каталог («Показать в каталоге»)
@@ -132,11 +166,11 @@ export function HomePage() {
           fetchPriority="high"
           sizes="100vw"
           quality={80}
-          className="object-cover -z-10"
+          className="object-cover -z-10 pointer-events-none"
         />
         {/* Затемнение для читаемости текста — мягче, чтобы фото дышало */}
-        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-background/55 to-background/20" />
-        <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-background/10 to-transparent" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-r from-background/80 via-background/55 to-background/20" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-background/85 via-background/10 to-transparent" />
         {/* Трендовый mesh-акцент поверх фото — глубина без шума */}
         <div className="absolute inset-0 mesh-gradient opacity-60 pointer-events-none" />
         <div className="container mx-auto px-4 py-12 sm:py-16 lg:py-24 relative">
@@ -235,7 +269,7 @@ export function HomePage() {
               className="relative hidden lg:block"
             >
               <div className="relative aspect-square max-w-md mx-auto">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-amber-300/30 blur-3xl" />
+                <div className="absolute inset-0 pointer-events-none rounded-full bg-gradient-to-br from-primary/20 to-amber-300/30 blur-3xl" />
                 <Image
                   src="https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=800"
                   alt="Домашний торт"
@@ -408,7 +442,7 @@ export function HomePage() {
                     {cat.icon}
                   </div>
                   <div className="text-sm font-medium text-center">{cat.name}</div>
-                  <div className="text-xs text-muted-foreground">{cat.count} тов.</div>
+                  <div className="text-xs text-muted-foreground">{categoryCounts[cat.slug] ?? 0} тов.</div>
                 </button>
               </TiltCard>
             </motion.div>
@@ -438,11 +472,48 @@ export function HomePage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {popularProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        {isProductsLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" role="status" aria-label="Загрузка популярных товаров" aria-busy="true">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="overflow-hidden p-0">
+                <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : hasProductsError ? (
+          <Card className="p-10 text-center" role="alert">
+            <AlertTriangle className="h-10 w-10 mx-auto mb-3 text-destructive" />
+            <h3 className="font-semibold mb-1">Не удалось загрузить товары</h3>
+            <p className="text-sm text-muted-foreground mb-4">Сервис каталога недоступен. Попробуйте ещё раз.</p>
+            <Button onClick={() => void refetchLive()} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Повторить
+            </Button>
+          </Card>
+        ) : isCatalogEmpty ? (
+          <Card className="p-12 text-center">
+            <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+              <Cake className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="font-semibold mb-1">Каталог пока пуст</h3>
+            <p className="text-sm text-muted-foreground">Кондитеры ещё не опубликовали товары — загляните позже.</p>
+          </Card>
+        ) : popularProducts.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {popularProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        ) : (
+          <Card className="p-8 text-center">
+            <p className="text-sm text-muted-foreground mb-3">Пока нет отмеченных популярных товаров.</p>
+            <Button variant="outline" onClick={() => navigate("catalog")}>Открыть каталог</Button>
+          </Card>
+        )}
       </section>
 
       {/* P2.3: персональные рекомендации (только при якорях избранное/
@@ -452,7 +523,7 @@ export function HomePage() {
       {/* ===== CAKE BUILDER CTA ===== */}
       <section className="container mx-auto px-4">
         <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-accent/40 to-amber-200/20">
-          <div className="absolute inset-0 bg-pattern opacity-30" />
+          <div className="absolute inset-0 pointer-events-none bg-pattern opacity-30" />
           <div className="relative p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">
             <div className="space-y-4">
               <Badge className="bg-primary text-primary-foreground">
@@ -547,7 +618,7 @@ export function HomePage() {
             }}
             className="group relative overflow-hidden rounded-xl border-2 border-dashed border-primary/30 bg-gradient-to-br from-primary/5 via-accent/10 to-primary/5 hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
           >
-            <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity">
+            <div className="absolute inset-0 pointer-events-none opacity-10 group-hover:opacity-20 transition-opacity">
               <div className="absolute top-4 right-4 text-6xl">🎂</div>
               <div className="absolute bottom-4 left-4 text-5xl">🧁</div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-7xl">🍰</div>
@@ -575,7 +646,7 @@ export function HomePage() {
             }}
             className="group relative overflow-hidden rounded-xl border-2 border-dashed border-emerald-400/30 bg-gradient-to-br from-emerald-50/50 via-accent/5 to-emerald-50/50 hover:border-emerald-400/50 hover:shadow-lg transition-all cursor-pointer min-h-[280px] flex flex-col items-center justify-center p-6 text-center"
           >
-            <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity">
+            <div className="absolute inset-0 pointer-events-none opacity-10 group-hover:opacity-20 transition-opacity">
               <div className="absolute top-4 right-4 text-6xl">🏆</div>
               <div className="absolute bottom-4 left-4 text-5xl">⭐</div>
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-7xl">🌟</div>
@@ -612,9 +683,9 @@ export function HomePage() {
             fill
             sizes="100vw"
             quality={75}
-            className="object-cover -z-10"
+            className="object-cover -z-10 pointer-events-none"
           />
-          <div className="absolute inset-0 bg-background/80" />
+          <div className="absolute inset-0 pointer-events-none bg-background/80" />
           <div className="container mx-auto px-4 relative">
             <div className="flex items-end justify-between mb-6">
               <div>
@@ -644,9 +715,9 @@ export function HomePage() {
           fill
           sizes="100vw"
           quality={60}
-          className="object-cover -z-10"
+          className="object-cover -z-10 pointer-events-none"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-background/95 via-background/80 to-background/95" />
         <div className="container mx-auto px-4 relative">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
@@ -728,7 +799,7 @@ export function HomePage() {
 
       {/* ===== STEPS ===== */}
       <section className="relative overflow-hidden py-12">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-br from-primary/5 via-transparent to-accent/10" />
         <div className="container mx-auto px-4 relative">
         <div className="text-center mb-10">
           <h2 className="font-display text-2xl sm:text-3xl font-bold">
@@ -800,7 +871,7 @@ export function HomePage() {
       {/* ===== STATS ===== */}
       <section className="container mx-auto px-4">
         <div className="rounded-2xl bg-primary text-primary-foreground border-0 overflow-hidden relative mesh-gradient" style={{ background: "none", backgroundColor: "oklch(0.42 0.18 25)" }}>
-          <div className="absolute inset-0 bg-pattern opacity-10" />
+          <div className="absolute inset-0 pointer-events-none bg-pattern opacity-10" />
           <div className="relative p-8 lg:p-12 grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
             {[
               // Реальные счётчики платформы (БД/API), а не выдуманные цифры
@@ -929,9 +1000,9 @@ export function HomePage() {
           fill
           sizes="100vw"
           quality={60}
-          className="object-cover -z-10"
+          className="object-cover -z-10 pointer-events-none"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-r from-background/95 via-background/85 to-background/95" />
         <div className="container mx-auto px-4 relative">
         <Card className="overflow-hidden border-0 bg-gradient-to-br from-amber-100/80 via-accent/60 to-primary/10 glow-primary backdrop-blur-sm">
           <div className="p-8 lg:p-12 grid lg:grid-cols-2 gap-6 items-center">

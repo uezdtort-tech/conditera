@@ -76,6 +76,7 @@ download/
 
 # Local embedded PostgreSQL data (npm run db:start)
 .pgdata/
+.pgdata-pg17/
 
 # Local storage shim files
 upload/storage/
