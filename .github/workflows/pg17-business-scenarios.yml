@@ -77,7 +77,7 @@ jobs:
       - name: Выделить уникальный порт для PostgreSQL 17
         shell: bash
         env:
-          PG17_HOST_PORT: ${{ job.services.postgres.ports[5432] }}
+          PG17_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
         run: |
           if [[ -z "$PG17_HOST_PORT" ]]; then
             echo "GitHub Actions не выдал динамический host port для PostgreSQL 17" >&2
@@ -120,8 +120,6 @@ jobs:
 
       - name: Изолированная регрессия cart schema на отдельной БД PostgreSQL 17
         run: bun scripts/verify/cart-schema-verify.mjs
-        env:
-
       - name: Проверить версию PG17, журнал миграций, расширения, роли и RLS
         run: |
           node --input-type=module <<'NODE'
@@ -201,12 +199,8 @@ jobs:
             await db.end();
           }
           NODE
-        env:
-
       - name: Проверить конкурентные возвраты на независимых соединениях PG17
         run: node scripts/verify/refund-concurrency-pg.mjs
-        env:
-
       - name: Экспортировать сгенерированный Supabase anon key для production build
         shell: bash
         run: |
@@ -317,8 +311,6 @@ jobs:
             await db.end();
           }
           NODE
-        env:
-
       - name: Полный набор Playwright на PostgreSQL 17 — все проекты
         run: bun run test:e2e -- --fail-on-flaky-tests
         env:
