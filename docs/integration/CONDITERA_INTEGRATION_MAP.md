@@ -97,6 +97,6 @@
 | Supabase-транспорт | same-origin shim: `/rest/v1/[...path]` (postgrest/*), `/auth/v1`, `/storage/v1` → `./upload/storage`; **нет /realtime/v1** | LIVE | **REUSE** | Прод-деплой с реальным Supabase изменит поведение RLS/Realtime — VERIFY перед запуском | url.ts:39 |
 | Upload | `/api/upload` + `/api/services/upload` (ЗАЩИЩЁННЫЕ пути, drift-удалены из worktree, блобы в HEAD) | RESTORE затем **REUSE** | `scripts/protected-paths.sh repair` по решению владельца | Без них чат-вложения/студия не смогут заливать файлы | git show HEAD |
 | uploads-реестр (0015) | таблица `uploads` | Не пишется upload-service | **ADAPT** (B-6) | Реестр-сирота | grep |
-| Хранилище бакетов | 0026: avatars/covers/portfolio/product_images public; documents, **messages** private (без audio MIME) | messages-бакет не используется | **ADAPT** при пайплайне вложений | audio в media-бакете запрещён | миграция 0026 |
+| Хранилище бакетов | 0026: avatars/covers/portfolio/product_images public; documents/messages private; 0121: **order_media** private (JPEG/PNG/WebP) | order_media используется для оригинальных фото готового заказа; выдача только через авторизованный API/signed URL | **REUSE** | Публичный доступ к фото заказа запрещён | миграции 0026, 0121 |
 
 **Сводка решений:** REUSE — 30 · ADAPT — 17 · REPLACE — 7 · NEW — 5 · VERIFY/BLOCKED — 6 (детальная нумерация в BACKLOG).
