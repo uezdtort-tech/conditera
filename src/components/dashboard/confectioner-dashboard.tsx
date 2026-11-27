@@ -681,11 +681,11 @@ export function ConfectionerDashboard() {
                           {order.status === "CONFIRMED" && (
                             <Button
                               size="sm"
-                              data-testid="order-action-start"
-                              disabled={updateOrderStatusApi.isPending}
-                              onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "PREPARING" })}
+                              data-testid="open-order-workspace"
+                              onClick={() => setWorkspaceOrderId(order.id)}
                             >
-                              Начать готовку
+                              <ClipboardList className="h-4 w-4 mr-1" />
+                              Начать производство
                             </Button>
                           )}
                           {order.status === "PREPARING" && (
