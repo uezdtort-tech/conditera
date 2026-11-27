@@ -552,6 +552,31 @@ export function OrderWorkspaceDialog({
     },
   });
 
+  /** Фото готового изделия: сохраняется в приватное хранилище и закрывает ready_photo gate. */
+  const readyPhotoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await csrfFetch(`/api/orders/${orderId}/media`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        throw new Error(parseApiError(await readErrorBody(res), `Не удалось загрузить фото (HTTP ${res.status})`));
+      }
+      return (await res.json().catch(() => ({}))) as { ok?: boolean };
+    },
+    onSuccess: () => {
+      toast.success("Фото готового заказа сохранено");
+      void queryClient.invalidateQueries({ queryKey: ["order-lifecycle", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-media", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось загрузить фото готовности", { description: error.message });
+    },
+  });
+
   /** Черновик закупки из дефицита (422 NO_SHORTAGES → toast.info). */
   const createDraftMutation = useMutation({
     mutationFn: async (): Promise<PurchaseDraftResponse> => {
@@ -966,6 +991,37 @@ export function OrderWorkspaceDialog({
                     </ul>
                   )}
                 </div>
+
+                {lc.production.readyPhotoRequired &&
+                  !lc.production.checklist.some((stage) => stage.stage_key === "ready_photo" && stage.is_done) && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+                    <div>
+                      <p className="text-sm font-medium text-amber-900">Фото готового изделия обязательно</p>
+                      <p className="text-xs text-amber-800 mt-0.5">
+                        Загрузите оригинальное фото торта перед отметкой готовности. Клиент увидит его в заказе.
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      aria-label="Фото готового заказа"
+                      data-testid="ready-photo-input"
+                      disabled={readyPhotoMutation.isPending}
+                      className="block w-full text-xs text-amber-900 file:mr-2 file:rounded-md file:border-0 file:bg-amber-700 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (file) readyPhotoMutation.mutate(file);
+                      }}
+                    />
+                    {readyPhotoMutation.isPending && (
+                      <div className="inline-flex items-center gap-2 text-xs text-amber-800">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        Загружаем фото…
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Действия */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
