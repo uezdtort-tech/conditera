@@ -73,10 +73,12 @@ function OrderRow({
   order,
   showBreakdown,
   onOpenBreakdown,
+  onOpenWorkspace,
 }: {
   order: ConfectionerTodayOrder;
   showBreakdown?: boolean;
   onOpenBreakdown?: (orderId: string) => void;
+  onOpenWorkspace?: (orderId: string) => void;
 }) {
   const status = ORDER_STATUS_LABELS[order.status] ?? { label: order.status, color: "" };
   return (
@@ -94,17 +96,29 @@ function OrderRow({
       </div>
       <div className="text-right shrink-0">
         <div className="text-sm font-bold tabular-nums">{formatRub(order.total)}</div>
-        {showBreakdown && onOpenBreakdown && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-1 h-8 text-xs"
-            onClick={() => onOpenBreakdown(order.id)}
-          >
-            <ClipboardList className="h-3.5 w-3.5 mr-1" />
-            Разбор
-          </Button>
-        )}
+        <div className="mt-1 flex flex-col gap-1">
+          {showBreakdown && onOpenBreakdown && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={() => onOpenBreakdown(order.id)}
+            >
+              <ClipboardList className="h-3.5 w-3.5 mr-1" />
+              Разбор
+            </Button>
+          )}
+          {onOpenWorkspace && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={() => onOpenWorkspace(order.id)}
+            >
+              Производство
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -217,9 +231,11 @@ function SectionCard({
 export function ConfectionerTodayTab({
   onNavigateTab,
   onOpenBreakdown,
+  onOpenWorkspace,
 }: {
   onNavigateTab?: (tab: string) => void;
   onOpenBreakdown: (orderId: string) => void;
+  onOpenWorkspace?: (orderId: string) => void;
 }) {
   const todayQuery = useQuery({
     queryKey: ["ops-today"],
@@ -259,6 +275,7 @@ export function ConfectionerTodayTab({
         capacityAlert={data.capacityAlert ?? null}
         isLoading={false}
         onOpenBreakdown={onOpenBreakdown}
+        onOpenWorkspace={onOpenWorkspace}
       />
     );
   }
@@ -357,7 +374,7 @@ export function ConfectionerTodayTab({
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                   {data.ordersToday.map((o) => (
-                    <OrderRow key={o.id} order={o} showBreakdown onOpenBreakdown={onOpenBreakdown} />
+                    <OrderRow key={o.id} order={o} showBreakdown onOpenBreakdown={onOpenBreakdown} onOpenWorkspace={onOpenWorkspace} />
                   ))}
                 </div>
               )}
@@ -372,7 +389,7 @@ export function ConfectionerTodayTab({
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                   {data.inProduction.map((o) => (
-                    <OrderRow key={o.id} order={o} showBreakdown onOpenBreakdown={onOpenBreakdown} />
+                    <OrderRow key={o.id} order={o} showBreakdown onOpenBreakdown={onOpenBreakdown} onOpenWorkspace={onOpenWorkspace} />
                   ))}
                 </div>
               )}
