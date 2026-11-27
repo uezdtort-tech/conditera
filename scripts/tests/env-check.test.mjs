@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { validateEnvironment } from "../env-check.mjs";
 
 const validProduction = () => ({
-  DATABASE_URL: `postgresql://conditera_app:${"d".repeat(40)}@db:5432/conditera`,
+  DATABASE_URL: `postgresql://conditera_app:${"a".repeat(40)}@db:5432/conditera`,
+  DIRECT_DATABASE_URL: `postgresql://conditera_app:${"a".repeat(40)}@db:5432/conditera`,
+  BACKUP_DATABASE_PASSWORD: "b".repeat(40),
+  BACKUP_DATABASE_URL: `postgresql://conditera_backup:${"b".repeat(40)}@db:5432/conditera`,
   NEXT_PUBLIC_SUPABASE_URL: "https://conditera.ru/api",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "public-anon-fixture",
   SUPABASE_SERVICE_ROLE_KEY: "server-role-fixture",
@@ -27,11 +30,15 @@ const validProduction = () => ({
   NEXT_PUBLIC_APP_URL: "https://conditera.ru",
   NEXT_PUBLIC_YANDEX_METRIKA_ID: "111432662",
   YANDEX_CLIENT_ID: "yandex-client",
+  YANDEX_CLIENT_SECRET: "yandex-client-secret-long-enough",
   YANDEX_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/yandex/callback",
   VK_CLIENT_ID: "vk-client",
   VK_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/vk/callback",
+  GOOGLE_CLIENT_ID: "google-client",
+  GOOGLE_CLIENT_SECRET: "google-client-secret-long-enough",
+  GOOGLE_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/google/callback",
   YOOKASSA_SHOP_ID: "shop-id",
-  YOOKASSA_SECRET_KEY: "shop-secret",
+  YOOKASSA_SECRET_KEY: "live_fixture_secret_12345678901234567890",
   SMTP_HOST: "mail.conditera.ru",
   SMTP_FROM: "noreply@conditera.ru",
   SMTP_USER: "noreply@conditera.ru",
@@ -109,4 +116,20 @@ test("development mode does not require production-only payment and OAuth creden
   delete env.SMTP_SECURE;
   const result = validateEnvironment(env, "development");
   assert.equal(result.ok, true, result.errors.join("\n"));
+});
+
+test("accepts Compose password references when their dedicated secrets are present", () => {
+  const env = validProduction();
+  env.DATABASE_URL = "postgresql://conditera_app:${APP_DATABASE_PASSWORD}@db:5432/conditera";
+  env.DIRECT_DATABASE_URL = "postgresql://conditera_app:${APP_DATABASE_PASSWORD}@db:5432/conditera";
+  env.BACKUP_DATABASE_URL = "postgresql://conditera_backup:${BACKUP_DATABASE_PASSWORD}@db:5432/conditera";
+  const result = validateEnvironment(env, "production");
+  assert.equal(result.ok, true, result.errors.join("\\n"));
+});
+
+test("rejects a database URL password that differs from its dedicated secret", () => {
+  const env = validProduction();
+  env.DATABASE_URL = `postgresql://conditera_app:${"x".repeat(40)}@db:5432/conditera`;
+  const result = validateEnvironment(env, "production");
+  assert.ok(result.errors.some((message) => message.includes("DATABASE_URL")));
 });
