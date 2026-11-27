@@ -96,7 +96,6 @@ export function validateEnvironment(values, selectedMode = "development", select
         const configuredPassword = value(passwordVariable);
         const validPassword = isFilled(configuredPassword) && configuredPassword.length >= 32 &&
           (passwordFromEnvReference || password === configuredPassword);
-          : password.length >= 32 && !/^(CHANGE_ME|change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_])/i.test(password);
         const database = parsed.pathname.replace(/^\//, "");
         if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname ||
             parsed.username !== expectedUser || database !== "conditera" || !validPassword) {
