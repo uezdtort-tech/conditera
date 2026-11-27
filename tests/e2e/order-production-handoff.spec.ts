@@ -79,7 +79,51 @@ test.describe("Полный заказ: оплата → производств�
       await confectionerPage.getByLabel("Пароль").fill(DEMO_PASSWORD);
       await confectionerPage.getByRole("button", { name: "Войти", exact: true }).click();
       await confectionerPage.waitForURL(/\/dashboard/, { timeout: 20_000 });
-      await confectionerPage.getByRole("button", { name: /Заказы/ }).click();
+      // Диагностика именно второго браузерного контекста: стандартный
+      // Playwright error-context снимает fixture page (покупателя), поэтому
+      // без этого вложения причина отсутствующей вкладки кондитера невидима.
+      const ordersTab = confectionerPage.getByRole("button", { name: /Заказы/ });
+      try {
+        await ordersTab.click({ timeout: 20_000 });
+      } catch (error) {
+        const diagnostics = await confectionerPage.evaluate(async () => {
+          const state = (window as any).useAppStore?.getState?.();
+          let session: unknown = null;
+          try {
+            const response = await fetch("/api/auth/session", { credentials: "include" });
+            const payload = await response.json();
+            session = {
+              status: response.status,
+              roles: payload?.user?.roles ?? null,
+              sessionMode: payload?.sessionMode ?? null,
+            };
+          } catch (sessionError) {
+            session = { error: String(sessionError) };
+          }
+          return {
+            url: location.href,
+            title: document.title,
+            bodyText: document.body.innerText.slice(0, 12000),
+            appState: state ? {
+              userPresent: Boolean(state.user),
+              roles: state.user?.roles ?? null,
+              activeRole: state.activeRole ?? null,
+              view: state.nav?.view ?? null,
+              authModalOpen: state.authModalOpen ?? null,
+            } : null,
+            session,
+          };
+        });
+        await testInfo.attach("confectioner-dashboard-diagnostics", {
+          body: Buffer.from(JSON.stringify(diagnostics, null, 2)),
+          contentType: "application/json",
+        });
+        await testInfo.attach("confectioner-dashboard-screenshot", {
+          body: await confectionerPage.screenshot({ fullPage: true }),
+          contentType: "image/png",
+        });
+        throw error;
+      }
 
       const orderCard = confectionerPage
         .getByTestId("confectioner-order-card")
