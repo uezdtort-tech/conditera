@@ -23,7 +23,7 @@ node scripts/verify/production-env-preflight.mjs
 
 echo "== Conditera local production deploy / PostgreSQL 17 =="
 echo "1/7 Protect existing production data before any startup..."
-for legacy_container in conditera-db conditera-supabase-db; do
+for legacy_container in conditera-db conditera-supabase-db supabase-db; do
   if docker inspect "$legacy_container" >/dev/null 2>&1; then
     legacy_running="$(docker inspect -f '{{.State.Running}}' "$legacy_container")"
     if [ "$legacy_running" = "true" ]; then
