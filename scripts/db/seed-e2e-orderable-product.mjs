@@ -94,11 +94,11 @@ async function main() {
       `INSERT INTO public.products
          (confectioner_id, category_id, slug, title, description, price, status,
           is_featured, published_at, recipe_id, min_order_qty, custom_order_available,
-          is_available, production_time_hours, prep_time_minutes, cook_time_minutes,
+          is_available, production_time_hours,
           product_type, weight_grams, servings, tags)
        VALUES
          ($1::uuid, $2::uuid, $3, $4, $5, 4400, 'published',
-          false, now(), $6::uuid, 1, false, true, 4, 60, 120,
+          false, now(), $6::uuid, 1, false, true, 4,
           'cake', 1200, 8, ARRAY['e2e','demo'])
        ON CONFLICT (slug) DO UPDATE SET
          confectioner_id = EXCLUDED.confectioner_id,
@@ -113,8 +113,6 @@ async function main() {
          custom_order_available = false,
          is_available = true,
          production_time_hours = 4,
-         prep_time_minutes = 60,
-         cook_time_minutes = 120,
          product_type = 'cake',
          weight_grams = 1200,
          servings = 8,
