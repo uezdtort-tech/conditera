@@ -23,12 +23,26 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
+  let body: unknown;
   try {
-    const body = await request.json();
-    const { oldPassword, newPassword } = body as { oldPassword?: string; newPassword?: string };
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Некорректный JSON" }, { status: 400 });
+  }
 
-    if (!oldPassword || !newPassword) {
+  try {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json({ error: "Ожидается объект со старым и новым паролем" }, { status: 400 });
+    }
+    const payload = body as Record<string, unknown>;
+    const oldPassword = payload.oldPassword;
+    const newPassword = payload.newPassword;
+
+    if (typeof oldPassword !== "string" || typeof newPassword !== "string" || !oldPassword || !newPassword) {
       return NextResponse.json({ error: "Укажите старый и новый пароль" }, { status: 400 });
+    }
+    if (oldPassword.length > 128) {
+      return NextResponse.json({ error: "Старый пароль слишком длинный" }, { status: 400 });
     }
 
     if (newPassword.length < 8) {
