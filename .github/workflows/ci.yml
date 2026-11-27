@@ -83,6 +83,9 @@ jobs:
 
       - name: Run tests
         run: bun run test
+
+      - name: Run production environment validator tests
+        run: bun run test:env-check
         env:
           JWT_SECRET: ${{ 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
           TFA_ENCRYPTION_KEY: ${{ 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
