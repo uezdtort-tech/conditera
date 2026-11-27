@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const getUserFromRequest = vi.fn();
-const revokeUserSession = vi.fn();
+const mocks = vi.hoisted(() => ({
+  getUserFromRequest: vi.fn(),
+  revokeUserSession: vi.fn(),
+}));
 
-vi.mock("@/lib/auth", () => ({ getUserFromRequest }));
-vi.mock("@/lib/session-registry", () => ({ revokeUserSession }));
+vi.mock("@/lib/auth", () => ({ getUserFromRequest: mocks.getUserFromRequest }));
+vi.mock("@/lib/session-registry", () => ({ revokeUserSession: mocks.revokeUserSession }));
+
+const { getUserFromRequest, revokeUserSession } = mocks;
 
 import { DELETE } from "./route";
 
