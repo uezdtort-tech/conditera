@@ -16,16 +16,22 @@ async function verifyRoleProfile(browser: Browser, email: string, roleLabel: str
 
   try {
     await page.goto(`${BASE_URL}/login`);
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Пароль").fill(DEMO_PASSWORD);
+    // Стабильные id полей формы входа: на модалке также есть вкладка регистрации.
+    await page.locator("#login-email").fill(email);
+    await page.locator("#login-password").fill(DEMO_PASSWORD);
     await page.getByRole("button", { name: "Войти", exact: true }).click();
     await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
 
     await page.getByRole("button", { name: "Настройки", exact: true }).click();
-    await expect(page.getByLabel("Имя")).toBeVisible({ timeout: 15_000 });
-    await page.getByLabel("Имя").fill(updatedName);
-    await page.getByLabel("Телефон").fill(updatedPhone);
-    await page.getByLabel("О себе").fill(updatedBio);
+    const nameField = page.locator("#name");
+    const phoneField = page.locator("#phone");
+    const bioField = page.locator("#bio");
+    await expect(nameField).toBeVisible({ timeout: 15_000 });
+    // Разные сессии обязаны видеть собственные данные, а не результат другого аккаунта.
+    await expect(nameField).not.toHaveValue(new RegExp("^Проверка "));
+    await nameField.fill(updatedName);
+    await phoneField.fill(updatedPhone);
+    await bioField.fill(updatedBio);
 
     const saveResponse = page.waitForResponse((response) =>
       response.url().endsWith("/api/profile") && response.request().method() === "PATCH",
@@ -36,9 +42,9 @@ async function verifyRoleProfile(browser: Browser, email: string, roleLabel: str
 
     await page.reload();
     await page.getByRole("button", { name: "Настройки", exact: true }).click();
-    await expect(page.getByLabel("Имя")).toHaveValue(updatedName, { timeout: 15_000 });
-    await expect(page.getByLabel("Телефон")).toHaveValue(updatedPhone);
-    await expect(page.getByLabel("О себе")).toHaveValue(updatedBio);
+    await expect(page.locator("#name")).toHaveValue(updatedName, { timeout: 15_000 });
+    await expect(page.locator("#phone")).toHaveValue(updatedPhone);
+    await expect(page.locator("#bio")).toHaveValue(updatedBio);
 
     const profileResponse = await page.request.get(`${BASE_URL}/api/profile`);
     expect(profileResponse.status()).toBe(200);
