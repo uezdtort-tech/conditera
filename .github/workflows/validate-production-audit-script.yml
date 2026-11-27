@@ -56,7 +56,7 @@ jobs:
             -e POSTGRES_USER=supabase_admin \
             -e POSTGRES_PASSWORD=${{ 'ci-audit-password' }} \
             -e POSTGRES_DB=conditera \
-            supabase/postgres:17.12.0.001
+            supabase/postgres:17.12.0.002
 
           READY=0
           for attempt in $(seq 1 60); do
