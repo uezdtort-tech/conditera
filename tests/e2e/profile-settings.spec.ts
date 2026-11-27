@@ -28,6 +28,8 @@ async function verifyRoleProfile(
     await page.getByRole("button", { name: "Войти", exact: true }).click();
     await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
 
+    await expect(page.getByRole("button", { name: roleTab, exact: true })).toBeVisible({ timeout: 15_000 });
+
     await page.getByRole("button", { name: "Настройки", exact: true }).click();
     const nameField = page.locator("#name");
     const phoneField = page.locator("#phone");
