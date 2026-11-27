@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { useState, useEffect, type ChangeEvent } from "react";
+import { useState, useEffect, useCallback, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,6 +54,8 @@ import {
   Music2,
   ChevronUp,
   ChevronDown,
+  RefreshCw,
+  RotateCcw,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -1067,126 +1069,612 @@ export function AdminCmsPagesTab() {
 }
 
 // ==================== CMS: НАСТРОЙКИ САЙТА ====================
-type CmsSiteSetting = {
+/** Строка site_settings, как её отдаёт GET /api/cms/settings. */
+interface SiteSettingApiRow {
+  id: string;
+  key?: string | null;
+  value?: string | null;
+  category?: string | null;
+  description?: string | null;
+}
+
+interface AdminSettingRow {
+  id: string;
   key: string;
   value: string;
-  value_type: string;
-  description: string | null;
   category: string;
-  is_public: boolean;
-};
+  description: string;
+}
+
+/** Строка GET /api/cms/settings/versions (Z-v32 E-1). */
+interface CmsVersionMetaRow {
+  version: number;
+  status: string;
+  comment: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+function cmsStatusLabel(status: string): string {
+  if (status === "draft") return "Черновик";
+  if (status === "published") return "Опубликована";
+  if (status === "superseded") return "Заменена";
+  return status;
+}
+
+function cmsStatusBadgeClass(status: string): string {
+  if (status === "published") return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  if (status === "draft") return "border-amber-300 bg-amber-50 text-amber-700";
+  return "border-muted bg-muted text-muted-foreground";
+}
 
 export function AdminSettingsTab() {
-  const [siteSettings, setSiteSettings] = useState<CmsSiteSetting[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<AdminSettingRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("general");
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [promoEnabled, setPromoEnabled] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
+  // Z-v32 E-1: версии и публикация
+  const [versions, setVersions] = useState<CmsVersionMetaRow[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionsError, setVersionsError] = useState<string | null>(null);
+  const [actingVersion, setActingVersion] = useState<number | null>(null);
+  // Z-brand: оформление (акцентный цвет + логотип) — ключи site_settings
+  const [brandAccent, setBrandAccent] = useState("#7c3f2c");
+  const [brandLogo, setBrandLogo] = useState("");
+  const [brandSaving, setBrandSaving] = useState(false);
+  // Новый ключ: добавить произвольную настройку (PUT создаёт ключ в черновике)
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [newKeySaving, setNewKeySaving] = useState(false);
 
-  const loadSettings = async (signal?: AbortSignal) => {
-    const response = await csrfFetch("/api/cms/settings", { signal });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Не удалось загрузить настройки");
-    setSiteSettings(Array.isArray(payload.settings) ? payload.settings : []);
-  };
+  const loadSettings = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/cms/settings");
+      const data = (await res.json()) as { settings?: SiteSettingApiRow[]; error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const rows = (data.settings || []).map((s) => ({
+        id: String(s.id),
+        key: String(s.key || ""),
+        value: String(s.value ?? ""),
+        category: String(s.category || "general"),
+        description: String(s.description || ""),
+      }));
+      setSettings(rows);
+      // Z-brand: подтягиваем текущие значения оформления
+      const accentRow = rows.find((r) => r.key === "brand_accent_color");
+      const logoRow = rows.find((r) => r.key === "brand_logo_url");
+      if (accentRow && /^#[0-9a-fA-F]{6}$/.test(accentRow.value)) setBrandAccent(accentRow.value);
+      if (logoRow) setBrandLogo(logoRow.value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить настройки");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    loadSettings(controller.signal)
-      .catch((error: unknown) => {
-        if (error instanceof Error && error.name !== "AbortError") toast.error("Ошибка загрузки настроек", { description: error.message });
-      })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    void loadSettings();
+  }, [loadSettings]);
+
+  const loadVersions = useCallback(async () => {
+    setVersionsLoading(true);
+    setVersionsError(null);
+    try {
+      const res = await csrfFetch("/api/cms/settings/versions");
+      const data = (await res.json()) as { versions?: CmsVersionMetaRow[]; error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setVersions(
+        (data.versions || []).map((v) => ({
+          version: Number(v.version),
+          status: String(v.status),
+          comment: v.comment ?? null,
+          created_by: v.created_by ?? null,
+          created_at: String(v.created_at || ""),
+        }))
+      );
+    } catch (e) {
+      setVersionsError(e instanceof Error ? e.message : "Не удалось загрузить версии");
+    } finally {
+      setVersionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadVersions();
+  }, [loadVersions]);
+
+  // Загружаем статус промо-попапа
+  useEffect(() => {
     csrfFetch("/api/admin/promo-popup")
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => { if (data) setPromoEnabled(Boolean(data.enabled)); })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setPromoEnabled(data.enabled); })
       .catch(() => {});
-    return () => controller.abort();
   }, []);
 
   const handleTogglePromo = async () => {
     setPromoLoading(true);
     try {
-      const response = await csrfFetch("/api/admin/promo-popup", {
+      const res = await csrfFetch("/api/admin/promo-popup", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !promoEnabled }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Не удалось изменить промо-попап");
-      setPromoEnabled(!promoEnabled);
-      toast.success(`Промо-попап ${!promoEnabled ? "включён" : "выключен"}`);
-    } catch (error) {
-      toast.error("Ошибка", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
-    } finally { setPromoLoading(false); }
+      if (res.ok) {
+        setPromoEnabled(!promoEnabled);
+        toast.success(`Промо-попап ${!promoEnabled ? "включён" : "выключен"}`);
+      }
+    } catch {
+      toast.error("Ошибка");
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  /** Публикация черновика (Z-v32 E-1). */
+  const handlePublish = async (version: number) => {
+    setActingVersion(version);
+    try {
+      const res = await csrfFetch("/api/cms/settings/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version }),
+      });
+      const data = (await res.json()) as { error?: string; currentStatus?: string };
+      if (res.ok) {
+        toast.success(`Версия ${version} опубликована`);
+        void loadVersions();
+        void loadSettings();
+      } else if (data.error === "CMS_NOT_DRAFT") {
+        toast.error(`Версия ${version} — не черновик (${cmsStatusLabel(data.currentStatus || "")})`);
+        void loadVersions();
+      } else if (data.error === "CMS_VERSION_NOT_FOUND") {
+        toast.error("Версия не найдена — обновите список");
+        void loadVersions();
+      } else {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось опубликовать версию");
+    } finally {
+      setActingVersion(null);
+    }
+  };
+
+  /** Откат: новая версия с данными старой, публикуется сразу. */
+  const handleRollback = async (toVersion: number) => {
+    setActingVersion(toVersion);
+    try {
+      const res = await csrfFetch("/api/cms/settings/rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toVersion }),
+      });
+      const data = (await res.json()) as { version?: number; error?: string };
+      if (res.ok) {
+        toast.success(
+          `Создана версия ${data.version ?? "?"} с данными v${toVersion} и сразу опубликована`
+        );
+        void loadVersions();
+        void loadSettings();
+      } else if (data.error === "CMS_VERSION_NOT_FOUND") {
+        toast.error("Версия не найдена — обновите список");
+        void loadVersions();
+      } else {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось выполнить откат");
+    } finally {
+      setActingVersion(null);
+    }
+  };
+
+  /** Z-brand: сохранить оформление черновиком (публикация — в блоке «Версии»). */
+  const handleSaveBrand = async () => {
+    setBrandSaving(true);
+    try {
+      const pairs: { key: string; value: string }[] = [
+        { key: "brand_accent_color", value: /^#[0-9a-fA-F]{6}$/.test(brandAccent) ? brandAccent : "" },
+        { key: "brand_logo_url", value: brandLogo.trim() },
+      ];
+      let draftVersion: number | undefined;
+      for (const pair of pairs) {
+        const res = await csrfFetch("/api/cms/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...pair, comment: `Правка оформления: ${pair.key}` }),
+        });
+        const data = (await res.json()) as { draft?: { version?: number }; error?: string; currentVersion?: number | null };
+        if (res.status === 409 && data.error === "CMS_CONFLICT") {
+          toast.error(`Конфликт версий (v${data.currentVersion ?? "?"}) — обновите и повторите`);
+          return;
+        }
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (data.draft?.version) draftVersion = data.draft.version;
+      }
+      toast.success(draftVersion ? `Черновик v${draftVersion} сохранён — опубликуйте в «Версиях»` : "Оформление сохранено в черновик");
+      void loadVersions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сохранить оформление");
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+
+  const filtered = settings.filter((s) => s.category === activeCategory);
+
+  /** Добавить произвольный ключ: PUT создаёт его в черновике документа. */
+  const handleAddKey = async () => {
+    const key = newKey.trim();
+    if (!key) {
+      toast.error("Укажите ключ (например contact_phone)");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
+      toast.error("Ключ: только латиница, цифры и _ . - (без пробелов)");
+      return;
+    }
+    setNewKeySaving(true);
+    try {
+      const res = await csrfFetch("/api/cms/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: newValue, comment: `Новый ключ ${key}` }),
+      });
+      const data = (await res.json()) as { draft?: { version?: number }; error?: string; currentVersion?: number | null };
+      if (res.status === 409 && data.error === "CMS_CONFLICT") {
+        toast.error(`Конфликт версий (v${data.currentVersion ?? "?"}) — обновите и повторите`);
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast.success(
+        data.draft?.version
+          ? `Ключ «${key}» добавлен в черновик v${data.draft.version} — опубликуйте в «Версиях», чтобы он появился в списке`
+          : `Ключ «${key}» добавлен в черновик`
+      );
+      setNewKey("");
+      setNewValue("");
+      void loadVersions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось добавить ключ");
+    } finally {
+      setNewKeySaving(false);
+    }
   };
 
   const handleSave = async (key: string) => {
-    if (editValues[key] === undefined || savingKey) return;
+    if (editValues[key] === undefined) return;
     setSavingKey(key);
     try {
-      const response = await csrfFetch("/api/cms/settings", {
+      const res = await csrfFetch("/api/cms/settings", {
         method: "PUT",
-        body: JSON.stringify({ key, value: editValues[key] }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: editValues[key], comment: `Правка ключа ${key}` }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Не удалось сохранить настройку");
-      setSiteSettings((current) => current.map((setting) => setting.key === key ? payload.setting : setting));
-      setEditValues((current) => { const next = { ...current }; delete next[key]; return next; });
-      toast.success(`Настройка «${key}» сохранена в PostgreSQL`);
-    } catch (error) {
-      toast.error("Ошибка сохранения", { description: error instanceof Error ? error.message : "Неизвестная ошибка" });
-    } finally { setSavingKey(null); }
+      const data = (await res.json()) as {
+        draft?: { version?: number };
+        error?: string;
+        currentVersion?: number | null;
+      };
+      if (res.status === 409 && data.error === "CMS_CONFLICT") {
+        toast.error(
+          `Конфликт версий: опубликованная версия изменилась (v${data.currentVersion ?? "?"}). Обновите данные и повторите правку.`,
+          {
+            action: {
+              label: "Обновить",
+              onClick: () => {
+                void loadSettings();
+                void loadVersions();
+              },
+            },
+          }
+        );
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      // Значение показываем локально сразу (в публичке появится после публикации)
+      setSettings((prev) => prev.map((s) => (s.key === key ? { ...s, value: editValues[key] } : s)));
+      const draftVersion = data.draft?.version;
+      toast.success(
+        draftVersion
+          ? `Черновик сохранён как версия ${draftVersion} — опубликуйте`
+          : "Настройка сохранена в черновик"
+      );
+      const newValues = { ...editValues };
+      delete newValues[key];
+      setEditValues(newValues);
+      void loadVersions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Не удалось сохранить «${key}»`);
+    } finally {
+      setSavingKey(null);
+    }
   };
-
-  const filtered = siteSettings.filter((setting) => setting.category === activeCategory);
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="font-display text-2xl font-bold flex items-center gap-2"><Settings className="h-6 w-6 text-primary" />Настройки сайта</h1>
-        <p className="text-sm text-muted-foreground">Настройки загружаются из PostgreSQL; сохранение выполняется через защищённый API.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold flex items-center gap-2">
+            <Settings className="h-6 w-6 text-primary" />
+            Настройки сайта
+          </h1>
+          <p className="text-sm text-muted-foreground">Комиссии, тарифы, доставка, SEO, контакты — всё в одном месте</p>
+        </div>
+        <Button onClick={loadSettings} variant="outline" size="sm" aria-label="Обновить настройки">
+          <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+          Обновить
+        </Button>
       </div>
 
+      {error && (
+        <Card className="p-3 border-destructive/40 bg-destructive/5 text-sm text-destructive">
+          {error}
+        </Card>
+      )}
+
+      {/* Управление промо-попапом */}
       <Card className={`p-4 ${promoEnabled ? "border-emerald-300 bg-emerald-50/30" : "border-muted"}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${promoEnabled ? "bg-emerald-100" : "bg-muted"}`}><Gift className={`h-5 w-5 ${promoEnabled ? "text-emerald-600" : "text-muted-foreground"}`} /></div>
-            <div><div className="font-semibold text-sm">Промо-попап на главной</div><div className="text-xs text-muted-foreground">{promoEnabled ? "Включён" : "Выключен"}</div></div>
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${promoEnabled ? "bg-emerald-100" : "bg-muted"}`}>
+              <Gift className={`h-5 w-5 ${promoEnabled ? "text-emerald-600" : "text-muted-foreground"}`} />
+            </div>
+            <div>
+              <div className="font-semibold text-sm">Промо-попап на главной</div>
+              <div className="text-xs text-muted-foreground">
+                {promoEnabled
+                  ? "Включён — показывается пользователям через 5 сек после загрузки"
+                  : "Выключен — попап не показывается"}
+              </div>
+            </div>
           </div>
-          <Button onClick={handleTogglePromo} disabled={promoLoading} variant={promoEnabled ? "destructive" : "default"} size="sm" className="gap-2">
-            {promoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : promoEnabled ? <X className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+          <Button
+            onClick={handleTogglePromo}
+            disabled={promoLoading}
+            variant={promoEnabled ? "destructive" : "default"}
+            size="sm"
+            className="gap-2"
+          >
+            {promoLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : promoEnabled ? (
+              <X className="h-3.5 w-3.5" />
+            ) : (
+              <Check className="h-3.5 w-3.5" />
+            )}
             {promoEnabled ? "Выключить" : "Включить"}
           </Button>
         </div>
       </Card>
 
+      {/* Z-brand: Оформление (акцент + логотип) */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <Palette className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <div className="font-semibold text-sm">Оформление (бренд)</div>
+              <div className="text-xs text-muted-foreground">
+                Акцентный цвет применяется ко всему сайту (кнопки, ссылки, активные состояния); логотип — в шапке и футере
+              </div>
+            </div>
+          </div>
+          <Button onClick={handleSaveBrand} disabled={brandSaving} size="sm">
+            {brandSaving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+            Сохранить черновик
+          </Button>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <Label className="text-xs">Акцентный цвет</Label>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(brandAccent) ? brandAccent : "#7c3f2c"}
+                onChange={(e) => setBrandAccent(e.target.value)}
+                className="h-8 w-12 rounded border border-border cursor-pointer bg-transparent"
+                aria-label="Выбор акцентного цвета"
+              />
+              <Input
+                value={brandAccent}
+                onChange={(e) => setBrandAccent(e.target.value)}
+                className="h-8 w-28 font-mono text-sm"
+                placeholder="#7c3f2c"
+                aria-label="HEX акцентного цвета"
+              />
+              <span className="text-[10px] text-muted-foreground">HEX, например #7c3f2c</span>
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">URL логотипа</Label>
+            <Input
+              value={brandLogo}
+              onChange={(e) => setBrandLogo(e.target.value)}
+              className="h-8 text-sm mt-1"
+              placeholder="/logo.png или https://..."
+              aria-label="URL логотипа"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">Пусто — системный логотип /logo.png</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Z-v32 E-1: Версии и публикация */}
+      <Card className="p-4 border-muted">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="font-semibold text-sm">Версии и публикация</div>
+            <div className="text-xs text-muted-foreground">
+              Правки сохраняются черновиком; публикация делает черновик видимым на сайте. Откат создаёт новую версию с данными старой.
+            </div>
+          </div>
+          <Button onClick={loadVersions} variant="outline" size="sm" aria-label="Обновить версии">
+            <RefreshCw className={`h-4 w-4 ${versionsLoading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+        {versionsError ? (
+          <div className="text-xs text-destructive">{versionsError}</div>
+        ) : versions.length === 0 ? (
+          <div className="text-xs text-muted-foreground py-2 text-center">
+            Версий пока нет — сохраните первую правку черновиком
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {versions.map((v) => (
+              <div key={v.version} className="flex flex-wrap items-center gap-2 p-2 border border-border rounded">
+                <span className="text-sm font-mono font-semibold w-12">v{v.version}</span>
+                <Badge variant="outline" className={cmsStatusBadgeClass(v.status)}>
+                  {cmsStatusLabel(v.status)}
+                </Badge>
+                <span className="flex-1 min-w-0 text-xs text-muted-foreground truncate">
+                  {v.comment || "—"} · {formatDate(v.created_at)}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1"
+                  onClick={() => window.open(`/?cmsPreview=${v.version}`, "_blank", "noopener,noreferrer")}
+                >
+                  <Eye className="h-3 w-3" />
+                  Предпросмотр
+                </Button>
+                {v.status === "draft" && (
+                  <Button
+                    size="sm"
+                    className="h-7 gap-1"
+                    disabled={actingVersion !== null}
+                    onClick={() => handlePublish(v.version)}
+                  >
+                    {actingVersion === v.version ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Check className="h-3 w-3" />
+                    )}
+                    Опубликовать
+                  </Button>
+                )}
+                {(v.status === "published" || v.status === "superseded") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1"
+                    disabled={actingVersion !== null}
+                    onClick={() => handleRollback(v.version)}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Откатить
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Добавить произвольный ключ настройки */}
+      <Card className="p-4 border-dashed">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <Plus className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <div className="font-semibold text-sm">Добавить свой ключ</div>
+            <div className="text-xs text-muted-foreground">
+              Ключ появится в списке после публикации версии. Публичные страницы читают ключи вида hero_* и brand_*
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Input
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            placeholder="Ключ (например support_phone)"
+            className="h-9 flex-1 font-mono text-sm"
+            aria-label="Ключ настройки"
+          />
+          <Input
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            placeholder="Значение"
+            className="h-9 flex-1 text-sm"
+            aria-label="Значение настройки"
+          />
+          <Button onClick={handleAddKey} disabled={newKeySaving} size="sm" className="h-9 shrink-0">
+            {newKeySaving ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+            Добавить
+          </Button>
+        </div>
+      </Card>
+
+      {/* Категории */}
       <div className="flex flex-wrap gap-2">
-        {SETTING_CATEGORIES.map((category) => (
-          <button key={category.id} onClick={() => setActiveCategory(category.id)} className={`px-3 py-1.5 text-xs rounded-full border flex items-center gap-1 ${activeCategory === category.id ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
-            <span>{category.icon}</span>{category.label}
+        {SETTING_CATEGORIES.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => setActiveCategory(cat.id)}
+            className={`px-3 py-1.5 text-xs rounded-full border flex items-center gap-1 ${
+              activeCategory === cat.id
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border hover:border-primary/40"
+            }`}
+          >
+            <span>{cat.icon}</span>
+            {cat.label}
           </button>
         ))}
       </div>
 
-      <Card className="p-4">
-        {loading ? <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Загрузка настроек…</div> : (
+      {/* Настройки */}
+      {error ? null : isLoading ? (
+        <Card className="p-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Загрузка настроек…
+        </Card>
+      ) : settings.length === 0 ? (
+        <Card className="p-8 text-center">
+          <Settings className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+          <h3 className="font-semibold text-sm">Настройки не найдены</h3>
+          <p className="text-sm text-muted-foreground">В таблице site_settings пока нет записей — добавьте их через БД или API</p>
+        </Card>
+      ) : (
+        <Card className="p-4">
           <div className="space-y-2">
             {filtered.map((setting) => (
-              <div key={setting.key} className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 border border-border rounded">
-                <div className="flex-1 min-w-0"><div className="text-sm font-medium">{setting.description || setting.key}</div><div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div></div>
-                <Input value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value} onChange={(event) => setEditValues((current) => ({ ...current, [setting.key]: event.target.value }))} className="sm:w-64 h-8 text-sm" />
-                <Button size="sm" variant="outline" className="h-8" disabled={editValues[setting.key] === undefined || savingKey !== null} onClick={() => handleSave(setting.key)}>
+              <div key={setting.id} className="flex items-center gap-3 p-2 border border-border rounded">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">{setting.description}</div>
+                  <div className="text-[10px] text-muted-foreground font-mono">{setting.key}</div>
+                </div>
+                <Input
+                  value={editValues[setting.key] !== undefined ? editValues[setting.key] : setting.value}
+                  onChange={(e) => setEditValues({ ...editValues, [setting.key]: e.target.value })}
+                  className="w-40 h-8 text-sm"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => handleSave(setting.key)}
+                  disabled={editValues[setting.key] === undefined || savingKey === setting.key}
+                >
                   {savingKey === setting.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                 </Button>
               </div>
             ))}
-            {filtered.length === 0 && <div className="text-center text-sm text-muted-foreground py-8">В этой категории нет доступных настроек.</div>}
+            {filtered.length === 0 && (
+              <div className="text-xs text-muted-foreground text-center py-2">Нет настроек в этой категории</div>
+            )}
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
     </div>
   );
 }
