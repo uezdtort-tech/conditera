@@ -99,6 +99,7 @@ required_app = [
     "SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD",
     "YOOKASSA_SHOP_ID", "YOOKASSA_SECRET_KEY",
     "YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET", "YANDEX_OAUTH_REDIRECT",
+    "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT",
     "VK_CLIENT_ID", "VK_OAUTH_REDIRECT",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL_ID", "TELEGRAM_WEBHOOK_SECRET",
     "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY",
@@ -229,6 +230,7 @@ if app.get("NEXT_PUBLIC_APP_URL", "").rstrip("/") != "https://conditera.ru":
 if app.get("SMTP_TLS_REJECT_UNAUTHORIZED", "true").lower() not in ("true", "1", "yes"):
     errors.append("SMTP_TLS_REJECT_UNAUTHORIZED must remain enabled in production")
 for key, expected in (("YANDEX_OAUTH_REDIRECT", "https://conditera.ru/api/auth/oauth/yandex/callback"),
+                      ("GOOGLE_OAUTH_REDIRECT", "https://conditera.ru/api/auth/oauth/google/callback"),
                       ("VK_OAUTH_REDIRECT", "https://conditera.ru/api/auth/oauth/vk/callback")):
     if app.get(key, "").rstrip("/") != expected:
         errors.append(f".env.production: {key} must be {expected}")
@@ -236,7 +238,7 @@ if app.get("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/") != "https://conditera.ru/
     errors.append("NEXT_PUBLIC_SUPABASE_URL must be https://conditera.ru/api")
 if not app.get("YOOKASSA_SECRET_KEY", "").startswith("live_"):
     errors.append("YOOKASSA_SECRET_KEY must be a live_ production key, not a test credential")
-for key in ("EXTERNAL_YANDEX_ENABLED", "EXTERNAL_VK_ENABLED"):
+for key in ("EXTERNAL_YANDEX_ENABLED", "EXTERNAL_GOOGLE_ENABLED", "EXTERNAL_VK_ENABLED"):
     if app.get(key, "false").lower() != "false":
         errors.append(f".env.production: {key} must remain false; Conditera uses its own PKCE callback routes, not GoTrue provider callbacks")
 
