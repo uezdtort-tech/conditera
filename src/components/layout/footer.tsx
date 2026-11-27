@@ -2,6 +2,7 @@
 
 import { useAppStore } from "@/lib/store";
 import { resolveCmsNavigationView } from "@/lib/cms-navigation";
+import { usePublishedBrand } from "@/hooks/use-published-cms";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { siteConfig, getCopyrightYears } from "@/lib/site-config";
@@ -64,6 +65,7 @@ export function Footer() {
   const navigate = useAppStore((s) => s.navigate);
   const router = useRouter();
   const pathname = usePathname();
+  const brand = usePublishedBrand();
   const navigateToView = (...args: Parameters<typeof navigate>) => {
     navigate(...args);
     if (pathname.startsWith("/pages/")) router.push("/");
@@ -99,7 +101,7 @@ export function Footer() {
               onClick={() => navigateToView("home")}
               className="flex items-center gap-2 mb-4"
             >
-              <img src="/logo.png" alt={siteConfig.name} className="h-12 w-12 rounded-full object-cover shadow-md" />
+              <img src={brand.logoUrl ?? "/logo.png"} alt={siteConfig.name} className="h-12 w-12 rounded-full object-cover shadow-md" />
               <div className="text-left leading-tight">
                 <div className="logo-text text-lg">{siteConfig.name}</div>
               </div>
