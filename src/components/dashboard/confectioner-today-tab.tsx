@@ -82,7 +82,11 @@ function OrderRow({
 }) {
   const status = ORDER_STATUS_LABELS[order.status] ?? { label: order.status, color: "" };
   return (
-    <div className="flex items-start gap-3 p-2.5 border border-border rounded-lg">
+    <div
+      data-testid="confectioner-order-row"
+      data-order-id={order.id}
+      className="flex items-start gap-3 p-2.5 border border-border rounded-lg"
+    >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold">{order.number}</span>
@@ -111,6 +115,7 @@ function OrderRow({
           {onOpenWorkspace && (
             <Button
               size="sm"
+              data-testid="open-order-workspace"
               variant="outline"
               className="h-8 text-xs"
               onClick={() => onOpenWorkspace(order.id)}
