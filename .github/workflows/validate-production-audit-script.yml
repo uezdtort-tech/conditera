@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "scripts/ops/audit-local-production.ps1"
+      - "scripts/deploy-single-container.ps1"
       - ".github/workflows/validate-production-audit-script.yml"
   push:
     branches:
@@ -31,16 +32,24 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path "scripts/ops/audit-local-production.ps1"),
-            [ref]$tokens,
-            [ref]$errors
-          ) | Out-Null
-          if ($errors.Count -gt 0) {
-            $errors | Format-List
-            exit 1
+          foreach ($script in @(
+            "scripts/ops/audit-local-production.ps1",
+            "scripts/deploy-single-container.ps1"
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              Write-Error "PowerShell parse failed: $script"
+              $errors | Format-List
+              exit 1
+            }
+            Write-Host "PowerShell syntax OK: $script"
           }
-          Write-Host "PowerShell syntax OK"
 
       - name: Test read-only audit against disposable Supabase PostgreSQL 17
         shell: bash
