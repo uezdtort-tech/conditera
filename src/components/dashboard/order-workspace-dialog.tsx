@@ -669,7 +669,7 @@ export function OrderWorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+      <DialogContent data-testid="order-workspace-dialog" className="max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap pr-6">
             <LayoutDashboard className="h-5 w-5 text-primary" />
@@ -1031,6 +1031,7 @@ export function OrderWorkspaceDialog({
                     return (
                       <Button
                         key={a.kind}
+                        data-testid={`order-action-${a.kind}`}
                         type="button"
                         variant={a.enabled ? "default" : "outline"}
                         disabled={!a.enabled || actionMutation.isPending}
