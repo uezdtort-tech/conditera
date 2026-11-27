@@ -150,6 +150,10 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: ${{ env.NODE_ENV }}
+          # Next.js компилирует клиентский bundle как production независимо от NODE_ENV=test.
+          # Явно включаем demoSeed только в изолированном E2E workflow, иначе
+          # MOCK_CONFECTIONERS становится пустым и /dashboard падает на confectioner.tariff.
+          NEXT_PUBLIC_DEMO_MODE: "1"
 
       - name: Cache build for downstream
         uses: actions/cache@v6
