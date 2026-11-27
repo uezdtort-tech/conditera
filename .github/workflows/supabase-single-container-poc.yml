@@ -114,6 +114,7 @@ jobs:
           assert "supabase_runtime_deno_cache" in config["volumes"]
           assert "conditera_backup_data" in config["volumes"]
           assert "conditera_backup:" in web["environment"]["BACKUP_DATABASE_URL"]
+          assert web["environment"]["BACKUP_DATABASE_URL"].endswith("@supabase-runtime:5432/conditera")
           assert any(v.get("target") == "/app/backups" and "conditera_backup_data" in v.get("source", "") for v in web.get("volumes", []))
           print("Single-container Compose overlay is valid; legacy Supabase services are profiled; Caddy DNS alias and isolated PG17 volumes are present.")
           PY
