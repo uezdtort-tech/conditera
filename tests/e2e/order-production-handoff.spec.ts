@@ -136,6 +136,7 @@ test.describe("Полный заказ: оплата → производств�
 
       // Покупатель видит завершённую передачу в своём кабинете.
       await page.goto(`${BASE_URL}/dashboard`);
+      await page.getByRole("button", { name: "Мои заказы" }).click();
       await expect(page.getByText(/Доставлен|Получен/).first()).toBeVisible({ timeout: 20_000 });
 
       const logout = confectionerPage.getByRole("button", { name: /Выйти/ }).first();
