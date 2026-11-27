@@ -31,22 +31,22 @@ const request = (body: unknown) =>
 describe("PATCH /api/profile — профиль только текущего пользователя", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getUserFromRequest.mockResolvedValue({
+    mocks.getUserFromRequest.mockResolvedValue({
       id: "user-1",
       userId: "user-1",
       roles: ["CUSTOMER"],
     });
-    update.mockReturnValue({ eq });
-    eq.mockReturnValue({ select });
-    select.mockReturnValue({ single });
-    single.mockResolvedValue({
+    mocks.update.mockReturnValue({ eq });
+    mocks.eq.mockReturnValue({ select });
+    mocks.select.mockReturnValue({ single });
+    mocks.single.mockResolvedValue({
       data: { id: "user-1", name: "Новое имя", city: "Москва" },
       error: null,
     });
   });
 
   it("возвращает 401 без сессии", async () => {
-    getUserFromRequest.mockResolvedValue(null);
+    mocks.getUserFromRequest.mockResolvedValue(null);
     const response = await PATCH(request({ name: "Тест" }));
     expect(response.status).toBe(401);
     expect(update).not.toHaveBeenCalled();
