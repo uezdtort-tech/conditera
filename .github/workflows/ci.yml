@@ -253,7 +253,9 @@ jobs:
         #      те же паттерны, что и в history-скане.
         run: |
           FAIL=0
-          SECRET_RE='(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ci_test_jwt_secret|ci_test_tfa_key)'
+          # A PEM header literal in a crypto parser/docs is not a private key.
+          # Detect a complete PEM block (header + substantial base64 body + footer) separately.
+          SECRET_RE='(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|ci_test_jwt_secret|ci_test_tfa_key)'
           for img in "conditera:${{ env.CANDIDATE_SHA }}" "conditera-chat:${{ env.CANDIDATE_SHA }}" "conditera-simplex-bridge:${{ env.CANDIDATE_SHA }}"; do
             echo "— $img"
             # 1) существование — строго до history/скана
@@ -280,10 +282,17 @@ jobs:
             # Scan text files only. -a forced binary executables/shared libraries into
             # text mode and produced false positives on Node/GPG/system libraries.
             # --binary-files=without-match keeps PEM/config/text secrets detectable.
-            MATCHES="$(grep -RIlE --binary-files=without-match "$SECRET_RE" "$ROOTFS" || true)"
-            if [ -n "$MATCHES" ]; then
+            MATCHES="$(grep -RIlE --binary-files=without-match "$SECRET_RE" "$ROOTFS" 2>/dev/null || true)"
+            PEM_MATCHES=""
+            while IFS= read -r -d '' file; do
+              if grep -Iq . "$file" 2>/dev/null && perl -0777 -ne 'exit(/-----BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+\/=\r\n]{80,}-----END [A-Z ]*PRIVATE KEY-----/ ? 0 : 1)' "$file"; then
+                PEM_MATCHES="$PEM_MATCHES\n$file"
+              fi
+            done < <(find "$ROOTFS" -type f -print0 2>/dev/null)
+            if [ -n "$MATCHES" ] || [ -n "$PEM_MATCHES" ]; then
               echo "❌ potential secret in exported filesystem of $img:"
-              printf '%s\n' "$MATCHES" | sed "s#^$ROOTFS/##"
+              if [ -n "$MATCHES" ]; then printf '%s\n' "$MATCHES" | sed "s#^$ROOTFS/##"; fi
+              if [ -n "$PEM_MATCHES" ]; then printf '%b\n' "$PEM_MATCHES" | sed "s#^$ROOTFS/##"; fi
               FAIL=1
             else
               echo "  ✓ exported filesystem content clean"
