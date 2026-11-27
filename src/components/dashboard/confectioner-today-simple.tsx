@@ -175,7 +175,11 @@ function SimpleOrderCardView({
   const isDone = !order.todo && order.status !== "PENDING";
 
   return (
-    <Card className={`p-4 sm:p-5 ${order.availability === "missing_ingredients" ? "border-amber-300 bg-amber-50/50" : ""}`}>
+    <Card
+      data-testid="confectioner-order-card"
+      data-order-id={order.orderId}
+      className={`p-4 sm:p-5 ${order.availability === "missing_ingredients" ? "border-amber-300 bg-amber-50/50" : ""}`}
+    >
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h3 className="font-semibold text-base min-w-0 truncate">
           Заказ №{order.number}
@@ -274,6 +278,7 @@ function SimpleOrderCardView({
       {/* Одна понятная кнопка на текущем этапе */}
       {order.todo && (
         <Button
+          data-testid={`simple-order-action-${order.todo.code}`}
           className="mt-4 w-full sm:w-auto min-h-[44px]"
           disabled={mutation.isPending || photoMutation.isPending}
           onClick={() => {
@@ -302,6 +307,7 @@ function SimpleOrderCardView({
       {onOpenWorkspace && order.todo && order.todo.code !== "ready" && (
         <Button
           type="button"
+          data-testid="open-order-workspace"
           variant="outline"
           size="sm"
           className="mt-2 min-h-[44px] w-full sm:w-auto"
