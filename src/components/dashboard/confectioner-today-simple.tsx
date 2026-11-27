@@ -119,9 +119,11 @@ function buyByLabel(latestSafeStartAt: string | null): string | null {
 function SimpleOrderCardView({
   order,
   onOpenBreakdown,
+  onOpenWorkspace,
 }: {
   order: SimpleOrderCard;
   onOpenBreakdown: (orderId: string) => void;
+  onOpenWorkspace?: (orderId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [needsPhoto, setNeedsPhoto] = React.useState(false);
@@ -274,7 +276,14 @@ function SimpleOrderCardView({
         <Button
           className="mt-4 w-full sm:w-auto min-h-[44px]"
           disabled={mutation.isPending || photoMutation.isPending}
-          onClick={() => (needsPhoto ? fileRef.current?.click() : mutation.mutate())}
+          onClick={() => {
+            if (order.todo?.code === "ready" && onOpenWorkspace) {
+              onOpenWorkspace(order.orderId);
+              return;
+            }
+            if (needsPhoto) fileRef.current?.click();
+            else mutation.mutate();
+          }}
         >
           {mutation.isPending ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden />
@@ -283,7 +292,22 @@ function SimpleOrderCardView({
           ) : (
             <ArrowRight className="h-4 w-4 mr-2" aria-hidden />
           )}
-          {needsPhoto && order.todo.code === "ready" ? "Прикрепить фото" : order.todo.label}
+          {order.todo.code === "ready" && onOpenWorkspace
+            ? "Открыть чек-лист готовности"
+            : needsPhoto && order.todo.code === "ready"
+              ? "Прикрепить фото"
+              : order.todo.label}
+        </Button>
+      )}
+      {onOpenWorkspace && order.todo && order.todo.code !== "ready" && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-2 min-h-[44px] w-full sm:w-auto"
+          onClick={() => onOpenWorkspace(order.orderId)}
+        >
+          Рабочая область заказа
         </Button>
       )}
       {isDone && (
@@ -305,12 +329,15 @@ export function ConfectionerTodaySimple({
   capacityAlert,
   isLoading,
   onOpenBreakdown,
+  onOpenWorkspace,
 }: {
   orders: SimpleOrderCard[];
   capacityAlert: CapacityAlert | null;
   isLoading: boolean;
-  /** Открывает диалог разбора заказа (создание закупки из дефицита). */
+  /** Открывает разбор ингредиентов и создание закупки. */
   onOpenBreakdown: (orderId: string) => void;
+  /** Открывает производственный чек-лист, фото готовности и передачу заказа. */
+  onOpenWorkspace?: (orderId: string) => void;
 }) {
   const todayLabel = new Date().toLocaleDateString("ru-RU", {
     weekday: "long",
@@ -390,7 +417,12 @@ export function ConfectionerTodaySimple({
       ) : (
         <div className="space-y-3">
           {sorted.map((o) => (
-            <SimpleOrderCardView key={o.orderId} order={o} onOpenBreakdown={onOpenBreakdown} />
+            <SimpleOrderCardView
+              key={o.orderId}
+              order={o}
+              onOpenBreakdown={onOpenBreakdown}
+              onOpenWorkspace={onOpenWorkspace}
+            />
           ))}
         </div>
       )}
