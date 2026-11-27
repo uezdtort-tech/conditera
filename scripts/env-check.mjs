@@ -222,12 +222,12 @@ export function validateEnvironment(values, selectedMode = "development", select
   optional("YANDEX_GEOCODER_API_KEY", "Yandex Geocoder");
 
   // OAuth providers
-  // OAuth providers
   if (production) {
     required("YANDEX_CLIENT_ID", "Yandex ID client ID");
     required("YANDEX_CLIENT_SECRET", "Yandex ID client secret");
     required("YANDEX_OAUTH_REDIRECT", "Yandex ID callback URL");
     required("VK_CLIENT_ID", "VK ID client ID");
+    required("VK_CLIENT_SECRET", "VK ID client secret");
     required("VK_OAUTH_REDIRECT", "VK ID callback URL");
     const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\/$/, "");
     if (isFilled(appBase) && isFilled(value("YANDEX_OAUTH_REDIRECT")) &&
@@ -241,12 +241,18 @@ export function validateEnvironment(values, selectedMode = "development", select
     if (isFilled(value("YANDEX_CLIENT_SECRET")) && value("YANDEX_CLIENT_SECRET").length < 16) {
       error("YANDEX_CLIENT_SECRET короче 16 символов");
     }
+    if (isFilled(value("VK_CLIENT_SECRET")) && value("VK_CLIENT_SECRET").length < 16) {
+      error("VK_CLIENT_SECRET короче 16 символов");
+    }
   } else {
     optional("YANDEX_CLIENT_ID", "Yandex ID");
+    optional("YANDEX_CLIENT_SECRET", "Yandex ID client secret");
     optional("YANDEX_OAUTH_REDIRECT", "Yandex ID callback");
     optional("VK_CLIENT_ID", "VK ID");
+    optional("VK_CLIENT_SECRET", "VK ID client secret");
     optional("VK_OAUTH_REDIRECT", "VK ID callback");
   }
+  if (production) {
     required("GOOGLE_CLIENT_ID", "Google OAuth client ID");
     required("GOOGLE_CLIENT_SECRET", "Google OAuth client secret");
     required("GOOGLE_OAUTH_REDIRECT", "Google OAuth callback URL");
@@ -259,7 +265,9 @@ export function validateEnvironment(values, selectedMode = "development", select
       error("GOOGLE_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/google/callback");
     }
   } else {
-    optional("GOOGLE_CLIENT_ID", "Google OAuth");
+    optional("GOOGLE_CLIENT_ID", "Google OAuth client ID");
+    optional("GOOGLE_CLIENT_SECRET", "Google OAuth client secret");
+    optional("GOOGLE_OAUTH_REDIRECT", "Google OAuth callback URL");
   }
 
   // Telegram
