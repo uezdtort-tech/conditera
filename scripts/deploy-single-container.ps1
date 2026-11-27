@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet("Config", "Up", "Status", "Health", "Logs", "Stop")]
-    [string]$Mode = "Config"
+    [string]$Mode = "Config",
+    [switch]$ConfirmEmptyLegacyDatabases
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,9 +40,17 @@ if (-not (Get-Command "docker.exe" -ErrorAction SilentlyContinue)) {
     throw "Docker CLI не найден. Установите Docker Desktop for Windows."
 }
 
+$previousCutoverConfirmation = $env:CONDITERA_CONFIRM_LEGACY_DATABASES_EMPTY
+if ($ConfirmEmptyLegacyDatabases) {
+    $env:CONDITERA_CONFIRM_LEGACY_DATABASES_EMPTY = "1"
+}
+
 Push-Location $repositoryRoot
 try {
     Write-Host "Conditera release mode: --$($Mode.ToLowerInvariant())"
+    if ($ConfirmEmptyLegacyDatabases) {
+        Write-Warning "Подтверждён переход на пустую PG17 БД. Старые volumes будут сохранены."
+    }
     Write-Host "Repository: $repositoryRoot"
     & $bashCommand.Source $deployScript "--$($Mode.ToLowerInvariant())"
     $result = $LASTEXITCODE
@@ -51,4 +60,9 @@ try {
 }
 finally {
     Pop-Location
+    if ($null -eq $previousCutoverConfirmation) {
+        Remove-Item Env:CONDITERA_CONFIRM_LEGACY_DATABASES_EMPTY -ErrorAction SilentlyContinue
+    } else {
+        $env:CONDITERA_CONFIRM_LEGACY_DATABASES_EMPTY = $previousCutoverConfirmation
+    }
 }
