@@ -40,18 +40,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // Загружаем адреса доставки
-    const { data: addresses } = await supabaseAdmin
+    const { data: addresses, error: addressesError } = await supabaseAdmin
       .from("addresses")
       .select("id, label, text, lat, lng, is_default, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
+
+    if (addressesError) {
+      console.error("[profile] GET addresses error:", addressesError.message);
+      return NextResponse.json({ error: "Не удалось загрузить адреса профиля" }, { status: 500 });
+    }
 
     return NextResponse.json({
       profile: {
         ...profile,
         avatarPublicUrl: profile.avatar_url,
       },
-      addresses: addresses || [],
+      addresses: addresses ?? [],
     });
   } catch (error: any) {
     console.error("[profile] GET error:", error?.message);
@@ -65,9 +70,14 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
+  let body: unknown;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Некорректный JSON" }, { status: 400 });
+  }
 
+  try {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return NextResponse.json({ error: "Ожидается объект с полями профиля" }, { status: 400 });
     }
