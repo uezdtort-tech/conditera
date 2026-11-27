@@ -35,8 +35,7 @@ test.describe("Customer checkout — real browser UI", () => {
     await expect(product).toBeVisible({ timeout: 20_000 });
     await product.getByRole("button", { name: "Добавить в корзину" }).click();
 
-    // Open the cart from the site header and continue through its CTA.
-    await page.getByRole("button", { name: "Корзина" }).click();
+    // Adding a product opens the cart drawer immediately.
     const cartDialog = page.getByRole("dialog");
     await expect(cartDialog).toBeVisible();
     await expect(cartDialog.getByText("E2E демо-торт")).toBeVisible();
