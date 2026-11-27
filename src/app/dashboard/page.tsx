@@ -17,7 +17,7 @@
  * отдельным chunk'ом, что уменьшает initial bundle size.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/lib/store";
 import { dashboardViewByRole, pickPrimaryRole } from "@/lib/primary-role";
 import { Header } from "@/components/layout/header";
@@ -107,6 +107,17 @@ export default function DashboardPage(): React.JSX.Element {
   const view = useAppStore((s) => s.nav.view);
   // «Сообщение кондитеру» из карточки заказа (customer-dashboard) → ChatWidget
   const chatOrderId = useChatOrderBridge();
+  // persist rehydrates localStorage after the server render. Do not interpret
+  // the initial null user as an unauthenticated session before hydration ends:
+  // that transient state opened AuthModal over an already-authenticated dashboard.
+  const [storeHydrated, setStoreHydrated] = useState(() => useAppStore.persist.hasHydrated());
+  useEffect(() => {
+    if (useAppStore.persist.hasHydrated()) {
+      setStoreHydrated(true);
+      return;
+    }
+    return useAppStore.persist.onFinishHydration(() => setStoreHydrated(true));
+  }, []);
 
   useSeoMetadata(view || "dashboard-customer");
 
@@ -121,6 +132,9 @@ export default function DashboardPage(): React.JSX.Element {
   //     сохраняется (синхронизацию activeRole↔view делает store.setActiveRole).
   const lastUserIdRef = useRef<string | null>(null);
   useEffect(() => {
+    // Пока Zustand не восстановил persisted session, user=null — это ещё не
+    // доказательство выхода. Иначе modal перекрывает dashboard после reload.
+    if (!storeHydrated) return;
     // Если пользователь не авторизован — открываем модалку логина
     if (!user) {
       lastUserIdRef.current = null;
@@ -137,7 +151,7 @@ export default function DashboardPage(): React.JSX.Element {
       const targetView = dashboardByRole[role] || "dashboard-customer";
       navigate(targetView as never);
     }
-  }, [user, activeRole, view, navigate, setAuthModalOpen]);
+  }, [storeHydrated, user, activeRole, view, navigate, setAuthModalOpen]);
 
   const renderDashboard = (): React.JSX.Element => {
     switch (view) {
