@@ -12,6 +12,14 @@ test.describe("Полный заказ: оплата → производств�
     test.setTimeout(120_000);
 
     const suffix = Date.now().toString();
+    const baseHost = new URL(BASE_URL).hostname;
+    if (!["127.0.0.1", "localhost", "::1"].includes(baseHost)) {
+      throw new Error("Этот E2E-сценарий разрешён только против локального тестового сервера.");
+    }
+    // Anti-fraud хранит попытки в PostgreSQL между тестами. Изолируем клиента
+    // доверенным x-real-ip только в локальном E2E, не меняя production-лимиты.
+    const testIp = `10.251.${(Number(suffix.slice(-6, -3)) % 254) + 1}.${(Number(suffix.slice(-3)) % 254) + 1}`;
+    await page.setExtraHTTPHeaders({ "x-real-ip": testIp });
     const customerName = `Покупатель E2E ${suffix.slice(-6)}`;
     const email = `e2e-order-${suffix}@example.test`;
     const phone = `+7999${suffix.slice(-7).padStart(7, "0")}`;
@@ -142,7 +150,7 @@ test.describe("Полный заказ: оплата → производств�
       const logout = confectionerPage.getByRole("button", { name: /Выйти/ }).first();
       if (await logout.count()) await logout.click().catch(() => undefined);
     } finally {
-      await confectionerContext.close();
+      await confectionerContext.close().catch(() => undefined);
     }
   });
 });
