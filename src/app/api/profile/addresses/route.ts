@@ -99,6 +99,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Все запросы ограничены владельцем. Если назначение нового адреса
     // основным не удалось, удаляем только что созданную запись и возвращаем ошибку.
+    const { data: previousDefault, error: previousDefaultError } = await supabaseAdmin
+      .from("addresses")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("is_default", true)
+      .maybeSingle();
+    if (previousDefaultError) {
+      await supabaseAdmin.from("addresses").delete().eq("id", data.id).eq("user_id", user.id);
+      console.error("[profile/addresses] read default error:", previousDefaultError.message);
+      return NextResponse.json({ error: "Не удалось назначить основной адрес" }, { status: 500 });
+    }
+
     const { error: resetError } = await supabaseAdmin
       .from("addresses")
       .update({ is_default: false })
@@ -120,6 +132,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (defaultError || !defaultAddress) {
       await supabaseAdmin.from("addresses").delete().eq("id", data.id).eq("user_id", user.id);
+      if (previousDefault?.id) {
+        await supabaseAdmin.from("addresses").update({ is_default: true })
+          .eq("id", previousDefault.id).eq("user_id", user.id);
+      }
       console.error("[profile/addresses] set default error:", defaultError?.message);
       return NextResponse.json({ error: "Не удалось назначить основной адрес" }, { status: 500 });
     }
