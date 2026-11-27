@@ -495,7 +495,7 @@ jobs:
     services:
       postgres:
         # Supabase image includes the extensions/auth schemas required by project migrations.
-        image: supabase/postgres:17.11.0.017
+        image: supabase/postgres:17.12.0.002
         env:
           POSTGRES_PASSWORD: ${{ 'postgres' }}
           POSTGRES_DB: conditera
@@ -783,7 +783,7 @@ jobs:
             -e POSTGRES_USER=supabase_admin \
             -e POSTGRES_PASSWORD=${{ 'ci-only-password' }} \
             -e POSTGRES_DB=postgres \
-            supabase/postgres:17.11.0.017 \
+            supabase/postgres:17.12.0.002 \
             postgres -c config_file=/etc/postgresql/postgresql.conf \
               -c cron.database_name=conditera \
               -c cron.username=supabase_admin
