@@ -420,6 +420,23 @@ async function main() {
     oauthTests.error?.message || `exit=${oauthTests.status}`);
 
   await client.connect();
+
+  section("Приватный Storage для фотографий готовых заказов");
+  const orderMediaBucketResult = await client.query(
+    `SELECT id, public, allowed_mime_types
+       FROM storage.buckets
+      WHERE id = 'order_media'`
+  );
+  const orderMediaBucket = orderMediaBucketResult.rows[0];
+  assert(
+    "order_media существует, приватен и разрешает только JPEG/PNG/WebP",
+    orderMediaBucket?.public === false &&
+      ["image/jpeg", "image/png", "image/webp"].every((mime) =>
+        orderMediaBucket.allowed_mime_types?.includes(mime)
+      ),
+    JSON.stringify(orderMediaBucket ?? null)
+  );
+
   await applyProductionTimeFixture();
 
   section("Подготовка");
