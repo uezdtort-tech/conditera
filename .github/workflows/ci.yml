@@ -253,7 +253,7 @@ jobs:
         #      те же паттерны, что и в history-скане.
         run: |
           FAIL=0
-          SECRET_RE='(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY|ci_test_jwt_secret|ci_test_tfa_key)'
+          SECRET_RE='(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ci_test_jwt_secret|ci_test_tfa_key)'
           for img in "conditera:${{ env.CANDIDATE_SHA }}" "conditera-chat:${{ env.CANDIDATE_SHA }}" "conditera-simplex-bridge:${{ env.CANDIDATE_SHA }}"; do
             echo "— $img"
             # 1) существование — строго до history/скана
