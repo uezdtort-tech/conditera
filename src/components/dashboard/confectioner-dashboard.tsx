@@ -587,6 +587,8 @@ export function ConfectionerDashboard() {
                       <Card
                         key={order.id}
                         id={`order-card-${order.id}`}
+                        data-testid="confectioner-order-card"
+                        data-order-id={order.id}
                         className={`p-4 ${highlightOrderId === order.id ? "ring-2 ring-primary" : ""}`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
@@ -679,6 +681,7 @@ export function ConfectionerDashboard() {
                           {order.status === "CONFIRMED" && (
                             <Button
                               size="sm"
+                              data-testid="order-action-start"
                               disabled={updateOrderStatusApi.isPending}
                               onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "PREPARING" })}
                             >
@@ -688,18 +691,23 @@ export function ConfectionerDashboard() {
                           {order.status === "PREPARING" && (
                             <Button
                               size="sm"
-                              disabled={updateOrderStatusApi.isPending}
-                              onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "READY" })}
+                              data-testid="open-order-workspace"
+                              onClick={() => setWorkspaceOrderId(order.id)}
                             >
-                              <Check className="h-4 w-4 mr-1" />
-                              Готово
+                              <ClipboardList className="h-4 w-4 mr-1" />
+                              Открыть чек-лист готовности
                             </Button>
                           )}
                           {order.status === "READY" && (
-                            <Badge variant="outline" className="text-[10px] bg-cyan-50 text-cyan-700 border-cyan-200 h-8 flex items-center">
-                              <Truck className="h-3 w-3 mr-1" />
-                              Готов к передаче курьеру (перевод в "В доставке" — курьер/админ)
-                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              data-testid="open-order-workspace"
+                              onClick={() => setWorkspaceOrderId(order.id)}
+                            >
+                              <Truck className="h-4 w-4 mr-1" />
+                              Передать заказ
+                            </Button>
                           )}
                           <Button
                             size="sm"
