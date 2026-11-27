@@ -338,7 +338,7 @@ if (
     backup_url.scheme not in ("postgres", "postgresql")
     or backup_url.username != "conditera_backup"
     or backup_url.hostname != "supabase-runtime"
-    or backup_url.path != "/supabase"
+    or backup_url.path != "/conditera"
     or unquote(backup_url.password) != runtime_environment.get("BACKUP_DATABASE_PASSWORD")
 ):
     raise SystemExit("Production backups must use the dedicated read-only conditera_backup role on the internal PG17 runtime")
