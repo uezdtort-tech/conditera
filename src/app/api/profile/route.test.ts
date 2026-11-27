@@ -50,14 +50,16 @@ describe("PATCH /api/profile — профиль только текущего п
     expect(update).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [{ name: { nested: true } }, "объект вместо строки"],
-    [{ phone: ["+79990000000"] }, "массив вместо строки"],
-    [{ name: "   " }, "пустое имя"],
-    [{ name: "x".repeat(101) }, "имя длиннее лимита"],
-    [null, "null вместо объекта"],
-    [["name", "Алиса"], "массив вместо объекта"],
-  ])("отклоняет некорректный ввод (%s)", async (body) => {
+  const invalidBodies: Array<{ body: unknown; description: string }> = [
+    { body: { name: { nested: true } }, description: "объект вместо строки" },
+    { body: { phone: ["+79990000000"] }, description: "массив вместо строки" },
+    { body: { name: "   " }, description: "пустое имя" },
+    { body: { name: "x".repeat(101) }, description: "имя длиннее лимита" },
+    { body: null, description: "null вместо объекта" },
+    { body: ["name", "Алиса"], description: "массив вместо объекта" },
+  ];
+
+  it.each(invalidBodies)("отклоняет некорректный ввод: $description", async ({ body }) => {
     const response = await PATCH(request(body));
     expect(response.status).toBe(400);
     expect(update).not.toHaveBeenCalled();
