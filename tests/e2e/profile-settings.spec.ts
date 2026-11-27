@@ -3,7 +3,13 @@ import { expect, test, type Browser } from "@playwright/test";
 const BASE_URL = (process.env.E2E_BASE_URL || process.env.E2E_APP_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
 const DEMO_PASSWORD = "Demo123!";
 
-async function verifyRoleProfile(browser: Browser, email: string, roleLabel: string): Promise<void> {
+async function verifyRoleProfile(
+  browser: Browser,
+  email: string,
+  roleLabel: string,
+  roleTab: string,
+  forbiddenProfileName?: string,
+): Promise<string> {
   const context = await browser.newContext({
     userAgent: "Playwright-E2E/1.0 (+https://conditera.ru)",
     extraHTTPHeaders: { "x-real-ip": "10.249.249.249" },
@@ -29,6 +35,9 @@ async function verifyRoleProfile(browser: Browser, email: string, roleLabel: str
     await expect(nameField).toBeVisible({ timeout: 15_000 });
     // Разные сессии обязаны видеть собственные данные, а не результат другого аккаунта.
     await expect(nameField).not.toHaveValue(new RegExp("^Проверка "));
+    if (forbiddenProfileName) {
+      await expect(nameField).not.toHaveValue(forbiddenProfileName);
+    }
     await nameField.fill(updatedName);
     await phoneField.fill(updatedPhone);
     await bioField.fill(updatedBio);
@@ -50,6 +59,7 @@ async function verifyRoleProfile(browser: Browser, email: string, roleLabel: str
     expect(profileResponse.status()).toBe(200);
     const payload = await profileResponse.json();
     expect(payload.profile).toMatchObject({ name: updatedName, phone: updatedPhone, bio: updatedBio });
+    return updatedName;
   } finally {
     await context.close();
   }
@@ -62,7 +72,11 @@ test.describe("Настройки профиля — сквозное сохра
     if (!["127.0.0.1", "localhost", "::1"].includes(hostname)) {
       throw new Error("Проверка демо-профилей разрешена только против локального тестового сервера.");
     }
-    await verifyRoleProfile(browser, "customer@demo.ru", "покупатель");
-    await verifyRoleProfile(browser, "confectioner@demo.ru", "кондитер");
+    const customerName = await verifyRoleProfile(
+      browser, "customer@demo.ru", "покупатель", "Мои заказы",
+    );
+    await verifyRoleProfile(
+      browser, "confectioner@demo.ru", "кондитер", "Заказы", customerName,
+    );
   });
 });
