@@ -282,7 +282,7 @@ function SimpleOrderCardView({
           className="mt-4 w-full sm:w-auto min-h-[44px]"
           disabled={mutation.isPending || photoMutation.isPending}
           onClick={() => {
-            if (order.todo?.code === "ready" && onOpenWorkspace) {
+            if ((order.todo?.code === "start" || order.todo?.code === "ready") && onOpenWorkspace) {
               onOpenWorkspace(order.orderId);
               return;
             }
@@ -297,14 +297,16 @@ function SimpleOrderCardView({
           ) : (
             <ArrowRight className="h-4 w-4 mr-2" aria-hidden />
           )}
-          {order.todo.code === "ready" && onOpenWorkspace
-            ? "Открыть чек-лист готовности"
-            : needsPhoto && order.todo.code === "ready"
-              ? "Прикрепить фото"
-              : order.todo.label}
+          {order.todo.code === "start" && onOpenWorkspace
+            ? "Открыть производство"
+            : order.todo.code === "ready" && onOpenWorkspace
+              ? "Открыть чек-лист готовности"
+              : needsPhoto && order.todo.code === "ready"
+                ? "Прикрепить фото"
+                : order.todo.label}
         </Button>
       )}
-      {onOpenWorkspace && order.todo && order.todo.code !== "ready" && (
+      {onOpenWorkspace && order.todo && order.todo.code !== "ready" && order.todo.code !== "start" && (
         <Button
           type="button"
           data-testid="open-order-workspace"
