@@ -33,6 +33,7 @@ const validProduction = () => ({
   YANDEX_CLIENT_SECRET: "yandex-client-secret-long-enough",
   YANDEX_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/yandex/callback",
   VK_CLIENT_ID: "vk-client",
+  VK_CLIENT_SECRET: "vk-client-secret-long-enough",
   VK_OAUTH_REDIRECT: "https://conditera.ru/api/auth/oauth/vk/callback",
   GOOGLE_CLIENT_ID: "google-client",
   GOOGLE_CLIENT_SECRET: "google-client-secret-long-enough",
@@ -75,9 +76,11 @@ test("rejects reused JWT signing secrets and invalid TOTP key", () => {
 test("rejects wrong OAuth callback URL and missing VK credentials", () => {
   const env = validProduction();
   env.VK_CLIENT_ID = "CHANGE_ME_VK_CLIENT_ID";
+  env.VK_CLIENT_SECRET = "CHANGE_ME_VK_CLIENT_SECRET";
   env.YANDEX_OAUTH_REDIRECT = "https://wrong.example/callback";
   const result = validateEnvironment(env, "production");
   assert.ok(result.errors.some((message) => message.includes("VK_CLIENT_ID")));
+  assert.ok(result.errors.some((message) => message.includes("VK_CLIENT_SECRET")));
   assert.ok(result.errors.some((message) => message.includes("YANDEX_OAUTH_REDIRECT")));
 });
 
@@ -93,7 +96,11 @@ test("development mode does not require production-only payment and OAuth creden
   delete env.YANDEX_CLIENT_ID;
   delete env.YANDEX_OAUTH_REDIRECT;
   delete env.VK_CLIENT_ID;
+  delete env.VK_CLIENT_SECRET;
   delete env.VK_OAUTH_REDIRECT;
+  delete env.GOOGLE_CLIENT_ID;
+  delete env.GOOGLE_CLIENT_SECRET;
+  delete env.GOOGLE_OAUTH_REDIRECT;
   delete env.YOOKASSA_SHOP_ID;
   delete env.YOOKASSA_SECRET_KEY;
   delete env.POSTGRES_PASSWORD;
