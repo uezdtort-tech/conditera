@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$RuntimeContainer = $(if ($env:PG17_RUNTIME_CONTAINER) { $env:PG17_RUNTIME_CONTAINER } else { "conditera-supabase-runtime" }),
-  [string]$Database = $(if ($env:PG17_DATABASE) { $env:PG17_DATABASE } else { "supabase" }),
+  [string]$Database = $(if ($env:PG17_DATABASE) { $env:PG17_DATABASE } else { "conditera" }),
   [string]$User = $(if ($env:PG17_DATABASE_USER) { $env:PG17_DATABASE_USER } else { "supabase_admin" }),
   [string]$OutputRoot = $(if ($env:PRODUCTION_AUDIT_ROOT) { $env:PRODUCTION_AUDIT_ROOT } else { ".\reports\production-audit" })
 )
