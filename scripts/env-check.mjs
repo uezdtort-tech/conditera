@@ -91,13 +91,13 @@ export function validateEnvironment(values, selectedMode = "development", select
       try {
         const parsed = new URL(raw);
         const password = decodeURIComponent(parsed.password);
-        const expectedPasswordRef = `${${passwordVariable}}`;
+        const expectedPasswordRef = `\${${passwordVariable}}`;
         const passwordFromEnvReference = password === expectedPasswordRef;
         const configuredPassword = value(passwordVariable);
-        const validPassword = passwordFromEnvReference
-          ? isFilled(configuredPassword) && configuredPassword.length >= 32
+        const validPassword = isFilled(configuredPassword) && configuredPassword.length >= 32 &&
+          (passwordFromEnvReference || password === configuredPassword);
           : password.length >= 32 && !/^(CHANGE_ME|change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_])/i.test(password);
-        const database = parsed.pathname.replace(/^\\//, "");
+        const database = parsed.pathname.replace(/^\//, "");
         if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname ||
             parsed.username !== expectedUser || database !== "conditera" || !validPassword) {
           error(`${name} должен подключаться к базе conditera от роли ${expectedUser} с отдельным неплейсхолдерным паролем`);
@@ -223,28 +223,24 @@ export function validateEnvironment(values, selectedMode = "development", select
   optional("YANDEX_GEOCODER_API_KEY", "Yandex Geocoder");
 
   // OAuth providers
+  // OAuth providers
   if (production) {
     required("YANDEX_CLIENT_ID", "Yandex ID client ID");
     required("YANDEX_CLIENT_SECRET", "Yandex ID client secret");
     required("YANDEX_OAUTH_REDIRECT", "Yandex ID callback URL");
     required("VK_CLIENT_ID", "VK ID client ID");
     required("VK_OAUTH_REDIRECT", "VK ID callback URL");
-    const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\\/$/, "");
-    if (isFilled(appBase) && isFilled(value("VK_OAUTH_REDIRECT")) &&
-        value("VK_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/vk/callback`) {
-      error("VK_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/vk/callback");
-    }
     const appBase = value("NEXT_PUBLIC_APP_URL").replace(/\/$/, "");
     if (isFilled(appBase) && isFilled(value("YANDEX_OAUTH_REDIRECT")) &&
         value("YANDEX_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/yandex/callback`) {
       error("YANDEX_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/yandex/callback");
     }
-    if (isFilled(value("YANDEX_CLIENT_SECRET")) && value("YANDEX_CLIENT_SECRET").length < 16) {
-      error("YANDEX_CLIENT_SECRET короче 16 символов");
-    }
     if (isFilled(appBase) && isFilled(value("VK_OAUTH_REDIRECT")) &&
         value("VK_OAUTH_REDIRECT") !== `${appBase}/api/auth/oauth/vk/callback`) {
       error("VK_OAUTH_REDIRECT должен совпадать с NEXT_PUBLIC_APP_URL + /api/auth/oauth/vk/callback");
+    }
+    if (isFilled(value("YANDEX_CLIENT_SECRET")) && value("YANDEX_CLIENT_SECRET").length < 16) {
+      error("YANDEX_CLIENT_SECRET короче 16 символов");
     }
   } else {
     optional("YANDEX_CLIENT_ID", "Yandex ID");
@@ -252,7 +248,6 @@ export function validateEnvironment(values, selectedMode = "development", select
     optional("VK_CLIENT_ID", "VK ID");
     optional("VK_OAUTH_REDIRECT", "VK ID callback");
   }
-  if (production) {
     required("GOOGLE_CLIENT_ID", "Google OAuth client ID");
     required("GOOGLE_CLIENT_SECRET", "Google OAuth client secret");
     required("GOOGLE_OAUTH_REDIRECT", "Google OAuth callback URL");
