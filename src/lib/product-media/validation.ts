@@ -10,7 +10,7 @@
  *    tkhd: размеры); битые файлы не должны ронять загрузку.
  */
 
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
 
 export const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8 MB
 export const MAX_VIDEO_BYTES = 64 * 1024 * 1024; // 64 MB
@@ -117,7 +117,7 @@ export async function parseImageMeta(
   buffer: Buffer,
   sniffedMime: string
 ): Promise<ImageMeta> {
-  let meta: sharp.Metadata | null = null;
+  let meta: Metadata | null = null;
   try {
     meta = await sharp(buffer).metadata();
   } catch {

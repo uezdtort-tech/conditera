@@ -39,7 +39,7 @@ import {
   syncEffectiveProductPricesSafe,
 } from "@/lib/price-version";
 import { checkAcceptance } from "@/lib/ops/acceptance"; // P0.5 §29: capacity/inventory/deadline gate
-import { createPayment, isYookassaConfigured } from "@/lib/yookassa";
+import { createPayment, isYookassaConfigured, isLocalE2EPaymentStubEnabled } from "@/lib/yookassa";
 import { enforceRateLimit, getClientIP, RATE_LIMITS } from "@/lib/rate-limit";
 import { loadConfectionerOrderSnapshot } from "@/lib/confectioner-tariff";
 import { recordFinancialEntrySafe } from "@/lib/financial-ledger";
@@ -574,7 +574,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // неоплачиваемым. Теперь незавершённая payment-конфигурация в
     // production — безопасная ошибка конфигурации ДО создания заказа;
     // dev/test сохраняют stub-поток.
-    if (!isYookassaConfigured() && process.env.NODE_ENV === "production") {
+    if (!isYookassaConfigured() && process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error(
         "[checkout] payment gateway not configured in production — refusing to create order (safe config error)"
       );

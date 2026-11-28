@@ -31,15 +31,16 @@ interface MaintenanceLogRow {
   id: string;
   type: string;
   status: string;
-  triggered_by: string | null;
-  created_at: string;
-  finished_at: string | null;
-  duration_ms: number | null;
-  backup_path: string | null;
-  backup_size_bytes: number | null;
-  tables_count: number | null;
-  records_affected: number | null;
-  error_message: string | null;
+  triggeredBy: string | null;
+  createdAt: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  backupPath: string | null;
+  backupSizeBytes: number | null;
+  tablesCount: number | null;
+  recordsAffected: number | null;
+  errorMessage: string | null;
   details: unknown;
 }
 
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     let logsQuery = supabaseAdmin
       .from("maintenance_logs")
       .select("*")
-      .order("created_at", { ascending: false })
+      .order("createdAt", { ascending: false })
       .limit(limit);
     let countQuery = supabaseAdmin
       .from("maintenance_logs")
@@ -82,7 +83,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     const [logsResult, countResult] = await Promise.all([
-      logsQuery,
+      isAdmin
+        ? logsQuery
+        : Promise.resolve({ data: [] as MaintenanceLogRow[], error: null }),
       countQuery,
     ]);
 
@@ -150,8 +153,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .insert({
         type: logType,
         status: "running",
-        triggered_by: user.userId,
-        created_at: new Date().toISOString(),
+        triggeredBy: user.userId,
+        startedAt: new Date().toISOString(),
       })
       .select("id")
       .single() as { data: { id: string } | null; error: SupabaseError | null };
@@ -166,18 +169,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       if (action === "backup") {
         const result = await runFullBackup();
+        if (!result.success) {
+          throw new Error(result.errorMessage || "Backup service did not confirm a completed PostgreSQL dump");
+        }
         await supabaseAdmin
           .from("maintenance_logs")
           .update({
             status: result.success ? "success" : "failed",
-            finished_at: new Date().toISOString(),
-            duration_ms: result.durationMs,
-            backup_path: result.backupPath,
-            backup_size_bytes: result.backupSizeBytes,
-            tables_count: result.tablesCount,
-            records_affected: result.recordsExported,
-            error_message: result.errorMessage || null,
-            updated_at: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+            durationMs: result.durationMs,
+            backupPath: result.backupPath,
+            backupSizeBytes: result.backupSizeBytes,
+            tablesCount: result.tablesCount,
+            recordsAffected: result.recordsExported,
+            errorMessage: result.errorMessage || null,
           })
           .eq("id", logId);
         return NextResponse.json({ success: true, result, logId });
@@ -189,11 +194,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           .from("maintenance_logs")
           .update({
             status: "success",
-            finished_at: new Date().toISOString(),
-            duration_ms: result.totalDurationMs,
-            records_affected: result.totalDeleted,
+            finishedAt: new Date().toISOString(),
+            durationMs: result.totalDurationMs,
+            recordsAffected: result.totalDeleted,
             details: { operations: result.results } as unknown as never,
-            updated_at: new Date().toISOString(),
           })
           .eq("id", logId);
         return NextResponse.json({ success: true, result, logId });
@@ -207,9 +211,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         .from("maintenance_logs")
         .update({
           status: "failed",
-          finished_at: new Date().toISOString(),
-          error_message: errMsg.slice(0, 500),
-          updated_at: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          errorMessage: errMsg.slice(0, 500),
         })
         .eq("id", logId);
 

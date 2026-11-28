@@ -4,7 +4,7 @@
 # Запуск: docker-compose -f docker-compose.supabase.yml up -d
 #
 # Включает 10 сервисов Supabase (mini-stack):
-#   - supabase-db (PostgreSQL 15 с расширениями: pgsodium, pg_cron, pg_trgm)
+#   - supabase-db (PostgreSQL 17 с расширениями: pgsodium, pg_cron, pg_trgm)
 #   - supabase-kong (API gateway на :8000)
 #   - supabase-auth (GoTrue — auth сервис)
 #   - supabase-rest (PostgREST — auto REST API)
@@ -33,13 +33,14 @@ x-logging: &default-logging
 services:
   # ===== PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация (единая с runtime и CI) =====
   # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI =
-  # PG17, embedded db:setup = PG17. Образ supabase/postgres:17.11.0.017 —
+  # PG17, embedded db:setup = PG17. Образ supabase/postgres:17.12.0.001 —
   # последний vanilla-тег PG17 (без -orioledb/-multigres). Менять версию
   # ТОЛЬКО синхронно в: docker-compose.supabase.yml, conditera-v2/docker-compose.local.yml,
   # .github/workflows/ci.yml (jobs.migrations-pg17), package.json (embedded-postgres).
   # Гард: scripts/verify/pg-version-gate.mjs (CI) — не-17 версии = FAIL.
   supabase-db:
-    image: supabase/postgres:17.11.0.017
+    profiles: ["legacy-supabase"]
+    image: supabase/postgres:17.12.0.001
     container_name: conditera-supabase-db
     restart: unless-stopped
     command:
@@ -49,7 +50,7 @@ services:
     environment:
       POSTGRES_USER: supabase
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
-      POSTGRES_DB: supabase
+      POSTGRES_DB: conditera
       POSTGRES_PORT: 5432
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
       # Пути должны совпадать с фактическими bind mounts ниже.
@@ -65,7 +66,7 @@ services:
       # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
       # («database files are incompatible with server»). Переход только через
       # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
-      - supabase_db_data:/var/lib/postgresql/data
+      - supabase_db_data_v17:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
       # Подключаем только наш скрипт отдельным файлом, после системного migrate.sh.
@@ -96,21 +97,26 @@ services:
   # ===== Kong API Gateway =====
   # Единая точка входа для всех Supabase сервисов
   supabase-kong:
+    profiles: ["legacy-supabase"]
     image: library/kong:2.8.1
     container_name: conditera-supabase-kong
     restart: unless-stopped
     environment:
-      KONG_DATABASE: "false"
+      KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
-      KONG_NGINX_PROXY_PROXY_buffers: 64 160k
-      KONG_NGINX_PROXY_proxy_busy_buffers_size: 320k
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: "160k"
+      KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
+      KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE: "320k"
+      SUPABASE_ANON_KEY: ${ANON_KEY:?ANON_KEY is required}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
       - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+      - ./scripts/supabase/kong-entrypoint.sh:/usr/local/bin/conditera-kong-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/conditera-kong-entrypoint.sh"]
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -134,6 +140,7 @@ services:
 
   # ===== GoTrue (Auth) =====
   supabase-auth:
+    profiles: ["legacy-supabase"]
     image: supabase/gotrue:v2.164.0
     container_name: conditera-supabase-auth
     restart: unless-stopped
@@ -142,7 +149,7 @@ services:
       GOTRUE_API_PORT: 9999
       API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
       GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=auth
+      GOTRUE_DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=auth
       GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
       GOTRUE_DISABLE_SIGNUP: "false"
@@ -209,11 +216,12 @@ services:
 
   # ===== PostgREST (auto REST API из PostgreSQL) =====
   supabase-rest:
+    profiles: ["legacy-supabase"]
     image: postgrest/postgrest:v12.2.0
     container_name: conditera-supabase-rest
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      PGRST_DB_URI: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -235,6 +243,7 @@ services:
 
   # ===== Realtime (WebSocket подписки на postgres_changes) =====
   supabase-realtime:
+    profiles: ["legacy-supabase"]
     image: supabase/realtime:v2.34.21
     container_name: conditera-supabase-realtime
     restart: unless-stopped
@@ -278,6 +287,7 @@ services:
 
   # ===== Storage (S3-совместимое хранилище) =====
   supabase-storage:
+    profiles: ["legacy-supabase"]
     image: supabase/storage-api:v1.14.5
     container_name: conditera-supabase-storage
     restart: unless-stopped
@@ -286,7 +296,7 @@ services:
       SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY required}
       POSTGREST_URL: http://supabase-rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase?search_path=storage
+      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera?search_path=storage
       PG_META_URL: http://supabase-meta:8080
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /mnt/storage
@@ -329,10 +339,11 @@ services:
   # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
   # только после того, как Storage API создал свои таблицы.
   supabase-app-migrator:
+    profiles: ["legacy-supabase"]
     # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.11.0.017).
     # Мигратор client-only (bash+psql, без volume/initdb) — образ серверных
     # расширений не влияет на применяемые SQL, но версия клиента = версия сервера.
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:17.12.0.001
     container_name: conditera-supabase-app-migrator
     restart: "no"
     command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
@@ -360,6 +371,7 @@ services:
 
   # ===== imgproxy (обработка изображений) =====
   supabase-imgproxy:
+    profiles: ["legacy-supabase"]
     image: darthsim/imgproxy:v3.24.0
     container_name: conditera-supabase-imgproxy
     restart: unless-stopped
@@ -389,6 +401,7 @@ services:
 
   # ===== postgres-meta (управление схемой БД) =====
   supabase-meta:
+    profiles: ["legacy-supabase"]
     image: supabase/postgres-meta:v0.83.2
     container_name: conditera-supabase-meta
     restart: unless-stopped
@@ -396,7 +409,7 @@ services:
       PG_META_PORT: 8080
       PG_META_DB_HOST: supabase-db
       PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: supabase
+      PG_META_DB_NAME: conditera
       PG_META_DB_USER: supabase
       PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       PG_META_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
@@ -418,6 +431,7 @@ services:
   # ===== Supabase Studio (web UI — админка для БД/Auth/Storage) =====
   # ВАЖНО: порт 8100 (не 3000 — конфликтует с Next.js)
   supabase-studio:
+    profiles: ["legacy-supabase"]
     image: supabase/studio:2026.11.02-sha-a05e7ec
     container_name: conditera-supabase-studio
     profiles: ["studio"]
@@ -465,6 +479,7 @@ services:
 
   # ===== Analytics (Logflare — логирование) =====
   supabase-analytics:
+    profiles: ["legacy-supabase"]
     image: supabase/logflare:1.4.0
     container_name: conditera-supabase-analytics
     restart: unless-stopped
@@ -481,7 +496,7 @@ services:
       LOGFLARE_DASHBOARD_PASSWORD: ${LOGFLARE_DASHBOARD_PASSWORD:-devpass}
       LOGFLARE_MIN_LOG_DURATION_MS: 0
       LOGFLARE_LOGTTL: "604800"
-      DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DB_DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -511,6 +526,7 @@ services:
   #   docker-compose -f docker-compose.supabase.yml stop supabase-vector
   # Или закомментируйте весь блок supabase-vector ниже.
   supabase-vector:
+    profiles: ["legacy-supabase"]
     image: timberio/vector:0.28.1-debian
     container_name: conditera-supabase-vector
     restart: unless-stopped
@@ -520,7 +536,7 @@ services:
       - ./supabase/vector.yaml:/etc/vector/vector.yaml:ro
       - supabase_vector_data:/var/lib/vector
     environment:
-      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/supabase
+      DATABASE_URL: postgres://supabase:${POSTGRES_PASSWORD}@supabase-db:5432/conditera
       LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-dev-key}
     depends_on:
       supabase-db:
@@ -546,7 +562,8 @@ services:
       - conditera-net
 
 volumes:
-  supabase_db_data:
+  supabase_db_data_v17:
+    name: conditera_supabase_db_data_v17
   supabase_storage_data:
   supabase_vector_data:
 

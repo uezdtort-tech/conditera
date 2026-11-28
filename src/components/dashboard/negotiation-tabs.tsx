@@ -3,7 +3,7 @@
 import { toast } from "sonner";
 
 import { useAppStore } from "@/lib/store";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateTime } from "@/lib/finance";
 import type { NegotiationItem, OrderNegotiation } from "@/lib/types";
+import { csrfFetch } from "@/lib/api-client";
 
 const STATUS_INFO: Record<string, { label: string; color: string; icon: any }> = {
   pending_confectioner: { label: "Ждёт вашей реакции", color: "bg-amber-100 text-amber-800 border-amber-200", icon: Clock },
@@ -65,13 +66,115 @@ const ITEM_CATEGORIES = [
   { value: "other", label: "📦 Другое" },
 ];
 
+function mapConfectionerQuoteRequests(rows: any[], confectionerId: string): OrderNegotiation[] {
+  return rows.flatMap((request) => {
+    const quote = Array.isArray(request.my_quotes) ? request.my_quotes[0] : request.my_quotes;
+    const status = !quote ? "pending_confectioner"
+      : quote.status === "accepted" ? "approved"
+      : quote.status === "rejected" ? "rejected"
+      : quote.status === "expired" ? "expired"
+      : "pending_customer";
+    const productAmount = quote
+      ? Math.max(0, Number(quote.subtotal || 0) - Number(quote.delivery_cost || 0)) / 100
+      : 0;
+    return [{
+      id: request.id,
+      inquiryId: request.id,
+      customerId: request.customer_id,
+      customerName: request.customer_name || "Покупатель",
+      confectionerId,
+      confectionerName: "Вы",
+      originalRequest: {
+        eventType: request.event_type || "",
+        base: request.base || "",
+        filling: request.filling || "",
+        coating: request.coating || "",
+        decorations: request.decorations || [],
+        servings: Number(request.servings || 0),
+        city: request.city || "",
+        deliveryDate: request.delivery_date || "",
+        deliveryType: request.delivery_type || "delivery",
+        inscription: request.inscription || "",
+        comment: request.comment || "",
+        estimatedPrice: Number(request.estimated_price || 0) / 100,
+      },
+      quotedItems: quote ? [{
+        name: request.product_type_label || "Индивидуальное изделие",
+        description: quote.comment || "Производственный рецепт выбран",
+        quantity: 1,
+        unitPrice: productAmount,
+        totalPrice: productAmount,
+        category: "cake" as const,
+      }] : [],
+      quotedTotal: Number(quote?.total_price || 0) / 100,
+      quotedComment: quote?.comment || "",
+      quotedDeliveryCost: Number(quote?.delivery_cost || 0) / 100,
+      quotedPrepTime: quote?.prep_days ? `${quote.prep_days} дн.` : "",
+      quotedAt: quote?.updated_at || quote?.created_at,
+      productionProductId: quote?.production_product_id || undefined,
+      status: status as OrderNegotiation["status"],
+      revisions: [],
+      createdAt: request.created_at,
+      updatedAt: quote?.updated_at || request.updated_at,
+      validUntil: request.expires_at,
+    }];
+  });
+}
+
 // ==================== КОНДИТЕР: ВКЛАДКА СОГЛАСОВАНИЕ ====================
 export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId: string }) {
   const negotiations = useAppStore((s) => s.negotiations);
-  const quoteNegotiation = useAppStore((s) => s.quoteNegotiation);
-  const reviseNegotiation = useAppStore((s) => s.reviseNegotiation);
-  const withdrawNegotiation = useAppStore((s) => s.withdrawNegotiation);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [productionOptions, setProductionOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+
+  const loadServerNegotiations = useCallback(async () => {
+    const response = await csrfFetch("/api/quotes?mode=confectioner");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Не удалось загрузить запросы");
+    const mapped = mapConfectionerQuoteRequests(data.quotes || [], confectionerId);
+    const withMedia = await Promise.all(mapped.map(async (item) => {
+      const mediaResponse = await csrfFetch(`/api/quotes/${item.inquiryId}/media`);
+      if (!mediaResponse.ok) return item;
+      const mediaData = await mediaResponse.json().catch(() => ({}));
+      return {
+        ...item,
+        referenceMedia: (mediaData.media || []).map((media: { id: string; url: string; kind: "customer_reference" | "builder_preview" }) => ({
+          id: media.id, url: media.url, kind: media.kind,
+        })),
+      };
+    }));
+    useAppStore.setState((state) => ({
+      negotiations: [
+        ...state.negotiations.filter((item) => item.confectionerId !== confectionerId),
+        ...withMedia,
+      ],
+    }));
+  }, [confectionerId]);
+
+  useEffect(() => {
+    loadServerNegotiations().catch((error) => {
+      console.error("[negotiations] load confectioner quotes:", error);
+      toast.error("Не удалось загрузить реальные запросы покупателей");
+    });
+  }, [loadServerNegotiations]);
+
+  useEffect(() => {
+    if (!editingId) { setProductionOptions([]); return; }
+    let active = true;
+    setLoadingOptions(true);
+    csrfFetch(`/api/quotes/${editingId}/respond`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить производственные рецепты");
+        if (active) setProductionOptions(data.products || []);
+      })
+      .catch((error) => {
+        if (active) toast.error((error as Error).message);
+      })
+      .finally(() => { if (active) setLoadingOptions(false); });
+    return () => { active = false; };
+  }, [editingId]);
 
   const myNegotiations = negotiations.filter((n) => n.confectionerId === confectionerId);
 
@@ -226,6 +329,16 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
                 {neg.originalRequest.comment && (
                   <div className="text-xs mt-2 italic text-muted-foreground">«{neg.originalRequest.comment}»</div>
                 )}
+                {neg.referenceMedia && neg.referenceMedia.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {neg.referenceMedia.map((media) => (
+                      <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="block">
+                        <img src={media.url} alt={media.kind === "builder_preview" ? "Макет торта" : "Фото-пожелание покупателя"} className="w-full aspect-square object-cover rounded-md border" loading="lazy" />
+                        <span className="text-[10px] text-muted-foreground">{media.kind === "builder_preview" ? "Макет" : "Пожелание"}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
                 {neg.originalRequest.inscription && (
                   <div className="text-xs mt-1">Надпись: <strong>«{neg.originalRequest.inscription}»</strong></div>
                 )}
@@ -294,8 +407,14 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
                   <Button
                     onClick={() => {
                       if (confirm("Отозвать предложение? Покупатель получит уведомление.")) {
-                        withdrawNegotiation(neg.id);
-                        toast.success("Предложение отозвано");
+                        void csrfFetch(`/api/quotes/${neg.inquiryId || neg.id}/withdraw`, { method: "POST" })
+                          .then(async (response) => {
+                            const result = await response.json().catch(() => ({}));
+                            if (!response.ok) throw new Error(result.error || "Не удалось отозвать предложение");
+                            toast.success("Предложение отозвано");
+                            await loadServerNegotiations();
+                          })
+                          .catch((error) => toast.error((error as Error).message));
                       }
                     }}
                     variant="outline"
@@ -345,17 +464,31 @@ export function ConfectionerNegotiationTab({ confectionerId }: { confectionerId:
           negotiation={myNegotiations.find((n) => n.id === editingId)!}
           isRevision={myNegotiations.find((n) => n.id === editingId)?.status === "rejected"}
           isEdit={myNegotiations.find((n) => n.id === editingId)?.status === "pending_customer"}
+          productionOptions={productionOptions}
+          loadingProductionOptions={loadingOptions}
           onClose={() => setEditingId(null)}
-          onSubmit={(items, total, comment, deliveryCost, prepTime) => {
+          onSubmit={async (items, total, comment, deliveryCost, prepTime, productionProductId) => {
             const neg = myNegotiations.find((n) => n.id === editingId)!;
-            if (neg.status === "pending_confectioner") {
-              quoteNegotiation(editingId, items, total, comment, deliveryCost, prepTime);
-              toast.success("Предложение отправлено покупателю!");
-            } else {
-              reviseNegotiation(editingId, items, total, comment, deliveryCost, prepTime);
-              toast.success("Предложение обновлено и отправлено покупателю!");
+            const prepDays = Math.max(1, Number(prepTime.match(/\d+/)?.[0] || 3));
+            const response = await csrfFetch(`/api/quotes/${neg.inquiryId || editingId}/respond`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                base_cost: Math.round(items.reduce((sum, item) => sum + item.totalPrice, 0) * 100),
+                delivery_cost: Math.round(deliveryCost * 100),
+                comment,
+                prep_days: prepDays,
+                production_product_id: productionProductId,
+              }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              toast.error(result.message || result.error || "Не удалось отправить предложение");
+              return;
             }
+            toast.success("Предложение сохранено и отправлено покупателю");
             setEditingId(null);
+            await loadServerNegotiations();
           }}
         />
       )}
@@ -368,14 +501,18 @@ function NegotiationEditorDialog({
   negotiation,
   isRevision,
   isEdit,
+  productionOptions,
+  loadingProductionOptions,
   onClose,
   onSubmit,
 }: {
   negotiation: OrderNegotiation;
   isRevision: boolean;
   isEdit?: boolean;
+  productionOptions: Array<{ id: string; title: string }>;
+  loadingProductionOptions: boolean;
   onClose: () => void;
-  onSubmit: (items: NegotiationItem[], total: number, comment: string, deliveryCost: number, prepTime: string) => void;
+  onSubmit: (items: NegotiationItem[], total: number, comment: string, deliveryCost: number, prepTime: string, productionProductId: string) => void;
 }) {
   const [items, setItems] = useState<NegotiationItem[]>(
     negotiation.quotedItems.length > 0
@@ -394,6 +531,7 @@ function NegotiationEditorDialog({
   const [comment, setComment] = useState(negotiation.quotedComment || "");
   const [deliveryCost, setDeliveryCost] = useState(negotiation.quotedDeliveryCost || 0);
   const [prepTime, setPrepTime] = useState(negotiation.quotedPrepTime || "2 дня");
+  const [productionProductId, setProductionProductId] = useState(negotiation.productionProductId || "");
 
   const total = items.reduce((sum, item) => sum + item.totalPrice, 0) + deliveryCost;
 
@@ -440,6 +578,26 @@ function NegotiationEditorDialog({
           </div>
           {negotiation.originalRequest.comment && (
             <div className="italic mt-1">«{negotiation.originalRequest.comment}»</div>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <Label>Производственный рецепт *</Label>
+          <Select value={productionProductId} onValueChange={setProductionProductId}>
+            <SelectTrigger>
+              <SelectValue placeholder={loadingProductionOptions ? "Загружаем рецепты..." : "Выберите товар с рецептом"} />
+            </SelectTrigger>
+            <SelectContent>
+              {productionOptions.map((product) => (
+                <SelectItem key={product.id} value={product.id}>{product.title}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Выбранный товар должен иметь опубликованный рецепт с ингредиентами. По нему система проверит склад и спишет сырьё.
+          </p>
+          {!loadingProductionOptions && productionOptions.length === 0 && (
+            <p className="text-xs text-destructive">Нет опубликованных товаров с действующим рецептом. Сначала настройте рецепт в каталоге.</p>
           )}
         </div>
 
@@ -551,7 +709,7 @@ function NegotiationEditorDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Отмена</Button>
-          <Button onClick={() => onSubmit(items, total, comment, deliveryCost, prepTime)}>
+          <Button disabled={!productionProductId || loadingProductionOptions} onClick={() => onSubmit(items, total, comment, deliveryCost, prepTime, productionProductId)}>
             <Send className="h-4 w-4 mr-1" />
             {isEdit ? "Обновить предложение" : isRevision ? "Отправить пересмотр" : "Отправить предложение"}
           </Button>
@@ -561,17 +719,116 @@ function NegotiationEditorDialog({
   );
 }
 
+function mapCustomerQuoteRequests(rows: any[]): OrderNegotiation[] {
+  return rows.flatMap((request) => {
+    const quotes = Array.isArray(request.confectioner_quotes)
+      ? request.confectioner_quotes
+      : request.confectioner_quotes ? [request.confectioner_quotes] : [];
+    return quotes.map((quote: any) => {
+      const productAmount = Math.max(0, Number(quote.subtotal || 0) - Number(quote.delivery_cost || 0)) / 100;
+      const wasWithdrawnByConfectioner = quote.customer_comment === "Предложение отозвано кондитером";
+      const status = quote.status === "accepted" ? "approved"
+        : quote.status === "rejected" && wasWithdrawnByConfectioner ? "revised"
+        : quote.status === "rejected" ? "rejected"
+        : quote.status === "expired" ? "expired"
+        : "pending_customer";
+      return {
+        id: quote.id,
+        inquiryId: request.id,
+        customerId: request.customer_id,
+        customerName: request.customer_name || "Покупатель",
+        confectionerId: quote.confectioner_id,
+        confectionerName: quote.confectioner?.businessName || "Кондитер",
+        confectionerAvatar: quote.confectioner?.avatar || undefined,
+        productionProductId: quote.production_product_id || undefined,
+        originalRequest: {
+          eventType: request.event_type || "",
+          base: request.base || "",
+          filling: request.filling || "",
+          coating: request.coating || "",
+          decorations: request.decorations || [],
+          servings: Number(request.servings || 0),
+          city: request.city || "",
+          deliveryDate: request.delivery_date || "",
+          deliveryType: request.delivery_type || "delivery",
+          inscription: request.inscription || "",
+          comment: request.comment || "",
+          estimatedPrice: Number(request.estimated_price || 0) / 100,
+        },
+        quotedItems: [{
+          name: request.product_type_label || "Индивидуальное изделие",
+          description: quote.comment || "Предложение кондитера",
+          quantity: 1,
+          unitPrice: productAmount,
+          totalPrice: productAmount,
+          category: "cake" as const,
+        }],
+        quotedTotal: Number(quote.total_price || 0) / 100,
+        quotedComment: quote.comment || "",
+        quotedDeliveryCost: Number(quote.delivery_cost || 0) / 100,
+        quotedPrepTime: quote.prep_days ? `${quote.prep_days} дн.` : "",
+        quotedAt: quote.updated_at || quote.created_at,
+        status: status as OrderNegotiation["status"],
+        customerResponse: quote.status === "accepted" ? "approved" as const
+          : quote.status === "rejected" && !wasWithdrawnByConfectioner ? "rejected" as const : undefined,
+        customerComment: quote.customer_comment || "",
+        revisions: [],
+        createdAt: request.created_at,
+        updatedAt: quote.updated_at || request.updated_at,
+        validUntil: request.expires_at,
+      };
+    });
+  });
+}
+
 // ==================== ПОКУПАТЕЛЬ: ФОРМА СОГЛАСИЯ ====================
 export function CustomerNegotiationTab() {
-  const negotiations = useAppStore((s) => s.negotiations);
-  const user = useAppStore((s) => s.user);
-  const approveNegotiation = useAppStore((s) => s.approveNegotiation);
-  const rejectNegotiation = useAppStore((s) => s.rejectNegotiation);
-  const setCartOpen = useAppStore((s) => s.setCartOpen);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
+  const [myNegotiations, setMyNegotiations] = useState<OrderNegotiation[]>([]);
+  const [loadingQuotes, setLoadingQuotes] = useState(true);
 
-  // Показываем все согласования, где покупатель — текущий пользователь (или u1 для demo)
-  const myNegotiations = negotiations.filter((n) => n.customerId === user?.id || n.customerId === "u1" || n.customerId === "u9");
+  const loadCustomerQuotes = useCallback(async () => {
+    setLoadingQuotes(true);
+    try {
+      const response = await csrfFetch("/api/quotes?mode=my");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Не удалось загрузить предложения");
+      const mapped = mapCustomerQuoteRequests(data.quotes || []);
+      const withMedia = await Promise.all(mapped.map(async (item) => {
+        const mediaResponse = await csrfFetch(`/api/quotes/${item.inquiryId}/media`);
+        if (!mediaResponse.ok) return item;
+        const mediaData = await mediaResponse.json().catch(() => ({}));
+        return {
+          ...item,
+          referenceMedia: (mediaData.media || []).map((media: { id: string; url: string; kind: "customer_reference" | "builder_preview" }) => ({
+            id: media.id, url: media.url, kind: media.kind,
+          })),
+        };
+      }));
+      setMyNegotiations(withMedia);
+    } finally {
+      setLoadingQuotes(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCustomerQuotes().catch((error) => {
+      console.error("[negotiations] load customer quotes:", error);
+      toast.error("Не удалось загрузить реальные предложения кондитеров");
+    });
+  }, [loadCustomerQuotes]);
+
+  const acceptAndPay = async (quoteId: string) => {
+    const response = await csrfFetch(`/api/quotes/${quoteId}/accept`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.paymentUrl) {
+      toast.error(data.message || data.error || "Не удалось создать оплачиваемый заказ");
+      return;
+    }
+    toast.success("Заказ создан. Переходим к оплате.");
+    window.location.assign(data.paymentUrl);
+  };
+
   const pendingCount = myNegotiations.filter((n) => n.status === "pending_customer").length;
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [response, setResponse] = useState<"approve" | "reject" | null>(null);
@@ -627,7 +884,12 @@ export function CustomerNegotiationTab() {
 
       {/* List */}
       <div className="space-y-3">
-        {filteredNegotiations.length === 0 && (
+        {loadingQuotes && (
+          <Card className="p-8 text-center text-muted-foreground">
+            Загружаем предложения кондитеров…
+          </Card>
+        )}
+        {!loadingQuotes && filteredNegotiations.length === 0 && (
           <Card className="p-8 text-center text-muted-foreground">
             <ShoppingBag className="h-10 w-10 mx-auto mb-2 opacity-30" />
             <p className="text-sm">
@@ -673,6 +935,16 @@ export function CustomerNegotiationTab() {
                 <div className="text-muted-foreground mt-1">
                   Оценка: <strong>{formatCurrency(neg.originalRequest.estimatedPrice)}</strong>
                 </div>
+                {neg.referenceMedia && neg.referenceMedia.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {neg.referenceMedia.map((media) => (
+                      <a key={media.id} href={media.url} target="_blank" rel="noreferrer" className="block">
+                        <img src={media.url} alt={media.kind === "builder_preview" ? "Макет торта" : "Фото-пожелание"} className="w-full aspect-square object-cover rounded-md border" loading="lazy" />
+                        <span className="text-[10px] text-muted-foreground">{media.kind === "builder_preview" ? "Макет" : "Пожелание"}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Quoted items */}
@@ -771,7 +1043,7 @@ export function CustomerNegotiationTab() {
                     <CheckCircle2 className="h-4 w-4" />
                     Заказ одобрен — можно оплачивать!
                   </div>
-                  <Button className="w-full" onClick={() => toast.success("Переход к оплате...")}>
+                  <Button className="w-full" onClick={() => void acceptAndPay(neg.id)}>
                     <ShoppingBag className="h-4 w-4 mr-1" /> Перейти к оплате {formatCurrency(neg.quotedTotal)}
                   </Button>
                 </div>
@@ -840,17 +1112,26 @@ export function CustomerNegotiationTab() {
               <Button variant="outline" onClick={() => setRespondingId(null)}>Отмена</Button>
               <Button
                 className={response === "approve" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"}
-                onClick={() => {
+                onClick={async () => {
                   if (response === "approve") {
-                    approveNegotiation(respondingId, comment);
-                    toast.success("Заказ одобрен! Можно переходить к оплате.");
+                    await acceptAndPay(respondingId);
                   } else {
                     if (!comment.trim()) {
                       toast.error("Укажите причину отклонения");
                       return;
                     }
-                    rejectNegotiation(respondingId, comment);
-                    toast.success("Заказ отклонён. Кондитер получит уведомление.");
+                    const result = await csrfFetch(`/api/quotes/${respondingId}/reject`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ comment }),
+                    });
+                    const payload = await result.json().catch(() => ({}));
+                    if (!result.ok) {
+                      toast.error(payload.error || "Не удалось отклонить предложение");
+                      return;
+                    }
+                    toast.success("Предложение отклонено");
+                    await loadCustomerQuotes();
                   }
                   setRespondingId(null);
                 }}

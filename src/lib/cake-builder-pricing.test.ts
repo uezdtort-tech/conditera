@@ -137,6 +137,13 @@ describe("validateBuilderConfig", () => {
     expect(validateBuilderConfig({ productType: "cake", decorations: ["nails"] }).valid).toBe(false);
   });
 
+  it("разрешает максимум пять элементов декора и отклоняет шестой", () => {
+    const five = CAKE_BUILDER_OPTIONS.decorations.slice(0, 5).map(item => item.id);
+    const six = CAKE_BUILDER_OPTIONS.decorations.slice(0, 6).map(item => item.id);
+    expect(validateBuilderConfig({ productType: "cake", decorations: five }).valid).toBe(true);
+    expect(validateBuilderConfig({ productType: "cake", decorations: six }).valid).toBe(false);
+  });
+
   it("decorations/dietary не массив → invalid", () => {
     expect(
       validateBuilderConfig({ productType: "cake", decorations: "berries" as unknown as string[] }).valid

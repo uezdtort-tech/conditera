@@ -20,6 +20,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { SESSION_COOKIE } from "@/lib/session-cookies";
+import { isUserSessionActive } from "@/lib/session-registry";
 import {
   UPLOAD_GUARD_PATHS,
   canUploadToPath,
@@ -72,8 +73,14 @@ async function getSessionRoles(request: NextRequest): Promise<string[] | null> {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
       algorithms: ["HS256"],
     });
-    const roles = (payload as { roles?: unknown }).roles;
-    return Array.isArray(roles) ? roles.map(String) : null;
+    const claims = payload as { roles?: unknown; sid?: unknown; userId?: unknown };
+    const roles = claims.roles;
+    if (!Array.isArray(roles)) return null;
+    if (typeof claims.sid !== "string" || typeof claims.userId !== "string") {
+      return process.env.NODE_ENV === "production" ? null : roles.map(String);
+    }
+    if (!(await isUserSessionActive(claims.sid, claims.userId))) return null;
+    return roles.map(String);
   } catch {
     return null;
   }

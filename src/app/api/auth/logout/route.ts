@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { clearSessionCookies } from "@/lib/session-cookies";
+import { clearSessionCookies, SESSION_COOKIE } from "@/lib/session-cookies";
+import { verifyAccessToken } from "@/lib/auth";
+import { revokeUserSession } from "@/lib/session-registry";
 
 /**
  * POST /api/auth/logout — выход из системы.
@@ -13,15 +15,32 @@ import { clearSessionCookies } from "@/lib/session-cookies";
  */
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // При явном Bearer-заголовке используем именно указанный токен,
+  // как и getUserFromRequest(); cookie — fallback для браузерного logout.
+  const bearerToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const appToken = bearerToken || request.cookies.get(SESSION_COOKIE)?.value;
+  if (appToken) {
+    const payload = await verifyAccessToken(appToken);
+    if (payload?.sid && payload.userId) {
+      const revoked = await revokeUserSession(payload.sid, payload.userId, "user_logout");
+      if (!revoked) {
+        return NextResponse.json({ error: "Не удалось завершить серверную сессию" }, { status: 503 });
+      }
+    }
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const hasSupabaseAuthCookies = request.cookies.getAll().some(({ name }) => name.startsWith("sb-"));
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    // Stub mode: просто очищаем cookies
+  // App JWT (Bearer/cd_session) — отдельная сессия, не GoTrue access token.
+  // Если Supabase auth cookies отсутствуют, серверная app-сессия уже отозвана
+  // выше; не вызываем GoTrue signOut без GoTrue-сессии (локальный PG runtime
+  // намеренно не запускает GoTrue).
+  if (!supabaseUrl || !supabaseAnonKey || !hasSupabaseAuthCookies) {
     const response = NextResponse.json({ ok: true });
     response.cookies.delete("sb-access-token");
     response.cookies.delete("sb-refresh-token");
-    // App-сессия (единый контракт: cd_session/cd_refresh)
     clearSessionCookies(response);
     return response;
   }

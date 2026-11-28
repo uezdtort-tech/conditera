@@ -7,8 +7,8 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1
+              "field": "cronExpression",
+              "expression": "0 4 * * *"
             }
           ]
         }
@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/cron/cleanup",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -55,7 +54,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -71,7 +69,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"workflow\": \"cleanup\",\n  \"status\": \"success\",\n  \"duration\": {{ $json.totalDurationMs }},\n  \"notified\": {{ $json.totalDeleted }},\n  \"operations\": {{ JSON.stringify($json.operations) }}\n}",
+        "jsonBody": "={\n  \"workflow\": \"cleanup\",\n  \"status\": \"{{ $json.success ? 'success' : 'failed' }}\",\n  \"duration\": {{ $json.durationMs }},\n  \"errorMessage\": \"{{ $json.error || '' }}\"\n}",
         "options": {}
       },
       "id": "log-status",

@@ -18,6 +18,7 @@ x-default-restart: &default-restart
 services:
   # ===== Migrator (init-контейнер — применяет миграции БД один раз) =====
   migrator:
+    profiles: ["legacy-app-db"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -151,6 +152,7 @@ services:
   # Обновление допускается только через проверенный pg_upgrade/pg_dump+restore
   # с резервной копией и контрольной сверкой данных.
   db:
+    profiles: ["legacy-app-db"]
     image: public.ecr.aws/docker/library/postgres:17-alpine
     container_name: conditera-db
     <<: *default-restart
@@ -188,6 +190,7 @@ services:
   # session-level features (temp tables, SET без транзакции, LISTEN/NOTIFY).
   # Для Prisma этого достаточно — все запросы в явных транзакциях.
   pgbouncer:
+    profiles: ["legacy-app-db"]
     image: pgbouncer/pgbouncer:latest
     container_name: conditera-pgbouncer
     <<: *default-restart

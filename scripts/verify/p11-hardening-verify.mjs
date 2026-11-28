@@ -170,8 +170,8 @@ async function main() {
   const providerId = (await client.query(`SELECT yookassa_payment_id FROM public.payments WHERE order_id=$1::uuid`, [badPay.orderId])).rows[0].yookassa_payment_id;
   const w2 = await sendWebhookPaymentSucceeded(providerId, badPay.orderId, "9999.00");
   assert(
-    "webhook с другой суммой → skipped amount_mismatch",
-    w2.status === 200 && w2.json?.skipped === "amount_mismatch",
+    "webhook с другой суммой → fail-closed 500 для сверки",
+    w2.status === 500 && w2.json?.error === "Payment amount mismatch",
     JSON.stringify(w2.json)
   );
   assert(
@@ -184,9 +184,72 @@ async function main() {
   const modProviderId = (await client.query(`SELECT yookassa_payment_id FROM public.payments WHERE order_id=$1::uuid`, [modPay.orderId])).rows[0].yookassa_payment_id;
   const w3 = await sendWebhookPaymentSucceeded(modProviderId, modPay.orderId, "2457.00");
   assert(
-    "оплатить изменённый заказ старой суммой → skipped (P1.1 §2)",
-    w3.status === 200 && w3.json?.skipped === "amount_mismatch" && (await getOrderPaymentStatus(modPay.orderId)).payment_status !== "escrow",
+    "оплатить изменённый заказ старой суммой → fail-closed 500 (P1.1 §2)",
+    w3.status === 500 && w3.json?.error === "Payment amount mismatch" && (await getOrderPaymentStatus(modPay.orderId)).payment_status !== "escrow",
     JSON.stringify({ body: w3.json, order: await getOrderPaymentStatus(modPay.orderId) })
+  );
+
+  // 1d. Запоздалый payment.canceled не может перезаписать succeeded/escrow.
+  const staleCancel = await seedOrderWithPayment({ total: intTotal, paymentAmount: intTotal, number: `P11V-STALE-CANCEL-${rand()}` });
+  await client.query(`UPDATE public.payments SET status='succeeded' WHERE order_id=$1::uuid`, [staleCancel.orderId]);
+  await client.query(`UPDATE public.orders SET payment_status='escrow' WHERE id=$1::uuid`, [staleCancel.orderId]);
+  const staleCancelWebhook = await api("POST", "/api/payment/webhook", {
+    headers: { "x-real-ip": "2a02:5180::1" },
+    body: {
+      event: "payment.canceled",
+      object: {
+        id: staleCancel.providerPaymentId,
+        status: "canceled",
+        amount: { value: "2457.00", currency: "RUB" },
+        metadata: { orderId: staleCancel.orderId },
+      },
+    },
+  });
+  const staleCancelState = await getOrderPaymentStatus(staleCancel.orderId);
+  assert(
+    "запоздалый payment.canceled не перезаписывает succeeded/escrow",
+    staleCancelWebhook.status === 200 &&
+      staleCancelState.payment_status === "escrow" &&
+      staleCancelState.status !== "CANCELLED",
+    JSON.stringify({ webhook: staleCancelWebhook, state: staleCancelState })
+  );
+
+  // 1e. Запоздалый payment.succeeded по отменённому заказу возвращается,
+  //     а не переводит его в escrow (mock refund в dev).
+  const lateCapture = await seedOrderWithPayment({ total: intTotal, paymentAmount: intTotal, number: `P11V-LATE-CAPTURE-${rand()}` });
+  await client.query(`UPDATE public.orders SET status='CANCELLED' WHERE id=$1::uuid`, [lateCapture.orderId]);
+  const lateCaptureWebhook = await sendWebhookPaymentSucceeded(
+    lateCapture.providerPaymentId,
+    lateCapture.orderId,
+    "2457.00"
+  );
+  const lateCaptureState = await getOrderPaymentStatus(lateCapture.orderId);
+  assert(
+    "позднее списание по CANCELLED инициирует возврат, не escrow",
+    lateCaptureWebhook.status === 200 &&
+      lateCaptureWebhook.json?.refundInitiated === true &&
+      lateCaptureState.payment_status !== "escrow",
+    JSON.stringify({ webhook: lateCaptureWebhook.json, state: lateCaptureState })
+  );
+
+  // 1f. payment.canceled успел пометить ledger, но order ещё не отменён;
+  //     последующий capture должен сначала закрыть заказ, затем вернуть деньги.
+  const cancelledLedger = await seedOrderWithPayment({ total: intTotal, paymentAmount: intTotal, number: `P11V-CANCELLED-LEDGER-${rand()}` });
+  await client.query(`UPDATE public.payments SET status='cancelled' WHERE order_id=$1::uuid`, [cancelledLedger.orderId]);
+  await client.query(`UPDATE public.orders SET total=$2 WHERE id=$1::uuid`, [cancelledLedger.orderId, intTotal + 500]);
+  const cancelledLedgerWebhook = await sendWebhookPaymentSucceeded(
+    cancelledLedger.providerPaymentId,
+    cancelledLedger.orderId,
+    "2457.00"
+  );
+  const cancelledLedgerState = await getOrderPaymentStatus(cancelledLedger.orderId);
+  assert(
+    "capture после payment.canceled закрывает заказ и инициирует возврат",
+    cancelledLedgerWebhook.status === 200 &&
+      cancelledLedgerWebhook.json?.refundInitiated === true &&
+      cancelledLedgerState.status === "CANCELLED" &&
+      cancelledLedgerState.payment_status !== "escrow",
+    JSON.stringify({ webhook: cancelledLedgerWebhook.json, state: cancelledLedgerState })
   );
 
   // === 2. CHECKOUT IDEMPOTENCY (§8) ===
