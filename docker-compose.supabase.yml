@@ -61,11 +61,10 @@ services:
     expose:
       - "5432"
     volumes:
-      # ВНИМАНИЕ (PG15→PG17): старый том supabase_db_data инициализирован
-      # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
-      # («database files are incompatible with server»). Переход только через
-      # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
-      - supabase_db_data:/var/lib/postgresql/data
+      # Активный PG17 использует отдельный новый volume.
+      # Старый conditera_supabase_db_data (PG15) сохраняется ниже, но сюда не подключается.
+      # Не развёртывать пустой v17 volume до завершённого logical backup/restore.
+      - supabase_db_data_v17:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
       # Подключаем только наш скрипт отдельным файлом, после системного migrate.sh.
@@ -100,17 +99,22 @@ services:
     container_name: conditera-supabase-kong
     restart: unless-stopped
     environment:
-      KONG_DATABASE: "false"
+      # Kong 2.8 DB-less mode requires the literal string "off".
+      KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
-      KONG_NGINX_PROXY_PROXY_buffers: 64 160k
-      KONG_NGINX_PROXY_proxy_busy_buffers_size: 320k
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: "160k"
+      KONG_NGINX_PROXY_PROXY_BUFFERS: "64 160k"
+      KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE: "320k"
+      SUPABASE_ANON_KEY: ${ANON_KEY:?ANON_KEY is required}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
       - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+      - ./scripts/supabase/kong-entrypoint.sh:/usr/local/bin/conditera-kong-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/conditera-kong-entrypoint.sh"]
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -546,7 +550,9 @@ services:
       - conditera-net
 
 volumes:
-  supabase_db_data:
+  # New PG17 data volume. The legacy PG15 volume is intentionally not declared or mounted here.
+  supabase_db_data_v17:
+    name: conditera_supabase_db_data_v17
   supabase_storage_data:
   supabase_vector_data:
 

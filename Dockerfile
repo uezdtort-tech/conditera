@@ -40,9 +40,18 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# pay4: идентификация версии образа (передаётся из CI как GIT_SHA=${{ github.sha }})
+# Build-time public variables are embedded into the Next.js browser bundle.
+# Production builds must receive real values from .env.production via Compose build args.
 ARG GIT_SHA=unknown
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG NEXT_PUBLIC_APP_URL
+ARG CI=false
 ENV APP_VERSION=${GIT_SHA}
+ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV CI=${CI}
 
 # Собираем Next.js со standalone-выходом (см. next.config.ts: output: "standalone")
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -82,12 +91,18 @@ ENV HOSTNAME="0.0.0.0"
 # Создаём непривилегированного пользователя
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs && \
-    apk add --no-cache dumb-init openssl wget
+    apk add --no-cache dumb-init openssl wget postgresql-client && \
+    PG_DUMP_MAJOR="$(pg_dump --version | awk '{print $NF}' | cut -d. -f1)" && \
+    PSQL_MAJOR="$(psql --version | awk '{print $NF}' | cut -d. -f1)" && \
+    test "$PG_DUMP_MAJOR" -ge 18 && \
+    test "$PSQL_MAJOR" -ge 18
 
 # Standalone-сборка Next.js содержит только нужные node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Standalone operational restore verifier (uses pg dependency copied below).
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/ops/backup-verify-restore.mjs ./scripts/ops/backup-verify-restore.mjs
 
 # Supabase JS клиент (для runtime запросов к БД)
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@supabase ./node_modules/@supabase

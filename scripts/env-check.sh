@@ -10,7 +10,7 @@
 #
 # Что проверяет:
 #   1. Существование файла .env.local / .env.production
-#   2. Все REQUIRED-переменные заполнены (не пустые, не начинаются с stub_)
+#   2. Все REQUIRED-переменные заполнены (не пустые, не начинаются с stub[-_])
 #   3. Формат: warnings для опциональных, errors для обязательных
 #   4. Специфичные проверки: формат DATABASE_URL, длина JWT_SECRET и т.д.
 # ============================================================
@@ -73,10 +73,8 @@ is_filled() {
   if [ -z "$val" ] || [ "$val" = "" ]; then
     return 1
   fi
-  if [[ "$val" == stub_* ]]; then
-    return 1
-  fi
-  if [[ "$val" == CHANGE_ME* ]]; then
+  local normalized="${val,,}"
+  if [[ "$normalized" =~ ^(change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[-_]) ]]; then
     return 1
   fi
   return 0
@@ -131,7 +129,8 @@ echo ""
 
 # ===== Database & Supabase =====
 echo -e "${BOLD}[DATABASE]${NC}"
-check_required "DATABASE_URL" "URL подключения к PostgreSQL"
+check_required "DATABASE_URL" "URL подключения к PostgreSQL через runtime pool"
+check_required "DIRECT_DATABASE_URL" "прямой PostgreSQL URL для pg_dump/backup и миграций"
 check_required "NEXT_PUBLIC_SUPABASE_URL" "URL Kong/Supabase (клиент)"
 check_required "NEXT_PUBLIC_SUPABASE_ANON_KEY" "Anon key (клиент, RLS)"
 check_required "SUPABASE_SERVICE_ROLE_KEY" "Service role key (server-only, обход RLS)"
@@ -140,21 +139,85 @@ if [ "$MODE_LABEL" = "production" ]; then
 fi
 echo ""
 
-# Специфичная проверка: DATABASE_URL не должен быть file: (prisma.config.ts бросит)
+# DATABASE_URL и DIRECT_DATABASE_URL должны быть полноценными PostgreSQL URLs.
+validate_database_url() {
+  local name="$1"
+  local value="$2"
+  if [[ "$value" =~ ^postgres(ql)?://[^:/@]+:([^@]+)@[^/]+/.+ ]]; then
+    local password="${BASH_REMATCH[2]}"
+    local normalized="${password,,}"
+    case "$normalized" in
+      change_me*|stub[-_]*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+        err "Пароль в $name содержит заглушку/dev/test-значение (значение скрыто)"
+        ;;
+    esac
+    if [ ${#password} -lt 16 ]; then
+      err "Пароль в $name короче 16 символов (значение скрыто)"
+    fi
+  else
+    err "$name должен иметь формат postgresql://user:password@host/database"
+  fi
+}
+
 DB_URL=$(get_env "DATABASE_URL")
+DIRECT_DB_URL=$(get_env "DIRECT_DATABASE_URL")
 if [[ "$DB_URL" == file:* ]]; then
-  err "DATABASE_URL начинается с 'file:' — prisma.config.ts отклонит. Замените на postgresql://"
+  err "DATABASE_URL начинается с 'file:' — требуется PostgreSQL URL."
+fi
+if [ "$MODE_LABEL" = "production" ]; then
+  validate_database_url "DATABASE_URL" "$DB_URL"
+  validate_database_url "DIRECT_DATABASE_URL" "$DIRECT_DB_URL"
 fi
 echo ""
 
 # ===== Auth / Security =====
 echo -e "${BOLD}[AUTH / SECURITY]${NC}"
-check_required "JWT_SECRET" "секрет для подписи JWT (мин. 32 символа)"
-check_required "TFA_ENCRYPTION_KEY" "ключ шифрования 2FA backup codes"
+check_required "JWT_SECRET" "секрет для подписи access-токенов (мин. 32 символа)"
+check_required "JWT_REFRESH_SECRET" "ОТДЕЛЬНЫЙ секрет для refresh-токенов (мин. 32 символа)"
+check_required "TFA_ENCRYPTION_KEY" "отдельный ключ шифрования 2FA backup codes (мин. 32 символа)"
 check_required "CRON_SECRET" "секрет для cron-задач"
-JWT=$(get_env "JWT_SECRET")
-if [ ${#JWT} -lt 32 ] && [ ${#JWT} -gt 0 ]; then
-  warn "JWT_SECRET короче 32 символов — рекомендуется openssl rand -hex 32"
+
+# Production не должен принимать dev/test/fallback-значения даже если они
+# непустые и формально проходят общую проверку обязательных переменных.
+check_production_secret() {
+  local var_name="$1"
+  local val
+  val=$(get_env "$var_name")
+  if [ "$MODE_LABEL" != "production" ] || [ -z "$val" ]; then
+    return
+  fi
+
+  local normalized="${val,,}"
+  case "$normalized" in
+    change_me*|stub[-_]*|fallback-*|dev-*|dev_*|placeholder*|example*|dummy*|test-*|test_*)
+      err "$var_name содержит заглушку/dev/test-значение (значение скрыто)"
+      return
+      ;;
+  esac
+
+  if [ ${#val} -lt 32 ]; then
+    err "$var_name короче 32 символов (значение скрыто)"
+  fi
+}
+
+check_production_secret "JWT_SECRET"
+check_production_secret "JWT_REFRESH_SECRET"
+check_production_secret "TFA_ENCRYPTION_KEY"
+check_production_secret "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+check_production_secret "SUPABASE_SERVICE_ROLE_KEY"
+
+JWT_VALUE=$(get_env "JWT_SECRET")
+REFRESH_VALUE=$(get_env "JWT_REFRESH_SECRET")
+TFA_VALUE=$(get_env "TFA_ENCRYPTION_KEY")
+CRON_VALUE=$(get_env "CRON_SECRET")
+if [ -n "$JWT_VALUE" ] && [ "$JWT_VALUE" = "$REFRESH_VALUE" ]; then
+  err "JWT_SECRET и JWT_REFRESH_SECRET должны быть разными"
+fi
+if [ -n "$TFA_VALUE" ] && { [ "$TFA_VALUE" = "$JWT_VALUE" ] || [ "$TFA_VALUE" = "$REFRESH_VALUE" ]; }; then
+  err "TFA_ENCRYPTION_KEY должен отличаться от JWT-секретов"
+fi
+if [ -n "$CRON_VALUE" ] && { [ "$CRON_VALUE" = "$JWT_VALUE" ] || [ "$CRON_VALUE" = "$REFRESH_VALUE" ] || [ "$CRON_VALUE" = "$TFA_VALUE" ]; }; then
+  err "CRON_SECRET должен отличаться от JWT/TFA секретов"
 fi
 echo ""
 
@@ -167,8 +230,16 @@ echo ""
 
 # ===== OAuth =====
 echo -e "${BOLD}[OAUTH — вход через соцсети]${NC}"
-check_optional "YANDEX_CLIENT_ID" "Yandex OAuth — кнопка «Войти через Яндекс»"
-check_optional "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
+if [ "$(get_env "EXTERNAL_YANDEX_ENABLED")" = "true" ]; then
+  check_required "YANDEX_CLIENT_ID" "Yandex OAuth client ID"
+  check_optional "YANDEX_CLIENT_SECRET" "Yandex OAuth client secret (optional for public PKCE clients)"
+  check_required "YANDEX_OAUTH_REDIRECT" "Yandex OAuth callback URL"
+  if [ "$(get_env "YANDEX_OAUTH_REDIRECT")" != "https://conditera.ru/api/auth/oauth/yandex/callback" ]; then
+    err "YANDEX_OAUTH_REDIRECT должен быть https://conditera.ru/api/auth/oauth/yandex/callback"
+  fi
+else
+  err "EXTERNAL_YANDEX_ENABLED должен быть true для production-релиза"
+fi
 check_optional "GOOGLE_CLIENT_ID" "Google OAuth — кнопка «Войти через Google»"
 check_optional "GOOGLE_OAUTH_REDIRECT" "Google OAuth — redirect URI"
 check_optional "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
@@ -184,13 +255,15 @@ echo ""
 
 # ===== YooKassa =====
 echo -e "${BOLD}[YOOKASSA — платежи]${NC}"
-check_optional "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
-check_optional "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
+check_required "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
+check_required "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
 echo ""
 
 # ===== SMTP =====
 echo -e "${BOLD}[SMTP — почта]${NC}"
 check_required "SMTP_HOST" "SMTP-сервер"
+check_required "SMTP_USER" "учётная запись SMTP"
+check_required "SMTP_PASSWORD" "пароль SMTP"
 check_required "SMTP_FROM" "адрес отправителя"
 if [ "$MODE_LABEL" = "production" ]; then
   check_required "SMTP_PORT" "порт SMTP"

@@ -28,10 +28,7 @@ function getRequiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   const isStub =
     !value ||
-    value.startsWith("CHANGE_ME") ||
-    value.startsWith("fallback-") ||
-    value.startsWith("dev-") ||
-    value.startsWith("dev_");
+    /^(CHANGE_ME|change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(value);
 
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
@@ -42,7 +39,7 @@ function getRequiredEnv(name: string): string {
           `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
             `используется placeholder. РАНТАЙМ всё равно потребует реальное значение!`
         );
-        return `build-placeholder-${name}-${"0".repeat(24)}`;
+        return `stub_build_only_${name}_${"0".repeat(24)}`;
       }
       throw new Error(
         `[auth] ${name} отсутствует или содержит заглушку в production. ` +
@@ -61,15 +58,15 @@ function getRequiredEnv(name: string): string {
 }
 
 /**
- * Секретные env с фолбэком на альтернативные имена (.env.example декларирует
- * AUTH_SECRET как каноничное имя, исторический код читает JWT_SECRET).
+ * Секретные env с фолбэком на исторические отдельные имена. Refresh-секрет
+ * никогда не наследуется от AUTH_SECRET/JWT_SECRET: для него нужен отдельный ключ.
  * Первая непустая незаглушечная переменная побеждает; иначе — обычный
  * getRequiredEnv(primary) со стандартными предупреждениями.
  */
 function getSecretEnv(primary: string, fallbacks: string[]): string {
   for (const name of [primary, ...fallbacks]) {
     const v = process.env[name]?.trim();
-    if (v && !v.startsWith("CHANGE_ME") && !v.startsWith("fallback-") && !v.startsWith("dev-") && !v.startsWith("dev_")) {
+    if (v && !/^(CHANGE_ME|change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(v)) {
       return v;
     }
   }
@@ -82,7 +79,7 @@ const JWT_SECRET = new TextEncoder().encode(getSecretEnv("JWT_SECRET", ["AUTH_SE
 // ВНИМАНИЕ: после перехода на JWT_REFRESH_SECRET все прежние refresh-токены
 // инвалидируются — пользователи один раз перелогинятся.
 const JWT_REFRESH_SECRET = new TextEncoder().encode(
-  getSecretEnv("JWT_REFRESH_SECRET", ["AUTH_REFRESH_SECRET", "AUTH_SECRET"])
+  getSecretEnv("JWT_REFRESH_SECRET", ["AUTH_REFRESH_SECRET"])
 );
 
 export interface JwtPayload extends JWTPayload {
