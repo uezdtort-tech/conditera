@@ -27,7 +27,7 @@ name: E2E Tests
 # Один актуальный прогон на ветку: push + pull_request не должны
 # одновременно занимать runner-ы идентичными Chromium/mobile E2E.
 concurrency:
-  group: e2e-${{ github.event.pull_request.head.ref || github.ref }}
+  group: e2e-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 on:
