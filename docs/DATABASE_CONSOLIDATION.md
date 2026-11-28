@@ -43,7 +43,7 @@
 2. Сделать отдельные согласованные резервные копии обоих PostgreSQL через `pg_dump -Fc` и проверить их восстановлением в изолированные временные БД. Отдельно скопировать и проверить Storage-файлы.
 3. Сверить миграционные журналы, таблицы, индексы, ограничения, триггеры, функции, RLS-политики, grants, расширения, sequences и фактические количества строк.
 4. Сверить идентичность пользователей: `auth.users` ↔ `profiles` ↔ `user_roles` ↔ `confectioners`; выявить дубликаты email, orphan UUID и конфликты PK/FK. Не объединять аккаунты только по совпадающему email.
-5. Выбрать Supabase-совместимую major-версию PostgreSQL по матрице совместимости используемых образов и расширений. Нельзя копировать каталог данных PG18 напрямую в PG15/17 и нельзя менять тег образа поверх существующего volume.
+5. Зафиксировать Supabase-совместимую major-версию PostgreSQL 17 по матрице совместимости используемых образов и расширений. Нельзя копировать каталог PGDATA между major-версиями и нельзя менять тег образа поверх существующего volume; перенос выполнять только через проверенный логический backup/restore или поддерживаемый pg_upgrade.
 6. Составить детерминированную карту переноса таблиц и конфликтов. Все денежные значения, статусы платежей, возвраты, выплаты, остатки и движения склада сверять отдельно.
 7. Перенести данные в новый кластер-кандидат, применить миграции в правильном порядке, запустить GoTrue и проверить создание/вход пользователя, RLS, REST, Realtime, Storage, заказы, оплаты, возвраты, выплаты, склад и чаты.
 8. Провести тест восстановления из backup и репетицию переключения/отката. Только после письменного подтверждения владельца выполнять cutover.
@@ -71,18 +71,18 @@
 
 | Путь | Код | Фактическое назначение в production |
 |---|---|---|
-| Supabase JS admin | `src/lib/supabase/admin.ts` → `resolveSupabaseServerUrl()` | `SUPABASE_INTERNAL_URL` (если задан) или Supabase URL → Kong → GoTrue/PostgREST/Storage на кластере PG15, БД `supabase` |
-| Supabase browser/SSR | `src/lib/supabase/browser.ts`, `server.ts` | Публичный Supabase URL → Kong → тот же кластер PG15; в локальном режиме URL может быть same-origin |
-| Прямой PostgreSQL | `src/lib/postgrest/pool.ts` → `DATABASE_URL` | В production Compose: PgBouncer → `conditera-db`, PG18, БД `conditera` |
-| Локальный REST shim | `src/app/rest/v1/[...path]/route.ts` | Прямой `getPool()` → PG18; это не тот же сервер, что внешний Kong/PostgREST |
-| Локальный Storage shim | `src/app/storage/v1/[...path]/route.ts` | Файлы в `upload/storage`, метаданные `storage.objects` через PG18; production Supabase Storage использует отдельный Storage volume и PG15 |
+| Supabase JS admin | `src/lib/supabase/admin.ts` → `resolveSupabaseServerUrl()` | `SUPABASE_INTERNAL_URL` (если задан) или Supabase URL → Kong → GoTrue/PostgREST/Storage на кластере PG17, БД `supabase` (legacy data volume до переноса был в формате PG15) |
+| Supabase browser/SSR | `src/lib/supabase/browser.ts`, `server.ts` | Публичный Supabase URL → Kong → тот же кластер PG17; в локальном режиме URL может быть same-origin |
+| Прямой PostgreSQL | `src/lib/postgrest/pool.ts` → `DATABASE_URL` | В production Compose: PgBouncer → `conditera-db`, PG17, БД `conditera` |
+| Локальный REST shim | `src/app/rest/v1/[...path]/route.ts` | Прямой `getPool()` → PG17; это не тот же сервер, что внешний Kong/PostgREST |
+| Локальный Storage shim | `src/app/storage/v1/[...path]/route.ts` | Файлы в `upload/storage`, метаданные `storage.objects` через PG17; production Supabase Storage использует отдельный Storage volume и PG17 |
 
 ### Подтверждённые пересечения двух кластеров
 
-- `src/app/api/products/route.ts`: административное создание товара проверяет `auth.users` и читает имя из `public.profiles` через прямой PG Pool (PG18), затем создаёт/читает товар и категории через `supabaseAdmin` (PG15). Один пользовательский сценарий опирается на обе базы.
-- `src/app/api/auth/register/route.ts`: штатное создание Auth-пользователя и профиля идёт через GoTrue/Supabase Admin (PG15); прямые операции с `auth.users` через PG Pool оставлены для локального fallback/компенсации. Это означает различие поведения dev и production.
-- `src/lib/ops/*` и API производственных сценариев используют прямой PG Pool (PG18) для `orders`, `order_production`, `order_production_checklist`, `inventory_items`, `recipe_ingredients`, `purchase_drafts`, `capacity_reservations`, `domain_events`, `order_media`, `chat_channels/messages` и других операционных таблиц.
-- Каталог, Auth, роли, профили, товары, категории, разрезы и Storage через `supabaseAdmin`/GoTrue/PostgREST работают через Supabase API (PG15). Одни и те же логические сущности могут иметь копии схемы в обоих кластерах, но это не доказывает совпадение строк или идентификаторов.
+- `src/app/api/products/route.ts`: административное создание товара проверяет `auth.users` и читает имя из `public.profiles` через прямой PG Pool (PG17), затем создаёт/читает товар и категории через `supabaseAdmin` (PG17). Один пользовательский сценарий опирается на обе базы.
+- `src/app/api/auth/register/route.ts`: штатное создание Auth-пользователя и профиля идёт через GoTrue/Supabase Admin (PG17); прямые операции с `auth.users` через PG Pool оставлены для локального fallback/компенсации. Это означает различие поведения dev и production.
+- `src/lib/ops/*` и API производственных сценариев используют прямой PG Pool (PG17) для `orders`, `order_production`, `order_production_checklist`, `inventory_items`, `recipe_ingredients`, `purchase_drafts`, `capacity_reservations`, `domain_events`, `order_media`, `chat_channels/messages` и других операционных таблиц.
+- Каталог, Auth, роли, профили, товары, категории, разрезы и Storage через `supabaseAdmin`/GoTrue/PostgREST работают через Supabase API (PG17). Одни и те же логические сущности могут иметь копии схемы в обоих кластерах, но это не доказывает совпадение строк или идентификаторов.
 - В результате простая смена `DATABASE_URL` или `SUPABASE_INTERNAL_URL` не объединяет систему: она меняет только один путь и может оставить часть запросов на старой базе.
 
 ### Следствие для переноса

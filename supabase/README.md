@@ -111,7 +111,7 @@ npm run dev:local
 
 | Сервис | Контейнер | Порт | Назначение |
 |---|---|---|---|
-| PostgreSQL 15 | conditera-supabase-db | 5432 (внутр.) | БД с расширениями pgsodium, pg_cron, pg_trgm |
+| PostgreSQL 17 | conditera-supabase-db | 5432 (внутр.) | БД с расширениями pgsodium, pg_cron, pg_trgm |
 | Kong API Gateway | conditera-supabase-kong | **8000** | Единая точка входа для всех API |
 | GoTrue (Auth) | conditera-supabase-auth | 9999 (внутр.) | Email/pass, OAuth, Magic Link, 2FA |
 | PostgREST | conditera-supabase-rest | 3000 (внутр.) | Auto REST API из БД схемы |

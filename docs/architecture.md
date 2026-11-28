@@ -49,7 +49,7 @@ User → Browser → Next.js SSR → supabaseBrowser (RLS)
                     ↓               ↓               ↓
                     └───────────────┴───────────────┘
                                     ↓
-                          PostgreSQL 15 (:5432)
+                          PostgreSQL 17 (:5432)
                           + pg_cron + pg_trgm + FTS
 ```
 

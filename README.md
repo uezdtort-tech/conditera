@@ -89,7 +89,7 @@ n8n (localhost:5678) ← webhook-события (fail-safe, необязател
 ## Архитектура
 
 - **Backend:** Next.js 16 (App Router), ~68 групп API-роутов, 18 cron-задач (`src/app/api/cron/`)
-- **Database:** PostgreSQL 15+ (локально или embedded через `npm run db:start` — без Docker). Доступ через `supabase-js` поверх PostgREST-шима (`/rest/v1` обслуживает сам Next.js)
+- **Database:** PostgreSQL 17 (Supabase runtime и embedded `db:setup`). В Compose пока остаются два независимых PG17-кластера до завершения консолидации данных. Доступ через `supabase-js` поверх PostgREST-шима (`/rest/v1` обслуживает сам Next.js)
 - **Migrations:** SQL-файлы `supabase/migrations/0001..0047`, применяются командой `npm run db:setup`
 - **Realtime:** Socket.IO (chat, typing, online, order-tracking) — `mini-services/chat-server`
 - **Payments:** YooKassa (mock/real, идемпотентность, IP whitelist, эскроу через cron)
