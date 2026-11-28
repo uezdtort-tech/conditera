@@ -25,7 +25,16 @@ async function verifyRoleProfile(
     // Стабильные id полей формы входа: на модалке также есть вкладка регистрации.
     await page.locator("#login-email").fill(email);
     await page.locator("#login-password").fill(DEMO_PASSWORD);
+    const loginResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith("/api/auth/login") && response.request().method() === "POST",
+    );
     await page.getByRole("button", { name: "Войти", exact: true }).click();
+    const loginResponse = await loginResponsePromise;
+    const loginPayload = await loginResponse.json().catch(() => ({}));
+    expect(
+      loginResponse.status(),
+      `Login rejected for ${email}: ${JSON.stringify(loginPayload)}`,
+    ).toBe(200);
     await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
 
     await expect(page.getByRole("button", { name: roleTab, exact: true })).toBeVisible({ timeout: 15_000 });
