@@ -203,6 +203,7 @@ test.describe("Полный заказ: оплата → производств�
       const logout = confectionerPage.getByRole("button", { name: /Выйти/ }).first();
       if (await logout.count()) await logout.click().catch(() => undefined);
     } finally {
+      await confectionerPage.request.post(`${BASE_URL}/api/auth/logout`).catch(() => undefined);
       await confectionerContext.close().catch(() => undefined);
     }
   });
