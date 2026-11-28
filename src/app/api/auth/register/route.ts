@@ -38,6 +38,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashPassword, createAccessToken, createRefreshToken } from "@/lib/auth";
+import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti } from "@/lib/session-registry";
 import { safeJsonBody } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -517,8 +519,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId });
+    const sessionId = await createUserSession(userId, request, "registration");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, sid: sessionId, jti: refreshJti });
 
     // 13. Sanitize response (без passwordHash и других sensitive полей)
     const safeUser: SanitizedUser = {
@@ -567,7 +572,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 201 Created — REST-контракт создания ресурса (E2E integration-auth-flow
     // ожидает именно 201; 200 ошибочно сигнализировал «обычный ответ»).
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         user: safeUser,
         accessToken,
@@ -575,8 +580,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       { status: 201 }
     );
+    return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("Register error:", error?.message);
+    if (error?.message === "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT" || error?.message === "ACCOUNT_SESSION_POLICY_UNAVAILABLE") {
+      return NextResponse.json({ error: error.message }, { status: error.message === "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT" ? 409 : 503 });
+    }
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
       { status: 500 }

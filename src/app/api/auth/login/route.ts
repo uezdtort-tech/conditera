@@ -27,6 +27,7 @@ import {
 } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti } from "@/lib/session-registry";
 import { findDevFallbackUser } from "@/lib/dev-auth";
 import { isAdminConfigured } from "@/lib/supabase/admin";
 
@@ -309,8 +310,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType: user.account_type,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId: user.id });
+    const sessionId = await createUserSession(user.id, request, "password");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, user.id, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId: user.id, sid: sessionId, jti: refreshJti });
 
     // Обновить last_login_at (non-blocking)
     supabaseAdmin
@@ -343,6 +347,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
     console.error("Login error:", error?.message);
+    if (error?.message === "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT") {
+      return NextResponse.json({ error: "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT", message: "Сначала завершите сеанс на прежнем устройстве." }, { status: 409 });
+    }
+    if (error?.message === "ACCOUNT_SESSION_POLICY_UNAVAILABLE") {
+      return NextResponse.json({ error: "ACCOUNT_SESSION_POLICY_UNAVAILABLE" }, { status: 503 });
+    }
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
       { status: 500 }

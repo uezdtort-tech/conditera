@@ -47,6 +47,7 @@ interface QuoteRequestBody {
   estimated_price?: number;
   estimated_delivery_cost?: number;
   confectioner_ids: string[];
+  project_spec?: Record<string, unknown>;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -69,6 +70,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!body.city) {
       throw new HttpError(400, "Укажите город");
     }
+
+    // Неизменяемый снимок конфигурации проекта; ограничиваем размер и декор.
+    const projectSpec = body.project_spec && typeof body.project_spec === "object"
+      ? JSON.parse(JSON.stringify(body.project_spec)) as Record<string, unknown>
+      : {};
+    const specDecorations = projectSpec.decorations;
+    const decorations = Array.isArray(specDecorations) ? specDecorations : (body.decorations || []);
+    if (decorations.length > 5) throw new HttpError(400, "В одном проекте можно выбрать не более пяти элементов декора");
+    if (decorations.some((item) => typeof item !== "string" || item.length > 120)) {
+      throw new HttpError(400, "Некорректный элемент декора");
+    }
+    projectSpec.decorations = decorations;
+    if (JSON.stringify(projectSpec).length > 16000) throw new HttpError(400, "Снимок проекта слишком большой");
 
     // Валидация целей: confectioners.id — TEXT legacy ('c0'…), id приходят из UI
     // (шаг 8 конструктора). Раньше ЛЮБЫЕ строки сохранялись, а уведомления писались
@@ -107,7 +121,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         filling: body.filling,
         filling_id: body.filling_id,
         coating: body.coating,
-        decorations: body.decorations || [],
+        decorations,
+        project_spec: projectSpec,
         dietary: body.dietary || [],
         servings: body.servings,
         quantity: body.quantity,
@@ -202,21 +217,33 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         throw new HttpError(403, "Вы не кондитер");
       }
 
-      // Запросы, где кондитер в списке confectioner_ids
-      const { data: quotes, error } = await supabaseAdmin
+      // Получаем заявки отдельно от предложений: кондитер не должен видеть
+      // цены и условия конкурирующих кондитеров.
+      const { data: requests, error: requestError } = await supabaseAdmin
         .from("quote_requests")
-        .select(`
-          *,
-          my_quotes:confectioner_quotes!inner(*)
-        `)
+        .select("*")
         .contains("confectioner_ids", [confectioner.id])
         .order("created_at", { ascending: false });
+      if (requestError) throw new HttpError(500, "DB error", requestError.message);
 
-      if (error) {
-        throw new HttpError(500, "DB error", error.message);
+      const requestIds = (requests ?? []).map((request) => request.id);
+      const { data: ownOffers, error: ownOffersError } = requestIds.length
+        ? await supabaseAdmin.from("confectioner_quotes").select("*")
+            .eq("confectioner_id", confectioner.id).in("quote_request_id", requestIds)
+        : { data: [], error: null };
+      if (ownOffersError) throw new HttpError(500, "DB error", ownOffersError.message);
+
+      const offersByRequest = new Map<string, typeof ownOffers>();
+      for (const offer of ownOffers ?? []) {
+        const current = offersByRequest.get(offer.quote_request_id) ?? [];
+        current.push(offer);
+        offersByRequest.set(offer.quote_request_id, current);
       }
-
-      return NextResponse.json({ quotes: quotes || [], confectioner_id: confectioner.id });
+      const visibleQuotes = (requests ?? [])
+        .map((request) => ({ ...request, my_quotes: offersByRequest.get(request.id) ?? [] }))
+        .filter((request) => request.status !== "approved" ||
+          request.my_quotes.some((quote) => quote.status === "accepted"));
+      return NextResponse.json({ quotes: visibleQuotes, confectioner_id: confectioner.id });
     }
 
     throw new HttpError(400, "Неизвестный режим. Используйте ?mode=my или ?mode=confectioner");

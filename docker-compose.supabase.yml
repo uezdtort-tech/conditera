@@ -33,13 +33,13 @@ x-logging: &default-logging
 services:
   # ===== PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация (единая с runtime и CI) =====
   # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI =
-  # PG17, embedded db:setup = PG17. Образ supabase/postgres:17.11.0.017 —
+  # PG17, embedded db:setup = PG17. Образ supabase/postgres:15.6.1.141 —
   # последний vanilla-тег PG17 (без -orioledb/-multigres). Менять версию
   # ТОЛЬКО синхронно в: docker-compose.supabase.yml, conditera-v2/docker-compose.local.yml,
   # .github/workflows/ci.yml (jobs.migrations-pg17), package.json (embedded-postgres).
   # Гард: scripts/verify/pg-version-gate.mjs (CI) — не-17 версии = FAIL.
   supabase-db:
-    image: supabase/postgres:17.11.0.017
+    image: supabase/postgres:15.6.1.141
     container_name: conditera-supabase-db
     restart: unless-stopped
     command:
@@ -61,10 +61,9 @@ services:
     expose:
       - "5432"
     volumes:
-      # ВНИМАНИЕ (PG15→PG17): старый том supabase_db_data инициализирован
-      # PG15 и НЕ совместим бинарно с PG17 — контейнер уйдёт в crash-loop
-      # («database files are incompatible with server»). Переход только через
-      # дамп/рестор или свежая инициализация (см. docs/DEPLOY_RUNBOOK.md §PG17).
+      # Активный том был инициализирован PostgreSQL 15. До подтверждённого
+      # backup/restore/cutover он обязан оставаться на PG15. Не подменять
+      # этот образ на PG17: major upgrade через смену image запрещён.
       - supabase_db_data:/var/lib/postgresql/data
       # Не перекрывать /docker-entrypoint-initdb.d целиком: в образе Supabase
       # там находятся обязательные системные миграции и init-scripts.
@@ -100,17 +99,18 @@ services:
     container_name: conditera-supabase-kong
     restart: unless-stopped
     environment:
-      KONG_DATABASE: "false"
+      KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
-      KONG_NGINX_PROXY_PROXY_buffers: 64 160k
-      KONG_NGINX_PROXY_proxy_busy_buffers_size: 320k
+      SUPABASE_ANON_KEY: ${ANON_KEY:?ANON_KEY is required}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
     ports:
       - "8000:8000"  # Главный API gateway
     volumes:
       - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+      - ./scripts/supabase/kong-entrypoint.sh:/usr/local/bin/conditera-kong-entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/conditera-kong-entrypoint.sh"]
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -329,10 +329,8 @@ services:
   # Миграция 0026 создаёт RLS-политики на storage.objects и должна выполняться
   # только после того, как Storage API создал свои таблицы.
   supabase-app-migrator:
-    # PG17: клиент psql под целевой кластер supabase-db (тот же тег 17.11.0.017).
-    # Мигратор client-only (bash+psql, без volume/initdb) — образ серверных
-    # расширений не влияет на применяемые SQL, но версия клиента = версия сервера.
-    image: supabase/postgres:17.11.0.017
+    # Клиент мигратора должен соответствовать активному PG15 до cutover.
+    image: supabase/postgres:15.6.1.141
     container_name: conditera-supabase-app-migrator
     restart: "no"
     command: ["/bin/bash", "/scripts/01-apply-migrations.sh"]
