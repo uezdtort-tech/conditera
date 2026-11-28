@@ -2,6 +2,8 @@ import { expect, test, type Browser } from "@playwright/test";
 
 const BASE_URL = (process.env.E2E_BASE_URL || process.env.E2E_APP_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
 const DEMO_PASSWORD = "Demo123!";
+const PROFILE_CUSTOMER_EMAIL = process.env.PROFILE_E2E_CUSTOMER_EMAIL || "profile-customer-local@e2e.conditera.test";
+const PROFILE_CONFECTIONER_EMAIL = process.env.PROFILE_E2E_CONFECTIONER_EMAIL || "profile-confectioner-local@e2e.conditera.test";
 
 async function verifyRoleProfile(
   browser: Browser,
@@ -72,6 +74,7 @@ async function verifyRoleProfile(
     expect(payload.profile).toMatchObject({ name: updatedName, phone: updatedPhone, bio: updatedBio });
     return updatedName;
   } finally {
+    await page.request.post(`${BASE_URL}/api/auth/logout`).catch(() => undefined);
     await context.close();
   }
 }
@@ -84,10 +87,10 @@ test.describe("Настройки профиля — сквозное сохра
       throw new Error("Проверка демо-профилей разрешена только против локального тестового сервера.");
     }
     const customerName = await verifyRoleProfile(
-      browser, "customer@demo.ru", "покупатель", "Мои заказы",
+      browser, PROFILE_CUSTOMER_EMAIL, "покупатель", "Мои заказы",
     );
     await verifyRoleProfile(
-      browser, "confectioner@demo.ru", "кондитер", "Заказы", customerName,
+      browser, PROFILE_CONFECTIONER_EMAIL, "кондитер", "Заказы", customerName,
     );
   });
 });
