@@ -59,8 +59,10 @@ const UNIT_ALIASES: Record<string, UnitAlias> = {
   "дес": { unit: "шт", factor: 10 },
   "десяток": { unit: "шт", factor: 10 },
   "десятки": { unit: "шт", factor: 10 },
-  "dozen": { unit: "шт", factor: 10 },
-  "dz": { unit: "шт", factor: 10 },
+  // Дюжина — 12 штук; не смешивать с русским «десяток» (10 штук).
+  "дюжина": { unit: "шт", factor: 12 },
+  "dozen": { unit: "шт", factor: 12 },
+  "dz": { unit: "шт", factor: 12 },
 };
 
 /** Убрать «плавающую пыль» (0.1+0.2 ситуации) — до 6 значащих знаков. */

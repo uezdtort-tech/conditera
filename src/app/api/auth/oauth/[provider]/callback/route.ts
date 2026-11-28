@@ -14,18 +14,20 @@
 // Неподдерживаемые/ненастроенные провайдеры завершаются безопасной ошибкой.
 
 import { NextRequest, NextResponse } from "next/server";
+import { isPlaceholderValue } from "@/lib/placeholder-value";
 import { createServerClient } from "@supabase/ssr";
 import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createAccessToken, createRefreshToken } from "@/lib/auth";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti } from "@/lib/session-registry";
 
 type Provider = "google" | "yandex" | "vk";
 
 const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk"];
 
 function isStubValue(value: string | undefined): boolean {
-  return !value || value.trim() === "" || value.startsWith("stub_");
+  return isPlaceholderValue(value);
 }
 
 function getProviderConfig(provider: Provider): {
@@ -555,8 +557,11 @@ async function handleOAuthCallback(
       throw new Error("GoTrue недоступен вне локальной разработки");
     }
 
-    const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
-    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
+    const sessionId = await createUserSession(userId, request, "oauth");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
+    const accessToken = await createAccessToken({ userId, email, name, roles, accountType, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType, sid: sessionId, jti: refreshJti });
     const finalResponse = setSessionCookies(response, { accessToken, refreshToken });
     createdUserForRollback = null;
     return finalResponse;

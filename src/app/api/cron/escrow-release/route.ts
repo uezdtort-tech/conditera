@@ -132,6 +132,8 @@ async function releaseEscrowLegacy(
     .eq("id", order.id)
     .eq("payment_status", "escrow")
     .is("escrow_released_at", null)
+    .neq("status", "CANCELLED")
+    .neq("status", "REFUNDED")
     .select("id");
 
   if (orderUpdateErr) {
@@ -192,6 +194,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .eq("payment_status", "escrow")
       .is("escrow_released_at", null)
       .neq("status", "CANCELLED")
+      .neq("status", "REFUNDED")
       .lt("created_at", cutoff.toISOString())
       .limit(BATCH_SIZE);
 

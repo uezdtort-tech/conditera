@@ -29,6 +29,7 @@ import {
 } from "./snapshot";
 import {
   estimateOrderProductionMinutes,
+  isDeliveryLeadTimeSatisfied,
   type OrderItemForEstimate,
 } from "./production-duration";
 import { computeDeadlineAt, computeLatestSafeStart, minuteToHHMM } from "./deadline";
@@ -469,7 +470,28 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
       });
     }
 
-    // --- Deadline Engine (ТЗ §11) ---
+    // products.production_time_hours — срок от заказа до выдачи, а не
+    // непрерывная трудоёмкость. Проверяем lead time отдельно от capacity.
+    const requiredLeadTimeHours = group.items.reduce(
+      (max, item) => Math.max(max, item.productionTimeHours ?? 0),
+      0
+    );
+    if (
+      deadlineAt &&
+      requiredLeadTimeHours > 0 &&
+      !isDeliveryLeadTimeSatisfied(requiredLeadTimeHours, deadlineAt, now)
+    ) {
+      reasons.push({
+        code: "DEADLINE_TOO_CLOSE",
+        message: `Для «${group.items[0]?.title ?? "товара"}» требуется не менее ${requiredLeadTimeHours} ч от оформления до выдачи.`,
+      });
+      suggestions.push({
+        code: "MOVE_DELIVERY_TIME",
+        message: "Выберите более позднюю дату выдачи с учётом срока изготовления.",
+      });
+    }
+
+    // --- Deadline Engine (ТЗ §11): только активное время производства ---
     let latestSafeStartAt: Date | null = null;
     let marginMin: number | null = null;
     if (deadlineAt) {

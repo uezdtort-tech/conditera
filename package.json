@@ -38,7 +38,8 @@
     "ops:restore-verify": "bun scripts/ops/backup-verify-restore.mjs",
     "ops:daily-report": "bun scripts/ops/daily-report.mjs",
     "verify:route-error-coverage": "node scripts/verify/route-error-coverage.mjs",
-    "deploy:local": "node scripts/deploy-local.mjs"
+    "deploy:local": "node scripts/deploy-local.mjs",
+    "verify:kong-compose": "node scripts/verify/kong-compose-contract.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

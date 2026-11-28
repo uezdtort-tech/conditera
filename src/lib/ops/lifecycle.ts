@@ -322,6 +322,8 @@ export interface ApplyTransitionInput {
   actorId: string;
   actorRoles: string[];
   comment?: string | null;
+  /** Дополнительные атрибуты доменного события перехода. */
+  eventPayload?: Record<string, unknown>;
   /**
    * Внутренний вызов движком (production/ready endpoints) — пропускает
    * проверку ролей (роль проверена вызывающим endpoint'ом).
@@ -529,12 +531,21 @@ export async function applyOrderTransition(
   }
 
   // События: ops event log + n8n (fail-safe)
-  void recordEvent(def!.event, {
-    entityType: "order",
-    entityId: input.orderId,
-    actorId: input.actorId,
-    payload: { from, to: input.to, orderNumber: order!.number },
-  });
+  try {
+    await recordEvent(def!.event, {
+      entityType: "order",
+      entityId: input.orderId,
+      actorId: input.actorId,
+      payload: {
+        from,
+        to: input.to,
+        orderNumber: order!.number,
+        ...(input.eventPayload ?? {}),
+      },
+    });
+  } catch (e) {
+    console.warn("[ops/lifecycle] domain event write failed:", (e as Error).message);
+  }
   if (input.to !== "CANCELLED") {
     // order.cancelled уже эмитится cancel-роутом в n8n — не дублируем
     void emitEvent("order.status_changed", {

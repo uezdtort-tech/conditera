@@ -73,10 +73,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // P1.1 §2: отменённый/возвращённый заказ не оплачивается повторно —
     // webhook перевёл бы его в escrow при статусе CANCELLED и деньги «зависли» бы
     // вне выплаты (escrow-release пропускает CANCELLED).
-    if (order.status === "CANCELLED" || order.payment_status === "refunded") {
+    if (["CANCELLED", "REFUNDED", "COMPLETED"].includes(order.status) || order.payment_status === "refunded") {
       return NextResponse.json(
-        { error: "Заказ отменён — оплата невозможна" },
-        { status: 400 }
+        { error: "Заказ отменён или завершён — оплата невозможна" },
+        { status: 409 }
       );
     }
 
@@ -158,19 +158,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
 
       if (insertErr) {
-        // Платёж у провайдера уже создан; webhook найдёт заказ по
-        // metadata.orderId (fallback) — не отдаём 500, но фиксируем.
+        // Не выдаём confirmation_url до фиксации локального финансового ledger.
         console.error("[payment/create] payments insert failed:", insertErr.message);
+        return NextResponse.json(
+          { error: "Не удалось зафиксировать платёж. Повторите попытку." },
+          { status: 503 }
+        );
       }
     }
 
     // Update order payment status
-    const { error: orderUpdErr } = await supabaseAdmin
+    const { data: orderUpdated, error: orderUpdErr } = await supabaseAdmin
       .from("orders")
       .update({ payment_status: "pending" })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("status", order.status)
+      .eq("payment_status", order.payment_status)
+      .select("id");
     if (orderUpdErr) {
       console.error("[payment/create] orders payment_status update failed:", orderUpdErr.message);
+      return NextResponse.json(
+        { error: "Не удалось зафиксировать состояние заказа перед оплатой" },
+        { status: 503 }
+      );
+    }
+    if (!orderUpdated || orderUpdated.length === 0) {
+      return NextResponse.json(
+        { error: "Заказ изменился во время создания платежа. Обновите страницу." },
+        { status: 409 }
+      );
     }
 
     return NextResponse.json({

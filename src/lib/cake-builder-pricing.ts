@@ -211,8 +211,8 @@ export function validateBuilderConfig(
     if (!Array.isArray(cfg.decorations)) {
       return { valid: false, reason: "decorations должен быть массивом" };
     }
-    if (cfg.decorations.length > 20) {
-      return { valid: false, reason: "Слишком много элементов декора" };
+    if (cfg.decorations.length > 5) {
+      return { valid: false, reason: "В одном проекте можно выбрать не более пяти элементов декора" };
     }
     for (const d of cfg.decorations) {
       if (!CAKE_BUILDER_OPTIONS.decorations.some((o) => o.id === d)) {

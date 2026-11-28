@@ -177,6 +177,9 @@ jobs:
           fi
           echo "✓ source tree is exactly the tagged candidate SHA"
 
+      - name: Validate Kong 2.8 declarative configuration contract
+        run: bun run verify:kong-compose
+
       - name: Validate Compose configuration
         # v4.5 (P0-B): сборка образов НЕ заменяет валидацию конфигурации.
         # Обязательные переменные подставлены dummy-значениями — проверяется

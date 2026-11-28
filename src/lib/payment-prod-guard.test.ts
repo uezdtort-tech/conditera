@@ -28,6 +28,10 @@ describe("P1.1 payment guard: production + stub configuration", () => {
 
   it("production + stub-конфигурация → создание платежа ЗАПРЕЩЕНО (FAIL, mock отключён)", async () => {
     vi.stubEnv("NODE_ENV", "production");
+    // CI E2E may enable the local payment stub globally; this test covers
+    // production without the explicit loopback-only exception.
+    vi.stubEnv("E2E_PAYMENT_STUB_ENABLED", "false");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://conditera.ru");
     const result = await createPayment({
       amount: 3700,
       description: "Заказ DEMO-1048",
