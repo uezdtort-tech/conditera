@@ -487,7 +487,7 @@ content.push(h3('4.1.1. Состав Docker-стека'));
 content.push(dataTable(
   ['Сервис', 'Образ', 'Порт', 'Назначение'],
   [
-    ['supabase-db', 'supabase/postgres:17.11.0.017', '5432 (внутр.)', 'PostgreSQL 17 — целевая конфигурация (единая с runtime и CI)'],
+    ['supabase-db', 'supabase/postgres:17.6.1.136', '5432 (внутр.)', 'PostgreSQL 17 — целевая конфигурация (единая с runtime и CI)'],
     ['supabase-analytics', 'supabase/logflare', '4000 (внутр.)', 'Логирование и аналитика событий'],
     ['supabase-auth', 'supabase/gotrue', '9999 (внутр.)', 'Auth сервис (email/pass, OAuth, Magic Link, 2FA)'],
     ['supabase-rest', 'supabase/postgrest', '3000 (внутр.)', 'Auto-generated REST API из схемы БД'],
@@ -593,7 +593,7 @@ content.push(dataTable(
   [
     ['Node.js', '20 LTS', 'Runtime для Next.js и Edge Functions'],
     ['Supabase', 'latest self-hosted', 'Postgres + Auth + Realtime + Storage + Functions'],
-    ['PostgreSQL', '17.11', 'БД (через supabase/postgres:17.11.0.017 образ)'],
+    ['PostgreSQL', '17.11', 'БД (через supabase/postgres:17.6.1.136 образ)'],
     ['PostgREST', '12.x', 'Auto-generated REST API из БД схемы'],
     ['GoTrue', '2.x', 'Auth сервис (JWT, OAuth, Magic Link, 2FA)'],
     ['Realtime', '2.x', 'WebSocket подписка на postgres_changes'],

@@ -75,7 +75,10 @@ export type CmsAuditAction =
   | "block_delete"
   | "nav_create"
   | "nav_update"
-  | "nav_delete";
+  | "nav_delete"
+  | "section_reorder"
+  | "section_visibility_update"
+  | "block_reorder";
 
 /**
  * Записать событие cms_audit. Best-effort: сбой журнала НЕ ломает основную

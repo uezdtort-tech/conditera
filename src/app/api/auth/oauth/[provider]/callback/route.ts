@@ -14,6 +14,7 @@
 // Неподдерживаемые/ненастроенные провайдеры завершаются безопасной ошибкой.
 
 import { NextRequest, NextResponse } from "next/server";
+import { isPlaceholderValue } from "@/lib/placeholder-value";
 import { createServerClient } from "@supabase/ssr";
 import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -25,7 +26,7 @@ type Provider = "google" | "yandex" | "vk";
 const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk"];
 
 function isStubValue(value: string | undefined): boolean {
-  return !value || value.trim() === "" || value.startsWith("stub_");
+  return isPlaceholderValue(value);
 }
 
 function getProviderConfig(provider: Provider): {

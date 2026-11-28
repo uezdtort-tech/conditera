@@ -48,6 +48,8 @@ import {
   RefreshCw,
   RotateCcw,
   Palette,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { SETTING_CATEGORIES } from "@/lib/mock-data-cms";
 import { formatDate } from "@/lib/finance";
@@ -55,8 +57,18 @@ import { toast } from "sonner";
 import { csrfFetch } from "@/lib/api-client";
 
 // ==================== CMS: РЕДАКТОР ГЛАВНОЙ СТРАНИЦЫ ====================
+interface CmsSectionMeta {
+  slug: string;
+  title: string;
+  visible: boolean;
+  sortOrder: number;
+}
+
 export function AdminCmsHomeTab() {
   const [sectionsData, setSectionsData] = useState<Record<string, CmsBlockApiRow[]>>({});
+  const [sectionMeta, setSectionMeta] = useState<CmsSectionMeta[]>([]);
+  const [savingSections, setSavingSections] = useState(false);
+  const [reorderingSection, setReorderingSection] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -82,13 +94,30 @@ export function AdminCmsHomeTab() {
     setError(null);
     try {
       const res = await csrfFetch("/api/cms/blocks?include_inactive=true");
-      const data = (await res.json()) as { sections?: { slug?: string; blocks?: CmsBlockApiRow[] }[]; error?: string };
+      const data = (await res.json()) as {
+        sections?: { slug?: string; title?: string; visible?: boolean; sortOrder?: number; blocks?: CmsBlockApiRow[] }[];
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       const map: Record<string, CmsBlockApiRow[]> = {};
+      const meta: CmsSectionMeta[] = [];
       for (const s of data.sections || []) {
-        if (s.slug) map[s.slug] = s.blocks || [];
+        if (s.slug) {
+          map[s.slug] = s.blocks || [];
+          if (["advantages", "steps", "cta_confectioner"].includes(s.slug)) {
+            meta.push({
+              slug: s.slug,
+              title: s.title || s.slug,
+              visible: s.visible !== false,
+              sortOrder: Number.isFinite(s.sortOrder) ? Number(s.sortOrder) : 0,
+            });
+          }
+        }
       }
       setSectionsData(map);
+      setSectionMeta(meta
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug))
+        .map((section, index) => ({ ...section, sortOrder: (index + 1) * 10 })));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось загрузить блоки");
     } finally {
@@ -99,6 +128,45 @@ export function AdminCmsHomeTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const moveSection = (slug: string, direction: -1 | 1) => {
+    setSectionMeta((current) => {
+      const next = [...current].sort((a, b) => a.sortOrder - b.sortOrder);
+      const index = next.findIndex((item) => item.slug === slug);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= next.length) return current;
+      const currentOrder = next[index].sortOrder;
+      next[index] = { ...next[index], sortOrder: next[target].sortOrder };
+      next[target] = { ...next[target], sortOrder: currentOrder };
+      return next.sort((a, b) => a.sortOrder - b.sortOrder);
+    });
+  };
+
+  const toggleSectionVisibility = (slug: string) => {
+    setSectionMeta((current) => current.map((item) =>
+      item.slug === slug ? { ...item, visible: !item.visible } : item
+    ));
+  };
+
+  const saveSectionOrder = async () => {
+    setSavingSections(true);
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/cms/sections", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sections: sectionMeta }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      toast.success("Порядок и видимость секций сохранены");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось сохранить секции");
+    } finally {
+      setSavingSections(false);
+    }
+  };
 
   const addBlock = async (section: string) => {
     setAddingSection(section);
@@ -186,6 +254,31 @@ export function AdminCmsHomeTab() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось удалить блок");
+    }
+  };
+
+  const moveBlock = async (section: string, blockId: string, direction: -1 | 1) => {
+    const blocks = sectionsData[section] || [];
+    const index = blocks.findIndex((block) => block.id === blockId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= blocks.length) return;
+    const nextIds = blocks.map((block) => block.id);
+    [nextIds[index], nextIds[target]] = [nextIds[target], nextIds[index]];
+    setReorderingSection(section);
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/cms/blocks/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectionSlug: section, blockIds: nextIds }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось изменить порядок блоков");
+    } finally {
+      setReorderingSection(null);
     }
   };
 
@@ -312,6 +405,40 @@ export function AdminCmsHomeTab() {
         </Card>
       )}
 
+      {sectionMeta.length > 0 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 className="font-semibold text-sm">Порядок и видимость секций</h3>
+              <p className="text-xs text-muted-foreground">Настройки применяются к динамическим секциям главной страницы.</p>
+            </div>
+            <Button size="sm" onClick={saveSectionOrder} disabled={savingSections}>
+              {savingSections ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+              Сохранить
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {[...sectionMeta].sort((a, b) => a.sortOrder - b.sortOrder).map((section, index, rows) => (
+              <div key={section.slug} className="flex items-center gap-2 rounded-md border border-border p-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{section.title}</div>
+                  <div className="text-[11px] text-muted-foreground">{section.visible ? "Показывается на главной" : "Скрыта на главной"}</div>
+                </div>
+                <Button size="icon" variant="ghost" aria-label="Переместить секцию выше" disabled={index === 0} onClick={() => moveSection(section.slug, -1)}>
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" aria-label="Переместить секцию ниже" disabled={index === rows.length - 1} onClick={() => moveSection(section.slug, 1)}>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" aria-label={section.visible ? "Скрыть секцию" : "Показать секцию"} onClick={() => toggleSectionVisibility(section.slug)}>
+                  {section.visible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {isLoading ? (
         <Card className="p-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" /> Загрузка блоков…
@@ -319,22 +446,42 @@ export function AdminCmsHomeTab() {
       ) : (
         <>
           {/* Редактируемые секции (рендерятся публично) */}
-          {Object.entries(renderedSections).map(([key, label]) => {
+          {(sectionMeta.length
+            ? [...sectionMeta].sort((a, b) => a.sortOrder - b.sortOrder).map((section) => [section.slug, renderedSections[section.slug]] as const)
+            : Object.entries(renderedSections)
+          ).filter((entry) => Boolean(entry[1])).map(([key, label]) => {
             const blocks = sectionsData[key] || [];
+            const sectionVisible = sectionMeta.find((section) => section.slug === key)?.visible !== false;
             return (
               <Card key={key} className="p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-sm flex items-center gap-2">
                     {label}
                     <Badge variant="secondary" className="text-[10px]">{blocks.length}</Badge>
-                    <Badge variant="outline" className="text-[9px] text-emerald-700 border-emerald-300">видна на главной</Badge>
+                    <Badge variant="outline" className="text-[9px]">{sectionVisible ? "видна на главной" : "скрыта"}</Badge>
                   </h3>
                   <Button size="sm" variant="outline" disabled={addingSection === key} onClick={() => addBlock(key)}>
                     {addingSection === key ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />} Добавить
                   </Button>
                 </div>
                 <div className="space-y-2">
-                  {blocks.map(renderBlockRow)}
+                  {blocks.map((block, index) => (
+                    <div key={block.id} className="flex items-start gap-1">
+                      <div className="flex flex-col gap-0.5 pt-2">
+                        <Button size="icon" variant="ghost" aria-label="Переместить блок выше"
+                          disabled={index === 0 || reorderingSection === key}
+                          onClick={() => void moveBlock(key, block.id, -1)}>
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" aria-label="Переместить блок ниже"
+                          disabled={index === blocks.length - 1 || reorderingSection === key}
+                          onClick={() => void moveBlock(key, block.id, 1)}>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="min-w-0 flex-1">{renderBlockRow(block)}</div>
+                    </div>
+                  ))}
                   {blocks.length === 0 && (
                     <div className="text-xs text-muted-foreground text-center py-2">
                       Нет блоков — на главной показывается системная секция

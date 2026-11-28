@@ -222,61 +222,6 @@
       "fixed": "3.3.12"
     },
     {
-      "id": "GHSA-2464-fhr4-w9xw",
-      "package": "next",
-      "fixed": "15.5.28"
-    },
-    {
-      "id": "GHSA-39w2-rjm5-chcv",
-      "package": "next",
-      "fixed": "16.3.8"
-    },
-    {
-      "id": "GHSA-3w37-wq28-93x7",
-      "package": "next",
-      "fixed": "16.3.8"
-    },
-    {
-      "id": "GHSA-4jqv-mc3x-m676",
-      "package": "next",
-      "fixed": "15.5.27"
-    },
-    {
-      "id": "GHSA-673q-mjm6-r5xr",
-      "package": "next",
-      "fixed": "16.4.1"
-    },
-    {
-      "id": "GHSA-cjq9-62q9-8jv4",
-      "package": "next",
-      "fixed": "16.3.8"
-    },
-    {
-      "id": "GHSA-f87g-xv8r-7p7x",
-      "package": "next",
-      "fixed": "16.3.8"
-    },
-    {
-      "id": "GHSA-h694-7cp9-m8p3",
-      "package": "next",
-      "fixed": "16.3.8"
-    },
-    {
-      "id": "GHSA-mcj8-r9mp-w47p",
-      "package": "next",
-      "fixed": "16.3.8"
-    },
-    {
-      "id": "GHSA-p3m5-59mp-jv5r",
-      "package": "next",
-      "fixed": "15.5.28"
-    },
-    {
-      "id": "GHSA-vcvr-r3jv-pc5j",
-      "package": "next",
-      "fixed": "16.3.6"
-    },
-    {
       "id": "GHSA-4c35-wcg5-mm9h",
       "package": "next-intl",
       "fixed": "4.9.2"

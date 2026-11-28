@@ -8,7 +8,7 @@ mkdir -p "$OUT"
 
 declare -A IMAGES=(
   [postgres15]="supabase/postgres:15.6.1.141"
-  [postgres17]="supabase/postgres:17.12.0.001"
+  [postgres17]="supabase/postgres:17.6.1.136"
   [gotrue]="supabase/gotrue:v2.164.0"
   [postgrest]="postgrest/postgrest:v12.2.0"
   [realtime]="supabase/realtime:v2.34.21"

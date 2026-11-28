@@ -42,7 +42,24 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
 END $$;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS
-$$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+$ SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $;
+CREATE OR REPLACE FUNCTION public.uuid_generate_v4() RETURNS uuid
+LANGUAGE sql VOLATILE AS $ SELECT gen_random_uuid() $;
+CREATE TABLE public.orders (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id),
+  status text NOT NULL DEFAULT 'delivered',
+  order_number text
+);
+CREATE TABLE public.order_media (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id uuid NOT NULL REFERENCES public.orders(id),
+  kind text NOT NULL,
+  storage_path text NOT NULL,
+  uploaded_by uuid NOT NULL REFERENCES auth.users(id),
+  content_sha256 text,
+  status text NOT NULL DEFAULT 'approved'
+);
 CREATE TABLE public.payments (
   id uuid primary key default gen_random_uuid(),
   order_id uuid,
@@ -89,7 +106,68 @@ async function main() {
   await db.exec(FIXTURE);
   ok("фикстура развёрнута");
   await applyFileStrict(db, MIG("0039_release_readiness.sql"), "0039_release_readiness.sql");
-  ok("0039 применена");
+  await applyFileStrict(db, MIG("0088_harden_yookassa_refund_rpc.sql"), "0088_harden_yookassa_refund_rpc.sql");
+  await applyFileStrict(db, MIG("0089_order_disputes_and_immutable_evidence.sql"), "0089_order_disputes_and_immutable_evidence.sql");
+  await applyFileStrict(db, MIG("0090_order_dispute_messages.sql"), "0090_order_dispute_messages.sql");
+  ok("0039 + 0088 + 0089 + 0090 применены");
+
+  console.log("\n=== Споры: привязка доказательств и неизменяемость ===");
+  const order = (await q(`INSERT INTO public.orders (user_id, status, order_number)
+    VALUES ('${USER}'::uuid, 'delivered', 'DISPUTE-TEST-1') RETURNING id`))[0] as { id: string };
+  const media = (await q(`INSERT INTO public.order_media
+    (order_id, kind, storage_path, uploaded_by, content_sha256)
+    VALUES ('${order.id}'::uuid, 'dispute_evidence', 'orders/test/evidence.png',
+      '${USER}'::uuid, '${"a".repeat(64)}') RETURNING id`))[0] as { id: string };
+  const dispute = (await q(`INSERT INTO public.order_disputes
+    (order_id, opened_by, category, description)
+    VALUES ('${order.id}'::uuid, '${USER}'::uuid, 'quality',
+      'Тестовое описание дефекта товара длиной более двадцати символов')
+    RETURNING id`))[0] as { id: string };
+  await q(`INSERT INTO public.order_dispute_evidence
+    (dispute_id, order_media_id, uploaded_by, content_sha256)
+    VALUES ('${dispute.id}'::uuid, '${media.id}'::uuid, '${USER}'::uuid, '${"a".repeat(64)}')`);
+  ok("доказательство привязано к спору, заказу, автору и SHA-256");
+
+  try {
+    await q(`UPDATE public.order_dispute_evidence SET note='изменение' WHERE order_media_id='${media.id}'::uuid`);
+    fail("доказательство должно быть неизменяемым");
+  } catch { ok("UPDATE доказательства запрещён"); }
+  try {
+    await q(`DELETE FROM public.order_dispute_evidence WHERE order_media_id='${media.id}'::uuid`);
+    fail("удаление доказательства должно быть запрещено");
+  } catch { ok("DELETE доказательства запрещён"); }
+  try {
+    await q(`UPDATE public.order_media SET status='deleted' WHERE id='${media.id}'::uuid`);
+    fail("медиа с доказательством должно быть неизменяемым");
+  } catch { ok("изменение исходного media запрещено"); }
+
+  await q(`INSERT INTO public.order_dispute_events (dispute_id, actor_id, event_type, to_status)
+    VALUES ('${dispute.id}'::uuid, '${USER}'::uuid, 'dispute.opened', 'open')`);
+  try {
+    await q(`UPDATE public.order_dispute_events SET event_type='tampered' WHERE dispute_id='${dispute.id}'::uuid`);
+    fail("аудит-событие должно быть неизменяемым");
+  } catch { ok("UPDATE audit event запрещён"); }
+
+  await q(`INSERT INTO public.order_dispute_messages (dispute_id, sender_id, message)
+    VALUES ('${dispute.id}'::uuid, '${USER}'::uuid, 'Пожалуйста, рассмотрите приложенное доказательство')`);
+  try {
+    await q(`DELETE FROM public.order_dispute_messages WHERE dispute_id='${dispute.id}'::uuid`);
+    fail("сообщение спора должно быть неизменяемым");
+  } catch { ok("DELETE dispute message запрещён"); }
+
+  try {
+    await q(`INSERT INTO public.order_disputes (order_id, opened_by, category, description)
+      VALUES ('${order.id}'::uuid, '${USER}'::uuid, 'damage',
+        'Повторный активный спор по одному заказу должен быть запрещён')`);
+    fail("второй активный спор по заказу должен быть запрещён");
+  } catch { ok("повторный активный спор запрещён"); }
+
+  const grants = (await q(`SELECT
+    has_table_privilege('service_role', 'public.order_disputes', 'SELECT') AS service_can_read,
+    has_table_privilege('anon', 'public.order_disputes', 'SELECT') AS anon_can_read`))[0] as { service_can_read: boolean; anon_can_read: boolean };
+  (grants.service_can_read && !grants.anon_can_read)
+    ? ok("доступ к спорам выдан service_role и закрыт anon")
+    : fail("права на споры", JSON.stringify(grants));
 
   console.log("\n=== RLS confectioner_transactions ===");
   const pol = (await q(`SELECT count(*)::int AS n FROM pg_policies WHERE tablename='confectioner_transactions' AND policyname='confectioner_transactions_owner_select'`))[0] as { n: number };
@@ -112,26 +190,54 @@ async function main() {
   (!r1.already_processed && r1.total_refunded_kopecks === 30000) ? ok("первый частичный 300₽ → 30000 коп") : fail("первый частичный", JSON.stringify(r1));
   const r1b = (await q(`SELECT * FROM apply_yookassa_refund('${pay.id}'::uuid, 'ref_1', 30000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number };
   (r1b.already_processed && r1b.total_refunded_kopecks === 30000) ? ok("повторная доставка ref_1 → dedup") : fail("dedup", JSON.stringify(r1b));
+  try {
+    await q(`SELECT * FROM apply_yookassa_refund('${pay.id}'::uuid, 'ref_1', 30001)`);
+    fail("повторный refund id с другой суммой должен отклоняться");
+  } catch {
+    ok("повторный refund id с другой суммой отклонён");
+  }
   const r2 = (await q(`SELECT * FROM apply_yookassa_refund('${pay.id}'::uuid, 'ref_2', 70000)`))[0] as { already_processed: boolean; total_refunded_kopecks: number; fully_refunded: boolean };
   (r2.fully_refunded && r2.total_refunded_kopecks === 100000) ? ok("второй частичный 700₽ → fully_refunded") : fail("fully_refunded", JSON.stringify(r2));
   const pr = (await q(`SELECT refund_amount, status FROM payments WHERE id='${pay.id}'`))[0] as { refund_amount: string; status: string };
   (Number(pr.refund_amount) === 1000 && pr.status === "refunded") ? ok("refund_amount=1000, status=refunded") : fail("payments row", JSON.stringify(pr));
 
+  console.log("\n=== Кумулятивный лимит возвратов ===");
+  await db.exec(`INSERT INTO public.payments (yookassa_payment_id, amount, status) VALUES ('pay_4', 1000, 'succeeded')`);
+  const pay4 = (await q(`SELECT id FROM payments WHERE yookassa_payment_id='pay_4'`))[0] as { id: string };
+  await q(`SELECT * FROM apply_yookassa_refund('${pay4.id}'::uuid, 'ref_4a', 60000)`);
+  try {
+    await q(`SELECT * FROM apply_yookassa_refund('${pay4.id}'::uuid, 'ref_4b', 40001)`);
+    fail("кумулятивный возврат сверх суммы платежа должен отклоняться");
+  } catch {
+    ok("кумулятивный возврат сверх суммы платежа отклонён");
+  }
+  const afterCap = (await q(`SELECT refund_amount, status FROM payments WHERE id='${pay4.id}'`))[0] as { refund_amount: string; status: string };
+  (Number(afterCap.refund_amount) === 600 && afterCap.status === "succeeded")
+    ? ok("отклонённый возврат не изменил финансовую запись")
+    : fail("финансовая запись после превышения", JSON.stringify(afterCap));
+
   console.log("\n=== Гранты (anon без EXECUTE) ===");
-  for (const rpc of ["consume_tfa_backup_code_v2", "apply_yookassa_refund"]) {
+  const anonCalls = [
+    `SELECT consume_tfa_backup_code_v2('${USER}'::uuid, 'hash_b')`,
+    `SELECT apply_yookassa_refund('${pay.id}'::uuid, 'anon_refund', 100)`,
+  ];
+  for (const call of anonCalls) {
     try {
-      await db.exec(`SET ROLE anon; SELECT ${rpc}();`);
+      await db.exec(`SET ROLE anon; ${call};`);
       await db.exec(`RESET ROLE;`);
-      fail(`грант: anon может вызвать ${rpc}`);
+      fail(`грант: anon смог выполнить ${call}`);
     } catch {
       await db.exec(`RESET ROLE;`);
-      ok(`грант: anon без EXECUTE ${rpc}`);
+      ok(`грант: anon без EXECUTE — ${call.split("(")[0]}`);
     }
   }
 
   console.log("\n=== Идемпотентность 0039 ===");
   await applyFileStrict(db, MIG("0039_release_readiness.sql"), "0039 повторно");
-  ok("повторное применение без ошибок");
+  await applyFileStrict(db, MIG("0088_harden_yookassa_refund_rpc.sql"), "0088 повторно");
+  await applyFileStrict(db, MIG("0089_order_disputes_and_immutable_evidence.sql"), "0089 повторно");
+  await applyFileStrict(db, MIG("0090_order_dispute_messages.sql"), "0090 повторно");
+  ok("повторное применение 0039 + 0088 + 0089 + 0090 без ошибок");
 
   console.log("\n=== КОНТРАКТ F-2: reserve_refund (0035) + webhook — единственный писатель ===");
   await db.exec(`

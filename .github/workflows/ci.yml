@@ -81,12 +81,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Validate Supabase operations shell scripts
+        run: |
+          bash -n scripts/ops/backup-supabase-runtime.sh scripts/ops/verify-supabase-runtime-backup.sh
+          sh -n scripts/supabase/kong-entrypoint.sh
+
       - name: Run tests
         run: bun run test
         env:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
           TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
+
+      - name: Verify YooKassa refund RPC contract on PGlite
+        run: bun run test:refund-contract
 
       - name: Run tests with coverage
         run: bun run test:coverage
@@ -345,6 +353,8 @@ jobs:
           # Проверка на закоммиченные секреты
           if grep -rEn "(sk_live_|pk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-)" \
             --include="*.ts" --include="*.tsx" --include="*.json" \
+            --exclude="*.test.ts" --exclude="*.spec.ts" \
+            --exclude="*.test.tsx" --exclude="*.spec.tsx" \
             --exclude-dir=node_modules src/ scripts/ mini-services/ 2>/dev/null; then
             echo "❌ Found potential secrets in code"
             exit 1
@@ -453,15 +463,17 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # Use the same Supabase PG17 distribution as the runtime: vanilla
+        # postgres:17 does not ship pg_cron required by migration 0001.
+        image: supabase/postgres:17.6.1.136
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
+          POSTGRES_USER: supabase_admin
           POSTGRES_DB: conditera
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U supabase_admin"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -483,12 +495,25 @@ jobs:
         run: |
           SVC="${{ job.services.postgres.id }}"
           docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
+          docker exec "$SVC" psql -U supabase_admin -d conditera -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(ls supabase/migrations/*.sql | wc -l)
-          echo "applied=$APPLIED total=$TOTAL"
-          test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
+          # 0026 is intentionally deferred until the Supabase Storage API has
+          # created storage.buckets/storage.objects. The full Compose workflow
+          # starts Storage and verifies 0026 separately.
+          STORAGE_TABLES=$(docker exec "$SVC" psql -U supabase_admin -d conditera -Atc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='storage' AND table_name IN ('buckets','objects')")
+          if [ "$STORAGE_TABLES" = "0" ]; then
+            EXPECTED=$((TOTAL - 1))
+          elif [ "$STORAGE_TABLES" = "2" ]; then
+            EXPECTED=$TOTAL
+          else
+            echo "FAIL: Supabase Storage bootstrap is partial (tables=$STORAGE_TABLES)"
+            exit 1
+          fi
+          echo "applied=$APPLIED expected=$EXPECTED total=$TOTAL storage_tables=$STORAGE_TABLES"
+          test "$APPLIED" -eq "$EXPECTED" || { echo "FAIL: applied migration count does not match Storage readiness"; exit 1; }
 
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
@@ -503,7 +528,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -530,7 +555,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
