@@ -1,8 +1,8 @@
-# Единый Supabase runtime на PostgreSQL 17
+# Единый Supabase runtime на PostgreSQL 17.12
 
 ## Состояние
 
-Реализован единый runtime image: PostgreSQL 17, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy и Kong запускаются под Supervisor внутри **одного контейнера**. Overlay также переводит Next.js на этот же PostgreSQL 17: отдельные app PostgreSQL 18, PgBouncer и внешний migrator выключены профилем `legacy-app-db`; старые Supabase контейнеры выключены профилем `legacy-supabase`.
+Реализован единый runtime image: PostgreSQL 17.12, GoTrue, PostgREST, Realtime, Storage, Postgres Meta, Imgproxy и Kong запускаются под Supervisor внутри **одного контейнера**. Overlay также переводит Next.js на этот же PostgreSQL 17.12: отдельные app PostgreSQL 18, PgBouncer и внешний migrator выключены профилем `legacy-app-db`; старые Supabase контейнеры выключены профилем `legacy-supabase`.
 
 CI smoke проверяет один контейнер, health всех процессов, Kong endpoints, Auth signup, Storage upload/download и наличие схем/миграций Realtime. Runtime image также включает прикладные миграции Conditera, которые запускаются после готовности PostgreSQL и Storage, и Edge Runtime с service-role-only маршрутом через Kong; полная проверка этих новых частей выполняется актуальным CI.
 
@@ -48,10 +48,10 @@ docker compose --env-file .env.production --env-file .env.supabase-runtime \
 
 Runtime использует отдельные именованные volumes:
 
-- `supabase_runtime_pg17_data` — PostgreSQL 17;
+- `supabase_runtime_pg17_data` — PostgreSQL 17.12, explicit name `conditera_supabase_runtime_pg17_data`;
 - `supabase_runtime_storage_data` — Storage и read-only mount для Imgproxy.
 
-**Не подключать к PostgreSQL 17 volume от старого PostgreSQL 15.** Формат data directory несовместим. Нельзя считать запуск overlay способом автоматического переноса production-данных. До переключения необходимы согласованные backup, логический dump/restore в PG17, проверка владельцев/ролей/extensions/RLS и контрольные суммы критичных таблиц. Текущий CI использует пустые disposable volumes и не доказывает перенос существующих данных.
+**Не подключать к PostgreSQL 17.12 volume от старого PostgreSQL 15.** Формат data directory несовместим. Нельзя считать запуск overlay способом автоматического переноса production-данных. До переключения необходимы согласованные backup, логический dump/restore в PG17, проверка владельцев/ролей/extensions/RLS и контрольные суммы критичных таблиц. Текущий CI использует пустые disposable volumes и не доказывает перенос существующих данных.
 
 Миграционный runner внутри runtime ждёт готовности PostgreSQL и Storage API, затем выполняет `supabase/init-scripts/01-apply-migrations.sh` с `SEED_MODE=none`. На пустой БД он создаёт ledger и применяет прикладные миграции. После этого создаёт отдельную роль `conditera_app` (не superuser, но с `BYPASSRLS` и CRUD/EXECUTE на `public`) для доверенного серверного Next.js-контейнера. Её пароль не передаётся chat-service/n8n: он берётся из отдельного `.env.supabase-runtime` и попадает в `web` только внутри `DATABASE_URL`/`DIRECT_DATABASE_URL`. Серверные Supabase-клиенты используют внутренний `SUPABASE_INTERNAL_URL=http://supabase-kong:8000`.
 

@@ -39,6 +39,21 @@ const ANCHORS = [
     what: "образ Supabase-стека",
   },
   {
+    file: "docker-compose.pg17-migration.yml",
+    pattern: /supabase\/postgres:(\d+)\./g,
+    what: "PG17 migration shadow image",
+  },
+  {
+    file: "Dockerfile.supabase-runtime-poc",
+    pattern: /FROM supabase\/postgres:(\d+)\./g,
+    what: "single-container runtime image",
+  },
+  {
+    file: "Dockerfile",
+    pattern: /FROM .*postgres:(\d+)-alpine AS migrator/g,
+    what: "application migration client image",
+  },
+  {
     file: "package.json",
     pattern: /"embedded-postgres"\s*:\s*"\^?(\d+)\./g,
     what: "embedded-postgres (db:setup)",
@@ -46,7 +61,15 @@ const ANCHORS = [
 ];
 
 // Запрещённые образы в ЛЮБЫХ compose/workflow файлах (major ≠ 17).
-const SCAN_DIRS = ["docker-compose.supabase.yml", "docker-compose.yml", "docker-compose.dev.yml", ".github/workflows"];
+const SCAN_DIRS = [
+  "docker-compose.supabase.yml",
+  "docker-compose.pg17-migration.yml",
+  "docker-compose.supabase-single-container.yml",
+  "docker-compose.supabase-runtime-poc.yml",
+  "docker-compose.yml",
+  "docker-compose.dev.yml",
+  ".github/workflows",
+];
 
 let failures = 0;
 const fail = (msg) => {

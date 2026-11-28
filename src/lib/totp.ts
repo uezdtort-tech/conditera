@@ -62,17 +62,36 @@ export function base32Decode(str: string): Buffer {
 import { createCipheriv, createDecipheriv, scryptSync } from "crypto";
 
 // === КРИТИЧНО: ключ шифрования TOTP-секретов ===
+// В production запрещены встроенные и демонстрационные ключи. На этапе
+// next build допускается только временный ключ для статического пререндера:
+// он не должен попасть в runtime, который повторно проверяет окружение.
 function getTfaKey(): string {
-  const value = process.env.TFA_ENCRYPTION_KEY;
-  if (!value) {
-    console.warn("⚠️ TFA_ENCRYPTION_KEY не задана — dev-ключ. НЕ для production!");
+  const value = process.env.TFA_ENCRYPTION_KEY?.trim();
+  const isStub =
+    !value ||
+    /^(CHANGE_ME|change_me|stub[-_]|fallback-|dev-|dev_|placeholder|example|dummy|test[_-])/i.test(value);
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+  if (process.env.NODE_ENV === "production" && (isStub || value.length < 32)) {
+    if (isBuildPhase) {
+      console.warn(
+        "[totp] TFA_ENCRYPTION_KEY отсутствует/недействителен на этапе сборки; " +
+        "используется временный ключ только для build. Runtime потребует настоящий ключ."
+      );
+      return "stub_build_only_tfa_key_not_valid_for_runtime_00000000000000000000000000000000";
+    }
+    throw new Error(
+      "[totp] TFA_ENCRYPTION_KEY отсутствует, содержит заглушку или короче 32 символов. " +
+      "Отказ production-запуска. Задайте отдельный случайный ключ (например, openssl rand -hex 32)."
+    );
+  }
+
+  if (process.env.NODE_ENV !== "production" && !value) {
+    console.warn("[totp] TFA_ENCRYPTION_KEY не задан — используется dev-ключ. НЕ для production!");
     return "dev_tfa_key_change_me_in_production_aaaaaaaaaaaaaaaaaaaaaaaa";
   }
-  if (process.env.NODE_ENV === "production" &&
-      (value.startsWith("CHANGE_ME") || value.startsWith("dev_"))) {
-    console.error("⚠️ КРИТИЧНО: TFA_ENCRYPTION_KEY содержит заглушку в production!");
-  }
-  return value;
+
+  return value!;
 }
 
 const TFA_KEY = scryptSync(getTfaKey(), "conditera-salt", 32);

@@ -8,7 +8,7 @@ export PGHOST=127.0.0.1
 export PGPORT="${POSTGRES_PORT:-5432}"
 export PGUSER="${POSTGRES_USER:-supabase_admin}"
 export PGPASSWORD="$POSTGRES_PASSWORD"
-export PGDATABASE="${POSTGRES_DB:-supabase}"
+export PGDATABASE="${POSTGRES_DB:-conditera}"
 export MIGRATIONS_DIR=/opt/conditera/migrations
 export SEEDS_DIR=/opt/conditera/seeds
 export SEED_MODE=none
@@ -28,7 +28,7 @@ mkdir -p /opt/supabase/services/postgres/opt/conditera/seeds
 SELECT 'CREATE ROLE conditera_app LOGIN' 
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'conditera_app') \gexec
 ALTER ROLE conditera_app WITH LOGIN PASSWORD :'app_password' BYPASSRLS;
-GRANT CONNECT ON DATABASE supabase TO conditera_app;
+GRANT CONNECT ON DATABASE conditera TO conditera_app;
 GRANT USAGE ON SCHEMA public TO conditera_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO conditera_app;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO conditera_app;

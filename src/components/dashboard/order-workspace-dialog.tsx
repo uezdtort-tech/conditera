@@ -10,7 +10,8 @@
  *
  * Действия (таб «Производство»):
  *   • POST /api/orders/{id}/production/start    — CONFIRMED → PREPARING;
- *   • POST /api/orders/{id}/production/complete — этапы отмечаются выполненными;
+ *   • POST /api/orders/{id}/production/stage — отдельное подтверждение этапа;
+ *   • POST /api/orders/{id}/production/complete — фиксация завершения всех этапов;
  *   • POST /api/orders/{id}/ready               — PREPARING → READY (QC/фото-гейт;
  *     422 → тост с message + detail из ответа);
  *   • POST /api/orders/{id}/handoff             — READY → IN_DELIVERY/DELIVERED
@@ -26,6 +27,7 @@
  */
 
 import { useState } from "react";
+import Image from "next/image";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -56,6 +58,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -79,6 +82,18 @@ type BusinessStatus = LifecycleResponse["derived"]["businessStatus"];
 type ProductionStatus = LifecycleResponse["derived"]["productionStatus"];
 type AssignmentStatus = LifecycleResponse["derived"]["assignmentStatus"];
 type DeliveryStatus = LifecycleResponse["derived"]["deliveryStatus"];
+
+interface OrderMediaItem {
+  id: string;
+  kind: string;
+  source?: "order" | "customer_reference";
+  mimeType: string;
+  fileSize: number;
+  width: number | null;
+  height: number | null;
+  uploadedAt: string;
+  url: string;
+}
 
 /** Палитра уровня риска (без синего). */
 export const RISK_LEVEL_UI: Record<RiskLevel, { label: string; badge: string }> = {
@@ -282,6 +297,139 @@ const ACTION_SUCCESS: Record<OrderActionKind, string> = {
   complete: "Заказ завершён",
 };
 
+function OrderDisputePanel({ orderId }: { orderId: string | null }) {
+  const queryClient = useQueryClient();
+  const [resolution, setResolution] = useState("");
+  const reviewMutation = useMutation({
+    mutationFn: async (status: "under_review" | "awaiting_customer" | "resolved" | "rejected") => {
+      const disputeId = query.data?.dispute?.id;
+      if (!disputeId || !orderId) throw new Error("Спор не найден");
+      const headers = await getSessionAuthHeaders(await getCsrfToken());
+      const res = await csrfFetch(`/api/orders/${orderId}/disputes`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ disputeId, status, resolution: resolution.trim() }),
+      });
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      return status;
+    },
+    onSuccess: (status) => {
+      toast.success(status === "resolved" ? "Спор решён" : status === "rejected" ? "Спор отклонён" : "Статус спора обновлён");
+      setResolution("");
+      void queryClient.invalidateQueries({ queryKey: ["order-dispute", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+    },
+    onError: (error: Error) => toast.error("Не удалось обновить спор", { description: error.message }),
+  });
+  const query = useQuery({
+    queryKey: ["order-dispute", orderId],
+    enabled: Boolean(orderId),
+    queryFn: async () => {
+      const res = await csrfFetch(`/api/orders/${orderId}/disputes`);
+      if (!res.ok) throw new Error(`Не удалось загрузить спор (HTTP ${res.status})`);
+      return await res.json() as {
+        dispute: {
+          id: string;
+          category: string;
+          description: string;
+          status: string;
+          resolution?: string | null;
+          created_at: string;
+          evidence: { id: string; mime_type: string; file_size: number; created_at: string; content_sha256: string }[];
+          messages: { id: string; sender_id: string; message: string; created_at: string }[];
+        } | null;
+        permissions?: { canReview: boolean };
+      };
+    },
+  });
+  if (query.isLoading) return <p className="text-sm text-muted-foreground">Загружаем спор…</p>;
+  if (query.error) return <p className="text-sm text-destructive">{(query.error as Error).message}</p>;
+  const dispute = query.data?.dispute;
+  if (!dispute) return <p className="text-sm text-muted-foreground">По заказу нет зарегистрированного спора.</p>;
+
+  const labels: Record<string, string> = {
+    open: "Принят",
+    under_review: "На рассмотрении",
+    awaiting_customer: "Ожидает ответа покупателя",
+    resolved: "Решён",
+    rejected: "Отклонён",
+  };
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">{labels[dispute.status] || dispute.status}</Badge>
+        <span className="text-xs text-muted-foreground">Создан {formatDateTimeShort(dispute.created_at)}</span>
+      </div>
+      <div className="rounded-lg border p-3 space-y-1">
+        <p className="text-xs font-medium">Категория: {dispute.category}</p>
+        <p className="text-sm whitespace-pre-wrap">{dispute.description}</p>
+        {dispute.resolution && (
+          <p className="text-sm text-muted-foreground pt-2 border-t">{dispute.resolution}</p>
+        )}
+      </div>
+      <div className="rounded-lg border p-3">
+        <p className="text-xs font-semibold mb-2">Доказательства · {dispute.evidence.length}</p>
+        {dispute.evidence.map((item) => (
+          <div key={item.id} className="flex justify-between gap-2 text-xs py-1">
+            <span>{item.mime_type} · {(item.file_size / 1024).toFixed(0)} КБ</span>
+            <span className="text-muted-foreground font-mono">{item.content_sha256.slice(0, 12)}…</span>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border p-3 space-y-2">
+        <p className="text-xs font-semibold">Переписка по спору</p>
+        {dispute.messages.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Сообщений пока нет.</p>
+        ) : dispute.messages.map((item) => (
+          <div key={item.id} className="border-t pt-2">
+            <p className="text-sm whitespace-pre-wrap">{item.message}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{formatDateTimeShort(item.created_at)}</p>
+          </div>
+        ))}
+      </div>
+      {query.data?.permissions?.canReview && (
+        <div className="rounded-lg border p-3 space-y-2">
+          <p className="text-xs font-semibold">Действия по спору</p>
+          {dispute.status === "under_review" && (
+            <Textarea
+              rows={3}
+              value={resolution}
+              onChange={(event) => setResolution(event.target.value)}
+              placeholder="Комментарий покупателю или обоснование решения (минимум 10 символов для закрытия)"
+            />
+          )}
+          <div className="flex flex-wrap gap-2">
+            {dispute.status === "open" && (
+              <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("under_review")}>
+                Взять в работу
+              </Button>
+            )}
+            {dispute.status === "under_review" && (
+              <>
+                <Button size="sm" variant="outline" disabled={reviewMutation.isPending || resolution.trim().length < 10} onClick={() => reviewMutation.mutate("awaiting_customer")}>
+                  Запросить уточнение
+                </Button>
+                <Button size="sm" disabled={reviewMutation.isPending || resolution.trim().length < 10} onClick={() => reviewMutation.mutate("resolved")}>
+                  Решить спор
+                </Button>
+                <Button size="sm" variant="destructive" disabled={reviewMutation.isPending || resolution.trim().length < 10} onClick={() => reviewMutation.mutate("rejected")}>
+                  Отклонить
+                </Button>
+              </>
+            )}
+            {dispute.status === "awaiting_customer" && (
+              <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate("under_review")}>
+                Вернуть в рассмотрение
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ==================== Основной компонент ====================
 
 export function OrderWorkspaceDialog({
@@ -327,6 +475,27 @@ export function OrderWorkspaceDialog({
     },
   });
 
+  const mediaQuery = useQuery({
+    queryKey: ["order-media", orderId],
+    enabled: open && !!orderId,
+    queryFn: async (): Promise<{ media: OrderMediaItem[] }> => {
+      const [orderRes, referenceRes] = await Promise.all([
+        csrfFetch(`/api/orders/${orderId}/media`),
+        csrfFetch(`/api/orders/${orderId}/reference-media`),
+      ]);
+      if (!orderRes.ok) throw new Error(`Не удалось загрузить фото заказа (HTTP ${orderRes.status})`);
+      if (!referenceRes.ok) throw new Error(`Не удалось загрузить исходные материалы (HTTP ${referenceRes.status})`);
+      const orderPayload = await orderRes.json() as { media: OrderMediaItem[] };
+      const referencePayload = await referenceRes.json() as { media: OrderMediaItem[] };
+      return {
+        media: [
+          ...referencePayload.media,
+          ...orderPayload.media.map((item) => ({ ...item, source: "order" as const })),
+        ],
+      };
+    },
+  });
+
   /** Общая мутация производственных действий; после успеха — инвалидация контуров. */
   const actionMutation = useMutation({
     mutationFn: async (kind: OrderActionKind) => {
@@ -349,6 +518,32 @@ export function OrderWorkspaceDialog({
     },
     onError: (error: Error) => {
       toast.error("Действие не выполнено", { description: error.message });
+    },
+  });
+
+  /** Отдельная фиксация каждого фактически выполненного этапа производства. */
+  const stageMutation = useMutation({
+    mutationFn: async (input: { stageKey: string; done: boolean }) => {
+      const res = await csrfFetch(`/api/orders/${orderId}/production/stage`, {
+        method: "POST",
+        headers: await getSessionAuthHeaders(await getCsrfToken()),
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        throw new Error(parseApiError(await readErrorBody(res), `HTTP ${res.status}`));
+      }
+      return (await res.json()) as { ok: boolean; stage: { label: string; is_done: boolean } };
+    },
+    onSuccess: (data) => {
+      toast.success(data.stage.is_done ? "Этап отмечен выполненным" : "Отметка этапа снята", {
+        description: data.stage.label,
+      });
+      void queryClient.invalidateQueries({ queryKey: ["order-lifecycle", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["order-timeline", orderId] });
+      void queryClient.invalidateQueries({ queryKey: ["ops-orders-today"] });
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось обновить этап", { description: error.message });
     },
   });
 
@@ -391,6 +586,10 @@ export function OrderWorkspaceDialog({
   const ds = derived?.deliveryStatus;
   const isActionBusy = (kind: OrderActionKind) =>
     actionMutation.isPending && actionMutation.variables === kind;
+  const workStages = lc?.production.checklist.filter(
+    (stage) => stage.stage_key !== "ready_photo" && stage.stage_key !== "handoff"
+  ) ?? [];
+  const workStagesComplete = workStages.length > 0 && workStages.every((stage) => stage.is_done);
 
   interface ActionDef {
     kind: OrderActionKind;
@@ -412,15 +611,15 @@ export function OrderWorkspaceDialog({
       kind: "production-complete",
       label: "Завершить этапы",
       icon: ListChecks,
-      enabled: bs === "in_production",
-      hint: "Доступно в статусе «В производстве» (PREPARING)",
+      enabled: bs === "in_production" && workStagesComplete && !lc?.production.completedAt,
+      hint: "Доступно после ручного подтверждения всех производственных этапов",
     },
     {
       kind: "ready",
       label: "Отметить готов",
       icon: PackageCheck,
-      enabled: bs === "in_production",
-      hint: "Требует завершённого чеклиста и фото готовности (если категория требует)",
+      enabled: bs === "in_production" && Boolean(lc?.production.checklistComplete),
+      hint: "Требует завершённого чеклиста и фото готовности, если оно обязательно",
     },
     {
       kind: "handoff",
@@ -456,9 +655,11 @@ export function OrderWorkspaceDialog({
         <Tabs defaultValue="overview" className="gap-3">
           <TabsList className="w-full max-w-full overflow-x-auto sm:w-auto">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">Обзор</TabsTrigger>
+            <TabsTrigger value="materials" className="text-xs sm:text-sm">Материалы</TabsTrigger>
             <TabsTrigger value="production" className="text-xs sm:text-sm">Производство</TabsTrigger>
             <TabsTrigger value="ingredients" className="text-xs sm:text-sm">Ингредиенты</TabsTrigger>
             <TabsTrigger value="events" className="text-xs sm:text-sm">События</TabsTrigger>
+            <TabsTrigger value="disputes" className="text-xs sm:text-sm">Спор</TabsTrigger>
           </TabsList>
 
           {/* ==================== ОБЗОР ==================== */}
@@ -633,6 +834,54 @@ export function OrderWorkspaceDialog({
             ) : null}
           </TabsContent>
 
+          {/* ==================== МАТЕРИАЛЫ ЗАКАЗА ==================== */}
+          <TabsContent value="materials" className="space-y-3 mt-1">
+            {mediaQuery.isLoading ? (
+              <div className="py-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Загружаем материалы заказа...
+              </div>
+            ) : mediaQuery.error ? (
+              <QueryErrorBlock
+                message={(mediaQuery.error as Error).message}
+                onRetry={() => void mediaQuery.refetch()}
+              />
+            ) : (mediaQuery.data?.media?.length ?? 0) === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                К заказу пока не прикреплены фотографии или макеты.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {(mediaQuery.data?.media ?? []).map((media) => {
+                  const label = media.kind === "customer_reference" ? "Фото-пожелание покупателя"
+                    : media.kind === "builder_preview" ? "Макет из конструктора"
+                    : media.kind === "handoff_photo" ? "Фото передачи"
+                    : "Фото готового изделия";
+                  return (
+                    <a
+                      key={`${media.source ?? "order"}-${media.id}`}
+                      href={media.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group rounded-lg border border-border overflow-hidden bg-card"
+                    >
+                      <div className="relative aspect-square bg-muted">
+                        <Image
+                          src={media.url}
+                          alt={label}
+                          fill
+                          unoptimized
+                          sizes="(max-width: 640px) 50vw, 33vw"
+                          className="object-cover transition-transform group-hover:scale-[1.02]"
+                        />
+                      </div>
+                      <div className="p-2 text-xs font-medium">{label}</div>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
           {/* ==================== ПРОИЗВОДСТВО ==================== */}
           <TabsContent value="production" className="space-y-3 mt-1">
             {lifecycleQuery.isLoading || lifecycleQuery.error ? (
@@ -676,10 +925,28 @@ export function OrderWorkspaceDialog({
                     <ul className="divide-y divide-border">
                       {lc.production.checklist.map((stage) => (
                         <li key={stage.id} className="flex items-center gap-2.5 px-3 py-2.5">
-                          {stage.is_done ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                          {stage.stage_key === "ready_photo" || stage.stage_key === "handoff" ? (
+                            stage.is_done ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Этап выполнен" />
+                            ) : (
+                              <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            )
                           ) : (
-                            <Circle className="h-4 w-4 text-muted-foreground/50 shrink-0" aria-label="Этап не выполнен" />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0"
+                              disabled={bs !== "in_production" || Boolean(lc?.production.completedAt) || stageMutation.isPending}
+                              aria-label={stage.is_done ? `Снять отметку: ${stage.label}` : `Отметить выполненным: ${stage.label}`}
+                              onClick={() => stageMutation.mutate({ stageKey: stage.stage_key, done: !stage.is_done })}
+                            >
+                              {stage.is_done ? (
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-muted-foreground/50" />
+                              )}
+                            </Button>
                           )}
                           <span className={`text-sm min-w-0 truncate ${stage.is_done ? "text-muted-foreground line-through" : ""}`}>
                             {stage.label}
@@ -811,6 +1078,10 @@ export function OrderWorkspaceDialog({
                 </Button>
               </div>
             ) : null}
+          </TabsContent>
+
+          <TabsContent value="disputes" className="mt-1">
+            <OrderDisputePanel orderId={orderId} />
           </TabsContent>
 
           {/* ==================== СОБЫТИЯ ==================== */}

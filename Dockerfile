@@ -50,9 +50,8 @@ RUN npm run build
 
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
-# Использует postgres:18-alpine чтобы был psql клиент (merge с origin/main,
-# Dependabot PR #4: 16 → 18; зеркало ECR сохранено).
-FROM public.ecr.aws/docker/library/postgres:18-alpine AS migrator
+# Использует PostgreSQL 17 client image для согласования с единственным PG17.12 runtime.
+FROM public.ecr.aws/docker/library/postgres:17-alpine AS migrator
 WORKDIR /migrations
 
 # Копируем все SQL миграции
@@ -82,12 +81,17 @@ ENV HOSTNAME="0.0.0.0"
 # Создаём непривилегированного пользователя
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs && \
-    apk add --no-cache dumb-init openssl wget
+    apk add --no-cache dumb-init openssl wget postgresql17-client && \
+    PG_DUMP_MAJOR="$(pg_dump --version | awk '{print $NF}' | cut -d. -f1)" && \
+    PSQL_MAJOR="$(psql --version | awk '{print $NF}' | cut -d. -f1)" && \
+    test "$PG_DUMP_MAJOR" = 17 && \
+    test "$PSQL_MAJOR" = 17
 
 # Standalone-сборка Next.js содержит только нужные node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/ops/backup-verify-restore.mjs ./scripts/ops/backup-verify-restore.mjs
 
 # Supabase JS клиент (для runtime запросов к БД)
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@supabase ./node_modules/@supabase

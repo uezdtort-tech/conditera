@@ -31,7 +31,6 @@ import {
   Navigation,
   FileText,
   Bell,
-  BookOpen,
 } from "lucide-react";
 import { ProductCard } from "@/components/marketplace/product-card";
 import { VenueBookingsManager } from "@/components/dashboard/venue-bookings-manager";
@@ -42,6 +41,7 @@ import {
   formatCurrency,
   formatDate,
 } from "@/lib/finance";
+import { MOCK_PRODUCTS } from "@/lib/mock-data";
 import {
   CustomerHolidaysTab,
   CustomerReferralTab,
@@ -51,12 +51,9 @@ import {
   CustomerLoyaltyTab,
   CustomerNotificationsTab,
 } from "@/components/dashboard/customer-loyalty-notifications-tabs";
-import { BuyerOffersTab } from "@/components/dashboard/buyer-offers-tab";
-import { useBuyerOffersPendingCount } from "@/lib/use-buyer-offers";
+import { CustomerNegotiationTab } from "@/components/dashboard/negotiation-tabs";
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
-import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { OrderSimilarStrip } from "@/components/dashboard/order-similar-strip";
-import { MyPurchasedRecipes } from "@/components/dashboard/my-purchased-recipes";
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ProfileSettings } from "@/components/dashboard/profile-settings";
@@ -83,50 +80,26 @@ import {
   type RefundRow,
   type OrderPaymentInfo,
 } from "@/lib/use-real-orders";
-import { getSessionAuthHeaders, getCsrfToken, serverLogout } from "@/lib/api-client";
-import { useRouter } from "next/navigation";
+import { getSessionAuthHeaders, getCsrfToken } from "@/lib/api-client";
 import { ensureChatRoom } from "@/components/chat/chat-api";
 import { openChatForOrder } from "@/components/chat/chat-order-bridge";
 import { RotateCcw, AlertTriangle, ShoppingCart, X, Loader2, ImagePlus, Clock } from "lucide-react";
 import type { Product } from "@/lib/types";
 
 export function CustomerDashboard() {
-  const router = useRouter();
   const navigate = useAppStore((s) => s.navigate);
   const nav = useAppStore((s) => s.nav);
   const user = useAppStore((s) => s.user);
   const storeOrders = useAppStore((s) => s.orders);
   const favorites = useAppStore((s) => s.favorites);
+  const negotiations = useAppStore((s) => s.negotiations);
   const products = useAppStore((s) => s.products);
   const logout = useAppStore((s) => s.logout);
   const setChatOpen = useAppStore((s) => s.setChatOpen);
 
-  // Единый logout (как в header.tsx): serverLogout() чистит httpOnly cookies
-  // (POST /api/auth/logout), затем сбрасываем store и редиректим на главную.
-  const [loggingOut, setLoggingOut] = useState(false);
-  const handleLogout = async () => {
-    if (loggingOut) return;
-    setLoggingOut(true);
-    try {
-      await serverLogout();
-    } catch {
-      toast.error("Не удалось выйти. Попробуйте ещё раз.");
-    } finally {
-      logout();
-      setLoggingOut(false);
-      router.push("/");
-      router.refresh();
-    }
-  };
-
   // Реальные заказы (GET /api/orders). Fallback на store-заказы только если API недоступен.
   const { orders: realOrders, isStale: ordersStale } = useRealOrders();
   const orders = ordersStale ? storeOrders : realOrders || storeOrders;
-
-  // ZV33-4 §B6: реальный счётчик ожидающих ответа предложений (GET /api/inquiries);
-  // мок store.negotiations больше не участвует (вкладка заменена BuyerOffersTab).
-  // Хук вызывается до раннего return (!user) — правила хуков.
-  const negotiationsPendingCount = useBuyerOffersPendingCount();
 
   // Вкладка: nav.params (SPA-навигация) → URL (?tab= из колокола уведомлений) → overview
   const [activeTab, setActiveTab] = useState(
@@ -147,6 +120,8 @@ export function CustomerDashboard() {
   );
   // Диалог возврата (реальная заявка через POST /api/payment/refund)
   const [refundOrder, setRefundOrder] = useState<(typeof orders)[number] | null>(null);
+  // Формальный спор о дефекте после передачи заказа.
+  const [disputeOrder, setDisputeOrder] = useState<Order | null>(null);
   // Реальные заявки на возврат по заказам (для бейджей статуса)
   const { data: refundsData } = useRefunds();
 
@@ -218,14 +193,16 @@ export function CustomerDashboard() {
         credentials: "include",
         body: JSON.stringify({}),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const body = (await res.json().catch(() => null)) as { error?: string; refundPending?: boolean } | null;
       if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
       return body;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["orders-real"] });
       toast.success("Заказ отменён", {
-        description: "Если заказ был оплачен — деньги вернутся автоматически",
+        description: data?.refundPending
+          ? "Возврат ожидает подтверждения платёжной системы. Статус обновится после подтверждения YooKassa."
+          : "Если заказ был оплачен, возврат отправлен; окончательный статус появится после подтверждения платёжной системы.",
       });
     },
     onError: (error: Error) => {
@@ -368,6 +345,7 @@ export function CustomerDashboard() {
     setRepeatData(null);
   }
   const favoriteProducts = products.filter((p) => favorites.includes(p.id));
+  const negotiationsPendingCount = negotiations.filter((n) => n.status === "pending_customer").length;
 
   const totalSpent = myOrders
     .filter((o) => o.paymentStatus === "released" || o.paymentStatus === "escrow")
@@ -420,12 +398,6 @@ export function CustomerDashboard() {
                   onClick={() => setActiveTab("orders")}
                 />
                 <SidebarTab
-                  icon={BookOpen}
-                  label="Мои рецепты"
-                  active={activeTab === "myRecipes"}
-                  onClick={() => setActiveTab("myRecipes")}
-                />
-                <SidebarTab
                   icon={Heart}
                   label="Избранное"
                   badge={String(favoritesCount)}
@@ -461,7 +433,7 @@ export function CustomerDashboard() {
                 />
                 <SidebarTab
                   icon={FileText}
-                  label="Предложения"
+                  label="Согласование"
                   badge={String(negotiationsPendingCount)}
                   active={activeTab === "negotiations"}
                   onClick={() => setActiveTab("negotiations")}
@@ -498,7 +470,7 @@ export function CustomerDashboard() {
                 />
                 <SidebarTab
                   icon={FileText}
-                  label="Предложения"
+                  label="Согласование"
                   badge={String(negotiationsPendingCount)}
                   active={activeTab === "negotiations"}
                   onClick={() => setActiveTab("negotiations")}
@@ -515,8 +487,7 @@ export function CustomerDashboard() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={handleLogout}
-                  disabled={loggingOut}
+                  onClick={logout}
                   className="w-full justify-start text-destructive"
                 >
                   <LogOut className="h-4 w-4 mr-2" />
@@ -531,7 +502,7 @@ export function CustomerDashboard() {
             {activeTab === "overview" && (
               <div className="space-y-4">
                 <div>
-                  <h1 className="fade-up font-display text-2xl font-bold mb-1">
+                  <h1 className="font-display text-2xl font-bold mb-1">
                     Здравствуйте, {user.name.split(" ")[0]}! 👋
                   </h1>
                   <p className="text-muted-foreground">
@@ -670,21 +641,14 @@ export function CustomerDashboard() {
                   </div>
                 </Card>
 
-                {/* Recommended — ZV31-017: только реальные (live-гидрированные)
-                    товары из store; mock-карточки больше не показываются */}
+                {/* Recommended */}
                 <Card className="p-4">
                   <h3 className="font-semibold mb-3">Рекомендуем вам</h3>
-                  {products.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                      {products.slice(0, 4).map((p) => (
-                        <ProductCard key={p.id} product={p} variant="compact" />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground py-4 text-center">
-                      Каталог пока пуст — рекомендации появятся позже.
-                    </p>
-                  )}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {MOCK_PRODUCTS.slice(0, 4).map((p) => (
+                      <ProductCard key={p.id} product={p} variant="compact" />
+                    ))}
+                  </div>
                 </Card>
               </div>
             )}
@@ -692,7 +656,7 @@ export function CustomerDashboard() {
             {activeTab === "orders" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h1 className="fade-up font-display text-2xl font-bold">Мои заказы</h1>
+                  <h1 className="font-display text-2xl font-bold">Мои заказы</h1>
                   {ordersStale && (
                     <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
                       Офлайн-данные (сервер недоступен)
@@ -761,16 +725,10 @@ export function CustomerDashboard() {
                           <div className="space-y-2">
                             {order.items.map((item, i) => (
                               <div key={i} className="flex items-center gap-3 text-sm">
-                                {item.image ? (
-                                  <img
-                                    src={item.image}
-                                    alt=""
-                                    className="h-10 w-10 rounded object-cover" loading="lazy" decoding="async" />
-                                ) : (
-                                  <div className="h-10 w-10 rounded bg-muted flex items-center justify-center text-muted-foreground shrink-0" aria-hidden>
-                                    <Package className="h-4 w-4" />
-                                  </div>
-                                )}
+                                <img
+                                  src={item.image}
+                                  alt=""
+                                  className="h-10 w-10 rounded object-cover" loading="lazy" decoding="async" />
                                 <div className="flex-1 min-w-0">
                                   <div className="truncate">{item.title}</div>
                                   {item.customization && (
@@ -805,11 +763,10 @@ export function CustomerDashboard() {
                               createdAt={order.createdAt}
                               small
                             />
-                            {/* История переходов с датами (GET /api/orders/[id]/timeline,
-                                ленивая подгрузка по раскрытию) — покупатель видит,
-                                когда кондитер принял заказ и что было дальше */}
-                            <OrderTimelineEvents orderId={order.id} />
                           </div>
+                          {(order.status === "DELIVERED" || order.status === "COMPLETED") && (
+                            <OrderDisputeStatus orderId={order.id} />
+                          )}
                           <div className="mt-3 flex gap-2 flex-wrap">
                             <Button
                               size="sm"
@@ -824,6 +781,16 @@ export function CustomerDashboard() {
                               )}
                               Сообщение кондитеру
                             </Button>
+                            {(order.status === "DELIVERED" || order.status === "COMPLETED") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setDisputeOrder(order)}
+                              >
+                                <AlertTriangle className="h-4 w-4 mr-1" aria-hidden />
+                                Сообщить о дефекте
+                              </Button>
+                            )}
                             {(order.status === "PENDING" || order.status === "CONFIRMED") && (
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
@@ -941,19 +908,9 @@ export function CustomerDashboard() {
               </div>
             )}
 
-            {activeTab === "myRecipes" && (
-              <div className="space-y-4">
-                <h1 className="fade-up font-display text-2xl font-bold">Мои рецепты</h1>
-                <p className="text-sm text-muted-foreground -mt-2">
-                  Купленные авторские рецепты с полным доступом
-                </p>
-                <MyPurchasedRecipes />
-              </div>
-            )}
-
             {activeTab === "favorites" && (
               <div className="space-y-4">
-                <h1 className="fade-up font-display text-2xl font-bold">Избранное</h1>
+                <h1 className="font-display text-2xl font-bold">Избранное</h1>
                 {serverWishlist && serverWishlist.length > 0 ? (
                   <WishlistGrid
                     items={serverWishlist}
@@ -982,7 +939,7 @@ export function CustomerDashboard() {
 
             {activeTab === "loyalty" && (
               <div className="space-y-4">
-                <h1 className="fade-up font-display text-2xl font-bold">Программа лояльности</h1>
+                <h1 className="font-display text-2xl font-bold">Программа лояльности</h1>
                 <CustomerLoyaltyTab />
               </div>
             )}
@@ -1114,8 +1071,7 @@ export function CustomerDashboard() {
             )}
 
             {activeTab === "holidays" && <CustomerHolidaysTab />}
-            {/* ZV33-4 §B6/B11: реальная вкладка «Предложения кондитеров» вместо мока */}
-            {activeTab === "negotiations" && <BuyerOffersTab />}
+            {activeTab === "negotiations" && <CustomerNegotiationTab />}
             {activeTab === "referral" && <CustomerReferralTab />}
             {activeTab === "tracking" && <CustomerTrackingTab />}
 
@@ -1128,6 +1084,8 @@ export function CustomerDashboard() {
         </div>
       </div>
 
+      {/* Формальный спор по качеству: оригиналы фото в приватном хранилище + SHA-256 */}
+      <DisputeOrderDialog order={disputeOrder} onClose={() => setDisputeOrder(null)} />
       {/* Диалог заявки на возврат (реальный POST /api/payment/refund) */}
       <RefundRequestDialog order={refundOrder} onClose={() => setRefundOrder(null)} />
       {/* Отзыв по заказу (POST /api/reviews, ТЗ §15) */}
@@ -1643,6 +1601,245 @@ function ReviewOrderDialog({
 }
 
 /** «Есть проблема» (ТЗ §16): причина → тикет поддержки по заказу */
+function OrderDisputeStatus({ orderId }: { orderId: string }) {
+  const { data } = useQuery({
+    queryKey: ["order-dispute", orderId],
+    queryFn: async () => {
+      const headers = await getSessionAuthHeaders();
+      const res = await fetch(`/api/orders/${orderId}/disputes`, { headers, credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json() as {
+        dispute: {
+          id: string;
+          status: string;
+          resolution?: string | null;
+          messages?: { id: string; sender_id: string; message: string; created_at: string }[];
+          evidence?: { id: string; url: string }[];
+        } | null;
+      };
+    },
+    staleTime: 30_000,
+  });
+  const dispute = data?.dispute;
+  if (!dispute) return null;
+  const labels: Record<string, string> = {
+    open: "Принят",
+    under_review: "На рассмотрении",
+    awaiting_customer: "Ожидает ответа",
+    resolved: "Решён",
+    rejected: "Отклонён",
+  };
+  return (
+    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs">
+      <span className="font-medium">Спор по качеству: {labels[dispute.status] || dispute.status}</span>
+      {dispute.resolution && <p className="mt-1 text-muted-foreground">{dispute.resolution}</p>}
+      {!!dispute.messages?.length && (
+        <div className="mt-2 space-y-1 border-t border-amber-200 pt-2">
+          {dispute.messages.slice(-3).map((item) => (
+            <p key={item.id} className="text-muted-foreground">{item.message}</p>
+          ))}
+        </div>
+      )}
+      {!!dispute.evidence?.length && (
+        <p className="mt-1 text-muted-foreground">Доказательств сохранено: {dispute.evidence.length}</p>
+      )}
+      {dispute.status === "awaiting_customer" && (
+        <DisputeReplyForm orderId={orderId} disputeId={dispute.id} />
+      )}
+    </div>
+  );
+}
+
+function DisputeReplyForm({ orderId, disputeId }: { orderId: string; disputeId: string }) {
+  const queryClient = useQueryClient();
+  const [message, setMessage] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const form = new FormData();
+      form.append("message", message.trim());
+      for (const file of files) form.append("evidence", file, file.name);
+      const headers = await getSessionAuthHeaders(await getCsrfToken(), { json: false });
+      const res = await fetch(`/api/orders/${orderId}/disputes/${disputeId}/reply`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: form,
+      });
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      return body;
+    },
+    onSuccess: () => {
+      toast.success("Ответ отправлен");
+      setMessage("");
+      setFiles([]);
+      void queryClient.invalidateQueries({ queryKey: ["order-dispute", orderId] });
+    },
+    onError: (error: Error) => toast.error("Не удалось отправить ответ", { description: error.message }),
+  });
+  return (
+    <div className="mt-3 space-y-2 border-t border-amber-200 pt-3">
+      <Label htmlFor={`dispute-reply-${disputeId}`}>Ответ поддержке</Label>
+      <Textarea
+        id={`dispute-reply-${disputeId}`}
+        rows={3}
+        maxLength={5000}
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Добавьте пояснение (минимум 10 символов)"
+      />
+      <Input
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 5))}
+      />
+      <Button
+        size="sm"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending || message.trim().length < 10 || files.length > 5}
+      >
+        {mutation.isPending ? "Отправляем…" : "Отправить ответ"}
+      </Button>
+    </div>
+  );
+}
+
+/** Формальный спор о дефекте: фотографии отправляются как файлы в приватный order_media bucket. */
+function DisputeOrderDialog({
+  order,
+  onClose,
+}: {
+  order: Order | null;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [category, setCategory] = useState("quality");
+  const [description, setDescription] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+
+  useEffect(() => {
+    if (order) {
+      setCategory("quality");
+      setDescription("");
+      setFiles([]);
+    }
+  }, [order]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!order) throw new Error("Заказ не выбран");
+      const form = new FormData();
+      form.append("category", category);
+      form.append("description", description.trim());
+      for (const file of files) form.append("evidence", file, file.name);
+      const headers = await getSessionAuthHeaders(await getCsrfToken(), { json: false });
+      const res = await fetch(`/api/orders/${order.id}/disputes`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: form,
+      });
+      const body = await res.json().catch(() => null) as
+        | { dispute?: { id: string }; error?: string; message?: string }
+        | null;
+      if (!res.ok) {
+        const messages: Record<string, string> = {
+          ACTIVE_DISPUTE_ALREADY_EXISTS: "По этому заказу уже открыт спор",
+          ORDER_NOT_HANDED_OFF: "Спор можно открыть после передачи заказа",
+          EVIDENCE_REQUIRED_MAX_5_FILES: "Прикрепите от 1 до 5 фотографий",
+        };
+        throw new Error(messages[body?.error || ""] || body?.message || body?.error || `HTTP ${res.status}`);
+      }
+      return body;
+    },
+    onSuccess: () => {
+      toast.success("Спор зарегистрирован", {
+        description: "Фото сохранены как доказательства. Статус рассмотрения будет доступен в заказе.",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["orders-real"] });
+      void queryClient.invalidateQueries({ queryKey: ["order-dispute", order?.id] });
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast.error("Не удалось зарегистрировать спор", { description: error.message });
+    },
+  });
+
+  return (
+    <Dialog open={!!order} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Сообщить о дефекте · заказ {order?.number}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="order-dispute-category" className="mb-1.5 block">Тип проблемы</Label>
+            <select
+              id="order-dispute-category"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="quality">Качество изделия</option>
+              <option value="damage">Повреждение при доставке/передаче</option>
+              <option value="wrong_item">Передан другой товар</option>
+              <option value="missing_item">Не хватает части заказа</option>
+              <option value="other">Другое</option>
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="order-dispute-description" className="mb-1.5 block">Описание проблемы</Label>
+            <Textarea
+              id="order-dispute-description"
+              rows={4}
+              maxLength={5000}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Опишите обнаруженный дефект и обстоятельства. Минимум 20 символов."
+            />
+            <p className="text-xs text-muted-foreground mt-1">{description.trim().length}/5000</p>
+          </div>
+          <div>
+            <Label htmlFor="order-dispute-evidence" className="mb-1.5 block">Фотографии-доказательства</Label>
+            <Input
+              id="order-dispute-evidence"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={(event) => setFiles(Array.from(event.target.files || []).slice(0, 5))}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Прикрепите 1–5 оригинальных фото JPEG, PNG или WebP. Файлы будут сохранены в закрытом хранилище.
+            </p>
+            {files.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs">
+                {files.map((file, index) => (
+                  <li key={`${file.name}-${index}`} className="flex justify-between gap-2">
+                    <span className="truncate">{file.name}</span>
+                    <span className="text-muted-foreground shrink-0">{(file.size / 1024 / 1024).toFixed(1)} МБ</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Отмена</Button>
+            <Button
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending || description.trim().length < 20 || files.length < 1 || files.length > 5}
+            >
+              {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Зарегистрировать спор
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProblemOrderDialog({
   order,
   onClose,

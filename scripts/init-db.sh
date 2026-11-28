@@ -2,14 +2,14 @@
 # scripts/init-db.sh — Инициализация БД для локальной разработки.
 #
 # Использование:
-#   ./scripts/init-db.sh                — Docker: PostgreSQL 18 (порт 5433) + Redis + Meilisearch
+#   ./scripts/init-db.sh                — Docker: PostgreSQL 17 (порт 5433) + Redis + Meilisearch
 #   ./scripts/init-db.sh supabase       — Docker: полный Supabase stack (порт 5432)
 #   ./scripts/init-db.sh pglite         — Локально без Docker (PGlite WASM, в /db/pglite-dev)
 #   ./scripts/init-db.sh pglite-reset   — То же, но с удалением старого PGlite-файла
 #
 # Что делает:
 #   1. Запускает PostgreSQL (через Docker) ИЛИ открывает PGlite
-#   2. Применяет все Supabase миграции (0001–0018) по порядку
+#   2. Применяет все Supabase миграции (0001–0107) по порядку
 #   3. Загружает seed данные (28 категорий, 45 начинок, 7 CMS страниц, 13 пунктов меню)
 #   4. Проверяет что БД готова и выводит параметры подключения
 #
@@ -43,21 +43,31 @@ fi
 if [ "$MODE" = "supabase" ]; then
   echo "→ Запуск Supabase через docker-compose.supabase.yml..."
   if [ ! -f .env.supabase ]; then
-    echo "⚠️  Файл .env.supabase не найден. Создаём из .env.supabase.example..."
-    cp .env.supabase .env.supabase.local 2>/dev/null || true
+    if [ -f .env.supabase.example ]; then
+      echo "⚠️  Файл .env.supabase не найден. Создаём шаблон из .env.supabase.example."
+      cp .env.supabase.example .env.supabase
+      echo "Заполните .env.supabase реальными секретами и повторите запуск."
+      exit 1
+    fi
+    echo "❌ Нет .env.supabase и .env.supabase.example."
+    exit 1
   fi
-  export $(grep -v '^#' .env.supabase | xargs)
-  docker-compose -f docker-compose.supabase.yml up -d supabase-db
+  set -a
+  . ./.env.supabase
+  set +a
+  # Legacy multi-container fallback only; shares the PG17.12 volume with the
+  # single-container runtime. Never run both modes at the same time.
+  docker compose --env-file .env.supabase -f docker-compose.supabase.yml up -d supabase-db
   DB_HOST="localhost"
   DB_PORT="5432"
-  DB_USER="supabase"
-  DB_NAME="supabase"
+  DB_USER="supabase_admin"
+  DB_NAME="conditera"
   DB_PASS="$POSTGRES_PASSWORD"
   WAIT_TIME=15
-  CONTAINER_NAME="supabase-db"
+  CONTAINER_NAME="conditera-supabase-db"
 else
-  echo "→ Запуск PostgreSQL 18 через docker-compose.dev.yml..."
-  docker-compose -f docker-compose.dev.yml up -d db-dev
+  echo "→ Запуск PostgreSQL 17 через docker-compose.dev.yml..."
+  docker compose -f docker-compose.dev.yml up -d db-dev
   DB_HOST="localhost"
   DB_PORT="5433"
   DB_USER="uyezdny"
