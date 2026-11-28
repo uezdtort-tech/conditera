@@ -38,6 +38,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashPassword, createAccessToken, createRefreshToken } from "@/lib/auth";
+import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 import { safeJsonBody } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -517,8 +519,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId });
+    const sessionId = await createUserSession(userId, request, "registration");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, sid: sessionId, jti: refreshJti });
 
     // 13. Sanitize response (без passwordHash и других sensitive полей)
     const safeUser: SanitizedUser = {
@@ -567,16 +572,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 201 Created — REST-контракт создания ресурса (E2E integration-auth-flow
     // ожидает именно 201; 200 ошибочно сигнализировал «обычный ответ»).
-    return NextResponse.json(
-      {
-        user: safeUser,
-        accessToken,
-        refreshToken,
-      },
+    const registerResponse = NextResponse.json(
+      { user: safeUser, accessToken, refreshToken },
       { status: 201 }
     );
+    return setSessionCookies(registerResponse, { accessToken, refreshToken });
   } catch (error: any) {
-    console.error("Register error:", error?.message);
+    const reason = error instanceof Error ? error.message : String(error);
+    if (reason === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json({ error: "Вход с нового устройства запрещён.", code: reason }, { status: 403 });
+    }
+    if (reason === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json({ error: "Не удалось проверить безопасность сессии.", code: reason }, { status: 503 });
+    }
+    if (reason === "ACCOUNT_SESSION_REPLACED_BY_CONCURRENT_LOGIN") {
+      return NextResponse.json({ error: "Регистрация отменена конкурентным входом.", code: reason }, { status: 409 });
+    }
+    console.error("Register error:", reason);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },
       { status: 500 }

@@ -175,7 +175,7 @@ function extractBearerToken(authHeader: string | null): string | null {
   if (bearer.toLowerCase() !== 'bearer' || tokenParts.length !== 2 || !token) {
     return null
   }
-  return token
+  return resolvedAuthToken
 }
 
 function getAuthToken(req: Request): string | AuthFailure {
@@ -193,11 +193,11 @@ function getAuthToken(req: Request): string | AuthFailure {
   // - API proxy mints a temp token
   // - Original bearer is not present or is ApiKey
   const bearerToken = extractBearerToken(authHeader)
-  const token = !bearerToken || bearerToken.startsWith('sb_')
+  const resolvedAuthToken = !bearerToken || bearerToken.startsWith('sb_')
     ? sbApiKeyCompatibilityToken
     : bearerToken
 
-  if (!token) {
+  if (!resolvedAuthToken) {
     return {
       code: RequestErrors.InvalidTokenFormat,
       message: 'Invalid JWT format',

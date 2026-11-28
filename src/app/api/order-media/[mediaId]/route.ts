@@ -9,14 +9,11 @@
  * (доверяем своему снифферу, записанному при загрузке).
  */
 
-import { createReadStream, promises as fsp } from "fs";
-import { Readable } from "stream";
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { hasAnyRole } from "@/lib/role-guards";
-import { safeAbsOrderMediaPath } from "@/lib/ops/order-media";
-import { handleRouteError } from "@/lib/http-helpers";
+import { downloadOrderMedia } from "@/lib/ops/order-media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,40 +66,46 @@ export async function GET(
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
 
-    // Доступ: клиент-владелец, кондитер, стафф
+    // Доступ: владелец заказа, назначенный кондитер, администратор.
+    // SUPPORT/COURIER — только при конкретном назначении на этот заказ.
     const isParty =
-      user.id === media.customer_id || (media.confectioner_id !== null && user.id === media.confectioner_id);
-    if (!isParty) {
-      const staff = await hasAnyRole(user.id, ["ADMIN", "SUPER_ADMIN", "SUPPORT", "COURIER"]);
-      if (!staff) {
-        return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-      }
+      user.id === media.customer_id ||
+      (media.confectioner_id !== null && user.id === media.confectioner_id);
+    let authorized = isParty;
+
+    if (!authorized) {
+      authorized = await hasAnyRole(user.id, ["ADMIN", "SUPER_ADMIN"]);
     }
 
-    let absPath: string;
-    try {
-      absPath = safeAbsOrderMediaPath(media.storage_path);
-    } catch {
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-    }
-
-    let stat: Awaited<ReturnType<typeof fsp.stat>>;
-    try {
-      stat = await fsp.stat(absPath);
-    } catch {
-      console.warn(
-        `[order-media] DB/filesystem desync: строка ${media.id} есть, файла нет: ${media.storage_path}`
+    if (!authorized && await hasAnyRole(user.id, ["SUPPORT"])) {
+      const assigned = await pool.query(
+        `SELECT 1 FROM public.support_tickets
+         WHERE order_id = $1::uuid AND assigned_to = $2::uuid
+         LIMIT 1`,
+        [media.order_id, user.id]
       );
-      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+      authorized = assigned.rows.length > 0;
     }
-    if (!stat.isFile()) {
+
+    if (!authorized && await hasAnyRole(user.id, ["COURIER"])) {
+      const assigned = await pool.query(
+        `SELECT 1 FROM public.deliveries
+         WHERE order_id = $1::uuid AND courier_id = $2::uuid
+           AND status IN ('assigned', 'picked_up', 'on_the_way', 'delivered')
+         LIMIT 1`,
+        [media.order_id, user.id]
+      );
+      authorized = assigned.rows.length > 0;
+    }
+
+    if (!authorized) {
       return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
     }
 
-    const etag = `"${media.id}-${stat.size}"`;
+    const etag = `"${media.id}-${media.file_size}"`;
     const headers: Record<string, string> = {
       "Content-Type": media.mime_type,
-      "Content-Length": String(stat.size),
+      "Content-Length": String(media.file_size),
       "X-Content-Type-Options": "nosniff",
       ETag: etag,
       "Cache-Control": "private, max-age=86400",
@@ -112,14 +115,35 @@ export async function GET(
       return new Response(null, { status: 304, headers });
     }
 
-    const nodeStream = createReadStream(absPath);
-    const body = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
+    let file: Buffer;
+    try {
+      file = await downloadOrderMedia(media.storage_path);
+    } catch (error) {
+      console.warn(
+        `[order-media] Supabase Storage object unavailable for media ${media.id}:`,
+        error instanceof Error ? error.message : error
+      );
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+
+    if (file.length !== Number(media.file_size)) {
+      console.error("[order-media] stored file size differs from PG metadata:", media.id);
+      return NextResponse.json({ error: "MEDIA_INTEGRITY_ERROR" }, { status: 500 });
+    }
+
+    const body = file.buffer.slice(
+      file.byteOffset,
+      file.byteOffset + file.byteLength
+    ) as ArrayBuffer;
     return new Response(body, { status: 200, headers });
   } catch (err) {
-    return handleRouteError(err, {
-      route: "/api/order-media/[mediaId]",
-      component: "orders",
-      requestId: request.headers.get("x-request-id") ?? undefined,
-    });
+    console.error(
+      "[order-media] GET failed:",
+      err instanceof Error ? err.message : err
+    );
+    return NextResponse.json(
+      { error: "INTERNAL", message: "Внутренняя ошибка сервера" },
+      { status: 500 }
+    );
   }
 }

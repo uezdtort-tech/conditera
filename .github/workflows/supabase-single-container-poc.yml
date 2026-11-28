@@ -29,23 +29,23 @@ jobs:
 
       - name: Validate production single-container Compose overlay
         env:
-          POSTGRES_PASSWORD: ci-only-postgres-password
-          APP_DATABASE_PASSWORD: ci-only-app-db-password
-          JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
-          ENCRYPTOR_KEY: ci-only-encryptor-key-32-chars
-          SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
-          ANON_KEY: ci-only-anon-key
-          SERVICE_ROLE_KEY: ci-only-service-role-key
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key
-          SUPABASE_SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
-          PG_META_CRYPTO_KEY: ci-only-pg-meta-crypto-key-32
-          REALTIME_DB_ENC_KEY: ci-only-key-16
-          REALTIME_DB_ENC_KEY_GCM: ci-only-key-gcm-32-characters
-          MEILI_MASTER_KEY: ci-only-meili-master-key
-          CRON_SECRET: ci-only-cron-secret
-          N8N_ADMIN_PASSWORD: ci-only-n8n-password
-          SIMPLEX_BRIDGE_API_KEY: ci-only-simplex-key
+          POSTGRES_PASSWORD: ci-only-test-postgres-password
+          APP_DATABASE_PASSWORD: ci-only-test-app-db-password
+          JWT_SECRET: ci-only-test-jwt-secret-at-least-32-characters
+          ENCRYPTOR_KEY: ci-only-test-encryptor-key-32-chars
+          SECRET_KEY_BASE: ci-only-test-secret-key-base-64-characters-long
+          ANON_KEY: ci-only-test-anon-key
+          SERVICE_ROLE_KEY: ci-only-test-service-role-key
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-test-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-only-test-service-role-key
+          SUPABASE_SECRET_KEY_BASE: ci-only-test-secret-key-base-64-characters-long
+          PG_META_CRYPTO_KEY: ci-only-test-pg-meta-crypto-key-32
+          REALTIME_DB_ENC_KEY: ci-only-test-key-16
+          REALTIME_DB_ENC_KEY_GCM: ci-only-test-key-gcm-32-characters
+          MEILI_MASTER_KEY: ci-only-test-meili-master-key
+          CRON_SECRET: ci-only-test-cron-secret
+          N8N_ADMIN_PASSWORD: ci-only-test-n8n-password
+          SIMPLEX_BRIDGE_API_KEY: ci-only-test-simplex-key
         run: |
           set -Eeuo pipefail
           touch .env.production
@@ -88,8 +88,8 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          export JWT_SECRET="ci-only-conditera-jwt-secret-32-bytes-minimum"
-          export POSTGRES_PASSWORD="ci-only-postgres-password"
+          export JWT_SECRET="ci-only-test-conditera-jwt-secret-32-bytes-minimum"
+          export POSTGRES_PASSWORD="ci-only-test-postgres-password"
           export APP_DATABASE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export SECRET_KEY_BASE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
           export PG_META_CRYPTO_KEY="0123456789abcdef0123456789abcdef"

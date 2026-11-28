@@ -330,6 +330,8 @@ jobs:
           bash -n supabase/init-scripts/01-apply-migrations.sh
           bash -n scripts/deploy.sh
           bash -n scripts/db-preflight.sh
+          bash -n scripts/ops/backup-supabase-db.sh
+          node --check scripts/ops/backup-verify-restore.mjs
           grep -Fq 'MIGRATIONS_DIR: /conditera-migrations' docker-compose.supabase.yml
           grep -Fq 'zz-conditera-apply-migrations.sh' docker-compose.supabase.yml
           grep -Fq ':/conditera-migrations:ro' docker-compose.supabase.yml
@@ -340,16 +342,13 @@ jobs:
           grep -Fq 'PGDATABASE=conditera' docker-compose.yml
           echo "Database bootstrap configuration checks passed"
 
+      - name: Setup Node for the repository secret scanner
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.18.0"
+
       - name: Check for secrets in code
-        run: |
-          # Проверка на закоммиченные секреты
-          if grep -rEn "(sk_live_|pk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-)" \
-            --include="*.ts" --include="*.tsx" --include="*.json" \
-            --exclude-dir=node_modules src/ scripts/ mini-services/ 2>/dev/null; then
-            echo "❌ Found potential secrets in code"
-            exit 1
-          fi
-          echo "✓ No secrets found in code"
+        run: node scripts/regression/secrets-scan.mjs --mode=full
 
       - name: Check for .env files in repo
         run: |
@@ -442,119 +441,61 @@ jobs:
         # core-маршрут = FAIL (иначе инцидент не создастся).
         run: node scripts/verify/route-error-coverage.mjs
 
-  # ===== 8. Миграции на чистой PostgreSQL 17 — ЦЕЛЕВАЯ конфигурация =====
-  # Сведение версий (2026-11-22): единый Supabase Runtime = PG17, сценарный CI
-  # = PG17, embedded db:setup = PG17 (см. scripts/verify/pg-version-gate.mjs).
-  # Реальный ledger-мигратор прод-пайплайна (supabase/init-scripts/
-  # 01-apply-migrations.sh) против чистой PG17: прогон + идемпотентный
-  # повторный прогон + проверка RLS-политик/GRANT критичных таблиц.
+  # ===== 8. PG17 Compose contract =====
+  # Полный runtime/миграционный прогон выполняет отдельный workflow
+  # postgres17-compose-validation.yml: он запускает GoTrue, Realtime,
+  # Storage и мигратор на чистом Supabase PG17. Здесь проверяем конфигурацию
+  # и version gate без подмены Supabase-образа vanilla postgres.
   migrations-pg17:
-    name: Migrations on clean PostgreSQL 17
+    name: PG17 Compose and migration contract
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: conditera
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+    env:
+      POSTGRES_PASSWORD: ci-only-test-postgres-password
+      JWT_SECRET: ci-only-test-jwt-secret-at-least-32-characters
+      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
+      SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
+      ENCRYPTOR_KEY: 0123456789abcdef0123456789abcdef
+      SECRET_KEY_BASE: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v4
 
-      - name: PG version gate — все пути запуска/проверки БД на PG17
+      - name: PG version gate — canonical target is PostgreSQL 17
         run: node scripts/verify/pg-version-gate.mjs
         timeout-minutes: 2
 
-      - name: Copy migrations + migrator into service container
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" mkdir -p /migrations /init-scripts
-          docker cp supabase/migrations/. "$SVC":/migrations/
-          docker cp supabase/init-scripts/01-apply-migrations.sh "$SVC":/init-scripts/
+      - name: Kong 2.8 DB-less contract
+        run: node scripts/verify/kong-compose-contract.mjs
 
-      - name: Apply all migrations (ledger, fail-fast)
+      - name: Validate canonical Supabase PG17 and isolated migration Compose
         run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
-            "SELECT count(*) FROM public.schema_migrations" > applied.txt
-          APPLIED=$(cat applied.txt)
-          TOTAL=$(ls supabase/migrations/*.sql | wc -l)
-          echo "applied=$APPLIED total=$TOTAL"
-          test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
+          docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration config --quiet
 
-      - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
+      - name: Assert active PG17 volume is isolated from legacy data
         run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
-            | tee rerun.log
-          if grep -qiE "Applying|applying" rerun.log; then
-            echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
-          fi
-          echo "OK: rerun no-op"
-
-      - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          DECLARE
-            missing text := '';
-            t text;
-          BEGIN
-            FOR t IN SELECT unnest(ARRAY[
-              'app_error_events','app_incidents','app_incident_history',
-              'ops_tasks','orders','payments','recipe_purchases','inventory_items'
-            ])
-            LOOP
-              IF NOT EXISTS (
-                SELECT 1 FROM pg_tables WHERE tablename = t AND schemaname = 'public' AND rowsecurity
-              ) THEN
-                missing := missing || t || ' ';
-              END IF;
-            END LOOP;
-            IF missing <> '' THEN
-              RAISE EXCEPTION 'FAIL: RLS не включён для: %', missing;
-            END IF;
-          END $$;
-          SELECT 'RLS CHECK OK' AS status;
-          SQL
-
-      - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
-        run: |
-          SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
-          DO $$
-          DECLARE
-            t text;
-            has_write boolean;
-            offenders text := '';
-          BEGIN
-            FOR t IN SELECT unnest(ARRAY[
-              'inventory_items','stock_movements','recipe_purchases',
-              'recipes','recipe_marketplace','financial_ledger'
-            ])
-            LOOP
-              SELECT count(*) > 0 INTO has_write
-                FROM information_schema.role_table_grants
-               WHERE table_schema='public' AND table_name = t
-                 AND grantee IN ('anon','authenticated')
-                 AND privilege_type IN ('INSERT','UPDATE','DELETE');
-              IF has_write THEN offenders := offenders || t || ' '; END IF;
-            END LOOP;
-            IF offenders <> '' THEN
-              RAISE EXCEPTION 'FAIL: write-grants для клиентских ролей у: %', offenders;
-            END IF;
-          END $$;
-          SELECT 'WRITE-PATH CHECK OK' AS status;
-          SQL
+          docker compose \
+            -f docker-compose.supabase.yml \
+            -f docker-compose.pg17-migration.yml \
+            --profile pg17-migration config --format json > /tmp/conditera-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          config = json.loads(Path("/tmp/conditera-compose.json").read_text())
+          current = config["services"]["supabase-db"]
+          target = config["services"]["supabase-db-pg17-migration"]
+          current_volumes = [v["source"] for v in current.get("volumes", []) if v.get("type") == "volume"]
+          target_volumes = [v["source"] for v in target.get("volumes", []) if v.get("type") == "volume"]
+          assert current["image"] == "supabase/postgres:17.11.0.017", current.get("image")
+          assert "supabase_db_data_v17" in current_volumes, current_volumes
+          assert "supabase_db_data" not in current_volumes, current_volumes
+          assert set(current_volumes).isdisjoint(target_volumes), (current_volumes, target_volumes)
+          assert config["volumes"]["supabase_db_data_v17"]["name"] == "conditera_supabase_db_data_v17"
+          assert target["image"] == "supabase/postgres:17.12.0.001", target.get("image")
+          assert "pg17-migration" in target.get("profiles", [])
+          print("PG17 runtime volume and isolated migration target: PASS")
+          PY
 
   # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
   # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,

@@ -14,6 +14,8 @@
 -- ====================================================================
 
 -- ===== 1. Расширения =====
+-- The generic PostgreSQL 17 CI cluster does not pre-create Supabase's extensions schema.
+CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;

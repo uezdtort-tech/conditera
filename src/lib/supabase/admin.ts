@@ -17,30 +17,45 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { resolveSupabaseServerUrl } from "./url";
+import { isPlaceholderSupabaseKey } from "./key-validation";
 
-const supabaseUrl = resolveSupabaseServerUrl();
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+const isProduction = process.env.NODE_ENV === "production";
+const configuredUrl =
+  process.env.SUPABASE_INTERNAL_URL?.trim() ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const configuredKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+const isPlaceholderKey = isPlaceholderSupabaseKey(
+  configuredKey,
+  !isProduction
+);
+const serviceKeyMatchesAnonKey =
+  Boolean(configuredKey) &&
+  configuredKey === process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+const _isStub = !configuredUrl || isPlaceholderKey || serviceKeyMatchesAnonKey;
 
-// Lazy warning — не падаем в build (next build запускается в production-mode,
-// но env могут отсутствовать в build-окружении). Runtime-проверка
-// делается в запросах, использующих admin operations.
-const _isStub = !supabaseUrl || !serviceRoleKey;
-if (_isStub) {
-  if (process.env.NODE_ENV === "production") {
-    console.warn(
-      "[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. " +
-      "Admin operations will fail at runtime. Set the env var before deploy."
-    );
-  } else {
-    console.warn(
-      "[supabase/admin] SUPABASE_SERVICE_ROLE_KEY not set. Admin operations will fail."
-    );
-  }
+if (_isStub && isProduction && !isBuildPhase) {
+  throw new Error(
+    "[supabase/admin] Production requires a real Supabase URL and an independent " +
+    "SUPABASE_SERVICE_ROLE_KEY (not the public anon key). Refusing to start."
+  );
 }
+
+if (_isStub) {
+  console.warn(
+    "[supabase/admin] Supabase admin credentials are missing or placeholders. " +
+    (isBuildPhase
+      ? "A build-only client is used; runtime production will fail closed."
+      : "Admin operations are unavailable in this development environment.")
+  );
+}
+
+const supabaseUrl = configuredUrl || resolveSupabaseServerUrl();
+const serviceRoleKey = _isStub ? "build-placeholder-service-role-key" : configuredKey!;
 
 export const supabaseAdmin = createClient(
   supabaseUrl,
-  serviceRoleKey || "stub-service-key",
+  serviceRoleKey,
   {
     auth: {
       autoRefreshToken: false,

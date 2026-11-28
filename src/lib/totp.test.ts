@@ -1,0 +1,78 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mutableEnv = process.env as Record<string, string | undefined>;
+const originalNodeEnv = mutableEnv.NODE_ENV;
+const originalNextPhase = mutableEnv.NEXT_PHASE;
+const originalTfaKey = mutableEnv.TFA_ENCRYPTION_KEY;
+
+afterEach(() => {
+  if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
+  else mutableEnv.NODE_ENV = originalNodeEnv;
+
+  if (originalNextPhase === undefined) delete mutableEnv.NEXT_PHASE;
+  else mutableEnv.NEXT_PHASE = originalNextPhase;
+
+  if (originalTfaKey === undefined) delete mutableEnv.TFA_ENCRYPTION_KEY;
+  else mutableEnv.TFA_ENCRYPTION_KEY = originalTfaKey;
+
+  vi.resetModules();
+});
+
+describe("TOTP encryption key configuration", () => {
+  it("rejects a missing key in production runtime", async () => {
+    mutableEnv.NODE_ENV = "production";
+    delete mutableEnv.NEXT_PHASE;
+    delete mutableEnv.TFA_ENCRYPTION_KEY;
+    vi.resetModules();
+
+    await expect(import("./totp")).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
+  });
+
+  it.each([
+    "CHANGE_ME_USE_openssl_rand_hex_32",
+    "dev_tfa_key_change_me_in_production_aaaaaaaaaaaaaaaa",
+    "fallback-not-a-secret",
+    "stub-secret-value-that-is-long-enough",
+    "placeholder-secret-value-that-is-long-enough",
+  ])("rejects a placeholder key in production runtime: %s", async (key) => {
+    mutableEnv.NODE_ENV = "production";
+    delete mutableEnv.NEXT_PHASE;
+    mutableEnv.TFA_ENCRYPTION_KEY = key;
+    vi.resetModules();
+
+    await expect(import("./totp")).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
+  });
+
+  it("rejects a short key in production runtime", async () => {
+    mutableEnv.NODE_ENV = "production";
+    delete mutableEnv.NEXT_PHASE;
+    mutableEnv.TFA_ENCRYPTION_KEY = "too-short";
+    vi.resetModules();
+
+    await expect(import("./totp")).rejects.toThrow(/TFA_ENCRYPTION_KEY/);
+  });
+
+  it("allows a valid production key and preserves encrypted-secret round trips", async () => {
+    mutableEnv.NODE_ENV = "production";
+    delete mutableEnv.NEXT_PHASE;
+    mutableEnv.TFA_ENCRYPTION_KEY = "a".repeat(64);
+    vi.resetModules();
+
+    const { encryptSecret, decryptSecret } = await import("./totp");
+    const secret = "JBSWY3DPEHPK3PXP-TEST";
+
+    expect(decryptSecret(encryptSecret(secret))).toBe(secret);
+  });
+
+  it("uses a build-only key during the production build phase", async () => {
+    mutableEnv.NODE_ENV = "production";
+    mutableEnv.NEXT_PHASE = "phase-production-build";
+    delete mutableEnv.TFA_ENCRYPTION_KEY;
+    vi.resetModules();
+
+    const { encryptSecret, decryptSecret } = await import("./totp");
+    const secret = "JBSWY3DPEHPK3PXP-TEST";
+
+    expect(decryptSecret(encryptSecret(secret))).toBe(secret);
+  });
+});
