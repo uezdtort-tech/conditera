@@ -234,6 +234,9 @@ export function AuthModal() {
       // Маппим API-ответ в store-модель User и ставим как единого пользователя
       const storeUser = mapApiUserToStoreUser(data.user);
       setSupabaseUser(storeUser);
+      // /login redirects only after the modal closes; keep the successful
+      // authentication transition atomic so the server-rendered dashboard loads.
+      setAuthModalOpen(false);
 
       toast.success("Добро пожаловать!", {
         description: `Вы вошли как ${storeUser.name}`,
@@ -437,6 +440,7 @@ export function AuthModal() {
       setStoredAccessToken(data.accessToken);
       const storeUser = mapApiUserToStoreUser(data.user, account.role);
       setSupabaseUser(storeUser);
+      setAuthModalOpen(false);
       toast.success(`Вход выполнен как ${account.label}`, {
         description: account.description,
       });
