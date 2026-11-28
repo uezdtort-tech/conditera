@@ -77,7 +77,16 @@ test.describe("Полный заказ: оплата → производств�
       await confectionerPage.goto(`${BASE_URL}/login`);
       await confectionerPage.getByLabel("Email").fill("confectioner@demo.ru");
       await confectionerPage.getByLabel("Пароль").fill(DEMO_PASSWORD);
+      const confectionerLoginPromise = confectionerPage.waitForResponse((response) =>
+        response.url().endsWith("/api/auth/login") && response.request().method() === "POST",
+      );
       await confectionerPage.getByRole("button", { name: "Войти", exact: true }).click();
+      const confectionerLogin = await confectionerLoginPromise;
+      const confectionerLoginPayload = await confectionerLogin.json().catch(() => ({}));
+      expect(
+        confectionerLogin.status(),
+        `Confectioner login rejected: ${JSON.stringify(confectionerLoginPayload)}`,
+      ).toBe(200);
       await confectionerPage.waitForURL(/\/dashboard/, { timeout: 20_000 });
       // Диагностика именно второго браузерного контекста: стандартный
       // Playwright error-context снимает fixture page (покупателя), поэтому
