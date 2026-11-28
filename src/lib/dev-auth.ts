@@ -13,12 +13,11 @@
  *   • каждый факт использования пишется в лог.
  * В production с настроенным Supabase этот код недостижим.
  *
- * Пароль всех demo-аккаунтов: demo123 (согласован с клиентскими
- * DEMO_ACCOUNTS в auth-modal.tsx и MOCK_USERS).
+ * Пароль demo-аккаунтов: Demo123! (согласован с db:setup и DEMO_ACCOUNTS).
  */
 import { timingSafeEqualStr } from "@/lib/secure-compare";
 
-export const DEV_FALLBACK_PASSWORD = "demo123";
+export const DEV_FALLBACK_PASSWORD = "Demo123!";
 
 export interface DevFallbackUser {
   id: string;
