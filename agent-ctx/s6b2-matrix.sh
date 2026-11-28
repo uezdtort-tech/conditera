@@ -124,7 +124,7 @@ status=$(printf '%s' "$out" | tail -1); body=$(printf '%s' "$out" | sed '$d')
 check "inbound без заголовка → 401" 401 '"error":"inbound_unauthorized"' "$status" "$body"
 
 out=$(curl -s -m 30 -w '\n%{http_code}' -X POST -H "Content-Type: application/json" \
-  -H "X-Inbound-Secret: wrong-secret-value" \
+  -H "X-Inbound-Secret: wrong" \
   -d '{"from":"scammer@example.ru","subject":"XSS probe","html":"<p>ok</p>"}' "$BASE/api/email/inbound")
 status=$(printf '%s' "$out" | tail -1); body=$(printf '%s' "$out" | sed '$d')
 check "inbound неверный секрет → 403" 403 '"error":"inbound_forbidden"' "$status" "$body"
