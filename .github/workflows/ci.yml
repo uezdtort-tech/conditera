@@ -39,7 +39,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "26"
 
 jobs:
   # ===== 1. Lint + Type-check =====
@@ -83,16 +83,19 @@ jobs:
 
       - name: Run tests
         run: bun run test
+
+      - name: Run production environment validator tests
+        run: bun run test:env-check
         env:
-          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          JWT_SECRET: ${{ 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
+          TFA_ENCRYPTION_KEY: ${{ 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
 
       - name: Run tests with coverage
         run: bun run test:coverage
         env:
-          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          JWT_SECRET: ${{ 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
+          TFA_ENCRYPTION_KEY: ${{ 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
         continue-on-error: true  # coverage не должен ломать CI, но отчёт нужен
 
       - name: Upload coverage artifact
@@ -121,14 +124,14 @@ jobs:
 
       - name: Build Next.js
         env:
-          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
-          CRON_SECRET: "ci_test_cron_secret"
+          JWT_SECRET: ${{ 'ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa' }}
+          TFA_ENCRYPTION_KEY: ${{ 'ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
+          CRON_SECRET: ${{ 'ci_test_cron_secret' }}
           NEXT_PUBLIC_APP_URL: "http://localhost:3000"
           NEXT_PUBLIC_APP_NAME: "Уездный кондитер"
           NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
-          DATABASE_URL: "file:./db/ci-test.db"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ 'ci-only-anon-key-not-for-deploy' }}
+          DATABASE_URL: ${{ 'file:./db/ci-test.db' }}
         run: bun run build
 
       - name: Upload build artifact
@@ -182,6 +185,8 @@ jobs:
         # Обязательные переменные подставлены dummy-значениями — проверяется
         # структура/интерполяция compose-файла, не значения секретов.
         run: |
+          touch .env.production
+          trap 'rm -f .env.production' EXIT
           POSTGRES_PASSWORD=ci-dummy \
           MEILI_MASTER_KEY=ci-dummy \
           JWT_SECRET=ci-dummy-jwt-secret-32-chars-aaaaaaaa \
@@ -189,6 +194,9 @@ jobs:
           CRON_SECRET=ci-dummy \
           SIMPLEX_BRIDGE_API_KEY=ci-dummy \
           N8N_ADMIN_PASSWORD=ci-dummy \
+          NEXT_PUBLIC_SUPABASE_URL=https://conditera-ci.invalid/api \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=ci-only-anon-key-not-for-deploy \
+          NEXT_PUBLIC_APP_URL=https://conditera-ci.invalid \
           docker compose -f docker-compose.yml config -q
           echo "✓ docker-compose.yml is valid"
 
@@ -207,6 +215,10 @@ jobs:
           # версия деплоя видна в /api/health (version). Без этого APP_VERSION=unknown.
           build-args: |
             GIT_SHA=${{ env.CANDIDATE_SHA }}
+            CI=true
+            NEXT_PUBLIC_SUPABASE_URL=https://conditera-ci.invalid/api
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=ci-only-anon-key-not-for-deploy
+            NEXT_PUBLIC_APP_URL=https://conditera-ci.invalid
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -244,7 +256,9 @@ jobs:
         #      те же паттерны, что и в history-скане.
         run: |
           FAIL=0
-          SECRET_RE='(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY|ci_test_jwt_secret|ci_test_tfa_key)'
+          # A PEM header literal in a crypto parser/docs is not a private key.
+          # Detect a complete PEM block (header + substantial base64 body + footer) separately.
+          SECRET_RE='(sk_live_[A-Za-z0-9]+|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|ci_test_jwt_secret|ci_test_tfa_key)'
           for img in "conditera:${{ env.CANDIDATE_SHA }}" "conditera-chat:${{ env.CANDIDATE_SHA }}" "conditera-simplex-bridge:${{ env.CANDIDATE_SHA }}"; do
             echo "— $img"
             # 1) существование — строго до history/скана
@@ -261,16 +275,33 @@ jobs:
             else
               echo "  ✓ layer history clean"
             fi
-            # 3) секреты в содержимом файлов образа (экспорт файловой системы)
+            # 3) секреты в содержимом файлов образа. Распаковываем
+            # rootfs во временный каталог, чтобы показывать точный путь
+            # совпадения и отличать реальные секреты от системных PEM-файлов.
             CID="sg-$(echo "$img" | tr ':/' '--')"
+            ROOTFS="$(mktemp -d)"
             docker create --name "$CID" "$img" > /dev/null
-            if docker export "$CID" | grep -aEiq "$SECRET_RE"; then
-              echo "❌ potential secret in exported filesystem of $img"
+            docker export "$CID" | tar -x -C "$ROOTFS"
+            # Scan text files only. -a forced binary executables/shared libraries into
+            # text mode and produced false positives on Node/GPG/system libraries.
+            # --binary-files=without-match keeps PEM/config/text secrets detectable.
+            MATCHES="$(grep -RIlE --binary-files=without-match "$SECRET_RE" "$ROOTFS" 2>/dev/null || true)"
+            PEM_MATCHES=""
+            while IFS= read -r -d '' file; do
+              if grep -Iq . "$file" 2>/dev/null && perl -0777 -ne 'exit(/-----BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+\/=\r\n]{80,}-----END [A-Z ]*PRIVATE KEY-----/ ? 0 : 1)' "$file"; then
+                PEM_MATCHES="$PEM_MATCHES\n$file"
+              fi
+            done < <(find "$ROOTFS" -type f -print0 2>/dev/null)
+            if [ -n "$MATCHES" ] || [ -n "$PEM_MATCHES" ]; then
+              echo "❌ potential secret in exported filesystem of $img:"
+              if [ -n "$MATCHES" ]; then printf '%s\n' "$MATCHES" | sed "s#^$ROOTFS/##"; fi
+              if [ -n "$PEM_MATCHES" ]; then printf '%b\n' "$PEM_MATCHES" | sed "s#^$ROOTFS/##"; fi
               FAIL=1
             else
               echo "  ✓ exported filesystem content clean"
             fi
             docker rm -f "$CID" > /dev/null
+            rm -rf "$ROOTFS"
           done
           exit $FAIL
 
@@ -325,6 +356,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Validate Kong 2.8 Compose contract
+        run: |
+          node scripts/verify/kong-compose-contract.mjs
+          SUPABASE_ANON_KEY=ci-anon-key \
+          SUPABASE_SERVICE_KEY=ci-service-key \
+          KONG_DECLARATIVE_CONFIG="$PWD/supabase/kong.yml" \
+          KONG_RENDERED_CONFIG_PATH="$RUNNER_TEMP/kong-rendered.yml" \
+          KONG_RENDER_ONLY=true \
+          sh scripts/supabase/kong-entrypoint.sh
+          ! grep -Fq '${SUPABASE_ANON_KEY}' "$RUNNER_TEMP/kong-rendered.yml"
+          ! grep -Fq '${SUPABASE_SERVICE_KEY}' "$RUNNER_TEMP/kong-rendered.yml"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$RUNNER_TEMP/kong-rendered.yml:/kong.yml:ro" \
+            -e KONG_DATABASE=off \
+            -e KONG_PLUGINS=request-transformer,cors,key-auth,acl,basic-auth,rate-limiting \
+            -e KONG_NGINX_PROXY_PROXY_BUFFER_SIZE=160k \
+            -e 'KONG_NGINX_PROXY_PROXY_BUFFERS=64 160k' \
+            -e KONG_NGINX_PROXY_PROXY_BUSY_BUFFERS_SIZE=320k \
+            library/kong:2.8.1 kong config parse /kong.yml
+
       - name: Validate database bootstrap and preflight scripts
         run: |
           bash -n supabase/init-scripts/01-apply-migrations.sh
@@ -340,17 +391,19 @@ jobs:
           grep -Fq 'PGDATABASE=conditera' docker-compose.yml
           echo "Database bootstrap configuration checks passed"
 
-      - name: Check for secrets in code
-        run: |
-          # Проверка на закоммиченные секреты
-          if grep -rEn "(sk_live_|pk_live_|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|glpat-)" \
-            --include="*.ts" --include="*.tsx" --include="*.json" \
-            --exclude-dir=node_modules src/ scripts/ mini-services/ 2>/dev/null; then
-            echo "❌ Found potential secrets in code"
-            exit 1
-          fi
-          echo "✓ No secrets found in code"
+      - name: Setup Node for full tracked-files secret scan
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.18.0"
 
+      - name: Check for secrets in code (full tracked scan with explicit fixture rules)
+        run: |
+          set +e
+          node scripts/regression/secrets-scan.mjs --mode=full --json docs/operations/checks/secrets-scan-latest.json
+          scan_status=$?
+          set -e
+          node -e 'const fs=require("node:fs"); const report=JSON.parse(fs.readFileSync("docs/operations/checks/secrets-scan-latest.json","utf8")); for (const f of report.findings ?? []) console.log(`${f.file}:${f.line} [${f.rule}]`);'
+          exit "$scan_status"
       - name: Check for .env files in repo
         run: |
           # Проверка что нет закоммиченных .env файлов с секретами
@@ -407,7 +460,7 @@ jobs:
           # Используем caddy image для валидации (public.ecr.aws — зеркало без
           # rate-limit 429 Docker Hub, см. v3 registry-hardening в Dockerfile)
           docker run --rm -v $(pwd)/Caddyfile:/etc/caddy/Caddyfile \
-            public.ecr.aws/docker/library/caddy:2.8-alpine \
+            caddy:2.11.9-alpine \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   # ===== 7. Evidence hygiene (v4.5, P0-A) =====
@@ -453,15 +506,15 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # Supabase image includes the extensions/auth schemas required by project migrations.
+        image: supabase/postgres:17.12.0.002
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ 'postgres' }}
           POSTGRES_DB: conditera
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U supabase_admin -d conditera"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -472,6 +525,9 @@ jobs:
         run: node scripts/verify/pg-version-gate.mjs
         timeout-minutes: 2
 
+      - name: Проверить непрерывность и уникальность версий миграций
+        run: node scripts/verify/migration-version-contract.mjs
+
       - name: Copy migrations + migrator into service container
         run: |
           SVC="${{ job.services.postgres.id }}"
@@ -479,23 +535,55 @@ jobs:
           docker cp supabase/migrations/. "$SVC":/migrations/
           docker cp supabase/init-scripts/01-apply-migrations.sh "$SVC":/init-scripts/
 
+      - name: Bootstrap minimal Supabase Storage schema for migration contract
+        # The full runtime creates these objects through Storage API.
+        # This isolated migration job creates only the contract needed by migration 0026.
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE TABLE IF NOT EXISTS storage.buckets (
+            id text PRIMARY KEY,
+            name text NOT NULL,
+            public boolean NOT NULL DEFAULT false,
+            allowed_mime_types text[],
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE TABLE IF NOT EXISTS storage.objects (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            bucket_id text NOT NULL REFERENCES storage.buckets(id),
+            name text NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE OR REPLACE FUNCTION storage.foldername(name text)
+          RETURNS text[]
+          LANGUAGE sql IMMUTABLE
+          AS $$
+            SELECT CASE
+              WHEN position('/' in name) = 0 THEN ARRAY[]::text[]
+              ELSE string_to_array(trim(both '/' from regexp_replace(name, '/[^/]*$', '')), '/')
+            END;
+          $$;
+          SQL
+
       - name: Apply all migrations (ledger, fail-fast)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
+          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=conditera bash /init-scripts/01-apply-migrations.sh
+          docker exec "$SVC" psql -U supabase_admin -d conditera -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
-          TOTAL=$(ls supabase/migrations/*.sql | wc -l)
+          TOTAL=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
           echo "applied=$APPLIED total=$TOTAL"
           test "$APPLIED" -eq "$TOTAL" || { echo "FAIL: применены не все миграции"; exit 1; }
 
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
+          docker exec "$SVC" env PGUSER=supabase_admin PGDATABASE=conditera bash /init-scripts/01-apply-migrations.sh \
             | tee rerun.log
-          if grep -qiE "Applying|applying" rerun.log; then
+          if grep -q "Применяю:" rerun.log; then
             echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
           fi
           echo "OK: rerun no-op"
@@ -503,7 +591,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -530,7 +618,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d conditera -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
@@ -555,6 +643,179 @@ jobs:
           END $$;
           SELECT 'WRITE-PATH CHECK OK' AS status;
           SQL
+
+
+  backup-restore-pg18:
+    name: Full backup and restore verification on PostgreSQL 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      source:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: conditera
+          POSTGRES_PASSWORD: ${{ 'ci-only-password' }}
+          POSTGRES_DB: conditera
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U conditera -d conditera"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      restore:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: conditera
+          POSTGRES_PASSWORD: ${{ 'ci-only-password' }}
+          POSTGRES_DB: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U conditera -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Seed representative application schema and rows
+        env:
+          SOURCE_CONTAINER_ID: ${{ job.services.source.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$SOURCE_CONTAINER_ID" psql -v ON_ERROR_STOP=1 -U conditera -d conditera <<'SQL'
+          CREATE TABLE public.profiles (
+            id uuid PRIMARY KEY,
+            display_name text NOT NULL
+          );
+          CREATE TABLE public.orders (
+            id uuid PRIMARY KEY,
+            user_id uuid NOT NULL REFERENCES public.profiles(id),
+            total_kopecks bigint NOT NULL
+          );
+          CREATE TABLE public.inventory_items (
+            id uuid PRIMARY KEY,
+            quantity numeric NOT NULL
+          );
+          CREATE VIEW public.order_summary AS
+            SELECT user_id, count(*)::int AS order_count, sum(total_kopecks)::bigint AS total_kopecks
+            FROM public.orders GROUP BY user_id;
+          INSERT INTO public.profiles VALUES
+            ('00000000-0000-4000-8000-000000000001', 'Backup Test User');
+          INSERT INTO public.orders VALUES
+            ('00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000001', 12500),
+            ('00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000001', 25000);
+          INSERT INTO public.inventory_items VALUES
+            ('00000000-0000-4000-8000-000000000021', 250.5);
+          SQL
+      - name: Verify full pg_dump and real restore into separate PostgreSQL 18 cluster
+        env:
+          NODE_ENV: test
+          BACKUP_REQUIRE_FULL_RESTORE: "true"
+          BACKUP_DIR: ${{ runner.temp }}/conditera-backup-verify
+          DATABASE_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera' }}
+          DIRECT_DATABASE_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera' }}
+          BACKUP_RESTORE_DATABASE_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5433/postgres' }}
+          BACKUP_RESTORE_PSQL_URL: ${{ 'postgresql://conditera:ci-only-password@127.0.0.1:5432/conditera_restore_verify' }}
+          BACKUP_RESTORE_DB_NAME: conditera_restore_verify
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pgtools" "$BACKUP_DIR"
+          cat > "$RUNNER_TEMP/pgtools/pg_dump" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker exec -i "$SOURCE_CONTAINER_ID" pg_dump "$@"
+          SH
+          cat > "$RUNNER_TEMP/pgtools/psql" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker exec -i -e "PGPASSWORD=${PGPASSWORD:-}" "$RESTORE_CONTAINER_ID" psql "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/pgtools/pg_dump" "$RUNNER_TEMP/pgtools/psql"
+          export SOURCE_CONTAINER_ID="${{ job.services.source.id }}"
+          export RESTORE_CONTAINER_ID="${{ job.services.restore.id }}"
+          export PATH="$RUNNER_TEMP/pgtools:$PATH"
+          bun run ops:restore-verify
+
+
+  backup-supabase-pg17-restore:
+    name: Supabase PG17 logical backup and restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      source:
+        image: supabase/postgres:17.12.0.002
+        env:
+          POSTGRES_USER: supabase_admin
+          POSTGRES_PASSWORD: ${{ 'ci-only-password' }}
+          POSTGRES_DB: conditera
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U supabase_admin -d conditera"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Seed representative Supabase source data
+        env:
+          SOURCE_CONTAINER_ID: ${{ job.services.source.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i -e PGPASSWORD=ci-only-password "$SOURCE_CONTAINER_ID" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U supabase_admin -d conditera <<'SQL'
+          CREATE TABLE public.backup_probe (
+            id integer PRIMARY KEY,
+            marker text NOT NULL
+          );
+          INSERT INTO public.backup_probe VALUES (1, 'PG17_TO_PG17_RESTORE_OK');
+          SQL
+      - name: Create full Supabase PG17 logical backup
+        env:
+          SUPABASE_DB_CONTAINER: ${{ job.services.source.id }}
+          SUPABASE_DB_NAME: conditera
+          SUPABASE_DB_USER: supabase_admin
+          SUPABASE_BACKUP_DIR: ${{ runner.temp }}/supabase-pg17-backup
+        run: |
+          set -euo pipefail
+          bash scripts/ops/backup-supabase-db.sh
+          find "$SUPABASE_BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -print -quit | grep -q .
+      - name: Restore Supabase dump into isolated PG17 database
+        env:
+          BACKUP_DIR: ${{ runner.temp }}/supabase-pg17-backup
+        run: |
+          set -euo pipefail
+          RESTORE_CONTAINER="conditera-supabase-pg17-restore-${{ github.run_id }}"
+          trap 'docker rm -f "$RESTORE_CONTAINER" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$RESTORE_CONTAINER" -p 5433:5432 \
+            -e POSTGRES_USER=supabase_admin \
+            -e POSTGRES_PASSWORD=${{ 'ci-only-password' }} \
+            -e POSTGRES_DB=postgres \
+            supabase/postgres:17.12.0.002 \
+            postgres -c config_file=/etc/postgresql/postgresql.conf \
+              -c cron.database_name=conditera \
+              -c cron.username=supabase_admin
+          ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec "$RESTORE_CONTAINER" pg_isready -h 127.0.0.1 -U supabase_admin -d postgres; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = true
+          docker exec -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -c 'CREATE DATABASE conditera TEMPLATE template0'
+          DUMP_FILE="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -print -quit)"
+          test -n "$DUMP_FILE"
+          gzip -t "$DUMP_FILE"
+          gzip -dc "$DUMP_FILE" | docker exec -i -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -U supabase_admin -d conditera
+          RESULT="$(docker exec -e PGPASSWORD=ci-only-password "$RESTORE_CONTAINER" psql -h 127.0.0.1 -U supabase_admin -d conditera -Atqc "SELECT marker FROM public.backup_probe WHERE id=1")"
+          test "$RESULT" = "PG17_TO_PG17_RESTORE_OK"
+          echo "SUPABASE PG17 -> PG17 LOGICAL RESTORE: PASSED"
 
   # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
   # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,

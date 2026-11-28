@@ -214,9 +214,11 @@ export function useUpdateProfile() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["supplier-dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["courier-dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["customer-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["confectioner-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["supplier-dashboard-v3"] });
+      queryClient.invalidateQueries({ queryKey: ["courier-dashboard-v3"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-v3"] });
       toast.success("Профиль обновлён");
     },
     onError: (error: Error) => {
@@ -242,7 +244,8 @@ export function useCreateAddress() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      queryClient.invalidateQueries({ queryKey: ["customer-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["confectioner-dashboard"] });
       toast.success("Адрес добавлен");
     },
     onError: (error: Error) => {
@@ -266,7 +269,8 @@ export function useDeleteAddress() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      queryClient.invalidateQueries({ queryKey: ["customer-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["confectioner-dashboard"] });
       toast.success("Адрес удалён");
     },
     onError: (error: Error) => {
@@ -347,8 +351,9 @@ export function useUploadAvatar() {
       return res.json() as Promise<{ avatarUrl: string }>;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["profile"] });
-      queryClient.invalidateQueries({ queryKey: ["supplier-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["customer-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["confectioner-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["supplier-dashboard-v3"] });
       toast.success("Аватар загружен");
     },
     onError: (error: Error) => {

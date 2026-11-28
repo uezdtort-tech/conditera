@@ -43,7 +43,7 @@ function section(title) {
   console.log(`\n─── ${title} ───`);
 }
 
-const RUN_IP = `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
+const RUN_IP = process.env.VERIFY_TEST_IP || `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
 
 async function api(method, path, { token, body } = {}) {
   const headers = { "x-real-ip": RUN_IP };

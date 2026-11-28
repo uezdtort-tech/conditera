@@ -1,4 +1,6 @@
-# 🔑 GitHub Secrets — настройка
+# 🔑 GitHub Secrets — legacy remote CI/CD
+
+> **Не использовать для текущего production на локальном Windows ПК.** Секреты production должны оставаться в gitignored `.env.production` и `.env.supabase-runtime`; актуальная настройка выполняется через `scripts/prepare-production-env.sh`. Этот документ относится только к старому удалённому VPS workflow.
 
 > Инструкция по добавлению секретов в GitHub репозиторий для CI/CD.
 
@@ -13,7 +15,6 @@
 | `TFA_ENCRYPTION_KEY` | `openssl rand -hex 32` | ✅ | Ключ шифрования 2FA-секретов (64 hex символа) |
 | `CRON_SECRET` | `openssl rand -hex 24` | ✅ | Секрет для защиты cron-эндпоинтов |
 | `IP_HASH_SALT` | `openssl rand -hex 16` | ✅ | Соль для хэширования IP-адресов (GDPR) |
-| `N8N_ADMIN_PASSWORD` | `openssl rand -base64 16` | ✅ | Пароль администратора n8n |
 | `SIMPLEX_BRIDGE_API_KEY` | `openssl rand -hex 32` | ⚠️ | Ключ для SimpleX bridge (только если используется SimpleX) |
 | `YOOKASSA_SHOP_ID` | Личный кабинет YooKassa | 💳 | ID магазина в YooKassa |
 | `YOOKASSA_SECRET_KEY` | Личный кабинет YooKassa | 💳 | Секретный ключ YooKassa |
@@ -84,7 +85,6 @@ echo "POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')"
 echo "JWT_SECRET=$(openssl rand -base64 32)"
 echo "TFA_ENCRYPTION_KEY=$(openssl rand -hex 32)"
 echo "CRON_SECRET=$(openssl rand -hex 24)"
-echo "N8N_ADMIN_PASSWORD=$(openssl rand -base64 16)"
 echo "SIMPLEX_BRIDGE_API_KEY=$(openssl rand -hex 32)"
 echo "IP_HASH_SALT=$(openssl rand -hex 16)"
 ```

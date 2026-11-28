@@ -166,7 +166,22 @@ export async function GET(
         { status: 404 }
       );
     }
-    if (!(await canOperateOrder(order, user.id))) {
+    // Фото готового изделия — часть заказа и доказательство исполнения:
+    // покупатель-владелец имеет право просматривать материалы своего заказа.
+    // SUPPORT получает доступ только к спору, назначенному именно ему.
+    let canView = order.user_id === user.id || await canOperateOrder(order, user.id);
+    let isAssignedDisputeSupport = false;
+    if (!canView && user.roles.includes("SUPPORT")) {
+      const assignedDispute = await getPool().query(
+        `SELECT 1 FROM public.order_disputes
+         WHERE order_id = $1::uuid AND assigned_to = $2::uuid
+         LIMIT 1`,
+        [id, user.id],
+      );
+      canView = assignedDispute.rows.length > 0;
+      isAssignedDisputeSupport = canView;
+    }
+    if (!canView) {
       return NextResponse.json(
         { error: "FORBIDDEN", message: "Нет доступа" },
         { status: 403 }
@@ -186,8 +201,9 @@ export async function GET(
       `SELECT id::text, kind, mime_type, file_size, width, height, uploaded_at
        FROM public.order_media
        WHERE order_id = $1::uuid AND status = 'approved'
+         AND ($2::boolean = false OR kind = 'dispute_evidence')
        ORDER BY uploaded_at ASC`,
-      [id]
+      [id, isAssignedDisputeSupport]
     );
 
     return NextResponse.json({

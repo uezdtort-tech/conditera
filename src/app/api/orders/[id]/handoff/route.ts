@@ -90,17 +90,21 @@ export async function POST(
       throw err;
     }
 
-    await recordEvent("order.handed_off", {
-      entityType: "order",
-      entityId: id,
-      actorId: user.id,
-      payload: {
-        orderNumber: order.number,
-        executor,
-        handoffType: isPickup ? "pickup" : "courier",
-        code: body.code ? "provided" : null,
-      },
-    });
+    // Самовывоз уже фиксируется lifecycle engine. Для доставки
+    // записываем отдельное событие передачи заказа курьеру.
+    if (!isPickup) {
+      await recordEvent("order.handed_off", {
+        entityType: "order",
+        entityId: id,
+        actorId: user.id,
+        payload: {
+          orderNumber: order.number,
+          executor,
+          handoffType: "courier",
+          code: body.code ? "provided" : null,
+        },
+      });
+    }
 
     void materializeOpsTasks(true).catch(() => {});
 

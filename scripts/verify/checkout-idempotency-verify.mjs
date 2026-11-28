@@ -33,7 +33,15 @@ const BASE = process.env.VERIFY_BASE || "http://127.0.0.1:3000";
 const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
 const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
-const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000002"; // tort-napoleon-domashniy
+let PRODUCT_ID = ""; // demo product with a seeded recipe
+let originalProductionTimeHours;
+let originalRecipeId = null;
+let fixtureRecipeId = null;
+let originalInventory = null;
+let fixtureInventoryId = null;
+let confectionerId = "";
+let originalCapacityConfig = null;
+let deliveryDateFixture = "";
 
 let passed = 0;
 let failed = 0;
@@ -55,6 +63,7 @@ function section(title) {
 
 const rand = () => Math.floor(Math.random() * 1e9).toString(36);
 const RUN_TAG = `u07fix-${rand()}`;
+const VERIFY_AUTH_IP = process.env.VERIFY_TEST_IP || "10.250.250.250";
 const IDEM_KEYS = [`${RUN_TAG}-a`, `${RUN_TAG}-c`, `${RUN_TAG}-d`];
 const collectedOrderIds = [];
 
@@ -92,7 +101,7 @@ async function api(method, path, { token, body, headers: extraHeaders, signal, i
 }
 
 async function login(email) {
-  const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
+  const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD }, ip: VERIFY_AUTH_IP });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
@@ -102,15 +111,13 @@ async function login(email) {
 const client = new Client({ connectionString: PG_URL });
 
 function checkoutBody() {
-  const d = new Date(Date.now() + 2 * 86400_000);
-  const deliveryDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  // Z-v19 §13: custom-позиция конструктора (без product_id). Причина: Acceptance
-  // Engine (P0.5 §29) отказывает продуктовые позиции на seed-данных (в seed 0
-  // товаров с recipe_id+production_time, закупки не запланированы →
-  // PURCHASE_ETA_MISSING). Custom-позиции гейт пропускает ПО ДИЗАЙНУ — это
-  // позволяет проверять именно контракт идемпотентности checkout.
+  const deliveryDate = deliveryDateFixture;
+  if (!deliveryDate) throw new Error("checkout capacity fixture did not choose a delivery date");
+  // Используем опубликованный demo-продукт с recipe_id и заполненными
+  // recipe_ingredients из seed-ops-center. Custom-конструктор в production
+  // намеренно не оплачивается без отдельной согласованной спецификации.
   return {
-    cartItems: [{ custom: { productType: "cake", filling: "condensed_milk", servings: 8 }, quantity: 1 }],
+    cartItems: [{ product_id: PRODUCT_ID, quantity: 1 }],
     deliveryCity: "Москва",
     deliveryAddress: "ул. Идемпотентности, 1, кв 1",
     deliveryType: "delivery",
@@ -120,7 +127,6 @@ function checkoutBody() {
     paymentMethod: "card",
   };
 }
-
 async function countOrdersByKey(key) {
   const r = await client.query(
     `SELECT count(*)::int AS n, COALESCE(array_agg(id::text), '{}') AS ids
@@ -133,6 +139,116 @@ async function countOrdersByKey(key) {
 
 async function main() {
   await client.connect();
+  const productFixture = await client.query(
+    `SELECT id::text, production_time_hours, recipe_id::text, confectioner_id::text
+       FROM public.products
+      WHERE slug = 'svadebnyy-tort-yagodnyy-barhat'
+        AND recipe_id IS NOT NULL
+        AND status = 'published'
+      LIMIT 1`
+  );
+  if (productFixture.rowCount !== 1) {
+    throw new Error("production-ready demo product with recipe was not seeded");
+  }
+  PRODUCT_ID = productFixture.rows[0].id;
+  originalProductionTimeHours = productFixture.rows[0].production_time_hours;
+  originalRecipeId = productFixture.rows[0].recipe_id;
+  confectionerId = productFixture.rows[0].confectioner_id;
+  if (!confectionerId) throw new Error("demo product has no assigned confectioner");
+
+  // Supply a private, deterministic one-ingredient recipe and enough stock.
+  // The checkout test must reach idempotency logic, not depend on demo stock.
+  const stockIngredient = await client.query(
+    `SELECT id::text, name, unit, quantity
+       FROM public.inventory_items
+      WHERE owner_id = $1::uuid AND is_active IS TRUE
+      ORDER BY id
+      LIMIT 1`,
+    [confectionerId]
+  );
+  if (!stockIngredient.rows[0]) throw new Error("checkout fixture requires an active confectioner inventory item");
+  const ingredient = stockIngredient.rows[0];
+  const ingredientQty = /^(кг|kg)$/i.test(String(ingredient.unit ?? "")) ? 0.001 : 1;
+  fixtureInventoryId = ingredient.id;
+  originalInventory = ingredient.quantity;
+  await client.query(
+    `UPDATE public.inventory_items
+        SET quantity = GREATEST(quantity, $2::numeric)
+      WHERE id = $1::uuid`,
+    [fixtureInventoryId, ingredientQty + 1]
+  );
+  const recipe = await client.query(
+    `INSERT INTO public.recipes
+       (author_id, title, description, content, difficulty, servings, slug, status,
+        published_at, prep_time_minutes, cook_time_minutes)
+     VALUES ($1::uuid, 'U07 checkout fixture', 'Изолированный рецепт для проверки идемпотентности',
+             'Тестовая рецептура', 'easy', 1, $2, 'published', now(), 15, 15)
+     RETURNING id::text`,
+    [confectionerId, `u07-checkout-${rand()}`]
+  );
+  fixtureRecipeId = recipe.rows[0].id;
+  await client.query(
+    `INSERT INTO public.recipe_ingredients
+       (recipe_id, name, qty, unit, inventory_item_id, sort_order)
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid, 1)`,
+    [fixtureRecipeId, ingredient.name, ingredientQty, ingredient.unit, fixtureInventoryId]
+  );
+  await client.query(
+    `UPDATE public.products
+        SET recipe_id = $2::uuid, production_time_hours = 1
+      WHERE id = $1::uuid`,
+    [PRODUCT_ID, fixtureRecipeId]
+  );
+
+  // The test validates checkout idempotency, not a particular confectioner's
+  // production calendar. Isolate a free day and a wide temporary work window,
+  // then restore the exact previous capacity configuration in cleanup.
+  const capacityBefore = await client.query(
+    `SELECT user_id::text, workday_start_minute, workday_end_minute,
+            daily_capacity_minutes, packaging_minutes, quality_check_minutes,
+            handoff_buffer_minutes, delivery_buffer_minutes, is_active
+       FROM public.confectioner_capacity WHERE user_id = $1::uuid`,
+    [confectionerId]
+  );
+  originalCapacityConfig = capacityBefore.rows[0] ?? null;
+  if (originalCapacityConfig) {
+    await client.query(
+      `UPDATE public.confectioner_capacity
+          SET workday_start_minute = 0, workday_end_minute = 1439,
+              daily_capacity_minutes = 1439, is_active = true
+        WHERE user_id = $1::uuid`,
+      [confectionerId]
+    );
+  } else {
+    await client.query(
+      `INSERT INTO public.confectioner_capacity
+         (user_id, workday_start_minute, workday_end_minute, daily_capacity_minutes, is_active)
+       VALUES ($1::uuid, 0, 1439, 1439, true)`,
+      [confectionerId]
+    );
+  }
+  const freeDay = await client.query(
+    `SELECT to_char(day::date, 'YYYY-MM-DD') AS date
+       FROM generate_series(CURRENT_DATE + 2, CURRENT_DATE + 30, interval '1 day') AS day
+      WHERE NOT EXISTS (
+        SELECT 1 FROM public.capacity_reservations r
+         WHERE r.confectioner_id = $1::uuid
+           AND r.reserved_date = day::date
+           AND r.status IN ('reserved', 'confirmed')
+      )
+      ORDER BY day
+      LIMIT 1`,
+    [confectionerId]
+  );
+  if (!freeDay.rows[0]?.date) throw new Error("no free demo confectioner capacity day in the next 30 days");
+  deliveryDateFixture = freeDay.rows[0].date;
+  // This test exercises checkout idempotency, not long-horizon production planning.
+  // Keep the temporary demo product within one normal workday and restore its
+  // original production duration in cleanup.
+  await client.query(
+    "UPDATE public.products SET production_time_hours = 1 WHERE id = $1::uuid",
+    [PRODUCT_ID]
+  );
   const customer = await login("customer@demo.ru");
   assert("логин customer@demo.ru", Boolean(customer));
 
@@ -244,6 +360,47 @@ async function main() {
 
 async function cleanupAll() {
   try {
+    if (confectionerId) {
+      if (originalCapacityConfig) {
+        await client.query(
+          `UPDATE public.confectioner_capacity
+              SET workday_start_minute = $2, workday_end_minute = $3,
+                  daily_capacity_minutes = $4, packaging_minutes = $5,
+                  quality_check_minutes = $6, handoff_buffer_minutes = $7,
+                  delivery_buffer_minutes = $8, is_active = $9
+            WHERE user_id = $1::uuid`,
+          [
+            confectionerId,
+            originalCapacityConfig.workday_start_minute,
+            originalCapacityConfig.workday_end_minute,
+            originalCapacityConfig.daily_capacity_minutes,
+            originalCapacityConfig.packaging_minutes,
+            originalCapacityConfig.quality_check_minutes,
+            originalCapacityConfig.handoff_buffer_minutes,
+            originalCapacityConfig.delivery_buffer_minutes,
+            originalCapacityConfig.is_active,
+          ]
+        ).catch(() => {});
+      } else {
+        await client.query(
+          "DELETE FROM public.confectioner_capacity WHERE user_id = $1::uuid",
+          [confectionerId]
+        ).catch(() => {});
+      }
+    }
+    if (PRODUCT_ID && originalProductionTimeHours !== undefined) {
+      await client.query(
+        "UPDATE public.products SET recipe_id = $2::uuid, production_time_hours = $3 WHERE id = $1::uuid",
+        [PRODUCT_ID, originalRecipeId, originalProductionTimeHours]
+      ).catch(() => {});
+    }
+    if (fixtureRecipeId) {
+      await client.query("DELETE FROM public.recipe_ingredients WHERE recipe_id = $1::uuid", [fixtureRecipeId]).catch(() => {});
+      await client.query("DELETE FROM public.recipes WHERE id = $1::uuid", [fixtureRecipeId]).catch(() => {});
+    }
+    if (fixtureInventoryId && originalInventory !== null) {
+      await client.query("UPDATE public.inventory_items SET quantity = $2::numeric WHERE id = $1::uuid", [fixtureInventoryId, originalInventory]).catch(() => {});
+    }
     // Ключ-базированный догсбор: ловит заказ, созданный оборванным в D запросом
     const byKeys = await client
       .query(

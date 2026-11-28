@@ -22,7 +22,7 @@
 import { Client } from "pg";
 
 const BASE = process.env.VERIFY_BASE || "http://127.0.0.1:3000";
-const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54329/conditera";
+const PG_URL = process.env.PGURL || "postgresql://postgres@127.0.0.1:54330/conditera";
 const PASSWORD = "Demo123!";
 const CUSTOMER_USER_ID = "11111111-1111-4111-8111-111111111106"; // customer@demo.ru
 const CONFECTIONER_USER_ID = "11111111-1111-4111-8111-111111111101"; // confectioner@demo.ru
@@ -75,12 +75,16 @@ async function api(method, path, { token, body, headers: extraHeaders } = {}) {
   return { status: res.status, json };
 }
 
+const sessionTokens = [];
+
 async function login(email) {
   const res = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD } });
   if (res.status !== 200 || !res.json?.accessToken) {
     throw new Error(`login failed for ${email}: ${res.status} ${JSON.stringify(res.json).slice(0, 120)}`);
   }
-  return res.json.accessToken;
+  const token = res.json.accessToken;
+  sessionTokens.push(token);
+  return token;
 }
 
 const rand = () => Math.floor(Math.random() * 1e9).toString(36);
@@ -92,6 +96,9 @@ const cleanup = {
   notificationDedupKeys: [],
   chatRoomIds: [],
   productPriceOriginal: null,
+  productRecipeOriginal: null,
+  inventoryOriginal: null,
+  recipeId: null,
 };
 
 /** Создать тестовый заказ напрямую в БД (для webhook-кейсов) */
@@ -102,7 +109,7 @@ async function seedOrderWithPayment({ total, paymentAmount, number }) {
         status, payment_status, payment_method, delivery_address, delivery_city,
         delivery_date, delivery_type, metadata, paid_at)
      VALUES ($1, $2::uuid, $3::uuid, $4, 0, 0, $4, 'PENDING', 'pending', 'card',
-             'ул. P11verify, 1', 'Москва', CURRENT_DATE + 2, 'delivery',
+             'ул. P11verify, 1', 'Москва', CURRENT_DATE + 30, 'delivery',
              jsonb_build_object('test','p11-verify'), NULL)
      RETURNING id::text`,
     [number, CUSTOMER_USER_ID, CONFECTIONER_USER_ID, total]
@@ -142,6 +149,24 @@ async function getOrderPaymentStatus(orderId) {
 
 async function main() {
   await client.connect();
+  const paymentEnum = await client.query(
+    `SELECT e.enumlabel
+       FROM pg_type t
+       JOIN pg_enum e ON e.enumtypid = t.oid
+      WHERE t.typname = 'payment_status'
+      ORDER BY e.enumsortorder`
+  );
+  const paymentStatuses = paymentEnum.rows.map((row) => row.enumlabel);
+  assert(
+    "payment_status не содержит UI-алиас paid, отсутствующий в PostgreSQL enum",
+    !paymentStatuses.includes("paid"),
+    paymentStatuses.join(", ")
+  );
+  assert(
+    "payment_status содержит реальные состояния escrow/released/cancelled",
+    ["escrow", "released", "cancelled"].every((status) => paymentStatuses.includes(status)),
+    paymentStatuses.join(", ")
+  );
   const customer = await login("customer@demo.ru");
   const confectioner = await login("confectioner@demo.ru");
   assert("логины customer/confectioner", Boolean(customer && confectioner));
@@ -170,8 +195,8 @@ async function main() {
   const providerId = (await client.query(`SELECT yookassa_payment_id FROM public.payments WHERE order_id=$1::uuid`, [badPay.orderId])).rows[0].yookassa_payment_id;
   const w2 = await sendWebhookPaymentSucceeded(providerId, badPay.orderId, "9999.00");
   assert(
-    "webhook с другой суммой → skipped amount_mismatch",
-    w2.status === 200 && w2.json?.skipped === "amount_mismatch",
+    "webhook с другой суммой → fail-closed 500 для сверки",
+    w2.status === 500 && w2.json?.error === "Payment amount mismatch",
     JSON.stringify(w2.json)
   );
   assert(
@@ -184,13 +209,135 @@ async function main() {
   const modProviderId = (await client.query(`SELECT yookassa_payment_id FROM public.payments WHERE order_id=$1::uuid`, [modPay.orderId])).rows[0].yookassa_payment_id;
   const w3 = await sendWebhookPaymentSucceeded(modProviderId, modPay.orderId, "2457.00");
   assert(
-    "оплатить изменённый заказ старой суммой → skipped (P1.1 §2)",
-    w3.status === 200 && w3.json?.skipped === "amount_mismatch" && (await getOrderPaymentStatus(modPay.orderId)).payment_status !== "escrow",
+    "оплатить изменённый заказ старой суммой → fail-closed 500 (P1.1 §2)",
+    w3.status === 500 && w3.json?.error === "Payment amount mismatch" && (await getOrderPaymentStatus(modPay.orderId)).payment_status !== "escrow",
     JSON.stringify({ body: w3.json, order: await getOrderPaymentStatus(modPay.orderId) })
+  );
+
+  // 1d. Запоздалый payment.canceled не может перезаписать succeeded/escrow.
+  const staleCancel = await seedOrderWithPayment({ total: intTotal, paymentAmount: intTotal, number: `P11V-STALE-CANCEL-${rand()}` });
+  await client.query(`UPDATE public.payments SET status='succeeded' WHERE order_id=$1::uuid`, [staleCancel.orderId]);
+  await client.query(`UPDATE public.orders SET payment_status='escrow' WHERE id=$1::uuid`, [staleCancel.orderId]);
+  const staleCancelWebhook = await api("POST", "/api/payment/webhook", {
+    headers: { "x-real-ip": "2a02:5180::1" },
+    body: {
+      event: "payment.canceled",
+      object: {
+        id: staleCancel.providerPaymentId,
+        status: "canceled",
+        amount: { value: "2457.00", currency: "RUB" },
+        metadata: { orderId: staleCancel.orderId },
+      },
+    },
+  });
+  const staleCancelState = await getOrderPaymentStatus(staleCancel.orderId);
+  assert(
+    "запоздалый payment.canceled не перезаписывает succeeded/escrow",
+    staleCancelWebhook.status === 200 &&
+      staleCancelState.payment_status === "escrow" &&
+      staleCancelState.status !== "CANCELLED",
+    JSON.stringify({ webhook: staleCancelWebhook, state: staleCancelState })
+  );
+
+  // 1e. Запоздалый payment.succeeded по отменённому заказу возвращается,
+  //     а не переводит его в escrow (mock refund в dev).
+  const lateCapture = await seedOrderWithPayment({ total: intTotal, paymentAmount: intTotal, number: `P11V-LATE-CAPTURE-${rand()}` });
+  await client.query(`UPDATE public.orders SET status='CANCELLED' WHERE id=$1::uuid`, [lateCapture.orderId]);
+  const lateCaptureWebhook = await sendWebhookPaymentSucceeded(
+    lateCapture.providerPaymentId,
+    lateCapture.orderId,
+    "2457.00"
+  );
+  const lateCaptureState = await getOrderPaymentStatus(lateCapture.orderId);
+  assert(
+    "позднее списание по CANCELLED инициирует возврат, не escrow",
+    lateCaptureWebhook.status === 200 &&
+      lateCaptureWebhook.json?.refundInitiated === true &&
+      lateCaptureState.payment_status !== "escrow",
+    JSON.stringify({ webhook: lateCaptureWebhook.json, state: lateCaptureState })
+  );
+
+  // 1f. payment.canceled успел пометить ledger, но order ещё не отменён;
+  //     последующий capture должен сначала закрыть заказ, затем вернуть деньги.
+  const cancelledLedger = await seedOrderWithPayment({ total: intTotal, paymentAmount: intTotal, number: `P11V-CANCELLED-LEDGER-${rand()}` });
+  await client.query(`UPDATE public.payments SET status='cancelled' WHERE order_id=$1::uuid`, [cancelledLedger.orderId]);
+  await client.query(`UPDATE public.orders SET total=$2 WHERE id=$1::uuid`, [cancelledLedger.orderId, intTotal + 500]);
+  const cancelledLedgerWebhook = await sendWebhookPaymentSucceeded(
+    cancelledLedger.providerPaymentId,
+    cancelledLedger.orderId,
+    "2457.00"
+  );
+  const cancelledLedgerState = await getOrderPaymentStatus(cancelledLedger.orderId);
+  assert(
+    "capture после payment.canceled закрывает заказ и инициирует возврат",
+    cancelledLedgerWebhook.status === 200 &&
+      cancelledLedgerWebhook.json?.refundInitiated === true &&
+      cancelledLedgerState.status === "CANCELLED" &&
+      cancelledLedgerState.payment_status !== "escrow",
+    JSON.stringify({ webhook: cancelledLedgerWebhook.json, state: cancelledLedgerState })
+  );
+
+  // Для checkout нужен реальный рецепт и доступный складской ингредиент.
+  // Демонстрационный Napoleon намеренно не связан с рецептом, поэтому не должен
+  // приниматься в заказ без настройки кондитера. Создаём изолированный fixture.
+  const productBefore = await client.query(
+    `SELECT recipe_id::text, production_time_hours FROM public.products WHERE id = $1::uuid`,
+    [PRODUCT_ID]
+  );
+  if (productBefore.rowCount !== 1) throw new Error(`checkout fixture product missing: ${PRODUCT_ID}`);
+  cleanup.productRecipeOriginal = {
+    id: PRODUCT_ID,
+    recipeId: productBefore.rows[0].recipe_id,
+    productionTimeHours: productBefore.rows[0].production_time_hours,
+  };
+  const stockIngredient = await client.query(
+    `SELECT id::text, name, unit, quantity
+       FROM public.inventory_items
+      WHERE owner_id = $1::uuid AND is_active IS TRUE AND quantity > 0
+      ORDER BY id
+      LIMIT 1`,
+    [CONFECTIONER_USER_ID]
+  );
+  if (stockIngredient.rowCount !== 1) throw new Error("checkout fixture requires one active in-stock ingredient");
+  const ingredient = stockIngredient.rows[0];
+  const unitText = String(ingredient.unit ?? "");
+  const ingredientQty = /^(кг|kg)$/i.test(unitText) ? 0.001 : 1;
+  // Keep a single test item so the idempotency scenario measures replay
+  // semantics rather than bulk-production capacity. Restore stock in cleanup.
+  cleanup.inventoryOriginal = { id: ingredient.id, quantity: ingredient.quantity };
+  await client.query(
+    `UPDATE public.inventory_items
+        SET quantity = GREATEST(quantity, $2::numeric)
+      WHERE id = $1::uuid`,
+    [ingredient.id, ingredientQty + 1],
+  );
+  const recipe = await client.query(
+    `INSERT INTO public.recipes
+       (author_id, title, description, content, difficulty, servings, slug, status,
+        published_at, prep_time_minutes, cook_time_minutes)
+     VALUES ($1::uuid, 'P11 checkout fixture', 'Изолированный рецепт для проверки checkout',
+             'Тестовая рецептура', 'easy', 1, $2, 'published', now(), 60, 60)
+     RETURNING id::text`,
+    [CONFECTIONER_USER_ID, `p11-checkout-${rand()}`]
+  );
+  cleanup.recipeId = recipe.rows[0].id;
+  await client.query(
+    `INSERT INTO public.recipe_ingredients
+       (recipe_id, name, qty, unit, inventory_item_id, sort_order)
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid, 1)`,
+    [cleanup.recipeId, ingredient.name, ingredientQty, ingredient.unit, ingredient.id]
+  );
+  await client.query(
+    `UPDATE public.products
+        SET recipe_id = $2::uuid, production_time_hours = 1, updated_at = now()
+      WHERE id = $1::uuid`,
+    [PRODUCT_ID, cleanup.recipeId]
   );
 
   // === 2. CHECKOUT IDEMPOTENCY (§8) ===
   section("Checkout: параллельные POST с одним Idempotency-Key");
+  // В fixture доступные производственные слоты создаются на ближайшие дни;
+  // не выбираем искусственно дату за пределами расписания кондитера.
   const today = new Date(Date.now() + 2 * 86400_000);
   const deliveryDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   const idemKey = `p11-verify-${rand()}`;
@@ -207,8 +354,8 @@ async function main() {
     api("POST", "/api/checkout", { token: customer, body: checkoutBody, headers: { "Idempotency-Key": idemKey } }),
     api("POST", "/api/checkout", { token: customer, body: checkoutBody, headers: { "Idempotency-Key": idemKey } }),
   ]);
-  assert("checkout #1 → 200/201", [200, 201].includes(c1.status), `got ${c1.status} ${JSON.stringify(c1.json).slice(0, 140)}`);
-  assert("checkout #2 → 200/201 (replay, не ошибка)", [200, 201].includes(c2.status), `got ${c2.status} ${JSON.stringify(c2.json).slice(0, 140)}`);
+  assert("checkout #1 → 200/201", [200, 201].includes(c1.status), `got ${c1.status} ${JSON.stringify(c1.json).slice(0, 600)}`);
+  assert("checkout #2 → 200/201 (replay, не ошибка)", [200, 201].includes(c2.status), `got ${c2.status} ${JSON.stringify(c2.json).slice(0, 600)}`);
   const sameOrder = c1.json?.orderId && c1.json.orderId === c2.json.orderId;
   assert("оба ответа вернули ОДИН orderId", Boolean(sameOrder), `${c1.json?.orderId} vs ${c2.json?.orderId}`);
   if (c1.json?.orderId) cleanup.orderIds.push(c1.json.orderId);
@@ -371,6 +518,14 @@ async function main() {
 
 async function cleanupAll() {
   try {
+    // Освобождаем демо-аккаунты после сценария: следующий E2E-контур
+    // не должен принимать оставшийся тестовый сеанс за передачу аккаунта.
+    for (const token of sessionTokens) {
+      const logout = await api("POST", "/api/auth/logout", { token }).catch(() => null);
+      if (logout && logout.status !== 200) {
+        console.warn("[verify] test session cleanup returned", logout.status);
+      }
+    }
     // Уникальные строки product_reviews verify-заказов удалятся каскадом с заказами? — удаляем явно
     for (const oid of cleanup.orderIds) {
       await client.query(`DELETE FROM public.product_reviews WHERE order_id = $1::uuid`, [oid]).catch(() => {});
@@ -380,12 +535,21 @@ async function cleanupAll() {
       await client.query(`DELETE FROM public.chat_channels WHERE id = ANY($1::uuid[])`, [cleanup.chatRoomIds]).catch(() => {});
     }
     if (cleanup.paymentIds.length > 0) {
+      // Webhook создаёт financial_ledger entries с FK на payments.
+      // Удаляем ledger раньше платежей, иначе тест оставляет сиротские
+      // payment/order rows и загрязняет повторные прогоны.
+      await client.query(
+        `DELETE FROM public.financial_ledger WHERE payment_id = ANY($1::uuid[])`,
+        [cleanup.paymentIds]
+      ).catch(() => {});
       await client.query(`DELETE FROM public.payments WHERE id = ANY($1::uuid[])`, [cleanup.paymentIds]).catch(() => {});
     }
     if (cleanup.orderIds.length > 0) {
       await client.query(`DELETE FROM public.order_items WHERE order_id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
-      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[]) AND metadata->>'test' = 'p11-verify'`, [cleanup.orderIds]).catch(() => {});
+      // ops_tasks использует payload, не metadata; entity_id ограничен только тестовыми order IDs.
+      await client.query(`DELETE FROM public.ops_tasks WHERE entity_id = ANY($1::text[])`, [cleanup.orderIds]).catch(() => {});
       await client.query(`DELETE FROM public.domain_events WHERE entity_type='order' AND entity_id = ANY($1::text[])`, [cleanup.orderIds]).catch(() => {});
+      await client.query(`DELETE FROM public.loyalty_transactions WHERE order_id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
       await client.query(`DELETE FROM public.orders WHERE id = ANY($1::uuid[])`, [cleanup.orderIds]).catch(() => {});
     }
     if (cleanup.eventDedupKeys.length > 0) {
@@ -393,6 +557,24 @@ async function cleanupAll() {
     }
     if (cleanup.notificationDedupKeys.length > 0) {
       await client.query(`DELETE FROM public.notifications WHERE metadata->>'dedup_key' = ANY($1)`, [cleanup.notificationDedupKeys]).catch(() => {});
+    }
+    if (cleanup.productRecipeOriginal) {
+      await client.query(
+        `UPDATE public.products
+            SET recipe_id = $2::uuid, production_time_hours = $3, updated_at = now()
+          WHERE id = $1::uuid`,
+        [cleanup.productRecipeOriginal.id, cleanup.productRecipeOriginal.recipeId, cleanup.productRecipeOriginal.productionTimeHours]
+      ).catch(() => {});
+    }
+    if (cleanup.recipeId) {
+      await client.query(`DELETE FROM public.recipe_ingredients WHERE recipe_id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
+      await client.query(`DELETE FROM public.recipes WHERE id = $1::uuid`, [cleanup.recipeId]).catch(() => {});
+    }
+    if (cleanup.inventoryOriginal) {
+      await client.query(
+        `UPDATE public.inventory_items SET quantity = $2::numeric WHERE id = $1::uuid`,
+        [cleanup.inventoryOriginal.id, cleanup.inventoryOriginal.quantity],
+      ).catch(() => {});
     }
     if (cleanup.productPriceOriginal) {
       await client

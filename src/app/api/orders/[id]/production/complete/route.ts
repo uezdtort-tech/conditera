@@ -1,8 +1,8 @@
 /**
- * POST /api/orders/[id]/production/complete — завершение производственных
- * этапов (ТЗ §7, §17): все этапы, кроме handoff, помечаются выполненными
- * (идемпотентно). Фото готовности НЕ отмечается автоматически — оно
- * загружается через /api/orders/[id]/media (гейт §35).
+ * POST /api/orders/[id]/production/complete — фиксация завершения производства.
+ * Каждый физический этап должен быть отдельно отмечен через /production/stage.
+ * ready_photo выполняется только загрузкой файла через /media, handoff —
+ * отдельным маршрутом передачи. Этот endpoint ничего не отмечает автоматически.
  *
  * Статус заказа остаётся PREPARING — финальный переход в READY делает
  * POST /api/orders/[id]/ready (QC/фото-гейт).
@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
 import { getPool } from "@/lib/postgrest/pool";
 import { loadOrderLite, canOperateOrder } from "@/lib/ops/order-access";
-import { ensureChecklist, getOrderChecklist, setStageDone } from "@/lib/ops/production";
+import { ensureChecklist, getOrderChecklist } from "@/lib/ops/production";
 import { loadOrderItemsData } from "@/lib/ops/acceptance";
 import { recordEvent } from "@/lib/ops/events";
 import { handleRouteError } from "@/lib/http-helpers";
@@ -48,21 +48,40 @@ export async function POST(
       );
     }
 
+    // Нельзя закрыть производственные этапы до фактического запуска
+    // производства или повторно после READY/передачи.
+    if (order.status !== "PREPARING") {
+      return NextResponse.json(
+        {
+          error: "INVALID_PRODUCTION_STATE",
+          message: `Завершение производства возможно только в статусе PREPARING (сейчас ${order.status})`,
+        },
+        { status: 409 }
+      );
+    }
+
     // Чеклист
     const data = await loadOrderItemsData(id);
     const categorySlug = data?.items.find((i) => i.categorySlug)?.categorySlug ?? null;
     await ensureChecklist(id, categorySlug);
     const checklist = await getOrderChecklist(id);
 
-    // Отметить все производственные этапы, кроме handoff (он после READY)
-    // и ready_photo (фото прикладывается только через /media — гейт §35)
-    const doneNow: string[] = [];
-    for (const stage of checklist) {
-      if (stage.stage_key === "handoff" || stage.stage_key === "ready_photo") continue;
-      if (!stage.is_done) {
-        await setStageDone(id, stage.stage_key, true, user.id);
-        doneNow.push(stage.stage_key);
-      }
+    // Завершение — только фиксация факта после ручного подтверждения
+    // каждого производственного этапа. Никаких автоматических галочек.
+    // ready_photo выполняется отдельной загрузкой, handoff — после READY.
+    const workStages = checklist.filter(
+      (stage) => stage.stage_key !== "handoff" && stage.stage_key !== "ready_photo"
+    );
+    const incomplete = workStages.filter((stage) => !stage.is_done);
+    if (incomplete.length > 0) {
+      return NextResponse.json(
+        {
+          error: "PRODUCTION_CHECKLIST_INCOMPLETE",
+          message: "Сначала отметьте каждый фактически выполненный этап производства",
+          missing: incomplete.map((stage) => ({ stageKey: stage.stage_key, label: stage.label })),
+        },
+        { status: 422 }
+      );
     }
 
     const pool = getPool();
@@ -76,7 +95,7 @@ export async function POST(
       entityType: "order",
       entityId: id,
       actorId: user.id,
-      payload: { orderNumber: order.number, stagesDone: doneNow },
+      payload: { orderNumber: order.number, stagesConfirmed: workStages.map((stage) => stage.stage_key) },
     });
 
     const updated = await getOrderChecklist(id);
@@ -85,7 +104,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       completedAt: new Date().toISOString(),
-      stagesDoneNow: doneNow,
+      stagesConfirmed: workStages.map((stage) => stage.stage_key),
       remainingBeforeReady: remaining.map((s) => s.label),
       note:
         remaining.some((s) => s.stage_key === "ready_photo")

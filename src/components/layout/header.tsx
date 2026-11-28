@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
+import { resolveCmsNavigationView } from "@/lib/cms-navigation";
 import { serverLogout } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,14 +40,15 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { GlobalSearch } from "@/components/ui/enhanced-components";
 import { VisualSearchButton } from "@/components/visual-search/visual-search-button";
-import { usePublishedNavMenu } from "@/hooks/use-published-nav-menu";
-import {
-  usePublishedBrand,
-  isExternalCmsHref,
-  cmsInternalView,
-} from "@/hooks/use-published-cms";
 import type { ViewKey, Role } from "@/lib/types";
-import { dashboardViewForRole } from "@/lib/primary-role";
+
+type PublicCmsNavItem = {
+  id: string;
+  location: "header" | "footer" | "mobile";
+  label: string;
+  url: string;
+  sort_order: number;
+};
 
 // ===== Навигация: основные разделы =====
 const NAV_MAIN: { label: string; view: ViewKey; icon: typeof Cake }[] = [
@@ -117,12 +119,12 @@ function TopPromoBar({ onNavigate }: { onNavigate: (view: ViewKey) => void }) {
   if (!visible) return null;
 
   return (
-    <div className="bg-primary/5 border-b border-primary/10 text-foreground text-xs">
+    <div className="bg-muted/60 border-b border-border/40 text-foreground text-xs">
       <div className="container mx-auto px-4 h-8 flex items-center justify-center gap-3 relative">
         <span className="text-muted-foreground hidden sm:inline">•</span>
         <button
           onClick={() => onNavigate(promos[index].action)}
-          className="text-center text-muted-foreground hover:text-primary transition-colors truncate max-w-[80%]"
+          className="text-center text-muted-foreground hover:text-foreground transition-colors truncate max-w-[80%]"
         >
           {promos[index].text}
         </button>
@@ -135,14 +137,35 @@ function TopPromoBar({ onNavigate }: { onNavigate: (view: ViewKey) => void }) {
   );
 }
 
-// ===== Кабинеты ролей — ЕДИНЫЙ источник (A-5) =====
-// Раньше здесь был локальный DASHBOARD_MAP, расходившийся с
-// dashboardViewByRole (primary-role.ts): роли v2.0 (RECIPE_DEVELOPER,
-// LOYALTY_PARTNER, AI_ASSISTANT) отсутствовали → goToDashboard вёл в «home»;
-// MODERATOR/SUPPORT/BLOGGER направлялись в dashboard-moderator/support/blogger,
-// которые /dashboard/page.tsx НЕ рендерит (default → вечный skeleton).
-// Дублирующая карта удалена: переход по кабинету использует
-// dashboardViewForRole — тот же маппинг, что store и /dashboard.
+// ===== Dashboard map для всех 26 ролей =====
+const DASHBOARD_MAP: Record<string, ViewKey> = {
+  GUEST: "home",
+  CUSTOMER: "dashboard-customer",
+  CONFECTIONER: "dashboard-confectioner",
+  STUDIO: "dashboard-confectioner",
+  SUPPLIER: "dashboard-supplier",
+  COURIER: "dashboard-courier",
+  ADMIN: "dashboard-admin",
+  SUPER_ADMIN: "dashboard-admin",
+  MODERATOR: "dashboard-moderator",
+  SUPPORT: "dashboard-support",
+  COPYWRITER: "dashboard-copywriter",
+  FOOD_SERVICE: "dashboard-food-service",
+  EVENT_ORGANIZER: "dashboard-event-organizer",
+  BLOGGER: "dashboard-blogger",
+  PICKUP_POINT: "dashboard-pickup-point",
+  WHOLESALER: "dashboard-wholesaler",
+  TASTER: "dashboard-taster",
+  FRANCHISEE: "dashboard-franchisee",
+  NUTRITIONIST: "dashboard-nutritionist",
+  CORPORATE_CLIENT: "dashboard-corporate-client",
+  QUALITY_INSPECTOR: "dashboard-quality-inspector",
+  CERTIFICATION_AGENT: "dashboard-certification-agent",
+  VENUE_OWNER: "dashboard-venue-owner",
+  ANIMATOR_AGENCY: "dashboard-animator-agency",
+  RECREATION_CENTER: "dashboard-recreation-center",
+  KIDS_CLUB: "dashboard-kids-club",
+};
 
 const ROLE_LABELS: Record<string, string> = {
   GUEST: "Главная",
@@ -171,15 +194,16 @@ const ROLE_LABELS: Record<string, string> = {
   ANIMATOR_AGENCY: "Агентство аниматоров",
   RECREATION_CENTER: "Развлекательный центр",
   KIDS_CLUB: "Детский клуб",
-  // Роли v2.0 (A-5: раньше отсутствовали → показывался сырой код роли)
-  RECIPE_DEVELOPER: "Кабинет разработчика рецептов",
-  LOYALTY_PARTNER: "Кабинет партнёра лояльности",
-  AI_ASSISTANT: "AI-ассистент",
 };
 
 export function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const navigate = useAppStore((s) => s.navigate);
+  const navigateToView = (...args: Parameters<typeof navigate>) => {
+    navigate(...args);
+    if (pathname.startsWith("/pages/")) router.push("/");
+  };
   const nav = useAppStore((s) => s.nav);
   const user = useAppStore((s) => s.user);
   const activeRole = useAppStore((s) => s.activeRole);
@@ -193,22 +217,31 @@ export function Header() {
   const cart = useAppStore((s) => s.cart);
   const favorites = useAppStore((s) => s.favorites);
 
-  // Z-brand/CMS: опубликованные пункты меню (cms_nav_menu) и логотип
-  // (site_settings). Пусто/null → системный хардкод без изменений.
-  const cmsNavItems = usePublishedNavMenu("header");
-  const brand = usePublishedBrand();
-
-  const goToCmsNavItem = (url: string) => {
-    if (isExternalCmsHref(url)) {
-      window.open(url, "_blank", "noopener,noreferrer");
-      return;
-    }
-    navigate(cmsInternalView(url) as never);
-  };
-
   const [searchQuery, setSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [cmsNavItems, setCmsNavItems] = useState<PublicCmsNavItem[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/nav-menu", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Navigation unavailable")))
+      .then((payload: { items?: PublicCmsNavItem[] }) => {
+        if (!controller.signal.aborted) setCmsNavItems(Array.isArray(payload.items) ? payload.items : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCmsNavItems([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const openCmsNavItem = (item: PublicCmsNavItem) => {
+    const appView = resolveCmsNavigationView(item.url);
+    if (appView) navigateToView(appView);
+    else if (item.url.startsWith("/") && !item.url.startsWith("//")) router.push(item.url);
+    else return;
+    setMobileMenuOpen(false);
+  };
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const currentView = nav.view;
@@ -217,9 +250,7 @@ export function Header() {
 
   const goToDashboard = () => {
     if (!activeRole) return;
-    // A-5: единая карта ролей→кабинетов (та же, что store и /dashboard);
-    // локальная DASHBOARD_MAP удалена — расходилась и вела v2.0-роли в «home».
-    navigate(dashboardViewForRole(activeRole));
+    navigateToView(DASHBOARD_MAP[activeRole] || "home");
   };
 
   // Единый logout: сервер чистит httpOnly cookies (cd_session/cd_refresh) +
@@ -241,7 +272,7 @@ export function Header() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      navigate("catalog", { q: searchQuery.trim() });
+      navigateToView("catalog", { q: searchQuery.trim() });
       setMobileSearchOpen(false);
       setSearchQuery("");
     }
@@ -259,12 +290,12 @@ export function Header() {
     <>
       <TopPromoBar onNavigate={navigate} />
 
-      <header className="header-glass sticky top-0 z-40 w-full [backdrop-filter:blur(18px)_saturate(1.7)]!">
-        <div className="container mx-auto px-3 sm:px-4">
-          <div className="flex h-16 items-center justify-between gap-1 sm:gap-3">
+      <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+        <div className="container mx-auto px-4">
+          <div className="flex h-16 items-center justify-between gap-3">
             {/* Logo */}
-            <button onClick={() => navigate("home")} className="flex items-center gap-2 shrink-0 group" aria-label="Уездный кондитер — на главную">
-              <img src={brand.logoUrl ?? "/logo.png"} alt="Уездный кондитер" className="h-12 w-12 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform" />
+            <button onClick={() => navigateToView("home")} className="flex items-center gap-2 shrink-0 group" aria-label="Уездный кондитер — на главную">
+              <img src="/logo.png" alt="Уездный кондитер" className="h-12 w-12 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform" />
               <div className="hidden sm:block text-left leading-tight">
                 <div className="logo-text text-lg text-foreground">Уездный кондитер</div>
               </div>
@@ -281,7 +312,7 @@ export function Header() {
             </div>
 
             {/* Mobile search trigger */}
-            <Button variant="ghost" size="icon" onClick={() => setMobileSearchOpen(true)} className="md:hidden h-11 w-11" aria-label="Поиск">
+            <Button variant="ghost" size="icon" onClick={() => setMobileSearchOpen(true)} className="md:hidden h-9 w-9" aria-label="Поиск">
               <Search className="h-4 w-4" />
             </Button>
 
@@ -289,14 +320,14 @@ export function Header() {
             <VisualSearchButton compact />
 
             {/* Actions */}
-            <div className="flex items-center gap-0.5 sm:gap-2 ml-auto">
+            <div className="flex items-center gap-1 sm:gap-2 ml-auto">
               {/* Конструктор */}
-              <Button variant="default" size="sm" onClick={() => navigate("cake-builder")} className="btn-primary-gradient hidden md:flex">
+              <Button variant="default" size="sm" onClick={() => navigateToView("cake-builder")} className="hidden md:flex bg-gradient-to-r from-primary to-accent hover:opacity-90">
                 <Cake className="h-4 w-4 mr-1.5" />Конструктор
               </Button>
 
               {/* Favorites */}
-              <Button variant="ghost" size="icon" onClick={() => navigate("dashboard-customer", { tab: "favorites" })} className="relative h-11 w-11 sm:h-9 sm:w-9" aria-label="Избранное">
+              <Button variant="ghost" size="icon" onClick={() => navigateToView("dashboard-customer", { tab: "favorites" })} className="relative h-9 w-9" aria-label="Избранное">
                 <Heart className="h-4 w-4" />
                 {favorites.length > 0 && <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[10px] bg-primary text-primary-foreground">{favorites.length}</Badge>}
               </Button>
@@ -310,7 +341,7 @@ export function Header() {
               <NotificationsBell />
 
               {/* Cart */}
-              <Button variant="ghost" size="icon" onClick={() => setCartOpen(true)} className="relative h-11 w-11 sm:h-9 sm:w-9" aria-label="Корзина">
+              <Button variant="ghost" size="icon" onClick={() => setCartOpen(true)} className="relative h-9 w-9" aria-label="Корзина">
                 <ShoppingCart className="h-4 w-4" />
                 {cartCount > 0 && <Badge className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[10px] bg-primary text-primary-foreground">{cartCount}</Badge>}
               </Button>
@@ -381,7 +412,7 @@ export function Header() {
                   <div className="hidden sm:block">
                     <ThemeToggle />
                   </div>
-                  <Button size="sm" onClick={() => setAuthModalOpen(true)} className="btn-primary-gradient hidden sm:flex">
+                  <Button size="sm" onClick={() => setAuthModalOpen(true)} className="hidden sm:flex">
                     <UserIcon className="h-4 w-4 mr-1.5" />Войти
                   </Button>
                 </>
@@ -390,14 +421,14 @@ export function Header() {
               {/* Mobile menu trigger */}
               <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="lg:hidden h-11 w-11" aria-label="Открыть меню">
+                  <Button variant="ghost" size="icon" className="lg:hidden h-9 w-9">
                     <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="w-80 p-0 overflow-y-auto">
                   <SheetHeader className="p-4 border-b">
                     <SheetTitle className="flex items-center gap-2">
-                      <img src={brand.logoUrl ?? "/logo.png"} alt="" className="h-10 w-10 rounded-full object-cover" />
+                      <img src="/logo.png" alt="" className="h-10 w-10 rounded-full object-cover" />
                       <div>
                         <div className="logo-text text-base">Уездный кондитер</div>
                         <div className="text-[10px] text-muted-foreground font-normal">маркетплейс кондитеров России</div>
@@ -407,7 +438,7 @@ export function Header() {
 
                   <div className="p-3 space-y-1 max-h-[calc(100vh-80px)] overflow-y-auto">
                     {/* Конструктор */}
-                    <Button className="btn-primary-gradient w-full" onClick={() => { navigate("cake-builder"); setMobileMenuOpen(false); }}>
+                    <Button className="w-full bg-gradient-to-r from-primary to-accent" onClick={() => { navigateToView("cake-builder"); setMobileMenuOpen(false); }}>
                       <Cake className="h-4 w-4 mr-2" />Конструктор торта
                     </Button>
 
@@ -415,7 +446,7 @@ export function Header() {
                     <div className="pt-2">
                       <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 mb-1">Навигация</div>
                       {NAV_MAIN.map((link) => (
-                        <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-md ${isActive(link.view) ? "bg-primary/10 text-primary" : "hover:bg-accent"}`}>
+                        <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium rounded-md ${isActive(link.view) ? "bg-primary/10 text-primary" : "hover:bg-accent"}`}>
                           <link.icon className="h-4 w-4" />{link.label}
                         </button>
                       ))}
@@ -430,11 +461,11 @@ export function Header() {
                       {expandedSection === "cats" && (
                         <div className="grid grid-cols-2 gap-1 px-1 pb-2">
                           {confectioneryCats.slice(0, 12).map((cat) => (
-                            <button key={cat.slug} onClick={() => { navigate("catalog", { category: cat.slug }); setMobileMenuOpen(false); }} className="flex items-center gap-1.5 px-2 py-1.5 text-xs hover:bg-accent rounded-md text-left">
+                            <button key={cat.slug} onClick={() => { navigateToView("catalog", { category: cat.slug }); setMobileMenuOpen(false); }} className="flex items-center gap-1.5 px-2 py-1.5 text-xs hover:bg-accent rounded-md text-left">
                               <span>{cat.icon}</span><span className="truncate">{cat.name}</span>
                             </button>
                           ))}
-                          <button onClick={() => { navigate("catalog"); setMobileMenuOpen(false); }} className="col-span-2 text-center text-xs text-primary hover:underline py-1">Все категории →</button>
+                          <button onClick={() => { navigateToView("catalog"); setMobileMenuOpen(false); }} className="col-span-2 text-center text-xs text-primary hover:underline py-1">Все категории →</button>
                         </div>
                       )}
                     </div>
@@ -448,7 +479,7 @@ export function Header() {
                       {expandedSection === "b2b" && (
                         <div className="space-y-0.5 px-1 pb-2">
                           {NAV_B2B.map((link) => (
-                            <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
+                            <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
                               <link.icon className="h-4 w-4 text-muted-foreground" /><span>{link.label}</span>
                             </button>
                           ))}
@@ -465,7 +496,7 @@ export function Header() {
                       {expandedSection === "biz" && (
                         <div className="space-y-0.5 px-1 pb-2">
                           {NAV_BUSINESS.map((link) => (
-                            <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
+                            <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
                               <link.icon className="h-4 w-4 text-muted-foreground" /><div><div>{link.label}</div><div className="text-[10px] text-muted-foreground">{link.desc}</div></div>
                             </button>
                           ))}
@@ -482,34 +513,23 @@ export function Header() {
                       {expandedSection === "info" && (
                         <div className="space-y-0.5 px-1 pb-2">
                           {NAV_INFO.map((link) => (
-                            <button key={link.view} onClick={() => { navigate(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
+                            <button key={link.view} onClick={() => { navigateToView(link.view); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md">
                               <link.icon className="h-4 w-4 text-muted-foreground" /><span>{link.label}</span>
+                            </button>
+                          ))}
+                          {cmsNavItems.filter((item) => item.location === "mobile" || item.location === "header").map((item) => (
+                            <button key={item.id} onClick={() => openCmsNavItem(item)} className="w-full flex items-center gap-2 px-2 py-2 text-sm hover:bg-accent rounded-md text-left">
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" /><span>{item.label}</span>
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
 
-                    {/* Z-brand/CMS: опубликованные пункты меню (location=header) */}
-                    {cmsNavItems.length > 0 && (
-                      <div className="pt-1">
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 mb-1">Меню</div>
-                        {cmsNavItems.map((item) => (
-                          <button
-                            key={item.id}
-                            onClick={() => { goToCmsNavItem(item.url); setMobileMenuOpen(false); }}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent rounded-md"
-                          >
-                            <Sparkles className="h-4 w-4 text-muted-foreground" /><span>{item.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
                     {/* Auth */}
                     {!isAuthenticated && (
                       <div className="pt-3 mt-2 border-t space-y-2">
-                        <Button className="btn-primary-gradient w-full" onClick={() => { setMobileMenuOpen(false); setAuthModalOpen(true); }}>Войти / Регистрация</Button>
+                        <Button className="w-full" onClick={() => { setMobileMenuOpen(false); setAuthModalOpen(true); }}>Войти / Регистрация</Button>
                       </div>
                     )}
                   </div>
@@ -520,7 +540,7 @@ export function Header() {
         </div>
 
         {/* ===== ВТОРАЯ СТРОКА — навигационное под-меню (десктоп) ===== */}
-        <div className="hidden lg:block border-t border-border/60">
+        <div className="hidden lg:block border-t border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="container mx-auto px-4">
             <nav className="flex items-center gap-0.5 h-11 overflow-x-auto">
               {/* Каталог — мега-меню */}
@@ -537,12 +557,12 @@ export function Header() {
                       <div className="flex items-center gap-1.5 mb-2 px-2"><span>{CATEGORY_GROUPS[0].icon}</span><span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{CATEGORY_GROUPS[0].name}</span></div>
                       <div className="space-y-0.5">
                         {confectioneryCats.slice(0, 10).map((cat) => (
-                          <button key={cat.slug} onClick={() => navigate("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
+                          <button key={cat.slug} onClick={() => navigateToView("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
                             <span className="text-base">{cat.icon}</span><span className="flex-1 group-hover:text-primary">{cat.name}</span>
                             {cat.count > 0 && <span className="text-[10px] text-muted-foreground">{cat.count}</span>}
                           </button>
                         ))}
-                        <button onClick={() => navigate("catalog")} className="w-full flex items-center gap-1 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-primary font-medium">Все категории <ChevronRight className="h-3 w-3" /></button>
+                        <button onClick={() => navigateToView("catalog")} className="w-full flex items-center gap-1 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-primary font-medium">Все категории <ChevronRight className="h-3 w-3" /></button>
                       </div>
                     </div>
                     <div className="p-3 border-r">
@@ -551,7 +571,7 @@ export function Header() {
                         {supplyCats.map((cat) => {
                           const link = (cat as { link?: string }).link;
                           return (
-                            <button key={cat.slug} onClick={() => link ? navigate(link as never) : navigate("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
+                            <button key={cat.slug} onClick={() => link ? navigateToView(link as never) : navigateToView("catalog", { category: cat.slug })} className="w-full flex items-center gap-2 text-xs px-2 py-1.5 hover:bg-accent rounded-md text-left group">
                               <span className="text-base">{cat.icon}</span><span className="flex-1 group-hover:text-primary">{cat.name}</span>
                               <ChevronRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
                             </button>
@@ -562,15 +582,15 @@ export function Header() {
                     <div className="p-3 bg-accent/30">
                       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 px-1">Популярное</div>
                       <div className="space-y-2">
-                        <button onClick={() => navigate("cake-builder")} className="w-full text-left p-2 rounded-lg bg-gradient-to-br from-primary/10 to-accent/40 hover:shadow-md transition group">
+                        <button onClick={() => navigateToView("cake-builder")} className="w-full text-left p-2 rounded-lg bg-gradient-to-br from-primary/10 to-accent/40 hover:shadow-md transition group">
                           <div className="flex items-center gap-2 mb-1"><Cake className="h-4 w-4 text-primary" /><span className="text-sm font-semibold">Конструктор торта</span></div>
                           <div className="text-[10px] text-muted-foreground">Соберите свой торт за 8 шагов</div>
                         </button>
-                        <button onClick={() => navigate("ready-made")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
+                        <button onClick={() => navigateToView("ready-made")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
                           <div className="flex items-center gap-2 mb-1"><Zap className="h-4 w-4 text-amber-500" /><span className="text-sm font-semibold">Готовые изделия</span></div>
                           <div className="text-[10px] text-muted-foreground">В наличии, быстрая доставка</div>
                         </button>
-                        <button onClick={() => navigate("promotions")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
+                        <button onClick={() => navigateToView("promotions")} className="w-full text-left p-2 rounded-lg bg-card hover:shadow-md transition group border border-border/50">
                           <div className="flex items-center gap-2 mb-1"><Flame className="h-4 w-4 text-rose-500" /><span className="text-sm font-semibold">Акции и скидки</span></div>
                           <div className="text-[10px] text-muted-foreground">Выгодные предложения</div>
                         </button>
@@ -581,19 +601,19 @@ export function Header() {
               </DropdownMenu>
 
               {/* Кондитеры */}
-              <button onClick={() => navigate("confectioners")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("confectioners") || isActive("confectioner-profile") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
+              <button onClick={() => navigateToView("confectioners")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("confectioners") || isActive("confectioner-profile") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
                 <Users className="h-4 w-4" />Кондитеры
                 {(isActive("confectioners") || isActive("confectioner-profile")) && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full" />}
               </button>
 
               {/* Акции */}
-              <button onClick={() => navigate("promotions")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("promotions") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
+              <button onClick={() => navigateToView("promotions")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("promotions") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
                 <Flame className="h-4 w-4" />Акции
                 {isActive("promotions") && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full" />}
               </button>
 
               {/* Рецепты */}
-              <button onClick={() => navigate("recipes")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("recipes") || isActive("recipe-detail") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
+              <button onClick={() => navigateToView("recipes")} className={`relative px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${isActive("recipes") || isActive("recipe-detail") ? "text-primary bg-primary/10" : "text-foreground/80 hover:text-primary hover:bg-accent/50"}`}>
                 <BookOpen className="h-4 w-4" />Рецепты
                 {(isActive("recipes") || isActive("recipe-detail")) && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-6 bg-primary rounded-full" />}
               </button>
@@ -610,7 +630,7 @@ export function Header() {
                 <DropdownMenuContent align="start" className="w-80 p-0">
                   <div className="p-2">
                     {NAV_B2B.map((link) => (
-                      <button key={link.view} onClick={() => navigate(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                      <button key={link.view} onClick={() => navigateToView(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
                         <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition"><link.icon className="h-4 w-4 text-primary" /></div>
                         <div className="flex-1 min-w-0"><div className="text-sm font-medium group-hover:text-primary">{link.label}</div><div className="text-[11px] text-muted-foreground line-clamp-1">{link.desc}</div></div>
                       </button>
@@ -629,7 +649,7 @@ export function Header() {
                 <DropdownMenuContent align="start" className="w-72 p-0">
                   <div className="p-2">
                     {NAV_BUSINESS.map((link) => (
-                      <button key={link.view} onClick={() => navigate(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                      <button key={link.view} onClick={() => navigateToView(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
                         <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0 group-hover:bg-emerald-500/20 transition"><link.icon className="h-4 w-4 text-emerald-600" /></div>
                         <div className="flex-1 min-w-0"><div className="text-sm font-medium group-hover:text-primary">{link.label}</div><div className="text-[11px] text-muted-foreground line-clamp-1">{link.desc}</div></div>
                       </button>
@@ -648,53 +668,30 @@ export function Header() {
                 <DropdownMenuContent align="start" className="w-72 p-0">
                   <div className="p-2">
                     {NAV_INFO.map((link) => (
-                      <button key={link.view} onClick={() => navigate(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                      <button key={link.view} onClick={() => navigateToView(link.view)} className="w-full flex items-start gap-3 p-2 rounded-md hover:bg-accent text-left group">
                         <link.icon className="h-4 w-4 text-muted-foreground group-hover:text-primary mt-0.5 shrink-0" />
                         <div className="flex-1 min-w-0"><div className="text-sm font-medium group-hover:text-primary">{link.label}</div><div className="text-[11px] text-muted-foreground line-clamp-1">{link.desc}</div></div>
+                      </button>
+                    ))}
+                    {cmsNavItems.filter((item) => item.location === "header").map((item) => (
+                      <button key={item.id} onClick={() => openCmsNavItem(item)} className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-accent text-left group">
+                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+                        <span className="text-sm font-medium group-hover:text-primary">{item.label}</span>
                       </button>
                     ))}
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Z-brand/CMS: опубликованные пункты меню (cms_nav_menu, location=header).
-                  Нет пунктов → группа не рендерится — ноль визуальных изменений. */}
-              {cmsNavItems.length > 0 && (
-                <>
-                  <div className="h-5 w-px bg-border mx-1" />
-                  {cmsNavItems.map((item) =>
-                    isExternalCmsHref(item.url) ? (
-                      <a
-                        key={item.id}
-                        href={item.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap text-foreground/80 hover:text-primary hover:bg-accent/50"
-                      >
-                        {item.label}
-                      </a>
-                    ) : (
-                      <button
-                        key={item.id}
-                        onClick={() => goToCmsNavItem(item.url)}
-                        className="px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap text-foreground/80 hover:text-primary hover:bg-accent/50"
-                      >
-                        {item.label}
-                      </button>
-                    )
-                  )}
-                </>
-              )}
-
               {/* Быстрые ссылки справа */}
               <div className="ml-auto flex items-center gap-1">
-                <button onClick={() => navigate("ready-made")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
+                <button onClick={() => navigateToView("ready-made")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
                   <Zap className="h-3.5 w-3.5" />Готовые
                 </button>
-                <button onClick={() => navigate("gift-certificates")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
+                <button onClick={() => navigateToView("gift-certificates")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
                   <Gift className="h-3.5 w-3.5" />Сертификаты
                 </button>
-                <button onClick={() => navigate("contacts")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
+                <button onClick={() => navigateToView("contacts")} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 whitespace-nowrap">
                   <Phone className="h-3.5 w-3.5" />Контакты
                 </button>
               </div>
@@ -717,7 +714,7 @@ export function Header() {
             <div className="text-xs text-muted-foreground mb-2">Популярные запросы:</div>
             <div className="flex flex-wrap gap-2">
               {["Торт на день рождения", "Красный бархат", "Капкейки", "Чизкейк", "Макаронс", "Веганский торт"].map((q) => (
-                <button key={q} onClick={() => { navigate("catalog", { q }); setMobileSearchOpen(false); }} className="px-3 py-1.5 text-sm rounded-full border border-border bg-card hover:border-primary/40">{q}</button>
+                <button key={q} onClick={() => { navigateToView("catalog", { q }); setMobileSearchOpen(false); }} className="px-3 py-1.5 text-sm rounded-full border border-border bg-card hover:border-primary/40">{q}</button>
               ))}
             </div>
           </div>

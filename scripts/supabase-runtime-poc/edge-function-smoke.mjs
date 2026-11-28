@@ -15,6 +15,47 @@ if (!serviceRoleKey || serviceRoleKey.split(".").length !== 3) {
   throw new Error("Generated service-role JWT is malformed");
 }
 
+// The app migration changes legacy quoted CamelCase maintenance enums to
+// lowercase PostgreSQL identifiers. Exercise the actual PostgREST schema cache
+// and enum coercion, not only a direct SQL insert.
+const maintenanceId = `pg17-postgrest-enum-smoke-${crypto.randomUUID()}`;
+const maintenanceEndpoint = "http://127.0.0.1:18000/rest/v1/maintenance_logs";
+const maintenanceHeaders = {
+  apikey: serviceRoleKey,
+  Authorization: "Bearer " + serviceRoleKey,
+  "Content-Type": "application/json",
+};
+const maintenanceInsert = await fetch(`${maintenanceEndpoint}?select=id,type,status`, {
+  method: "POST",
+  headers: { ...maintenanceHeaders, Prefer: "return=representation" },
+  body: JSON.stringify({ id: maintenanceId, type: "BACKUP_FULL", status: "queued" }),
+  signal: AbortSignal.timeout(15_000),
+});
+const maintenanceBody = await maintenanceInsert.text();
+console.log("PostgREST maintenance enum insert HTTP " + maintenanceInsert.status + ": " + maintenanceBody.slice(0, 400));
+let maintenanceRows;
+try {
+  maintenanceRows = JSON.parse(maintenanceBody);
+} catch {
+  throw new Error("PostgREST maintenance enum response is not valid JSON");
+}
+if (!maintenanceInsert.ok ||
+    !Array.isArray(maintenanceRows) ||
+    maintenanceRows[0]?.id !== maintenanceId ||
+    maintenanceRows[0]?.type !== "BACKUP_FULL" ||
+    maintenanceRows[0]?.status !== "queued") {
+  throw new Error("PostgREST cannot insert/read maintenance enum values on PostgreSQL 17");
+}
+const maintenanceDelete = await fetch(`${maintenanceEndpoint}?id=eq.${encodeURIComponent(maintenanceId)}`, {
+  method: "DELETE",
+  headers: { ...maintenanceHeaders, Prefer: "return=minimal" },
+  signal: AbortSignal.timeout(15_000),
+});
+if (!maintenanceDelete.ok) {
+  throw new Error("PostgREST maintenance enum smoke row cleanup failed: HTTP " + maintenanceDelete.status);
+}
+console.log("PASS: PostgREST maintenance enum insert/select/delete roundtrip");
+
 const endpoint = "http://127.0.0.1:18000/functions/v1/auto-close-tenders";
 const anonKey = runtimeEnv.ANON_KEY;
 if (!anonKey || anonKey.split(".").length !== 3) {

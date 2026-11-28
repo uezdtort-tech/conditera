@@ -73,10 +73,8 @@ is_filled() {
   if [ -z "$val" ] || [ "$val" = "" ]; then
     return 1
   fi
-  if [[ "$val" == stub_* ]]; then
-    return 1
-  fi
-  if [[ "$val" == CHANGE_ME* ]]; then
+  local normalized="${val,,}"
+  if [[ "$normalized" =~ ^(change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_]) ]]; then
     return 1
   fi
   return 0
@@ -108,6 +106,41 @@ check_optional() {
   fi
 }
 
+check_secret_value() {
+  local name="$1"
+  local value="$2"
+  local minimum="${3:-32}"
+  local normalized="${value,,}"
+  if [ -z "$value" ] || [[ "$value" == *'${'* ]] || [[ "$normalized" =~ ^(change_me|stub[-_]|fallback-|dev[-_]|placeholder|example|dummy|test[-_]) ]]; then
+    err "$name отсутствует или содержит заглушку (значение скрыто)"
+  elif [ "${#value}" -lt "$minimum" ]; then
+    err "$name короче $minimum символов (значение скрыто)"
+  fi
+}
+
+validate_database_url() {
+  local name="$1"
+  local value="$2"
+  local expected_user="$3"
+  local expected_password_ref="$4"
+  if [[ ! "$value" =~ ^postgres(ql)?://([^:/@]+):([^@]+)@[^/]+/([^?]+)(\?.*)?$ ]]; then
+    err "$name должен иметь формат postgresql://user:password@host/conditera"
+    return
+  fi
+  local user="${BASH_REMATCH[2]}"
+  local password="${BASH_REMATCH[3]}"
+  local database="${BASH_REMATCH[4]}"
+  if [ "$user" != "$expected_user" ]; then
+    err "$name должен использовать роль $expected_user (фактически: $user)"
+  fi
+  if [ "$database" != "conditera" ]; then
+    err "$name должен подключаться к базе conditera"
+  fi
+  if [ "$password" != "$expected_password_ref" ]; then
+    check_secret_value "$name password" "$password" 32
+  fi
+}
+
 # ====== START ======
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
@@ -130,31 +163,62 @@ info "Файл $ENV_FILE содержит ${#ENV_VALUES[@]} переменных
 echo ""
 
 # ===== Database & Supabase =====
-echo -e "${BOLD}[DATABASE]${NC}"
-check_required "DATABASE_URL" "URL подключения к PostgreSQL"
+echo -e "${BOLD}[DATABASE] ${NC}"
+check_required "DATABASE_URL" "runtime connection URL (conditera_app)"
+check_required "DIRECT_DATABASE_URL" "direct PostgreSQL URL (conditera_app)"
+check_required "BACKUP_DATABASE_URL" "dedicated read-only backup role URL"
+check_required "APP_DATABASE_PASSWORD" "отдельный пароль роли conditera_app"
+check_required "BACKUP_DATABASE_PASSWORD" "отдельный пароль роли conditera_backup"
+check_required "POSTGRES_PASSWORD" "административный пароль PostgreSQL"
 check_required "NEXT_PUBLIC_SUPABASE_URL" "URL Kong/Supabase (клиент)"
 check_required "NEXT_PUBLIC_SUPABASE_ANON_KEY" "Anon key (клиент, RLS)"
 check_required "SUPABASE_SERVICE_ROLE_KEY" "Service role key (server-only, обход RLS)"
-if [ "$MODE_LABEL" = "production" ]; then
-  check_required "POSTGRES_PASSWORD" "пароль PostgreSQL для self-hosted"
-fi
-echo ""
 
-# Специфичная проверка: DATABASE_URL не должен быть file: (prisma.config.ts бросит)
 DB_URL=$(get_env "DATABASE_URL")
+DIRECT_DB_URL=$(get_env "DIRECT_DATABASE_URL")
+BACKUP_DB_URL=$(get_env "BACKUP_DATABASE_URL")
 if [[ "$DB_URL" == file:* ]]; then
-  err "DATABASE_URL начинается с 'file:' — prisma.config.ts отклонит. Замените на postgresql://"
+  err "DATABASE_URL начинается с 'file:' — требуется PostgreSQL URL"
+fi
+if [ "$MODE_LABEL" = "production" ]; then
+  check_secret_value "APP_DATABASE_PASSWORD" "$(get_env "APP_DATABASE_PASSWORD")" 32
+  check_secret_value "BACKUP_DATABASE_PASSWORD" "$(get_env "BACKUP_DATABASE_PASSWORD")" 32
+  check_secret_value "POSTGRES_PASSWORD" "$(get_env "POSTGRES_PASSWORD")" 32
+  check_secret_value "NEXT_PUBLIC_SUPABASE_ANON_KEY" "$(get_env "NEXT_PUBLIC_SUPABASE_ANON_KEY")" 32
+  check_secret_value "SUPABASE_SERVICE_ROLE_KEY" "$(get_env "SUPABASE_SERVICE_ROLE_KEY")" 32
+  validate_database_url "DATABASE_URL" "$DB_URL" "conditera_app" "${APP_DATABASE_PASSWORD}"
+  validate_database_url "DIRECT_DATABASE_URL" "$DIRECT_DB_URL" "conditera_app" "${APP_DATABASE_PASSWORD}"
+  validate_database_url "BACKUP_DATABASE_URL" "$BACKUP_DB_URL" "conditera_backup" "${BACKUP_DATABASE_PASSWORD}"
 fi
 echo ""
 
 # ===== Auth / Security =====
-echo -e "${BOLD}[AUTH / SECURITY]${NC}"
-check_required "JWT_SECRET" "секрет для подписи JWT (мин. 32 символа)"
-check_required "TFA_ENCRYPTION_KEY" "ключ шифрования 2FA backup codes"
+echo -e "${BOLD}[AUTH / SECURITY] ${NC}"
+check_required "JWT_SECRET" "секрет подписи access-токенов"
+check_required "JWT_REFRESH_SECRET" "отдельный секрет refresh-токенов"
+check_required "TFA_ENCRYPTION_KEY" "отдельный AES-256-GCM ключ TOTP"
 check_required "CRON_SECRET" "секрет для cron-задач"
-JWT=$(get_env "JWT_SECRET")
-if [ ${#JWT} -lt 32 ] && [ ${#JWT} -gt 0 ]; then
-  warn "JWT_SECRET короче 32 символов — рекомендуется openssl rand -hex 32"
+if [ "$MODE_LABEL" = "production" ]; then
+  check_secret_value "JWT_SECRET" "$(get_env "JWT_SECRET")" 32
+  check_secret_value "JWT_REFRESH_SECRET" "$(get_env "JWT_REFRESH_SECRET")" 32
+  check_secret_value "TFA_ENCRYPTION_KEY" "$(get_env "TFA_ENCRYPTION_KEY")" 64
+  check_secret_value "CRON_SECRET" "$(get_env "CRON_SECRET")" 32
+  TFA_VALUE=$(get_env "TFA_ENCRYPTION_KEY")
+  if [[ ! "$TFA_VALUE" =~ ^[a-fA-F0-9]{64}$ ]]; then
+    err "TFA_ENCRYPTION_KEY должен содержать ровно 64 hex-символа"
+  fi
+  JWT_VALUE=$(get_env "JWT_SECRET")
+  REFRESH_VALUE=$(get_env "JWT_REFRESH_SECRET")
+  CRON_VALUE=$(get_env "CRON_SECRET")
+  if [ "$JWT_VALUE" = "$REFRESH_VALUE" ]; then
+    err "JWT_SECRET и JWT_REFRESH_SECRET должны быть разными"
+  fi
+  if [ "$TFA_VALUE" = "$JWT_VALUE" ] || [ "$TFA_VALUE" = "$REFRESH_VALUE" ]; then
+    err "TFA_ENCRYPTION_KEY должен отличаться от JWT-секретов"
+  fi
+  if [ "$CRON_VALUE" = "$JWT_VALUE" ] || [ "$CRON_VALUE" = "$REFRESH_VALUE" ] || [ "$CRON_VALUE" = "$TFA_VALUE" ]; then
+    err "CRON_SECRET должен отличаться от JWT/TFA секретов"
+  fi
 fi
 echo ""
 
@@ -166,13 +230,32 @@ check_optional "YANDEX_GEOCODER_API_KEY" "API-ключ Геокодера (оп�
 echo ""
 
 # ===== OAuth =====
-echo -e "${BOLD}[OAUTH — вход через соцсети]${NC}"
-check_optional "YANDEX_CLIENT_ID" "Yandex OAuth — кнопка «Войти через Яндекс»"
-check_optional "YANDEX_OAUTH_REDIRECT" "Yandex OAuth — redirect URI"
-check_optional "GOOGLE_CLIENT_ID" "Google OAuth — кнопка «Войти через Google»"
-check_optional "GOOGLE_OAUTH_REDIRECT" "Google OAuth — redirect URI"
-check_optional "VK_CLIENT_ID" "VK OAuth — кнопка «Войти через VK»"
-check_optional "VK_OAUTH_REDIRECT" "VK OAuth — redirect URI"
+echo -e "${BOLD}[OAUTH — вход через соцсети] ${NC}"
+if [ "$MODE_LABEL" = "production" ]; then
+  check_required "YANDEX_CLIENT_ID" "Yandex OAuth client ID"
+  check_required "YANDEX_CLIENT_SECRET" "Yandex OAuth client secret"
+  check_required "YANDEX_OAUTH_REDIRECT" "Yandex OAuth callback URL"
+  check_required "GOOGLE_CLIENT_ID" "Google OAuth client ID"
+  check_required "GOOGLE_CLIENT_SECRET" "Google OAuth client secret"
+  check_required "GOOGLE_OAUTH_REDIRECT" "Google OAuth callback URL"
+  check_required "VK_CLIENT_ID" "VK ID client ID"
+  check_required "VK_OAUTH_REDIRECT" "VK ID callback URL"
+  check_secret_value "YANDEX_CLIENT_SECRET" "$(get_env "YANDEX_CLIENT_SECRET")" 16
+  check_secret_value "GOOGLE_CLIENT_SECRET" "$(get_env "GOOGLE_CLIENT_SECRET")" 16
+  if [ "$(get_env "YANDEX_OAUTH_REDIRECT")" != "https://conditera.ru/api/auth/oauth/yandex/callback" ]; then
+    err "YANDEX_OAUTH_REDIRECT должен указывать на production callback Conditera"
+  fi
+  if [ "$(get_env "GOOGLE_OAUTH_REDIRECT")" != "https://conditera.ru/api/auth/oauth/google/callback" ]; then
+    err "GOOGLE_OAUTH_REDIRECT должен указывать на production callback Conditera"
+  fi
+  if [ "$(get_env "VK_OAUTH_REDIRECT")" != "https://conditera.ru/api/auth/oauth/vk/callback" ]; then
+    err "VK_OAUTH_REDIRECT должен указывать на production callback Conditera"
+  fi
+else
+  check_optional "YANDEX_CLIENT_ID" "Yandex OAuth client ID"
+  check_optional "GOOGLE_CLIENT_ID" "Google OAuth client ID"
+  check_optional "VK_CLIENT_ID" "VK ID client ID"
+fi
 echo ""
 
 # ===== Telegram =====
@@ -184,8 +267,14 @@ echo ""
 
 # ===== YooKassa =====
 echo -e "${BOLD}[YOOKASSA — платежи]${NC}"
-check_optional "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
-check_optional "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
+check_required "YOOKASSA_SHOP_ID" "Shop ID от YooKassa"
+check_required "YOOKASSA_SECRET_KEY" "Secret Key от YooKassa"
+if [ "$MODE_LABEL" = "production" ]; then
+  YOOKASSA_KEY=$(get_env "YOOKASSA_SECRET_KEY")
+  if [[ ! "$YOOKASSA_KEY" =~ ^live_ ]]; then
+    err "YOOKASSA_SECRET_KEY должен быть production-ключом с префиксом live_"
+  fi
+fi
 echo ""
 
 # ===== SMTP =====

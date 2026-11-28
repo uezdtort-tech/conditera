@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { computeOrderRisk, type RiskInput } from "./risk";
 import { deriveLifecycle, deriveNextAction, isTransitionAllowed } from "./lifecycle";
-import { estimateItemProductionMinutes, estimateOrderProductionMinutes, isProductTimeMissing } from "./production-duration";
+import { estimateItemProductionMinutes, estimateOrderProductionMinutes, isDeliveryLeadTimeSatisfied, isProductTimeMissing } from "./production-duration";
 import { DEFAULT_MATCHING_WEIGHTS } from "./lifecycle-config";
 
 function baseRisk(overrides: Partial<RiskInput> = {}): RiskInput {
@@ -282,15 +282,15 @@ describe("deriveNextAction", () => {
 // ---------------------------------------------------------------------------
 
 describe("production duration estimate", () => {
-  it("product.production_time_hours приоритетен (configured)", () => {
+  it("product.production_time_hours — lead time, а capacity берётся из prep+cook рецепта", () => {
     const e = estimateItemProductionMinutes({
-      productProductionTimeHours: 4,
+      productProductionTimeHours: 24,
       recipePrepMinutes: 30,
       recipeCookMinutes: 60,
       categorySlug: "cakes",
     });
-    expect(e.minutes).toBe(240);
-    expect(e.source).toBe("product");
+    expect(e.minutes).toBe(90);
+    expect(e.source).toBe("recipe");
     expect(e.approximate).toBe(false);
   });
 
@@ -329,19 +329,26 @@ describe("production duration estimate", () => {
     expect(e.approximate).toBe(true);
   });
 
-  it("партия: quantity 11 → коэффициент 1.4 (×2 полных пятерки сверх первой)", () => {
+  it("партия: quantity 11 → коэффициент 1.4 применяется к труду рецепта, не к lead time", () => {
     const e = estimateOrderProductionMinutes([
-      { quantity: 11, time: { productProductionTimeHours: 2, recipePrepMinutes: null, recipeCookMinutes: null, categorySlug: null } },
+      { quantity: 11, time: { productProductionTimeHours: 48, recipePrepMinutes: 60, recipeCookMinutes: 60, categorySlug: null } },
     ]);
     expect(e.minutes).toBe(Math.round(120 * 1.4));
   });
 
-  it("max по позициям", () => {
+  it("max по позициям считает трудоёмкость, а не срок изготовления", () => {
     const e = estimateOrderProductionMinutes([
-      { quantity: 1, time: { productProductionTimeHours: 1, recipePrepMinutes: null, recipeCookMinutes: null, categorySlug: null } },
-      { quantity: 1, time: { productProductionTimeHours: 3, recipePrepMinutes: null, recipeCookMinutes: null, categorySlug: null } },
+      { quantity: 1, time: { productProductionTimeHours: 48, recipePrepMinutes: 30, recipeCookMinutes: 0, categorySlug: null } },
+      { quantity: 1, time: { productProductionTimeHours: 12, recipePrepMinutes: 60, recipeCookMinutes: 30, categorySlug: null } },
     ]);
-    expect(e.minutes).toBe(180);
+    expect(e.minutes).toBe(90);
+  });
+
+  it("lead time отдельно проверяется относительно дедлайна выдачи", () => {
+    const now = new Date("2026-11-21T10:00:00.000Z");
+    expect(isDeliveryLeadTimeSatisfied(24, new Date("2026-11-22T10:00:00.000Z"), now)).toBe(true);
+    expect(isDeliveryLeadTimeSatisfied(24, new Date("2026-11-22T09:59:00.000Z"), now)).toBe(false);
+    expect(isDeliveryLeadTimeSatisfied(null, new Date("2026-11-21T10:00:00.000Z"), now)).toBe(true);
   });
 
   it("isProductTimeMissing — флаг админ-проблемы (ТЗ §30)", () => {

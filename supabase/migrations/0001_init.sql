@@ -16,7 +16,17 @@
 -- ===== 1. Расширения =====
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+-- Supabase manages pg_cron in the postgres maintenance database only.
+-- The application database (conditera) must not try to install a second copy.
+DO $pg_cron$
+BEGIN
+  IF current_database() = 'postgres' THEN
+    CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+  ELSE
+    RAISE NOTICE 'pg_cron is managed in postgres maintenance database; skipping in %', current_database();
+  END IF;
+END
+$pg_cron$;
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
 -- Supabase PG17 image preinstalls pgsodium in its required dedicated schema.
 -- Do not request a conflicting schema when the extension is already present.

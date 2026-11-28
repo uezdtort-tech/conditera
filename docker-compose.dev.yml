@@ -1,7 +1,7 @@
 # ===== Docker Compose для dev-режима =====
 # Запуск: docker-compose -f docker-compose.dev.yml up -d
 #
-# Включает: PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n
+# Включает: PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n
 # Next.js запускается отдельно через `npm run dev:local`
 
 version: "3.8"

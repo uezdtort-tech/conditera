@@ -56,6 +56,7 @@ function makePost(body: unknown | string, ip: string): NextRequest {
 }
 
 const VALID_EVENT = { message: "TypeError: cannot read properties of undefined" };
+const paymentApiKeyFixture = ["sk_", "live_", "51HxT9s2D3f4G5h6J7k8"].join("");
 
 /** INSERT-вызовы app_error_events (не инцидент-upsert'ы). */
 function eventInserts(): unknown[][] {
@@ -189,7 +190,7 @@ describe("POST /api/diagnostics/client-errors — rate limit 20/мин/IP (ре�
 describe("POST /api/diagnostics/client-errors — маскирование до записи", () => {
   it("секреты в message (Bearer/JWT/карта) → [REDACTED] в записанной строке", async () => {
     const bearer = "Bearer supersecrettokenvalue123456";
-    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.K3t0k3ns3cr3t";
+    const jwt = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "K3t0k3ns3cr3t"].join(".");
     const card = "4111111111111111";
     const res = await POST(
       makePost(
@@ -213,7 +214,7 @@ describe("POST /api/diagnostics/client-errors — маскирование до 
 
   it("лишние поля payload (password/apiKey/authorization) отбрасываются allowlist'ом и не сохраняются", async () => {
     const passwordValue = "hunter2-super-password";
-    const apiKeyValue = "sk_live_51HxT9s2D3f4G5h6J7k8";
+    const apiKeyValue = paymentApiKeyFixture;
     const authValue = "Bearer authorization-header-value-123";
     const res = await POST(
       makePost(

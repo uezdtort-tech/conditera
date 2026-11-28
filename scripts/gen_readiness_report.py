@@ -6,7 +6,7 @@ Production Readiness Report — Уездный кондитер.
 Sections:
   1. Executive Summary
   2. Что сделано в этом раунде (Supabase cutover + profile editing + photo storage)
-  3. Дизайн хранилища фотографий (6 buckets + RLS + ограничения)
+  3. Дизайн хранилища фотографий (7 buckets + RLS + ограничения)
   4. Матрица возможностей редактирования профиля по ролям
   5. Что ещё нужно сделать (priority 1-7)
   6. Pre-deploy checklist
@@ -250,7 +250,7 @@ def build_pdf(output_path):
         "DELETE /api/profile/delete.",
         style_body))
     story.append(Paragraph(
-        "Спроектировано и задокументировано хранилище фотографий: 6 storage-бакетов с разными "
+        "Спроектировано и задокументировано хранилище фотографий: 7 storage-бакетов с разными "
         "правами доступа и лимитами (avatars, covers, portfolio, product_images — public read + "
         "owner-write; documents, messages — private). Миграция 0026 также включает RLS-политики "
         "на таблицу public.confectioners (которая в migration 0017 была создана без RLS, что "
@@ -585,7 +585,7 @@ def build_pdf(output_path):
         "<b>docker-compose -f docker-compose.supabase.yml up -d</b> запускается чисто (все 10 сервисов healthy)",
         "Все 26 миграций (0001–0026) применены к БД",
         "RLS включена на storage.objects, public.confectioners (миграция 0026)",
-        "6 storage-бакетов созданы (avatars, covers, portfolio, product_images, documents, messages)",
+        "7 storage-бакетов созданы (avatars, covers, portfolio, product_images, documents, messages, order_media — private)",
         "<b>next.config.ts</b> whitelisted Supabase Storage домен (или **.supabase.co для cloud)",
         "<b>/api/health</b> возвращает status: ok с supabase: configured: true",
         "Register CONFECTIONER → onboarding flow создаёт public.confectioners строку (verified=false)",

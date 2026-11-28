@@ -26,9 +26,10 @@ export default defineConfig({
   // Timeout для expect() (5 сек)
   expect: { timeout: 5_000 },
 
-  // Параллелизм — 4 воркера на CI, 1 локально (для дебага)
-  fullyParallel: process.env.CI ? true : false,
-  workers: process.env.CI ? 4 : 1,
+  // Demo accounts are single-device accounts. Run E2E serially so parallel
+  // workers cannot race each other into the account-sharing protection gate.
+  fullyParallel: false,
+  workers: 1,
 
   // Fail fast — останавливаем после 5 ошибок
   retries: process.env.CI ? 2 : 0,

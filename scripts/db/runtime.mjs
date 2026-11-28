@@ -39,7 +39,7 @@ const require = createRequire(import.meta.url);
 // <project>/scripts/db/runtime.mjs → <project> (require.resolve — работает
 // и на Windows с буквами дисков, в отличие от fileURLToPath(import.meta.url))
 const ROOT = path.resolve(path.dirname(require.resolve("./runtime.mjs")), "..", "..");
-export const PGDATA = path.join(ROOT, ".pgdata");
+export const PGDATA = path.resolve(process.env.CONDITERA_PGDATA || path.join(ROOT, ".pgdata"));
 export const PG_PORT = Number(process.env.CONDITERA_PG_PORT || 54329);
 export const PG_USER = "postgres";
 export const PG_DB = "conditera";
@@ -52,7 +52,7 @@ const CONF_MARKER = "# conditera-local";
 // ============================================================================
 function platformPackageShort() {
   const { platform, arch } = process;
-  if (platform === "win32") return "win-x64";
+  if (platform === "win32") return "windows-x64";
   if (platform === "darwin") {
     if (arch === "arm64") return "darwin-arm64";
     if (arch === "x64") return "darwin-x64";

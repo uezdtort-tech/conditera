@@ -47,6 +47,14 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/supabase/auth", () => ({
   unauthorizedResponse: () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
 }));
+vi.mock("@/lib/ops/order-access", () => ({
+  loadOrderLite: vi.fn(async () => ({
+    id: ORDER_ID,
+    status: "PREPARING",
+    confectioner_id: OWNER,
+  })),
+  canOperateOrder: vi.fn(async () => true),
+}));
 
 // Без order_id route идёт прежним per-item путём (0048) — движок мокаем очередью.
 type MovementResult =
@@ -123,7 +131,7 @@ describe("POST /api/inventory/write-off — идемпотентность че�
     expect(body.applied).toHaveLength(2);
     expect(body.failed).toHaveLength(0);
     expect(rpcState.calls).toHaveLength(1);
-    expect(rpcState.calls[0].args.p_owner_id).toBe(OWNER);
+    expect(rpcState.calls[0].args.p_inventory_owner_id).toBe(OWNER);
     expect(rpcState.calls[0].args.p_order_id).toBe(ORDER_ID);
     expect(rpcState.calls[0].args.p_items).toEqual([
       { item_id: ITEM_A, quantity: 2 },

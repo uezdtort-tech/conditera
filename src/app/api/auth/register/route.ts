@@ -39,6 +39,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { hashPassword, createAccessToken, createRefreshToken } from "@/lib/auth";
 import { safeJsonBody } from "@/lib/http-helpers";
+import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
 
 export const runtime = "nodejs";
 
@@ -485,13 +487,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 10. Создание referral записи
     const referralCode = `${name.toUpperCase().slice(0, 4)}-${userId.slice(-6).toUpperCase()}`;
-    try {
-      await supabaseAdmin.from("referrals").insert({
-        user_id: userId,
-        referral_code: referralCode,
-      });
-    } catch (refErr: any) {
-      console.warn("[register] referral create failed (non-blocking):", refErr?.message);
+    const { error: referralErr } = await supabaseAdmin.from("referrals").insert({
+      id: crypto.randomUUID(),
+      userId,
+      referralCode,
+    });
+    if (referralErr) {
+      // Referral attribution is non-blocking for account creation, but the
+      // schema error must remain visible instead of silently losing the code.
+      console.warn("[register] referral create failed (non-blocking):", referralErr.message);
     }
 
     // 11. Записать успешную верификацию (если legal)
@@ -517,8 +521,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       accountType,
     };
 
-    const accessToken = await createAccessToken(tokenPayload);
-    const refreshToken = await createRefreshToken({ userId });
+    const sessionId = await createUserSession(userId, request, "registration");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
+    const accessToken = await createAccessToken({ ...tokenPayload, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, sid: sessionId, jti: refreshJti });
 
     // 13. Sanitize response (без passwordHash и других sensitive полей)
     const safeUser: SanitizedUser = {
@@ -567,15 +574,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // 201 Created — REST-контракт создания ресурса (E2E integration-auth-flow
     // ожидает именно 201; 200 ошибочно сигнализировал «обычный ответ»).
-    return NextResponse.json(
-      {
-        user: safeUser,
-        accessToken,
-        refreshToken,
-      },
+    const response = NextResponse.json(
+      { user: safeUser, accessToken, refreshToken },
       { status: 201 }
     );
+    return setSessionCookies(response, { accessToken, refreshToken });
   } catch (error: any) {
+    if (error?.message === NEW_DEVICE_LOGIN_BLOCKED) {
+      return NextResponse.json({ error: "Регистрация требует завершения прежней сессии на этом устройстве." }, { status: 403 });
+    }
+    if (error?.message === SESSION_POLICY_UNAVAILABLE) {
+      return NextResponse.json({ error: "Не удалось безопасно создать сессию. Повторите попытку позже." }, { status: 503 });
+    }
     console.error("Register error:", error?.message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера", detail: error?.message },

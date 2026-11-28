@@ -96,6 +96,7 @@ export const PLACEHOLDER_TOKENS: readonly string[] = [
   "test",
   "demo",
   "sample",
+  "ci-only",
   "xxx",
   "dummy",
   "local",

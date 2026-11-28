@@ -42,6 +42,8 @@ vi.mock("@/lib/supabase/admin", () => ({
       }),
     }),
     storage: {
+      getBucket: vi.fn(async () => ({ data: { id: "media" }, error: null })),
+      createBucket: vi.fn(async () => ({ data: { id: "media" }, error: null })),
       from: (_bucket: string) => ({
         upload: async (path: string, body: ArrayBuffer | Buffer, opts: { contentType: string }) => {
           state.uploads.push({

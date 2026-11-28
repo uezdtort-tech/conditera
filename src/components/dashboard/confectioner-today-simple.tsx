@@ -64,25 +64,13 @@ export class ReadyPhotoNeededError extends Error {
 async function runOrderAction(orderId: string, code: string): Promise<void> {
   const call = () => csrfFetch(TODO_ENDPOINTS[code](orderId), { method: "POST" });
   let res = await call();
-  let body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
+  const body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
 
-  // Сложность внутри системы (ТЗ-корректировка): чеклист производства —
-  // внутренняя механика. Если движок требует завершённых этапов (QC-гейт),
-  // отмечаем их автоматически и повторяем попытку.
-  if (!res.ok && body?.error === "QC_GATE_FAILED") {
-    const done = await csrfFetch(`/api/orders/${orderId}/production/complete`, { method: "POST" });
-    if (done.ok) {
-      res = await call();
-      body = (await res.json().catch(() => null)) as { message?: string; error?: string } | null;
-    }
-  }
-
-  // 409 больше НЕ проглатывается: сервер возвращает конкретную причину отказа
-  // (ORDER_NOT_FEASIBLE с дефицитами/RECIPE_MISSING, «уже обработан другим
-  // запросом» при гонке) — пользователь обязан видеть отказ, а не ложный «✓»
-  // (дефект приёмки Z-v12, Этап 7).
-  if (!res.ok) {
+  if (!res.ok && res.status !== 409) {
     if (body?.error === "READY_PHOTO_REQUIRED") throw new ReadyPhotoNeededError();
+    if (body?.error === "QC_GATE_FAILED") {
+      throw new Error("Отметьте каждый фактически выполненный этап в рабочей области заказа перед подтверждением готовности.");
+    }
     throw new Error(body?.message || `Не получилось (HTTP ${res.status})`);
   }
 }
@@ -131,9 +119,11 @@ function buyByLabel(latestSafeStartAt: string | null): string | null {
 function SimpleOrderCardView({
   order,
   onOpenBreakdown,
+  onOpenWorkspace,
 }: {
   order: SimpleOrderCard;
   onOpenBreakdown: (orderId: string) => void;
+  onOpenWorkspace?: (orderId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [needsPhoto, setNeedsPhoto] = React.useState(false);
@@ -153,8 +143,6 @@ function SimpleOrderCardView({
         return;
       }
       toast.error(err.message || "Что-то пошло не так");
-      // Обновляем ленту и при отказе: сервер мог частично применить действие
-      void queryClient.invalidateQueries({ queryKey: ["ops-today"] });
     },
   });
 
@@ -187,7 +175,11 @@ function SimpleOrderCardView({
   const isDone = !order.todo && order.status !== "PENDING";
 
   return (
-    <Card className={`p-4 sm:p-5 ${order.availability === "missing_ingredients" ? "border-amber-300 bg-amber-50/50" : ""}`}>
+    <Card
+      data-testid="confectioner-order-card"
+      data-order-id={order.orderId}
+      className={`p-4 sm:p-5 ${order.availability === "missing_ingredients" ? "border-amber-300 bg-amber-50/50" : ""}`}
+    >
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h3 className="font-semibold text-base min-w-0 truncate">
           Заказ №{order.number}
@@ -286,9 +278,17 @@ function SimpleOrderCardView({
       {/* Одна понятная кнопка на текущем этапе */}
       {order.todo && (
         <Button
+          data-testid={`simple-order-action-${order.todo.code}`}
           className="mt-4 w-full sm:w-auto min-h-[44px]"
           disabled={mutation.isPending || photoMutation.isPending}
-          onClick={() => (needsPhoto ? fileRef.current?.click() : mutation.mutate())}
+          onClick={() => {
+            if ((order.todo?.code === "start" || order.todo?.code === "ready") && onOpenWorkspace) {
+              onOpenWorkspace(order.orderId);
+              return;
+            }
+            if (needsPhoto) fileRef.current?.click();
+            else mutation.mutate();
+          }}
         >
           {mutation.isPending ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden />
@@ -297,7 +297,25 @@ function SimpleOrderCardView({
           ) : (
             <ArrowRight className="h-4 w-4 mr-2" aria-hidden />
           )}
-          {needsPhoto && order.todo.code === "ready" ? "Прикрепить фото" : order.todo.label}
+          {order.todo.code === "start" && onOpenWorkspace
+            ? "Открыть производство"
+            : order.todo.code === "ready" && onOpenWorkspace
+              ? "Открыть чек-лист готовности"
+              : needsPhoto && order.todo.code === "ready"
+                ? "Прикрепить фото"
+                : order.todo.label}
+        </Button>
+      )}
+      {onOpenWorkspace && order.todo && order.todo.code !== "ready" && order.todo.code !== "start" && (
+        <Button
+          type="button"
+          data-testid="open-order-workspace"
+          variant="outline"
+          size="sm"
+          className="mt-2 min-h-[44px] w-full sm:w-auto"
+          onClick={() => onOpenWorkspace(order.orderId)}
+        >
+          Рабочая область заказа
         </Button>
       )}
       {isDone && (
@@ -319,12 +337,15 @@ export function ConfectionerTodaySimple({
   capacityAlert,
   isLoading,
   onOpenBreakdown,
+  onOpenWorkspace,
 }: {
   orders: SimpleOrderCard[];
   capacityAlert: CapacityAlert | null;
   isLoading: boolean;
-  /** Открывает диалог разбора заказа (создание закупки из дефицита). */
+  /** Открывает разбор ингредиентов и создание закупки. */
   onOpenBreakdown: (orderId: string) => void;
+  /** Открывает производственный чек-лист, фото готовности и передачу заказа. */
+  onOpenWorkspace?: (orderId: string) => void;
 }) {
   const todayLabel = new Date().toLocaleDateString("ru-RU", {
     weekday: "long",
@@ -404,7 +425,12 @@ export function ConfectionerTodaySimple({
       ) : (
         <div className="space-y-3">
           {sorted.map((o) => (
-            <SimpleOrderCardView key={o.orderId} order={o} onOpenBreakdown={onOpenBreakdown} />
+            <SimpleOrderCardView
+              key={o.orderId}
+              order={o}
+              onOpenBreakdown={onOpenBreakdown}
+              onOpenWorkspace={onOpenWorkspace}
+            />
           ))}
         </div>
       )}

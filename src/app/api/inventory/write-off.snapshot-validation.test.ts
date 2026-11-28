@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 
 const OWNER = "11111111-1111-4111-8111-111111111101";
+let actorRoles: string[] = ["CONFECTIONER"];
 const ORDER_ID = "5828a175-c3b0-43e3-a6c2-303881948a38";
 const BERRY = "609a0d84-5ad4-4c0d-8eff-06ed6d51c616";
 
@@ -43,10 +44,18 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-  getUserFromRequest: vi.fn(async () => ({ id: OWNER, roles: ["CONFECTIONER"] })),
+  getUserFromRequest: vi.fn(async () => ({ id: OWNER, roles: actorRoles })),
 }));
 vi.mock("@/lib/supabase/auth", () => ({
   unauthorizedResponse: () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
+}));
+vi.mock("@/lib/ops/order-access", () => ({
+  loadOrderLite: vi.fn(async () => ({
+    id: ORDER_ID,
+    status: "PREPARING",
+    confectioner_id: OWNER,
+  })),
+  canOperateOrder: vi.fn(async () => true),
 }));
 
 import { POST as postWriteOff } from "./write-off/route";
@@ -74,6 +83,7 @@ const appliedRow = {
 };
 
 beforeEach(() => {
+  actorRoles = ["CONFECTIONER"];
   rpcState.calls = [];
   rpcState.data = null;
   rpcState.error = null;
@@ -94,7 +104,7 @@ describe("POST /api/inventory/write-off (order-путь) — контракт RP
     expect(rpcState.calls).toHaveLength(1);
     const call = rpcState.calls[0];
     expect(call.name).toBe("apply_order_write_off_atomic");
-    expect(call.args.p_owner_id).toBe(OWNER);
+    expect(call.args.p_inventory_owner_id).toBe(OWNER);
     expect(call.args.p_order_id).toBe(ORDER_ID);
     expect(call.args.p_items).toEqual([{ item_id: BERRY, quantity: 0.5 }]);
     expect(call.args.p_signature).toBe(expectedSignature([{ item_id: BERRY, quantity: 0.5 }]));
@@ -127,6 +137,7 @@ describe("POST /api/inventory/write-off (order-путь) — контракт RP
   });
 
   it("allow_overage: true → p_allow_overage=true в RPC, причина передаётся как есть (маркер ставит RPC)", async () => {
+    actorRoles = ["ADMIN"];
     rpcState.data = { applied: [appliedRow], failed: [], order_id: ORDER_ID, idempotent: false };
     const res = await postWriteOff(
       req({
@@ -251,9 +262,9 @@ describe("POST /api/inventory/write-off (order-путь) — контракт RP
     const res = await postWriteOff(
       req({ order_id: ORDER_ID, items: [{ item_id: BERRY, quantity: 0.5 }] })
     );
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const json = (await res.json()) as { error: string };
-    expect(json.error).toContain("0081");
+    expect(json.error).toContain("0119");
   });
 
   it("некорректная позиция от клиента → 400 до RPC", async () => {

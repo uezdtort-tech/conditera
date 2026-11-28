@@ -109,14 +109,13 @@ test.describe.serial('Payment webhook idempotency', () => {
     }
   });
 
-  test('3. Невалидный payload (нет orderId) → 400 Bad Request', async ({ request }: { request: APIRequestContext }) => {
-    // Отправляем payload без metadata.orderId
+  test('3. Неизвестный provider payment без metadata.orderId отклоняется fail-closed', async ({ request }: { request: APIRequestContext }) => {
     const badBody = {
       event: 'payment.succeeded',
       object: {
         id: TEST_PAYMENT_ID,
         status: 'succeeded',
-        metadata: {}, // нет orderId
+        metadata: {},
       },
     };
 
@@ -125,6 +124,8 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
+    // Отсутствующий orderId — некорректный payload; отклоняем до сетевого
+    // запроса к провайдеру и до обращения к локальному платёжному ledger.
     expect(response.status()).toBe(400);
   });
 
@@ -160,7 +161,7 @@ test.describe.serial('Payment webhook idempotency', () => {
     expect([400, 500]).toContain(response.status());
   });
 
-  test('7. Webhook payment.canceled → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
+  test('7. payment.canceled без конфигурации YooKassa отклоняется fail-closed', async ({ request }: { request: APIRequestContext }) => {
     const orderId = randomUUID();
     const paymentId = `e2e-cancel-p-${Date.now()}`;
 
@@ -171,8 +172,10 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    // 200 (OK) или 404 (если order не существует) — оба валидны.
-    expect([200, 404]).toContain(response.status());
+    // В CI нет реальных credentials YooKassa: production runtime обязан вернуть 500,
+    // не применяя неподтверждённое событие. При настроенном шлюзе допустимы 200/404.
+    const providerConfigured = Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
+    expect(providerConfigured ? [200, 401, 404] : [404, 500]).toContain(response.status());
   });
 
   test('8. Webhook refund.succeeded → 200 (обработан)', async ({ request }: { request: APIRequestContext }) => {
@@ -186,13 +189,15 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    expect([200, 404]).toContain(response.status());
+    // Идентификатор возврата синтетический: реальный YooKassa не подтвердит
+    // его даже при настроенных credentials. Ошибка проверки провайдера обязана
+    // завершаться fail-closed, без обращения к локальному финансовому журналу.
+    expect(response.status()).toBe(500);
   });
 
-  test('9. Unknown event → 200 OK (логируется, не падает)', async ({ request }: { request: APIRequestContext }) => {
+  test('9. Unknown event without a local order is not acknowledged as success', async ({ request }: { request: APIRequestContext }) => {
     const orderId = randomUUID();
     const paymentId = `e2e-unknown-p-${Date.now()}`;
-
     const body = makeWebhook('payment.unknown_event', orderId, paymentId, 'unknown');
 
     const response = await request.post('/api/payment/webhook', {
@@ -200,8 +205,9 @@ test.describe.serial('Payment webhook idempotency', () => {
       headers: { 'content-type': 'application/json', 'x-real-ip': '185.71.76.13' },
     });
 
-    // Unknown event должен просто логироваться — возвращаем 200 success.
-    expect([200, 404]).toContain(response.status());
+    // Unsupported events are not applied or acknowledged as successful:
+    // with no local payment/order ledger the route returns 404.
+    expect(response.status()).toBe(404);
   });
 
   test('10. Повторные webhook для отсутствующего заказа отклоняются одинаково', async ({ request }: { request: APIRequestContext }) => {
@@ -218,8 +224,15 @@ test.describe.serial('Payment webhook idempotency', () => {
       statuses.push(response.status());
     }
 
-    // Для несуществующего заказа корректный результат — 404, а не фиктивная обработка.
-    expect(statuses).toEqual([404, 404, 404]);
+    // Без credentials провайдера сервер не раскрывает существование заказа
+    // и отклоняет все попытки до чтения ledger; с credentials возможен 404.
+    const providerConfigured = Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
+    if (providerConfigured) {
+      expect(statuses.every((status) => [200, 401, 404].includes(status))).toBe(true);
+      expect(new Set(statuses).size).toBe(1);
+    } else {
+      expect(statuses).toEqual([500, 500, 500]);
+    }
   });
 
   test('11. GET /api/payment/webhook → 200 status ok', async ({ request }: { request: APIRequestContext }) => {
@@ -258,7 +271,8 @@ test.describe('Payment webhook — edge cases', () => {
 
     // Все запросы должны завершиться успешно (или с 404 если order не существует).
     // 401 — production-деплой: IP не из YooKassa-allowlist (см. verifyWebhook).
-    const webhookOk = [200, 401, 404];
+    const providerConfigured = Boolean(process.env.YOOKASSA_SHOP_ID && process.env.YOOKASSA_SECRET_KEY);
+    const webhookOk = providerConfigured ? [200, 401, 404] : [404, 500];
     expect(webhookOk).toContain(r1.status());
     expect(webhookOk).toContain(r2.status());
     expect(webhookOk).toContain(r3.status());

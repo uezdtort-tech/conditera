@@ -2,10 +2,7 @@
  * POST /api/profile/addresses  — добавить адрес доставки
  * DELETE /api/profile/addresses?id={uuid} — удалить адрес
  *
- * Schema: public.addresses (0001_init.sql) — RLS: владелец видит/создаёт/удаляет только свои.
- *
- * POST тело: { label?: string, text: string, lat?: number, lng?: number, is_default?: boolean }
- * Если is_default=true — все остальные адреса пользователя сбрасываются в is_default=false.
+ * Все операции адресов ограничены user.id из проверенной сессии.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/auth";
@@ -13,66 +10,139 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
+type AddressPayload = {
+  label?: unknown;
+  text?: unknown;
+  lat?: unknown;
+  lng?: unknown;
+  is_default?: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validCoordinate(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // Auth: единый контракт (Bearer + cookie cd_session)
   const user = await getUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
+  let body: AddressPayload;
   try {
-    const body = await request.json();
-    const { label, text, lat, lng, is_default } = body as {
-      label?: string;
-      text?: string;
-      lat?: number;
-      lng?: number;
-      is_default?: boolean;
-    };
+    const parsed: unknown = await request.json();
+    if (!isRecord(parsed)) {
+      return NextResponse.json({ error: "Ожидается объект адреса" }, { status: 400 });
+    }
+    body = parsed as AddressPayload;
+  } catch {
+    return NextResponse.json({ error: "Некорректный JSON" }, { status: 400 });
+  }
 
-    if (!text || typeof text !== "string" || text.trim().length === 0) {
-      return NextResponse.json({ error: "Текст адреса обязателен" }, { status: 400 });
-    }
-    if (text.length > 300) {
-      return NextResponse.json({ error: "Адрес слишком длинный (макс. 300 символов)" }, { status: 400 });
-    }
-    if (label && label.length > 50) {
-      return NextResponse.json({ error: "Метка слишком длинная (макс. 50 символов)" }, { status: 400 });
-    }
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!text) {
+    return NextResponse.json({ error: "Текст адреса обязателен" }, { status: 400 });
+  }
+  if (text.length > 300) {
+    return NextResponse.json({ error: "Адрес слишком длинный (макс. 300 символов)" }, { status: 400 });
+  }
 
-    // Если is_default=true — снимаем флаг с остальных адресов.
-    if (is_default) {
-      const { error: resetError } = await supabaseAdmin
-        .from("addresses")
-        .update({ is_default: false })
-        .eq("user_id", user.id)
-        .eq("is_default", true);
-      if (resetError) {
-        console.warn("[profile/addresses] reset is_default error:", resetError.message);
-      }
-    }
+  if (body.label !== undefined && body.label !== null && typeof body.label !== "string") {
+    return NextResponse.json({ error: "Метка адреса должна быть строкой" }, { status: 400 });
+  }
+  const label = typeof body.label === "string" ? body.label.trim() : null;
+  if (label && label.length > 50) {
+    return NextResponse.json({ error: "Метка слишком длинная (макс. 50 символов)" }, { status: 400 });
+  }
 
+  const hasLat = body.lat !== undefined && body.lat !== null;
+  const hasLng = body.lng !== undefined && body.lng !== null;
+  if (hasLat !== hasLng) {
+    return NextResponse.json({ error: "Широта и долгота должны быть указаны вместе" }, { status: 400 });
+  }
+  if (hasLat && (!validCoordinate(body.lat, -90, 90) || !validCoordinate(body.lng, -180, 180))) {
+    return NextResponse.json({ error: "Некорректные координаты адреса" }, { status: 400 });
+  }
+  if (body.is_default !== undefined && typeof body.is_default !== "boolean") {
+    return NextResponse.json({ error: "Признак основного адреса должен быть логическим" }, { status: 400 });
+  }
+  const isDefault = body.is_default === true;
+
+  try {
+    // Сначала создаём адрес. Не снимаем признак с текущего основного адреса,
+    // пока новая запись не сохранена: ошибка INSERT не должна портить профиль.
     const { data, error } = await supabaseAdmin
       .from("addresses")
       .insert({
         user_id: user.id,
-        label: label || null,
-        text: text.trim(),
-        lat: lat ?? null,
-        lng: lng ?? null,
-        is_default: !!is_default,
+        label,
+        text,
+        lat: hasLat ? body.lat : null,
+        lng: hasLng ? body.lng : null,
+        is_default: false,
       })
       .select("id, label, text, lat, lng, is_default, created_at")
       .single();
 
-    if (error) {
-      console.error("[profile/addresses] insert error:", error.message);
-      return NextResponse.json({ error: "Не удалось создать адрес", detail: error.message }, { status: 500 });
+    if (error || !data) {
+      console.error("[profile/addresses] insert error:", error?.message);
+      return NextResponse.json({ error: "Не удалось создать адрес" }, { status: 500 });
     }
 
-    return NextResponse.json({ id: data.id, address: data });
-  } catch (error: any) {
-    console.error("[profile/addresses] POST exception:", error?.message);
+    if (!isDefault) {
+      return NextResponse.json({ id: data.id, address: data });
+    }
+
+    // Все запросы ограничены владельцем. Если назначение нового адреса
+    // основным не удалось, удаляем только что созданную запись и возвращаем ошибку.
+    const { data: previousDefault, error: previousDefaultError } = await supabaseAdmin
+      .from("addresses")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("is_default", true)
+      .maybeSingle();
+    if (previousDefaultError) {
+      await supabaseAdmin.from("addresses").delete().eq("id", data.id).eq("user_id", user.id);
+      console.error("[profile/addresses] read default error:", previousDefaultError.message);
+      return NextResponse.json({ error: "Не удалось назначить основной адрес" }, { status: 500 });
+    }
+
+    const { error: resetError } = await supabaseAdmin
+      .from("addresses")
+      .update({ is_default: false })
+      .eq("user_id", user.id)
+      .eq("is_default", true);
+    if (resetError) {
+      await supabaseAdmin.from("addresses").delete().eq("id", data.id).eq("user_id", user.id);
+      console.error("[profile/addresses] reset default error:", resetError.message);
+      return NextResponse.json({ error: "Не удалось назначить основной адрес" }, { status: 500 });
+    }
+
+    const { data: defaultAddress, error: defaultError } = await supabaseAdmin
+      .from("addresses")
+      .update({ is_default: true })
+      .eq("id", data.id)
+      .eq("user_id", user.id)
+      .select("id, label, text, lat, lng, is_default, created_at")
+      .single();
+
+    if (defaultError || !defaultAddress) {
+      await supabaseAdmin.from("addresses").delete().eq("id", data.id).eq("user_id", user.id);
+      if (previousDefault?.id) {
+        await supabaseAdmin.from("addresses").update({ is_default: true })
+          .eq("id", previousDefault.id).eq("user_id", user.id);
+      }
+      console.error("[profile/addresses] set default error:", defaultError?.message);
+      return NextResponse.json({ error: "Не удалось назначить основной адрес" }, { status: 500 });
+    }
+
+    return NextResponse.json({ id: defaultAddress.id, address: defaultAddress });
+  } catch (error) {
+    console.error("[profile/addresses] POST exception:", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "Внутренняя ошибка" }, { status: 500 });
   }
 }
@@ -90,7 +160,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Не указан id адреса" }, { status: 400 });
     }
 
-    // Удаляем адрес (только свой — .eq("user_id", user.id))
     const { error } = await supabaseAdmin
       .from("addresses")
       .delete()
@@ -103,8 +172,8 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("[profile/addresses] DELETE exception:", error?.message);
+  } catch (error) {
+    console.error("[profile/addresses] DELETE exception:", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "Внутренняя ошибка" }, { status: 500 });
   }
 }

@@ -19,13 +19,15 @@ import { resolveSupabaseServerUrl } from "@/lib/supabase/url";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { createAccessToken, createRefreshToken } from "@/lib/auth";
 import { setSessionCookies } from "@/lib/session-cookies";
+import { createUserSession, setSessionRefreshJti, NEW_DEVICE_LOGIN_BLOCKED, SESSION_POLICY_UNAVAILABLE } from "@/lib/session-registry";
+import { isPlaceholderValue } from "@/lib/placeholder-value";
 
 type Provider = "google" | "yandex" | "vk";
 
 const SUPPORTED_PROVIDERS: Provider[] = ["google", "yandex", "vk"];
 
 function isStubValue(value: string | undefined): boolean {
-  return !value || value.trim() === "" || value.startsWith("stub_");
+  return isPlaceholderValue(value);
 }
 
 function getProviderConfig(provider: Provider): {
@@ -555,8 +557,11 @@ async function handleOAuthCallback(
       throw new Error("GoTrue недоступен вне локальной разработки");
     }
 
-    const accessToken = await createAccessToken({ userId, email, name, roles, accountType });
-    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType });
+    const sessionId = await createUserSession(userId, request, "oauth");
+    const refreshJti = crypto.randomUUID();
+    await setSessionRefreshJti(sessionId, userId, refreshJti);
+    const accessToken = await createAccessToken({ userId, email, name, roles, accountType, sid: sessionId });
+    const refreshToken = await createRefreshToken({ userId, email, name, roles, accountType, sid: sessionId, jti: refreshJti });
     const finalResponse = setSessionCookies(response, { accessToken, refreshToken });
     createdUserForRollback = null;
     return finalResponse;
@@ -569,6 +574,18 @@ async function handleOAuthCallback(
       } catch (cleanupError) {
         console.error("[oauth/" + provider + "/callback] rollback failed", cleanupError);
       }
+    }
+    if (detail === NEW_DEVICE_LOGIN_BLOCKED) {
+      return finishRedirect(
+        "Вход с нового устройства заблокирован. Сначала завершите активный сеанс на прежнем устройстве.",
+        provider, returnTo, secureCookies
+      );
+    }
+    if (detail === SESSION_POLICY_UNAVAILABLE) {
+      return finishRedirect(
+        "Не удалось безопасно проверить активные устройства. Повторите попытку позже.",
+        provider, returnTo, secureCookies
+      );
     }
     return finishRedirect("Не удалось завершить вход. Попробуйте ещё раз.", provider, returnTo, secureCookies);
   }

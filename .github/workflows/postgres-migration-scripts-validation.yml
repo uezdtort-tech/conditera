@@ -4,14 +4,16 @@ on:
   push:
     branches:
       - work/pg17-compose-validation-and-import
+      - "integration/**"
     paths:
       - "scripts/ops/backup-dual-postgres-before-pg17.sh"
       - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
       - "supabase/init-scripts/01-apply-migrations.sh"
       - "supabase/init-scripts/00-service-role-passwords.sh"
-      - ".github/workflows/postgres-migration-scripts-validation.yml"
+      - ".github/workflows/**"
   pull_request:
     paths:
+      - ".github/workflows/**"
       - "scripts/ops/backup-dual-postgres-before-pg17.sh"
       - "scripts/ops/restore-app-dump-to-pg17-shadow.sh"
       - ".github/workflows/postgres-migration-scripts-validation.yml"
@@ -25,12 +27,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Проверить уникальность и непрерывность версий миграций
+        run: node scripts/verify/migration-version-contract.mjs
+      - name: Проверить синтаксис всех GitHub Actions workflow
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          VERSION=1.7.7
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color -ignore 'shellcheck reported issue in this script' .github/workflows/*.yml
+
       - name: Проверить синтаксис Bash
         run: |
           bash -n scripts/ops/backup-dual-postgres-before-pg17.sh
           bash -n scripts/ops/restore-app-dump-to-pg17-shadow.sh
           bash -n supabase/init-scripts/01-apply-migrations.sh
           bash -n supabase/init-scripts/00-service-role-passwords.sh
+          bash -n scripts/ops/backup-supabase-runtime.sh
+          bash -n scripts/ops/verify-supabase-runtime-backup.sh
       - name: Установить ShellCheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Выполнить ShellCheck
@@ -39,3 +53,5 @@ jobs:
           shellcheck --severity=warning scripts/ops/restore-app-dump-to-pg17-shadow.sh
           shellcheck --severity=warning supabase/init-scripts/01-apply-migrations.sh
           shellcheck --severity=warning supabase/init-scripts/00-service-role-passwords.sh
+          shellcheck --severity=warning scripts/ops/backup-supabase-runtime.sh
+          shellcheck --severity=warning scripts/ops/verify-supabase-runtime-backup.sh

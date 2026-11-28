@@ -13,6 +13,28 @@ const YOOKASSA_SECRET_KEY =
 const YOOKASSA_API_URL =
   process.env.YOOKASSA_API_URL || "https://api.yookassa.ru/v3";
 
+// Явный mock-платёж разрешён только в E2E-стенде с loopback URL.
+// Один флаг без локального адреса не может отключить production-защиту.
+export const isLocalE2EPaymentStubEnabled = (): boolean => {
+  const flagEnabled = process.env.E2E_PAYMENT_STUB_ENABLED === "true";
+  let hostname = "";
+  try {
+    hostname = new URL(process.env.NEXT_PUBLIC_APP_URL || "").hostname;
+  } catch {
+    // An invalid/missing app URL must never enable a production payment stub.
+  }
+  const loopbackHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  const allowed = flagEnabled && loopbackHost;
+  if (process.env.NODE_ENV === "production" && !allowed) {
+    // Log only the non-secret guard inputs so a misconfigured CI runtime can be
+    // diagnosed without exposing payment credentials or tokens.
+    console.warn(
+      `[yookassa] local E2E payment stub denied: flag=${flagEnabled}, hostname=${hostname || "invalid"}`
+    );
+  }
+  return allowed;
+};
+
 // Проверка, настроена ли YooKassa
 // P3: «test_shop»/«test_secret» — это mock-заглушка, реальные платежи не пройдут.
 export const isYookassaConfigured = (): boolean => {
@@ -97,7 +119,7 @@ export async function createPayment(
   // PAY-1: в production отсутствие конфигурации — ошибка: фиктивный
   // «успешный» платёж не должен существовать в боевом контуре.
   if (!isYookassaConfigured()) {
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error("[yookassa] createPayment: шлюз не настроен (production) — mock отключён");
       return { success: false, error: "Платёжный шлюз не настроен" };
     }
@@ -171,7 +193,7 @@ export async function getPaymentStatus(
 ): Promise<{ success: boolean; payment?: YooKassaPaymentResponse; error?: string }> {
   if (paymentId.startsWith("mock_")) {
     // PAY-1: mock-ID не может «подтверждать» оплату в production.
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error("[yookassa] getPaymentStatus: mock paymentId в production — отклонено");
       return { success: false, error: "Mock-платежи отключены в production" };
     }
@@ -214,7 +236,7 @@ export async function getRefund(
   error?: string;
 }> {
   if (refundId.startsWith("mock_")) {
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       return { success: false, error: "Mock-возвраты отключены в production" };
     }
     return {
@@ -247,7 +269,7 @@ export async function refundPayment(
 ): Promise<{ success: boolean; refund?: any; error?: string }> {
   if (paymentId.startsWith("mock_")) {
     // PAY-1: mock-возвраты в production отклонены.
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled()) {
       console.error("[yookassa] refundPayment: mock paymentId в production — отклонено");
       return { success: false, error: "Mock-возвраты отключены в production" };
     }
@@ -409,7 +431,7 @@ export function ipInRange(ip: string, range: string): boolean {
 
 export function verifyWebhook(request: Request): boolean {
   // P0 FIX: In production, verify that the request comes from YooKassa IPs
-  const isProd = process.env.NODE_ENV === "production";
+  const isProd = process.env.NODE_ENV === "production" && !isLocalE2EPaymentStubEnabled();
 
   if (isProd) {
     // PAY-1: доверенный прокси — как в anti-fraud/rate-limit. Первый элемент

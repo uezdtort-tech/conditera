@@ -43,12 +43,18 @@ vi.mock("@/lib/http-helpers", () => ({
 
 vi.mock("@/lib/auth", () => ({
   verifyRefreshToken: vi.fn(async (token: string) =>
-    token === REFRESH_TOKEN ? { userId: USER_ID } : null
+    token === REFRESH_TOKEN ? { userId: USER_ID, sid: "session-1", jti: "refresh-jti-1" } : null
   ),
   createAccessToken: vi.fn(async (payload: { userId: string; roles: string[] }) => {
     expect(payload.userId).toBe(USER_ID);
     return "new-access-token";
   }),
+  createRefreshToken: vi.fn(async () => "new-refresh-token"),
+}));
+
+vi.mock("@/lib/session-registry", () => ({
+  isUserSessionActive: vi.fn(async () => true),
+  rotateSessionRefreshJti: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -127,6 +133,8 @@ describe("POST /api/auth/refresh — ZV33-8d FIX A (D1)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { accessToken: string };
     expect(body.accessToken).toBe("new-access-token");
-    expect(res.headers.getSetCookie()).toHaveLength(0);
+    const setCookies = res.headers.getSetCookie();
+    expect(setCookies.some((cookie) => cookie.startsWith("cd_session=new-access-token;"))).toBe(true);
+    expect(setCookies.some((cookie) => cookie.startsWith("cd_refresh=new-refresh-token;"))).toBe(true);
   });
 });

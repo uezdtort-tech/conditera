@@ -240,7 +240,7 @@ describe("ownership — кондитер и чужой ресурс", () => {
     );
     expect(res.status).toBe(403);
     const data = (await res.json()) as { error: string };
-    expect(data.error).toContain("только заказы, назначенные вам");
+    expect(data.error).toBe("Нет доступа к этому заказу");
   });
 
   it("PUT /api/confectioner/capabilities: покупатель без профиля кондитера → 403", async () => {

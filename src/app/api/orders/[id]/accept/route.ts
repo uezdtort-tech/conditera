@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
-import { checkOrderAcceptance } from "@/lib/ops/acceptance";
+import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
 import { handleRouteError } from "@/lib/http-helpers";
 
 export const runtime = "nodejs";
@@ -56,95 +56,35 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<N
       return NextResponse.json({ error: `Заказ уже ${order.status}` }, { status: 400 });
     }
 
-    // === Acceptance Engine (ТЗ §8/§40) — гейт принятия =====================
-    // Сценарии A/D приёмки (Z-v12): при нехватке ингредиентов (canProduce=false)
-    // и при позиции без рецепта (RECIPE_MISSING) заказ НЕ должен молча переходить
-    // в CONFIRMED (состояние «принято к производству»); пользователь получает
-    // список причин и нехватающих ингредиентов. Склад не изменяется (accept не
-    // списывает — списание отдельный идемпотентный write-off в PREPARING).
-    let feasibility: Awaited<ReturnType<typeof checkOrderAcceptance>>;
+    // Единый lifecycle engine атомарно проверяет оплату/наличные,
+    // принадлежность заказа кондитеру, статус и конкурентные переходы.
+    // Прямой UPDATE здесь запрещён: он позволял принимать неоплаченные заказы.
     try {
-      feasibility = await checkOrderAcceptance(orderId);
+      const transition = await applyOrderTransition({
+        orderId,
+        to: "CONFIRMED",
+        actorId: user.id,
+        actorRoles: user.roles,
+      });
+      return NextResponse.json({
+        success: true,
+        orderId,
+        status: transition.to,
+      });
     } catch (err) {
-      console.error("[orders/:id/accept] acceptance check failed:", err instanceof Error ? err.message : err);
-      return NextResponse.json(
-        { error: "FEASIBILITY_CHECK_FAILED", message: "Проверка выполнимости недоступна — принятие отклонено (fail-closed)." },
-        { status: 503 }
-      );
+      if (err instanceof LifecycleError) {
+        const status =
+          err.code === "ORDER_NOT_FOUND" ? 404 :
+          err.code === "FORBIDDEN_ROLE" ? 403 :
+          err.code === "PAYMENT_NOT_CONFIRMED" ? 422 : 409;
+        return NextResponse.json(
+          { error: err.code, message: err.message, detail: err.detail },
+          { status }
+        );
+      }
+      throw err;
     }
-    if (!feasibility) {
-      return NextResponse.json(
-        { error: "FEASIBILITY_CHECK_FAILED", message: "Не удалось проверить выполнимость заказа." },
-        { status: 503 }
-      );
-    }
-    const inventoryBlocked = feasibility.owners.some((o) => !o.inventory.canProduce);
-    if (!feasibility.canAccept || inventoryBlocked) {
-      return NextResponse.json(
-        {
-          error: "ORDER_NOT_FEASIBLE",
-          message: `Заказ не выполним: ${feasibility.reasons.map((r) => r.message).join(" ")}`.trim(),
-          reasons: feasibility.reasons,
-          shortages: feasibility.owners.flatMap((o) => o.inventory.shortages),
-        },
-        { status: 409 }
-      );
-    }
-
-    // Conditional update: параллельные/повторные запросы на принятие — статус
-    // меняется ровно один раз (who loses: rowCount=0 → 409, без дублей истории).
-    const { data: updatedRows } = await supabaseAdmin
-      .from("orders")
-      .update({ status: "CONFIRMED", updated_at: new Date().toISOString() })
-      .eq("id", orderId)
-      .eq("status", "PENDING")
-      .select("id");
-
-    if (!updatedRows || updatedRows.length === 0) {
-      return NextResponse.json(
-        { error: "Заказ уже обработан другим запросом" },
-        { status: 409 }
-      );
-    }
-
-    // Status history.
-    // FIX-TL: раньше вставка использовала несуществующую колонку `status`
-    // (в схеме 0006 — status_from/status_to) и молча падала (ошибка не
-    // проверялась) — строку писал триггер orders_log_status с
-    // changed_by=NULL. Триггер удалён (0061) — пишем сами, с атрибуцией
-    // актёра (PENDING → CONFIRMED).
-    const { error: historyError } = await supabaseAdmin
-      .from("order_status_history")
-      .insert({
-        order_id: orderId,
-        status_from: order.status,
-        status_to: "CONFIRMED",
-        changed_by: user.id,
-        comment: null,
-      });
-    if (historyError) {
-      // История не роняет переход (статус = источник истины), но фиксируем.
-      console.error("[orders/:id/accept] history insert failed:", historyError.message);
-    }
-
-    // Notify customer (non-blocking).
-    // Z-v14 FIX: dedupKey — тот же ключ, что и в PATCH-переходе PENDING→CONFIRMED
-    // (миграция 0060: UNIQUE (user_id, channel, metadata->>'dedup_key')).
-    // Пересечение PATCH+accept теперь даёт ровно одно событие на уровне БД,
-    // даже если оба пути прошли свои проверки до CAS-обновления другого.
-    try {
-      const { sendNotification } = await import("@/lib/notifications");
-      await sendNotification({
-        userId: order.user_id,
-        template: "ORDER_CONFIRMED",
-        vars: { orderNumber: order.number || orderId },
-        data: { type: "order_confirmed", orderId },
-        dedupKey: `order-confirmed:${orderId}`,
-      });
-    } catch {}
-
-    return NextResponse.json({ success: true, orderId, status: "CONFIRMED" });
-  } catch (error: any) {
+  } catch (error) {
     return handleRouteError(error, {
       route: "/api/orders/[id]/accept",
       component: "orders",

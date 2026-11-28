@@ -1,0 +1,38 @@
+name: Regenerate Bun lock for embedded PostgreSQL 17
+
+on:
+  push:
+    branches:
+      - feat/pg17-full-scenarios-current
+    paths:
+      - "package.json"
+
+permissions:
+  contents: write
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Regenerate bun.lock from pinned PostgreSQL 17 package
+        run: bun install
+      - name: Commit the generated lockfile
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git diff --quiet -- bun.lock; then
+            echo "bun.lock already matches package.json"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bun.lock
+          git commit -m "chore(lockfile): update embedded PostgreSQL 17 binaries"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

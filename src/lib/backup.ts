@@ -1,23 +1,20 @@
 /**
  * Backup service — full database backup.
  *
- * Two modes:
- *   1. PostgreSQL (pg_dump available): runs `pg_dump` via child_process, saves .sql.gz
- *   2. Any PostgreSQL (dev embedded / Supabase): JSON export of real rows via pg pool
+ * Production: full PostgreSQL plain-SQL dump compressed as .sql.gz.
+ * Development fallback: JSON export of an explicit critical-table allowlist.
  *
+ * Production never silently falls back to the partial JSON snapshot.
  * Backups are saved to BACKUP_DIR (default: ./backups/ relative to project root).
  * Old backups are automatically cleaned up (keep last 30 days).
  *
  * Each backup is recorded in MaintenanceLog table.
  */
-import { exec } from "child_process";
-import { promisify } from "util";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
+import { spawn } from "child_process";
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 import { createGzip } from "zlib";
 import { pipeline } from "stream/promises";
-
-const execAsync = promisify(exec);
 
 const BACKUP_DIR = process.env.BACKUP_DIR || join(process.cwd(), "backups");
 const BACKUP_RETENTION_DAYS = 30;
@@ -35,39 +32,68 @@ interface BackupResult {
 /**
  * Run a full database backup.
  * DEPLOY-01 §10:
- *   1. pg_dump — если доступен бинарь и DATABASE_URL postgresql:// (любая среда);
- *   2. JSON-export через pg-пул — рабочая альтернатива (ранее fallback был
- *      на Prisma-синтаксисе и на supabase-js всегда возвращал пустые таблицы
- *      с status "success" — баг закрыт: записи реально читаются из БД).
- * Итог честный: если ни один путь не смог прочитать данные — success:false.
+ *   1. Production requires DIRECT_DATABASE_URL plus pg_dump and psql.
+ *   2. JSON export is development-only unless BACKUP_ALLOW_JSON_FALLBACK=true.
+ * A partial JSON export is never represented as a full production backup.
  */
 export async function runFullBackup(): Promise<BackupResult> {
   const startTime = Date.now();
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const databaseUrl = process.env.DATABASE_URL;
+  // pg_dump must connect directly to PostgreSQL, never through transaction-pooling PgBouncer.
+  const production = process.env.NODE_ENV === "production";
+  const databaseUrl = production
+    ? process.env.BACKUP_DATABASE_URL
+    : process.env.BACKUP_DATABASE_URL || process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
+  const allowJsonFallback = process.env.BACKUP_ALLOW_JSON_FALLBACK === "true";
 
-  // Ensure backup directory exists
-  if (!existsSync(BACKUP_DIR)) {
-    mkdirSync(BACKUP_DIR, { recursive: true });
+  if (!existsSync(/* turbopackIgnore: true */ BACKUP_DIR)) {
+    mkdirSync(/* turbopackIgnore: true */ BACKUP_DIR, { recursive: true, mode: 0o700 });
   }
+  try { chmodSync(BACKUP_DIR, 0o700); } catch { /* mounted directory permissions may be managed by the host */ }
 
-  // Try pg_dump for real PostgreSQL (если бинарь доступен)
-  if (databaseUrl && databaseUrl.startsWith("postgresql://") && (await hasPgDump())) {
+  if (databaseUrl && /^postgres(?:ql)?:\/\//.test(databaseUrl) && await hasPgDump()) {
     try {
       return await pgDumpBackup(databaseUrl, timestamp, startTime);
     } catch (e) {
-      console.error("[backup] pg_dump failed, falling back to JSON export:", e);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[backup] pg_dump failed:", message);
+      if (production && !allowJsonFallback) {
+        return failedBackup(startTime, "Full PostgreSQL backup failed; JSON fallback is disabled in production: " + message);
+      }
     }
+  } else if (production && !allowJsonFallback) {
+    return failedBackup(
+      startTime,
+      "Full PostgreSQL backup requires BACKUP_DATABASE_URL and the pg_dump/psql client tools; partial JSON export is disabled in production."
+    );
   }
 
-  // Fallback: JSON export через pg-пул (реальные строки)
+  // JSON export is retained only as a development/explicitly enabled fallback.
   return await jsonExportBackup(timestamp, startTime);
 }
 
-/** Проверка доступности бинаря pg_dump (без shell-инъекции — только which). */
+function failedBackup(startTime: number, errorMessage: string): BackupResult {
+  return {
+    success: false,
+    backupPath: "",
+    backupSizeBytes: 0,
+    tablesCount: 0,
+    recordsExported: 0,
+    durationMs: Date.now() - startTime,
+    errorMessage,
+  };
+}
+
+/** Require both dump and restore clients; a backup without a restore tool is not certifiable. */
 async function hasPgDump(): Promise<boolean> {
   try {
-    await execAsync("which pg_dump", { timeout: 5000 });
+    for (const command of ["pg_dump", "psql"]) {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(/* turbopackIgnore: true */ command, ["--version"], { stdio: "ignore" });
+        child.once("error", reject);
+        child.once("close", (code) => code === 0 ? resolve() : reject(new Error(command + " unavailable")));
+      });
+    }
     return true;
   } catch {
     return false;
@@ -75,54 +101,111 @@ async function hasPgDump(): Promise<boolean> {
 }
 
 /**
- * PostgreSQL backup via pg_dump.
+ * Full PostgreSQL backup via plain SQL dump + gzip.
+ * The dump connects with BACKUP_DATABASE_URL, bypassing PgBouncer and using a dedicated read-only backup role.
  */
+function parsePgConnectionUrl(value: string): {
+  args: string[];
+  env: NodeJS.ProcessEnv;
+} {
+  const url = new URL(value);
+  if (!["postgres:", "postgresql:"].includes(url.protocol)) {
+    throw new Error("Backup connection URL must use postgres:// or postgresql://");
+  }
+  const username = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  if (!url.hostname || !username || !password || !database) {
+    throw new Error("BACKUP_DATABASE_URL must include host, username, password and database");
+  }
+
+  const env: NodeJS.ProcessEnv = { ...process.env, PGPASSWORD: password };
+  const sslMode = url.searchParams.get("sslmode");
+  const sslRootCert = url.searchParams.get("sslrootcert");
+  const sslCert = url.searchParams.get("sslcert");
+  const sslKey = url.searchParams.get("sslkey");
+  if (sslMode) env.PGSSLMODE = sslMode;
+  if (sslRootCert) env.PGSSLROOTCERT = sslRootCert;
+  if (sslCert) env.PGSSLCERT = sslCert;
+  if (sslKey) env.PGSSLKEY = sslKey;
+
+  return {
+    args: [
+      "--host", url.hostname,
+      "--port", url.port || "5432",
+      "--username", username,
+      "--dbname", database,
+      "--no-owner",
+      "--no-privileges",
+    ],
+    env,
+  };
+}
+
 async function pgDumpBackup(
   databaseUrl: string,
   timestamp: string,
   startTime: number
 ): Promise<BackupResult> {
-  const filename = `backup-${timestamp}.sql.gz`;
-  const filepath = join(BACKUP_DIR, filename);
-
-  // pg_dump with custom format, piped through gzip
-  const cmd = `pg_dump "${databaseUrl}" --no-owner --no-privileges | gzip > "${filepath}"`;
-  console.info(`[backup] Running pg_dump → ${filepath}`);
-
-  await execAsync(cmd, { timeout: 300000 }); // 5 min timeout
-
-  const stats = statSync(filepath);
-  const durationMs = Date.now() - startTime;
-
-  // Count tables
-  const { stdout } = await execAsync(
-    `pg_dump "${databaseUrl}" --list | grep -c "^- "`
+  const filename = "backup-" + timestamp + ".sql.gz";
+  const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, filename);
+  const stderr: Buffer[] = [];
+  const connection = parsePgConnectionUrl(databaseUrl);
+  const child = spawn(
+    "pg_dump",
+    connection.args,
+    { stdio: ["ignore", "pipe", "pipe"], env: connection.env }
   );
-  const tablesCount = parseInt(stdout.trim()) || 0;
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
 
-  console.info(
-    `[backup] ✓ pg_dump completed: ${filename} (${(stats.size / 1024 / 1024).toFixed(2)} MB, ${durationMs}ms)`
-  );
+  const exitPromise = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error("pg_dump exited with code " + code + ": " + Buffer.concat(stderr).toString("utf8").slice(0, 1200)));
+    });
+  });
 
-  return {
-    success: true,
-    backupPath: filepath,
-    backupSizeBytes: stats.size,
-    tablesCount,
-    recordsExported: 0, // pg_dump doesn't report this
-    durationMs,
-  };
+  try {
+    const outputPromise = pipeline(child.stdout, createGzip(), createWriteStream(filepath, { mode: 0o600 }));
+    await Promise.all([outputPromise, exitPromise]);
+
+    const { getPool } = await import("@/lib/postgrest/pool");
+    const pool = getPool();
+    const countResult = await pool.query(
+      "SELECT count(*)::int AS count FROM pg_tables " +
+      "WHERE schemaname NOT IN ('pg_catalog', 'information_schema') " +
+      "AND schemaname NOT LIKE 'pg_toast%'"
+    );
+    const tablesCount = Number(countResult.rows[0]?.count ?? 0);
+    chmodSync(filepath, 0o600);
+    const stats = statSync(/* turbopackIgnore: true */ filepath);
+    const durationMs = Date.now() - startTime;
+
+    console.info(
+      "[backup] full pg_dump completed: " + filename +
+      " (" + (stats.size / 1024 / 1024).toFixed(2) + " MB, " +
+      tablesCount + " tables, " + durationMs + "ms)"
+    );
+
+    return {
+      success: true,
+      backupPath: filepath,
+      backupSizeBytes: stats.size,
+      tablesCount,
+      recordsExported: 0,
+      durationMs,
+    };
+  } catch (error) {
+    child.kill();
+    try { unlinkSync(/* turbopackIgnore: true */ filepath); } catch { /* partial file cleanup */ }
+    throw error;
+  }
 }
 
 /**
- * JSON export backup — реальные строки через pg-пул (Supabase/embedded PG).
- *
- * DEPLOY-01: предыдущая реализация использовала Prisma-синтаксис
- * (client.user.findMany()) на supabase-js shim — каждая таблица падала в
- * catch и экспорт завершался «успехом» с 0 записей. Теперь — SQL SELECT
- * по явному списку таблиц; таблица, которой нет в схеме, честно помечается
- * skipped в warnings, а итоговый success зависит от того, прочитана ли
- * хотя бы часть данных.
+ * JSON export backup — real rows from the explicit critical-table allowlist.
+ * This is a development fallback, not a full production database backup.
  */
 const BACKUP_TABLES = [
   "profiles",
@@ -164,10 +247,10 @@ async function jsonExportBackup(
   timestamp: string,
   startTime: number
 ): Promise<BackupResult> {
-  const filename = `backup-${timestamp}.json.gz`;
-  const filepath = join(BACKUP_DIR, filename);
+  const filename = "backup-" + timestamp + ".json.gz";
+  const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, filename);
 
-  console.info(`[backup] Starting JSON export → ${filepath}`);
+  console.info("[backup] Starting partial JSON export -> " + filepath);
 
   const { getPool } = await import("@/lib/postgrest/pool");
   const pool = getPool();
@@ -179,28 +262,24 @@ async function jsonExportBackup(
 
   for (const name of BACKUP_TABLES) {
     try {
-      const res = await pool.query(`SELECT * FROM public."${name}" LIMIT 200000`);
+      const res = await pool.query('SELECT * FROM public."' + name + '" LIMIT 200000');
       const records = (res.rows ?? []) as unknown[];
       tables[name] = records;
       totalRecords += records.length;
       successfulTables += 1;
-      console.info(`  ✓ ${name}: ${records.length} records`);
+      console.info("  ✓ " + name + ": " + records.length + " records");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      warnings.push(`${name}: skipped (${msg.slice(0, 120)})`);
-      console.warn(`  ⚠ ${name}: skipped`);
+      warnings.push(name + ": skipped (" + msg.slice(0, 120) + ")");
+      console.warn("  ⚠ " + name + ": skipped");
       tables[name] = [];
     }
   }
 
-  // Честный итог (§19): если ни одна таблица не прочитана — failure
   if (successfulTables === 0) {
-    throw new Error(
-      `JSON backup failed: no tables readable (${warnings.slice(0, 3).join("; ")})`
-    );
+    throw new Error("JSON backup failed: no tables readable (" + warnings.slice(0, 3).join("; ") + ")");
   }
 
-  // Write gzipped JSON
   const jsonData = JSON.stringify({
     metadata: {
       timestamp: new Date().toISOString(),
@@ -216,15 +295,16 @@ async function jsonExportBackup(
   });
 
   const gzip = createGzip();
-  const writeStream = createWriteStream(filepath);
+  const writeStream = createWriteStream(/* turbopackIgnore: true */ filepath);
   const { Readable } = await import("stream");
   await pipeline(Readable.from(jsonData), gzip, writeStream);
 
-  const stats = statSync(filepath);
+  const stats = statSync(/* turbopackIgnore: true */ filepath);
   const durationMs = Date.now() - startTime;
 
   console.info(
-    `[backup] ✓ JSON export completed: ${filename} (${(stats.size / 1024).toFixed(1)} KB, ${totalRecords} records, ${durationMs}ms)`
+    "[backup] partial JSON export completed: " + filename +
+    " (" + (stats.size / 1024).toFixed(1) + " KB, " + totalRecords + " records, " + durationMs + "ms)"
   );
 
   return {
@@ -242,20 +322,20 @@ async function jsonExportBackup(
  * Returns count of deleted files.
  */
 export async function cleanupOldBackups(): Promise<number> {
-  if (!existsSync(BACKUP_DIR)) return 0;
+  if (!existsSync(/* turbopackIgnore: true */ BACKUP_DIR)) return 0;
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - BACKUP_RETENTION_DAYS);
 
-  const files = readdirSync(BACKUP_DIR);
+  const files = readdirSync(/* turbopackIgnore: true */ BACKUP_DIR);
   let deleted = 0;
 
   for (const file of files) {
-    const filepath = join(BACKUP_DIR, file);
+    const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, file);
     try {
-      const stats = statSync(filepath);
+      const stats = statSync(/* turbopackIgnore: true */ filepath);
       if (stats.mtime < cutoff) {
-        unlinkSync(filepath);
+        unlinkSync(/* turbopackIgnore: true */ filepath);
         deleted++;
         console.info(`[backup] deleted old backup: ${file}`);
       }
@@ -277,14 +357,14 @@ export async function listBackups(): Promise<
     createdAt: Date;
   }>
 > {
-  if (!existsSync(BACKUP_DIR)) return [];
+  if (!existsSync(/* turbopackIgnore: true */ BACKUP_DIR)) return [];
 
-  const files = readdirSync(BACKUP_DIR);
+  const files = readdirSync(/* turbopackIgnore: true */ BACKUP_DIR);
   return files
     .filter((f) => f.startsWith("backup-"))
     .map((file) => {
-      const filepath = join(BACKUP_DIR, file);
-      const stats = statSync(filepath);
+      const filepath = join(/* turbopackIgnore: true */ BACKUP_DIR, file);
+      const stats = statSync(/* turbopackIgnore: true */ filepath);
       return {
         filename: file,
         sizeBytes: stats.size,

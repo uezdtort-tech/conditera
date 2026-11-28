@@ -24,6 +24,12 @@
 
 name: E2E Tests
 
+# Один актуальный прогон на ветку: push + pull_request не должны
+# одновременно занимать runner-ы идентичными Chromium/mobile E2E.
+concurrency:
+  group: e2e-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 on:
   schedule:
     # Nightly в 03:00 UTC — chromium-only (см. «РЕШЕНИЕ ВЛАДЕЛЬЦА» в шапке)
@@ -44,14 +50,26 @@ on:
     branches:
       - main
       - develop
+      - "integration/**"
     paths:
       # Запускать только при изменениях в коде, который тестируется e2e
+      - "src/app/**"
       - "src/app/api/**"
       - "src/components/**"
       - "src/lib/**"
+      - "scripts/db/**"
+      - "scripts/verify/**"
+      - "supabase/migrations/**"
+      - "docker-compose*.yml"
+      - "Dockerfile*"
+      - ".env*.example"
+      - ".github/workflows/**"
+      - "package.json"
+      - "bun.lock"
       - "src/proxy.ts"
       - "src/middleware.test.ts"
       - "src/lib/postgrest/**"
+      - ".github/workflows/e2e.yml"
       - "tests/e2e/**"
       - "playwright.config.ts"
       - "package.json"
@@ -74,7 +92,7 @@ on:
       - ".github/workflows/e2e.yml"
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "26"
   # Локальный PostgreSQL (embedded, без Docker) — источник данных для шима
   # /rest/v1 и всех API. Раньше здесь был legacy file:./db/e2e-test.db, а саму
   # БД никто не поднимал — все API-тесты E2E падали (53+ ошибок CI).
@@ -86,14 +104,17 @@ env:
   NEXT_PUBLIC_APP_URL: "http://localhost:3000"
   NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3000"
   SUPABASE_INTERNAL_URL: "http://127.0.0.1:3000"
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-only-anon-key-not-for-deploy"
   NODE_ENV: test
+  # Only this CI workflow runs against loopback; enables the guarded mock
+  # payment provider for browser/integration scenarios without live credentials.
+  E2E_PAYMENT_STUB_ENABLED: "true"
   YANDEX_CLIENT_ID: e2e-yandex-client
   YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
   VK_CLIENT_ID: e2e-vk-client
   VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
   GOOGLE_CLIENT_ID: e2e-google-client
-  GOOGLE_CLIENT_SECRET: e2e-google-secret
+  GOOGLE_CLIENT_SECRET: ${{ github.run_id }}
   GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
   CI: "true"
 
@@ -135,6 +156,10 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NODE_ENV: ${{ env.NODE_ENV }}
+          # Next.js компилирует клиентский bundle как production независимо от NODE_ENV=test.
+          # Явно включаем demoSeed только в изолированном E2E workflow, иначе
+          # MOCK_CONFECTIONERS становится пустым и /dashboard падает на confectioner.tariff.
+          NEXT_PUBLIC_DEMO_MODE: "1"
 
       - name: Cache build for downstream
         uses: actions/cache@v6
@@ -144,16 +169,15 @@ jobs:
 
   # ===== 2. Запуск Playwright тестов =====
   test:
-    name: Playwright (${{ matrix.browser }})
+    name: Playwright (${{ matrix.project }})
     runs-on: ubuntu-latest
     needs: setup
     strategy:
       fail-fast: false
       matrix:
-        # Фиксированная матрица (variant B, решение владельца 2026-10-15):
-        # единственный активный проект Playwright. Nightly и ручной запуск —
-        # только chromium до активации firefox/webkit (TODO в шапке файла).
-        browser: ["chromium"]
+        # Проверяем реальный desktop и mobile UI; mobile-chrome использует Chromium
+        # с viewport/device-профилем Pixel 5 из playwright.config.ts.
+        project: ["chromium", "mobile-chrome"]
 
     steps:
       - uses: actions/checkout@v7
@@ -191,6 +215,21 @@ jobs:
           CRON_SECRET: ${{ env.CRON_SECRET }}
           NODE_ENV: ${{ env.NODE_ENV }}
 
+      - name: Seed isolated orderable product for browser checkout
+        run: node scripts/db/seed-e2e-orderable-product.mjs
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Seed isolated buyer and confectioner accounts for profile E2E
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/db/seed-e2e-profile-users.mjs | tee /tmp/e2e-profile-accounts.log
+          sed -n '/^PROFILE_E2E_/p' /tmp/e2e-profile-accounts.log >> "$GITHUB_ENV"
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+
       - name: Export generated Supabase service-role key to CI runtime
         shell: bash
         run: |
@@ -203,7 +242,7 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Install Playwright browsers
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        run: bunx playwright install --with-deps chromium
 
       - name: Start application
         run: |
@@ -242,10 +281,10 @@ jobs:
       - name: Run Playwright tests
         run: |
           # E2E_GREP передаётся через env (см. блок env ниже), а не текстуальной
-          # ${{ }}-подстановкой: расширение "$E2E_GREP" внутри bash-массива не
+          # встроенной подстановкой GitHub Actions: расширение "$E2E_GREP" внутри bash-массива не
           # ре-парсится shell'ом — ввод dispatch не разорвёт кавычки и не
           # внедрит команды (защита от shell injection, TZ v4.0 §6).
-          ARGS=(--project=${{ matrix.browser }})
+          ARGS=(--project=${{ matrix.project }})
           if [ -n "$E2E_GREP" ]; then
             ARGS+=(--grep "$E2E_GREP")
           fi
@@ -280,7 +319,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: nextjs-server-log-${{ matrix.browser }}
+          name: nextjs-server-log-${{ matrix.project }}
           path: /tmp/conditera-next.log
           if-no-files-found: warn
           retention-days: 7
@@ -289,7 +328,7 @@ jobs:
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report-${{ matrix.browser }}
+          name: playwright-report-${{ matrix.project }}
           path: playwright-report/
           retention-days: 14
 
@@ -297,17 +336,21 @@ jobs:
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-results-${{ matrix.browser }}
+          name: playwright-results-${{ matrix.project }}
           path: test-results/
           retention-days: 7
 
-      - name: Upload screenshots on failure
+      - name: Upload screenshots and videos on failure
         uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-failures-${{ matrix.browser }}
-          path: test-results/**/test-video.webm
+          name: playwright-failures-${{ matrix.project }}
+          path: |
+            test-results/**/*.png
+            test-results/**/*.webm
+            test-results/**/error-context.md
           retention-days: 7
+          if-no-files-found: warn
 
   # ===== 3. Отчёт в Slack/Telegram (опционально) =====
   notify:
@@ -353,13 +396,24 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Bootstrap embedded PostgreSQL + migrations + seed
+      - name: Bootstrap embedded PostgreSQL + migrations + demo fixtures for integration scenarios
         run: |
           node scripts/db/runtime.mjs start
           bun run db:setup
         env:
           DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
           JWT_SECRET: e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa
+          SEED_MODE: demo
+
+      - name: Export generated Supabase service-role key to integration runtime
+        run: |
+          set -euo pipefail
+          KEY="$(sed -n 's/^SUPABASE_SERVICE_ROLE_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$KEY" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY was not generated by db:setup"
+            exit 1
+          fi
+          echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Restore build cache
         uses: actions/cache@v6
@@ -369,7 +423,8 @@ jobs:
 
       - name: Start application
         run: |
-          bun run start &
+          bun run start > /tmp/conditera-integration-next.log 2>&1 &
+          echo $! > /tmp/conditera-integration-next.pid
           for i in {1..30}; do
             if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health | grep -q "200"; then
               echo "✓ Application is up"
@@ -378,6 +433,9 @@ jobs:
             echo "  Waiting for app... ($i/30)"
             sleep 2
           done
+        env:
+          NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+          E2E_PAYMENT_STUB_ENABLED: "true"
 
       - name: Run integration verifies
         run: |
@@ -385,4 +443,15 @@ jobs:
           node scripts/verify/ops-center-verify.mjs
           node scripts/verify/checkout-idempotency-verify.mjs
           node scripts/verify/order-lifecycle-verify.mjs
+          node scripts/verify/p11-hardening-verify.mjs
           node scripts/verify/diagnostics-verify.mjs
+        env:
+          VERIFY_TEST_IP: 10.250.250.250
+          PGURL: ${{ env.DATABASE_URL }}
+          VERIFY_BASE: http://127.0.0.1:3000
+
+      - name: Print integration server logs on failure
+        if: failure() || cancelled()
+        run: |
+          echo "===== Conditera integration Next.js server log ====="
+          tail -n 500 /tmp/conditera-integration-next.log || true

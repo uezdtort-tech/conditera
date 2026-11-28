@@ -284,3 +284,61 @@ test.describe("Login page (Supabase Auth)", () => {
     }
   });
 });
+
+
+/* ===== Группа: Регистрация покупателя через браузер ===== */
+test.describe("Customer registration — browser UI", () => {
+  test("customer completes registration and enters the account through UI", async ({ page }) => {
+    const suffix = Date.now().toString();
+    const email = `e2e-${suffix}@example.test`;
+    const phone = `+7999${suffix.slice(-7).padStart(7, "0")}`;
+
+    await page.goto(`${BASE_URL}/login`);
+    await page.getByRole("tab", { name: "Регистрация" }).click();
+    await page.getByLabel("Имя / ФИО *").fill("Покупатель E2E");
+    await page.getByLabel("Телефон *").fill(phone);
+    await page.getByLabel("Email *").fill(email);
+    await page.getByLabel("Пароль *").fill("E2ePassword!2026");
+    await page.getByRole("button", { name: "Покупать торты" }).click();
+    await page.locator("#consent-pd").check();
+    await page.locator("#consent-terms").check();
+    await page.locator("#consent-offer").check();
+    await page.getByRole("button", { name: "Зарегистрироваться", exact: true }).click();
+    await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
+    await expect(page.locator("body")).toContainText(/Покупатель E2E|Мои заказы|Личный кабинет/);
+  });
+});
+
+/* ===== Группа: Реальный пользовательский checkout через браузер ===== */
+test.describe("Customer checkout — browser UI", () => {
+  test("customer logs in, adds a live product and creates an order through UI", async ({ page }) => {
+    await page.goto(`${BASE_URL}/login`);
+    await page.getByLabel("Email", { exact: true }).fill("customer@demo.ru");
+    await page.getByLabel("Пароль", { exact: true }).fill("Demo123!");
+    await page.getByRole("button", { name: "Войти", exact: true }).click();
+    await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
+
+    await page.goto(`${BASE_URL}/catalog`);
+    const orderableCard = page.getByRole("link").filter({
+      hasText: "E2E демо-торт (тестовый товар)",
+    }).first();
+    await expect(orderableCard).toBeVisible({ timeout: 20_000 });
+    await orderableCard.getByRole("button", { name: "Добавить в корзину" }).click();
+
+    await page.goto(`${BASE_URL}/checkout`);
+    await expect(page.getByRole("heading", { name: "Оформление заказа" })).toBeVisible();
+    await page.getByRole("button", { name: /Самовывоз/ }).click();
+    const deliveryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    await page.getByLabel("Дата получения").fill(deliveryDate);
+    await page.getByLabel("Имя получателя *").fill("Покупатель E2E");
+    await page.getByLabel("Телефон получателя *").fill("+7 999 123-45-67");
+    await page.getByLabel("Город *").fill("Москва");
+    await page.getByRole("button", { name: "Продолжить", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Подтверждение заказа" })).toBeVisible();
+    await page.getByRole("button", { name: /Оплатить/ }).click();
+
+    await expect(page.getByRole("heading", { name: "Заказ оформлен!" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Номер заказа:/)).toBeVisible();
+    await expect(page.getByText(/Платёж создан в демо-режиме/)).toBeVisible();
+  });
+});

@@ -16,7 +16,7 @@
 ```
 
 Демо-аккаунты (создаёт db:setup, пароль у всех `Demo123!`):
-customer@demo.ru · confectioner@demo.ru · admin@demo.ru · support@demo.ru · decor@demo.ru · animator@demo.ru
+customer@demo.ru · confectioner@demo.ru · courier@demo.ru · admin@demo.ru · support@demo.ru · decor@demo.ru · animator@demo.ru
 
 ## Архитектура локального рантайма
 

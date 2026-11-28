@@ -224,6 +224,13 @@ function preprocessStatement(stmt) {
     }
   }
 
+  // pg_cron is conditionally installed inside a DO block for Supabase PG17.
+  // It is managed in the postgres maintenance DB, not the application DB;
+  // vanilla PostgreSQL also lacks the extension, so skip the whole DO block.
+  if (/CREATE\\s+EXTENSION\\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
+    return { skip: true, reason: "pg_cron is managed outside the application database" };
+  }
+
   // pgsodium is conditionally installed inside a DO block for Supabase PG17.
   // Skip the complete block in vanilla PostgreSQL where pgsodium is unavailable.
   if (/CREATE\s+EXTENSION\s+pgsodium/i.test(s) && SKIP_EXTENSIONS.includes("pgsodium")) {
@@ -318,6 +325,7 @@ const DEMO_USERS = [
   { id: "11111111-1111-4111-8111-111111111108", email: "support@demo.ru", role: "SUPPORT", name: "Демо Поддержка" },
   { id: "11111111-1111-4111-8111-111111111109", email: "decor@demo.ru", role: "SUPPLIER", name: "Демо Поставщик декора" },
   { id: "11111111-1111-4111-8111-111111111110", email: "animator@demo.ru", role: "ANIMATOR_AGENCY", name: "Демо Аниматоры" },
+  { id: "22222222-2222-4222-8222-222222222201", email: "courier@demo.ru", role: "COURIER", name: "Демо Курьер" },
 ];
 
 async function upsertDemoUsers(client) {
@@ -721,6 +729,101 @@ async function main() {
       if (sa !== sb) return sa - sb; // 0016 до 0016b
       return a.localeCompare(b);
     });
+
+    // Migration filename aliases: preserve the existing schema_migrations
+    // ledger when historical branches renamed/re-numbered equivalent SQL files.
+    // Only aliases whose canonical file exists in this tree are materialized.
+    const migrationAliases = [
+      ["0061_user_consent_events.sql", "0061a_user_consent_events.sql"],
+      ["0062_reference_catalog.sql", "0062b_reference_catalog.sql"],
+      ["0062a_reference_catalog.sql", "0062b_reference_catalog.sql"],
+      ["0062_cart_sync_custom.sql", "0062a_cart_sync_custom.sql"],
+      ["0063_financial_ledger.sql", "0063a_financial_ledger.sql"],
+      ["0064_supplier_procurement.sql", "0064a_supplier_procurement.sql"],
+      ["0103_enforce_single_active_account_session.sql", "0104_enforce_single_active_account_session.sql"],
+      ["0104_order_disputes_and_immutable_evidence.sql", "0105_order_disputes_and_immutable_evidence.sql"],
+      ["0105_order_dispute_messages.sql", "0106_order_dispute_messages.sql"],
+      ["0106_abandoned_cart_delivery_tracking.sql", "0107_abandoned_cart_delivery_tracking.sql"],
+      ["0063a_cake_project_spec.sql", "0063_cake_project_spec.sql"],
+      ["0064a_product_slices_rls.sql", "0064_product_slices_rls.sql"],
+      ["0065_cms_home_blocks.sql", "0109_cms_home_blocks.sql"],
+      ["0068_cms_design_warm_defaults.sql", "0110_cms_design_warm_defaults.sql"],
+      ["0069_cms_atomic_home_reorder.sql", "0111_cms_atomic_home_reorder.sql"],
+      ["0070_cms_reorder_write_serialization.sql", "0112_cms_reorder_write_serialization.sql"],
+      ["0071_cms_home_section_composition.sql", "0113_cms_home_section_composition.sql"],
+      ["0072_cms_public_section_configuration.sql", "0114_cms_public_section_configuration.sql"],
+      ["0073_cms_home_section_default_order.sql", "0115_cms_home_section_default_order.sql"],
+      ["0066_service_role_default_grants.sql", "0066a_service_role_default_grants.sql"],
+      ["0067_repair_updated_at_triggers.sql", "0067a_repair_updated_at_triggers.sql"],
+      ["0068_moderation_queue_schema_alignment.sql", "0102_moderation_queue_schema_alignment.sql"],
+      ["0074_escrow_release_cancel_guard.sql", "0088_escrow_release_cancel_guard.sql"],
+      ["0075_order_access_rls.sql", "0089_order_access_rls.sql"],
+      ["0076_atomic_courier_assignment.sql", "0090_atomic_courier_assignment.sql"],
+      ["0077_private_order_media_storage.sql", "0091_private_order_media_storage.sql"],
+      ["0078_order_ready_photo_limit.sql", "0092_order_ready_photo_limit.sql"],
+      ["0079_user_session_registry.sql", "0093_user_session_registry.sql"],
+      ["0080_session_refresh_rotation.sql", "0094_session_refresh_rotation.sql"],
+      ["0081_fix_assign_order_delivery_ambiguity.sql", "0095_fix_assign_order_delivery_ambiguity.sql"],
+      ["0082_quote_project_media.sql", "0096_quote_project_media.sql"],
+      ["0083_quote_acceptance_to_order.sql", "0097_quote_acceptance_to_order.sql"],
+      ["0084_quote_customer_rejection.sql", "0098_quote_customer_rejection.sql"],
+      ["0085_atomic_save_confectioner_quote.sql", "0099_atomic_save_confectioner_quote.sql"],
+      ["0086_fix_quote_confectioner_identity.sql", "0100_fix_quote_confectioner_identity.sql"],
+      ["0087_quote_media_private_bucket.sql", "0101_quote_media_private_bucket.sql"],
+      ["0087_user_consent_events.sql", "0061a_user_consent_events.sql"],
+      ["0087_restrict_public_analytics_and_trigger_rpcs.sql", "0117_restrict_public_analytics_and_trigger_rpcs.sql"],
+      ["0108_restrict_public_analytics_and_trigger_rpcs.sql", "0117_restrict_public_analytics_and_trigger_rpcs.sql"],
+      ["0109_restrict_public_analytics_and_trigger_rpcs.sql", "0117_restrict_public_analytics_and_trigger_rpcs.sql"],
+      ["0088_reference_catalog.sql", "0062b_reference_catalog.sql"],
+      ["0088_harden_yookassa_refund_rpc.sql", "0103_harden_yookassa_refund_rpc.sql"],
+      ["0089_financial_ledger.sql", "0063a_financial_ledger.sql"],
+      ["0089_enforce_single_active_account_session.sql", "0104_enforce_single_active_account_session.sql"],
+      ["0089_abandoned_cart_delivery_tracking.sql", "0107_abandoned_cart_delivery_tracking.sql"],
+      ["0090_supplier_procurement.sql", "0064a_supplier_procurement.sql"],
+      ["0090_order_disputes_and_immutable_evidence.sql", "0105_order_disputes_and_immutable_evidence.sql"],
+      ["0091_order_ready_photo_limit.sql", "0092_order_ready_photo_limit.sql"],
+      ["0092_user_session_registry.sql", "0093_user_session_registry.sql"],
+      ["0093_session_refresh_rotation.sql", "0094_session_refresh_rotation.sql"],
+      ["0094_fix_assign_order_delivery_ambiguity.sql", "0095_fix_assign_order_delivery_ambiguity.sql"],
+      ["0095_harden_yookassa_refund_rpc.sql", "0103_harden_yookassa_refund_rpc.sql"],
+      ["0096_order_disputes_and_immutable_evidence.sql", "0105_order_disputes_and_immutable_evidence.sql"],
+      ["0097_order_dispute_messages.sql", "0106_order_dispute_messages.sql"],
+      ["0098_abandoned_cart_delivery_tracking.sql", "0107_abandoned_cart_delivery_tracking.sql"],
+      ["0099_postgrest_maintenance_enum_compat.sql", "0108_postgrest_maintenance_enum_compat.sql"],
+      ["0100_moderation_queue_schema_alignment.sql", "0102_moderation_queue_schema_alignment.sql"],
+      ["0091_service_role_default_grants.sql", "0066a_service_role_default_grants.sql"],
+      ["0091_order_dispute_messages.sql", "0106_order_dispute_messages.sql"],
+      ["0092_repair_updated_at_triggers.sql", "0067a_repair_updated_at_triggers.sql"],
+      ["0092_postgrest_maintenance_enum_compat.sql", "0108_postgrest_maintenance_enum_compat.sql"],
+      ["0095_user_session_registry.sql", "0093_user_session_registry.sql"],
+      ["0096_session_refresh_rotation.sql", "0094_session_refresh_rotation.sql"],
+      ["0097_enforce_single_active_account_session.sql", "0104_enforce_single_active_account_session.sql"],
+      ["0098_fix_assign_order_delivery_ambiguity.sql", "0095_fix_assign_order_delivery_ambiguity.sql"],
+      ["0099_quote_project_media.sql", "0096_quote_project_media.sql"],
+      ["0100_quote_acceptance_to_order.sql", "0097_quote_acceptance_to_order.sql"],
+      ["0101_quote_customer_rejection.sql", "0098_quote_customer_rejection.sql"],
+      ["0102_atomic_save_confectioner_quote.sql", "0099_atomic_save_confectioner_quote.sql"],
+      ["0103_fix_quote_confectioner_identity.sql", "0100_fix_quote_confectioner_identity.sql"],
+      ["0104_quote_media_private_bucket.sql", "0101_quote_media_private_bucket.sql"],
+      ["0105_escrow_release_cancel_guard.sql", "0088_escrow_release_cancel_guard.sql"],
+      ["0106_order_access_rls.sql", "0089_order_access_rls.sql"],
+      ["0107_atomic_courier_assignment.sql", "0090_atomic_courier_assignment.sql"],
+      ["0108_private_order_media_storage.sql", "0091_private_order_media_storage.sql"],
+      ["0109_order_ready_photo_limit.sql", "0092_order_ready_photo_limit.sql"],
+      ["0102_harden_yookassa_refund_rpc.sql", "0103_harden_yookassa_refund_rpc.sql"],
+      ["0103_abandoned_cart_delivery_tracking.sql", "0107_abandoned_cart_delivery_tracking.sql"],
+      ["0107_postgrest_maintenance_enum_compat.sql", "0108_postgrest_maintenance_enum_compat.sql"],
+      ["0108_moderation_queue_schema_alignment.sql", "0102_moderation_queue_schema_alignment.sql"],
+    ];
+    for (const [legacyName, canonicalName] of migrationAliases) {
+      if (!appliedFiles.has(legacyName) || appliedFiles.has(canonicalName) || !files.includes(canonicalName)) continue;
+      await client.query(
+        "INSERT INTO public.schema_migrations (filename) VALUES ($1) ON CONFLICT (filename) DO NOTHING",
+        [canonicalName]
+      );
+      appliedFiles.add(canonicalName);
+      console.log(`  ↪ migration ledger alias: ${legacyName} → ${canonicalName}`);
+    }
 
     // Z-v24: детекция дубликатов migration ID ДО применения любого SQL.
     // Конвенция проекта: вариантные файлы одного номера именуются ЧИСЛО+БУКВА

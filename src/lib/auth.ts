@@ -15,6 +15,7 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isUserSessionActive } from "@/lib/session-registry";
 
 // === КРИТИЧНО: секреты fail-closed ===
 //
@@ -25,65 +26,48 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 //   + warning; runtime всё равно потребует реальное значение.
 // Development: dev-значение с явным предупреждением.
 function getRequiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
+  const value = process.env[name]?.trim() ?? "";
+  const normalized = value.toLowerCase();
+  const valueBytes = new TextEncoder().encode(value).length;
   const isStub =
     !value ||
-    value.startsWith("CHANGE_ME") ||
-    value.startsWith("fallback-") ||
-    value.startsWith("dev-") ||
-    value.startsWith("dev_");
-
+    /^(change_me|fallback-|dev[-_]|stub[-_]|build-placeholder|placeholder|example|dummy|your_|test[-_])/i.test(value);
   const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
-  if (process.env.NODE_ENV === "production") {
-    if (isStub) {
-      if (isBuildPhase) {
-        console.warn(
-          `⚠️  [auth] ${name} отсутствует/заглушка во время production-сборки — ` +
-            `используется placeholder. РАНТАЙМ всё равно потребует реальное значение!`
-        );
-        return `build-placeholder-${name}-${"0".repeat(24)}`;
-      }
-      throw new Error(
-        `[auth] ${name} отсутствует или содержит заглушку в production. ` +
-          `Отказ запуска. Задайте реальный секрет (openssl rand -hex 32) в окружении.`
+  if (process.env.NODE_ENV === "production" && (isStub || valueBytes < 32)) {
+    if (isBuildPhase) {
+      console.warn(
+        `[auth] ${name} отсутствует/недействителен на этапе production-сборки; ` +
+          "используется временный ключ только для build. Runtime потребует настоящий секрет."
       );
+      return `build-placeholder-${name}-${"0".repeat(24)}`;
     }
-    return value;
+    throw new Error(
+      `[auth] ${name} отсутствует, слишком короткий или содержит заглушку в production. ` +
+        "Отказ запуска. Задайте независимый секрет длиной не менее 32 символов."
+    );
   }
 
-  // development / preview — только с предупреждением
-  if (isStub) {
-    console.warn(`⚠️  [auth] ${name} не задана — используется dev-значение. НЕ для production!`);
+  if (isStub || valueBytes < 32) {
+    console.warn(`[auth] ${name} не задана или слишком короткая — используется dev-значение. НЕ для production!`);
     return `dev-${name}-${"0".repeat(32)}`;
+  }
+  if (/^dev[-_]/.test(normalized)) {
+    console.warn(`[auth] ${name} использует development-only значение; не переносить в production.`);
   }
   return value;
 }
 
-/**
- * Секретные env с фолбэком на альтернативные имена (.env.example декларирует
- * AUTH_SECRET как каноничное имя, исторический код читает JWT_SECRET).
- * Первая непустая незаглушечная переменная побеждает; иначе — обычный
- * getRequiredEnv(primary) со стандартными предупреждениями.
- */
-function getSecretEnv(primary: string, fallbacks: string[]): string {
-  for (const name of [primary, ...fallbacks]) {
-    const v = process.env[name]?.trim();
-    if (v && !v.startsWith("CHANGE_ME") && !v.startsWith("fallback-") && !v.startsWith("dev-") && !v.startsWith("dev_")) {
-      return v;
-    }
-  }
-  return getRequiredEnv(primary);
+// JWT и refresh используют два обязательных независимых секрета.
+// Альтернативные имена намеренно не принимаются: одна переменная не может
+// незаметно стать ключом и access-, и refresh-токенов.
+const jwtSecretValue = getRequiredEnv("JWT_SECRET");
+const jwtRefreshSecretValue = getRequiredEnv("JWT_REFRESH_SECRET");
+if (jwtSecretValue === jwtRefreshSecretValue) {
+  throw new Error("[auth] JWT_SECRET и JWT_REFRESH_SECRET должны быть разными значениями.");
 }
-
-const JWT_SECRET = new TextEncoder().encode(getSecretEnv("JWT_SECRET", ["AUTH_SECRET"]));
-
-// Refresh-секрет — отдельная env-переменная (НЕ производная от JWT_SECRET).
-// ВНИМАНИЕ: после перехода на JWT_REFRESH_SECRET все прежние refresh-токены
-// инвалидируются — пользователи один раз перелогинятся.
-const JWT_REFRESH_SECRET = new TextEncoder().encode(
-  getSecretEnv("JWT_REFRESH_SECRET", ["AUTH_REFRESH_SECRET", "AUTH_SECRET"])
-);
+const JWT_SECRET = new TextEncoder().encode(jwtSecretValue);
+const JWT_REFRESH_SECRET = new TextEncoder().encode(jwtRefreshSecretValue);
 
 export interface JwtPayload extends JWTPayload {
   userId: string;
@@ -95,6 +79,8 @@ export interface JwtPayload extends JWTPayload {
   name?: string;
   roles?: string[];
   accountType?: string;
+  sid?: string;
+  jti?: string;
 }
 
 export interface AuthenticatedUser {
@@ -136,8 +122,19 @@ export async function verifyPassword(
 }
 
 export async function createAccessToken(payload: JwtPayload): Promise<string> {
-  return new SignJWT(payload as unknown as JWTPayload)
+  // Supabase PostgREST/RLS reads the standard JWT claims (sub + role), while
+  // application routes retain the backwards-compatible userId/roles claims.
+  // Both layers therefore authenticate the same identity from one token.
+  const claims = {
+    ...payload,
+    sub: payload.userId,
+    aud: "authenticated",
+    role: "authenticated",
+  };
+  return new SignJWT(claims as unknown as JWTPayload)
     .setProtectedHeader({ alg: "HS256" })
+    .setSubject(payload.userId)
+    .setAudience("authenticated")
     .setIssuedAt()
     .setExpirationTime(process.env.JWT_EXPIRES_IN || "7d")
     .sign(JWT_SECRET);
@@ -267,6 +264,19 @@ export async function getUserFromRequest(request: Request): Promise<Authenticate
   //     payload.sub, JWT-claims как у Supabase (role/email в top-level)
   const userId = payload?.userId || (payload as { sub?: string } | null)?.sub;
   if (!payload || !userId) return null;
+
+  // Production app-JWT must be bound to an active server-side session.
+  // Legacy sid-less tokens are tolerated only in non-production environments.
+  if (!payload.sid) {
+    if (process.env.NODE_ENV === "production") return null;
+  } else {
+    try {
+      if (!(await isUserSessionActive(payload.sid, userId))) return null;
+    } catch (sessionError) {
+      console.error("[auth] session validation threw; rejecting request:", sessionError);
+      return null;
+    }
+  }
 
   try {
     const profileResult = await supabaseAdmin

@@ -1,10 +1,11 @@
 "use client";
 
 import { useAppStore } from "@/lib/store";
-import { siteConfig, getCopyrightYears } from "@/lib/site-config";
-import { usePublishedNavMenu } from "@/hooks/use-published-nav-menu";
+import { resolveCmsNavigationView } from "@/lib/cms-navigation";
 import { usePublishedBrand } from "@/hooks/use-published-cms";
-import { isExternalCmsHref, cmsInternalView } from "@/hooks/use-published-cms";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { siteConfig, getCopyrightYears } from "@/lib/site-config";
 import { Cake, Mail, Phone, MapPin, Sparkles } from "lucide-react";
 import type { ViewKey } from "@/lib/types";
 
@@ -58,60 +59,73 @@ const FOOTER_COLUMNS: {
   },
 ];
 
+type PublicFooterLink = { id: string; label: string; url: string; location: string };
+
 export function Footer() {
   const navigate = useAppStore((s) => s.navigate);
-  // Z-brand/CMS: опубликованные пункты меню футера (cms_nav_menu, location=footer).
-  // Нет пунктов → колонка не рендерится, хардкод-колонки без изменений.
-  const cmsFooterItems = usePublishedNavMenu("footer");
-  // Z-brand: логотип из настроек (brand_logo_url); null → системный /logo.png
-  // (как в шапке — см. usePublishedBrand()).
+  const router = useRouter();
+  const pathname = usePathname();
   const brand = usePublishedBrand();
+  const navigateToView = (...args: Parameters<typeof navigate>) => {
+    navigate(...args);
+    if (pathname.startsWith("/pages/")) router.push("/");
+  };
+  const [cmsLinks, setCmsLinks] = useState<PublicFooterLink[]>([]);
 
-  const goToCmsFooterItem = (url: string) => {
-    if (isExternalCmsHref(url)) {
-      window.open(url, "_blank", "noopener,noreferrer");
-      return;
-    }
-    navigate(cmsInternalView(url) as never);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/cms/nav-menu?location=footer", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Footer navigation unavailable")))
+      .then((payload: { items?: PublicFooterLink[] }) => {
+        if (!controller.signal.aborted) setCmsLinks(Array.isArray(payload.items) ? payload.items : []);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCmsLinks([]);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const openCmsLink = (link: PublicFooterLink) => {
+    const appView = resolveCmsNavigationView(link.url);
+    if (appView) navigateToView(appView);
+    else if (link.url.startsWith("/") && !link.url.startsWith("//")) router.push(link.url);
   };
 
   return (
-    <footer className="footer-dark relative mt-auto">
-      {/* Лёгкое зерно поверх тёмного шоколада (V2) */}
-      <div className="grain-overlay absolute inset-0" aria-hidden="true" />
-      <div className="container mx-auto px-4 py-14 relative">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
+    <footer className="mt-auto border-t border-border bg-secondary/40">
+      <div className="container mx-auto px-4 py-12">
+        <div className={`grid grid-cols-2 md:grid-cols-3 ${cmsLinks.length > 0 ? "lg:grid-cols-7" : "lg:grid-cols-6"} gap-8`}>
           {/* Brand */}
           <div className="col-span-2 lg:col-span-2">
             <button
-              onClick={() => navigate("home")}
+              onClick={() => navigateToView("home")}
               className="flex items-center gap-2 mb-4"
             >
-              <img src={brand.logoUrl ?? "/logo.png"} alt={siteConfig.name} className="h-12 w-12 rounded-full object-cover shadow-md ring-1 ring-white/15" />
+              <img src={brand.logoUrl ?? "/logo.png"} alt={siteConfig.name} className="h-12 w-12 rounded-full object-cover shadow-md" />
               <div className="text-left leading-tight">
-                <div className="logo-text text-lg text-[oklch(0.92_0.012_80)]">{siteConfig.name}</div>
+                <div className="logo-text text-lg">{siteConfig.name}</div>
               </div>
             </button>
-            <p className="text-sm text-[oklch(0.70_0.02_65)] mb-4 max-w-xs">
+            <p className="text-sm text-muted-foreground mb-4 max-w-xs">
               {siteConfig.description}
             </p>
-            <div className="space-y-2.5 text-sm">
+            <div className="space-y-2 text-sm">
               <a
                 href={`mailto:${siteConfig.supportEmail}`}
-                className="footer-link flex items-center gap-2"
+                className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
               >
                 <Mail className="h-4 w-4" />
                 {siteConfig.supportEmail}
               </a>
               <a
                 href={`tel:${siteConfig.phoneHref}`}
-                className="footer-link flex items-center gap-2"
+                className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors"
               >
                 <Phone className="h-4 w-4" />
                 {siteConfig.phone}
               </a>
               {siteConfig.address && (
-                <div className="flex items-center gap-2 text-[oklch(0.70_0.02_65)]">
+                <div className="flex items-center gap-2 text-muted-foreground">
                   <MapPin className="h-4 w-4" />
                   {siteConfig.address}
                 </div>
@@ -122,15 +136,15 @@ export function Footer() {
           {/* Link columns */}
           {FOOTER_COLUMNS.map((col) => (
             <div key={col.title}>
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em]! text-[oklch(0.92_0.012_80)] mb-4">
+              <h3 className="font-semibold text-sm mb-3 text-foreground">
                 {col.title}
               </h3>
-              <ul className="space-y-2.5">
+              <ul className="space-y-2">
                 {col.links.map((link) => (
                   <li key={link.label}>
                     <button
-                      onClick={() => link.view && navigate(link.view)}
-                      className="footer-link text-sm text-left"
+                      onClick={() => link.view && navigateToView(link.view)}
+                      className="text-sm text-muted-foreground hover:text-primary transition-colors text-left"
                     >
                       {link.label}
                     </button>
@@ -139,32 +153,18 @@ export function Footer() {
               </ul>
             </div>
           ))}
-          {/* Z-brand/CMS: колонка из опубликованных пунктов (location=footer) */}
-          {cmsFooterItems.length > 0 && (
+          {cmsLinks.length > 0 && (
             <div>
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.18em]! text-[oklch(0.92_0.012_80)] mb-4">
-                Меню
-              </h3>
-              <ul className="space-y-2.5">
-                {cmsFooterItems.map((item) => (
-                  <li key={item.id}>
-                    {isExternalCmsHref(item.url) ? (
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="footer-link text-sm"
-                      >
-                        {item.label}
-                      </a>
-                    ) : (
-                      <button
-                        onClick={() => goToCmsFooterItem(item.url)}
-                        className="footer-link text-sm text-left"
-                      >
-                        {item.label}
-                      </button>
-                    )}
+              <h3 className="font-semibold text-sm mb-3 text-foreground">Дополнительно</h3>
+              <ul className="space-y-2">
+                {cmsLinks.map((link) => (
+                  <li key={link.id}>
+                    <button
+                      onClick={() => openCmsLink(link)}
+                      className="text-sm text-muted-foreground hover:text-primary transition-colors text-left"
+                    >
+                      {link.label}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -173,28 +173,28 @@ export function Footer() {
         </div>
 
         {/* Payment & social */}
-        <div className="mt-10 pt-6 border-t border-white/10 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-[oklch(0.70_0.02_65)]">
-            <span className="font-medium text-[oklch(0.80_0.02_70)]">Принимаем:</span>
+        <div className="mt-10 pt-6 border-t border-border flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="font-medium">Принимаем:</span>
             {["Visa", "Mastercard", "Мир", "СБП", "YooKassa"].map((p) => (
               <span
                 key={p}
-                className="px-2.5 py-1 bg-white/10 border border-white/15 rounded-md text-[11px] font-medium text-[oklch(0.85_0.02_75)]"
+                className="px-2 py-1 bg-background border border-border rounded text-[11px] font-medium"
               >
                 {p}
               </span>
             ))}
           </div>
-          <div className="text-xs text-[oklch(0.70_0.02_65)]">
+          <div className="text-xs text-muted-foreground">
             © {getCopyrightYears()} {siteConfig.name}. Все права защищены.
             {siteConfig.inn && ` ИНН ${siteConfig.inn}.`}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            <button onClick={() => navigate("legal", { legal: "privacy" })} className="footer-link">Политика конфиденциальности</button>
-            <button onClick={() => navigate("legal", { legal: "terms" })} className="footer-link">Пользовательское соглашение</button>
-            <button onClick={() => navigate("legal", { legal: "offer" })} className="footer-link">Договор-оферта</button>
-            <button onClick={() => navigate("legal", { legal: "consent" })} className="footer-link">Согласие на обработку ПД</button>
-            <button onClick={() => navigate("legal", { legal: "cookies" })} className="footer-link">Cookies</button>
+            <button onClick={() => navigateToView("legal", { legal: "privacy" })} className="text-muted-foreground hover:text-primary transition">Политика конфиденциальности</button>
+            <button onClick={() => navigateToView("legal", { legal: "terms" })} className="text-muted-foreground hover:text-primary transition">Пользовательское соглашение</button>
+            <button onClick={() => navigateToView("legal", { legal: "offer" })} className="text-muted-foreground hover:text-primary transition">Договор-оферта</button>
+            <button onClick={() => navigateToView("legal", { legal: "consent" })} className="text-muted-foreground hover:text-primary transition">Согласие на обработку ПД</button>
+            <button onClick={() => navigateToView("legal", { legal: "cookies" })} className="text-muted-foreground hover:text-primary transition">Cookies</button>
           </div>
         </div>
       </div>

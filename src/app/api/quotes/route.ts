@@ -30,6 +30,7 @@ interface QuoteRequestBody {
   filling_id?: string;
   coating?: string;
   decorations?: string[];
+  project_spec?: Record<string, unknown>;
   dietary?: string[];
   servings?: number;
   quantity?: number;
@@ -94,6 +95,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     const confectionerTargets = (targets || []) as Array<{ id: string; userId: string | null; businessName: string | null }>; // verified-цели
 
+    // Неизменяемый снимок пожеланий клиента. Не более пяти элементов декора.
+    const projectSpec = body.project_spec && typeof body.project_spec === "object"
+      ? JSON.parse(JSON.stringify(body.project_spec)) as Record<string, unknown>
+      : {};
+    const rawDecorations = Array.isArray(projectSpec.decorations)
+      ? projectSpec.decorations
+      : (body.decorations || []);
+    if (!Array.isArray(rawDecorations) || rawDecorations.length > 5 ||
+        rawDecorations.some((item) => typeof item !== "string" || item.length > 120)) {
+      throw new HttpError(400, "Допускается не более пяти корректных элементов декора");
+    }
+    projectSpec.decorations = rawDecorations;
+    if (JSON.stringify(projectSpec).length > 16000) {
+      throw new HttpError(400, "Снимок пожеланий слишком большой");
+    }
+
     // Создать запрос
     const { data: quoteRequest, error: insertError } = await supabaseAdmin
       .from("quote_requests")
@@ -107,7 +124,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         filling: body.filling,
         filling_id: body.filling_id,
         coating: body.coating,
-        decorations: body.decorations || [],
+        decorations: rawDecorations,
+        project_spec: projectSpec,
         dietary: body.dietary || [],
         servings: body.servings,
         quantity: body.quantity,
@@ -202,21 +220,46 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         throw new HttpError(403, "Вы не кондитер");
       }
 
-      // Запросы, где кондитер в списке confectioner_ids
-      const { data: quotes, error } = await supabaseAdmin
+      // Не загружаем чужие предложения: каждый кондитер видит только свои цены.
+      const { data: requests, error: requestError } = await supabaseAdmin
         .from("quote_requests")
-        .select(`
-          *,
-          my_quotes:confectioner_quotes!inner(*)
-        `)
+        .select("*")
         .contains("confectioner_ids", [confectioner.id])
         .order("created_at", { ascending: false });
 
-      if (error) {
-        throw new HttpError(500, "DB error", error.message);
+      if (requestError) {
+        throw new HttpError(500, "DB error", requestError.message);
       }
 
-      return NextResponse.json({ quotes: quotes || [], confectioner_id: confectioner.id });
+      const requestIds = (requests ?? []).map((request) => request.id);
+      const { data: ownOffers, error: ownOffersError } = requestIds.length
+        ? await supabaseAdmin
+            .from("confectioner_quotes")
+            .select("*")
+            .eq("confectioner_id", confectioner.id)
+            .in("quote_request_id", requestIds)
+        : { data: [], error: null };
+      if (ownOffersError) {
+        throw new HttpError(500, "DB error", ownOffersError.message);
+      }
+
+      const offersByRequest = new Map<string, typeof ownOffers>();
+      for (const offer of ownOffers ?? []) {
+        const current = offersByRequest.get(offer.quote_request_id) ?? [];
+        current.push(offer);
+        offersByRequest.set(offer.quote_request_id, current);
+      }
+
+      // После принятия предложения запрос и вложения доступны только выбранному кондитеру.
+      const visibleQuotes = (requests ?? [])
+        .map((request) => ({
+          ...request,
+          my_quotes: offersByRequest.get(request.id) ?? [],
+        }))
+        .filter((request) => request.status !== "approved" ||
+          request.my_quotes.some((quote) => quote.status === "accepted"));
+
+      return NextResponse.json({ quotes: visibleQuotes, confectioner_id: confectioner.id });
     }
 
     throw new HttpError(400, "Неизвестный режим. Используйте ?mode=my или ?mode=confectioner");

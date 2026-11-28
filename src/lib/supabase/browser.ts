@@ -11,22 +11,27 @@
 
 import { createBrowserClient } from "@supabase/ssr";
 import { resolveSupabaseBrowserUrl, SUPABASE_COOKIE_NAME } from "./url";
+import { isPlaceholderSupabaseKey } from "./key-validation";
 
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Lazy warning — не падаем в build, только в runtime.
-const _isStub = !supabaseAnonKey;
+const _isProduction = process.env.NODE_ENV === "production";
+const _isStub = isPlaceholderSupabaseKey(supabaseAnonKey, !_isProduction);
+
+// NEXT_PUBLIC_* values are embedded into the browser bundle at build time.
+// A placeholder here cannot be repaired by injecting a runtime env later.
+// Fail the production build instead of shipping a client that can never auth.
+if (_isStub && _isProduction) {
+  throw new Error(
+    "[supabase/browser] Production build requires a real NEXT_PUBLIC_SUPABASE_ANON_KEY. " +
+    "A placeholder anon key cannot be replaced at runtime."
+  );
+}
 if (_isStub) {
-  if (process.env.NODE_ENV === "development") {
-    console.warn(
-      "[supabase/browser] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
-      "Auth will not work. Using stub client."
-    );
-  } else if (process.env.NODE_ENV === "production") {
-    console.warn(
-      "[supabase/browser] Supabase env not set. Auth will fail at runtime."
-    );
-  }
+  console.warn(
+    "[supabase/browser] NEXT_PUBLIC_SUPABASE_ANON_KEY is missing or a placeholder; " +
+    "browser authentication is unavailable in this development environment."
+  );
 }
 
 // Браузерный URL: для локального стека — same-origin (см. url.ts),
@@ -35,7 +40,7 @@ const supabaseUrl = resolveSupabaseBrowserUrl();
 
 export const supabaseBrowser = createBrowserClient(
   supabaseUrl,
-  supabaseAnonKey || "stub-anon-key",
+  supabaseAnonKey || "dev-only-stub-anon-key",
   { cookieOptions: { name: SUPABASE_COOKIE_NAME } }
 );
 

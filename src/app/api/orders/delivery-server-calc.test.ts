@@ -162,6 +162,7 @@ describe("POST /api/orders — серверный расчёт доставки 
     const res = await POST(
       jsonReq({
         items: [{ productId: PID, quantity: 1 }],
+        paymentMethod: "cash",
         deliveryAddress: "г. Москва, ул. Тверская 1",
         deliveryCost: 0,
       })
@@ -199,6 +200,7 @@ describe("POST /api/orders — серверный расчёт доставки 
     const res = await POST(
       jsonReq({
         items: [{ productId: PID, quantity: 1 }],
+        paymentMethod: "cash",
         deliveryAddress: "г. Москва, ул. Тверская 1",
         deliveryCost: 5000,
       })
@@ -222,6 +224,7 @@ describe("POST /api/orders — серверный расчёт доставки 
     const res = await POST(
       jsonReq({
         items: [{ productId: PID, quantity: 2 }],
+        paymentMethod: "cash",
         deliveryAddress: "г. Москва, ул. Тверская 1",
         deliveryCost: 0,
       })

@@ -29,6 +29,7 @@ import {
 } from "./snapshot";
 import {
   estimateOrderProductionMinutes,
+  isDeliveryLeadTimeSatisfied,
   type OrderItemForEstimate,
 } from "./production-duration";
 import { computeDeadlineAt, computeLatestSafeStart, minuteToHHMM } from "./deadline";
@@ -466,6 +467,27 @@ export async function checkAcceptance(input: AcceptanceInput): Promise<Acceptanc
       suggestions.push({
         code: "CONFIGURE_PRODUCT_TIME",
         message: "Заполните время производства в карточке товара или рецепте.",
+      });
+    }
+
+    // production_time_hours — минимальный срок от оформления до выдачи,
+    // отдельно от трудоёмкости, используемой для расчёта мощности.
+    const requiredLeadTimeHours = group.items.reduce(
+      (max, item) => Math.max(max, item.productionTimeHours ?? 0),
+      0
+    );
+    if (
+      deadlineAt &&
+      requiredLeadTimeHours > 0 &&
+      !isDeliveryLeadTimeSatisfied(requiredLeadTimeHours, deadlineAt, now)
+    ) {
+      reasons.push({
+        code: "DEADLINE_TOO_CLOSE",
+        message: `Для «${group.items[0]?.title ?? "товара"}» требуется не менее ${requiredLeadTimeHours} ч от оформления до выдачи.`,
+      });
+      suggestions.push({
+        code: "MOVE_DELIVERY_TIME",
+        message: "Выберите более позднюю дату выдачи с учётом срока изготовления.",
       });
     }
 

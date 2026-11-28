@@ -93,6 +93,15 @@ vi.mock("@/lib/auth", () => ({
   createRefreshToken: (...args: unknown[]) => createRefreshTokenMock(...args),
 }));
 
+const createUserSessionMock = vi.fn();
+const setSessionRefreshJtiMock = vi.fn();
+vi.mock("@/lib/session-registry", () => ({
+  createUserSession: (...args: unknown[]) => createUserSessionMock(...args),
+  setSessionRefreshJti: (...args: unknown[]) => setSessionRefreshJtiMock(...args),
+  NEW_DEVICE_LOGIN_BLOCKED: "ACCOUNT_NEW_DEVICE_REQUIRES_LOGOUT",
+  SESSION_POLICY_UNAVAILABLE: "ACCOUNT_SESSION_POLICY_UNAVAILABLE",
+}));
+
 const poolQueryMock = vi.fn();
 vi.mock("@/lib/postgrest/pool", () => ({
   getPool: () => ({ query: poolQueryMock }),
@@ -176,6 +185,8 @@ beforeEach(() => {
   hashPasswordMock.mockResolvedValue("bcrypt-hash-stub");
   createAccessTokenMock.mockResolvedValue("access-token-stub");
   createRefreshTokenMock.mockResolvedValue("refresh-token-stub");
+  createUserSessionMock.mockResolvedValue("session-registration-1");
+  setSessionRefreshJtiMock.mockResolvedValue(undefined);
 });
 
 describe("POST /api/auth/register — единый fallback при недоступности GoTrue", () => {
@@ -199,6 +210,11 @@ describe("POST /api/auth/register — единый fallback при недост�
     expect(profileUpsertMock).toHaveBeenCalledTimes(1);
     expect(userRolesUpsertMock).toHaveBeenCalledTimes(1);
     expect(referralsInsertMock).toHaveBeenCalledTimes(1);
+    expect(referralsInsertMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: expect.any(String),
+      userId: expect.any(String),
+      referralCode: expect.any(String),
+    }));
     // Компенсация (deleteUser) не нужна — GoTrue пользователя и не было
     expect(deleteUserMock).not.toHaveBeenCalled();
   });

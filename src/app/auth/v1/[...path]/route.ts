@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { isLocalSupabaseShimAllowed } from "@/lib/supabase/local-shim";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,12 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ path?: string[] }> };
 
 async function handle(_req: NextRequest, ctx: Ctx): Promise<NextResponse> {
+  if (!isLocalSupabaseShimAllowed()) {
+    return NextResponse.json(
+      { code: "NOT_FOUND", message: "Endpoint not found" },
+      { status: 404 }
+    );
+  }
   const { path } = await ctx.params;
   return NextResponse.json(
     {

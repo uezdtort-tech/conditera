@@ -145,6 +145,7 @@ import { useRealInventory } from "@/lib/use-real-inventory";
 import { ConfectionerTodayTab } from "@/components/dashboard/confectioner-today-tab";
 import { ConfectionerScaleSettings } from "@/components/dashboard/confectioner-scale-settings";
 import { OrderBreakdownDialog } from "@/components/dashboard/order-breakdown-dialog";
+import { OrderWorkspaceDialog } from "@/components/dashboard/order-workspace-dialog";
 import { OrderTimeline } from "@/components/dashboard/order-timeline";
 import { OrderTimelineEvents } from "@/components/dashboard/order-timeline-events";
 import { ConfectionerChatTab } from "@/components/dashboard/confectioner-chat-tab";
@@ -206,6 +207,7 @@ export function ConfectionerDashboard() {
   const [showTariffDialog, setShowTariffDialog] = useState(false);
   // Разбор заказа (OrderBreakdownDialog): id заказа или null
   const [breakdownOrderId, setBreakdownOrderId] = useState<string | null>(null);
+  const [workspaceOrderId, setWorkspaceOrderId] = useState<string | null>(null);
   // Реальные заказы (GET /api/orders — скоуп кондитера решает сервер: user_id ИЛИ confectioner_id).
   // Fallback на store-заказы (mock) только если API недоступен (isStale=true).
   const {
@@ -394,6 +396,7 @@ export function ConfectionerDashboard() {
               <ConfectionerTodayTab
                 onNavigateTab={setActiveTab}
                 onOpenBreakdown={(id) => setBreakdownOrderId(id)}
+                onOpenWorkspace={(id) => setWorkspaceOrderId(id)}
               />
             )}
 
@@ -584,6 +587,8 @@ export function ConfectionerDashboard() {
                       <Card
                         key={order.id}
                         id={`order-card-${order.id}`}
+                        data-testid="confectioner-order-card"
+                        data-order-id={order.id}
                         className={`p-4 ${highlightOrderId === order.id ? "ring-2 ring-primary" : ""}`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
@@ -676,27 +681,33 @@ export function ConfectionerDashboard() {
                           {order.status === "CONFIRMED" && (
                             <Button
                               size="sm"
-                              disabled={updateOrderStatusApi.isPending}
-                              onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "PREPARING" })}
+                              data-testid="open-order-workspace"
+                              onClick={() => setWorkspaceOrderId(order.id)}
                             >
-                              Начать готовку
+                              <ClipboardList className="h-4 w-4 mr-1" />
+                              Начать производство
                             </Button>
                           )}
                           {order.status === "PREPARING" && (
                             <Button
                               size="sm"
-                              disabled={updateOrderStatusApi.isPending}
-                              onClick={() => updateOrderStatusApi.mutate({ orderId: order.id, status: "READY" })}
+                              data-testid="open-order-workspace"
+                              onClick={() => setWorkspaceOrderId(order.id)}
                             >
-                              <Check className="h-4 w-4 mr-1" />
-                              Готово
+                              <ClipboardList className="h-4 w-4 mr-1" />
+                              Открыть чек-лист готовности
                             </Button>
                           )}
                           {order.status === "READY" && (
-                            <Badge variant="outline" className="text-[10px] bg-cyan-50 text-cyan-700 border-cyan-200 h-8 flex items-center">
-                              <Truck className="h-3 w-3 mr-1" />
-                              Готов к передаче курьеру (перевод в "В доставке" — курьер/админ)
-                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              data-testid="open-order-workspace"
+                              onClick={() => setWorkspaceOrderId(order.id)}
+                            >
+                              <Truck className="h-4 w-4 mr-1" />
+                              Передать заказ
+                            </Button>
                           )}
                           <Button
                             size="sm"
@@ -1312,6 +1323,16 @@ export function ConfectionerDashboard() {
             onOpenChange={(o) => {
               if (!o) setBreakdownOrderId(null);
             }}
+          />
+
+          <OrderWorkspaceDialog
+            orderId={workspaceOrderId}
+            open={!!workspaceOrderId}
+            onOpenChange={(open) => {
+              if (!open) setWorkspaceOrderId(null);
+            }}
+            defaultTab="production"
+            hideCompleteAction
           />
 
           {/* Диалог смены тарифа */}

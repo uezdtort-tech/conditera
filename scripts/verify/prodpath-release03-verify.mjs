@@ -218,6 +218,12 @@ function preprocessStatement(stmt) {
       return { skip: true, reason: `${ext} not available locally` };
     }
   }
+  // pg_cron is managed in the postgres maintenance database and is not
+  // installed in the application database or vanilla embedded PostgreSQL.
+  if (/CREATE\\s+EXTENSION\\s+pg_cron/i.test(s) && SKIP_EXTENSIONS.includes("pg_cron")) {
+    return { skip: true, reason: "pg_cron is managed outside the application database" };
+  }
+
 
   // Схема extensions → public (uuid-ossp/pgcrypto/pg_trgm и т.п.)
   s = s.replace(/WITH\s+SCHEMA\s+extensions/gi, "WITH SCHEMA public");

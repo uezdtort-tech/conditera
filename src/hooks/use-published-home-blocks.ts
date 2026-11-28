@@ -1,12 +1,11 @@
 "use client";
 
 /**
- * use-published-home-blocks.ts — опубликованные CMS-блоки секций главной
- * (cms_sections + cms_section_blocks через GET /api/cms/blocks).
- *
- * Контракт (зеркало use-published-cms.ts): никогда не бросает, не блокирует
- * рендер; нет блоков (ошибка/пусто) → пустая map → вызывающий рендерит
- * хардкод-фолбэк. 10s in-memory кэш + дедупликация in-flight запроса.
+ * Публичные CMS-блоки главной страницы.
+ * Источник истины — public GET /api/cms/home-blocks?public=true,
+ * возвращающий строки public.cms_home_blocks в snake_case.
+ * Ошибка или пустая таблица не блокируют рендер: страница использует
+ * встроенный контент как безопасный fallback.
  */
 
 import { useEffect, useState } from "react";
@@ -28,17 +27,43 @@ let inFlight: Promise<Record<string, PublishedHomeBlock[]>> | null = null;
 
 const EMPTY: Record<string, PublishedHomeBlock[]> = {};
 
-function asRecord(v: unknown): Record<string, unknown> | null {
-  return typeof v === "object" && v !== null && !Array.isArray(v)
-    ? (v as Record<string, unknown>)
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
     : null;
 }
 
-function clampText(v: unknown, max: number): string | undefined {
-  if (typeof v !== "string") return undefined;
-  const t = v.trim();
-  if (!t) return undefined;
-  return t.length > max ? t.slice(0, max) : t;
+function clampText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  if (!text) return undefined;
+  return text.length > max ? text.slice(0, max) : text;
+}
+
+/** Преобразует реальный API-контракт cms_home_blocks в map по секциям. */
+export function groupPublishedHomeBlocks(input: unknown): Record<string, PublishedHomeBlock[]> {
+  const bySection: Record<string, PublishedHomeBlock[]> = Object.create(null) as Record<string, PublishedHomeBlock[]>;
+  if (!Array.isArray(input)) return bySection;
+
+  for (const value of input) {
+    const row = asRecord(value);
+    const section = clampText(row?.section, 60);
+    const id = clampText(row?.id, 100);
+    if (!row || !section || !id || row.is_active !== true) continue;
+
+    const block: PublishedHomeBlock = {
+      id,
+      title: clampText(row.title, 200),
+      subtitle: clampText(row.subtitle, 400),
+      text: clampText(row.content, 1000),
+      image: clampText(row.image_url, 2048),
+      link: clampText(row.link_url, 2048),
+      linkText: clampText(row.link_text, 200),
+    };
+    (bySection[section] ??= []).push(block);
+  }
+
+  return bySection;
 }
 
 async function fetchBlocksBySection(): Promise<Record<string, PublishedHomeBlock[]>> {
@@ -47,37 +72,13 @@ async function fetchBlocksBySection(): Promise<Record<string, PublishedHomeBlock
     inFlight = (async () => {
       let json: unknown = null;
       try {
-        const res = await fetch("/api/cms/blocks", { cache: "no-store" });
-        if (res.ok) json = await res.json();
+        const response = await fetch("/api/cms/home-blocks?public=true", { cache: "no-store" });
+        if (response.ok) json = await response.json();
       } catch {
         json = null;
       }
       const root = asRecord(json);
-      const sectionsUnknown: unknown = root ? root.sections : null;
-      const sections: unknown[] = Array.isArray(sectionsUnknown) ? (sectionsUnknown as unknown[]) : [];
-      const bySection: Record<string, PublishedHomeBlock[]> = {};
-      for (const s of sections) {
-        const rec = asRecord(s);
-        const slug = clampText(rec?.slug, 60);
-        const blocksUnknown: unknown = rec ? rec.blocks : null;
-        const blocks: unknown[] = Array.isArray(blocksUnknown) ? (blocksUnknown as unknown[]) : [];
-        if (!slug) continue;
-        const items: PublishedHomeBlock[] = [];
-        for (const b of blocks) {
-          const r = asRecord(b);
-          if (!r || r.isActive === false) continue;
-          items.push({
-            id: clampText(r.id, 100) ?? "",
-            title: clampText(r.title, 200),
-            subtitle: clampText(r.subtitle, 400),
-            text: clampText(r.content ?? r.text, 1000),
-            image: clampText(r.image, 2048),
-            link: clampText(r.link, 500),
-            linkText: clampText(r.linkText, 200),
-          });
-        }
-        if (items.length > 0) bySection[slug] = items;
-      }
+      const bySection = groupPublishedHomeBlocks(root?.blocks);
       cache = { bySection, expiresAt: Date.now() + CACHE_TTL_MS };
       return bySection;
     })().finally(() => {
@@ -88,8 +89,8 @@ async function fetchBlocksBySection(): Promise<Record<string, PublishedHomeBlock
 }
 
 /**
- * Опубликованные CMS-блоки по секциям: { advantages: [...], steps: [...] }.
- * Пустая map / отсутствие секции → хардкод-фолбэк (fetch в useEffect).
+ * Опубликованные блоки по секциям: { advantages: [...], steps: [...] }.
+ * При пустом результате вызывающая страница сохраняет встроенный fallback.
  */
 export function usePublishedHomeBlocks(): Record<string, PublishedHomeBlock[]> {
   const [bySection, setBySection] = useState<Record<string, PublishedHomeBlock[]>>(EMPTY);
@@ -100,7 +101,7 @@ export function usePublishedHomeBlocks(): Record<string, PublishedHomeBlock[]> {
         if (alive && Object.keys(data).length > 0) setBySection(data);
       })
       .catch(() => {
-        // Никогда не бросаем: ошибка → фолбэк (EMPTY уже стоит).
+        // Ошибка API не должна ломать публичную главную.
       });
     return () => {
       alive = false;

@@ -1,0 +1,370 @@
+name: PostgreSQL 17 — полный прогон бизнес-сценариев
+
+on:
+  push:
+    branches:
+      - main
+      - "integration/**"
+    paths:
+      - ".github/workflows/pg17-business-scenarios.yml"
+      - ".github/workflows/supabase-single-container-poc.yml"
+      - "supabase/migrations/**"
+      - "supabase/compat/**"
+      - "scripts/db/**"
+      - "scripts/verify/**"
+      - "scripts/n8n-entrypoint.mjs"
+      - "n8n-workflows/**"
+      - "src/app/api/**"
+      - "src/lib/**"
+      - "tests/e2e/**"
+      - "package.json"
+      - "bun.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pg17-business-scenarios-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  pg17-scenarios:
+    name: PG17 — migrations, order lifecycle, payments, stock, chat, media, Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: supabase/postgres:17.12.0.002
+        env:
+          POSTGRES_USER: supabase_admin
+          POSTGRES_PASSWORD: ${{ 'ci-pg17-password' }}
+          POSTGRES_DB: conditera
+          POSTGRES_PORT: 5432
+          POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+          SEED_MODE: none
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U supabase_admin -d conditera"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 45s
+    env:
+      NODE_VERSION: "26"
+      JWT_SECRET: ${{ 'e2e_test_jwt_secret_32_chars_min_aaaaaaaaaa' }}
+      JWT_REFRESH_SECRET: ${{ 'e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa' }}
+      TFA_ENCRYPTION_KEY: ${{ 'e2e_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa' }}
+      CRON_SECRET: ${{ 'e2e_test_cron_secret' }}
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
+      SUPABASE_INTERNAL_URL: http://127.0.0.1:3000
+      NODE_ENV: test
+      LOCAL_AUTH_STUB_ENABLED: "true"
+      E2E_PAYMENT_STUB_ENABLED: "true"
+      YANDEX_CLIENT_ID: e2e-yandex-client
+      YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
+      VK_CLIENT_ID: e2e-vk-client
+      VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
+      GOOGLE_CLIENT_ID: e2e-google-client
+      GOOGLE_CLIENT_SECRET: ${{ github.run_id }}
+      GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
+      CI: "true"
+
+    steps:
+      - uses: actions/checkout@v7
+      - name: Выделить уникальный порт для PostgreSQL 17
+        shell: bash
+        env:
+          PG17_HOST_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: |
+          if [[ -z "$PG17_HOST_PORT" ]]; then
+            echo "GitHub Actions не выдал динамический host port для PostgreSQL 17" >&2
+            exit 1
+          fi
+          # Keep credentials out of connection URLs so the repository secret scanner
+          # does not treat a disposable CI service password as a leaked credential.
+          echo "PGPASSWORD=ci-pg17-password" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=postgresql://supabase_admin@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
+          echo "PGURL=postgresql://supabase_admin@127.0.0.1:${PG17_HOST_PORT}/conditera" >> "$GITHUB_ENV"
+          echo "ZV24_ADMIN_URL=postgresql://supabase_admin@127.0.0.1:${PG17_HOST_PORT}/postgres" >> "$GITHUB_ENV"
+
+
+      - name: Проверить все JSON-сценарии n8n и production allowlist
+        run: node scripts/verify/n8n-production-workflows-verify.mjs
+
+      - name: Проверить production env preflight на валидных и небезопасных конфигурациях
+        run: node scripts/verify/production-env-preflight-test.mjs
+
+      - name: Установить Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Установить зависимости
+        run: bun install --frozen-lockfile
+
+      - name: Регрессия точных имён PostgreSQL enum
+        run: bun run test -- src/lib/postgrest/introspect.test.ts
+
+      - name: Применить все миграции к чистому PostgreSQL 17 и создать E2E-данные
+        run: bun run db:setup
+        env:
+          SEED_MODE: demo
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NODE_ENV: test
+
+      - name: Изолированная регрессия cart schema на отдельной БД PostgreSQL 17
+        run: bun scripts/verify/cart-schema-verify.mjs
+      - name: Проверить версию PG17, журнал миграций, расширения, роли и RLS
+        run: |
+          node --input-type=module <<'NODE'
+          import { Client } from "pg";
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const version = Number((await db.query("SHOW server_version_num")).rows[0].server_version_num);
+            if (version < 170000 || version >= 180000) throw new Error(`Expected PostgreSQL 17, got ${version}`);
+            const migrationFiles = (await import("node:fs")).readdirSync("supabase/migrations")
+              .filter(name => /^[0-9]+.*[.]sql$/.test(name))
+              .sort();
+            const appliedRows = (await db.query(
+              "SELECT filename FROM public.schema_migrations ORDER BY filename"
+            )).rows;
+            const appliedFiles = new Set(appliedRows.map(row => row.filename));
+            const missingMigrations = migrationFiles.filter(name => !appliedFiles.has(name));
+            const unexpectedMigrations = [...appliedFiles].filter(name => !migrationFiles.includes(name));
+            if (missingMigrations.length || unexpectedMigrations.length) {
+              throw new Error(
+                `Migration ledger mismatch: expected=${migrationFiles.length}, applied=${appliedRows.length}, missing=${missingMigrations.join(",")}, unexpected=${unexpectedMigrations.join(",")}`
+              );
+            }
+            const migrations = appliedRows.length;
+            const required = [
+              "profiles","user_roles","products","orders","inventory_items","inventory_movements",
+              "chat_channels","oauth_identity_links","user_consent_events","moderation_queue",
+              "order_disputes","order_dispute_messages","user_sessions","quote_request_media",
+              "product_slices","cms_home_blocks","cms_home_sections"
+            ];
+            for (const table of required) {
+              const found = (await db.query("SELECT to_regclass($1) IS NOT NULL AS ok", [`public.${table}`])).rows[0].ok;
+              if (!found) throw new Error(`Missing required table public.${table}`);
+            }
+
+            const cakeDraftColumns = new Set((await db.query(
+              "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='cake_builder_drafts'"
+            )).rows.map(x => x.column_name));
+            for (const column of ["product_type","tiers","shape","quantity","address","project_spec"]) {
+              if (!cakeDraftColumns.has(column)) throw new Error(`Missing cake_builder_drafts.${column}`);
+            }
+            const moderationColumns = new Set((await db.query(
+              "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='moderation_queue'"
+            )).rows.map(x => x.column_name));
+            for (const column of ["author_name","title","content","images","auto_score","violations"]) {
+              if (!moderationColumns.has(column)) throw new Error(`Missing moderation_queue.${column}`);
+            }
+
+            const extensions = (await db.query("SELECT extname FROM pg_extension")).rows.map(x => x.extname);
+            for (const ext of ["pgcrypto","uuid-ossp","pg_trgm","btree_gist"]) {
+              if (!extensions.includes(ext)) throw new Error(`Missing required extension ${ext}; installed: ${extensions.join(", ")}`);
+            }
+            const policies = Number((await db.query("SELECT count(*)::int AS n FROM pg_policies WHERE schemaname='public'")).rows[0].n);
+            if (policies < 1) throw new Error("No public RLS policies found");
+
+            // db:setup не должен молча пропускать демо-сиды: полный order
+            // lifecycle требует витрину и рецепт с ингредиентом «Ягоды».
+            const demoProduct = await db.query(
+              `SELECT p.recipe_id, count(ri.id)::int AS ingredient_count,
+                      bool_or(ri.name = 'Ягоды') AS has_berries
+                 FROM public.products p
+                 LEFT JOIN public.recipe_ingredients ri ON ri.recipe_id = p.recipe_id
+                WHERE p.id = 'aaaaaaaa-0000-4000-8000-000000000001'::uuid
+                GROUP BY p.recipe_id`
+            );
+            if (demoProduct.rowCount !== 1 || !demoProduct.rows[0].recipe_id ||
+                demoProduct.rows[0].ingredient_count < 5 || !demoProduct.rows[0].has_berries) {
+              throw new Error(`Demo vitrine/recipe seed incomplete: ${JSON.stringify(demoProduct.rows)}`);
+            }
+            const confectioners = Number((await db.query(
+              "SELECT count(*)::int AS n FROM public.confectioners WHERE id IN ('c0','c1','c2','c3','c4')"
+            )).rows[0].n);
+            if (confectioners !== 5) throw new Error(`Expected 5 demo confectioners, got ${confectioners}`);
+
+            console.log(`PASS PostgreSQL ${version}; app migrations=${migrations}; extensions=${extensions.join(",")}; public RLS policies=${policies}; demo product recipe ingredients=${demoProduct.rows[0].ingredient_count}; demo confectioners=${confectioners}`);
+          } finally {
+            await db.end();
+          }
+          NODE
+      - name: Проверить конкурентные возвраты на независимых соединениях PG17
+        run: node scripts/verify/refund-concurrency-pg.mjs
+      - name: Экспортировать сгенерированный Supabase anon key для production build
+        shell: bash
+        run: |
+          KEY="$(sed -n 's/^NEXT_PUBLIC_SUPABASE_ANON_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$KEY" ] || [ "$KEY" = "stub-anon-key" ]; then
+            echo "A generated Supabase anon key is required for the production build"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Экспортировать service-role key из локального окружения теста
+        shell: bash
+        run: |
+          KEY="$(sed -n 's/^SUPABASE_SERVICE_ROLE_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$KEY" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY was not generated by db:setup"
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Собрать production build
+        run: bun run build
+        env:
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NODE_ENV: test
+
+      - name: Установить Chromium для Playwright
+        run: bunx playwright install --with-deps chromium
+
+      - name: Запустить приложение на PostgreSQL 17
+        run: |
+          bun run start > /tmp/conditera-pg17-next.log 2>&1 &
+          echo $! > /tmp/conditera-pg17-next.pid
+          READY=0
+          for i in {1..45}; do
+            STATUS="$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health || true)"
+            if [ "$STATUS" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            tail -n 300 /tmp/conditera-pg17-next.log || true
+            exit 1
+          fi
+        env:
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NODE_ENV: test
+
+      - name: Полный путь заказа — регистрация, оплата, производство, передача
+        run: node scripts/verify/order-lifecycle-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+
+      - name: Диагностика webhook и PostgREST при сбое бизнес-сценария
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f /tmp/conditera-pg17-next.log ]; then
+            grep -E '\\[webhook\\]|\\[pgrst\\].*(payments|orders)|payment ledger|exact provider|Failed to fetch order' /tmp/conditera-pg17-next.log | tail -n 240 || true
+          else
+            echo "Next.js runtime log is missing"
+          fi
+
+      - name: Оплата, checkout, идемпотентность, отзывы и чат
+        run: node scripts/verify/p11-hardening-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+
+      - name: Операции, рецептуры, списание и остатки склада
+        run: node scripts/verify/ops-center-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+
+      - name: Медиа товаров, модерация и Storage
+        run: node scripts/verify/product-media-verify.mjs
+        env:
+          VERIFY_BASE: http://localhost:3000
+
+      - name: Проверить фактическую запись в очередь автоматической модерации
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import { Client } from "pg";
+          const log = fs.readFileSync("/tmp/conditera-pg17-next.log", "utf8");
+          if (log.includes("[moderation] queue insert failed")) {
+            throw new Error("Content moderation insert failed; inspect server log for schema mismatch");
+          }
+          const db = new Client({ connectionString: process.env.DATABASE_URL });
+          await db.connect();
+          try {
+            const result = await db.query(
+              "SELECT count(*)::int AS n FROM public.moderation_queue WHERE author_name IS NOT NULL AND title IS NOT NULL AND content IS NOT NULL"
+            );
+            if (result.rows[0].n < 1) throw new Error("No persisted moderation queue entry with author/title/content");
+            console.log(`PASS moderation queue persisted rows=${result.rows[0].n}`);
+          } finally {
+            await db.end();
+          }
+          NODE
+      - name: Полный набор Playwright на PostgreSQL 17 — все проекты
+        run: bun run test:e2e -- --fail-on-flaky-tests
+        env:
+          PLAYWRIGHT_WORKERS: "2"
+          E2E_BASE_URL: http://localhost:3000
+          E2E_APP_URL: http://localhost:3000
+          JWT_SECRET: ${{ env.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ env.JWT_REFRESH_SECRET }}
+          TFA_ENCRYPTION_KEY: ${{ env.TFA_ENCRYPTION_KEY }}
+          CRON_SECRET: ${{ env.CRON_SECRET }}
+          NEXT_PUBLIC_APP_URL: ${{ env.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NODE_ENV: test
+          CI: "true"
+
+      - name: Запретить пропуски сценариев и проверить итоговый JUnit
+        if: success()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const xml = fs.readFileSync("test-results/junit.xml", "utf8");
+          const root = xml.match(/<testsuites\b([^>]*)>/);
+          if (!root) throw new Error("JUnit root <testsuites> not found");
+          const attrs = Object.fromEntries([...root[1].matchAll(/([a-zA-Z]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
+          const tests = Number(attrs.tests || 0);
+          const failures = Number(attrs.failures || 0);
+          const errors = Number(attrs.errors || 0);
+          const skipped = Number(attrs.skipped || 0);
+          console.log(JSON.stringify({ tests, failures, errors, skipped }, null, 2));
+          if (tests < 1 || failures !== 0 || errors !== 0 || skipped !== 0) {
+            throw new Error(`E2E acceptance failed: tests=${tests}, failures=${failures}, errors=${errors}, skipped=${skipped}`);
+          }
+          NODE
+
+      - name: Диагностика сервера при ошибке
+        if: failure() || cancelled()
+        run: tail -n 500 /tmp/conditera-pg17-next.log || true
+
+      - name: Сохранить серверный лог
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conditera-pg17-next-log
+          path: /tmp/conditera-pg17-next.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Сохранить отчёт Playwright
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conditera-pg17-playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14

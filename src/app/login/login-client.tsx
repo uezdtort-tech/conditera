@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { AuthModal } from "@/components/layout/auth-modal";
@@ -17,6 +18,7 @@ import { toast } from "sonner";
  *   • закрытие модалки без входа (крестик/Escape/overlay) → редирект на /.
  */
 export default function LoginClient({ returnTo = "/dashboard", oauthError }: { returnTo?: string; oauthError?: string }): React.JSX.Element {
+  const router = useRouter();
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
   const authModalOpen = useAppStore((s) => s.authModalOpen);
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
@@ -39,8 +41,8 @@ export default function LoginClient({ returnTo = "/dashboard", oauthError }: { r
     // Первый рендер до открытия — ещё не считаем «закрытием»
     if (!openedRef.current) return;
     redirectDoneRef.current = true;
-    window.location.href = isAuthenticated ? returnTo : "/";
-  }, [authModalOpen, isAuthenticated, returnTo]);
+    router.replace(isAuthenticated ? returnTo : "/");
+  }, [authModalOpen, isAuthenticated, returnTo, router]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
