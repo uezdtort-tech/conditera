@@ -24,6 +24,12 @@
 
 name: E2E Tests
 
+# Один актуальный прогон на ветку: push + pull_request не должны
+# одновременно занимать runner-ы идентичными Chromium/mobile E2E.
+concurrency:
+  group: e2e-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
 on:
   schedule:
     # Nightly в 03:00 UTC — chromium-only (см. «РЕШЕНИЕ ВЛАДЕЛЬЦА» в шапке)
