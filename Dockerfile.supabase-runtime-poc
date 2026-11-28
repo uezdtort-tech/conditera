@@ -4,7 +4,7 @@ FROM supabase/postgres:17.6.1.136 AS postgres
 FROM supabase/gotrue:v2.197.0 AS gotrue
 FROM postgrest/postgrest:v14.18 AS postgrest
 FROM supabase/realtime:v2.148.3 AS realtime
-FROM supabase/storage-api:v1.89.12 AS storage
+FROM supabase/storage-api:v1.98.5 AS storage
 FROM supabase/postgres-meta:v0.100.0 AS meta
 FROM darthsim/imgproxy:v4.0.21 AS imgproxy
 FROM kong:3.9.3 AS kong
