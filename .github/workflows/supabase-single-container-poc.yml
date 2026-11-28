@@ -1,6 +1,9 @@
 name: Supabase single-container runtime POC
 
 on:
+  push:
+    branches:
+      - fix/production-release-gates-20261125
   pull_request:
     paths:
       - "Dockerfile.supabase-runtime-poc"
@@ -36,6 +39,8 @@ jobs:
           SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
           ANON_KEY: ci-only-anon-key
           SERVICE_ROLE_KEY: ci-only-service-role-key
+          NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:18000
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-anon-key
           SUPABASE_SERVICE_ROLE_KEY: ci-only-service-role-key
           SUPABASE_SECRET_KEY_BASE: ci-only-secret-key-base-64-characters-long
@@ -68,6 +73,8 @@ jobs:
           assert "migrator" not in services
           assert "profiles" not in services["supabase-runtime"]
           web = services["web"]
+          assert web["environment"]["MEILI_URL"] == "http://meilisearch:7700"
+          assert "MEILISearch_URL" not in web["environment"]
           assert "supabase-runtime" in web["depends_on"]
           assert "redis" in web["depends_on"] and "meilisearch" in web["depends_on"]
           assert "postgresql://conditera_app:" in web["environment"]["DATABASE_URL"] and "@supabase-runtime:5432/supabase" in web["environment"]["DATABASE_URL"]

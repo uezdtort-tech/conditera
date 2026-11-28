@@ -3,8 +3,8 @@
  * production-env-template.mjs — DEV-12 (TZ v4.0 §9, production-config gaps).
  *
  * Сверяет контракт обязательных переменных между:
- *   1. docker-compose.yml        — fail-fast интерполяции ${NAME:?...} / ${NAME:?}
- *   2. .env.production.example   — шаблон, из которого создаётся .env.production
+ *   1. docker-compose.yml и Supabase overlays — fail-fast интерполяции ${NAME:?...} / ${NAME:?}
+ *   2. .env.production.example — шаблон, из которого создаётся .env.production
  *
  * Логика:
  *   - Базовое сканирование интерполяций: /\$\{([A-Z0-9_]+)::?/g (спец-оператор
@@ -23,17 +23,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const composeName = 'docker-compose.yml';
+const composeNames = [
+  'docker-compose.yml',
+  'docker-compose.supabase.yml',
+  'docker-compose.supabase-single-container.yml',
+];
 const templateName = '.env.production.example';
-const composePath = path.join(root, composeName);
 const templatePath = path.join(root, templateName);
 
-let compose;
+let composeFiles;
 let template;
 try {
-  compose = readFileSync(composePath, 'utf8');
-} catch {
-  console.error(`FATAL: не найден ${composeName}`);
+  composeFiles = composeNames.map((name) => ({ name, content: readFileSync(path.join(root, name), 'utf8') }));
+} catch (error) {
+  console.error(`FATAL: не удалось прочитать один из Compose-файлов: ${error.message}`);
   process.exit(1);
 }
 try {
@@ -45,12 +48,16 @@ try {
 
 // --- 1. Обязательные интерполяции из compose ---
 const INTERP_RE = /\$\{([A-Z0-9_]+)::?/g;
-const required = new Set();
-for (const m of compose.matchAll(INTERP_RE)) {
-  const after = compose.slice(m.index + m[0].length, m.index + m[0].length + 1);
-  if (after === '?') required.add(m[1]);
+const requiredByFile = new Map();
+for (const file of composeFiles) {
+  const required = new Set();
+  for (const m of file.content.matchAll(INTERP_RE)) {
+    const after = file.content.slice(m.index + m[0].length, m.index + m[0].length + 1);
+    if (after === '?') required.add(m[1]);
+  }
+  requiredByFile.set(file.name, required);
 }
-const requiredSorted = [...required].sort();
+const requiredSorted = [...new Set([...requiredByFile.values()].flatMap((set) => [...set]))].sort();
 
 // --- 2. Ключи шаблона .env.production.example ---
 const templateKeys = new Set();
@@ -60,7 +67,9 @@ for (const line of template.split('\n')) {
 }
 
 // --- 3. Сверка: печатаем ТОЛЬКО имена (не значения) ---
-console.log(`[compose]  ${composeName}: ${requiredSorted.length} required var(s): ${requiredSorted.join(', ')}`);
+for (const [name, required] of requiredByFile) {
+  console.log(`[compose]  ${name}: ${required.size} required var(s)`);
+}
 console.log(`[template] ${templateName}: ${templateKeys.size} key(s)`);
 const missing = requiredSorted.filter((name) => !templateKeys.has(name));
 if (missing.length > 0) {

@@ -4,7 +4,7 @@
  * (DEPLOY-01 §6 п.17) с baseline-диффом.
  *
  * Логика:
- *   1. Запускает osv-scanner по bun.lock (--lockfile).
+ *   1. Запускает osv-scanner по bun.lock и package-lock.json.
  *   2. Извлекает множество advisory ID (GHSA/OVN).
  *   3. Сравнивает с baseline scripts/security/osv-baseline.json:
  *        • НОВЫЕ advisory (нет в baseline) → exit 1 (CI красный);
@@ -23,7 +23,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const LOCKFILE = "bun.lock";
+const LOCKFILES = ["bun.lock", "package-lock.json"];
 const BASELINE_PATH = "scripts/security/osv-baseline.json";
 const UPDATE = process.argv.includes("--update-baseline");
 
@@ -47,19 +47,27 @@ function downloadBinary(dest) {
 }
 
 function collectAdvisories() {
-  const bin = findBinary();
+  let bin = findBinary();
   if (!bin) {
-    const dest = join(tmpdir(), `osv-scanner-${Date.now()}`);
-    downloadBinary(dest);
-    return runScan(dest);
+    bin = join(tmpdir(), "osv-scanner");
+    downloadBinary(bin);
   }
-  return runScan(bin);
+
+  const combined = new Map();
+  for (const lockfile of LOCKFILES) {
+    const findings = runScan(bin, lockfile);
+    console.log(`[osv-audit] ${lockfile}: ${findings.size} advisory`);
+    for (const [id, finding] of findings) {
+      if (!combined.has(id)) combined.set(id, finding);
+    }
+  }
+  return combined;
 }
 
-function runScan(bin) {
+function runScan(bin, lockfile) {
   let out;
   try {
-    out = execFileSync(bin, ["scan", "source", "--lockfile", LOCKFILE, "--format", "json"], {
+    out = execFileSync(bin, ["scan", "source", "--lockfile", lockfile, "--format", "json"], {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
       stdio: ["ignore", "pipe", "ignore"], // stderr = логи сканера
@@ -93,8 +101,9 @@ function runScan(bin) {
 }
 
 function main() {
-  if (!existsSync(LOCKFILE)) {
-    console.error(`[osv-audit] ${LOCKFILE} не найден`);
+  const missingLockfiles = LOCKFILES.filter((file) => !existsSync(file));
+  if (missingLockfiles.length > 0) {
+    console.error(`[osv-audit] lockfile(s) не найдены: ${missingLockfiles.join(", ")}`);
     process.exit(2);
   }
   const found = collectAdvisories();

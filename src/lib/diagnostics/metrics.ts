@@ -18,7 +18,6 @@
 
 import os from "node:os";
 import fs from "node:fs";
-import path from "node:path";
 import { getPool } from "@/lib/postgrest/pool";
 import { getStoreStats, type StoreStats } from "./event-store";
 import { getIncidentSummary, type IncidentSummary } from "./incidents";
@@ -106,14 +105,14 @@ export function collectProcessAndSystemMetrics(): {
 
   // fs.statfs появился в Node 18.15+/20; в отдельных рантаймах может
   // отсутствовать — тогда disk доступен как null, это честный ответ.
-  let disk: DiskMetrics = { path: path.resolve(process.cwd()), totalBytes: null, freeBytes: null };
+  let disk: DiskMetrics = { path: process.cwd(), totalBytes: null, freeBytes: null };
   const statfs = (fs as unknown as { statfs?: (p: string, cb: (err: NodeJS.ErrnoException | null, stats: { blocks: number; bsize: number; bavail: number }) => void) => void }).statfs;
   if (typeof statfs === "function") {
     try {
-      const s = fs.statfsSync(process.cwd());
+      const s = fs.statfsSync(/* turbopackIgnore: true */ process.cwd());
       const bsize = s.bsize;
       disk = {
-        path: path.resolve(process.cwd()),
+        path: process.cwd(),
         totalBytes: s.blocks * bsize,
         freeBytes: s.bavail * bsize,
       };

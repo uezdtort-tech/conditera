@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
+import { generateSupabaseJwt } from "./supabase-jwt.mjs";
 import path from "node:path";
 import { finishSession, initAgentLogSession, logStep } from "../lib/agent-log.mjs";
 
@@ -478,14 +479,6 @@ async function backfillProductPriceHistory(client) {
 // ============================================================================
 // 6. env-ключи (.env.local — только добавление, существующие НЕ трогаем)
 // ============================================================================
-function generateSupabaseJwt(role, secret) {
-  const b64u = (buf) => Buffer.from(buf).toString("base64url");
-  const header = b64u(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = b64u(JSON.stringify({ role, iss: "local", iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600 }));
-  const data = `${header}.${payload}`;
-  const sig = crypto.createHmac("sha256", secret).update(data).digest("base64url");
-  return `${data}.${sig}`;
-}
 
 function ensureEnvKeys() {
   console.log("\n─── Env keys (.env.local) ───");

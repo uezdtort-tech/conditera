@@ -18,7 +18,7 @@
 #
 # v2.0 изменения:
 #   • Prisma УДАЛЕНА из проекта — шаги `npx prisma generate` убраны
-#   • Пакетный менеджер — bun (bun.lock — источник истины, package-lock.json удалён)
+#   • Пакетный менеджер CI — bun (bun.lock — источник истины); package-lock.json поддерживается для npm-окружений
 #   • Playwright E2E вынесен в отдельный workflow e2e.yml (nightly + ручной запуск)
 #   • Job smoke-test-db убран: скрипт использовал Prisma-API, несовместимый с v2.0
 # ============================================================
@@ -27,7 +27,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, fix/production-release-gates-20261125]
   pull_request:
     branches: [main, develop]
 
@@ -39,7 +39,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "26"
 
 jobs:
   # ===== 1. Lint + Type-check =====
@@ -85,7 +85,8 @@ jobs:
         run: bun run test
         env:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          JWT_REFRESH_SECRET: "ci_test_refresh_jwt_secret_32_chars_min_aaaaaaaa"
+          TFA_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           # vitest.setup.ts сам выставляет NEXT_PUBLIC_SUPABASE_URL/ANON_KEY заглушки
 
       - name: Run tests with coverage
@@ -119,15 +120,28 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Generate a valid local anon JWT for the production-mode build
+        shell: bash
+        run: |
+          ANON_KEY="$(node scripts/db/print-supabase-jwt.mjs anon)"
+          if [ -z "$ANON_KEY" ]; then
+            echo "Failed to generate CI anon JWT"
+            exit 1
+          fi
+          echo "::add-mask::$ANON_KEY"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+        env:
+          JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
+
       - name: Build Next.js
         env:
           JWT_SECRET: "ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa"
-          TFA_ENCRYPTION_KEY: "ci_test_tfa_key_64_hex_chars_aaaaaaaaaaaaaaaaaaaaaaaa"
+          JWT_REFRESH_SECRET: "ci_test_refresh_jwt_secret_32_chars_min_aaaaaaaa"
+          TFA_ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           CRON_SECRET: "ci_test_cron_secret"
           NEXT_PUBLIC_APP_URL: "http://localhost:3000"
           NEXT_PUBLIC_APP_NAME: "Уездный кондитер"
-          NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: "stub-anon-key"
+          NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:3000"
           DATABASE_URL: "file:./db/ci-test.db"
         run: bun run build
 
@@ -137,14 +151,133 @@ jobs:
         with:
           name: next-build
           path: .next/
+          include-hidden-files: true
           retention-days: 3
 
-  # ===== 4. Docker: compose validation + 3 образа + secret-gate =====
+  # ===== 4. Real browser E2E: desktop Chromium + mobile Chrome =====
+  e2e-playwright:
+    name: Playwright E2E (desktop + mobile)
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, mobile-chrome]
+    env:
+      DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
+      JWT_SECRET: ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa
+      JWT_REFRESH_SECRET: e2e_test_refresh_secret_32_chars_min_aaaaaaaaaa
+      TFA_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      CRON_SECRET: e2e_test_cron_secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:3000
+      SUPABASE_INTERNAL_URL: http://127.0.0.1:3000
+      NODE_ENV: test
+      YANDEX_CLIENT_ID: e2e-yandex-client
+      YANDEX_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/yandex/callback
+      VK_CLIENT_ID: e2e-vk-client
+      VK_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/vk/callback
+      GOOGLE_CLIENT_ID: e2e-google-client
+      GOOGLE_CLIENT_SECRET: e2e-google-secret
+      GOOGLE_OAUTH_REDIRECT: https://conditera.ru/api/auth/oauth/google/callback
+      CI: "true"
+      SUPABASE_LOCAL_SHIMS_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Restore Next.js build artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: next-build
+          path: .next/
+
+      - name: Bootstrap embedded PostgreSQL, migrations and seed
+        run: |
+          node scripts/db/runtime.mjs start
+          bun run db:setup
+
+      - name: Export generated Supabase anon and service-role keys
+        shell: bash
+        run: |
+          SERVICE_KEY="$(sed -n 's/^SUPABASE_SERVICE_ROLE_KEY=//p' .env.local | tail -n 1)"
+          ANON_KEY="$(sed -n 's/^NEXT_PUBLIC_SUPABASE_ANON_KEY=//p' .env.local | tail -n 1)"
+          if [ -z "$SERVICE_KEY" ] || [ -z "$ANON_KEY" ]; then
+            echo "Supabase keys were not generated by db:setup"
+            exit 1
+          fi
+          echo "::add-mask::$SERVICE_KEY"
+          echo "::add-mask::$ANON_KEY"
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_KEY" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Start application
+        run: |
+          bun run start > /tmp/conditera-next.log 2>&1 &
+          echo $! > /tmp/conditera-next.pid
+          READY=0
+          for i in {1..30}; do
+            STATUS="$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health || true)"
+            if [ "$STATUS" = "200" ]; then
+              echo "Application is healthy"
+              READY=1
+              break
+            fi
+            echo "Waiting for app... ($i/30, HTTP ${STATUS:-no response})"
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            tail -n 250 /tmp/conditera-next.log || true
+            exit 1
+          fi
+
+      - name: Critical order, checkout and inventory integration (real API + PostgreSQL)
+        if: matrix.project == 'chromium'
+        env:
+          VERIFY_BASE: http://127.0.0.1:3000
+          PGURL: postgresql://postgres@127.0.0.1:54329/conditera
+          ACC_DATABASE_URL: postgresql://postgres@127.0.0.1:54329/conditera
+        run: |
+          node scripts/verify/order-lifecycle-verify.mjs
+          node scripts/verify/checkout-idempotency-verify.mjs
+          node scripts/verify/inventory-concurrency-verify.mjs
+
+      - name: Run Playwright E2E
+        run: bun run test:e2e -- --project="${{ matrix.project }}"
+        env:
+          E2E_BASE_URL: http://127.0.0.1:3000
+
+      - name: Print Next.js logs on failure
+        if: failure() || cancelled()
+        run: tail -n 500 /tmp/conditera-next.log || true
+
+      - name: Upload Playwright and server artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-${{ matrix.project }}-results
+          path: |
+            playwright-report/
+            test-results/
+            /tmp/conditera-next.log
+          retention-days: 7
+
+  # ===== 5. Docker: compose validation + 3 образа + secret-gate =====
   docker-build:
     name: Build Docker images
     runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    needs: [build, e2e-playwright]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/production-release-gates-20261125'
     env:
       # v4.6 (P0): образы собираются на АКТУАЛЬНОМ SHA кандидата.
       # На pull_request github.sha = merge-коммит PR, а не head ветки —
@@ -182,6 +315,8 @@ jobs:
         # Обязательные переменные подставлены dummy-значениями — проверяется
         # структура/интерполяция compose-файла, не значения секретов.
         run: |
+          # Compose env_file обязателен для runtime, но CI не использует реальные secrets.
+          touch .env.production
           POSTGRES_PASSWORD=ci-dummy \
           MEILI_MASTER_KEY=ci-dummy \
           JWT_SECRET=ci-dummy-jwt-secret-32-chars-aaaaaaaa \
@@ -189,11 +324,25 @@ jobs:
           CRON_SECRET=ci-dummy \
           SIMPLEX_BRIDGE_API_KEY=ci-dummy \
           N8N_ADMIN_PASSWORD=ci-dummy \
+          NEXT_PUBLIC_APP_URL=http://localhost:3000 \
+          NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=stub-anon-key \
           docker compose -f docker-compose.yml config -q
           echo "✓ docker-compose.yml is valid"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+
+      - name: Generate valid local anon JWT for Docker web bundle
+        id: supabase-anon
+        shell: bash
+        run: |
+          ANON_KEY="$(JWT_SECRET=ci_test_jwt_secret_32_chars_min_aaaaaaaaaaaaaa node scripts/db/print-supabase-jwt.mjs anon)"
+          if [ -z "$ANON_KEY" ]; then
+            echo "Failed to generate CI anon JWT for Docker build"
+            exit 1
+          fi
+          echo "anon_key=$ANON_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Build web image
         uses: docker/build-push-action@v7
@@ -207,6 +356,9 @@ jobs:
           # версия деплоя видна в /api/health (version). Без этого APP_VERSION=unknown.
           build-args: |
             GIT_SHA=${{ env.CANDIDATE_SHA }}
+            NEXT_PUBLIC_APP_URL=http://localhost:3000
+            NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:3000
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ steps.supabase-anon.outputs.anon_key }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -317,8 +469,7 @@ jobs:
           echo "SimpleX CLI and bridge initialized successfully."
 
   # ===== 5. Security checks =====
-  # npm audit убран: в репозитории bun.lock (npm audit требует package-lock).
-  # Сканирование секретов работает без установки зависимостей.
+    # OSV проверяет оба lock-файла; npm audit отдельно проверяет production dependency tree.
   security-checks:
     name: Security checks
     runs-on: ubuntu-latest
@@ -330,6 +481,12 @@ jobs:
           bash -n supabase/init-scripts/01-apply-migrations.sh
           bash -n scripts/deploy.sh
           bash -n scripts/db-preflight.sh
+          bash -n scripts/env-check.sh
+          bash -n scripts/setup-env.sh
+          bash -n scripts/restore-env-values.sh
+          bash -n scripts/tests/test-env-restore.sh
+          bash scripts/tests/test-env-restore.sh
+          node --test scripts/tests/env-check.test.mjs
           grep -Fq 'MIGRATIONS_DIR: /conditera-migrations' docker-compose.supabase.yml
           grep -Fq 'zz-conditera-apply-migrations.sh' docker-compose.supabase.yml
           grep -Fq ':/conditera-migrations:ro' docker-compose.supabase.yml
@@ -407,7 +564,7 @@ jobs:
           # Используем caddy image для валидации (public.ecr.aws — зеркало без
           # rate-limit 429 Docker Hub, см. v3 registry-hardening в Dockerfile)
           docker run --rm -v $(pwd)/Caddyfile:/etc/caddy/Caddyfile \
-            public.ecr.aws/docker/library/caddy:2.8-alpine \
+            caddy:2.11.9-alpine \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   # ===== 7. Evidence hygiene (v4.5, P0-A) =====
@@ -424,7 +581,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 26
 
       - name: Scan tracked evidence for real secrets/PII
         run: node scripts/scan-evidence.mjs
@@ -453,15 +610,14 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # Supabase image содержит extensions/auth schemas, необходимые миграциям.
+        image: supabase/postgres:17.11.0.017
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: conditera
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U supabase_admin -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -478,12 +634,58 @@ jobs:
           docker exec "$SVC" mkdir -p /migrations /init-scripts
           docker cp supabase/migrations/. "$SVC":/migrations/
           docker cp supabase/init-scripts/01-apply-migrations.sh "$SVC":/init-scripts/
+ 
+      - name: Bootstrap minimal Supabase Storage schema for migration contract
+        # Storage API в этом job не запускается; создаём только схему,
+        # таблицы и foldername(), необходимые миграции 0026.
+        run: |
+          SVC="${{ job.services.postgres.id }}"
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS storage;
+          CREATE TABLE IF NOT EXISTS storage.buckets (
+            id text PRIMARY KEY,
+            name text NOT NULL,
+            public boolean NOT NULL DEFAULT false,
+            allowed_mime_types text[],
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+          CREATE TABLE IF NOT EXISTS storage.objects (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            bucket_id text NOT NULL REFERENCES storage.buckets(id),
+            name text NOT NULL,
+            owner uuid,
+            metadata jsonb,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            updated_at timestamptz NOT NULL DEFAULT now()
+          );
+          -- Contract copied from supabase/compat/0000_supabase_compat.sql:
+          -- foldername("user/file") -> {"user"}; foldername("file") -> {}.
+          CREATE OR REPLACE FUNCTION storage.foldername(name text)
+          RETURNS text[]
+          LANGUAGE plpgsql
+          STABLE
+          AS $function$
+          DECLARE
+            _parts text[];
+          BEGIN
+            IF name IS NULL THEN
+              RETURN NULL;
+            END IF;
+            _parts := string_to_array(trim(name, '/'), '/');
+            IF array_length(_parts, 1) < 2 THEN
+              RETURN '{}';
+            END IF;
+            RETURN _parts[1 : array_length(_parts, 1) - 1];
+          END
+          $function$;
+          SQL
 
       - name: Apply all migrations (ledger, fail-fast)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh
-          docker exec "$SVC" psql -U postgres -d conditera -tAc \
+          docker exec -e PGUSER=supabase_admin -e PGDATABASE=postgres "$SVC" bash /init-scripts/01-apply-migrations.sh
+          docker exec "$SVC" psql -U supabase_admin -d postgres -tAc \
             "SELECT count(*) FROM public.schema_migrations" > applied.txt
           APPLIED=$(cat applied.txt)
           TOTAL=$(ls supabase/migrations/*.sql | wc -l)
@@ -493,7 +695,7 @@ jobs:
       - name: Idempotency — повторный прогон (все файлы должны быть пропущены)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec "$SVC" bash /init-scripts/01-apply-migrations.sh \
+          docker exec -e PGUSER=supabase_admin -e PGDATABASE=postgres "$SVC" bash /init-scripts/01-apply-migrations.sh \
             | tee rerun.log
           if grep -qiE "Applying|applying" rerun.log; then
             echo "FAIL: повторный прогон пытался применять миграции повторно"; exit 1
@@ -503,7 +705,7 @@ jobs:
       - name: RLS/GRANT sanity — политики и привилегии критичных таблиц
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             missing text := '';
@@ -530,7 +732,7 @@ jobs:
       - name: Write-path closures — прямые записи клиентских ролей запрещены (0077)
         run: |
           SVC="${{ job.services.postgres.id }}"
-          docker exec -i "$SVC" psql -U postgres -d conditera -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i "$SVC" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           DECLARE
             t text;
@@ -557,7 +759,7 @@ jobs:
           SQL
 
   # ===== 9. Безопасность зависимостей (DEPLOY-01 §6 п.17) =====
-  # osv-scanner по bun.lock с baseline-диффом: НОВЫЕ advisory → FAIL,
+  # osv-scanner по bun.lock и package-lock.json с baseline-диффом: НОВЫЕ advisory → FAIL,
   # известные (baseline) → WARN + remediation backlog (OWNER_DECISIONS D-8).
   deps-audit:
     name: Dependency security audit (osv-scanner)
@@ -571,5 +773,13 @@ jobs:
             -o /usr/local/bin/osv-scanner
           chmod +x /usr/local/bin/osv-scanner
 
-      - name: Scan bun.lock with baseline diff (new advisories fail)
+      - name: Scan bun.lock and package-lock.json with baseline diff (new advisories fail)
         run: node scripts/verify/osv-audit.mjs
+
+      - name: Setup Node for npm production audit
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Audit npm production dependencies
+        run: npm audit --omit=dev --audit-level=high

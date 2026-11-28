@@ -2,6 +2,8 @@
 
 Статус документа: план и контрольные условия. Это НЕ подтверждение готовности и НЕ разрешение на запуск, миграцию или переключение данных.
 
+**Обновление 2026-11-24:** одно-контейнерный Supabase POC успешно собран и проверен в GitHub Actions (run [45494633668](https://github.com/uezdtort-tech/conditera/actions/runs/45494633668), commit `b94dd434`). Проверены Compose overlay, запуск ровно одного Supabase runtime-контейнера, процессы Supervisor, Auth signup, Storage upload/download и PostgreSQL schemas; временное окружение очищено. Это PASS только для изолированного POC, не для production cutover.
+
 ## Зафиксированная целевая среда
 
 - Production-хост — локальный ПК владельца под Windows.
@@ -16,7 +18,7 @@
 
 1. `docker-compose.yml` содержит `conditera-db` на `postgres:18-alpine`, базу `conditera`; приложение и migrator используют этот сервер.
 2. `docker-compose.supabase.yml` содержит отдельный `conditera-supabase-db` на `supabase/postgres:15.6.1.141`, базу `supabase`; GoTrue, PostgREST, Realtime, Storage и другие Supabase-сервисы используют его.
-3. Supabase-компоненты сейчас распределены по отдельным Docker-сервисам. Это не соответствует требованию одного Supabase runtime-контейнера.
+3. Базовый `docker-compose.supabase.yml` по-прежнему содержит legacy отдельные Supabase-сервисы. Новый `docker-compose.supabase-single-container.yml` переводит их в legacy-профиль и подключает один `supabase-runtime`; его изолированный POC прошёл CI, но production Compose/cutover ещё не выполнены.
 4. Исторический `scripts/deploy.sh` поднимал оба Compose-стека, применял только ограниченный список миграций и мог продолжать работу при ошибках отдельных миграций. Этот скрипт заблокирован отдельным safety-изменением до прохождения release gate.
 5. `.github/workflows/deploy.yml` ориентирован на удалённый VPS через SSH и каталог `/opt/conditera`, а не на локальный Windows ПК владельца. Не запускать этот workflow для production Conditera.
 6. Текущие файлы Compose не доказывают согласованность реальных контейнеров, сетей, DNS, портов, volumes и переменных на локальном ПК. Для этого требуется read-only проверка на самой машине.
@@ -26,12 +28,14 @@
 
 ### A. Единый Supabase runtime
 
-- Спроектировать отдельный образ Supabase all-in-one с контролируемым supervisor.
-- Включить только необходимые процессы: PostgreSQL, GoTrue, PostgREST, Realtime, Storage и API gateway.
+- POC-образ Supabase all-in-one с контролируемым Supervisor уже реализован и прошёл изолированный CI smoke-test (см. статус выше).
+- В POC проверены PostgreSQL, GoTrue, PostgREST, Realtime, Storage и API gateway; подтверждены Auth signup и Storage upload/download.
+- Следующий этап — проверить этот runtime вместе с реальным web/chat/n8n/Caddy Compose-стеком и подготовить read-only сверку существующих БД/volumes на Windows ПК владельца.
 - Для каждого процесса определить readiness, health check, политику перезапуска, корректное завершение, лимиты и централизованные логи.
 - Проверить порядок запуска и зависимостей, обработку падения одного процесса, повторное подключение клиентов и восстановление после перезапуска контейнера.
 - Зафиксировать совместимые версии компонентов и расширений. Не использовать плавающие теги образов.
-- Не считать такую сборку production-ready только потому, что процессы стартовали: требуются нагрузочные, security, backup/restore и restart/recovery испытания.
+- Локальные Next.js compatibility shims `/auth/v1`, `/rest/v1`, `/storage/v1` закрыты на production-origin; в production Supabase API должен идти только через `/api/*` → Caddy → Kong → единый Supabase runtime. Shims включаются в development и в явных CI-интеграционных тестах.
+- POC не считается production-ready: ещё требуются интеграционные проверки приложения, нагрузочные и security испытания, backup/restore с реальным восстановлением, restart/recovery и проверка после перезагрузки Windows.
 
 ### B. Одна база и безопасный перенос
 
@@ -59,6 +63,7 @@
 - Проверить регистрацию, вход, выход, обновление сессии, восстановление доступа и реальные OAuth-потоки Яндекс, VK ID и Google.
 - Проверить роли и изоляцию данных на сервере, RLS и доступ к Storage.
 - Проверить полный жизненный цикл заказа, согласование ТЗ, чаты, производство, склад, платежи, отмены и возвраты.
+- На Windows перед production build выполнять `npm run env:check:prod`; для разработки — `npm run env:check`. Проверка реализована на Node.js и не требует Bash/Git Bash.
 - Выполнить typecheck, lint, unit/integration tests, production build и полный Playwright E2E на целевом локальном runtime.
 - Проверить health/readiness каждого процесса, резервное копирование и восстановление.
 - Проверить юридические тексты, согласия, версии документов и применимые требования законодательства РФ; юридические формулировки должны быть подтверждены ответственным специалистом.
