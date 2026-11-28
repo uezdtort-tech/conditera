@@ -695,6 +695,10 @@ async function main() {
       }
     }
 
+    // PostgreSQL 17 vanilla/embedded may not pre-create Supabase's extensions namespace.
+    // On Supabase-managed images this is an idempotent no-op.
+    await client.query("CREATE SCHEMA IF NOT EXISTS extensions");
+
     // 5. Миграции + ledger
     console.log("\n─── Migrations ───");
     await client.query(
@@ -705,6 +709,22 @@ async function main() {
     );
     const ledger = await client.query(`SELECT filename FROM public.schema_migrations`);
     const appliedFiles = new Set(ledger.rows.map((r) => r.filename));
+
+    // Z-v26: сохраняем совместимость леджера при нормализации дублирующихся
+    // migration ID в вариантные имена вида 0061a_*. Старые записи не удаляем:
+    // новая запись-алиас только сообщает runner'у, что SQL уже применялся.
+    const migrationAliases = [
+      ["0012_new_roles_recipes_loyalty_ai.sql","0012a_new_roles_recipes_loyalty_ai.sql"],["0061_user_consent_events.sql","0061a_user_consent_events.sql"],["0062_reference_catalog.sql","0062a_reference_catalog.sql"],["0063_cake_project_spec.sql","0063a_cake_project_spec.sql"],["0064_product_slices_rls.sql","0064a_product_slices_rls.sql"],["0066_service_role_default_grants.sql","0066a_service_role_default_grants.sql"],["0067_repair_updated_at_triggers.sql","0067a_repair_updated_at_triggers.sql"]];
+    for (const [legacyName, canonicalName] of migrationAliases) {
+      if (appliedFiles.has(legacyName) && !appliedFiles.has(canonicalName)) {
+        await client.query(
+          `INSERT INTO public.schema_migrations (filename) VALUES ($1) ON CONFLICT (filename) DO NOTHING`,
+          [canonicalName]
+        );
+        appliedFiles.add(canonicalName);
+        console.log(`  ↪ migration ledger alias: ${legacyName} → ${canonicalName} (SQL not re-run)`);
+      }
+    }
 
     let files = existsSync(MIGRATIONS_DIR)
       ? readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"))

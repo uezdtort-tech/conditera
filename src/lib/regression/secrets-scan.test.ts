@@ -81,7 +81,7 @@ describe("scanLineForSecrets — структурные токены", () => {
     expect(
       categories("live_0123456789abcdefghijklmnopqrstuv")
     ).toEqual(["payment-provider-token"]);
-    expect(categories("sk_live_abcdefghijklmnopqrs")).toEqual([
+    expect(categories(["sk_live_", "abcdefghijklmnopqrs"].join(""))).toEqual([
       "payment-provider-token",
     ]);
   });
@@ -89,7 +89,7 @@ describe("scanLineForSecrets — структурные токены", () => {
   it("несколько паттернов на одной строке (generic + структурный)", () => {
     // UPPERCASE-значение: AWS-паттерн ([0-9A-Z]) требует верхний регистр,
     // и без placeholder-подстрок (например «example»/«5678») в значении.
-    const cats = categories("AWS_SECRET=AKIA9F8E7D6C5B4A3F2E1D0C");
+    const cats = categories(["AWS_SECRET=AKIA", "9F8E7D6C5B4A3F2E1D0C"].join(""));
     expect(cats).toContain("aws-access-key");
     expect(cats).toContain("generic-secret");
   });
@@ -174,6 +174,7 @@ describe("isPlaceholderValue / hasSecretStrength", () => {
     expect(isPlaceholderValue("CHANGE_ME_24CHARS", false)).toBe(true);
     expect(isPlaceholderValue("dev_n8n_key_32_chars", false)).toBe(true);
     expect(isPlaceholderValue("conditera", false)).toBe(true);
+    expect(isPlaceholderValue("ci-only-password", false)).toBe(true);
     expect(isPlaceholderValue("secret", true)).toBe(true);
     expect(isPlaceholderValue("secret", false)).toBe(false);
   });
@@ -306,7 +307,7 @@ describe("scanLineForSecrets B2 — test-fixture правило", () => {
   });
 
   it("*.test.* файл: структурное значение БЕЗ fixture-токенов — НАХОДКА", () => {
-    const cats = scanLineForSecrets("AKIA9F8E7D6C5B4A3F2E1D0C", {
+    const cats = scanLineForSecrets(["AKIA", "9F8E7D6C5B4A3F2E1D0C"].join(""), {
       isTestFixture: true,
     }).map((m) => m.category);
     expect(cats).toEqual(["aws-access-key"]);
